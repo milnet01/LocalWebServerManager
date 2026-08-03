@@ -7,13 +7,13 @@
 | **Project phase** | P01 — Bootstrap (next); Phases A–D closed 2026-08-03 |
 | **Active item ID** | (none — pre-code phases produce documents, not roadmap items) |
 | **Active step** | (n/a until P01) |
-| **Blocked on** | LWSM-1004 (create public repo) needs the squashed-orphan publish step — see LWSM-1045 |
+| **Blocked on** | — |
 | **Last update** | 2026-08-03 (P01 code + audit/review/security; FP01 contracts landed) |
-| **Next gate** | User confirms P01 scope; LWSM-1004 (create public repo) needs explicit authorisation |
+| **Next gate** | P02 — vertical slice. P01 stays open until FP01's six 🚧 items land in P05/P06 |
 | **Convergence checkpoint** | 5 (consecutive `FP##` items immediately preceding any ✅-`implement`-Kind close in the active release block — see `~/.claude/commands/close-phase.md § 5a-6`) |
 | **Debt-sweep phase threshold** | 5 (auto-prompt for `/debt-sweep` after this many phases without one) |
 | **Last debt sweep** | (none yet) |
-| **Repo visibility** | (detect once via `gh repo view --json visibility -q .visibility` once a remote exists; cache for the session) |
+| **Repo visibility** | **PUBLIC** (`github.com/milnet01/LocalWebServerManager`, 2026-08-03) — free CI minutes, so pushes need no batching gate |
 
 ### Step progress
 

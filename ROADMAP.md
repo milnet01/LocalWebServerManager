@@ -69,7 +69,7 @@ change** rather than code that exists.
 
 ### 🔒 Security
 
-- 🚧 [LWSM-1045] **FP01: scrub the repo before it is ever public —
+- ✅ [LWSM-1045] **FP01: scrub the repo before it is ever public —
   BLOCKS LWSM-1004.** `docs/discovery.md § Problem` publishes a
   working target list for the author's private local services:
   seven project names with exact ports, `file:line` references,
@@ -253,12 +253,16 @@ harness to be known-working before any business code lands.
   Priority: 3.
   Lanes: build.
 
-- 📋 [LWSM-1004] **P01: create the public GitHub repository.**
+- ✅ [LWSM-1004] **P01: create the public GitHub repository.**
   `github.com/milnet01/LocalWebServerManager`, public, MIT, with
   the existing `.github/` templates and dependabot config pushed.
-  **Needs explicit user authorisation at the time** — see
-  `CLAUDE.md § Licence and visibility`. Until this lands there is
-  no remote and `git push` fails.
+  **Done 2026-08-03** — created public at
+  `github.com/milnet01/LocalWebServerManager` on the user's
+  authorisation, published from a squashed orphan commit per
+  LWSM-1045. Verified by re-cloning: 1 commit, 52 files, no
+  project names, machine paths or emails in tree or history, and
+  `docs/private/` absent. First CI run green; dependabot accepted
+  both ecosystems.
   Dependencies: LWSM-1001.
   **Layman:** Put the project on GitHub so it has a home and CI can
   run.
