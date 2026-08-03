@@ -589,8 +589,11 @@ is the contract.
 - 📋 [LWSM-1011] **P06: the seven-state classifier.** One
   socket-table snapshot per tick classified against ADR-0004's
   table, including `running (wrong port)`, `port blocked`, the
-  plausibility test for foreign holders, the 15-second start
-  grace and the one-poll lifetime of an exited-child record.
+  plausibility test for foreign holders, `starting` with **no
+  deadline** — a real managed project takes ~40 s to bind, so a
+  timer would report a healthy launch as `failed` (ADR-0004
+  § Slowness is not failure) — and the one-poll lifetime of an
+  exited-child record.
   Includes **post-flight verification** — the process-group → ports
   lookup that detects a project which ignored `PORT` and produces
   the `running (wrong port)` state. Delivered as the parametrised
@@ -884,7 +887,7 @@ is the contract.
   Lanes: ui, core, tests.
 
 - 📋 [LWSM-1018] **P09: settings dialog.** Edits scan roots, poll
-  interval, start grace, log-buffer size and tray behaviour, all
+  interval, slow-start threshold, log-buffer size and tray behaviour, all
   persisted to `settings.json` with its own `schema_version`.
   Dependencies: LWSM-1007.
   **Layman:** A settings screen for the folders it scans and how

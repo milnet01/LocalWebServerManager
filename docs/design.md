@@ -596,14 +596,17 @@ the interval is 1 second rather than 2.
    `LogBuffer`, which the `LogPanel` renders live (a file rather
    than a pipe, for the reason in ADR-0003).
 4. **Confirm.** The project reads `starting` until it binds
-   something or the start grace expires. Binding the requested
+   something — **with no deadline**, since bind time is the
+   project's own business and one managed project takes ~40
+   seconds (ADR-0004 § Slowness is not failure). Binding the requested
    port makes it `running (managed)`; binding a *different* port
    makes it `running (wrong port)` — the project ignored `PORT`,
    and the UI says so rather than pretending. Exiting, or binding
-   nothing before the grace expires, makes it `failed` with the
-   tail of its log as the explanation: a launcher that exits 0
-   having bound nothing is failed, because silence is not
-   success.
+   **Exiting** without ever binding makes it `failed`, with the
+   tail of its log as the explanation — a launcher that exits 0
+   having bound nothing is failed, because silence is not success.
+   Taking a long time is not failure and never becomes it; past a
+   soft threshold the label reads `starting (slow — 42s)`.
 
 **Stopping.** `SIGTERM` to the **process group**, then `SIGKILL`
 after the grace period if anything in the group is still alive or
@@ -679,9 +682,10 @@ presses Start or Stop, the controller marks that project
 so the button feels responsive. The overlay lives on the
 controller (not in a widget), covers exactly one project, and is
 **discarded the moment a poll returns a derived state for that
-project** — or after the start grace expires, whichever comes
-first. It never survives a poll it disagrees with: probing always
-wins.
+project**. There is no timeout on it: a slow start keeps the
+overlay until a poll disagrees, because nothing here may time out
+into a wrong state (ADR-0004 § Slowness is not failure). It never
+survives a poll it disagrees with: probing always wins.
 
 Runtime state is **derived, never remembered across restarts.**
 Closing and reopening the app re-derives every status from the
@@ -706,7 +710,7 @@ Two files under XDG paths:
   timestamp), plus a `schema_version`. The `added` timestamp is
   what breaks a duplicate-port tie (ADR-0005).
 - `~/.config/localwebservermanager/settings.json` — scan roots,
-  poll interval, start grace, log-buffer size, tray behaviour.
+  poll interval, slow-start threshold, log-buffer size, tray behaviour.
   It carries its own `schema_version` on the same terms.
 
 Both are written atomically and version-checked on load;

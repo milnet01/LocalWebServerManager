@@ -56,9 +56,8 @@ derived state, and an overlay label has nothing to derive.
 |---|---|---|---|
 | live | that child's group | — | `running (managed)` |
 | live | anyone else, or nobody | yes, a different port | `running (wrong port)` — bound, but not where asked (ADR-0002) |
-| live | nobody | no, within start grace | `starting` |
-| live | nobody | no, grace expired | `failed` (bound nothing) |
-| live | a process that looks like this project | no, within start grace | `running (foreign)` — the user also started it by hand |
+| live | nobody | no | `starting` — no deadline; see § Slowness is not failure |
+| live | a process that looks like this project | no | `running (foreign)` — the user also started it by hand |
 | live | any other process | no | `failed` (port taken after pre-flight) |
 | just exited, stop **was** requested | — | — | `stopped` |
 | just exited, stop was **not** requested | — | — | `failed` (exited on its own) |
@@ -111,11 +110,46 @@ Three rules the table depends on:
   holds, which is the truth. This costs nothing extra: both ports
   are read from the same snapshot.
 
-**Start grace** is **15 seconds** by default, settings-backed. It
-has to cover a cold `npm run dev`, which is an order of magnitude
-slower to bind than `python3 serve.py`. Too short reports healthy
-launches as failures; the log panel is streaming throughout, so a
-generous grace costs the user nothing.
+### Slowness is not failure — amended 2026-08-03
+
+The original rule gave `starting` a **15-second** deadline, after
+which a child that had bound nothing was called `failed`. That is
+wrong, and adoption work found it by accident: a managed project
+parses a large data file before it binds and **takes about 40
+seconds**, so the manager would have reported a perfectly healthy
+launch as a failure and shown the user a lie — the precise defect
+this whole ADR exists to prevent, reintroduced by a constant.
+
+No deadline can be right here. Bind time depends on the project's
+own work, ranges over an order of magnitude between a static
+server and a cold `npm run dev`, and is not knowable in advance.
+A number chosen by the manager is a guess about someone else's
+program.
+
+So the rule is now:
+
+- **While our child is alive and has bound nothing, the project is
+  `starting` — with no deadline**, and the UI shows the elapsed
+  time. That is the honest description: it *is* starting, and it
+  has not failed at anything.
+- **`failed` requires evidence, not a timer**: the child exited
+  without ever binding, or exited non-zero. An exit is a fact; a
+  stopwatch is an opinion.
+- A **soft threshold** (default 30 s, settings-backed) changes the
+  *label* to `starting (slow — 42s)`. It informs; it never
+  reclassifies. A genuinely hung server sits visibly in
+  `starting` with a rising counter, which is both true and
+  obvious, rather than being mislabelled `failed` at an arbitrary
+  moment.
+- **Bind time is learned, exactly as the port is** (LWSM-1038).
+  Once a project has been observed binding in ~40 s, the app knows
+  that and can say "usually ready in about 40 seconds" instead of
+  implying something is wrong. The same principle as
+  `confirmed_port`: observe the project rather than assume it.
+
+The log panel streams throughout, so the user is never staring at
+a bare spinner — the slow project's own output is the progress
+indicator, and it is more informative than any state name.
 
 Consequences of the rule:
 

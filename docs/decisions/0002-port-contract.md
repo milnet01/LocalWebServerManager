@@ -89,6 +89,47 @@ the value of `PORT`: case 3 is absence alone, never a malformed
 value. Case 5 governs what "its existing behaviour" in case 3
 resolves to.
 
+### "Names the bad value" is a claim about the OUTPUT, not the string
+
+Adoption on 2026-08-03 found the sharpest version of this: a
+project's validator was correct, its message contained the bad
+value, and the value **still did not reach the user** — the error
+printed through a rich-text console layer that interpreted
+`[abc]` as a style tag, so `PORT='[abc]'` rendered as `PORT=''`.
+The one thing case 4 exists to guarantee was silently deleted by a
+formatting library, and every test asserting on the *message
+string* passed.
+
+So case 4 is satisfied by what the user actually sees, not by what
+was passed to the print call. Two consequences:
+
+- **Escape the value, or bypass the formatting layer entirely.**
+  Whichever the project's console library requires.
+- **Test with a value that contains that layer's markup
+  characters** — `[abc]`, `{abc}`, `<abc>`, `%s`. A test using
+  only `abc` cannot see this class of defect, and it is exactly
+  the class that survives review, because the source reads
+  correctly.
+
+The general form is worth naming, because it will recur wherever
+a contract requires something to be *reported*: a value is not
+reported until it has survived every layer between the check and
+the human.
+
+### The range is a property of this contract's channel, not of the project's CLI
+
+Also from the same adoption: `PORT` is the machine-facing channel,
+and 1024–65535 is enforced on it without exception — the manager
+never has a legitimate reason to request a privileged port, so a
+value outside the range is a mistake worth refusing.
+
+An **explicit command-line flag is a different channel**. A human
+typing `sudo … --port 80` is making a deliberate, privileged
+choice about their own program, and this contract has no business
+forbidding it. A project may therefore range-check `PORT` strictly
+while letting `--port` through — the two are not inconsistent,
+because only one of them is this manager talking.
+
 ### Projects with more than one entry point
 
 Found during adoption on 2026-08-03, in a project whose tray
