@@ -181,9 +181,26 @@ The manager's obligations are the other half of the contract:
 - Rule 4 makes a misconfigured port loud and immediate rather
   than a confusing "why is it on the old port" hunt later.
 
+### Adoption is not universal, and that is by design
+
+At least one managed project will **never** adopt this contract —
+it belongs to someone else and is not ours to change. Its launcher
+does not merely ignore an inherited `PORT`, it *assigns* one
+(`PORT=<literal>` near the top of the script), so the value is
+overwritten rather than unread.
+
+That is worth stating as a permanent condition rather than a
+temporary gap, for two reasons. It confirms the degradation path
+is load-bearing rather than transitional: `running (wrong port)`
+is a state the UI will show in normal operation for the lifetime
+of the project, not a rare case during a migration. And it gives
+that path a **real exercise** — once every other project complies,
+a manufactured fixture would be the only thing testing it, and a
+fixture is exactly where this kind of behaviour rots unnoticed.
+
 **Negative:**
 
-- Seven sibling projects need a change, coordinated by the user
+- Six sibling projects need a change, coordinated by the user
   across separate sessions; until each lands, that project's port
   is effectively fixed.
 - `PORT` is a common name. A launcher that inherits a stray

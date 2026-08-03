@@ -718,6 +718,11 @@ is the contract.
   the next launch. Acceptance: criterion 4 demonstrated against a
   sibling that has adopted the contract, and honest degradation
   against one that has not.
+  **A real non-adopter exists to test against** — one managed
+  project will never adopt the contract (ADR-0002 § Adoption is
+  not universal), and its launcher *assigns* `PORT` rather than
+  reading it, so it is the honest-degradation case in the flesh
+  rather than a fixture.
   Dependencies: LWSM-1013.
   **Layman:** Let you change a project's port and have it stay
   changed.
