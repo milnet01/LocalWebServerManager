@@ -210,6 +210,24 @@ make this safe rather than clever:
   exactly its packaged default rather than to whatever the manager
   believed the default was.
 
+**A companion process must read the *unit's* environment, not its
+own.** Verified during adoption on 2026-08-03: a service-managed
+project's tray applet derived its URL from `STATS_PORT` in its own
+environment, which is not where the service's port comes from —
+systemd supplies that from the unit plus any drop-in. The applet
+would have kept opening the old port, and POSTing to it, while the
+server was perfectly healthy somewhere else: confidently wrong,
+with nothing broken to notice.
+
+The general rule for service-managed projects is that **the unit
+is the source of truth for the runtime environment**, so anything
+that needs to know the port asks
+`systemctl --user show <unit> -p Environment` rather than reading
+its own. That project's fix was verified adversarially — a forged
+`PORT` planted in the applet's own environment did not move it —
+which is the right shape of test, because reading the correct
+value and ignoring the wrong one are two different properties.
+
 **A unit name is untrusted input** (security review, 2026-08-03):
 
 - **Validate it** against `^[A-Za-z0-9@:_.\-]{1,255}\.(service|socket|target|timer)$`,
