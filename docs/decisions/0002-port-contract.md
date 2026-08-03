@@ -89,6 +89,46 @@ the value of `PORT`: case 3 is absence alone, never a malformed
 value. Case 5 governs what "its existing behaviour" in case 3
 resolves to.
 
+### Projects with more than one entry point
+
+Found during adoption on 2026-08-03, in a project whose tray
+applet supervises its own server: the contract above assumed one
+entry point, and case 4's "exit non-zero" is wrong for a
+**human-facing** one. A tray that exits on a stale environment
+variable simply vanishes, with no window and no message — worse
+for the user than the failure it is reporting.
+
+So case 4 splits by audience, and the underlying invariant is what
+both halves protect: **never bind a port other than the one
+explicitly requested without saying so.**
+
+- **Machine-facing entry point** (the launcher this manager
+  starts): an invalid `PORT` is **fatal**, exit non-zero. A silent
+  fallback would leave the manager believing a reassignment took
+  effect when it did not.
+- **Human-facing entry point** (a tray, a GUI launcher): fall back
+  to the normal precedence and **say so visibly** — a
+  notification or a dialog, never a `print()`, because such an
+  entry point is usually started from a `.desktop` file with no
+  terminal attached. A message nobody can see is a silent
+  fallback.
+
+This is safe only because **the manager validates a port override
+at entry** (ADR-0005) and therefore never sets an invalid one: the
+fallback path is unreachable under management, so it cannot
+deceive the manager. It is not a general licence to fall back.
+
+Both sites carry a comment naming the split and saying **do not
+make these consistent** — two different behaviours for the same
+input in one codebase is precisely what a later tidy-up pass
+"fixes" in the wrong direction.
+
+The precedence rule (case 5) applies to **every** entry point. A
+project whose launcher honours `PORT` while its tray honours only
+its own variable has adopted the contract in one place and not the
+other, which is the confusing half-state this section exists to
+prevent.
+
 The manager's obligations are the other half of the contract:
 
 - **Pre-flight.** Before spawning, the manager checks that the
