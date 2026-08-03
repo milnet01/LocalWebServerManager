@@ -129,6 +129,22 @@ its own variable has adopted the contract in one place and not the
 other, which is the confusing half-state this section exists to
 prevent.
 
+**And to every layer between them.** Measured during the same
+adoption: both entry points were individually correct, and a
+managed tray still served the default port, because the internal
+*supervisor* layer that actually spawned the server read only the
+project's own variable. Neither entry point was wrong; the port
+was lost in the middle.
+
+So the rule is about **where the port is finally resolved**, not
+where the process starts. Adoption is verified by running each
+entry point end to end with `PORT` set and checking what actually
+binds — never by reading the entry points and reasoning that both
+look right. A project with a supervisor, a config layer, or a
+settings store between its entry point and its bind call has more
+than one place to get this wrong, and only the observed port tells
+you which.
+
 The manager's obligations are the other half of the contract:
 
 - **Pre-flight.** Before spawning, the manager checks that the
