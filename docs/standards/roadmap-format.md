@@ -1,0 +1,765 @@
+<!-- ants-roadmap-format-spec: 1.1 -->
+# ROADMAP.md & CHANGELOG.md format spec (v1.1)
+
+> Detailed format spec for the two files the Ants Terminal Roadmap
+> dialog parses deterministically. Extracted from
+> [`documentation.md`](documentation.md) so the documentation standard
+> can stay short for projects that don't use the Ants viewer.
+>
+> Read this file when authoring a `ROADMAP.md` bullet, a `CHANGELOG.md`
+> entry, or any tooling that consumes either format. Skip otherwise.
+
+## Contents
+
+- [3. ROADMAP.md format spec](#3-roadmapmd-format-spec)
+  - [3.1 File header](#31-file-header)
+  - [3.2 Heading hierarchy](#32-heading-hierarchy)
+  - [3.3 Status emojis](#33-status-emojis)
+  - [3.4 Theme emojis](#34-theme-emojis)
+  - [3.5 Bullet structure](#35-bullet-structure)
+  - [3.6 Current-work signaling](#36-current-work-signaling)
+  - [3.7 Release blocks](#37-release-blocks)
+  - [3.8 Findings fold-in subsections](#38-findings-fold-in-subsections)
+  - [3.9 Archive rotation](#39-archive-rotation)
+  - [3.10 Compatibility with GFM task lists](#310-compatibility-with-gfm-task-lists)
+  - [3.11 ROADMAP anti-patterns](#311-roadmap-anti-patterns)
+  - [3.12 DB-migration readiness (project-local)](#312-db-migration-readiness-project-local)
+- [4. CHANGELOG.md format spec](#4-changelogmd-format-spec)
+  - [4.1 Structure](#41-structure)
+  - [4.2 Conventions](#42-conventions)
+  - [4.3 Release flow with ROADMAP integration](#43-release-flow-with-roadmap-integration)
+
+## 3. ROADMAP.md format spec
+
+A shareable contract for `ROADMAP.md` files. Following this
+sub-spec is **required** for any roadmap intended to render
+correctly in the Ants Terminal Roadmap dialog or be parsed
+deterministically by LLM agents.
+
+The roadmap is the single place to track unshipped work. Released
+work moves out of the roadmap into the CHANGELOG.
+
+### 3.1 File header
+
+A conforming file declares the format version with an HTML
+comment in the **first five lines**:
+
+```markdown
+<!-- ants-roadmap-format: 1 -->
+# MyProject — Roadmap
+```
+
+Parsers look for the marker; if absent, they fall back to
+best-effort parsing. Conforming files render with a `(format v1)`
+badge in the Roadmap dialog footer.
+
+### 3.2 Heading hierarchy
+
+| Level | Use | Example |
+|-------|-----|---------|
+| `#` | File title (one per file) | `# MyProject — Roadmap` |
+| `##` | Release block (post-1.0) **or** phase block (pre-1.0) | `## 0.7.0 — shell integration` / `## P01 — Bootstrap` |
+| `###` | Theme group within a release/phase | `### 🎨 Features` |
+| `####` | Optional subgroup | `#### Tier 1 — ship-this-week` |
+
+The Roadmap dialog treats `##` as a top-level boundary (release
+or phase), `###` as the theme filter, `####` as a fold-out.
+Pre-1.0 projects use phase blocks (`## P01 — Bootstrap`) since
+there's no real version to anchor to yet; phase blocks promote
+naturally to release blocks once the project ships 1.0 (the work
+under `P01` becomes the body of `## 1.0.0 — initial release`).
+
+**Headings are addressable.** The viewer auto-generates anchor
+names of the form `roadmap-toc-N` from each heading's *position*
+in the document (`tocAnchorAt` in `roadmapdialog.cpp`); the TOC
+sidebar scrolls to those. The anchor is positional, so it shifts
+when a heading is inserted or removed above it — there is no
+edit-stable heading anchor today.
+
+Hand-embedded `<a name="…">` anchors are **not** honored: no code
+path scans the roadmap body for them or gives them precedence over
+the positional ones, so don't rely on them for cross-references.
+
+### 3.3 Status emojis
+
+Every actionable bullet starts with one of four status emojis:
+
+| Emoji | Meaning |
+|-------|---------|
+| ✅ | Done / shipped |
+| 🚧 | In progress (being tackled now) |
+| 📋 | Planned (next up) |
+| 💭 | Considered (research phase; scope or feasibility uncertain) |
+
+Plain narration bullets without a status emoji are allowed but
+won't match any status filter — they render as context-only.
+
+**Status transitions** follow `💭 → 📋 → 🚧 → ✅`. A bullet can
+skip 🚧 if the work is small enough to ship in one commit, but
+the expectation is "💭 means we don't know yet, 📋 means it's
+queued, 🚧 means I'm doing it right now, ✅ means it's shipped."
+
+### 3.4 Theme emojis
+
+Theme emoji prefixes the level-3 (`###`) section heading:
+
+| Emoji | Theme |
+|-------|-------|
+| 🎨 | Features (user-visible capabilities) |
+| ⚡ | Performance |
+| 🔌 | Plugins / extensibility |
+| 🖥 | Platform (ports, accessibility, OS-specific) |
+| 🔒 | Security |
+| 🧰 | Dev experience (tooling, tests, build, CI) |
+| 📚 | Documentation (user docs, dev docs, READMEs, contracts) |
+| 📦 | Packaging & distribution |
+| 🐛 | Bug fixes / regressions |
+| 🔍 | Audit / review findings fold-in |
+| 🧹 | Cleanup / debt — dead code, stale comments, drift, deferred housekeeping |
+| 📝 | Cold-eyes documentation review fold-in (spec / ADR / README sweeps) |
+
+Projects MAY introduce additional theme emojis; the viewer's
+filter panel surfaces any emoji it sees in any `###` heading.
+
+### 3.5 Bullet structure
+
+```markdown
+- 📋 [PROJ-0123] **One-line headline ending with a period.** Body
+  spanning as many lines as needed; lines wrapped to roughly 70
+  columns. Cite `file:line` in backticks when relevant.
+  Kind: implement.
+  Lanes: SubsystemA, SubsystemB.
+```
+
+Required pieces:
+
+- **Status emoji** — first character after `- `.
+- **Stable ID** — `[PROJ-NNNN]` immediately after the emoji.
+- **Bold headline ending in a period** — stands alone as a
+  one-line summary; this is what the dialog filters and the LLM
+  agent reads first.
+- **`Kind: <kind>.`** — declares the type of work. One of the
+  values in §3.5.3. **Required as of v1.1** so the Roadmap
+  viewer (and any tooling that consumes the file
+  deterministically) can categorise without inferring from the
+  surrounding section heading. The dominant Kind for a section
+  may be inherited implicitly via a section-level convention,
+  but the canonical bullet form carries the field explicitly
+  to make every bullet self-describing.
+
+Optional pieces:
+
+- **Body prose** — free-form, after the bold headline.
+- **`Lanes: X, Y, Z`** — declares ownership; helps subagents
+  find test files.
+- **`Source: <source>`** — declares where the item came from,
+  when the section heading doesn't already make that clear. See
+  §3.5.3.
+- **`Layman: <one-sentence summary>.`** — a non-technical
+  one-line summary, written for a vibe-coder / non-programmer
+  reader. When present, the Ants Roadmap dialog (ANTS-1154)
+  shows this on the card face instead of the bold headline; the
+  headline still appears when the card is expanded. Falls back
+  to the bold headline if absent. Sits after the body prose,
+  before `Kind:` / `Lanes:` / `Source:`. Case-insensitive label.
+- **`Evidence: <path1>, <path2>`** — optional file paths (screenshots,
+  logs, repros) that evidence the item — e.g. a bug diagnosed from a
+  screenshot. Comma-separated; a comma or newline *inside* a path is
+  folded to a space so one path can't break the single-line field.
+  Rendered WITHOUT a trailing period (paths contain dots, so a sentence
+  period would read as part of the last path). Written by `roadmap_log
+  op:append` / `op:append_batch` via their `evidence: […]` arg and
+  echoed by `roadmap_query` as an `evidence` array (omitted when the
+  bullet has none) so a later session can re-locate the files.
+  Case-sensitive label (ANTS-3382).
+- **Sub-bullets** — for parametrised work (e.g. "implement for X
+  / Y / Z").
+
+#### 3.5.1 Stable IDs — `[PROJ-NNNN]`
+
+The ID is a project-prefixed monotonic integer:
+
+- **Prefix** — a short project tag of `[A-Za-z0-9_-]` that
+  **contains at least one ASCII letter**. All-caps 4–6 letters is the
+  convention (`ANTS`, `MYPRJ`, `ENGINE`, `RETRO`); a digit-led,
+  letter-containing prefix is also accepted (`3D_E`), so a project whose
+  scheme starts with a digit can be fetched/flipped by ID (ANTS-3492). A
+  letter-free prefix (`2026`) is NOT an ID — that keeps a date/version
+  bracket like `[2026-07]` from being mistaken for one. Multi-prefix repos
+  (e.g. `Sh-`, `Ed-`, `Phase-`) are permitted under § 3.10.4; the
+  `\[(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9][A-Za-z0-9_-]*-\d+\]` regex
+  accepts any letter-containing, dash-then-digit token.
+- **Number** — zero-padded to 4 digits minimum (`0001`, `0042`,
+  `1234`). Pad wider once a project crosses 9999.
+- **Append-only** — once assigned, an ID never changes. It
+  survives rewording, moving, status flips, and even being
+  deleted (a deleted ID is *retired*; the next new bullet uses
+  the next free number, not the deleted one).
+
+The high-water mark lives in `.roadmap-counter` at the project
+root — a one-line file with the highest assigned integer. New
+IDs increment this counter atomically. Concurrent sessions
+read-modify-write under a brief flock so collisions are
+impossible.
+
+**The counter is a derived, per-machine cache — NOT source (ANTS-3450).**
+It is `.gitignore`d, not committed. Its true value is the highest
+`PROJ-NNNN` id across the committed roadmap corpus — `ROADMAP.md` +
+`CHANGELOG.md` + `docs/roadmap/*.md` (the archives that shipped/rotated
+bullets migrate into). Every allocation *floors* to that committed
+high-water mark (`RoadmapFoldIn::corpusHighWater`), so a stale, wiped, or
+fresh-clone-absent counter can never reissue a live or migrated id — it is
+recovered from committed content on first use. This removes a whole class
+of "the counter bump got left out of the commit" drift: git can't drift a
+file it doesn't track.
+
+```bash
+# Allocate the next ID:
+echo $(($(cat .roadmap-counter) + 1)) > .roadmap-counter
+printf "PROJ-%04d\n" $(cat .roadmap-counter)
+```
+
+#### 3.5.2 Insertion order vs numbering
+
+This is the rule that everything else hangs on:
+
+> **Execution order is positional. Numbering is identity.**
+
+Items in a section are executed **top-to-bottom**, regardless of
+their IDs. The ID identifies the bullet permanently; the
+position in the file declares its priority. When new items are
+inserted (e.g. a `/audit` finding):
+
+1. **Insert at the position they should be tackled.** A
+   CRITICAL audit finding goes near the top of the active
+   release block (under the Tier-1 heading if one exists). A LOW
+   finding goes lower. The author *chooses* the position based
+   on priority.
+2. **Assign the next free ID.** Don't shuffle existing IDs to
+   keep the section monotonic — that's the anti-pattern this
+   sub-spec prevents.
+3. **Document the priority in the bullet body.** A line like
+   `Priority: CRITICAL — security blocker` makes the position
+   choice auditable.
+
+This means a section's IDs may be **non-monotonic** in document
+order (e.g. `0003, 0017, 0004, 0012`). That is correct and
+expected. The agent reads the file top-to-bottom and works the
+items in that order.
+
+#### 3.5.3 Kinds and Sources
+
+The numbering system itself is uniform — every actionable bullet
+gets exactly one ID, regardless of what kind of work it
+represents. But different kinds of work have different
+follow-through (a documentation fix doesn't need a regression
+test; an audit-fix does), and different sources need
+traceability (a finding from a user report should remain
+attributable years later). Two optional metadata fields cover
+this without adding complexity to the bullet's surface form.
+
+**Recognised `Kind:` values:**
+
+| Kind | Meaning | Follow-through |
+|------|---------|----------------|
+| `implement` | New code for a planned feature | tests + changelog + docs |
+| `feature` | User-visible capability addition (alias for implement; preferred in UX-facing bullets) | tests + changelog + docs |
+| `enhancement` | Incremental improvement to an existing feature | tests + changelog |
+| `fix` | Code change to repair a bug | regression test + changelog |
+| `audit-fix` | Code change in response to an audit finding | regression test + changelog (cite finding source) |
+| `review-fix` | Code change in response to a code-quality-review or peer review | regression test + changelog (cite reviewer source) |
+| `doc` | New / updated documentation, no code | changelog if user-facing |
+| `doc-fix` | Documentation correction (typo, stale ref, drift) | no test, changelog optional |
+| `refactor` | Code reshape with no behavior change | tests must still pass; usually no changelog |
+| `test` | Test-only change (new spec, new fixture, harness improvement) | no changelog |
+| `chore` | Housekeeping (deps, build flags, generated files) | no test, changelog optional |
+| `release` | Version bump, packaging files, tag | drives the release skill |
+| `perf` | Performance improvement (latency, throughput, memory) | benchmark or before/after in changelog |
+| `security` | Security hardening, CVE fix, permission change | changelog + advisory if public |
+| `investigate` | Triage / root-cause work that may not produce code | investigation note or roadmap annotation |
+| `research` | Exploratory / feasibility work | journal artifact or decision doc |
+| `accessibility` | A11y fix or improvement | changelog if user-facing |
+| `optimize` | Resource or algorithmic optimisation (overlap with perf; prefer perf for latency) | changelog optional |
+| `package` | Packaging, distribution, installer, Flatpak/AUR/Homebrew changes | release notes |
+| `marketing` | Website, README, social, demo video, launch post | no test |
+| `ux` | UX or interaction design work | design doc or mockup |
+
+**Required as of v1.1** — every actionable bullet declares its
+`Kind:` explicitly, even when the surrounding section makes the
+default obvious. Section context is a hint for human readers;
+machine consumers (the Roadmap dialog, the App-Build runner,
+any tooling that filters / counts / reports by Kind) need the
+field on every bullet so the parser stays simple and one-pass.
+A backfill pass over the active roadmap is a `Kind: doc-fix`
+item.
+
+**Recognised `Source:` values:**
+
+| Source | Meaning |
+|--------|---------|
+| `planned` | On the roadmap from project design (default; usually omitted) |
+| `user-YYYY-MM-DD` | User report on date YYYY-MM-DD |
+| `audit-YYYY-MM-DD` | `/audit` skill output on date YYYY-MM-DD |
+| `code-quality-review-YYYY-MM-DD` | `/code-quality-review` skill output on date YYYY-MM-DD |
+| `debt-sweep-YYYY-MM-DD` | `/debt-sweep` skill output on date YYYY-MM-DD |
+| `doc-review-YYYY-MM-DD` | Documentation review on date YYYY-MM-DD |
+| `static-analysis` | cppcheck / clazy / semgrep / ruff / bandit ad-hoc |
+| `regression` | Item was previously ✅ but a later change broke it |
+| `external-CVE-NNNN-NNNN` | Public CVE / advisory triggering this work |
+| `upstream-<dep>` | Driven by a dep / library upstream change |
+
+Most `/debt-sweep` findings get fixed inline during the sweep
+itself (the skill's "trivial" bucket goes straight into a
+`chore: post-X.Y.Z debt sweep` commit) and never reach the
+roadmap. Only items the user must rule on (the "behavioural"
+bucket) or items deferred as out-of-scope land here. Use
+`🧹 Debt-sweep fold-in (YYYY-MM-DD)` as the section heading and
+`Source: debt-sweep-YYYY-MM-DD` if declared explicitly.
+
+A bullet with no `Kind:` / `Source:` is implementation work for
+the planned roadmap (`Kind: implement`, `Source: planned`).
+That's the overwhelming majority case, so the format stays terse
+for it.
+
+#### 3.5.4 LLM-agent execution contract
+
+When an LLM agent (Claude Code, Codex, etc.) is told *"work the
+roadmap"*, it MUST:
+
+1. Read the file top-to-bottom.
+2. Skip past `##` release blocks until it finds the **active
+   release** (the lowest version `##` that contains any 📋 or 🚧
+   items).
+3. Within the active release, find the first non-✅ bullet under
+   each `###` theme section, prioritising 🚧 over 📋.
+4. Tackle bullets in document order — *not* in ID order.
+5. When inserting new bullets (e.g. from an audit), follow
+   §3.5.2.
+
+Do **not** "jump around" by ID. Do **not** reorder existing
+items to fit a perceived priority — let the human author make
+priority decisions through positioning.
+
+### 3.6 Current-work signaling
+
+The Roadmap dialog marks a bullet as "currently being tackled"
+using three signals OR'd together:
+
+#### 3.6.1 Primary — 🚧 status emoji
+
+Author flips the bullet's emoji from 📋 to 🚧 when starting, and
+from 🚧 to ✅ when shipping. This is the **canonical,
+author-controlled** signal — every other mechanism is an
+augmenter.
+
+**One bullet, one author.** A repository should have at most a
+small handful of 🚧 bullets at any time (typical: 1–3). Many 🚧
+bullets is a smell — either work is fragmented or the author has
+stopped shipping.
+
+#### 3.6.2 Secondary — `CHANGELOG.md` `[Unreleased]` block
+
+The viewer reads the project's `CHANGELOG.md` for an
+`[Unreleased]` section (Keep-a-Changelog convention; see §4).
+Bullets in `[Unreleased]` are fuzzy-matched against ROADMAP
+bullet headlines (lowercase, hyphens as spaces, punctuation
+stripped). Matches get the highlight even if their emoji hasn't
+been flipped to 🚧.
+
+This catches the case where the author writes the changelog
+entry before updating the roadmap.
+
+#### 3.6.3 Tertiary — recent commit subjects
+
+The last 5 non-merge / non-revert / non-release-bump commit
+subjects on the current branch are fuzzy-matched against bullet
+headlines. A match adds the highlight.
+
+Useful for "I just committed this; mark it as in-progress before
+I write the changelog" workflows.
+
+### 3.7 Release blocks
+
+A release block is a `##` heading naming a version + theme +
+target date:
+
+```markdown
+## 0.7.0 — shell integration (target: 2026-06)
+
+**Theme:** OSC 133 + trigger system + project-audit dashboard.
+```
+
+The `**Theme:**` line is optional but recommended — it gives
+the filter dialog one-line context per release.
+
+Released versions move from `(target: YYYY-MM)` to
+`shipped (YYYY-MM-DD)`. The viewer treats released blocks as
+read-only: items under them are expected to be ✅ and don't
+appear in the 📋/🚧/💭 filters.
+
+### 3.8 Findings fold-in subsections
+
+When an external review produces new items — `/audit`,
+`/code-quality-review`, a documentation review, a user bug report,
+static-analysis run, an upstream advisory — fold them into a
+dedicated `###` subsection inside the active release block, with
+date and source stamped on the heading. The pattern is the same
+regardless of where the finding came from; only the theme emoji
+and heading wording change.
+
+```markdown
+### 🐛 Regressions reported post-0.7.55 (user, 2026-04-28)
+
+- 📋 [ANTS-0512] **HIGH — Background-tasks button no longer shows up.**
+  …
+
+### 🔍 Audit fold-in (2026-04-28)
+
+- 📋 [ANTS-0518] **CRITICAL — SARIF export not atomic.** …
+
+### 🔍 Code-quality-review fold-in (2026-04-23)
+
+- 📋 [ANTS-0521] **HIGH — TerminalGrid / TerminalWidget cohesion smell.**
+  …
+
+### 📚 Documentation review fold-in (2026-04-15)
+
+- 📋 [ANTS-0530] **PLUGINS.md OSC 8 surface mismatches code.**
+  Doc says `osc-8-handler`, code uses `osc8-handler`.
+  Kind: doc-fix.
+  Lanes: docs.
+
+### 🐛 Static-analysis fold-in (2026-04-12)
+
+- 📋 [ANTS-0535] **MEDIUM — cppcheck `nullPointerArithmetic`.** …
+
+### 🧹 Debt-sweep fold-in (2026-04-28)
+
+Trivial findings were fixed inline during the sweep — see
+`chore: post-0.7.55 debt sweep` commit. The bullets below are
+the "behavioural" findings the user opted to defer.
+
+- 📋 [ANTS-0540] **`tests/features/vt_throughput/` invariant
+  list grew but spec.md unchanged.** Kind: test. Lanes: tests.
+- 📋 [ANTS-0541] **`README.md § Plugins` references removed
+  `ants.fs.read`.** Kind: doc-fix. Lanes: docs.
+
+### 📝 Cold-eyes 2026-04-30
+
+> Docs reviewed: N. Loops to clean: L. Findings fixed: F.
+
+- Flat bullets, no tier grouping (every finding was already
+  fixed in-place by the cold-eyes orchestrator — this subsection
+  is the audit trail, not a backlog).
+- Use the `📝 Cold-eyes <YYYY-MM-DD>` heading (no parenthesised
+  date suffix; the date is in the heading itself). The blockquote
+  line gives reviewers a one-line summary.
+```
+
+Conventions for any findings fold-in:
+
+- **Choose the theme emoji from §3.4.** 🐛 for bug-shaped
+  findings, 🔍 for audit/review fold-ins as a whole, 📚 for doc
+  reviews, 🔒 if security-only, 📦 if packaging.
+- **Date-stamp the heading** — `(YYYY-MM-DD)`.
+- **Source-stamp the heading** — `(user, …)`, `(audit, …)`,
+  `(code-quality-review, …)`, `(static-analysis, …)`,
+  `(doc-review, …)`, `(cppcheck, …)`, etc.
+- **Severity in the headline** — `**CRITICAL — …**`,
+  `**HIGH — …**`, `**MEDIUM — …**`, `**LOW — …**`.
+- **Position by priority** — Tier-1 / CRITICAL items go above
+  existing Tier-2 / HIGH items.
+- **Kind/Source lines are usually inherited from the section**
+  for readability — but the canonical bullet still carries
+  `Kind:` explicitly on every actionable item (§3.5.3); section
+  context is only a human hint, never a substitute for the
+  required field.
+
+### 3.9 Archive rotation
+
+When a `ROADMAP.md` grows past ~150 KiB, split closed minors out
+into per-minor archive files. The convention:
+
+- Archives live at `<dir(ROADMAP.md)>/docs/roadmap/<MAJOR>.<MINOR>.md`
+  — one file per closed minor version, named verbatim
+  (`0.5.md`, `0.6.md`, `0.7.md`).
+- File names follow the **case-sensitive regex**
+  `^[0-9]+\.[0-9]+\.md$`. No leading `v`, no `roadmap-` prefix, no
+  zero-padding (`0.7.md` not `00.07.md`), **no patch suffix**
+  (`0.7.0.md` is rejected — archives are per-minor only).
+- Tooling that reads archives sorts numerically by the
+  `(major, minor)` integer tuple, descending — lexical sort breaks
+  on minor 10 (`0.10` < `0.9` lexically). Numeric sort is the
+  contract; the naming rule (above) is what makes it parseable.
+- Rotation happens at `/bump` time on a minor or major bump only.
+  Patch bumps don't rotate. The `/bump` recipe (`.claude/bump.json`
+  on each project) owns the snip-and-create step. Rotation is
+  content-preserving: every bullet under the closed minor's
+  `## <closed>.0 — …` heading and its sub-headings moves to
+  `docs/roadmap/<closed>.md` byte-identical, then the heading and
+  bullets are removed from `ROADMAP.md`.
+- The viewer (Ants Terminal's `RoadmapDialog`) reads archives only
+  on demand — when the user picks the History preset or types in
+  the search box. Default render stays cheap.
+- The `roadmap-query` IPC verb (Ants ANTS-1117) reads only the
+  current `ROADMAP.md`. Archives are dialog-only by contract.
+
+The viewer's archive-load path is specified in the Ants Terminal
+project at `tests/features/roadmap_viewer_archive/spec.md` — this
+standard owns the layout, that spec owns the viewer behaviour.
+
+### 3.10 Compatibility with GFM task lists
+
+The wider markdown ecosystem has a sibling convention — GitHub
+Flavored Markdown (GFM) **task lists**:
+
+```markdown
+- [ ] Build login screen
+- [x] Wire CI cache
+```
+
+GFM task lists are the canonical GitHub convention for ad-hoc
+to-do tracking in markdown. **This spec's emoji-bullet format
+extends GFM task lists, it does not replace them.** The
+extensions are the parts that GFM doesn't model:
+
+- A four-state taxonomy (✅ 🚧 📋 💭) instead of the GFM
+  two-state checkbox (`[x]` / `[ ]`).
+- Stable IDs (`[PROJ-NNNN]`) for cross-doc reference.
+- Required `Kind:` metadata line per bullet (§ 3.5); optional
+  `Source:` / `Layman:` metadata for provenance and
+  non-technical readers.
+
+#### 3.10.1 Semantic equivalence
+
+| GFM      | This spec     | Meaning                |
+|----------|---------------|------------------------|
+| `[ ]`    | 📋            | Planned, not started.  |
+| `[x]`    | ✅            | Done / shipped.        |
+| *(none)* | 🚧            | In progress.           |
+| *(none)* | 💭            | Idea / not yet planned.|
+
+The two GFM states map cleanly to two of this spec's four.
+GFM has no native syntax for "in progress" or "speculative" —
+projects that need them on a GFM-task-list roadmap either
+adopt the full emoji set or annotate with a prose prefix
+(`- [ ] (WIP) Build login screen`). The emoji set is
+strictly more expressive.
+
+#### 3.10.2 Reader-side adapter mode
+
+Ants Terminal's MCP verbs (`roadmap_query`, `roadmap_log`) and
+the `RoadmapDialog` viewer can read GFM-task-list roadmaps
+without requiring migration. See **ANTS-1428** for the adapter
+implementation; the contract is that `[ ]` / `[x]` bullets are
+surfaced through the same envelope shape as emoji bullets, with
+the missing fields (`Kind:`, `Source:`, etc.) returned as
+empty strings rather than parse errors. Projects that prefer
+GFM stay on GFM; projects that adopt the full Ants format get
+the extra surface.
+
+#### 3.10.3 Migration
+
+A project that wants the full emoji-bullet format from a
+GFM-task-list starting point converts in four passes:
+
+1. Replace `- [x]` with `- ✅`, `- [ ]` with `- 📋`.
+2. Assign stable IDs (`[PROJ-NNNN]`) bottom-up against a fresh
+   `.roadmap-counter` (§ 3.5.2).
+3. Add `Kind:` and `Source:` lines under each bullet (§ 3.5.3).
+4. Add `Layman:` summaries (§ 3.5 Bullet structure).
+
+The migration is reversible — write `[x]` / `[ ]` back, drop
+the metadata, and the file is GFM again.
+
+#### 3.10.4 Prefix conventions
+
+This spec uses **one prefix per repo** (`ANTS-`, `VESTIGE-`,
+…) by convention. Repos with multiple work streams sometimes
+prefer **multi-prefix** schemes (`SH-`, `ED-`, `PHASE-`) for
+lane visibility. Multi-prefix is permitted. Mixed-case prefixes
+like `Sh-`, `Ed-`, `proj-name-` parse, are fetched / flipped,
+**and** are allocated fine — id handling is case-insensitive on
+both the read and the write side. The one uppercase-only check in
+the tooling is a narrow `op:flip` anchor helper, not id handling:
+
+- **Id parsing — case-insensitive.** The `roadmap-query` parser
+  accepts any letter-containing, dash-then-digit token
+  (`(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9][A-Za-z0-9_-]*-\d+`), so
+  mixed-case prefixes **do** parse and can be fetched / flipped by
+  id. Same regex family §3.5.1 documents — see the bullet-scan and
+  `kIdIsh` patterns in `remotecontrol.cpp` and
+  `RoadmapIndex::isCanonicalId`.
+- **Id allocation — also case-insensitive.** The `roadmap_log`
+  `id_prefix` argument (the counter-prefix override for
+  `op:append` / `op:append_batch`) is validated by the *same*
+  letter-containing, case-insensitive grammar (`kIdPrefixShape` in
+  `remotecontrol.cpp`), which is deliberately looser than the
+  helper below so a repo can pin a lowercase / mixed-case prefix
+  (e.g. `proj-name`). So a repo can mint new `Sh-` / `Ed-` ids
+  directly.
+- **The lone uppercase-only rule — `op:flip`'s `prefix_hint`.**
+  That argument is validated `^[A-Z][A-Z0-9_-]{0,15}$` (`rxPrefix`
+  in `remotecontrol.cpp`), but it is used *only* when injecting a
+  caret anchor onto a GFM bullet that has no id — it never
+  constrains id allocation.
+
+The single-prefix rule is convention because it keeps
+`.roadmap-counter` unambiguous; multi-prefix repos need one
+counter per prefix.
+
+#### 3.10.5 Heading-format roadmaps (`#### Pass N.M`)
+
+Some projects (project-d-style) track work as `#### Pass N.M
+<title>` level-4 headings with a `- **Status**: <word>` sub-bullet
+instead of `- **headline** [ID]` bullets. The reader classifies
+these as `pass-headings` and synthesises a `PASS-<major>-<minor>
+[-<sub>]` id per heading (**ANTS-1530**). Since **ANTS-2126**
+`roadmap_log` also **writes** this format: `op:"append"` (needs a
+`pass` arg, e.g. `"43.5"`), `op:"append_batch"`, `op:"flip"` /
+`op:"flip_batch"` (locate by the synthesised `PASS-N-M` id or
+`headline`), and `op:"annotate"`. Pass ids are derived from the
+heading, never from `.roadmap-counter` (the counter is left
+untouched). `op:"create_section"` is not yet supported and still
+refuses `format_mismatch`.
+
+### 3.11 ROADMAP anti-patterns
+
+- ❌ Status emoji other than ✅ 🚧 📋 💭. Tools won't recognise
+  them.
+- ❌ Renumbering items when inserting. The whole point of stable
+  IDs is to defeat this temptation.
+- ❌ Multiple status emojis on one bullet (`✅ 📋 …`).
+- ❌ Reordering bullets by ID. Position is priority; numerical
+  order is not.
+- ❌ More than ~3 🚧 bullets simultaneously.
+- ❌ Mixing `[ ]` / `[x]` task-list syntax with the emoji
+  status system on the same bullet (the formats coexist at
+  file scope per § 3.10, but not at bullet scope).
+
+### 3.12 DB-migration readiness (project-local)
+
+> **Project-local appendix.** Not part of the shared v1.1 spec —
+> if upstream adds a § 3.12, renumber this one. Derived from the
+> Ants Terminal project's `docs/standards/roadmap-data-model.md`
+> (ANTS-3753, Draft 2026-07-30), which defines the store this
+> roadmap will eventually migrate into.
+
+That data model's § 3.3 accepts historical items with missing
+fields, defaulting `kind` → `implement` and `source` → `planned`
+and leaving `layman`, `priority` and `resolution` empty — because
+across the ten surveyed projects **half** of all items carry no
+`Kind:`, **half** carry no `Source:`, and **57%** carry no
+`Layman:`. Defaulted values are recorded as `defaulted` rather
+than `asserted` provenance (its § 7.7), so they stay visibly
+second-class forever.
+
+This project starts empty, so it never has to accept that debt.
+**Every bullet carries the full field set from its first commit**,
+which makes migration a straight import with `asserted` provenance
+on every field:
+
+| Bullet field | Store field | Why it must be authored |
+|---|---|---|
+| Status emoji | `status` | Only ✅ 🚧 📋 💭 (§ 3.3). `dropped` has no markdown form. |
+| `[PROJ-NNNN]` | `id` | Unique within the project; append-only (§ 3.5.1). |
+| Bold headline | `headline` | Technical one-liner. |
+| `Layman:` | `layman` | Required on **open** items to publish at all. |
+| `Kind:` | `kind` | Canonical 21-value enum only (§ 3.5.3) — non-canonical values need a mapping-table amendment. |
+| `Source:` | `source` + `created` | A **dated** value (`user-YYYY-MM-DD`) is a better `created` than the git-derived one, and survives archive rotation. |
+| `Priority:` | `priority` | `1`–`5`, required on open items. Beats a CRITICAL/HIGH/MEDIUM/LOW headline word where both appear. |
+| `Lanes:` | `lanes` | Optional, already first-class. |
+
+`Priority:` maps CRITICAL → 1, HIGH → 2, MEDIUM → 3, LOW → 4;
+band 5 is someday-maybe work no severity word expresses.
+
+Two consequences worth knowing before cutover, both still open
+decisions in the upstream draft (its § 8, § 9) — neither is
+actionable here, but neither should be a surprise:
+
+- After cutover the **published render becomes layman-only**, so
+  it stops being a conforming `ROADMAP.md`. Either both standards
+  get amended or the render is published under a different
+  filename. Which one is undecided.
+- Archive rotation (§ 3.9) and the CHANGELOG release flow are
+  hand edits to what becomes a generated file, so both stop
+  working at cutover.
+
+
+## 4. CHANGELOG.md format spec
+
+A conforming project keeps a Keep-a-Changelog-style
+`CHANGELOG.md` at the repo root. The format is defined at
+<https://keepachangelog.com/> and pinned here as a sub-spec.
+
+### 4.1 Structure
+
+```markdown
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- New feature.
+
+### Fixed
+- Bug fix.
+
+## [X.Y.Z] — YYYY-MM-DD
+
+**Theme:** one-line summary of the release.
+
+### Added
+…
+
+### Changed
+…
+
+### Fixed
+…
+
+### Removed
+…
+
+### Security
+…
+
+## [X.Y.Z-1] — YYYY-MM-DD
+…
+```
+
+### 4.2 Conventions
+
+- `[Unreleased]` block at the top, **always** — even if empty.
+  The ROADMAP viewer reads it for current-work signaling per
+  §3.6.2.
+- Dated sections in **reverse chronological order**.
+- `**Theme:**` line is one sentence; sets the release's
+  character.
+- Bullets categorical: Added / Changed / Fixed / Removed /
+  Security. Don't invent new categories.
+- Bullets terse — one line each. Body paragraphs go in commits.
+- **Cite ROADMAP IDs** in bullets when applicable: `Added: live
+  search filter (ANTS-1042).`. The bidirectional link helps
+  readers move between the changelog and the roadmap.
+
+### 4.3 Release flow with ROADMAP integration
+
+When a release ships:
+
+1. `[Unreleased]` block contents move to a new dated section
+   `## [X.Y.Z] — YYYY-MM-DD`.
+2. Empty `[Unreleased]` section is left at the top (with an
+   empty-state hint or just the heading).
+3. ROADMAP bullets that were 🚧 flip to ✅.
+4. Released ROADMAP block changes from `(target: YYYY-MM)` to
+   `shipped (YYYY-MM-DD)`.
+
+The `/release` skill (if used) automates steps 1–4.
+
+

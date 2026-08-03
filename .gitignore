@@ -1,0 +1,117 @@
+# Common — language-agnostic baseline, plus the Python/Qt entries
+# added at P01 (LWSM-1002).
+#
+# This repository is destined to be PUBLIC, so everything here is
+# also a privacy control: a file ignored late is a file already in
+# the history, and history is public forever. Anything holding
+# machine paths, personal data or another project's internals
+# belongs in this list BEFORE the first push (LWSM-1045).
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+*.bak
+*.orig
+*.rej
+
+# Editor / IDE
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
+.#*
+\#*\#
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Claude Code (local settings, history, allowlist — mostly personal).
+# Drop the trailing slash so the negations below can re-include
+# specific files; with `.claude/` git short-circuits at the
+# directory and ignores the !.claude/foo lines.
+.claude/*
+# Team-shared Claude Code config that SHOULD be in version control:
+!.claude/settings.json
+!.claude/workflow.md
+
+# Logs / runtime
+*.log
+*.pid
+*.sock
+
+# Coverage / sanitizers
+*.gcda
+*.gcno
+*.gcov
+coverage.*
+.coverage
+lcov.info
+
+# Core dumps
+core
+core.*
+*.core
+vgcore.*
+
+# Scratch
+scratch/
+tmp/
+Screenshot_*.png
+screenshot*.png
+
+# Python (LWSM-1002)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+# uv.lock is COMMITTED, not ignored — it is what makes `uv sync --locked` in
+# scripts/local-ci.sh reproduce the same versions locally and in CI. An
+# ignored lockfile means the two runs can resolve differently, which is the
+# exact drift the shared script exists to prevent. `--locked`, NOT `--frozen`:
+# --frozen exits 0 against a lock that disagrees with pyproject.toml
+# (dependencies.md § 2.5).
+
+# Qt / PySide6
+*.qmlc
+*.jsc
+qrc_*.py
+ui_*.py
+*.pro.user
+
+# AppImage build output (LWSM-1021)
+*.AppImage
+AppDir/
+appimagetool*
+
+# Runtime state this app writes. Never in the repo, and named here so a
+# developer running the app from the source tree cannot commit their own
+# project list — which would publish their machine's directory layout.
+/projects.json
+/settings.json
+/app.log*
+/logs/
+
+# Roadmap ID counter — derived per-machine cache, not source.
+# True high-water mark is the highest ID across ROADMAP.md +
+# CHANGELOG.md + docs/roadmap/*.md (roadmap-format.md § 3.5.1).
+.roadmap-counter
+
+# Author-private working notes (LWSM-1045). This repository is public;
+# docs/private/ holds the concrete project inventory and the per-project
+# adoption prompt, which name real services, ports and paths on the
+# author's machine. The public docs refer to them by neutral label.
+docs/private/

@@ -1,0 +1,34 @@
+# Dependabot config — automated dependency PRs.
+#
+# Every ecosystem this project uses must be registered here
+# (docs/standards/dependencies.md § 2.6). An ecosystem left out gets no
+# update PRs, which is indistinguishable from having nothing outdated —
+# and dependabot is the ONLY automated signal for § 2.2 currency, since
+# a stale-but-valid pin resolves and tests perfectly cleanly.
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # GitHub Actions itself — keep workflow runners current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # Python, via pyproject.toml + uv.lock (registered at P01, LWSM-1001).
+  # "uv", NOT "pip": dependabot-core ships a first-class uv ecosystem
+  # (verified 2026-08-03 — the repo has a uv/ directory and no pip/ one).
+  # The distinction is functional, not cosmetic: a pip-ecosystem PR edits
+  # pyproject.toml and leaves uv.lock untouched, which `uv sync --locked` in
+  # scripts/local-ci.sh then rejects — so every dependency PR would arrive
+  # red, and a signal that always fails is one people learn to ignore.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # No npm or cargo ecosystem here: this project has no JavaScript and no
+  # Rust. Add a block the day that changes — § 2.6 is about what the
+  # project USES, not about listing every ecosystem that exists.

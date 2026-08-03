@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools==83.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "localwebservermanager"
+version = "0.0.0"
+description = "Find, start, stop and watch the local web servers your projects run."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [{ name = "Anthony Schemel" }]
+
+# Runtime dependencies, pinned exactly. Two, and no more than two: the whole
+# app is a Qt window over the socket table, and every extra dependency is
+# weight in the self-contained AppImage (LWSM-1021).
+dependencies = [
+    # The GUI. ADR-0003 exists BECAUSE this binding does not expose
+    # QProcess.setChildProcessModifier, so the version is load-bearing rather
+    # than incidental: re-verify that `hasattr` on every bump, because the day
+    # it returns True is the day ADR-0003 could be revisited.
+    # 6.11.1 is current (PyPI, 2026-08-03) and was checked — still absent.
+    "PySide6==6.11.1",
+    # Port ownership and process trees: "what holds port N", "which ports does
+    # this process group hold", and the descendant walk the foreign-stop path
+    # needs (ADR-0004). The alternative was parsing `ss -tlnp`, rejected as
+    # fragile in docs/discovery.md § Tech stack.
+    "psutil==7.2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    # Drives Qt widgets and signals in tests, and supplies qtbot.waitUntil —
+    # which docs/standards/testing.md § T4 requires INSTEAD of sleeping for a
+    # duration, the flakiness shape this codebase is most exposed to.
+    # 4.5.0 is the current release; verified against PyPI, not recalled.
+    "pytest-qt==4.5.0",
+    "ruff==0.16.1",
+]
+
+[project.scripts]
+lwsm = "lwsm.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/milnet01/LocalWebServerManager"
+Issues = "https://github.com/milnet01/LocalWebServerManager/issues"
+
+[tool.uv]
+# The build backend is a dependency that RUNS CODE, and it sits outside
+# uv.lock — verified 2026-08-03: 15 packages locked, setuptools not among
+# them. Without this constraint every `uv sync` resolves a floating,
+# unhashed setuptools and executes it, on dev machines and CI alike. It is
+# the one dependency the pin/lock/--locked/dependabot apparatus misses while
+# appearing to cover it.
+build-constraint-dependencies = ["setuptools==83.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import-sort, UP pyupgrade (current idioms per
+# coding.md § 5), B flake8-bugbear, RUF100 unused-noqa.
+# S (flake8-bandit) is enabled because this app spawns processes and signals
+# process groups for a living: S603/S607 are exactly the rules that would catch
+# a shell=True or an unvetted argv creeping into Supervisor, which coding.md
+# § O4 forbids outright.
+select = ["E", "W", "F", "I", "UP", "B", "RUF100", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests spawn real child processes on purpose (testing.md § T2) and assert on
+# them, so the subprocess rules would fire on every fixture. The production
+# rule is unaffected — this exemption is scoped to tests/ only.
+"tests/**" = ["S101", "S603", "S607"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "gui: needs a Qt application object; runs headless under QT_QPA_PLATFORM=offscreen (testing.md § T6)",
+    "integration: spawns real child processes or binds real sockets (testing.md § T2, T3)",
+]
+# Warnings are failures. This project is small enough that the alternative —
+# a warning nobody reads until it becomes a break — has no upside.
+filterwarnings = ["error"]

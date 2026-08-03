@@ -1,0 +1,232 @@
+# LocalWebServerManager — Workflow state
+
+## §1. Status header
+
+| Field | Value |
+|-------|-------|
+| **Project phase** | P01 — Bootstrap (next); Phases A–D closed 2026-08-03 |
+| **Active item ID** | (none — pre-code phases produce documents, not roadmap items) |
+| **Active step** | (n/a until P01) |
+| **Blocked on** | LWSM-1004 (create public repo) needs the squashed-orphan publish step — see LWSM-1045 |
+| **Last update** | 2026-08-03 (P01 code + audit/review/security; FP01 contracts landed) |
+| **Next gate** | User confirms P01 scope; LWSM-1004 (create public repo) needs explicit authorisation |
+| **Convergence checkpoint** | 5 (consecutive `FP##` items immediately preceding any ✅-`implement`-Kind close in the active release block — see `~/.claude/commands/close-phase.md § 5a-6`) |
+| **Debt-sweep phase threshold** | 5 (auto-prompt for `/debt-sweep` after this many phases without one) |
+| **Last debt sweep** | (none yet) |
+| **Repo visibility** | (detect once via `gh repo view --json visibility -q .visibility` once a remote exists; cache for the session) |
+
+### Step progress
+
+While an item is active, Claude marks the current step 🚧;
+completed steps flip to ✅. Resets to all ⬜ when a new item
+becomes active.
+
+1. ⬜ Verify spec (research first if non-trivial)
+2. ⬜ Verify dependencies on the roadmap DAG
+3. ⬜ Write failing tests
+4. ⬜ Implement until tests pass
+5. ⬜ Run `/audit` (read `docs/audit-allowlist.md` first)
+6. ⬜ Run `/code-quality-review` (same allowlist read)
+7. ⬜ Fold actionable findings → new FP## roadmap item
+8. ⬜ Update CHANGELOG / ROADMAP / journal
+9. ⬜ Commit, tag `<ID>-complete`, ask user about push
+
+### Active item details
+
+(filled in once Phase A → P01 hands over an active item)
+
+```
+Item: <ID>
+Spec: docs/specs/<ID>.md
+Branch: main (no feature branch yet)
+Sub-findings:
+  - 📋 ...
+  - 📋 ...
+Tests: <count> passing, <count> failing
+```
+
+## §2. Workflow rules
+
+The canonical rules — phases A–D, the per-phase 9-step loop,
+ID scheme, triage table, fold-into-roadmap pattern,
+false-positive learning loop, drift handling, Definition of
+Done — live in
+`~/.claude/skills/app-workflow/SKILL.md`.
+Skills don't auto-load from filesystem presence — they fire
+on description-match against your message. To engage the
+workflow in a session, mention any of: phase / audit / drift
+/ fix-pass / "where were we" / "resume" / "continue work" /
+this `workflow.md` file by name. The project's `CLAUDE.md`
+(loaded automatically on session start) reminds you of this
+on every resume.
+
+**Hard rule kept inline (most-load-bearing):** never silently
+drift. If code being written diverges from the spec, stop and
+surface. Either the spec was wrong (update spec → re-audit
+affected sections → resume) or the code was wrong (fix code,
+no spec change). Never both papered-over.
+
+To refresh this file from the (upgraded) skill template, copy
+`~/.claude/skills/app-workflow/templates/.claude/workflow.md`
+over this file — preserve §1 (status header) and §3 (session
+journal); §2 is the only part that changes.
+
+## §3. Session journal
+
+Append-only. Newest at the top.
+
+### 2026-08-03 — P01 built; FP01 contracts landed
+
+P01's code is in and the gate is green (14 tests, ruff, shellcheck,
+actionlint, entry-point resolution). The phase is **not closed**:
+FP01's six 🚧 items each owe an implementation in P05/P06.
+
+The reviews earned their cost. Static analysis was clean across
+every tool; every real finding came from reading. Three defects
+were invisible to a green build — a console script naming a module
+that did not exist, `get_logger(__name__)` producing
+`lwsm.lwsm.<module>`, and an idempotence guard that compared
+`abspath` to `resolve()` so a symlinked state dir wrote every line
+twice (the test that existed to catch it could not, because
+`tmp_path` is never a symlink).
+
+**The security pass was the most valuable hour of the project so
+far**, and its top finding was the repo itself: the docs published
+a target list of the author's private local services, in all 26
+commits. Tree scrubbed; the history is handled by publishing from a
+squashed orphan commit.
+
+Six FP01 items were **design** rather than code, so their contracts
+landed now — a trust gate before running a discovered launcher,
+PID-reuse-safe signalling, an environment allowlist, detection
+treated as untrusted input, bounded scanner reads, and
+`LWSM_MANAGED` declared security-worthless before the prompt
+reaches seven codebases. Each cost an ADR edit today and would have
+cost a rewrite after P05.
+
+
+### 2026-08-03 — Post-gate scope additions (design changed a lot)
+
+Five user requirements landed **after** the Phase B/D review
+gates: AppImage + self-contained releases, broader web-server
+support, macOS/Windows assessment, tray consolidation
+(ADR-0006 + custom actions + systemd support), and appearance +
+accessibility (theme layer, ADR-0007 geometry, a11y as a design
+input). Roadmap 20 → 31 items; ADRs 5 → 7.
+
+**Standing risk to carry into P01:** `docs/design.md` has gained
+four substantial sections (Detection rules rewrite, Custom
+project actions, Look and feel, Accessibility) and two ADRs since
+the last cold read. The loop log covers loops 1–2; **none of the
+post-gate material has been reviewed by anyone but its author.**
+Either re-gate `design.md` before P02 starts building UI from it,
+or accept that risk knowingly. P01 is build tooling and is not
+exposed to it.
+
+Two findings from reading sibling projects rather than assuming,
+both of which changed the design:
+
+- `project-a.service` is an **enabled systemd user unit** — the
+  detection rules would have spawned a second copy of a server
+  systemd already owns. Now a distinct launcher kind (LWSM-1028,
+  P04, priority 1).
+- OneUp's "doesn't reopen where I left it" bug is the Wayland
+  placement limitation, and it is **fixable** — the KWin script
+  it already uses for centring can equally place a window at
+  remembered coordinates. ADR-0007 does both through one helper.
+
+### 2026-08-03 — Phases C and D
+
+**Phase C** — ROADMAP populated (P01–P09, 24 bullets, full field
+set), `coding.md` and `testing.md` given project override
+sections, README made honest. `commits.md` and
+`documentation.md` were read and needed no project deviation.
+Specs for P01/P02 **deliberately skipped** (user decision): their
+roadmap bullets already carry checkable acceptance criteria, and
+the first real spec is P03's scanner, where the contract is
+non-obvious.
+
+**Phase D** — one reviewer over the whole A–C set rather than the
+usual fan-out, on token cost. 21 findings, all verified and
+fixed **inline** rather than folded into a `DOC01` fix-pass —
+a deliberate deviation from the workflow's fold-in pattern,
+recorded here because there is no `DOC01` bullet to find later.
+
+It earned its cost twice over. It closed loop 1's missing cold
+re-read (finding stranded fix collateral), and it caught **three
+wrong rows in the project inventory** — the docs described
+project-g as a Vite app on 5173 when its `run.sh` starts a
+Python backend on 8080 and already honours `PORT`. Those errors
+had propagated into `port-contract-prompt.md`, which was about to
+be pasted into seven other codebases.
+
+**Three new requirements from the user**, folded into the
+roadmap: publish a self-contained **AppImage** (LWSM-1021, new
+P09); support **more kinds of web server** for a wider audience
+(LWSM-1023, considered); and **macOS / Windows** builds —
+assessed rather than promised (LWSM-1024 blocked on whether macOS
+socket enumeration needs elevation; LWSM-1025 recommended against,
+since Windows has no process groups and ADR-0003 would need
+rewriting).
+
+Next: P01 — Bootstrap.
+
+### 2026-08-03 — Phase B: Design (approved, gate run)
+
+`docs/design.md` + ADR-0002…0005 written and approved. Seven
+project states, a 1-second status poll composed from one
+socket-table snapshot per tick, launch-via-sibling-script under
+`subprocess(start_new_session=True)`, and a registry whose merge
+rules never discard user edits.
+
+Rule-14 cold-eyes gate: **one loop**, 2 lanes, 26 verified
+findings, all fixed (commit `9b4a853`). The run was capped at one
+loop by the user on token cost — **not** by a convergence test.
+The fixes are unverified by a second cold read; Phase D is where
+that gap closes.
+
+Two decisions recorded this session that outlive it:
+
+- **Subagents are permitted** where they help and are token-
+  efficient — reviews especially. Written into `CLAUDE.md`; the
+  user noted it as a `/start-app` template update too.
+- **Sibling projects adopt the port contract** (ADR-0002) via a
+  prompt this project generates, run in each project's own Claude
+  Code session. That prompt is not written yet.
+
+Next: Phase C — standards, ROADMAP, first specs.
+
+### 2026-08-03 — Phase A: Discovery (approved)
+
+Scanned `<scan root>/` and found **seven**
+server-running sibling projects (inventory table in
+`docs/discovery.md § Problem`); two were live at scan time
+(project-c:8765, project-a:4321).
+
+Decided: a **PySide6 desktop app** that manages those servers —
+auto-scan with a persisted list plus a Rescan button, start /
+stop / restart with live status, port-conflict detection and
+reassignment, per-project live log panel, open-in-browser, and a
+system tray. It launches **each project's own script**; it never
+edits sibling source.
+
+Open thread carried into Phase B: several launchers hard-code
+their port. User's call — **the siblings get updated to accept
+an external port**, driven by a prompt this project supplies to
+each project's own Claude Code session. Phase B owes a **port
+contract ADR** defining that interface, plus honest degradation
+when a project hasn't adopted it.
+
+Public-GitHub optionals activated (`CONTRIBUTING.md`,
+`.github/`).
+
+Next: Phase B — `docs/design.md` + ADRs.
+
+### 2026-08-03 — P00 scaffold
+
+Project scaffolded from `~/.claude/skills/app-workflow/templates/`
+via `/start-app`. Initial commit `chore: scaffold project from
+template (P00)`.
+
+Next: Phase A — Discovery. User says "let's start discovery"
+in a fresh Claude Code session in this directory.
