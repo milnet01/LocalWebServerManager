@@ -170,6 +170,46 @@ when the registry records a unit name for it. Because unit naming
 is a convention rather than a rule, a wrong guess here is
 correctable in the UI like any other detected field (ADR-0005).
 
+**Delivering a port to a service-managed project needs a drop-in,
+not an environment variable.** systemd does not inherit the
+caller's environment, so `PORT=5999 systemctl --user start <unit>`
+starts the service with no `PORT` at all and the reassignment
+silently does nothing — the exact failure ADR-0002 exists to
+prevent, arriving through a channel that ADR's author did not
+consider. Verified 2026-08-03 against a real unit, which sets its
+port with `Environment=` in the unit file itself.
+
+So for a service-managed project the manager writes a **drop-in it
+owns**:
+
+```
+~/.config/systemd/user/<unit>.d/50-lwsm-port.conf
+[Service]
+Environment=PORT=<effective port>
+```
+
+then `systemctl --user daemon-reload` before starting. Notes that
+make this safe rather than clever:
+
+- **It is not a write into a sibling project.** The drop-in lives
+  in the *user's* systemd configuration, so
+  `docs/standards/coding.md § O3` still holds — the project
+  directory remains read-only to this app. It is, however, a third
+  kind of write beyond the two config files in § Persistence, and
+  is named here for that reason.
+- **The filename is owned and namespaced** (`50-lwsm-port.conf`),
+  so the manager can remove exactly its own override and never
+  touch a drop-in someone else wrote.
+- **A drop-in `Environment=` adds a variable rather than replacing
+  the unit's list**, which is what makes this compose: a unit that
+  already sets its own port variable keeps it as the default, and
+  a compliant server prefers `PORT` over it by the precedence in
+  ADR-0002 case 5. Nothing in the project's own unit needs editing.
+- **Removing the override removes the file** and reloads, rather
+  than writing the old value back — so the project returns to
+  exactly its packaged default rather than to whatever the manager
+  believed the default was.
+
 **A unit name is untrusted input** (security review, 2026-08-03):
 
 - **Validate it** against `^[A-Za-z0-9@:_.\-]{1,255}\.(service|socket|target|timer)$`,
