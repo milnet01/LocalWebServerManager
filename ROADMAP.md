@@ -944,6 +944,23 @@ is why it sits after the app works.
   Priority: 3.
   Lanes: build, docs.
 
+- 📋 [LWSM-1052] **P10: a local release script, run before CI is
+  asked to build one.** `scripts/local-release.sh` builds and
+  smoke-tests the AppImage on this machine, so a broken release
+  surfaces locally rather than inside a tagged CI run that has
+  already published a tag. Same rule as `scripts/local-ci.sh` and
+  for the same reason: **the script is the source of truth and the
+  release workflow calls it**, so the two cannot drift. A release
+  is the worst possible place to discover a packaging bug, because
+  the tag already exists by the time CI fails.
+  Dependencies: LWSM-1021.
+  **Layman:** Build and test the downloadable file on your own
+  machine first, so a broken release never gets as far as GitHub.
+  Kind: package.
+  Source: user-2026-08-03.
+  Priority: 2.
+  Lanes: build, ci.
+
 - 📋 [LWSM-1022] **P10: release process and user-facing docs.**
   A tagged release carrying the AppImage, a CHANGELOG section, and
   a README Install/Quickstart written for someone who has never

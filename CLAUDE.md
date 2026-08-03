@@ -44,6 +44,19 @@ written through it does not need the review invoked separately.
 review findings, audit findings, a fix-pass — and it owns the
 blast-radius sweep that catches what a fix moved elsewhere.
 
+## Before pushing
+
+**Run `./scripts/local-ci.sh` before any push that touches code,
+tooling or CI config** (user, 2026-08-03). A **docs-only push is
+exempt** — the gate has nothing to say about prose, and making it
+mandatory there just trains people to skip it.
+
+The script is the single source of truth for CI: `.github/workflows/ci.yml`
+prepares a machine and then calls it. **Never add a check to the
+workflow instead of the script** — that produces a check nobody can
+run before pushing, which is the whole thing this arrangement
+exists to prevent.
+
 ## Standing quality passes
 
 Both added by the user on 2026-08-03, and both run as part of closing a
