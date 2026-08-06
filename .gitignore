@@ -115,3 +115,13 @@ appimagetool*
 # adoption prompt, which name real services, ports and paths on the
 # author's machine. The public docs refer to them by neutral label.
 docs/private/
+
+# Audit scan output. Generated, one more pair of files every run, and it embeds
+# absolute paths from the machine that ran it — this is a public repo. The
+# durable record of what a scan found lives in ROADMAP.md and
+# docs/audit-allowlist.md, which are written for a reader.
+#
+# The gitleaks config below it is an INPUT, not output: it carries the
+# allowlist that makes a run reproducible, so it stays tracked.
+.audit_cache/*
+!.audit_cache/.gitleaks-audit-run.toml
