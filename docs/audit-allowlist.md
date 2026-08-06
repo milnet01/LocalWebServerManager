@@ -1,16 +1,24 @@
 # LocalWebServerManager — Audit allowlist
 
-> **Status:** Empty until first confirmed false positive.
 > **Bar for entry:** high — every entry requires written
 > reasoning. Future audits re-verify the suppression is still
 > warranted.
 > **Scope:** project-specific. Each project develops its own
 > list. There is no global allowlist.
 
-This file is the **closed-loop memory** for `/audit` and
-`/code-quality-review` false positives. Without it, the same false
-positive gets surfaced and dismissed every audit run, burning
+This file is the **closed-loop memory** for false positives from
+`/audit`, `/code-quality-review` and the deterministic document
+checkers `/doc-lint` and `/debt-sweep` run (`doc_integrity`,
+`spec_lint`, `doc_citations`, `doc_dedup`). Without it, the same
+false positive gets surfaced and dismissed every run, burning
 tokens and tempting "skip without thinking" reflexes.
+
+**The doc checkers were added to this file's scope on 2026-08-06
+(DS01).** They were left out originally, and the first debt sweep
+then confirmed two false positives that had nowhere to go — a
+deterministic checker that fires on the same non-defect forever is
+the exact problem this file exists to solve, and which tool
+produced it makes no difference to that.
 
 The
 app-workflow skill (`~/.claude/skills/app-workflow/SKILL.md`, local to the author's machine)
@@ -76,8 +84,46 @@ Do not delete revoked entries — the history is the value.
 
 ## Entries
 
-(none yet — numbered sequentially as they're added; numbers
-never reused, including for revoked entries)
+## allowlist-001 — doc_integrity:broken_link — the plan skeleton's placeholder link
+
+- **Status:** active
+- **Tool / rule:** `doc_integrity` (via `/doc-lint`, `/debt-sweep`) — `broken_link`
+- **Location:** `docs/standards/plan-skeleton.md:3` —
+  `[docs/specs/<ID>-<topic>.md](../specs/<ID>-<topic>.md)`
+- **Why this is a false positive:** the file is a skeleton, and
+  `<ID>-<topic>` is its placeholder syntax, substituted by
+  `/write-spec` when a real plan is created from it. A target
+  containing `<` and `>` cannot resolve to a path by construction,
+  so the check can never come back clean while the skeleton exists.
+  Making it resolve would mean either deleting the skeleton's own
+  link or committing a file literally named `<ID>-<topic>.md` —
+  both worse than the warning. Re-verify only if the skeleton stops
+  using angle brackets for placeholders.
+- **Suppression applied:** none — the verb offers no inline
+  suppression. Filed upstream as an Ants MCP suggestion (skip link
+  targets containing unescaped `<` / `>`), 2026-08-06.
+- **Logged:** 2026-08-06
+- **Confirmed by phase:** DS01
+
+## allowlist-002 — spec_lint:invariant_no_test — testing.md's INV format examples
+
+- **Status:** active
+- **Tool / rule:** `spec_lint` (via `/doc-lint`, `/debt-sweep`) —
+  `invariant_no_test`
+- **Location:** `docs/standards/testing.md`, INV-1 / INV-2 / INV-3
+  (the worked example under the invariant-numbering section)
+- **Why this is a false positive:** those three are *specimens*
+  showing an author how to write an invariant — `- **INV-1**:
+  <observable behaviour, written as an assertion>.` They are not
+  this document's own contract, and `testing.md` is a standard
+  rather than a spec, so it has no invariants for a test to cover.
+  Giving them test-surface clauses would mean inventing tests for
+  placeholder text. Only fires because a sweep widened `spec_lint`
+  past `docs/specs/`; a default-scoped run does not reach this
+  file. Re-verify if `testing.md` ever gains real invariants.
+- **Suppression applied:** none available.
+- **Logged:** 2026-08-06
+- **Confirmed by phase:** DS01
 
 
 ## What does NOT belong here

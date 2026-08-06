@@ -61,8 +61,8 @@ flowchart TB
 
     subgraph outside["Outside this app"]
         FS[(Sibling project<br/>directories)]
-        CFG[($XDG_CONFIG_HOME/…<br/>projects.json<br/>settings.json)]
-        LOGF[($XDG_STATE_HOME/…<br/>per-project<br/>log files)]
+        CFG[("$XDG_CONFIG_HOME/…<br/>projects.json<br/>settings.json")]
+        LOGF[("$XDG_STATE_HOME/…<br/>per-project<br/>log files")]
         PROC([Server processes])
         NET([Listening TCP sockets])
     end

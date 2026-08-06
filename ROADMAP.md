@@ -1186,6 +1186,62 @@ program actually running.
   Priority: 2.
   Lanes: docs.
 
+- 📋 [LWSM-1061] **DS01: `spec-format.md` has no required-sections block, so that check never runs.**
+  `spec_lint` only runs its `missing_section` check when the
+  project's format standard carries a `<!-- required-sections -->`
+  block. `docs/standards/spec-format.md` has none (verified
+  2026-08-06), so the check is silently disabled and every run
+  returns `sections_checked: false`. Nothing is wrong today because
+  `docs/specs/` is still empty — but the first spec written will not
+  be checked for missing sections, and a `false` nobody reads is
+  indistinguishable from coverage. One-time fix: add the block
+  naming spec-format's own required headings.
+  Dependencies: none.
+  **Layman:** One of the automatic spec checks is switched off and reports nothing, which looks the same as passing.
+  Kind: doc-fix.
+  Source: debt-sweep-2026-08-06.
+  Priority: 3.
+  Lanes: docs.
+
+- 📋 [LWSM-1062] **DS01: reconcile the four forked standards against the app-workflow template.**
+  Measured 2026-08-06 by lineage test (shared H2 headings, so these
+  are forks and not independent authorship). `testing.md` is +98
+  lines project-only, a clean one-way fork. `coding.md` is +105 / -4,
+  `README.md` +7 / -4, `roadmap-format.md` 3 / 3 — all two-way, so
+  both sides hold content the other lacks. **The hunk worth a
+  decision:** the template's `coding.md` carries a rule this
+  project's copy dropped — prefer the latest stable release of an
+  external library, and call it with that version's current idioms.
+  That is a live policy gap, not cosmetic drift, and
+  `docs/standards/dependencies.md` may or may not already cover it.
+  Reconciling a fork is a per-hunk judgement and neither side is
+  authoritative by position, so `/debt-sweep` reports it and never
+  edits it.
+  Dependencies: none.
+  **Layman:** Four of the shared standards have drifted from the template they came from, and one may have lost a rule about keeping libraries current.
+  Kind: doc-fix.
+  Source: debt-sweep-2026-08-06.
+  Priority: 2.
+  Lanes: docs.
+
+- 📋 [LWSM-1063] **DS01: `design.md` cites a path inside a sibling repo that no reader can resolve.**
+  `docs/design.md:253` points at `project-g/run.sh:87` to evidence
+  the `${PORT:-N}` detection rule. `project-g` is an anonymised
+  sibling project outside this repository, so the citation resolves
+  for nobody — `doc_citations` returns `missing_file`. This is the
+  same class as ADR-0007's four `OneUp/updater.py` citations already
+  queued in LWSM-1060, and should get the same treatment: keep the
+  fact, drop the unresolvable line reference, or restate it as an
+  illustrative snippet inline. Filed separately because the sweep
+  initially judged it acceptable and the two were being treated
+  inconsistently.
+  Dependencies: none.
+  **Layman:** The design doc points at a line in another project's file, which nobody reading this repo can open.
+  Kind: doc-fix.
+  Source: debt-sweep-2026-08-06.
+  Priority: 4.
+  Lanes: docs.
+
 ---
 
 ## 💭 Considered — not scheduled
