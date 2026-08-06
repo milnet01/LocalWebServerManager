@@ -261,6 +261,31 @@ Markdown**, and `local-ci.sh` runs it over `.`. A spec with code
 blocks fails the gate until they are ruff-formatted. Run
 `uv run ruff format docs/specs/<file>.md` after writing one.
 
+**Trap: an exception escaping `QRunnable.run()` is swallowed by
+PySide6.** Verified against the pinned 6.11.1 on 2026-08-06: the
+traceback prints to stderr, the process survives at exit 0, and **no
+signal is emitted** — so any state the task was meant to clear stays
+set. This is what makes an unhandled probe error freeze the poll loop
+permanently rather than crash (LWSM-1069). Any `run()` body needs a
+catch-all that still reports, not just the exception it expects.
+
+**Trap: `setAccessibleName("")` does not hide a widget from the
+accessibility tree.** `QAccessibleDisplay` falls back to
+`QLabel::text()` when the accessible name is empty, so a decorative
+label is still announced — verified by querying the live interface,
+which exposes the glyph as a named child (LWSM-1071). To exclude
+something from a screen reader, paint it or merge it into a labelled
+sibling; do not blank its name. **Assert against the AT tree's
+children**, not only the parent's accessible name, or the test cannot
+see this.
+
+**Trap: run analysis tools inside the project venv (`uv run`, or
+`uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the
+*system* Python and report the project's own declared dependencies as
+missing — 21 bogus findings on 2026-08-06 against a `pyproject.toml`
+that declares them. Same family as `python` not being on PATH: the
+output looks authoritative and is about the wrong interpreter.
+
 ## Resumption flow — MANDATORY summarise-back
 
 Per the app-workflow skill:
