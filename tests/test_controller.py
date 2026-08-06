@@ -340,6 +340,72 @@ def test_a_held_status_survives_an_unexpected_exception(qtbot, controllers) -> N
     assert controller.rows()[0].status is ProjectStatus.RUNNING
 
 
+# --- LWSM-1079: a permanent failure must not scrub the log --------------------
+
+
+def drain(qtbot, controller, probe, ticks: int) -> None:
+    """Run `ticks` complete polls, waiting for each to land."""
+    for expected in range(1, ticks + 1):
+        controller.poll_once()
+        # Bound `expected` at definition time: a bare closure over the loop
+        # variable would read its final value on every iteration.
+        qtbot.waitUntil(lambda n=expected: probe.calls >= n, timeout=2000)
+        qtbot.wait(10)
+
+
+def test_a_repeated_probe_failure_is_logged_once(qtbot, controllers, caplog) -> None:
+    """The poll is 1000 ms, so a permanently unreadable socket table wrote
+    roughly 86,400 lines a day into a handler that rotates at 1 MiB keeping 5 —
+    discarding the history the user is told to consult."""
+    probe = FailingProbe()
+    controller = build(controllers, [record("a")], probe)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.controller"):
+        drain(qtbot, controller, probe, 5)
+
+    assert probe.calls == 5, "the loop must keep polling"
+    lines = [r for r in caplog.records if "socket table unavailable" in r.getMessage()]
+    assert len(lines) == 1, f"{len(lines)} log lines for one unchanging failure"
+
+
+def test_a_changed_failure_message_is_logged_again(qtbot, controllers, caplog) -> None:
+    """Suppressing by *message* rather than by count: a different failure is
+    news, and hiding it would be the over-correction."""
+
+    class DriftingProbe:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def snapshot(self) -> PortSnapshot:
+            self.calls += 1
+            raise ProbeError(f"failure number {self.calls}")
+
+    probe = DriftingProbe()
+    controller = build(controllers, [record("a")], probe)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.controller"):
+        drain(qtbot, controller, probe, 3)
+
+    logged = [
+        r.getMessage() for r in caplog.records if "failure number" in r.getMessage()
+    ]
+    assert len(logged) == 3, logged
+
+
+def test_the_suppressed_repeats_are_counted(qtbot, controllers, caplog) -> None:
+    """Silence and suppression must be distinguishable in the log."""
+    probe = FailingProbe()
+    controller = build(controllers, [record("a")], probe)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.controller"):
+        drain(qtbot, controller, probe, 4)
+        controller.stop()
+
+    assert any("repeated 3" in r.getMessage() for r in caplog.records), [
+        r.getMessage() for r in caplog.records
+    ]
+
+
 # --- LWSM-1073: stop() must actually stop, promptly, and only itself ----------
 
 

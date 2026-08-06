@@ -136,6 +136,9 @@ class ProjectController(QObject):
         self._timer.timeout.connect(self.poll_once)
         self._task: _SnapshotTask | None = None
         self._emitted_once = False
+        # Repeated-failure suppression, see _on_probe_error.
+        self._last_error: str | None = None
+        self._repeated_errors = 0
         # A private pool, not QThreadPool.globalInstance(): shutdown must wait
         # for this controller's own probe and nothing else. One thread, because
         # a tick that arrives while its predecessor is in flight is skipped
@@ -168,6 +171,8 @@ class ProjectController(QObject):
         Idempotent: `main` calls it, and so does every test fixture.
         """
         self._timer.stop()
+        # Otherwise a suppressed run's count dies with the process.
+        self._flush_repeated_error()
         task, self._task = self._task, None
         if task is not None:
             # Cut the connections BEFORE waiting. `waitForDone` waits for
@@ -208,6 +213,9 @@ class ProjectController(QObject):
 
     def _on_snapshot(self, snapshot: PortSnapshot) -> None:
         self._task = None
+        # A success ends any suppressed run, so a failure that recurs after a
+        # recovery is logged again rather than folded into the old count.
+        self._flush_repeated_error()
         previous = self._statuses
         self._statuses = {
             record.path: self._classify(record, snapshot) for record in self._records
@@ -218,8 +226,32 @@ class ProjectController(QObject):
         self._task = None
         # An unreadable socket table is not evidence that anything stopped, so
         # every status keeps its previous value (INV-4b).
-        log.warning("port probe failed, holding previous statuses: %s", exc)
+        #
+        # Logged on the FIRST failure and then only when the message changes
+        # (LWSM-1079). The poll is 1000 ms, so a permanently unreadable socket
+        # table — a hardened kernel, a persistent AccessDenied — wrote roughly
+        # 86,400 lines a day into a handler that rotates at 1 MiB keeping 5,
+        # scrubbing away the history the user is told to consult. Suppressed by
+        # message rather than by count, because a *different* failure is news.
+        message = str(exc)
+        if message == self._last_error:
+            self._repeated_errors += 1
+        else:
+            self._flush_repeated_error()
+            log.warning("port probe failed, holding previous statuses: %s", message)
+            self._last_error = message
         self._maybe_emit(self._statuses)
+
+    def _flush_repeated_error(self) -> None:
+        """Report and clear the suppressed count, so silence and suppression
+        are never indistinguishable in the log."""
+        if self._repeated_errors:
+            log.warning(
+                "the previous port probe failure repeated %d more times",
+                self._repeated_errors,
+            )
+        self._repeated_errors = 0
+        self._last_error = None
 
     def _maybe_emit(self, previous: dict[Path, ProjectStatus]) -> None:
         # The first completed poll emits unconditionally. Deriving it from map

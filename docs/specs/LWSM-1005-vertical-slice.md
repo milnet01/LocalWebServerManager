@@ -1031,8 +1031,16 @@ importing `lwsm.__main__` in a test does not require a display.
   `controller.stop()` after `app.exec()` returns, which stops the timer and
   blocks until the pool is idle (INV-16). Without it a pool thread emits
   into a controller being torn down during interpreter shutdown.
-- **The socket table cannot be read.** `ProbeError`, logged at WARNING;
+- **The socket table cannot be read.** `ProbeError`, logged at WARNING **on
+  the first failure and then only when the message changes** (LWSM-1079);
   every row keeps its previous status and no signal is emitted (INV-4b).
+  The poll is 1000 ms, so a permanently unreadable socket table — a hardened
+  kernel, a persistent `AccessDenied` — wrote roughly **86,400 lines a day**
+  into a handler that rotates at 1 MiB keeping 5, scrubbing away the history
+  the user is told to consult. Suppressed **by message, not by count**: a
+  different failure is news, and hiding it would be the over-correction. The
+  suppressed count is reported when the message changes, when a poll succeeds,
+  and on `stop()` — so silence and suppression are never indistinguishable.
   Reporting `stopped` on a failed probe would be reporting a state nobody
   observed (`§ O5`). This is the canonical statement of the behaviour; §4.3
   points here.
