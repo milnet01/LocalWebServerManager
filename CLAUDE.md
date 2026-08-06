@@ -184,10 +184,13 @@ result is recorded in `.claude/workflow.md` § 1 status header.
 
 ## Module map
 
-Three modules at P01. The layering rule is
+Eight modules at P02. The layering rule is
 [`docs/standards/coding.md § O1`](docs/standards/coding.md): a
 core module may import `QtCore` but never `QtWidgets`, so every
-one of them is testable without a display.
+one of them is testable without a display. **`tests/test_layering.py`
+enforces it by parsing the AST, not by grepping for the string** —
+every core module *documents* the rule in its docstring, so a
+substring search reports all of them as violations.
 
 - **`src/lwsm/__init__.py`** — the package docstring stating that
   rule, and `__version__`.
@@ -196,7 +199,12 @@ one of them is testable without a display.
   `--version` and `--help` work and an unrecognised option exits
   2 rather than being ignored. Prints where it is logging to, and
   starts anyway — with a warning on stderr — when the log
-  directory cannot be used. No GUI until P02.
+  directory cannot be used. Since P02 it also opens the window,
+  via **`build_window()`** — a deliberate seam: `main()` ends in a
+  blocking `app.exec()`, so anything inside it is unreachable from
+  an in-process test. `QApplication` is imported and constructed
+  *inside* `main`, after `argparse`, so `--version` needs no
+  display.
 - **`src/lwsm/applog.py`** — the application log.
   `default_state_dir()`, `get_logger()`, `configure_logging()`,
   `configure_stderr_logging()` (the fallback the entry point uses
@@ -208,8 +216,50 @@ one of them is testable without a display.
   `app.log` can redirect or block the log. The last two were
   reproduced against the `O_NOFOLLOW`-only version on 2026-08-06.
 
-`tests/test_applog.py` and `tests/test_main.py` are the test
-files so far.
+Added at P02 (LWSM-1005), contract in
+[`docs/specs/LWSM-1005-vertical-slice.md`](docs/specs/LWSM-1005-vertical-slice.md):
+
+- **`src/lwsm/registry.py`** — core. `ProjectRecord`,
+  `RegistryError`, `default_projects_path()`, `load_projects()`.
+  Returns `(records, rejection reasons)`: the file being unusable
+  raises, one bad *record* never does. A bad **port** loses the
+  field, not the row. **Port ranges differ by field** — declared
+  `port` is 1–65535 (a project may legitimately declare 80),
+  `port_override` is ADR-0005's 1024–65535. Type checks use
+  `type(v) is int`, because `isinstance(True, int)` is `True` and
+  the file is hand-editable.
+- **`src/lwsm/ports.py`** — core, no Qt at all. `PortProbe`,
+  `PortSnapshot`, `ProbeError`, and the `SupportsSnapshot`
+  Protocol the controller accepts so test fakes are the contract.
+  One `psutil.net_connections` call per snapshot.
+- **`src/lwsm/controller.py`** — core, `QtCore` only.
+  `ProjectController`, `ProjectStatus`, `RowView`. Polls every
+  1000 ms **on a `QThreadPool` worker** (design.md § State
+  management requires it). **`QRunnable` is not a `QObject`**, so
+  the task holds a composed `_SnapshotSignals(QObject)` — a
+  `Signal` declared on a bare `QRunnable` has no `emit`.
+  `stop()` waits for the pool, and every test fixture calls it.
+- **`src/lwsm/theme.py`** — UI layer, and the **only** module
+  allowed a colour literal; `test_layering.py` exempts it by an
+  explicit allowlist and asserts it still holds the palette.
+- **`src/lwsm/mainwindow.py`** — UI layer. Rows are created once
+  and **updated in place**; rebuilding would drop keyboard focus
+  and re-announce every unchanged row. The state glyph is
+  decorative and excluded from the accessible name, which is
+  built from the rendered cell strings.
+
+Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
+`test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
+`test_layering.py`, plus `conftest.py` (sets
+`QT_QPA_PLATFORM=offscreen` when unset, so a bare `pytest` cannot
+open a real window). **Markers go on tests, not files** — marking
+a whole file by its heaviest test makes `--fast` silently skip
+every light test beside it.
+
+**Trap: `ruff format` formats fenced ` ```python ` blocks inside
+Markdown**, and `local-ci.sh` runs it over `.`. A spec with code
+blocks fails the gate until they are ruff-formatted. Run
+`uv run ruff format docs/specs/<file>.md` after writing one.
 
 ## Resumption flow — MANDATORY summarise-back
 

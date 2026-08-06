@@ -1,17 +1,21 @@
 """Entry point — the `lwsm` console script and `python -m lwsm`.
 
 Contract: `CLAUDE.md § Module map` — `main()` handles `--version`, configures
-logging, and prints where it is logging to. No GUI until P02.
+logging, prints where it is logging to, and (since LWSM-1005) opens the window.
 
 These tests cover the two properties a bare `if "--version" in args` cannot
 give: an unrecognised option must be refused rather than ignored, and a log
 directory the app cannot use must not stop it starting. Both came out of the
-2026-08-06 review.
+2026-08-06 review. LWSM-1005 adds INV-14: `--version` must work with no
+display at all.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -65,6 +69,21 @@ def test_an_unknown_option_is_refused(capsys):
     assert "usage" in capsys.readouterr().err.lower()
 
 
+@pytest.fixture
+def _no_event_loop(monkeypatch):
+    """Let `main()` return instead of blocking in `app.exec()`.
+
+    Since LWSM-1005 `main` opens a window and runs the loop. The tests below
+    are about what happens *before* that, so the loop is stubbed to exit
+    immediately — the alternative is a test that never returns.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    monkeypatch.setattr(QApplication, "exec", lambda self: 0)
+
+
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
 def test_starts_even_when_the_state_directory_is_unusable(
     monkeypatch, capsys, tmp_path: Path
 ):
@@ -80,6 +99,8 @@ def test_starts_even_when_the_state_directory_is_unusable(
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory\n")
     monkeypatch.setenv("XDG_STATE_HOME", str(blocker))
+    # Keep the run off the real config directory too (§ T1).
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 
     assert main([]) == 0, "an unusable log directory must not stop the app starting"
 
@@ -87,3 +108,31 @@ def test_starts_even_when_the_state_directory_is_unusable(
     assert "log" in captured.err.lower(), (
         f"the failure was not reported to the user: {captured.err!r}"
     )
+
+
+@pytest.mark.integration
+def test_version_needs_no_display():
+    """INV-14 — `--version` must not need a platform plugin.
+
+    argparse handles it before any Qt import, so this passes only while the
+    `QApplication` construction stays inside `main` and after `parse_args`.
+    Run in a subprocess with the display variables stripped: an in-process test
+    would inherit conftest.py's `QT_QPA_PLATFORM=offscreen` and prove nothing.
+    """
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"QT_QPA_PLATFORM", "DISPLAY", "WAYLAND_DISPLAY"}
+    }
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "lwsm", "--version"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert __version__ in result.stdout

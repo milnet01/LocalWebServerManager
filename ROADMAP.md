@@ -301,7 +301,7 @@ integration pain to surface before more code lands on it.
 
 ### 🎨 Features
 
-- 📋 [LWSM-1005] **P02: one hand-written project renders a live
+- ✅ [LWSM-1005] **P02: one hand-written project renders a live
   status dot.** A `projects.json` written by hand (no scanner
   yet) is loaded by `Registry`; `PortProbe` reads the socket
   table once per second; `MainWindow` shows one row with a
@@ -325,6 +325,8 @@ integration pain to surface before more code lands on it.
   Source: in-session-2026-08-03.
   Priority: 2.
   Lanes: core, ui, tests.
+  Progress (2026-08-06): spec written and gated — docs/specs/LWSM-1005-vertical-slice.md, accepted after 3 cold-eyes loops (64 findings verified, 64 fixed, 0 unverified). Contract beyond the bullet: the probe runs on a QThreadPool worker per design.md § State management, a third status `unknown` covers "no observation available", and the controller exposes RowView rather than a bare status map. 16 invariants, 8 `nothing` rows. Implementation next.
+  Resolved (2026-08-06): five modules (registry, ports, controller, theme, mainwindow) plus `build_window()` in the entry point. 68 tests pass, `./scripts/local-ci.sh` green with no SKIPs. Verified beyond the suite by running the real entry point against a bound OS-assigned port: rows read "running, demo-live, port 57367" / "stopped, demo-down, port 1" / "unknown, demo-noport, no port", and the first flips to stopped when the socket closes. Four invariants mutation-tested (INV-4, INV-6, INV-11, INV-13) — each assertion seen to fail against a deliberately broken implementation and pass against the real one. Three deltas from the bullet, all specced: a third status `unknown` where nothing can be observed, the probe on a QThreadPool worker per design.md § State management, and `RowView` rather than a bare status map.
 
 ---
 
@@ -1168,6 +1170,7 @@ program actually running.
   Source: debt-sweep-2026-08-06.
   Priority: 3.
   Lanes: tests, build.
+  Progress (2026-08-06): LWSM-1005 is the first work to exercise any of these. `pytest-qt` now drives `test_controller.py` and `test_mainwindow.py`; both markers are used, and `tests/conftest.py` sets `QT_QPA_PLATFORM=offscreen` when unset so a bare `pytest` cannot open a real window. One lesson worth keeping when this item closes: markers belong on tests, not files — marking a whole file by its heaviest test makes `local-ci.sh --fast` silently skip every light test beside it.
 
 - 📋 [LWSM-1060] **DS01: three agreed doc tasks exist only in a session journal.**
   `.claude/workflow.md` § 3 records three decisions the user took on

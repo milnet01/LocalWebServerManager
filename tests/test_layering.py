@@ -1,0 +1,105 @@
+"""LWSM-1005 INV-8, INV-8b — the core/UI split and the no-colours rule.
+
+Both rules in `docs/standards/coding.md` are enforced by reading source rather
+than by importing it: importing the module would only prove it does not reach
+QtWidgets on the one path the import happens to take.
+
+The import check parses the AST rather than grepping for the string. A
+substring search reported every module here as a violation on its first run —
+each one *documents* the rule in its docstring, and a docstring mentioning
+QtWidgets is the opposite of a module importing it.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+from pathlib import Path
+
+import pytest
+
+SRC = Path(__file__).resolve().parent.parent / "src" / "lwsm"
+
+# coding.md § O1 names these; scanner, supervisor and logbuffer arrive later.
+CORE_MODULES = ["registry.py", "ports.py", "controller.py"]
+
+# theme.py is the token DEFINITION site, so the palette's values necessarily
+# live there. § O7's rule is about widget code, and this allowlist is explicit
+# rather than the pattern happening to miss it.
+COLOUR_EXEMPT = {"theme.py"}
+WIDGET_MODULES = ["mainwindow.py"]
+
+COLOUR_LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|QColor\s*\(")
+PINNED_FONT = re.compile(r"QFont\s*\(\s*[\"']")
+
+
+def imported_names(module: str) -> set[str]:
+    """Every module name this file imports, at any nesting depth.
+
+    Walks the tree rather than reading only top-level statements, so an import
+    tucked inside a function or a `try` is caught too.
+    """
+    tree = ast.parse((SRC / module).read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+            names.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return names
+
+
+@pytest.mark.parametrize("module", CORE_MODULES)
+def test_core_never_imports_qtwidgets(module: str) -> None:
+    offenders = {name for name in imported_names(module) if "QtWidgets" in name}
+    assert not offenders, (
+        f"{module} is a core module: a QtWidgets import is what makes it "
+        f"need a display — found {sorted(offenders)}"
+    )
+
+
+def test_the_import_check_can_actually_fail(tmp_path: Path) -> None:
+    """Guards the check itself.
+
+    An AST walk that found nothing would pass every module silently, which is
+    indistinguishable from a clean tree. This proves the detector fires.
+    """
+    offender = tmp_path / "offender.py"
+    offender.write_text("from PySide6.QtWidgets import QLabel\n", encoding="utf-8")
+    tree = ast.parse(offender.read_text(encoding="utf-8"))
+    found = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert any("QtWidgets" in name for name in found)
+
+
+@pytest.mark.parametrize("module", WIDGET_MODULES)
+def test_no_colour_literals_in_widget_code(module: str) -> None:
+    assert module not in COLOUR_EXEMPT
+    source = (SRC / module).read_text(encoding="utf-8")
+    # Strip comments: a hex value quoted in a comment explaining the rule is not
+    # a breach of it.
+    code = "\n".join(
+        line.split("#")[0] if line.lstrip().startswith("#") else line
+        for line in source.splitlines()
+    )
+    found = COLOUR_LITERAL.findall(code)
+    assert not found, f"{module} names a colour instead of a theme token: {found}"
+
+
+@pytest.mark.parametrize("module", WIDGET_MODULES)
+def test_no_pinned_font_family_in_widget_code(module: str) -> None:
+    source = (SRC / module).read_text(encoding="utf-8")
+    assert not PINNED_FONT.search(source), (
+        f"{module} pins a font family; § O7 says ask for the system font"
+    )
+
+
+def test_the_exempt_module_is_the_one_that_holds_the_colours() -> None:
+    # Guards the allowlist itself: if theme.py ever stops holding the palette,
+    # the exemption is protecting nothing and should go.
+    source = (SRC / "theme.py").read_text(encoding="utf-8")
+    assert COLOUR_LITERAL.search(source), "theme.py is meant to be the colour site"

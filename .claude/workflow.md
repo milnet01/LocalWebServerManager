@@ -4,12 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| **Project phase** | P01 — Bootstrap: all four bullets ✅ 2026-08-06; the phase stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03 |
-| **Active item ID** | (none — pre-code phases produce documents, not roadmap items) |
-| **Active step** | (n/a until P01) |
-| **Last update** | 2026-08-06 (`FP02` closed: audit + two-lane cold review, 16 findings fixed, 22 tests green, `/feature-review` ran all 12 promises. **Three user doc decisions from the entry below are STILL not implemented** — SECURITY.md, CODE_OF_CONDUCT.md, ADR-0007 citations) |
-| **Blocked on** | — (nothing blocking; three small doc tasks are queued and specified) |
-| **Next gate** | P02 — vertical slice, now unblocked: `design.md` is gated and safe to build UI from. Clear the three queued doc tasks first — they are ~30 minutes and the decisions are already made. P01 stays open until FP01's five 🚧 items land in P05/P06 |
+| **Project phase** | P02 — Vertical slice: LWSM-1005 ✅ 2026-08-06. P01 stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03 |
+| **Active item ID** | (none — LWSM-1005 closed; next is P03 or the queued doc tasks) |
+| **Active step** | (n/a — awaiting the next item) |
+| **Last update** | 2026-08-06 (`LWSM-1005` shipped: spec written and gated through 3 cold-eyes loops (64 findings, all verified and fixed), then implemented — 5 new modules, 68 tests green, local-ci clean with no SKIPs. **Three user doc decisions are STILL not implemented** — SECURITY.md, CODE_OF_CONDUCT.md, ADR-0007 citations; they are LWSM-1060) |
+| **Blocked on** | — (nothing blocking) |
+| **Next gate** | Steps 5–9 of the per-phase loop for P02 — `/close-phase` runs `/audit` + `/code-quality-review`. Candidates after that: LWSM-1060 (the three doc tasks, ~30 min, decisions already made) or P03's scanner (LWSM-1006). P01 stays open until FP01's five 🚧 items land in P05/P06 |
 | **Convergence checkpoint** | 5 (consecutive `FP##` items immediately preceding any ✅-`implement`-Kind close in the active release block — see `~/.claude/commands/close-phase.md § 5a-6`) |
 | **Debt-sweep phase threshold** | 5 (auto-prompt for `/debt-sweep` after this many phases without one) |
 | **Last debt sweep** | 2026-08-06 (`DS01`, whole history — no dependency drift; doc drift fixed, four items filed to the roadmap) |
@@ -74,6 +74,49 @@ journal); §2 is the only part that changes.
 ## §3. Session journal
 
 Append-only. Newest at the top.
+
+### 2026-08-06 — LWSM-1005: P02 vertical slice, spec-first
+
+**Spec through the gate first, then code.** `docs/specs/` was empty —
+54 roadmap bullets and no contract for any of them. LWSM-1005 introduces
+a persisted file format and three module contracts every later phase
+builds against, so `/write-spec` ran before any implementation.
+
+Three cold-eyes loops, 64 findings, all verified, all fixed, none
+dismissed. What the gate actually bought, none of which a self-read
+would have caught:
+
+- **The probe was on the UI thread.** `design.md § State management`
+  requires a worker unconditionally. Deferring it would have meant
+  rebuilding `PortProbe`, `ProjectController` and the signal wiring at
+  P06.
+- **Two invariants could not fail for the breach they named.** INV-4's
+  fixture was a *fresh* controller, which reports the right answer under
+  a sticky implementation too; INV-11 named `psutil` and `MainWindow`,
+  neither of which its fake-probe fixture has.
+- **Loop 2 prescribed `_SnapshotTask(QObject, QRunnable)` without
+  running it.** Loop 3 named that omission. Both shapes turn out to work
+  under 6.11.1 — but the *justification* in the doc was wrong, and the
+  composed-signaller shape is the documented idiom.
+- **Both loop-2 lanes agreed the XDG citation was wrong and both named
+  the same wrong replacement** (`§ O6`). It is `§ O3`. Verification, not
+  consensus, is what caught it — this is the case for Phase 3 existing.
+
+**Loop economics behaved exactly as the skill predicts.** Loop 2 was
+~72% fix collateral from loop 1's own edits, loop 3 almost entirely so.
+The doc grew 391 → 921 lines across the three loops. At 921 lines it is
+large for a spec; if P03 needs one this size, split along the module
+seams rather than repeating this shape.
+
+**Beyond the suite:** four invariants mutation-tested — each assertion
+watched failing against a deliberately broken implementation. The first
+mutation run reported four clean passes because `python` is not on
+PATH here (`uv run python3`); the mutants had never been applied. Read
+the output, not the exit code.
+
+**`ruff format` formats fenced ` ```python ` blocks inside Markdown**,
+and `local-ci.sh` runs it over `.`. The spec failed the gate on its own
+code blocks. Recorded in `CLAUDE.md § Module map`.
 
 ### 2026-08-06 — FP02: audit + two-lane cold review, 16 findings closed
 

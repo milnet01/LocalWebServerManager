@@ -100,21 +100,24 @@ Path is overridable for tests (`docs/standards/testing.md § T1`).
 ```python
 @dataclass(frozen=True)
 class ProjectRecord:
-    path: Path                  # absolute, ADR-0005's identity
+    path: Path  # absolute, ADR-0005's identity
     name: str
-    port: int | None            # declared; ADR-0005 "detected" half
-    port_override: int | None   # user-owned half
+    port: int | None  # declared; ADR-0005 "detected" half
+    port_override: int | None  # user-owned half
 
     @property
     def effective_port(self) -> int | None: ...
 
+
 class RegistryError(Exception): ...
+
 
 def default_projects_path() -> Path:
     """$XDG_CONFIG_HOME/localwebservermanager/projects.json, falling back
     to ~/.config when the variable is unset or not absolute — the config
     half of `docs/standards/coding.md § O3`'s XDG rule, whose state half
     is already `applog.py::default_state_dir`."""
+
 
 def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
     """Returns (records, rejection messages). Raises RegistryError only
@@ -182,12 +185,15 @@ must not blank the list.
 @dataclass(frozen=True)
 class PortSnapshot:
     listening: frozenset[int]
+
     def is_bound(self, port: int) -> bool: ...
+
 
 class SupportsSnapshot(Protocol):
     def snapshot(self) -> PortSnapshot: ...
 
-class PortProbe:                      # the real one; satisfies the Protocol
+
+class PortProbe:  # the real one; satisfies the Protocol
     def snapshot(self) -> PortSnapshot: ...
 ```
 
@@ -222,24 +228,32 @@ down.
 ```python
 POLL_INTERVAL_MS = 1000
 
+
 class ProjectStatus(StrEnum):
     RUNNING = "running"
     STOPPED = "stopped"
     UNKNOWN = "unknown"
 
+
 @dataclass(frozen=True)
-class RowView:                           # everything one row renders
+class RowView:  # everything one row renders
     path: Path
     name: str
     effective_port: int | None
     status: ProjectStatus
 
+
 class ProjectController(QObject):
-    projects_changed = Signal()          # docs/design.md § State management
-    def __init__(self, records: list[ProjectRecord], probe: SupportsSnapshot,
-                 parent: QObject | None = None) -> None: ...
+    projects_changed = Signal()  # docs/design.md § State management
+
+    def __init__(
+        self,
+        records: list[ProjectRecord],
+        probe: SupportsSnapshot,
+        parent: QObject | None = None,
+    ) -> None: ...
     def start_polling(self) -> None: ...
-    def stop(self) -> None: ...          # timer off, wait for the pool
+    def stop(self) -> None: ...  # timer off, wait for the pool
     def poll_once(self) -> None: ...
     def rows(self) -> list[RowView]: ...
 ```
@@ -275,13 +289,15 @@ So `poll_once` does not probe. It submits a task to
 
 ```python
 class _SnapshotSignals(QObject):
-    done = Signal(object)       # carries a PortSnapshot
-    failed = Signal(object)     # carries a ProbeError
+    done = Signal(object)  # carries a PortSnapshot
+    failed = Signal(object)  # carries a ProbeError
+
 
 class _SnapshotTask(QRunnable):
     def __init__(self, probe: SupportsSnapshot) -> None:
         super().__init__()
         self.signals = _SnapshotSignals()
+
     def run(self) -> None: ...  # called on the pool thread
 ```
 
@@ -377,8 +393,13 @@ no `unknown` state because it lists states derived from *observation*, and
 
 ```python
 class MainWindow(QMainWindow):
-    def __init__(self, controller: ProjectController, theme: Theme,
-                 notices: list[str], parent: QWidget | None = None) -> None: ...
+    def __init__(
+        self,
+        controller: ProjectController,
+        theme: Theme,
+        notices: list[str],
+        parent: QWidget | None = None,
+    ) -> None: ...
     def set_status_message(self, text: str) -> None: ...
 ```
 

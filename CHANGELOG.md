@@ -23,6 +23,26 @@ signaling per
 
 ### Added
 
+- **A window that shows each project's live status** (LWSM-1005)
+  `lwsm` now opens a window listing the projects named in
+  `~/.config/localwebservermanager/projects.json`, written by hand for
+  now. Each row states — as a word, a glyph and a colour — whether
+  anything is listening on that project's port: `running`, `stopped`,
+  or `unknown` where the project names no port. The label follows the
+  live socket table within 2 seconds of a server starting or stopping,
+  and is re-derived on every start rather than remembered.
+
+  Rows are keyboard-focusable and carry an accessible name built from
+  what is on screen, so a screen reader announces "running, project-a,
+  port 5005". The glyph is decorative and left out of it. Colours come
+  from theme tokens rather than being written into the widgets.
+
+  A malformed `projects.json` is refused with a named reason rather
+  than half-read; a single bad record is skipped and reported in the
+  status bar while the rest still load; and a mistyped port loses the
+  port, not the project. The socket table is read on a background
+  worker, so a slow lookup cannot freeze the window.
+
 - The `lwsm` console script and `python -m lwsm`, with a
   `--version` flag. No interface yet — it configures logging,
   reports where it is logging to, and exits 0. CI asserts the
