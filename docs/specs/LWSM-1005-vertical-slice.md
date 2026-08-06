@@ -1,6 +1,6 @@
 # LWSM-1005 — Render one hand-written project as a live status row
 
-**Status:** spec draft (2026-08-06).
+**Status:** accepted (2026-08-06)
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1005 (P02 vertical slice, in-session-2026-08-03).
 
@@ -138,12 +138,15 @@ and ADR-0005 forbids partially parsing it:
    `OSError`**. Catching only `FileNotFoundError` would let the rest escape
    `main`, which §4.5 step 4 tolerates only `RegistryError` from.
 2. The bytes are not valid UTF-8, are not valid JSON, or the top level is
-   not an object. All three are `ValueError` or narrower, and
+   not an object. The first two are `ValueError` or narrower — and
    `UnicodeDecodeError` is **not** a `json.JSONDecodeError`, so it has to
-   be named.
-3. `schema_version` is absent, or is anything but the integer `1`. Absent
-   counts: a file that does not say which schema it is written to is one
-   this build cannot claim to understand.
+   be named. The third raises nothing at all: `json.loads` happily returns
+   a list or a string, so it is an explicit `isinstance(data, dict)` check
+   after a successful parse. An implementer who reads this as "wrap the
+   parse in `except ValueError`" ships without it.
+3. `schema_version` is absent, or is anything but the integer `1` —
+   checked as `type(v) is int and v == 1`, because `True == 1` and a
+   hand-edited `"schema_version": true` would otherwise pass.
 4. `projects` is absent, or is not a list.
 
 Each **element** of `projects` that is not a JSON object is skipped with a
@@ -236,6 +239,7 @@ class ProjectController(QObject):
     def __init__(self, records: list[ProjectRecord], probe: SupportsSnapshot,
                  parent: QObject | None = None) -> None: ...
     def start_polling(self) -> None: ...
+    def stop(self) -> None: ...          # timer off, wait for the pool
     def poll_once(self) -> None: ...
     def rows(self) -> list[RowView]: ...
 ```
@@ -250,8 +254,9 @@ beyond widget state". Order is the file's order, so rows do not jump.
 states the roadmap bullet asks for. `UNKNOWN` is not a third derived state:
 it means **no observation is available**, and covers exactly two cases —
 a record with no `effective_port`, so there is no port to look at; and any
-record before the first poll has completed, since the probe is
-asynchronous and `start_polling()` returns before its result arrives.
+record for which no *successful* poll has yet completed, since the probe is
+asynchronous and `start_polling()` returns before its result arrives, and a
+first poll that raised `ProbeError` completed without observing anything.
 Calling either `stopped` would assert something nobody looked at (`§ O5`).
 `docs/design.md § The effective port` uses the same word for the first case
 — "one with nothing at all is *unknown*" — and the second is the same
@@ -269,25 +274,44 @@ So `poll_once` does not probe. It submits a task to
 `QThreadPool.globalInstance()`:
 
 ```python
-class _SnapshotTask(QObject, QRunnable):
+class _SnapshotSignals(QObject):
     done = Signal(object)       # carries a PortSnapshot
     failed = Signal(object)     # carries a ProbeError
-    def __init__(self, probe): ...
+
+class _SnapshotTask(QRunnable):
+    def __init__(self, probe: SupportsSnapshot) -> None:
+        super().__init__()
+        self.signals = _SnapshotSignals()
     def run(self) -> None: ...  # called on the pool thread
 ```
 
-**The multiple inheritance is required, not stylistic.** `QRunnable` is not
-a `QObject` — verified against the pinned PySide6 6.11.1:
-`issubclass(QRunnable, QObject)` → `False`, and a `Signal` declared on a
+**The signals live on a composed `QObject`, not on the task**, because
+`QRunnable` is not a `QObject`: `issubclass(QRunnable, QObject)` → `False`
+under the pinned PySide6 6.11.1, and a `Signal` declared directly on a
 plain `QRunnable` subclass raises `AttributeError: 'PySide6.QtCore.Signal'
-object has no attribute 'emit'` when emitted. A task that only inherits
-`QRunnable` therefore has no way to report its result, which is exactly the
-`§ O6` trap ("check an API exists in the installed PySide6 before designing
-around it").
+object has no attribute 'emit'` when emitted. Both verified by running
+them, not by recall — `§ O6`: "check an API exists in the installed PySide6
+before designing around it."
+
+For the record, so nobody re-litigates it: `class _SnapshotTask(QObject,
+QRunnable)` **also** works under 6.11.1 — it instantiates, connects, runs
+on a pool thread and emits, checked with `QObject.__init__(self)` and
+`QRunnable.__init__(self)` called explicitly. The composed signaller is
+chosen anyway, because it is the shape PySide6's own documentation uses and
+it keeps the auto-delete question below off a multiply-inherited object.
 
 `setAutoDelete(False)`, and the controller holds the one outstanding task
 as an attribute until its signal arrives. The pool's default auto-delete
-would free the `QObject` half while a queued emission is still in flight.
+would free the task while a queued emission from its signaller is still in
+flight.
+
+**Shutdown is part of the contract.** `ProjectController.stop()` stops the
+`QTimer` and then blocks on `QThreadPool.globalInstance().waitForDone()`
+until any outstanding task has finished. `main` calls it after `app.exec()`
+returns, and every test fixture calls it in teardown — `§ T5` ("every test
+kills what it started") covers pool threads as much as sockets, and a task
+emitting into a half-torn-down controller is the shape that makes a suite
+flaky in a way that reproduces once a week.
 
 The controller connects `done` and `failed` on the owning thread before
 submitting, so both are queued, and classifies in those slots.
@@ -360,10 +384,18 @@ class MainWindow(QMainWindow):
 
 `notices` is `load_projects`'s second tuple element — the per-record
 rejection reasons — and `set_status_message` is what §6 and INV-15 mean by
-"reaches the status bar". §4.5 step 3 routes both: the rejection list into
-the constructor, and a `RegistryError`'s own message through the same slot
-after construction. Without these two the plumbing for a behaviour INV-15
-tests would have to be invented by the implementer.
+"reaches the status bar". §4.5 routes both: the rejection list into the
+constructor, and a `RegistryError`'s own message through the same slot.
+Without these two the plumbing for a behaviour INV-15 tests would have to
+be invented by the implementer.
+
+**N notices become one status-bar line**: the first, then `(+N more)` when
+there is more than one — the bar is one line and a join would truncate
+unpredictably. **Every notice is logged in full**, one line each at
+WARNING, by `build_window`, so the status bar is a summary and the log is
+the record. `Theme.default()` supplies the single palette; it is the light
+one, since that is what a first run gets with no settings file to say
+otherwise.
 
 It builds one row widget per `RowView` **once**, and on each
 `projects_changed` **updates the existing widgets in place** — the changed
@@ -379,7 +411,7 @@ Each row is, in visual and tab order:
 
 | Cell | Content |
 |---|---|
-| state | the glyph (`●` running / `○` stopped / `?` unknown) then the **word** `running` / `stopped` / `unknown`, coloured from the matching state token |
+| state | two sub-labels: a **glyph** (`●` running / `○` stopped / `?` unknown), then the **word** `running` / `stopped` / `unknown`. Both coloured from the matching state token |
 | name | the project's display name |
 | port | `port 5005` — the word and the number — or the literal `no port` |
 
@@ -388,10 +420,18 @@ The port cell carries the **word** `port`, not a bare number, because
 running, port 5005" and the cell text is what a screen reader reads. A bare
 `5005` would leave a listener with an unlabelled number.
 
+**The glyph is decorative and is excluded from the accessible name.** It
+is one of the three signals `docs/design.md § Accessibility` requires, and
+it carries nothing the word does not — so a screen reader that read it
+would announce "black circle, running, project-a", which is noise wearing
+the costume of redundancy. The glyph sub-label is marked accessibility-
+ignored; `state_text` below means **the word alone**.
+
 The state cell is first, which `docs/design.md § Accessibility` requires
 ("the state word is first in the row"). Each row is a focusable widget
-whose accessible name is built **from the three rendered cell strings, in
-their visual order** — `f"{state_text}, {name_text}, {port_text}"`, giving
+whose accessible name is built **from the rendered cell strings, in their
+visual order, glyph excluded** —
+`f"{state_text}, {name_text}, {port_text}"`, giving
 `"running, project-a, port 5005"` and `"unknown, project-b, no port"`.
 The order differs from the design's example sentence because the design
 separately requires the state word first in the row; the *content* is the
@@ -417,17 +457,36 @@ finds the log when the window misbehaves.
    exit without constructing a `QApplication` and therefore work with no
    display.
 2. Logging is configured exactly as now, including the stderr fallback.
-3. `QApplication` is constructed, then `load_projects(default_projects_path())`,
-   `PortProbe`, `ProjectController`, and `MainWindow(controller, theme,
-   notices)` — `notices` being `load_projects`'s rejection list. Then
-   `controller.start_polling()` and `app.exec()`. `main` returns
-   `app.exec()`'s value.
-4. A `RegistryError` is **caught in `main`** and is not fatal: the window
-   is constructed with no records and an empty `notices`, and
-   `window.set_status_message(...)` names the file and the reason (§6). A
-   missing `projects.json` must not stop the app from starting, for the
-   same reason an unwritable log does not. No other exception is caught
-   here — a bug must not be disguised as a first run.
+3. `QApplication` is constructed, and then **all the wiring happens in a
+   separate function**:
+
+   ```python
+   def build_window(projects_path: Path) -> tuple[MainWindow, ProjectController]:
+       """Load, construct and connect. Does not run an event loop."""
+   ```
+
+   `build_window` calls `load_projects(projects_path)`, then `PortProbe`,
+   `ProjectController`, `MainWindow(controller, Theme.default(), notices)`
+   — `notices` being `load_projects`'s rejection list — and
+   `controller.start_polling()`. `main` then calls `window.show()`,
+   `app.exec()`, and `controller.stop()`, and returns `app.exec()`'s value.
+
+   **The split is what makes step 4 testable.** `main` ends in a blocking
+   `app.exec()`, so an in-process test can never reach a catch that lives
+   inside it; a test that constructed `MainWindow` itself would be testing
+   the window and not the catch. `build_window` runs no event loop, so
+   INV-15 drives it directly. `main` is left as three lines with nothing
+   in it worth a test beyond INV-14.
+
+4. A `RegistryError` is **caught in `build_window`** and is not fatal: the
+   window is constructed with no records and an empty `notices`, and
+   `set_status_message(...)` names the file and the reason (§6).
+   `start_polling()` still runs — a project list that failed to load does
+   not stop the poll from establishing that there is nothing to poll, and
+   INV-5's zero-record case depends on it. A missing `projects.json` must
+   not stop the app from starting, for the same reason an unwritable log
+   does not. No other exception is caught here — a bug must not be
+   disguised as a first run.
 
 `QApplication` is constructed inside `main`, never at module import, so
 importing `lwsm.__main__` in a test does not require a display.
@@ -435,9 +494,11 @@ importing `lwsm.__main__` in a test does not require a display.
 ## 5. Invariants
 
 - **INV-1** — `load_projects` raises `RegistryError`, and returns no
-  records, for each of the four unusable-file shapes in §4.1: absent,
-  not-a-JSON-object, `schema_version` absent or not the integer `1`, and
-  `projects` absent or not a list.
+  records, for each of the four unusable-file shapes §4.1 enumerates:
+  unreadable (any `OSError`), not-UTF-8/not-JSON/not-an-object,
+  `schema_version` absent or not the integer `1`, and `projects` absent or
+  not a list. §4.1 is canonical for the four; this clause does not restate
+  their detail.
   *Test:* `tests/test_registry.py::test_unusable_files_are_refused`, one
   parametrised case per shape — including a chmod-000 file and a
   non-UTF-8 one, which the two commonest hand-written implementations
@@ -516,8 +577,10 @@ importing `lwsm.__main__` in a test does not require a display.
   colour and all glyphs from a row still leaves `running`, `stopped` or
   `unknown` readable.
   *Test:* `tests/test_mainwindow.py::test_state_is_a_word_not_only_colour`,
-  asserting the row's visible text contains the status word and that its
-  accessible name does too.
+  asserting the row's visible text contains the status word, that its
+  accessible name does too, and that the accessible name contains **none**
+  of the glyph characters `●○?` — a name built from the raw state cell
+  would announce "black circle, running, …".
   *Breaks when:* the dot becomes the only state signal — the red/green
   failure `docs/design.md § Accessibility` names as its commonest case.
 
@@ -608,12 +671,25 @@ importing `lwsm.__main__` in a test does not require a display.
   *Breaks when:* `QApplication` is constructed at module import or before
   `parse_args` — which turns `--version` on a headless box into an abort.
 
-- **INV-15** — A `RegistryError` does not stop the app: the window opens,
-  shows no rows, and its status bar names the file and the reason.
-  *Test:* `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window`.
-  *Breaks when:* the exception propagates out of `main` — a missing
-  `projects.json` is first-run, not a crash, on the same reasoning that
-  keeps an unwritable log from killing startup.
+- **INV-15** — A `RegistryError` does not stop the app: `build_window`
+  returns a window with no rows whose status bar names the file and the
+  reason, and does not raise.
+  *Test:* `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window`,
+  calling `build_window` on a path with no file. It targets `build_window`
+  rather than `main` because `main` blocks in `app.exec()`, so a test that
+  called it would never return.
+  *Breaks when:* the exception propagates — a missing `projects.json` is
+  first-run, not a crash, on the same reasoning that keeps an unwritable
+  log from killing startup.
+
+- **INV-16** — After `ProjectController.stop()` returns, no task is
+  outstanding: a snapshot arriving later cannot touch a torn-down
+  controller.
+  *Test:* `tests/test_controller.py::test_stop_waits_for_the_outstanding_task`,
+  with a fake probe that blocks until released.
+  *Breaks when:* `stop()` only stops the `QTimer` — the pool thread then
+  emits into a controller the test has already dropped, which is the
+  once-a-week flake `§ T5` exists to prevent.
 
 ## 6. Failure modes
 
@@ -631,6 +707,10 @@ importing `lwsm.__main__` in a test does not require a display.
 - **Two records name the same `path`.** The second is skipped with a
   reason (INV-2). ADR-0005 makes the absolute path the identity, so two
   records with one identity is a malformed file, not a merge question.
+- **The app quits while a probe is outstanding.** `main` calls
+  `controller.stop()` after `app.exec()` returns, which stops the timer and
+  blocks until the pool is idle (INV-16). Without it a pool thread emits
+  into a controller being torn down during interpreter shutdown.
 - **The socket table cannot be read.** `ProbeError`, logged at WARNING;
   every row keeps its previous status and no signal is emitted (INV-4b).
   Reporting `stopped` on a failed probe would be reporting a state nobody
@@ -651,10 +731,11 @@ importing `lwsm.__main__` in a test does not require a display.
 
 ## 7. Tests
 
-Five new files plus one existing one, all headless (`§ T6`;
-`scripts/local-ci.sh` already exports `QT_QPA_PLATFORM=offscreen`, and a
-new `tests/conftest.py` sets it when unset so a bare `pytest` cannot open a
-real window). INV-14's subprocess is the one exception and **must not
+Five new test files, a new `tests/conftest.py`, plus one existing file —
+all headless (`§ T6`; `scripts/local-ci.sh` already exports
+`QT_QPA_PLATFORM=offscreen`, and the `conftest.py` sets it when unset so a
+bare `pytest` cannot open a real window). INV-14's subprocess is the one
+exception and **must not
 inherit that value** — it removes `QT_QPA_PLATFORM`, `DISPLAY` and
 `WAYLAND_DISPLAY` from the child's environment, because its whole claim is
 that `--version` needs no platform plugin at all:
@@ -672,20 +753,22 @@ binds a socket.
 | INV-1, INV-2, INV-10 | `tests/test_registry.py` | — |
 | INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
 | INV-9 | `tests/test_ports.py` | `integration` |
-| INV-3, INV-4, INV-4b, INV-5, INV-11, INV-12 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
+| INV-3, INV-4, INV-4b, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
 | INV-6, INV-13, INV-15 | `tests/test_mainwindow.py` | `gui` |
 | INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
 | INV-8, INV-8b | `tests/test_layering.py` | — |
 | INV-14 | `tests/test_main.py` (existing file) | `integration` (spawns a subprocess) |
 
-INV-15 observes `main`'s catch through the window it produces, so it lives
-with the widget tests rather than in `test_main.py`; INV-14 observes the
-entry point before any window exists, so it lives there.
+INV-15 drives `build_window`, which constructs the window, so it lives with
+the widget tests; INV-14 observes the entry point before any window exists,
+so it lives in `test_main.py`.
 
 Ports come from binding `0` and asking the socket, never a literal
 (`§ T3`). Waits are `qtbot.waitUntil` on the condition, never a sleep
-(`§ T4`). Every fixture closes its socket in teardown (`§ T5`), and no test
-reads the real `~/.config/localwebservermanager/` (`§ T1`).
+(`§ T4`). Every fixture closes its socket **and calls
+`ProjectController.stop()`** in teardown (`§ T5`, INV-16) — a pool thread
+outliving its test poisons the next one exactly as a leaked child process
+would. No test reads the real `~/.config/localwebservermanager/` (`§ T1`).
 
 Each test is seen to fail before its implementation lands, **against a stub
 that exists and returns the wrong answer** — never against an absent
@@ -783,20 +866,25 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-13 | `tests/test_mainwindow.py::test_focus_survives_a_status_change` |
 | INV-14 | `tests/test_main.py::test_version_needs_no_display` |
 | INV-15 | `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window` |
+| INV-16 | `tests/test_controller.py::test_stop_waits_for_the_outstanding_task` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |
 | O8.4 — reflow at 200 % text size | **nothing** — the text-size control itself is LWSM-1032; P02 pins no sizes, which is necessary and not sufficient |
-| `§ O7`'s font-family and pixel-size half | **nothing** — INV-8b checks colour literals only. A widget pinning `setFont(QFont("DejaVu Sans"))` or a fixed height passes every test here |
+| Contrast of the three state tokens in the default palette | **nothing** — `§ T8`'s contrast arithmetic is one of LWSM-1032's surfaces; P02 introduces a palette nothing measures |
+| "The state word is first in the row" | **nothing** — §4.4 claims it and no invariant asserts it; LWSM-1032's x-position row is the surface |
+| `§ O7`'s font-family and pixel-size half | **nothing**, and **unowned** — INV-8b checks colour literals only, so a widget pinning `setFont(QFont("DejaVu Sans"))` or a fixed height passes every test here. No roadmap item schedules this check; LWSM-1032's rows are about rendered output, not about source literals |
 | The 2 s criterion under load | **nothing** — INV-7 measures one project on an idle machine; the ≤250 ms snapshot budget at 20 projects is unmeasured until there are 20 projects to measure, which no roadmap item yet creates |
 
-Six `nothing` rows, up from three once the ones that only *looked* covered
-were separated out. Five are surfaces LWSM-1032 creates; one waits on a
-project count P02 does not have and nothing yet schedules. Per
-`spec-format § 0`'s "one number that matters", six is this spec's honest
-error budget, and the accessibility rows are the bulk of it — which is the
-expected shape for a phase that builds the row correctly but cannot yet
-test that it did.
+Eight `nothing` rows, up from three once the ones that only *looked*
+covered were separated out. Six are surfaces LWSM-1032 creates; **two are
+unowned** — the `§ O7` font/size check and the 2-second criterion under
+load — and being unowned is the point of listing them, since a gap with a
+roadmap id is scheduled and a gap without one is only known. Per
+`spec-format § 0`'s "one number that matters", eight is this spec's honest
+error budget, and the accessibility rows are the bulk of it — the expected
+shape for a phase that builds the row correctly but cannot yet test that it
+did.
 
 ## 12. Cross-doc impact
 
@@ -833,3 +921,4 @@ test that it did.
 |------|------|-------|------|------|-----|-----|---------|
 | 1 | 2026-08-06 | 2 | 2 | 6 | 8 | 10 | 26 verified, 0 unverified, 26 fixed. Dimensions: dim 2×6, dim 5×6, dim 7×6, dim 15×4, dim 4×3, dim 6×2, dim 10×2, dim 1×1. Both CRITICALs were doc-vs-design conflicts: the probe ran on the UI thread against `design.md § State management`'s worker rule, and INV-4 forbade the very carry-over §6 required on a failed probe. Contract added: `ProjectStatus.UNKNOWN`, `RowView`, the worker + in-flight skip, in-place row updates. INV-3 and INV-8 split because each claimed more than its named test exercised. 391 → 684 lines. |
 | 2 | 2026-08-06 | 2 | 1 | 8 | 12 | 12 | 25 verified (18 fix collateral from loop 1, 7 draft defects), 0 unverified, 25 fixed. Dimensions: dim 15×7, dim 5×6, dim 7×5, dim 4×4, dim 10×3, dim 2×2, dim 1×1, dim 6×1, dim 12×1. Two invariants could not fail for the breach they named: INV-4's fresh-controller fixture passes under a sticky implementation, and INV-11 named `psutil` and `MainWindow`, neither of which its fixture has. `QRunnable` cannot carry a `Signal` — `issubclass(QRunnable, QObject)` is `False`, verified — so the worker became `_SnapshotTask(QObject, QRunnable)`. Both lanes agreed the XDG citation was wrong and both named the wrong replacement (`§ O6`); verification found `§ O3`. `nothing` rows 4 → 6 once promises that only looked covered were separated. 684 → 833 lines. |
+| 3 | 2026-08-06 | 1 | 0 | 3 | 5 | 5 | 13 verified, 0 unverified, 13 fixed. Almost all fix collateral from loops 1–2, which is why one lane rather than two. The lane named the check this run owed itself: loop 2 prescribed `_SnapshotTask(QObject, QRunnable)` **without executing it**. Executed here — both that shape *and* a plain `QRunnable` with a composed signaller work under 6.11.1, so the lane's premise (Shiboken forbids it) was wrong while its advice was right; the composed signaller is adopted as the documented idiom. Also caught: the accessible name would have included the `●` glyph and announced "black circle"; INV-15 named a test that could not observe it, since `main` blocks in `app.exec()` — `build_window` is the seam that fixes it. Added INV-16 (shutdown waits for the outstanding task). `nothing` rows 6 → 8, two of them unowned. 833 → 921 lines. **Converged by cap.** No verified finding is left unfixed. |
