@@ -48,7 +48,7 @@ Three consequences:
    `QT_QPA_PLATFORM=offscreen`, so the headless lane exists and has never
    carried a test.
 
-## 3. Scope decisions (agreed with the user)
+## 3. Scope decisions (and who made each)
 
 - **Two states, and the collapse is deliberate.** The roadmap bullet asks
   for `running` and `stopped` only. With no `Supervisor` there is never an
@@ -63,18 +63,16 @@ Three consequences:
 - **Accessibility lands with the first row, not after.** Roadmap bullet's
   wording, and `docs/standards/coding.md § O8`. All four of O8's
   requirements apply to the row from the first commit.
-- **A third *label*, `unknown`, for a record with no port.** Author's call
-  during this spec's review loop, not the user's, and it is a reading of
+- **A third status, `unknown`, where no observation is available.**
+  Author's call, not the user's, and it is a reading of
   "two states" rather than a departure from it: `running` and `stopped`
   remain the only two states *derived from observation*, and `unknown` is
   what a row shows when there is no port to observe — the same word
   `docs/design.md § The effective port` uses for the same condition.
   Calling such a row `stopped` would be the one thing `§ O5` forbids.
-- **The probe goes on a worker in P02, not later.** `docs/design.md
-  § State management` requires it unconditionally, and `§ O2` calls a
-  worker-to-widget boundary the codebase's single most likely defect. P02
-  is the cheapest place it will ever be built — one project, no process
-  I/O. The alternative was deferring it as a P02 deviation, rejected in §8.
+- **The probe goes on a worker in P02, not later.** Author's call;
+  `docs/design.md § State management` requires it unconditionally. §8
+  carries the full argument and the rejected alternative.
 - **One palette, not six.** LWSM-1031 owns the theme set; P02 needs
   widgets that name tokens rather than colours (§ O7), which one palette
   proves as well as seven.
@@ -115,7 +113,8 @@ class RegistryError(Exception): ...
 def default_projects_path() -> Path:
     """$XDG_CONFIG_HOME/localwebservermanager/projects.json, falling back
     to ~/.config when the variable is unset or not absolute — the config
-    half of `docs/standards/coding.md § O4`'s XDG rule."""
+    half of `docs/standards/coding.md § O3`'s XDG rule, whose state half
+    is already `applog.py::default_state_dir`."""
 
 def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
     """Returns (records, rejection messages). Raises RegistryError only
@@ -132,24 +131,37 @@ LWSM-1006, and until then a record with neither field reads `None`.
 
 **The file is hand-editable, therefore attacker-editable** — ADR-0007's
 reasoning about `settings.json`, applied here. `RegistryError` is raised,
-and no records are returned, for exactly four shapes — the file itself is
-unusable and ADR-0005 forbids partially parsing it:
+and no records are returned, for four shapes — the file itself is unusable
+and ADR-0005 forbids partially parsing it:
 
-1. The file is absent.
-2. The file is not valid JSON, or its top level is not an object.
+1. The file cannot be read: absent, a directory, permission denied — **any
+   `OSError`**. Catching only `FileNotFoundError` would let the rest escape
+   `main`, which §4.5 step 4 tolerates only `RegistryError` from.
+2. The bytes are not valid UTF-8, are not valid JSON, or the top level is
+   not an object. All three are `ValueError` or narrower, and
+   `UnicodeDecodeError` is **not** a `json.JSONDecodeError`, so it has to
+   be named.
 3. `schema_version` is absent, or is anything but the integer `1`. Absent
    counts: a file that does not say which schema it is written to is one
    this build cannot claim to understand.
 4. `projects` is absent, or is not a list.
 
-Every field of every record is then type-checked before use:
+Each **element** of `projects` that is not a JSON object is skipped with a
+reason — it has no fields to check, and indexing it would raise a
+`TypeError` that shape 2 does not cover. Every field of every surviving
+record is then type-checked before use:
 
 | Field | Accepted | Why that range |
 |---|---|---|
-| `path` | non-empty string, absolute, unique within the file | ADR-0005 makes the absolute path the identity; a duplicate would give two rows one identity |
-| `name` | non-empty string | it is the row's label and the accessible name |
-| `port` | absent, `null`, or an integer 1–65535 | the *declared* half. A project that genuinely declares 80 or 443 is legitimate data, so ADR-0005's 1024–65535 floor does **not** apply here — that floor governs the override |
-| `port_override` | absent, `null`, or an integer 1024–65535 | ADR-0005: "an override is validated at entry against the same 1024–65535 range ADR-0002 requires" |
+| `path` | non-empty `str`, absolute, unique within the file | ADR-0005 makes the absolute path the identity; a duplicate would give two rows one identity |
+| `name` | non-empty `str` | it is the row's label and the accessible name |
+| `port` | absent, `null`, or an `int` 1–65535 | the *declared* half. A project that genuinely declares 80 or 443 is legitimate data, so ADR-0005's 1024–65535 floor does **not** apply here — that floor governs the override |
+| `port_override` | absent, `null`, or an `int` 1024–65535 | ADR-0005: "an override is validated at entry against the same 1024–65535 range ADR-0002 requires" |
+
+**`bool` is not accepted for either port field**, though
+`isinstance(True, int)` is `True` in Python (verified on 3.13). On an
+attacker-editable file a naive `isinstance(v, int)` accepts `"port": true`
+and yields port 1. The check is `type(v) is int`.
 
 A record whose `path` or `name` fails is **skipped**, with its reason in
 the second tuple element — there is nothing left to identify or label it
@@ -169,13 +181,21 @@ class PortSnapshot:
     listening: frozenset[int]
     def is_bound(self, port: int) -> bool: ...
 
-class PortProbe:
+class SupportsSnapshot(Protocol):
+    def snapshot(self) -> PortSnapshot: ...
+
+class PortProbe:                      # the real one; satisfies the Protocol
     def snapshot(self) -> PortSnapshot: ...
 ```
 
+The `Protocol` is what `ProjectController` accepts, so the fake probes
+INV-3, INV-11 and INV-12 inject are the declared contract rather than a
+duck-typing workaround the annotation quietly contradicts.
+
 `snapshot()` makes exactly one `psutil.net_connections(kind="tcp")` call
 and keeps the `laddr.port` of every entry whose status is
-`psutil.CONN_LISTEN`. One call per tick for the whole list, never one per
+`psutil.CONN_LISTEN` **and whose `laddr` is truthy**; an entry with a falsy
+`laddr` is skipped. One call per tick for the whole list, never one per
 project — `docs/design.md § Data flow`. Port ownership (holder PID, exe,
 cwd) is deliberately absent: P02 asks only *is anything listening*, and
 adding the holder lookup would be implementing LWSM-1011 early.
@@ -187,10 +207,10 @@ never reads as an empty one. `psutil.Error` is the whole surface —
 the pinned 7.2.2 — so naming its subclasses separately would only suggest
 they were disjoint.
 
-The `laddr` guard is deliberate belt-and-braces: on this machine no
-listening entry has a falsy `laddr` (0 of 12, measured), but the field is
-typed as possibly empty and a probe that raised `AttributeError` mid-tick
-would take the poll down.
+That `laddr` guard is belt-and-braces: on this machine no listening entry
+has a falsy `laddr` (0 of 12, measured), but the field is typed as possibly
+empty and a probe that raised `AttributeError` mid-tick would take the poll
+down.
 
 ### 4.3 The poll
 
@@ -213,7 +233,7 @@ class RowView:                           # everything one row renders
 
 class ProjectController(QObject):
     projects_changed = Signal()          # docs/design.md § State management
-    def __init__(self, records: list[ProjectRecord], probe: PortProbe,
+    def __init__(self, records: list[ProjectRecord], probe: SupportsSnapshot,
                  parent: QObject | None = None) -> None: ...
     def start_polling(self) -> None: ...
     def poll_once(self) -> None: ...
@@ -228,35 +248,68 @@ beyond widget state". Order is the file's order, so rows do not jump.
 
 **Three statuses, not two.** `RUNNING` and `STOPPED` are the two derived
 states the roadmap bullet asks for. `UNKNOWN` is not a third derived state:
-it is what a record with no `effective_port` gets, because there is no port
-to observe and calling that `stopped` would assert something nobody looked
-at (`§ O5`). `docs/design.md § The effective port` uses the same word for
-the same condition — "one with nothing at all is *unknown*".
+it means **no observation is available**, and covers exactly two cases —
+a record with no `effective_port`, so there is no port to look at; and any
+record before the first poll has completed, since the probe is
+asynchronous and `start_polling()` returns before its result arrives.
+Calling either `stopped` would assert something nobody looked at (`§ O5`).
+`docs/design.md § The effective port` uses the same word for the first case
+— "one with nothing at all is *unknown*" — and the second is the same
+absence for a different reason.
 
-**The probe runs off the UI thread.** `docs/design.md § State management`
-is unconditional: "the socket-table probe runs on a worker so a slow
-`psutil` call cannot freeze the window", and `§ O2` requires a worker to
-reach the UI **only** through a queued signal. So `poll_once` does not
-probe; it hands a `QRunnable` to `QThreadPool.globalInstance()`, and the
-runnable emits its `PortSnapshot` back on a `Signal`, which the controller
-receives on the UI thread (a cross-thread connection is queued by default)
-and classifies there. Classification touches no OS state, so it is cheap
-and belongs where the signal lands.
+**The probe runs off the controller's thread**, which is the thread `main`
+constructs everything on and therefore the one owning `MainWindow`. This
+document calls it the **owning thread** throughout.
+`docs/design.md § State management` is unconditional — "the socket-table
+probe runs on a worker so a slow `psutil` call cannot freeze the window" —
+and `§ O2` requires a worker to reach the UI **only** through a queued
+signal. §8 records why this lands in P02 rather than later.
 
-Getting this boundary right in P02 is the point of building it now: `§ O2`
-calls a direct widget call from a worker "the single most likely defect in
-this codebase", and P02 is the cheapest place it will ever be — one
-project, no process I/O, nothing to unpick.
+So `poll_once` does not probe. It submits a task to
+`QThreadPool.globalInstance()`:
+
+```python
+class _SnapshotTask(QObject, QRunnable):
+    done = Signal(object)       # carries a PortSnapshot
+    failed = Signal(object)     # carries a ProbeError
+    def __init__(self, probe): ...
+    def run(self) -> None: ...  # called on the pool thread
+```
+
+**The multiple inheritance is required, not stylistic.** `QRunnable` is not
+a `QObject` — verified against the pinned PySide6 6.11.1:
+`issubclass(QRunnable, QObject)` → `False`, and a `Signal` declared on a
+plain `QRunnable` subclass raises `AttributeError: 'PySide6.QtCore.Signal'
+object has no attribute 'emit'` when emitted. A task that only inherits
+`QRunnable` therefore has no way to report its result, which is exactly the
+`§ O6` trap ("check an API exists in the installed PySide6 before designing
+around it").
+
+`setAutoDelete(False)`, and the controller holds the one outstanding task
+as an attribute until its signal arrives. The pool's default auto-delete
+would free the `QObject` half while a queued emission is still in flight.
+
+The controller connects `done` and `failed` on the owning thread before
+submitting, so both are queued, and classifies in those slots.
+Classification touches no OS state, so it is cheap and belongs where the
+signal lands.
 
 **A tick whose predecessor is still in flight is skipped, not queued** —
 `docs/design.md § Data flow`, verbatim: "the poll skips a tick rather than
-queueing". One `_in_flight` flag, cleared when the result arrives or the
-runnable fails.
+queueing". One `_in_flight` flag, cleared in both slots.
 
 `start_polling()` calls `poll_once()` **immediately** and then starts the
 `QTimer`, so the window is populated at once rather than blank for the
-first second. The first result always emits `projects_changed`, because the
-previous-status map is empty and therefore differs.
+first second.
+
+**The first completed poll emits `projects_changed` unconditionally**, via
+a `_emitted_once` flag — *not* by comparing status maps. Deriving it from
+map inequality fails on the case INV-15 exercises: with zero records the
+map is empty before and after, so nothing "differs" and the window would
+never be told to render its empty state. This holds whether the first poll
+succeeded or raised `ProbeError`; INV-4b's no-emit rule applies from the
+second poll on, because before the first there is no previous value to
+hold and a blank window would otherwise never update.
 
 Subsequent ticks emit `projects_changed` **only when at least one status
 differs from the previous tick**. Suppressing the no-change emission is
@@ -296,10 +349,26 @@ rather than a surprise. `state_unknown` is likewise P02-local: ADR-0004 has
 no `unknown` state because it lists states derived from *observation*, and
 `UNKNOWN` is the absence of anything to observe.
 
-`src/lwsm/mainwindow.py` (UI layer) builds one row widget per `RowView`
-**once**, and on each `projects_changed` **updates the existing widgets in
-place** — the changed rows' text and tokens only. It does not rebuild the
-list. Rebuilding would destroy and recreate every row widget on any one
+`src/lwsm/mainwindow.py` (UI layer):
+
+```python
+class MainWindow(QMainWindow):
+    def __init__(self, controller: ProjectController, theme: Theme,
+                 notices: list[str], parent: QWidget | None = None) -> None: ...
+    def set_status_message(self, text: str) -> None: ...
+```
+
+`notices` is `load_projects`'s second tuple element — the per-record
+rejection reasons — and `set_status_message` is what §6 and INV-15 mean by
+"reaches the status bar". §4.5 step 3 routes both: the rejection list into
+the constructor, and a `RegistryError`'s own message through the same slot
+after construction. Without these two the plumbing for a behaviour INV-15
+tests would have to be invented by the implementer.
+
+It builds one row widget per `RowView` **once**, and on each
+`projects_changed` **updates the existing widgets in place** — the changed
+rows' text and tokens only. It does not rebuild the list. Rebuilding would
+destroy and recreate every row widget on any one
 project's flip, which discards keyboard focus (`docs/design.md
 § Accessibility`: "the app never steals focus") and re-announces every
 *unchanged* row to a screen reader — undoing at the widget level exactly
@@ -312,16 +381,24 @@ Each row is, in visual and tab order:
 |---|---|
 | state | the glyph (`●` running / `○` stopped / `?` unknown) then the **word** `running` / `stopped` / `unknown`, coloured from the matching state token |
 | name | the project's display name |
-| port | the effective port as a decimal string, or the literal `no port` |
+| port | `port 5005` — the word and the number — or the literal `no port` |
+
+The port cell carries the **word** `port`, not a bare number, because
+`docs/design.md § Accessibility` gives the announcement as "project-b,
+running, port 5005" and the cell text is what a screen reader reads. A bare
+`5005` would leave a listener with an unlabelled number.
 
 The state cell is first, which `docs/design.md § Accessibility` requires
 ("the state word is first in the row"). Each row is a focusable widget
 whose accessible name is built **from the three rendered cell strings, in
 their visual order** — `f"{state_text}, {name_text}, {port_text}"`, giving
-`"running, project-a, 5005"` and `"unknown, project-b, no port"`. Building
-it from the cells rather than from the model is what makes
-`docs/design.md § Accessibility`'s "no separate accessibility-only string
-to drift" literally true, and it is why no row can announce `port None`.
+`"running, project-a, port 5005"` and `"unknown, project-b, no port"`.
+The order differs from the design's example sentence because the design
+separately requires the state word first in the row; the *content* is the
+same three facts. Building the name from the cells rather than from the
+model is what makes `docs/design.md § Accessibility`'s "no separate
+accessibility-only string to drift" literally true, and it is why no row
+can announce `port None`.
 
 Nothing sets a colour literal, a font family or a pixel size: colours come
 from tokens, sizes from the text metric (`§ O7`).
@@ -340,13 +417,17 @@ finds the log when the window misbehaves.
    exit without constructing a `QApplication` and therefore work with no
    display.
 2. Logging is configured exactly as now, including the stderr fallback.
-3. `QApplication` is constructed, then `load_projects`, `PortProbe`,
-   `ProjectController` and `MainWindow`, then `controller.start_polling()`
-   and `app.exec()`. `main` returns `app.exec()`'s value.
-4. A `RegistryError` is not fatal: the window opens with no rows and the
-   status bar names the file and the reason (§6). A missing
-   `projects.json` must not stop the app from starting, for the same reason
-   an unwritable log does not.
+3. `QApplication` is constructed, then `load_projects(default_projects_path())`,
+   `PortProbe`, `ProjectController`, and `MainWindow(controller, theme,
+   notices)` — `notices` being `load_projects`'s rejection list. Then
+   `controller.start_polling()` and `app.exec()`. `main` returns
+   `app.exec()`'s value.
+4. A `RegistryError` is **caught in `main`** and is not fatal: the window
+   is constructed with no records and an empty `notices`, and
+   `window.set_status_message(...)` names the file and the reason (§6). A
+   missing `projects.json` must not stop the app from starting, for the
+   same reason an unwritable log does not. No other exception is caught
+   here — a bug must not be disguised as a first run.
 
 `QApplication` is constructed inside `main`, never at module import, so
 importing `lwsm.__main__` in a test does not require a display.
@@ -357,19 +438,24 @@ importing `lwsm.__main__` in a test does not require a display.
   records, for each of the four unusable-file shapes in §4.1: absent,
   not-a-JSON-object, `schema_version` absent or not the integer `1`, and
   `projects` absent or not a list.
-  *Test:* `tests/test_registry.py::test_unusable_files_are_refused`,
-  parametrised over all four so a new shape cannot be added without a case.
+  *Test:* `tests/test_registry.py::test_unusable_files_are_refused`, one
+  parametrised case per shape — including a chmod-000 file and a
+  non-UTF-8 one, which the two commonest hand-written implementations
+  (`FileNotFoundError` only, `json.JSONDecodeError` only) both let escape.
   *Breaks when:* a file carrying `"schema_version": 2`, or none at all, is
   parsed for its `projects` key anyway.
 
-- **INV-2** — A record whose `path` or `name` is absent, not a string, or
-  the empty string is skipped with a reason; so is a record whose `path`
-  duplicates one already loaded, or is not absolute. Every well-formed
-  record in the same file still loads.
+- **INV-2** — A `projects` element that is not a JSON object is skipped
+  with a reason, and so is a record whose `path` or `name` is absent, not a
+  string, or the empty string, or whose `path` duplicates one already
+  loaded or is not absolute. Every well-formed record in the same file
+  still loads.
   *Test:* `tests/test_registry.py::test_bad_record_skipped_others_load`,
   with a case per rejection reason.
-  *Breaks when:* `{"path": "", "name": "x"}` loads as a record, or two
-  records sharing one `path` both load and then collapse into one row.
+  *Breaks when:* `{"projects": [1, {"path": "/a", "name": "a"}]}` raises
+  `TypeError` out of `load_projects` instead of skipping the `1`;
+  `{"path": "", "name": "x"}` loads as a record; or two records sharing one
+  `path` both load and then collapse into one row.
 
 - **INV-3** — One `poll_once` calls `PortProbe.snapshot()` exactly once
   regardless of how many records are classified.
@@ -388,31 +474,43 @@ importing `lwsm.__main__` in a test does not require a display.
   family, or re-reads to resolve holders.
 
 - **INV-4** — On any tick whose probe **succeeded**, every status is
-  derived from that snapshot alone: a freshly-constructed controller given
-  the same records reports `RUNNING` for a bound port with no prior
-  observation. The single sanctioned carry-over is the failed-probe hold in
-  INV-4b.
-  *Test:* `tests/test_controller.py::test_status_is_rederived_not_remembered`.
+  derived from that snapshot alone. The single sanctioned carry-over is the
+  failed-probe hold in INV-4b.
+  *Test:* `tests/test_controller.py::test_status_is_rederived_not_remembered`
+  — **two ticks on one controller**: drive it to `RUNNING` with a snapshot
+  containing the port, then feed a snapshot without it and assert
+  `STOPPED`. A fresh controller is not a valid fixture here: having no
+  previous status, it reports `RUNNING` under a sticky implementation too,
+  so that shape cannot fail for the breach it names.
   *Breaks when:* a previous status is consulted on a *successful* tick
   rather than only as the change-detector — which is how `§ O5` gets
   breached quietly.
 
-- **INV-4b** — On a tick whose probe raised `ProbeError`, every status
-  keeps its previous value and `projects_changed` is not emitted.
-  *Test:* `tests/test_controller.py::test_probe_error_holds_previous_status`.
+- **INV-4b** — From the second completed poll onward, a tick whose probe
+  raised `ProbeError` leaves every status at its previous value and does
+  not emit `projects_changed`. The **first** completed poll is exempt and
+  emits either way (INV-5): before it there is no previous value to hold,
+  and suppressing it would leave the window at its blank initial state
+  forever.
+  *Test:* `tests/test_controller.py::test_probe_error_holds_previous_status`,
+  with a case for a failing *first* poll asserting it still emits.
   *Breaks when:* a failed probe is treated as an empty snapshot, which
   reports every project `stopped` on the strength of a `psutil` error — a
   state nobody observed, and the worse of the two failures because it looks
   like news.
 
-- **INV-5** — `start_polling()` emits `projects_changed` on its immediate
-  first poll; afterwards the signal is emitted on a tick whose statuses
-  differ from the previous tick, and not on one whose statuses are
-  identical.
-  *Test:* `tests/test_controller.py::test_first_poll_emits_then_only_on_change`.
-  *Breaks when:* the emit is unconditional — which makes the screen reader
-  re-announce every row once a second — or when the first poll is left to
-  the timer, which leaves the window blank for a second.
+- **INV-5** — The first completed poll emits `projects_changed`
+  unconditionally, **including when the record list is empty**; afterwards
+  the signal is emitted on a tick whose statuses differ from the previous
+  tick, and not on one whose statuses are identical.
+  *Test:* `tests/test_controller.py::test_first_poll_emits_then_only_on_change`,
+  including a zero-record case.
+  *Breaks when:* the first emission is derived from comparing status maps
+  rather than from a flag — with zero records the map is empty before and
+  after, so nothing "differs" and the empty window is never rendered. Also
+  when the emit is unconditional *thereafter*, which makes the screen
+  reader re-announce every row once a second; or when the first poll is
+  left to the timer, which leaves the window blank for a second.
 
 - **INV-6** — Every state the row shows is present as text. Removing all
   colour and all glyphs from a row still leaves `running`, `stopped` or
@@ -462,13 +560,20 @@ importing `lwsm.__main__` in a test does not require a display.
   *Breaks when:* ADR-0005's 1024–65535 override floor is applied to the
   declared port, which deletes every project that legitimately declares 80
   or 443 — and deletes the *row*, so it reads as a project that does not
-  exist rather than one with a port we will not accept.
+  exist rather than one with a port we will not accept. Also when
+  `"port": true` is accepted, since `isinstance(True, int)` is `True` and a
+  naive check turns it into port 1.
 
-- **INV-11** — `psutil.net_connections` is never called on the thread that
-  owns `MainWindow`.
+- **INV-11** — `PortProbe.snapshot()` is never invoked on the controller's
+  owning thread. INV-3b carries the `psutil`-level half; this one is about
+  where the call happens, and together they cover the rule. The invariant is
+  stated against `snapshot()` rather than against `psutil.net_connections`
+  because the fixture is a fake probe, and a claim about `psutil` would be
+  one the test cannot see — the gap INV-3b exists to close for INV-3.
   *Test:* `tests/test_controller.py::test_probe_runs_off_the_owning_thread`,
-  recording `threading.get_ident()` inside a fake probe and asserting it
-  differs from the test thread's.
+  recording `threading.get_ident()` inside a fake `snapshot()` and
+  asserting it differs from the ident recorded in the test body, which is
+  the thread that constructed the controller.
   *Breaks when:* `poll_once` probes inline — a 33 ms UI stall every second
   today, and an unbounded one the first time `psutil` blocks, which is the
   freeze `docs/design.md § State management` puts the worker there to
@@ -478,6 +583,10 @@ importing `lwsm.__main__` in a test does not require a display.
   skipped: two ticks with one slow probe outstanding produce one
   `snapshot()` call, not two.
   *Test:* `tests/test_controller.py::test_tick_skipped_while_probe_in_flight`.
+  Because the probe is asynchronous, the assertion is made **after**
+  `qtbot.waitSignal` on the outstanding task's completion (`§ T4`) — an
+  assertion taken before either runnable has run would count one call and
+  pass for the wrong reason. INV-3's counting test waits the same way.
   *Breaks when:* ticks queue instead — `docs/design.md § Data flow` says
   "the poll skips a tick rather than queueing", and queueing is how a
   briefly-slow socket table becomes a permanently-lagging one.
@@ -542,18 +651,36 @@ importing `lwsm.__main__` in a test does not require a display.
 
 ## 7. Tests
 
-New files, all headless (`§ T6`; `scripts/local-ci.sh` already exports
-`QT_QPA_PLATFORM=offscreen`, and a new `tests/conftest.py` sets it when
-unset so a bare `pytest` cannot open a real window):
+Five new files plus one existing one, all headless (`§ T6`;
+`scripts/local-ci.sh` already exports `QT_QPA_PLATFORM=offscreen`, and a
+new `tests/conftest.py` sets it when unset so a bare `pytest` cannot open a
+real window). INV-14's subprocess is the one exception and **must not
+inherit that value** — it removes `QT_QPA_PLATFORM`, `DISPLAY` and
+`WAYLAND_DISPLAY` from the child's environment, because its whole claim is
+that `--version` needs no platform plugin at all:
 
-| File | Marker | Locks |
+**Markers go on tests, not files.** `pyproject.toml` defines `integration`
+as "spawns real child processes or binds real sockets" and `gui` as "needs
+a Qt application object". Marking a whole file by its heaviest test means
+`./scripts/local-ci.sh --fast` (`-m "not integration"`) silently drops
+every light test that shares the file — which would have hidden the
+accessibility, focus and empty-window invariants behind the one test that
+binds a socket.
+
+| Invariant | File | Marker |
 |---|---|---|
-| `tests/test_registry.py` | — | INV-1, INV-2, INV-10 |
-| `tests/test_ports.py` | `integration` | INV-9, INV-3b |
-| `tests/test_controller.py` | — | INV-3, INV-4, INV-4b, INV-5, INV-11, INV-12 |
-| `tests/test_mainwindow.py` | `gui`, `integration` | INV-6, INV-7, INV-13, INV-15 |
-| `tests/test_layering.py` | — | INV-8, INV-8b |
-| `tests/test_main.py` (existing) | — | INV-14 |
+| INV-1, INV-2, INV-10 | `tests/test_registry.py` | — |
+| INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
+| INV-9 | `tests/test_ports.py` | `integration` |
+| INV-3, INV-4, INV-4b, INV-5, INV-11, INV-12 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
+| INV-6, INV-13, INV-15 | `tests/test_mainwindow.py` | `gui` |
+| INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
+| INV-8, INV-8b | `tests/test_layering.py` | — |
+| INV-14 | `tests/test_main.py` (existing file) | `integration` (spawns a subprocess) |
+
+INV-15 observes `main`'s catch through the window it produces, so it lives
+with the widget tests rather than in `test_main.py`; INV-14 observes the
+entry point before any window exists, so it lives there.
 
 Ports come from binding `0` and asking the socket, never a literal
 (`§ T3`). Waits are `qtbot.waitUntil` on the condition, never a sleep
@@ -583,9 +710,10 @@ empty return, the suite is run red, and only then is the body written.
   tokens would be colours no widget names, and LWSM-1031 lands them with
   the palettes that give them values. The nine base tokens are kept whole
   because they are an adopted set and splitting them is arbitrary.
-- **Probe inline on the UI thread, deferring the worker to P05 or P06.**
-  Tempting on the numbers: 33 ms once a second is a 3.3 % duty cycle, and
-  the worker costs a `QRunnable`, a queued signal and the in-flight guard.
+- **Probe inline on the owning thread, deferring the worker to P05 or
+  P06.** Tempting on the numbers: 33 ms once a second is a 3.3 % duty
+  cycle, and the worker costs a task class, a queued signal and the
+  in-flight guard.
   Rejected because `docs/design.md § State management` states the worker
   requirement with no phase condition, and because deferring it means
   `PortProbe`, `ProjectController` and the signal wiring are all built to a
@@ -629,8 +757,9 @@ measurements minutes apart on an idle machine gave 9 and 12, so it is a
 property of the machine at an instant, not a figure this spec can assert.)
 The controller holds one `dict[Path, ProjectStatus]` sized by the record
 count, and the window holds one widget per record, created once. No new
-build target. One `QRunnable` per tick, owned by `QThreadPool` and released
-when it completes; at most one is outstanding (INV-12).
+build target. One `_SnapshotTask` per tick with `setAutoDelete(False)`,
+held by the controller and released when its signal arrives; at most one is
+outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 
 ## 11. What checks this
 
@@ -654,13 +783,20 @@ when it completes; at most one is outstanding (INV-12).
 | INV-13 | `tests/test_mainwindow.py::test_focus_survives_a_status_change` |
 | INV-14 | `tests/test_main.py::test_version_needs_no_display` |
 | INV-15 | `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window` |
-| O8.2 — focus **ring** contrast (reachability is INV-13's neighbour, the ring is not) | **nothing** — no surface asserts ring contrast until LWSM-1032 lands the T8 rows |
+| O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
+| O8.2 — tab order matching visual order | **nothing** — same surface, same item |
+| O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |
 | O8.4 — reflow at 200 % text size | **nothing** — the text-size control itself is LWSM-1032; P02 pins no sizes, which is necessary and not sufficient |
+| `§ O7`'s font-family and pixel-size half | **nothing** — INV-8b checks colour literals only. A widget pinning `setFont(QFont("DejaVu Sans"))` or a fixed height passes every test here |
 | The 2 s criterion under load | **nothing** — INV-7 measures one project on an idle machine; the ≤250 ms snapshot budget at 20 projects is unmeasured until there are 20 projects to measure, which no roadmap item yet creates |
-| The row's tab order matching visual order | **nothing** — INV-13 asserts focus *survives*, not that the order is right; LWSM-1032's keyboard-reachability row is the surface |
 
-Four `nothing` rows. Three are surfaces LWSM-1032 creates; one waits on a
-project count P02 does not have and nothing yet schedules.
+Six `nothing` rows, up from three once the ones that only *looked* covered
+were separated out. Five are surfaces LWSM-1032 creates; one waits on a
+project count P02 does not have and nothing yet schedules. Per
+`spec-format § 0`'s "one number that matters", six is this spec's honest
+error budget, and the accessibility rows are the bulk of it — which is the
+expected shape for a phase that builds the row correctly but cannot yet
+test that it did.
 
 ## 12. Cross-doc impact
 
@@ -674,12 +810,26 @@ project count P02 does not have and nothing yet schedules.
   diverged were reconciled in its own favour, not the design's: the probe
   now runs on a worker (§4.3), the row's state word is `unknown` where the
   design says *unknown* (§4.3), and the two-state collapse is recorded as a
-  subset with the accepted consequence named (§3, §9). The one genuine
-  narrowing is `state_running`'s provisional binding, which §4.4 and §9
-  carry as a scheduled re-point rather than as a contradiction.
+  subset with the accepted consequence named (§3, §9). Two real deltas
+  remain, both scheduled rather than silent:
+  - **A narrowing.** `state_running`'s provisional binding — §4.4 and §9
+    carry it as a re-point LWSM-1011 performs.
+  - **An addition.** `state_unknown` is an **eighth** token, outside the
+    seven that `docs/design.md § Tokens, not colours` says ADR-0004
+    "defines the set" of. It is P02-local: ADR-0004 lists states derived
+    from observation and `UNKNOWN` is the absence of one, so it is not a
+    candidate for that list. Whether design.md gains a sentence or
+    LWSM-1031 absorbs the token when it lands the palettes is LWSM-1031's
+    call; either way the token cannot quietly become a de-facto eighth
+    derived state.
+- `docs/standards/coding.md § O3` — its XDG paragraph says of the config
+  half "no code yet and this is the rule it must follow when **P09** writes
+  it". P02 writes it: `registry.py::default_projects_path`. The sentence
+  becomes stale the moment this ships and should name P02.
 
 ## 13. Cold-eyes loop log
 
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
 | 1 | 2026-08-06 | 2 | 2 | 6 | 8 | 10 | 26 verified, 0 unverified, 26 fixed. Dimensions: dim 2×6, dim 5×6, dim 7×6, dim 15×4, dim 4×3, dim 6×2, dim 10×2, dim 1×1. Both CRITICALs were doc-vs-design conflicts: the probe ran on the UI thread against `design.md § State management`'s worker rule, and INV-4 forbade the very carry-over §6 required on a failed probe. Contract added: `ProjectStatus.UNKNOWN`, `RowView`, the worker + in-flight skip, in-place row updates. INV-3 and INV-8 split because each claimed more than its named test exercised. 391 → 684 lines. |
+| 2 | 2026-08-06 | 2 | 1 | 8 | 12 | 12 | 25 verified (18 fix collateral from loop 1, 7 draft defects), 0 unverified, 25 fixed. Dimensions: dim 15×7, dim 5×6, dim 7×5, dim 4×4, dim 10×3, dim 2×2, dim 1×1, dim 6×1, dim 12×1. Two invariants could not fail for the breach they named: INV-4's fresh-controller fixture passes under a sticky implementation, and INV-11 named `psutil` and `MainWindow`, neither of which its fixture has. `QRunnable` cannot carry a `Signal` — `issubclass(QRunnable, QObject)` is `False`, verified — so the worker became `_SnapshotTask(QObject, QRunnable)`. Both lanes agreed the XDG citation was wrong and both named the wrong replacement (`§ O6`); verification found `§ O3`. `nothing` rows 4 → 6 once promises that only looked covered were separated. 684 → 833 lines. |
