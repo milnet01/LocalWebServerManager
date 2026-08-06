@@ -486,6 +486,17 @@ Two things this costs, both deliberate: the painted glyph needs an explicit
 that only checks the AT tree would pass just as well if the glyph had been
 **deleted**, so INV-19 checks the pixels too.
 
+**All slack sits after the last cell, not inside one.** The row's layout ends
+in a stretch, so widening the window leaves the three cells grouped at the left
+at their natural widths. Giving the *name* cell the stretch instead put every
+spare pixel inside that label, and `QLabel` aligns left by default — so the name
+stayed where it was while the port was pinned to the right edge. Measured at
+1400 px before the fix: name text at x=84, port text at x=1333.
+`docs/design.md § Accessibility` names that shape outright ("never name on the
+far left and state on the far right, which forces a pan and a memory test"), and
+LWSM-1032's own acceptance is that every cell falls inside a 600 px-wide window
+— which the stretched-name layout failed at any width above it (LWSM-1074).
+
 The state cell is first, which `docs/design.md § Accessibility` requires
 ("the state word is first in the row"). Each row is a focusable widget
 whose accessible name is built **from the rendered cell strings, in their
@@ -853,6 +864,18 @@ importing `lwsm.__main__` in a test does not require a display.
   `○` and `?` — antialiased strokes contain no pixel equal to the pure token
   colour.
 
+- **INV-20** — At any window width, every cell in a row falls inside a
+  600 px band from the row's left edge, and the cells keep their order without
+  overlapping.
+  *Test:* `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide`
+  at 1400 px, plus `::test_the_cells_keep_their_order_and_do_not_overlap`,
+  which guards the obvious over-correction — removing the stretch could as
+  easily have piled the cells on top of each other.
+  *Breaks when:* a cell is given `stretch`. The slack lands inside that
+  widget rather than after the row, and the visible result depends on that
+  widget's alignment rather than on the layout — which is why it reads as
+  correct in the code.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -923,7 +946,7 @@ binds a socket.
 | INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
 | INV-9 | `tests/test_ports.py` | `integration` |
 | INV-3, INV-4, INV-4b, INV-4c, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
-| INV-6, INV-13, INV-15, INV-17, INV-19 | `tests/test_mainwindow.py` | `gui` |
+| INV-6, INV-13, INV-15, INV-17, INV-19, INV-20 | `tests/test_mainwindow.py` | `gui` |
 | INV-17 (contrast half), INV-18 | `tests/test_theme.py` | none — pure arithmetic, no display |
 | INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
 | INV-8, INV-8b | `tests/test_layering.py` | — |
@@ -1041,6 +1064,7 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held` |
 | INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
 | INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_only_its_three_cells` |
+| INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |

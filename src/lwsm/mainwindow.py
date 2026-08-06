@@ -82,8 +82,16 @@ class ProjectRow(QFrame):
         # State cell first — design.md § Accessibility: "the state word is
         # first in the row". Visual order is tab order.
         layout.addWidget(self._state)
-        layout.addWidget(self._name, stretch=1)
+        layout.addWidget(self._name)
         layout.addWidget(self._port)
+        # Every pixel of slack goes here, after the last cell (LWSM-1074).
+        # `stretch=1` on the name gave the slack to that label instead, and
+        # QLabel aligns left by default — so the name's text stayed put while
+        # the port was pinned to the right edge. Measured at 1400 px: name text
+        # at x=84, port text at x=1333. design.md § Accessibility names that
+        # exact shape ("never name on the far left and state on the far right,
+        # which forces a pan and a memory test").
+        layout.addStretch(1)
 
         # Sized from the text metric, never a pixel constant, so the row
         # reflows when the text grows.

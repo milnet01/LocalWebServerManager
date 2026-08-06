@@ -195,6 +195,45 @@ def test_the_row_exposes_only_its_three_cells(qtbot, built) -> None:
     assert names == ["running", "a", "port 5005"], names
 
 
+# --- LWSM-1074: a wide window must not scatter the row ------------------------
+
+# LWSM-1032's own acceptance: "assert name, state, port and controls all fall
+# inside a 600 px-wide window". A magnifier user pans; content that spreads to
+# the window's full width turns reading one row into a sweep and a memory test,
+# which design.md § Accessibility names as an anti-pattern outright.
+READABLE_BAND_PX = 600
+
+
+def test_the_row_stays_grouped_when_the_window_is_wide(qtbot, built) -> None:
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    window.resize(1400, window.height())
+    qtbot.waitUntil(lambda: window.width() == 1400, timeout=2000)
+    row = rows_of(window)[0]
+
+    right_edge = row._port.geometry().right()
+    assert right_edge <= READABLE_BAND_PX, (
+        f"at {window.width()} px wide the port cell ends at x={right_edge}, "
+        f"outside the {READABLE_BAND_PX} px band the row must stay inside"
+    )
+
+
+def test_the_cells_keep_their_order_and_do_not_overlap(qtbot, built) -> None:
+    """Guards the fix from the obvious over-correction — collapsing the stretch
+    could just as easily pile the cells on top of each other."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    window.resize(1400, window.height())
+    qtbot.waitUntil(lambda: window.width() == 1400, timeout=2000)
+    row = rows_of(window)[0]
+
+    state, name, port = row._state, row._name, row._port
+    assert state.geometry().right() <= name.geometry().left()
+    assert name.geometry().right() <= port.geometry().left()
+
+
 # --- LWSM-1070: focusable is not the same as showing where the focus is -------
 
 
