@@ -186,6 +186,92 @@ def test_the_glyph_is_still_painted_after_leaving_the_label(
     )
 
 
+def test_the_state_word_is_still_coloured_from_the_theme(qtbot, built) -> None:
+    """LWSM-1077 moved the colour from composed CSS to a generated style sheet
+    selecting on a dynamic property. This pins that the sheet reaches the label
+    at all; the two tests below pin that the right rule wins — and only those
+    two can see a missing re-polish, which this one stays green through.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    label = rows_of(window)[0]._state
+    assert label.text() == "running"
+
+    themed = label.grab().toImage()
+
+    # Strip the generated sheet and re-polish: the difference is what the theme
+    # layer contributes. Comparing against a pure token colour instead does not
+    # work — the word's strokes are antialiased, so no pixel equals it exactly.
+    window.setStyleSheet("")
+    label.style().unpolish(label)
+    label.style().polish(label)
+    unthemed = label.grab().toImage()
+
+    assert themed != unthemed, (
+        "the state word renders identically with and without the theme's style "
+        "sheet — the generated rules are not reaching it"
+    )
+
+
+def shown(qtbot, window):
+    with qtbot.waitExposed(window):
+        window.show()
+    return window
+
+
+def render_with_common_text(label, text: str = "MMMM"):
+    """Grab a state label with its text forced to a fixed string.
+
+    Two statuses render different *words* as well as different colours, so
+    comparing them directly proves nothing about colour. Forcing the same text
+    leaves the state token as the only thing that can still differ.
+    """
+    label.setText(text)
+    return label.grab().toImage()
+
+
+def test_the_state_word_takes_its_colour_from_the_status(qtbot, built) -> None:
+    running = shown(
+        qtbot, window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))[0]
+    )
+    stopped = shown(
+        qtbot, window_for(qtbot, built, [record("a", 5005)], FakeProbe())[0]
+    )
+
+    assert render_with_common_text(
+        rows_of(running)[0]._state
+    ) != render_with_common_text(rows_of(stopped)[0]._state), (
+        "running and stopped render the same colour — the token never reached the word"
+    )
+
+
+def test_a_status_change_repaints_the_word_in_the_new_token(qtbot, built) -> None:
+    """A row that *changed* into a state must render like one built in it.
+
+    Compared against a row born in the target state, with the text forced the
+    same, so neither the initial polish nor the differing word can carry the
+    assertion.
+    """
+    probe = FakeProbe(5005)
+    window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
+    shown(qtbot, window)
+
+    probe.listening.clear()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    changed = rows_of(window)[0]._state
+    assert changed.text() == "stopped"
+
+    born = shown(qtbot, window_for(qtbot, built, [record("a", 5005)], FakeProbe())[0])
+    fresh = rows_of(born)[0]._state
+
+    assert render_with_common_text(changed) == render_with_common_text(fresh), (
+        "a row that changed into 'stopped' renders differently from one built "
+        "as 'stopped' — the new state token was never applied"
+    )
+
+
 def test_the_row_exposes_only_its_three_cells(qtbot, built) -> None:
     """The count is the assertion that would have caught this: the row exposed
     four children, and setAccessibleName("") did not remove the fourth —

@@ -614,6 +614,24 @@ surface than this document prefers, and it is the strongest one available.
 Nothing sets a colour literal, a font family or a pixel size: colours come
 from tokens, sizes from the text metric (`§ O7`).
 
+**The colour rules come from `Theme.style_sheet()`, not from widget code**
+(LWSM-1077). `docs/design.md § Tokens, not colours` gives a `Theme` two
+outputs — a `QPalette` **and** a generated style sheet, finbreak's two-layer
+split — and only the palette existed, so this file hand-built
+`f"color: {token};"` and called `setStyleSheet` per row per tick. INV-8b still
+passed, because there was no colour *literal*; the layer the design asked for
+was simply missing and its job had leaked one level down.
+
+The sheet selects on a dynamic property (`Theme.STATE_PROPERTY`), so it is a
+constant of the theme: set once on the window, and a row changing state sets a
+property rather than composing CSS. **The widget must then be re-polished** —
+Qt does not re-evaluate a style-sheet selector when the property it matches on
+changes, so without it the word keeps the colour it was last polished with.
+
+`to_palette()` also sets `Button`, `ButtonText`, `HighlightedText`,
+`ToolTipBase` and `ToolTipText`, which were left at the style default — P05's
+buttons and tooltips would not have followed the theme.
+
 **A focused row paints a focus ring, and the row paints it itself.** `QFrame`
 renders only its frame and `StyledPanel` never consults `State_HasFocus`, so
 setting `StrongFocus` alone produced a widget that took focus and showed
@@ -1011,6 +1029,21 @@ importing `lwsm.__main__` in a test does not require a display.
   is right and nobody is told. With no equality check, every unchanged row is
   re-announced once a second.
 
+- **INV-23** — Two rows in different states render their state word in
+  different colours, and a row that *changed* into a state renders like one
+  built in it.
+  *Test:* `tests/test_mainwindow.py::test_the_state_word_takes_its_colour_from_the_status`
+  and `::test_a_status_change_repaints_the_word_in_the_new_token`, both forcing
+  **the same text** into both labels first — `running` and `stopped` differ in
+  glyphs as well as colour, so an unforced comparison proves nothing about the
+  colour.
+  *Breaks when:* the re-polish after the property change is dropped. Recorded
+  because it was dropped during LWSM-1077 on the strength of two tests that
+  stayed green: one comparing a *freshly built* row (whose first polish is
+  correct either way) and one comparing two rows that were both wrong in the
+  same direction. A test that cannot distinguish "both right" from "both
+  wrong" is the shape to watch for here.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -1089,7 +1122,7 @@ binds a socket.
 | INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
 | INV-9 | `tests/test_ports.py` | `integration` |
 | INV-3, INV-4, INV-4b, INV-4c, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
-| INV-6, INV-13, INV-15, INV-17, INV-19, INV-20, INV-22 | `tests/test_mainwindow.py` | `gui` |
+| INV-6, INV-13, INV-15, INV-17, INV-19, INV-20, INV-22, INV-23 | `tests/test_mainwindow.py` | `gui` |
 | INV-17 (contrast half), INV-18 | `tests/test_theme.py` | none — pure arithmetic, no display |
 | INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
 | INV-8, INV-8b | `tests/test_layering.py` | — |
@@ -1210,6 +1243,7 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide` |
 | INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line` |
 | INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced` |
+| INV-23 | `tests/test_mainwindow.py::test_the_state_word_takes_its_colour_from_the_status` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |

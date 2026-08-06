@@ -12,6 +12,7 @@ import pytest
 # tests/ has no __init__.py, so pytest puts it on sys.path itself and this is a
 # flat import rather than `tests.contrast`.
 from contrast import INDICATOR_FLOOR, TEXT_FLOOR, contrast_ratio, relative_luminance
+from lwsm.controller import ProjectStatus
 from lwsm.theme import Theme
 
 # LWSM-1031 appends its palettes here and inherits every check below.
@@ -82,3 +83,48 @@ def test_body_text_clears_the_floor_on_the_base_surface(theme: Theme) -> None:
     LWSM-1007's list view and P05's inputs will paint under."""
     assert contrast_ratio(theme.text, theme.base) >= TEXT_FLOOR
     assert contrast_ratio(theme.text, theme.alt_base) >= TEXT_FLOOR
+
+
+# --- LWSM-1077: the theme owes a style sheet, not just a palette --------------
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_style_sheet_carries_every_state(theme: Theme) -> None:
+    """`design.md § Tokens, not colours` gives a Theme two outputs. Only the
+    palette existed, so widget code composed the CSS itself."""
+    sheet = theme.style_sheet()
+
+    for status in ProjectStatus:
+        assert theme.state_token(status) in sheet, f"{status} has no rule"
+        assert f'{Theme.STATE_PROPERTY}="{status.value}"' in sheet
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_every_palette_role_carries_its_token(theme: Theme) -> None:
+    """Button, ButtonText, HighlightedText and the tooltip roles were left at
+    the style default, so P05's buttons would not have followed the theme.
+
+    Asserted against the token's value, not against `isValid()` — an unset role
+    is a valid colour too, so that check passes for exactly the defect it would
+    be written to catch.
+    """
+    from PySide6.QtGui import QColor, QPalette
+
+    palette = theme.to_palette()
+    expected = {
+        QPalette.ColorRole.Window: theme.window,
+        QPalette.ColorRole.Base: theme.base,
+        QPalette.ColorRole.AlternateBase: theme.alt_base,
+        QPalette.ColorRole.WindowText: theme.text,
+        QPalette.ColorRole.Text: theme.text,
+        QPalette.ColorRole.PlaceholderText: theme.muted_text,
+        QPalette.ColorRole.Highlight: theme.accent,
+        QPalette.ColorRole.Mid: theme.border,
+        QPalette.ColorRole.Button: theme.window,
+        QPalette.ColorRole.ButtonText: theme.text,
+        QPalette.ColorRole.HighlightedText: theme.base,
+        QPalette.ColorRole.ToolTipBase: theme.base,
+        QPalette.ColorRole.ToolTipText: theme.text,
+    }
+    for role, token in expected.items():
+        assert palette.color(role) == QColor(token), role

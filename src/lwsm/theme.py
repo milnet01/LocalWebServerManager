@@ -93,6 +93,32 @@ class Theme:
             ProjectStatus.UNKNOWN: self.state_unknown,
         }[status]
 
+    # The dynamic property a state-carrying widget sets, and the selector the
+    # generated style sheet matches on. Named here because both ends must agree
+    # and only one of them is in this file.
+    STATE_PROPERTY = "lwsmState"
+
+    def style_sheet(self) -> str:
+        """The app's style sheet, generated from the tokens (LWSM-1077).
+
+        `docs/design.md § Tokens, not colours` gives a `Theme` two outputs — a
+        `QPalette` **and** a generated style sheet, finbreak's two-layer split.
+        Only the palette existed, so `mainwindow.py` was hand-building
+        `f"color: {token};"` and calling `setStyleSheet` per row per tick. INV-8b
+        still passed, because there was no colour *literal*; the layer the design
+        asked for was simply absent and its job had leaked into widget code,
+        which is what `§ O7` prevents one level up.
+
+        Selecting on a dynamic property rather than emitting one rule per widget
+        means the sheet is a constant of the theme: it is set once on the window,
+        and a row changing state sets a property instead of composing CSS.
+        """
+        return "\n".join(
+            f'QLabel[{self.STATE_PROPERTY}="{status.value}"] '
+            f"{{ color: {self.state_token(status)}; }}"
+            for status in ProjectStatus
+        )
+
     def to_palette(self) -> QPalette:
         """Tokens expand into a QPalette so native widgets follow the theme."""
         palette = QPalette()
@@ -104,4 +130,11 @@ class Theme:
         palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(self.muted_text))
         palette.setColor(QPalette.ColorRole.Highlight, QColor(self.accent))
         palette.setColor(QPalette.ColorRole.Mid, QColor(self.border))
+        # Four roles that were left at the style default, so P05's buttons and
+        # tooltips would not have followed the theme (LWSM-1077).
+        palette.setColor(QPalette.ColorRole.Button, QColor(self.window))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(self.text))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.base))
+        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(self.base))
+        palette.setColor(QPalette.ColorRole.ToolTipText, QColor(self.text))
         return palette

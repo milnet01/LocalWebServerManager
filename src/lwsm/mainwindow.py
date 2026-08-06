@@ -182,7 +182,19 @@ class ProjectRow(QFrame):
         self._name.setText(row.name)
         self._port.setText(port_text(row.effective_port))
 
-        self._state.setStyleSheet(f"color: {self._theme.state_token(row.status)};")
+        # A property, not composed CSS: the rule lives in the theme's generated
+        # style sheet (LWSM-1077). Qt does not re-evaluate a style-sheet selector
+        # when the dynamic property it matches on changes, so the widget has to
+        # be re-polished or it keeps the colour it was last polished with.
+        #
+        # Deleting these three lines was tried, on the strength of two tests
+        # that stayed green without them — both were insensitive to it.
+        # `test_the_state_word_takes_its_colour_from_the_status` is the one that
+        # can see it, and it goes red immediately.
+        self._state.setProperty(Theme.STATE_PROPERTY, row.status.value)
+        style = self._state.style()
+        style.unpolish(self._state)
+        style.polish(self._state)
 
         # Built from the rendered cell strings, glyph excluded, so there is no
         # accessibility-only string that can drift from what is on screen.
@@ -212,6 +224,9 @@ class MainWindow(QMainWindow):
         self._theme = theme
         self.setWindowTitle("Local Web Server Manager")
         self.setPalette(theme.to_palette())
+        # Set once for the whole window; rows carry a state property the rules
+        # in it select on.
+        self.setStyleSheet(theme.style_sheet())
 
         central = QWidget(self)
         self._rows_layout = QVBoxLayout(central)
