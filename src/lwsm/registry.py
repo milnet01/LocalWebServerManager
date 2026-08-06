@@ -16,6 +16,7 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeGuard
 
 SCHEMA_VERSION = 1
 
@@ -85,9 +86,15 @@ def _quoted(value: str) -> str:
     return f"{clipped!r}{ellipsis}"
 
 
-def _is_int(value: object) -> bool:
+def _is_int(value: object) -> TypeGuard[int]:
     """`type(...) is int`, not isinstance: `isinstance(True, int)` is True, so a
-    hand-edited `"port": true` would otherwise be accepted as port 1."""
+    hand-edited `"port": true` would otherwise be accepted as port 1.
+
+    `TypeGuard[int]` rather than `bool` so a checker can narrow the `object` at
+    the call site. A plain `bool` left `_port_or_reason`'s range comparison and
+    its return both unresolvable — correct at runtime, because the `or`
+    short-circuits, and three reported errors (LWSM-1080).
+    """
     return type(value) is int
 
 

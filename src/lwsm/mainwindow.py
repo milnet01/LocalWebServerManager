@@ -73,10 +73,17 @@ class ProjectRow(QFrame):
         # the tree is for it not to be a widget.
         self._glyph_text = ""
         self._view: RowView | None = None
-        left, top, right, bottom = layout.getContentsMargins()
-        self._glyph_x = left
+        # contentsMargins() -> QMargins, not getContentsMargins()'s tuple:
+        # PySide6 types the latter as `object`, which a checker cannot unpack.
+        margins = layout.contentsMargins()
+        self._glyph_x = margins.left()
         self._glyph_width = self.fontMetrics().horizontalAdvance("●") + layout.spacing()
-        layout.setContentsMargins(left + self._glyph_width, top, right, bottom)
+        layout.setContentsMargins(
+            margins.left() + self._glyph_width,
+            margins.top(),
+            margins.right(),
+            margins.bottom(),
+        )
 
         self._state = QLabel(self)
         self._name = QLabel(self)

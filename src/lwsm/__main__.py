@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from lwsm import __version__, applog
 
+if TYPE_CHECKING:
+    # Type-checking only: the runtime imports stay inside build_window so
+    # `--version` and `--help` need no Qt and therefore no display (INV-14).
+    from lwsm.controller import ProjectController
+    from lwsm.mainwindow import MainWindow
 
-def build_window(projects_path: Path):
+
+def build_window(projects_path: Path) -> tuple[MainWindow, ProjectController]:
     """Load, construct and connect. Does not run an event loop.
 
     Split out of `main` so LWSM-1005 INV-15 can observe the RegistryError
