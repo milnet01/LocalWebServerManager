@@ -11,6 +11,7 @@ Qt application object, which `qtbot` supplies (`docs/standards/testing.md
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -48,6 +49,23 @@ class FailingProbe:
     def snapshot(self) -> PortSnapshot:
         self.calls += 1
         raise ProbeError("socket table unavailable")
+
+
+class ExplodingProbe:
+    """Raises something the poll loop was never told to expect (LWSM-1069).
+
+    Not a ProbeError: the failure this exists to catch is an exception the
+    task's `except` clause does not name, which PySide6 swallows on the way out
+    of `QRunnable.run()`.
+    """
+
+    def __init__(self, exc: BaseException | None = None) -> None:
+        self.calls = 0
+        self._exc = exc or RuntimeError("malformed /proc/net/tcp line")
+
+    def snapshot(self) -> PortSnapshot:
+        self.calls += 1
+        raise self._exc
 
 
 def record(name: str, port: int | None = 5005) -> ProjectRecord:
@@ -224,6 +242,100 @@ def test_stop_waits_for_the_outstanding_task(qtbot, controllers) -> None:
     # After stop() returns nothing is outstanding, so a snapshot arriving later
     # cannot touch a torn-down controller.
     assert probe.calls == 1
+
+
+# --- LWSM-1069: an unexpected exception must not wedge the loop ---------------
+
+
+def test_an_unexpected_exception_does_not_wedge_the_poll_loop(
+    qtbot, controllers
+) -> None:
+    """The failure the worker exists to prevent, inverted.
+
+    An exception escaping `QRunnable.run()` is swallowed by PySide6 — the
+    process survives at exit 0 and **no** signal is emitted, so the in-flight
+    guard is never cleared and every later tick returns early for the life of
+    the process. The window then shows plausible, permanently frozen data.
+    """
+    probe = ExplodingProbe()
+    controller = build(controllers, [record("a")], probe)
+
+    # The first poll emits either way (INV-5). Under the swallowed exception it
+    # emits nothing at all, so this waits out its timeout.
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert probe.calls == 1
+
+    # The tick after the failure is the whole test: wedged, it stays at 1.
+    controller.poll_once()
+    qtbot.waitUntil(lambda: probe.calls == 2, timeout=2000)
+
+
+def test_the_loop_recovers_once_the_probe_does(qtbot, controllers) -> None:
+    """A wedge is invisible; a recovery proves the guard was really cleared."""
+
+    class RecoveringProbe:
+        def __init__(self) -> None:
+            self.explode = True
+
+        def snapshot(self) -> PortSnapshot:
+            if self.explode:
+                raise RuntimeError("malformed /proc/net/tcp line")
+            return PortSnapshot(frozenset({5005}))
+
+    probe = RecoveringProbe()
+    controller = build(controllers, [record("a")], probe)
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.UNKNOWN
+
+    probe.explode = False
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.RUNNING
+
+
+def test_an_unexpected_exception_is_reported_not_silent(
+    qtbot, controllers, caplog
+) -> None:
+    """Frozen data with no dialog, no status change and no log line is the
+    least debuggable failure this app can have."""
+    controller = build(controllers, [record("a")], ExplodingProbe())
+
+    with caplog.at_level(logging.DEBUG, logger="lwsm.controller"):
+        with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+            controller.poll_once()
+
+    assert "RuntimeError" in caplog.text, (
+        "the app log must name what actually went wrong, not just that it did"
+    )
+
+
+def test_a_held_status_survives_an_unexpected_exception(qtbot, controllers) -> None:
+    """INV-4b holds for any failed probe, not only a ProbeError: an unreadable
+    socket table is not evidence that anything stopped."""
+
+    class FlakyProbe:
+        def __init__(self) -> None:
+            self.explode = False
+
+        def snapshot(self) -> PortSnapshot:
+            if self.explode:
+                raise RuntimeError("malformed /proc/net/tcp line")
+            return PortSnapshot(frozenset({5005}))
+
+    probe = FlakyProbe()
+    controller = build(controllers, [record("a")], probe)
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.RUNNING
+
+    probe.explode = True
+    with qtbot.assertNotEmitted(controller.projects_changed, wait=300):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.RUNNING
 
 
 def test_start_polling_polls_immediately(qtbot, controllers) -> None:

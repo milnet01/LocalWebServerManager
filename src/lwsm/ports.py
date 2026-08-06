@@ -46,11 +46,18 @@ class PortProbe:
     def snapshot(self) -> PortSnapshot:
         try:
             connections = psutil.net_connections(kind="tcp")
-        except psutil.Error as exc:
-            # psutil.AccessDenied subclasses psutil.Error (verified against the
-            # pinned 7.2.2), so naming the subclasses too would only suggest
-            # they were disjoint.
-            raise ProbeError(f"could not read the socket table: {exc}") from exc
+        except Exception as exc:
+            # Deliberately wider than psutil.Error, which is NOT the whole
+            # surface (LWSM-1069): psutil's own _pslinux.process_inet parses
+            # /proc/net/tcp unguarded, so a malformed line raises a bare
+            # RuntimeError, and hidepid, an LSM or a /proc-less container raise
+            # OSError — neither of which subclasses psutil.Error. This method's
+            # contract is one exception type for the poll loop to handle, so
+            # anything the read raises becomes a ProbeError, with the original
+            # kept as __cause__ so the log can name it.
+            raise ProbeError(
+                f"could not read the socket table: {type(exc).__name__}: {exc}"
+            ) from exc
 
         # The laddr guard is belt-and-braces: no listening entry has a falsy
         # laddr on this machine, but the field is typed as possibly empty and an

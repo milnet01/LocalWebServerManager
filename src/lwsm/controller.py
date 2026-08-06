@@ -70,6 +70,19 @@ class _SnapshotTask(QRunnable):
             snapshot = self._probe.snapshot()
         except ProbeError as exc:
             self.signals.failed.emit(exc)
+        except BaseException as exc:
+            # An exception escaping run() is swallowed by PySide6 (verified
+            # against the pinned 6.11.1, LWSM-1069): the traceback prints to
+            # stderr, the process survives at exit 0, and *no* signal is
+            # emitted — so the controller's in-flight guard is never cleared and
+            # poll_once returns early on every later tick for the life of the
+            # process. The window then shows plausible, permanently frozen data.
+            # Nothing may leave this method, so the clause is as wide as the
+            # language allows rather than as wide as the failures we predicted.
+            log.exception("the port probe raised an unexpected exception")
+            failure = ProbeError(f"the port probe failed: {type(exc).__name__}: {exc}")
+            failure.__cause__ = exc
+            self.signals.failed.emit(failure)
         else:
             self.signals.done.emit(snapshot)
 

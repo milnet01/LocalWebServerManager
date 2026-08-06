@@ -209,12 +209,20 @@ project — `docs/design.md § Data flow`. Port ownership (holder PID, exe,
 cwd) is deliberately absent: P02 asks only *is anything listening*, and
 adding the holder lookup would be implementing LWSM-1011 early.
 
-`psutil.Error` from the call is caught and re-raised as `ProbeError`, so
-the poll loop has one exception type to handle and a partial socket table
-never reads as an empty one. `psutil.Error` is the whole surface —
-`issubclass(psutil.AccessDenied, psutil.Error)` → `True`, verified against
-the pinned 7.2.2 — so naming its subclasses separately would only suggest
-they were disjoint.
+**Anything** the call raises is caught and re-raised as `ProbeError`, with
+the original kept as `__cause__`, so the poll loop has one exception type to
+handle and a partial socket table never reads as an empty one.
+
+The clause is `except Exception`, not `except psutil.Error`. An earlier
+revision of this section claimed `psutil.Error` was the whole surface on the
+strength of `issubclass(psutil.AccessDenied, psutil.Error)` → `True`; the
+subclass check is correct and the conclusion drawn from it was not.
+`psutil`'s own `_pslinux.process_inet` parses `/proc/net/tcp` unguarded, so a
+malformed line raises a bare `RuntimeError`, and hidepid, an LSM or a
+`/proc`-less container raise `OSError` — and neither `issubclass(RuntimeError,
+psutil.Error)` nor `issubclass(OSError, psutil.Error)` holds (both `False`,
+verified against the pinned 7.2.2). Naming a library's declared exception base
+is not the same as enumerating what it can raise. Corrected under LWSM-1069.
 
 That `laddr` guard is belt-and-braces: on this machine no listening entry
 has a falsy `laddr` (0 of 12, measured), but the field is typed as possibly
@@ -334,6 +342,19 @@ submitting, so both are queued, and classifies in those slots.
 Classification touches no OS state, so it is cheap and belongs where the
 signal lands.
 
+**Nothing may escape `run()`.** Its final clause is `except BaseException`,
+which emits `failed` carrying a `ProbeError` that wraps whatever was raised,
+and logs it with a traceback. The clause is as wide as the language allows
+rather than as wide as the failures anyone predicted, because the escape path
+is not a crash: an exception leaving `QRunnable.run()` is **swallowed by
+PySide6** — verified against the pinned 6.11.1 — so the traceback prints to
+stderr, the process survives at exit 0, and **no signal is emitted**. The
+in-flight flag below is therefore never cleared, and the poll loop stops for
+the life of the process while the window goes on showing plausible, frozen
+data. A worker whose failure mode is silent permanence is worse than one that
+crashes, so this is the one place in the codebase where a bare catch-all is
+the correct construct rather than a workaround. Added under LWSM-1069.
+
 **A tick whose predecessor is still in flight is skipped, not queued** —
 `docs/design.md § Data flow`, verbatim: "the poll skips a tick rather than
 queueing". One `_in_flight` flag, cleared in both slots.
@@ -347,7 +368,7 @@ a `_emitted_once` flag — *not* by comparing status maps. Deriving it from
 map inequality fails on the case INV-15 exercises: with zero records the
 map is empty before and after, so nothing "differs" and the window would
 never be told to render its empty state. This holds whether the first poll
-succeeded or raised `ProbeError`; INV-4b's no-emit rule applies from the
+succeeded or failed in any way; INV-4b's no-emit rule applies from the
 second poll on, because before the first there is no previous value to
 hold and a blank window would otherwise never update.
 
@@ -569,17 +590,36 @@ importing `lwsm.__main__` in a test does not require a display.
   breached quietly.
 
 - **INV-4b** — From the second completed poll onward, a tick whose probe
-  raised `ProbeError` leaves every status at its previous value and does
+  failed **in any way** leaves every status at its previous value and does
   not emit `projects_changed`. The **first** completed poll is exempt and
   emits either way (INV-5): before it there is no previous value to hold,
   and suppressing it would leave the window at its blank initial state
   forever.
   *Test:* `tests/test_controller.py::test_probe_error_holds_previous_status`,
-  with a case for a failing *first* poll asserting it still emits.
+  with a case for a failing *first* poll asserting it still emits, and
+  `::test_a_held_status_survives_an_unexpected_exception` for a probe that
+  raises something no clause names.
   *Breaks when:* a failed probe is treated as an empty snapshot, which
   reports every project `stopped` on the strength of a `psutil` error — a
   state nobody observed, and the worse of the two failures because it looks
   like news.
+  *Scope note (LWSM-1069):* this said "raised `ProbeError`" until the P02
+  close, which made the invariant unfalsifiable against the failure that
+  actually shipped — an exception no clause named never reached a slot at
+  all, so no status was held, nothing was emitted, and the invariant was
+  satisfied by the loop having stopped.
+
+- **INV-4c** — A probe raising an exception the poll loop does not name
+  leaves the loop still polling: the tick after such a failure issues a
+  probe, and a later successful probe updates the statuses.
+  *Test:* `tests/test_controller.py::test_an_unexpected_exception_does_not_wedge_the_poll_loop`
+  and `::test_the_loop_recovers_once_the_probe_does`; the failure is
+  asserted visible by `::test_an_unexpected_exception_is_reported_not_silent`.
+  *Breaks when:* anything is allowed to escape `_SnapshotTask.run()`. PySide6
+  swallows it, so the breach has no crash, no dialog, no status change and no
+  log line — the window simply stops updating for the life of the process.
+  Assert against a **later tick issuing a probe**, not against the process
+  surviving: it always survives.
 
 - **INV-5** — The first completed poll emits `projects_changed`
   unconditionally, **including when the record list is empty**; afterwards
@@ -737,6 +777,13 @@ importing `lwsm.__main__` in a test does not require a display.
   Reporting `stopped` on a failed probe would be reporting a state nobody
   observed (`§ O5`). This is the canonical statement of the behaviour; §4.3
   points here.
+- **The probe raises something nothing here anticipated.** Handled exactly as
+  the line above, and deliberately not as a separate path: `PortProbe` wraps
+  anything the socket-table read raises, and `_SnapshotTask.run()` wraps
+  anything at all, both into a `ProbeError`. The unexpected case additionally
+  logs a traceback, because unlike a routine `AccessDenied` it is a defect
+  report. What it must never do is nothing — see §4.3 on PySide6 swallowing an
+  exception that escapes `run()` (INV-4c).
 - **The probe outlives its tick.** The next tick is skipped rather than
   queued (INV-12). A probe that never returns stops the status updating and
   leaves the last-known state on screen — visibly stale, rather than
@@ -774,7 +821,7 @@ binds a socket.
 | INV-1, INV-2, INV-10 | `tests/test_registry.py` | — |
 | INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
 | INV-9 | `tests/test_ports.py` | `integration` |
-| INV-3, INV-4, INV-4b, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
+| INV-3, INV-4, INV-4b, INV-4c, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
 | INV-6, INV-13, INV-15 | `tests/test_mainwindow.py` | `gui` |
 | INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
 | INV-8, INV-8b | `tests/test_layering.py` | — |
@@ -875,6 +922,7 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-3b | `tests/test_ports.py::test_one_net_connections_call_per_snapshot` |
 | INV-4 | `tests/test_controller.py::test_status_is_rederived_not_remembered` |
 | INV-4b | `tests/test_controller.py::test_probe_error_holds_previous_status` |
+| INV-4c | `tests/test_controller.py::test_an_unexpected_exception_does_not_wedge_the_poll_loop` |
 | INV-5 | `tests/test_controller.py::test_first_poll_emits_then_only_on_change` |
 | INV-6 | `tests/test_mainwindow.py::test_state_is_a_word_not_only_colour` |
 | INV-7 | `tests/test_mainwindow.py::test_row_follows_a_real_socket` |

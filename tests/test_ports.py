@@ -72,10 +72,40 @@ def test_one_net_connections_call_per_snapshot(monkeypatch: pytest.MonkeyPatch) 
 
 def test_psutil_error_becomes_a_probe_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def denied(**_: object) -> list:
-        # AccessDenied subclasses psutil.Error, which is the whole surface
-        # PortProbe catches.
+        # AccessDenied subclasses psutil.Error, so it needs no separate clause.
         raise psutil.AccessDenied()
 
     monkeypatch.setattr(psutil, "net_connections", denied)
     with pytest.raises(ProbeError):
         PortProbe().snapshot()
+
+
+# LWSM-1069: psutil.Error is NOT the whole surface. psutil's own
+# _pslinux.process_inet parses /proc/net/tcp unguarded, so a malformed line
+# raises a bare RuntimeError; hidepid, an LSM or a /proc-less container raise
+# OSError. Neither subclasses psutil.Error, so both used to escape snapshot()
+# as themselves and reach a poll loop that catches only ProbeError.
+@pytest.mark.parametrize(
+    "raised",
+    [
+        RuntimeError("malformed /proc/net/tcp line"),
+        OSError("/proc is not mounted"),
+        ValueError("invalid literal for int()"),
+    ],
+    ids=["runtime", "os", "value"],
+)
+def test_any_read_failure_becomes_a_probe_error(
+    monkeypatch: pytest.MonkeyPatch, raised: Exception
+) -> None:
+    assert not isinstance(raised, psutil.Error), "the point is that it is not one"
+
+    def exploding(**_: object) -> list:
+        raise raised
+
+    monkeypatch.setattr(psutil, "net_connections", exploding)
+    with pytest.raises(ProbeError) as caught:
+        PortProbe().snapshot()
+
+    # The original survives as the cause, so the app log can name what really
+    # went wrong rather than only that the read failed.
+    assert caught.value.__cause__ is raised
