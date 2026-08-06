@@ -59,6 +59,19 @@ signaling per
 
 ### Changed
 
+- **Groundwork for translation, and stricter internal checks (LWSM-1080, LWSM-1081)**
+  The words in the window can now be translated, which none of them could
+  before. No translations ship yet — this is about not making that harder
+  later. A type-checking tool also found four small mistakes that nothing in
+  the build was looking for; those are fixed.
+
+- **Colours meet the readability standard the project set itself (LWSM-1075, LWSM-1077)**
+  The colour used for "unknown" was very slightly too faint against the window
+  to meet the contrast standard, in the palette a first run gets. It has been
+  darkened, and every colour is now checked by arithmetic rather than by eye,
+  so a future palette that fails is a failing build. The colour rules also
+  moved into the one place meant to own them.
+
 - **`scripts/local-ci.sh` parses all its arguments, and honours NO_COLOR**
   Only `$1` was examined, so `--fst` ran the full gate silently. Unknown
   arguments exit 2 with usage, `--help` works, a failing step is named
@@ -75,6 +88,38 @@ signaling per
   default.
 
 ### Fixed
+
+- **Screen readers are told what changed, and not told what did not (LWSM-1071, LWSM-1076)**
+  The little status dot was read aloud as "black circle", which a note in the
+  code claimed could not happen. It is now drawn rather than labelled, so it
+  stays on screen and out of the screen reader. Separately, a status change
+  was never announced at all; it now is, exactly once, and unchanged rows stay
+  quiet.
+
+- **Keyboard focus is visible, and the row no longer spreads across the window (LWSM-1070, LWSM-1074)**
+  Moving around the window with the keyboard showed nothing at all — the
+  focused and unfocused window were pixel-for-pixel identical. There is now a
+  visible ring, and it grows with the text size. Widening the window used to
+  fling a project's name and its port to opposite edges, so reading one row
+  meant sweeping a magnifier across the screen; the row now stays together.
+
+- **A damaged or hostile settings file can no longer hang or crash startup (LWSM-1072, LWSM-1082)**
+  A booby-trapped `projects.json` — a named pipe, a device, an enormous file,
+  a 5000-digit port or deeply nested brackets — could hang the app on startup
+  or kill it with no window at all. All of them now open an empty window that
+  tells you what is wrong, which is what was always intended. A file saved
+  with a byte-order mark by an editor is also accepted rather than refused for
+  a reason that pointed nowhere.
+
+- **The status display no longer freezes silently (LWSM-1069, LWSM-1073, LWSM-1079)**
+  If the part that checks which ports are busy hit an unexpected error, the
+  app quietly stopped checking for good — the window kept showing whatever it
+  last saw, with no warning, no error and nothing in the log. It now keeps
+  checking, and says what went wrong. Closing the app is also reliable now: a
+  last message could arrive after the window had gone, and a stuck lookup
+  could stop the app quitting at all. And a fault that repeats is written to
+  the log once with a count, instead of once a second until it has scrubbed
+  away everything else.
 
 - **A rapid second push to main no longer leaves the first commit ungated**
   `cancel-in-progress` applied to pushes as well as pull requests, and
@@ -113,6 +158,20 @@ signaling per
   one.
 
 ### Security
+
+- **The tool that installs dependencies is updated for a published advisory (LWSM-1083, LWSM-1064)**
+  `uv` is moved from 0.11.7 to 0.12.2, both on this machine and in CI.
+  The old version is affected by GHSA-4gg8-gxpx-9rph, where a malicious
+  package could place an executable outside the intended environment. The
+  lockfile is unchanged, so no dependency moved.
+
+- **A project name in the settings file can no longer forge log lines (LWSM-1078)**
+  A name in `projects.json` was copied into the app's messages and log exactly
+  as written, so one containing a line break could fake what looked like a
+  separate log entry, and a very long one could flood the status bar. Names are
+  now escaped and shortened. Two entries pointing at the same folder by
+  different routes are also caught, and a name containing a stray zero byte is
+  refused instead of loaded.
 
 - **The application log now refuses a hard link and a FIFO, not just a symlink**
   `O_NOFOLLOW` closed only part of the hole it was added for. A hard

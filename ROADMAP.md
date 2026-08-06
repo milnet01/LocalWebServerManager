@@ -76,7 +76,7 @@ visible.
 
 ### 🐛 Bug fixes
 
-- 📋 [LWSM-1069] **FP03: an unexpected exception wedges the poll loop
+- ✅ [LWSM-1069] **FP03: an unexpected exception wedges the poll loop
   permanently, and silently.** Two halves, found by two independent lanes.
   `ports.py:49` catches only `psutil.Error`, which is neither an `OSError` nor a
   `RuntimeError` (verified: both `issubclass` calls return `False`) — while
@@ -102,8 +102,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 1.
   Lanes: core, tests.
+  Resolved (2026-08-06, d0cb39b): both halves fixed. `PortProbe.snapshot()` now catches `Exception` and keeps the original as `__cause__`; `_SnapshotTask.run()` ends in `except BaseException`, logging a traceback and emitting `failed` so the guard is always cleared. Seven tests, each watched red against shipping code first — they assert a later tick still probes, not that the process survived, since it always survived. Spec corrected too: § 4.2's false whole-surface premise, § 4.3's no-escape rule, INV-4b widened to any failure, new INV-4c, § 6 failure modes. Gate green at 75 tests, LWSM_REQUIRE_ALL_TOOLS=1.
 
-- 📋 [LWSM-1073] **FP03: `stop()` returns while a queued emission is still in
+- ✅ [LWSM-1073] **FP03: `stop()` returns while a queued emission is still in
   flight.** `controller.py:122` waits with `QThreadPool.globalInstance().waitForDone()`,
   which waits for `run()` to *finish* — but the `emit` happens inside `run()`
   over a queued connection, so the event is already posted and is dispatched on
@@ -127,8 +128,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 2.
   Lanes: core, tests.
+  Resolved (2026-08-06, 0b2a22f): all three. Both signals are disconnected before the wait (reproduced: one emission arrived a single spin after stop() returned; the test fails again with the disconnect removed). The controller holds a private single-thread QThreadPool (reproduced: stop() took 5.00 s waiting on one unrelated global-pool runnable). The wait is bounded at STOP_WAIT_MS = 2000 — a shutdown budget, not a watchdog, so ADR-0004's "slowness is not failure" is untouched; on expiry the pool and task are deliberately never released, since ~QThreadPool waits unbounded and collecting a running _SnapshotTask would destroy a live C++ object. Also closed a gap this exposed in LWSM-1069's fix: the emits sat outside the catch-all and `emit` on a destroyed signaller was escaping run(); it now has two layers. INV-16 rephrased over delivery rather than mechanism — its old wording was true while its purpose was violated. Gate green at 94 tests.
 
-- 📋 [LWSM-1072] **FP03: the registry read is unbounded, and two exceptions
+- ✅ [LWSM-1072] **FP03: the registry read is unbounded, and two exceptions
   escape the contract.** `registry.py:86` calls `path.read_bytes()` with no
   guard on type or size, so — reproduced — a **FIFO** at
   `~/.config/localwebservermanager/projects.json` blocks forever: no window, no
@@ -151,10 +153,11 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 2.
   Lanes: core, tests.
+  Resolved (2026-08-06, fb2bd11): `_read_bounded()` opens with O_RDONLY|O_NONBLOCK, fstats the fd, refuses anything not a regular file, and reads one byte past a 1 MiB cap so a file that grew between fstat and read is still refused. Deliberately weaker than `applog._require_private_regular_file` and not a call to it — that also demands a single link and our own ownership, right for a log we write and wrong for a config file a user may hard-link. Both escaping exceptions now become RegistryError: the 5000-digit port (CPython's 4300-digit int cap, plain ValueError) and deeply nested arrays (RecursionError, not even an Exception). Six tests watched failing first — the FIFO one by hitting its 5 s alarm — including one asserting a file exactly at the cap still loads, since a size check is as easy to get wrong in the refusing direction. Gate green at 103 tests.
 
 ### 🔒 Security
 
-- 📋 [LWSM-1078] **FP03: the registry's rejection reasons carry
+- ✅ [LWSM-1078] **FP03: the registry's rejection reasons carry
   attacker-controlled text unescaped into the status bar.** `registry.py:136,141,146`
   interpolate `raw_name` **raw and unbounded** (unlike `value!r`, which `repr`
   escapes), and that reason reaches both `log.warning` at `__main__.py:38` — where
@@ -178,8 +181,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 2.
   Lanes: core, ui, tests.
+  Resolved (2026-08-06, 5553d32): three of the four parts fixed, one dismissed with evidence. Fixed — reasons now go through a `repr`-and-clip helper (120 chars), so a newline cannot forge a log line and a 50 MB name cannot flood the status bar; a `..` component is refused rather than normalised (collapsing it lexically is wrong when a component is a symlink, and P03 uses this path as a spawn cwd); a NUL byte in `path` is refused. DISMISSED — "the status bar does not set PlainText, so Qt's AutoText may render markup" is not true of `showMessage`: measured against the pinned 6.11.1, QStatusBar has no child QLabel and paints via `style()->drawItemText`, which is plain-text only. `<b>bold</b>` drew 508 ink pixels vs 232 for `bold` — rendered literally. The measurement is recorded in spec § 4.1 so it is not re-raised. New INV-21. Gate green at 107 tests.
 
-- 📋 [LWSM-1083] **FP03: the pinned `uv` carries a published advisory.**
+- ✅ [LWSM-1083] **FP03: the pinned `uv` carries a published advisory.**
   `uv 0.11.7` — this machine's toolchain and the version `ci.yml` pins — is
   affected by **GHSA-4gg8-gxpx-9rph** (moderate): uv fails to validate entry-point
   names, so a malicious wheel's `console_scripts` can place an executable outside
@@ -201,10 +205,11 @@ visible.
   Source: audit-2026-08-06.
   Priority: 2.
   Lanes: build, ci.
+  Resolved (2026-08-06, dd574ec): local toolchain and the ci.yml pin both moved to 0.12.2 in one commit — bumping only CI would have re-introduced the local/CI divergence FP02 fixed. The local binary was replaced with the published release, checksum-verified against astral-sh's .sha256 (`uv self update` refused: not a standalone-script install); the 0.11.7 binary is kept in the session scratchpad. Re-locking under 0.12.2 left uv.lock byte-identical. The `--locked, NOT --frozen` evidence comment was RE-MEASURED rather than re-dated: with a dependency added to pyproject.toml and the lock untouched, `uv sync --frozen` exits 0 and `--locked` exits 1 on 0.12.2, as on 0.11.7; dependencies.md § 2.1 carries the same sentence and moved with it. Gate green at 125 tests; pip-audit against the locked environment reports no known vulnerabilities. NOT pushed — GitHub Actions degraded, so CI has not run against this pin.
 
 ### ♿ Accessibility
 
-- 📋 [LWSM-1070] **FP03: the only focusable widget in the app draws no focus
+- ✅ [LWSM-1070] **FP03: the only focusable widget in the app draws no focus
   ring.** `mainwindow.py:56` sets `StrongFocus` on `ProjectRow` and nothing paints
   a focus indicator — `QFrame` renders only its frame, and `StyledPanel` does not
   consult `State_HasFocus`. Reproduced by grabbing the widget focused and
@@ -222,8 +227,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 1.
   Lanes: ui, tests.
+  Resolved (2026-08-06, 63f62ce): `ProjectRow.paintEvent` paints the ring `QFrame` does not, in the `accent` token expanded by `Theme.focus_ring_color()` (§ O7 forbids a widget building a QColor), at a pen width derived from the text metric so it survives LWSM-1032's 200 % setting. Measured: 858 of 6734 pixels change between the focused and unfocused grabs, ring width 2 px, contrast 5.42:1 against `window` — over § T8's 3:1 indicator floor. Asserted by rendering, since focusPolicy/hasFocus/accessible name were all already correct while the images matched. Watched failing with the ring neutered. New INV-17; `tests/contrast.py` holds the WCAG arithmetic, shared with LWSM-1075. Gate green at 79 tests.
 
-- 📋 [LWSM-1071] **FP03: the decorative glyph is announced by a screen reader,
+- ✅ [LWSM-1071] **FP03: the decorative glyph is announced by a screen reader,
   and a code comment says it is not.** `mainwindow.py:64` calls
   `self._glyph.setAccessibleName("")`, and the comment above it states the glyph
   is "also hidden from the AT tree so a screen reader walking children does not
@@ -244,8 +250,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 2.
   Lanes: ui, tests.
+  Resolved (2026-08-06, 1b82a90): the glyph is painted in `ProjectRow.paintEvent` into a column reserved by widening the layout's left content margin, so it is not a widget and cannot be a child of the AT tree. Qt Widgets has no ignored flag — Qt Quick's `Accessible.ignored` has no widget equivalent — so leaving the tree means not being a widget. `Theme.state_color()` expands the token, since § O7 forbids widget code building a QColor. Reproduced first as ['●', 'running', 'a', 'port 5005']; the test now asserts childCount() and each child's name equals exactly ["running", "a", "port 5005"]. A second test guards the other direction — every AT assertion would also pass if the glyph were simply deleted, so it blanks the glyph and re-renders, the difference being the glyph. Exact-colour matching was tried and fails for '○' and '?' (antialiased strokes). New INV-19; § 4.4's accessibility-ignored claim corrected. Gate green at 92 tests.
 
-- 📋 [LWSM-1074] **FP03: the row's cells are flung to opposite ends of the
+- ✅ [LWSM-1074] **FP03: the row's cells are flung to opposite ends of the
   window.** `mainwindow.py:79` gives `stretch=1` to the **name** cell, so all
   slack is absorbed inside that label — and `QLabel`'s default alignment is
   `AlignLeft`, so the name's text stays at the left while the port cell is pinned
@@ -262,8 +269,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 2.
   Lanes: ui, tests.
+  Resolved (2026-08-06, 846c514): the stretch moved off the name cell to after the last cell, so slack lands outside the row's content instead of inside a left-aligned QLabel. Reproduced first at 1400 px with the port cell ending at x=1371; it now stays inside LWSM-1032's 600 px band. A second test asserts the cells keep their order without overlapping, guarding the over-correction. New INV-20. Gate green at 94 tests.
 
-- 📋 [LWSM-1075] **FP03: `state_unknown` fails the contrast floor in the default
+- ✅ [LWSM-1075] **FP03: `state_unknown` fails the contrast floor in the default
   palette.** `theme.py:62` sets `state_unknown="#8a6d1f"`, which against
   `window="#f4f4f6"` computes to **4.46:1** — below the 4.5:1 that
   `testing.md § T8` and `design.md § Accessibility` require of every text pair.
@@ -281,8 +289,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 2.
   Lanes: ui, tests.
+  Resolved (2026-08-06, 6c101b4): `state_unknown` darkened #8a6d1f → #856819, 4.46:1 → 4.79:1 against `window`. The test computes the ratio and is parametrised over tokens AND themes, so LWSM-1031's palettes inherit it. Measured: text 15.63, muted_text 6.21, state_stopped 6.21, state_unknown 4.79, state_running 4.61. `tests/contrast.py` is pinned to WCAG's published values first (21:1 black-on-white, the #767676/#777777 borderline) because a miscomputed ratio passes every palette silently; it reproduced the review's own 4.46 and 4.61 before anything changed. `state_running` left alone — it clears the floor, and re-tuning a passing value was not in scope, but it has no margin either. New INV-18. Gate green at 85 tests.
 
-- 📋 [LWSM-1076] **FP03: a state change is never announced, and every row is
+- ✅ [LWSM-1076] **FP03: a state change is never announced, and every row is
   re-styled on every tick.** Two halves of one fix. Qt does **not** notify AT-SPI
   when an accessible name changes, and `mainwindow.py:101` only calls
   `setAccessibleName` — so `design.md § Accessibility`'s promise that "a state
@@ -302,8 +311,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 2.
   Lanes: ui, tests.
+  Resolved (2026-08-06, d57b097): both halves together. `update_from` raises a `QAccessibleEvent(NameChanged)` — Qt never notifies AT-SPI on an accessible-name change, so the promise was unimplemented — and returns early when the `RowView` is unchanged, since `_sync_rows` calls it on every row on every signal and only `QLabel::setText` short-circuits. Verified the guard is load-bearing by removing it: the never-re-announced test goes red. `QAccessible.installUpdateHandler` is not exposed in PySide6 (checked against the pinned 6.11.1) and AT-SPI is unreachable headless, so the tests count the call itself — weaker than preferred, and the strongest surface available; recorded in the spec. New INV-22. Gate green at 109 tests.
 
-- 📋 [LWSM-1081] **FP03: no user-visible string is translatable.** `grep` for
+- ✅ [LWSM-1081] **FP03: no user-visible string is translatable.** `grep` for
   `.tr(` and `QCoreApplication.translate` across `src/` returns **zero** hits,
   against `coding.md § 5.2`'s "wrap user-visible strings in `tr()`". Affected:
   the window title, `port …` / `no port`, the three status words, the two
@@ -320,10 +330,11 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 4.
   Lanes: ui, core.
+  Resolved (2026-08-06, 304e904): the window title, port text and the three status words go through one `QCoreApplication.translate` context. The status words get a UI-side display map (`state_word()`) rather than a wrapped enum — wrapping the core StrEnum would put user-visible text in a core module, which is the design decision the bullet said to record. The placeholder is Qt's `%1` substituted with `str.replace`, not `str.format`: found when the test's uppercasing translator turned `{port}` into `{PORT}` and the row raised KeyError inside a signal handler — LWSM-1082's crash class by a new route; `replace` cannot raise, so a bad translation loses the number rather than the window, and there is a test for that. Log messages and the argparse text are deliberately untranslated (logs match the source; translating the CLI text needs Qt before argparse, which INV-14 forbids). Tested by installing a QTranslator and reading the rendered text, since a wrapper that is never consulted looks identical to one that is. Gate green at 125 tests.
 
 ### 🧹 Cleanup / debt
 
-- 📋 [LWSM-1077] **FP03: the theme layer owes a generated style sheet, and the
+- ✅ [LWSM-1077] **FP03: the theme layer owes a generated style sheet, and the
   widget is composing CSS instead.** Spec § 4.4 and `design.md § Tokens, not
   colours` both say a `Theme` expands into a `QPalette` **and** a generated style
   sheet — finbreak's two-layer split. `theme.py` implements `to_palette()` and
@@ -341,8 +352,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 3.
   Lanes: ui.
+  Resolved (2026-08-06, 6279c35): `Theme.style_sheet()` generates one rule per state selecting on a dynamic property, set once on the window; the row sets a property instead of composing CSS, and re-polishes. `to_palette()` also fills Button, ButtonText, HighlightedText, ToolTipBase and ToolTipText, which were at the style default. Two test lessons recorded in the spec as INV-23: the re-polish was deleted partway through on the strength of two tests that were blind to it (one compared a freshly built row, whose first polish is correct either way; one compared two rows wrong in the same direction) — the test that catches it forces identical text into both labels so colour is the only remaining variable. And the palette test first asserted `color(role).isValid()`, which is true for an unset role, i.e. it passed for exactly the defect it was written to catch; it now asserts each role against its token. Gate green at 117 tests.
 
-- 📋 [LWSM-1079] **FP03: a failing probe logs once a second, for ever.**
+- ✅ [LWSM-1079] **FP03: a failing probe logs once a second, for ever.**
   `controller.py:150` logs a WARNING on every failed poll, and the poll is
   1000 ms — so a permanently unreadable socket table (a hardened kernel, a
   persistent `AccessDenied`) writes roughly **86,400 lines a day** into a handler
@@ -356,8 +368,9 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 3.
   Lanes: core.
+  Resolved (2026-08-06, 04e8658): logged on the first failure, then only when the message text changes. Suppressed by message rather than by count — a different failure is news, and there is a test for that direction too. The suppressed count is flushed when the message changes, when a poll succeeds, and on stop(), so silence and suppression are never indistinguishable and a run's count does not die with the process. A success clears the state, so a failure recurring after a recovery is logged again. Gate green at 112 tests.
 
-- 📋 [LWSM-1080] **FP03: three type errors in `registry.py`, and a missing
+- ✅ [LWSM-1080] **FP03: three type errors in `registry.py`, and a missing
   return annotation on the seam INV-15 depends on.** `pyright` reports
   `registry.py:74` twice and `:76` once: `_is_int()` returns a plain `bool`, so a
   checker cannot narrow `value: object` to `int`, and both the range comparison
@@ -377,8 +390,9 @@ visible.
   Source: audit-2026-08-06.
   Priority: 3.
   Lanes: core, build.
+  Resolved (2026-08-06, 2bba9f7): `_is_int` is now `TypeGuard[int]`, which narrows `object` at the call site and closes all three registry.py reports; `build_window` carries spec § 4.5's `-> tuple[MainWindow, ProjectController]` via a TYPE_CHECKING block, so the runtime imports stay inside the function and INV-14's no-Qt-for---version property is untouched. Also fixed one this pass introduced: LWSM-1071's glyph column unpacked `getContentsMargins()`, typed `object` in PySide6 — now `contentsMargins()` -> QMargins. pyright 5 errors → 1, the survivor being applog.py:53's `_open` override, the single pre-existing mismatch LWSM-1066 was filed on and left for it along with putting the checker in the gate. Gate green at 112 tests.
 
-- 📋 [LWSM-1082] **FP03: the low-severity tail from the P02 review.** Each
+- ✅ [LWSM-1082] **FP03: the low-severity tail from the P02 review.** Each
   verified, none urgent, grouped so they are not lost. `mainwindow.py:137`
   `_sync_rows` only ever **adds** a row — nothing removes one when
   `controller.rows()` shrinks, so a removed project would linger showing its last
@@ -403,6 +417,7 @@ visible.
   Source: code-quality-review-2026-08-06.
   Priority: 4.
   Lanes: core, ui.
+  Resolved (2026-08-06, 812b871): all seven. `_sync_rows` removes rows as well as adding them; `main` wraps show()/exec() in try/finally so `controller.stop()` always runs; the row's minimum widths moved into `_apply_text_metrics`, re-applied on a FontChange `changeEvent`; `STATE_GLYPHS` and `Theme.state_token` are both `.get()` with a fallback, so a state LWSM-1011 adds is a missing glyph rather than a UI crash inside a signal handler; `_rows` is typed `dict[Path, ProjectRow]`; the registry decodes `utf-8-sig` so an editor-added BOM no longer refuses the file; and `Path.home()`'s RuntimeError becomes a RegistryError, which INV-15 already turns into an empty window. Five tests — the try/finally and the annotation are structural and carry none. Gate green at 122 tests.
 
 ---
 
@@ -1605,7 +1620,7 @@ recorded. Both reviewers independently confirmed the delegation property, the
 pins and the workflow's security posture. Items below are what remained after
 triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
 
-- 📋 [LWSM-1064] **Bump uv to 0.12.2 on both machines in one commit.**
+- ✅ [LWSM-1064] **Bump uv to 0.12.2 on both machines in one commit.**
   CI was resolving whatever uv was newest at run time while this project
   is developed against 0.11.7 — a floating reference dependencies.md § 6
   forbids. FP02 pinned CI to 0.11.7 so the two sides match TODAY, which
@@ -1625,6 +1640,7 @@ triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
   written outside the environment, onto `PATH`), fixed in 0.11.15. LWSM-1083
   carries the security framing and the floor; this item still owns the
   both-sides-in-one-commit mechanics. Do them together.
+  Resolved (2026-08-06, dd574ec): closed by LWSM-1083, which needed the same bump for a security floor rather than a tidiness one. Both sides are 0.12.2, uv.lock re-locked byte-identical, and local-ci.sh's evidence comment re-measured on the new version.
 
 - 📋 [LWSM-1065] **Decide whether two instances may share one app.log.**
   `RotatingFileHandler` is not multi-process safe, and ADR-0004 rules out
