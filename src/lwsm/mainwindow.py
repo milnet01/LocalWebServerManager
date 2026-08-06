@@ -10,7 +10,7 @@ name, keyboard reachability, its state as text, and a layout that reflows.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import (
     QFrame,
@@ -58,12 +58,18 @@ class ProjectRow(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
 
         layout = QHBoxLayout(self)
-        self._glyph = QLabel(self)
-        self._glyph.setTextFormat(Qt.TextFormat.PlainText)
-        # Excluded from the accessible name; also hidden from the AT tree so a
-        # screen reader walking children does not find it either.
-        self._glyph.setAccessibleName("")
-        self._glyph.setAccessibleDescription("")
+
+        # The glyph is PAINTED, not labelled (LWSM-1071). It was a QLabel with
+        # setAccessibleName(""), which does not hide anything: QAccessibleDisplay
+        # falls back to QLabel::text() when the name is empty, so a screen reader
+        # walking the row's children found a child named '●'. There is no
+        # "ignored" flag for a QWidget, so the only way to keep something out of
+        # the tree is for it not to be a widget.
+        self._glyph_text = ""
+        left, top, right, bottom = layout.getContentsMargins()
+        self._glyph_x = left
+        self._glyph_width = self.fontMetrics().horizontalAdvance("●") + layout.spacing()
+        layout.setContentsMargins(left + self._glyph_width, top, right, bottom)
 
         self._state = QLabel(self)
         self._name = QLabel(self)
@@ -75,7 +81,6 @@ class ProjectRow(QFrame):
 
         # State cell first — design.md § Accessibility: "the state word is
         # first in the row". Visual order is tab order.
-        layout.addWidget(self._glyph)
         layout.addWidget(self._state)
         layout.addWidget(self._name, stretch=1)
         layout.addWidget(self._port)
@@ -97,7 +102,10 @@ class ProjectRow(QFrame):
         return max(1, round(self.fontMetrics().height() / 8))
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Paint the focus ring `QFrame` does not.
+        """Paint the state glyph, and the focus ring `QFrame` does not.
+
+        The glyph is painted rather than put in a `QLabel` so it stays out of
+        the accessibility tree entirely (LWSM-1071).
 
         `QFrame` renders only its frame and `StyledPanel` never consults
         `State_HasFocus`, so before this the focused and unfocused renders were
@@ -107,6 +115,16 @@ class ProjectRow(QFrame):
         depends on entirely, and WCAG 2.4.7 requires it outright.
         """
         super().paintEvent(event)
+
+        glyph_painter = QPainter(self)
+        glyph_painter.setPen(self._glyph_color)
+        glyph_painter.drawText(
+            QRect(self._glyph_x, 0, self._glyph_width, self.height()),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter,
+            self._glyph_text,
+        )
+        glyph_painter.end()
+
         if not self.hasFocus():
             return
 
@@ -121,14 +139,17 @@ class ProjectRow(QFrame):
         painter.drawRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset))
 
     def update_from(self, row: RowView) -> None:
-        self._glyph.setText(STATE_GLYPHS[row.status])
+        self._glyph_text = STATE_GLYPHS[row.status]
+        self._glyph_color = self._theme.state_color(row.status)
+        # The glyph is painted, so unlike the labels below it needs an explicit
+        # repaint request — nothing else marks the row dirty.
+        self.update()
+
         self._state.setText(str(row.status))
         self._name.setText(row.name)
         self._port.setText(port_text(row.effective_port))
 
-        token = self._theme.state_token(row.status)
-        self._glyph.setStyleSheet(f"color: {token};")
-        self._state.setStyleSheet(f"color: {token};")
+        self._state.setStyleSheet(f"color: {self._theme.state_token(row.status)};")
 
         # Built from the rendered cell strings, glyph excluded, so there is no
         # accessibility-only string that can drift from what is on screen.

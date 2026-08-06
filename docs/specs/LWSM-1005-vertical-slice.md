@@ -453,7 +453,7 @@ Each row is, in visual and tab order:
 
 | Cell | Content |
 |---|---|
-| state | two sub-labels: a **glyph** (`●` running / `○` stopped / `?` unknown), then the **word** `running` / `stopped` / `unknown`. Both coloured from the matching state token |
+| state | a **painted glyph** (`●` running / `○` stopped / `?` unknown) in a reserved leading column, then a label holding the **word** `running` / `stopped` / `unknown`. Both take the matching state token's colour |
 | name | the project's display name |
 | port | `port 5005` — the word and the number — or the literal `no port` |
 
@@ -466,8 +466,25 @@ running, port 5005" and the cell text is what a screen reader reads. A bare
 is one of the three signals `docs/design.md § Accessibility` requires, and
 it carries nothing the word does not — so a screen reader that read it
 would announce "black circle, running, project-a", which is noise wearing
-the costume of redundancy. The glyph sub-label is marked accessibility-
-ignored; `state_text` below means **the word alone**.
+the costume of redundancy. `state_text` below means **the word alone**.
+
+**Excluding it means painting it, not naming it "" — and the difference is
+the whole of LWSM-1071.** An earlier revision said the glyph sub-label was
+"marked accessibility-ignored", and the code implemented that as
+`setAccessibleName("")`. That call does not hide anything: `QAccessibleDisplay`
+falls back to `QLabel::text()` when the accessible name is empty, so the row
+exposed **four** children and child 0 was named `'●'` — verified by querying
+the live interface. Qt Widgets has no "ignored" flag to set (Qt Quick's
+`Accessible.ignored` has no widget equivalent), so the only way to keep
+something out of the tree is for it not to be a widget. The glyph is therefore
+drawn in `ProjectRow.paintEvent` into a leading column reserved by widening the
+layout's left content margin, and `Theme.state_color()` expands the token for
+it because `§ O7` forbids the widget from constructing a colour.
+
+Two things this costs, both deliberate: the painted glyph needs an explicit
+`update()` in `update_from`, since nothing else marks the row dirty; and a test
+that only checks the AT tree would pass just as well if the glyph had been
+**deleted**, so INV-19 checks the pixels too.
 
 The state cell is first, which `docs/design.md § Accessibility` requires
 ("the state word is first in the row"). Each row is a focusable widget
@@ -816,6 +833,26 @@ importing `lwsm.__main__` in a test does not require a display.
   passes every palette silently and that is indistinguishable from a clean
   one.
 
+- **INV-19** — The row's accessibility tree contains exactly its three cells
+  — `["running", "a", "port 5005"]` — and no glyph, while the glyph is still
+  drawn on screen.
+  *Test:* `tests/test_mainwindow.py::test_the_row_exposes_only_its_three_cells`
+  and `::test_the_glyph_is_never_a_child_of_the_accessibility_tree`, plus
+  `::test_the_glyph_is_still_painted_after_leaving_the_label`, which blanks
+  the glyph and re-renders so the difference *is* the glyph.
+  *Breaks when:* the assertion is made against the row's own accessible name.
+  INV-6 does exactly that and **passes** — the name was always correctly
+  `'running, demo, port 8080'` while a screen reader walking children found
+  `'●'`. Assert against `childCount()` and each child's
+  `text(QAccessible.Text.Name)`.
+  *And breaks the other way:* every AT-tree assertion here would also pass if
+  the glyph were simply removed from the UI, which would silently drop one of
+  `design.md § Accessibility`'s three redundant signals. The pixel check is
+  what stops the fix over-shooting into a regression.
+  *Trap:* an exact-colour pixel match works for the filled `●` and fails for
+  `○` and `?` — antialiased strokes contain no pixel equal to the pure token
+  colour.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -886,7 +923,7 @@ binds a socket.
 | INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
 | INV-9 | `tests/test_ports.py` | `integration` |
 | INV-3, INV-4, INV-4b, INV-4c, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
-| INV-6, INV-13, INV-15, INV-17 | `tests/test_mainwindow.py` | `gui` |
+| INV-6, INV-13, INV-15, INV-17, INV-19 | `tests/test_mainwindow.py` | `gui` |
 | INV-17 (contrast half), INV-18 | `tests/test_theme.py` | none — pure arithmetic, no display |
 | INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
 | INV-8, INV-8b | `tests/test_layering.py` | — |
@@ -1003,6 +1040,7 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-16 | `tests/test_controller.py::test_stop_waits_for_the_outstanding_task` |
 | INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held` |
 | INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
+| INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_only_its_three_cells` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |

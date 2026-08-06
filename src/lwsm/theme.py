@@ -77,6 +77,15 @@ class Theme:
         """
         return QColor(self.accent)
 
+    def state_color(self, status: ProjectStatus) -> QColor:
+        """The state token as a `QColor`, for the painted glyph (LWSM-1071).
+
+        Same reason as `focus_ring_color`: `§ O7` forbids widget code from
+        constructing a colour, so anything painted rather than styled needs its
+        token expanded here.
+        """
+        return QColor(self.state_token(status))
+
     def state_token(self, status: ProjectStatus) -> str:
         return {
             ProjectStatus.RUNNING: self.state_running,

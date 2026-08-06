@@ -106,6 +106,95 @@ def test_a_row_is_keyboard_focusable(qtbot, built) -> None:
     assert rows_of(window)[0].focusPolicy() == Qt.FocusPolicy.StrongFocus
 
 
+# --- LWSM-1071: the AT tree is the surface a screen reader walks --------------
+
+
+def accessible_children(widget) -> list[str]:
+    """Every name Orca would find walking down from this widget.
+
+    The row's own accessible name is not this surface. INV-6 asserted the name
+    (correctly) while the glyph was exposed as a *child* named '●' — a test
+    reading only the parent cannot see what a screen reader announces.
+    """
+    from PySide6.QtGui import QAccessible
+
+    interface = QAccessible.queryAccessibleInterface(widget)
+    assert interface is not None, "the row must be in the accessibility tree"
+    return [
+        interface.child(index).text(QAccessible.Text.Name)
+        for index in range(interface.childCount())
+    ]
+
+
+@pytest.mark.parametrize(
+    ("port", "listening"), [(5005, [5005]), (5005, []), (None, [])]
+)
+def test_the_glyph_is_never_a_child_of_the_accessibility_tree(
+    qtbot, built, port, listening
+) -> None:
+    window, _ = window_for(qtbot, built, [record("a", port)], FakeProbe(*listening))
+    row = rows_of(window)[0]
+
+    names = accessible_children(row)
+    for glyph in STATE_GLYPHS.values():
+        assert glyph not in names, (
+            f"a screen reader walking the row's children finds {glyph!r}: {names}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("port", "listening", "status"),
+    [
+        (5005, [5005], ProjectStatus.RUNNING),
+        (5005, [], ProjectStatus.STOPPED),
+        (None, [], ProjectStatus.UNKNOWN),
+    ],
+)
+def test_the_glyph_is_still_painted_after_leaving_the_label(
+    qtbot, built, port, listening, status
+) -> None:
+    """Removing the glyph from the AT tree must not remove it from the screen.
+
+    `design.md § Accessibility` requires three redundant signals — word, colour
+    and glyph — and every assertion above this one would pass just as happily if
+    the glyph had simply been deleted. So this looks at the pixels.
+    """
+    window, _ = window_for(qtbot, built, [record("a", port)], FakeProbe(*listening))
+    row = rows_of(window)[0]
+    with qtbot.waitExposed(window):
+        window.show()
+
+    assert row._glyph_text == STATE_GLYPHS[status]
+    with_glyph = row.grab().toImage()
+
+    # Blank it and re-render: the difference IS the glyph. An exact-colour match
+    # would only work for the filled '●' — '○' and '?' are antialiased strokes,
+    # so no pixel in them equals the pure token colour.
+    row._glyph_text = ""
+    without_glyph = row.grab().toImage()
+
+    changed = sum(
+        1
+        for y in range(with_glyph.height())
+        for x in range(row._glyph_x, row._glyph_x + row._glyph_width)
+        if with_glyph.pixel(x, y) != without_glyph.pixel(x, y)
+    )
+    assert changed > 0, (
+        f"nothing is drawn in the glyph column for {status}: the glyph left the "
+        f"accessibility tree and the screen with it"
+    )
+
+
+def test_the_row_exposes_only_its_three_cells(qtbot, built) -> None:
+    """The count is the assertion that would have caught this: the row exposed
+    four children, and setAccessibleName("") did not remove the fourth —
+    QAccessibleDisplay falls back to QLabel::text() when the name is empty."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    names = accessible_children(rows_of(window)[0])
+
+    assert names == ["running", "a", "port 5005"], names
+
+
 # --- LWSM-1070: focusable is not the same as showing where the focus is -------
 
 
