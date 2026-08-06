@@ -8,8 +8,8 @@
 | **Active item ID** | (none — pre-code phases produce documents, not roadmap items) |
 | **Active step** | (n/a until P01) |
 | **Blocked on** | — |
-| **Last update** | 2026-08-03 (P01 code + audit/review/security; FP01 contracts landed) |
-| **Next gate** | P02 — vertical slice. P01 stays open until FP01's six 🚧 items land in P05/P06 |
+| **Last update** | 2026-08-06 (`design.md` re-gated — loops 3 and 4, 54 findings fixed; the 2026-08-03 standing risk is closed) |
+| **Next gate** | P02 — vertical slice, now unblocked: `design.md` is gated and safe to build UI from. P01 stays open until FP01's six 🚧 items land in P05/P06 |
 | **Convergence checkpoint** | 5 (consecutive `FP##` items immediately preceding any ✅-`implement`-Kind close in the active release block — see `~/.claude/commands/close-phase.md § 5a-6`) |
 | **Debt-sweep phase threshold** | 5 (auto-prompt for `/debt-sweep` after this many phases without one) |
 | **Last debt sweep** | (none yet) |
@@ -74,6 +74,59 @@ journal); §2 is the only part that changes.
 ## §3. Session journal
 
 Append-only. Newest at the top.
+
+### 2026-08-06 — `design.md` re-gated; the standing risk is closed
+
+**The risk carried since 2026-08-03 is discharged.** Two more
+cold-eyes loops (3 and 4 in the document's own log) ran over the
+post-approval material — Detection rules' two Scanner subsections,
+Custom project actions, Look and feel, Accessibility, ADR-0006/0007
+— which until today only its author had read. **54 verified findings,
+all fixed**; 2 dismissed. The ADR-0004 amendment rode along: bind
+time past the old 15 s deadline now has two measured projects behind
+it (~40 s and ~45 s), not one lucky catch.
+
+**Loop 3's three biggest, each found independently by both lanes:**
+six state tokens for ADR-0004's seven states (nothing could render
+`running (foreign)`, and T7/T8 parametrise over the list, so the gap
+would have surfaced as a missing test case rather than a visible
+error); the two Scanner subsections nested under *Custom project
+actions*, so every hardening rule was invisible from the section an
+LWSM-1006 implementer reads; and a theme layer whose palette values
+lived in a sibling project outside this public repo, which no one
+else could build.
+
+**Loop 4 is the more instructive one.** About 16 of its 27 findings
+were **collateral from loop 3's own fixes** — a 7:1 contrast floor
+promised against a test that did not carry it, a `ThemeManager` added
+to the component list but not the diagram, a trust posture that cited
+ADR-0007 as authority while stating the opposite of what ADR-0007
+says. Collateral outnumbering draft defects on the first split is the
+documented signal to **sweep rather than dispatch again**, so loop 4
+closed with a blast-radius pass across `ROADMAP.md`, `discovery.md`,
+ADR-0006 and `testing.md § T8` instead of a loop 5.
+
+Its best find was a draft defect neither earlier loop reached:
+**"effective port" is the input to every launch, stop and probe path
+and was never defined.** Four fields can supply it and precedence was
+stated for only one pair. It now has an explicit chain, and the
+user-override-outranks-observation call is written down with its
+reason — the reverse would make an overridden port impossible to
+change.
+
+**Two things the sweep caught that had nothing to do with design.md:**
+real sibling project names had survived the LWSM-1045 scrub in
+`ROADMAP.md` (including a name-plus-port pair, the exact target-list
+shape), `discovery.md` and ADR-0006 — all now anonymised, tree
+verified clean. And `design.md` claimed ADRs are "never edited after
+acceptance" while ADR-0004 carries a dated amendment; the rule now
+says what the project actually does.
+
+**Left for the user:** whether ADR-0007 may keep depending on
+`OneUp`/`finbreak`/`SystemManager` source citations that a public repo
+cannot resolve. § Look and feel solved the equivalent problem by
+transcribing values in; ADR-0007 has no such plan for its technique
+citations.
 
 ### 2026-08-06 — Port-contract campaign complete; design.md re-gate is next
 
