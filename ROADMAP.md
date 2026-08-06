@@ -937,7 +937,13 @@ is the contract.
   no-op inside the curated environment of LWSM-1048, which is a
   standard documented mechanism rather than a private hint, but
   reaches only siblings that go through Python's `webbrowser` and
-  misses one that shells out to `xdg-open` directly. Decide before
+  misses one that shells out to `xdg-open` directly. **(c) has
+  since been shown to work in practice** — project-e's adoption
+  session pointed `BROWSER` at a recording script to observe
+  `webbrowser.open` without opening tabs, which is exactly this
+  lever; note that same project's *frozen* build takes the
+  `xdg-open` path and would be unaffected, so (c) is a partial
+  answer, not a complete one. Decide before
   LWSM-1030 ships, because the answer changes what the adoption
   prompt asks of the siblings.
   Dependencies: LWSM-1030.
