@@ -485,6 +485,31 @@ can announce `port None`.
 Nothing sets a colour literal, a font family or a pixel size: colours come
 from tokens, sizes from the text metric (`§ O7`).
 
+**A focused row paints a focus ring, and the row paints it itself.** `QFrame`
+renders only its frame and `StyledPanel` never consults `State_HasFocus`, so
+setting `StrongFocus` alone produced a widget that took focus and showed
+nothing — the focused and unfocused renders were byte-identical and Tab moved
+an invisible caret (LWSM-1070). `coding.md § O8` clause 2 requires a visible
+focus ring, `docs/design.md § Accessibility` calls it the thing a magnifier
+user's "where am I?" depends on entirely, and WCAG 2.4.7 requires it.
+
+`ProjectRow.paintEvent` draws it: a rectangle inset by half its pen width, in
+the colour `Theme.focus_ring_color()` returns. Three consequences worth
+stating, because each was a decision:
+
+- **The ring is the `accent` token**, not a token of its own, so every palette
+  LWSM-1031 adds inherits a legible ring from the contrast its accent already
+  has to prove. Measured on the default palette: **5.42:1** against `window`,
+  against the **3:1** floor `testing.md § T8` sets for a non-text indicator.
+- **The theme expands the token into a `QColor`, not the widget.** `§ O7`
+  forbids widget code from naming a colour or constructing one, which
+  `tests/test_layering.py` enforces by regex — so the expansion belongs at the
+  definition site.
+- **The pen width comes from the text metric** (`fontMetrics().height() / 8`,
+  floored at one device pixel), never a constant. A fixed width would thin to a
+  hairline under LWSM-1032's 200 % text-size control — the setting the users
+  who depend on the ring are likeliest to be running.
+
 ### 4.5 The entry point
 
 `src/lwsm/__main__.py::main` today configures logging, then prints two
@@ -752,6 +777,28 @@ importing `lwsm.__main__` in a test does not require a display.
   emits into a controller the test has already dropped, which is the
   once-a-week flake `§ T5` exists to prevent.
 
+- **INV-17** — A focused row renders differently from an unfocused one, and
+  the ring's colour clears `testing.md § T8`'s 3:1 indicator floor against
+  the window.
+  *Test:* `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held`,
+  which grabs the row in both states and counts changed pixels, plus
+  `tests/test_theme.py::test_the_focus_ring_clears_the_indicator_floor`.
+  The pixel count is compared against the row's perimeter, so an
+  antialiasing artefact cannot pass for a ring. Measured on the default
+  palette: **858 of 6734 pixels** changed, ring width 2 px, contrast
+  **5.42:1**.
+  *Breaks when:* the ring is asserted by property rather than by rendering.
+  `focusPolicy()`, `hasFocus()` and the accessible name were all already
+  correct while the two renders were byte-identical — which is exactly how
+  this shipped. Assert the pixels.
+  *Fixture trap:* Qt gives focus to the first focusable widget when the
+  window is shown, so the row is **already focused** at the point a test
+  would take its baseline. A baseline grabbed without `clearFocus()` first is
+  a focused render, and the comparison then reports "no ring" whether or not
+  one is painted. `qtbot.waitExposed` and `qtbot.waitActive` are also context
+  managers; called bare they wait for nothing, and an inactive window makes
+  `hasFocus()` false.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -822,7 +869,8 @@ binds a socket.
 | INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
 | INV-9 | `tests/test_ports.py` | `integration` |
 | INV-3, INV-4, INV-4b, INV-4c, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
-| INV-6, INV-13, INV-15 | `tests/test_mainwindow.py` | `gui` |
+| INV-6, INV-13, INV-15, INV-17 | `tests/test_mainwindow.py` | `gui` |
+| INV-17 (contrast half) | `tests/test_theme.py` | none — pure arithmetic, no display |
 | INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
 | INV-8, INV-8b | `tests/test_layering.py` | — |
 | INV-14 | `tests/test_main.py` (existing file) | `integration` (spawns a subprocess) |
@@ -936,6 +984,7 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-14 | `tests/test_main.py::test_version_needs_no_display` |
 | INV-15 | `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window` |
 | INV-16 | `tests/test_controller.py::test_stop_waits_for_the_outstanding_task` |
+| INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |

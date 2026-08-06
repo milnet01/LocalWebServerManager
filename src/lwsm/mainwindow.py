@@ -10,7 +10,8 @@ name, keyboard reachability, its state as text, and a layout that reflows.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -85,6 +86,39 @@ class ProjectRow(QFrame):
         self._port.setMinimumWidth(self.fontMetrics().horizontalAdvance("no port_"))
 
         self.update_from(row)
+
+    def focus_ring_width(self) -> int:
+        """Derived from the text metric, never a pixel constant (`§ O7`).
+
+        A fixed width would thin to a hairline under LWSM-1032's 200 % text-size
+        control, which is precisely the setting the users who depend on the ring
+        are most likely to be running.
+        """
+        return max(1, round(self.fontMetrics().height() / 8))
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Paint the focus ring `QFrame` does not.
+
+        `QFrame` renders only its frame and `StyledPanel` never consults
+        `State_HasFocus`, so before this the focused and unfocused renders were
+        byte-identical and Tab moved an invisible caret (LWSM-1070).
+        `coding.md § O8` requires a visible focus ring, `design.md
+        § Accessibility` calls it the thing a magnifier user's "where am I?"
+        depends on entirely, and WCAG 2.4.7 requires it outright.
+        """
+        super().paintEvent(event)
+        if not self.hasFocus():
+            return
+
+        width = self.focus_ring_width()
+        painter = QPainter(self)
+        painter.setPen(QPen(self._theme.focus_ring_color(), width))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        # Inset by half the pen, which straddles the path it is given: a
+        # rectangle on the widget edge would lose its outer half to clipping and
+        # render at half the width this method promises.
+        inset = width / 2
+        painter.drawRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset))
 
     def update_from(self, row: RowView) -> None:
         self._glyph.setText(STATE_GLYPHS[row.status])

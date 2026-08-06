@@ -62,6 +62,17 @@ class Theme:
             state_unknown="#8a6d1f",
         )
 
+    def focus_ring_color(self) -> QColor:
+        """The focus ring is the accent, expanded here rather than in the widget.
+
+        A widget may not name a colour or build a `QColor` (`§ O7`, enforced by
+        `tests/test_layering.py`), so the token is expanded at the definition
+        site. Binding the ring to `accent` rather than giving it a token of its
+        own means every palette LWSM-1031 adds gets a legible ring from the
+        contrast it already has to prove for its accent.
+        """
+        return QColor(self.accent)
+
     def state_token(self, status: ProjectStatus) -> str:
         return {
             ProjectStatus.RUNNING: self.state_running,
