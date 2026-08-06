@@ -21,6 +21,21 @@ log = logging.getLogger(__name__)
 
 POLL_INTERVAL_MS = 1000
 
+# How long stop() will wait for an outstanding probe before giving up on it.
+# Measured probe time on this machine is 33.4 ms mean over 10 calls, so this is
+# roughly 60x headroom. It is a shutdown budget, not a watchdog: nothing here
+# times out into a *state* (ADR-0004, "slowness is not failure") — the display
+# stays stale, and only the app's ability to quit is bounded.
+STOP_WAIT_MS = 2000
+
+# Pools and tasks abandoned by stop() because their probe was still running.
+# Two reasons this list exists rather than letting them go: ~QThreadPool calls
+# waitForDone() with NO timeout, so destroying one would reintroduce at teardown
+# exactly the hang the budget above bounds; and Python collecting a _SnapshotTask
+# the pool is still executing would destroy a live C++ object. The process is on
+# its way out — holding these is the point, not an oversight.
+_ABANDONED: list[object] = []
+
 
 class ProjectStatus(StrEnum):
     RUNNING = "running"
@@ -66,25 +81,39 @@ class _SnapshotTask(QRunnable):
         self.setAutoDelete(False)
 
     def run(self) -> None:
+        # Two layers, because the emit can fail too. The inner one turns any
+        # probe failure into a `failed` signal; the outer one catches the case
+        # where there is no longer anything to emit *on*.
         try:
-            snapshot = self._probe.snapshot()
-        except ProbeError as exc:
-            self.signals.failed.emit(exc)
-        except BaseException as exc:
-            # An exception escaping run() is swallowed by PySide6 (verified
-            # against the pinned 6.11.1, LWSM-1069): the traceback prints to
-            # stderr, the process survives at exit 0, and *no* signal is
-            # emitted — so the controller's in-flight guard is never cleared and
-            # poll_once returns early on every later tick for the life of the
-            # process. The window then shows plausible, permanently frozen data.
-            # Nothing may leave this method, so the clause is as wide as the
-            # language allows rather than as wide as the failures we predicted.
-            log.exception("the port probe raised an unexpected exception")
-            failure = ProbeError(f"the port probe failed: {type(exc).__name__}: {exc}")
-            failure.__cause__ = exc
-            self.signals.failed.emit(failure)
-        else:
-            self.signals.done.emit(snapshot)
+            try:
+                snapshot = self._probe.snapshot()
+            except ProbeError as exc:
+                self.signals.failed.emit(exc)
+            except BaseException as exc:
+                # An exception escaping run() is swallowed by PySide6 (verified
+                # against the pinned 6.11.1, LWSM-1069): the traceback prints to
+                # stderr, the process survives at exit 0, and *no* signal is
+                # emitted — so the controller's in-flight guard is never cleared
+                # and poll_once returns early on every later tick for the life of
+                # the process, showing plausible, permanently frozen data.
+                # Nothing may leave this method, so the clause is as wide as the
+                # language allows rather than as wide as the failures predicted.
+                log.exception("the port probe raised an unexpected exception")
+                failure = ProbeError(
+                    f"the port probe failed: {type(exc).__name__}: {exc}"
+                )
+                failure.__cause__ = exc
+                self.signals.failed.emit(failure)
+            else:
+                self.signals.done.emit(snapshot)
+        except BaseException:
+            # A task abandoned by stop() outlives the QApplication that owned
+            # every other QObject, so by the time it finishes its signaller can
+            # be destroyed and `emit` raises `RuntimeError: Signal source has
+            # been deleted`. That was escaping run() — the very thing the inner
+            # clause exists to prevent — because the emits sat outside it.
+            # There is nobody left to report to, so this is a debug line.
+            log.debug("port probe ended with no live signaller", exc_info=True)
 
 
 class ProjectController(QObject):
@@ -107,6 +136,12 @@ class ProjectController(QObject):
         self._timer.timeout.connect(self.poll_once)
         self._task: _SnapshotTask | None = None
         self._emitted_once = False
+        # A private pool, not QThreadPool.globalInstance(): shutdown must wait
+        # for this controller's own probe and nothing else. One thread, because
+        # a tick that arrives while its predecessor is in flight is skipped
+        # rather than queued, so a second is never needed.
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
 
     def rows(self) -> list[RowView]:
         """File order, so rows do not jump between polls."""
@@ -126,14 +161,37 @@ class ProjectController(QObject):
         self._timer.start()
 
     def stop(self) -> None:
-        """Timer off, then wait for any outstanding task.
+        """Timer off, signals cut, then a bounded wait for the outstanding task.
 
         Without the wait a pool thread emits into a controller being torn
         down — the flake `docs/standards/testing.md § T5` exists to prevent.
+        Idempotent: `main` calls it, and so does every test fixture.
         """
         self._timer.stop()
-        QThreadPool.globalInstance().waitForDone()
-        self._task = None
+        task, self._task = self._task, None
+        if task is not None:
+            # Cut the connections BEFORE waiting. `waitForDone` waits for
+            # `run()` to *return*, but the emit happens inside `run()` over a
+            # queued connection — so by then the event is already posted and is
+            # dispatched on the next event-loop spin, into a controller that has
+            # been torn down. INV-16 passed on its wording ("no task is
+            # outstanding") while failing its purpose.
+            task.signals.done.disconnect(self._on_snapshot)
+            task.signals.failed.disconnect(self._on_probe_error)
+
+        if not self._pool.waitForDone(STOP_WAIT_MS):
+            # An unbounded wait here makes a probe that never returns into an
+            # app that cannot be quit, which `§ 6` does not promise — it
+            # promises only a stale display.
+            log.warning(
+                "a port probe was still running after %d ms; abandoning it so "
+                "the app can quit",
+                STOP_WAIT_MS,
+            )
+            self._pool.setParent(None)
+            _ABANDONED.extend((self._pool, task))
+            self._pool = QThreadPool(self)
+            self._pool.setMaxThreadCount(1)
 
     def poll_once(self) -> None:
         if self._task is not None:
@@ -146,7 +204,7 @@ class ProjectController(QObject):
         task.signals.done.connect(self._on_snapshot)
         task.signals.failed.connect(self._on_probe_error)
         self._task = task
-        QThreadPool.globalInstance().start(task)
+        self._pool.start(task)
 
     def _on_snapshot(self, snapshot: PortSnapshot) -> None:
         self._task = None

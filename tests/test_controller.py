@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from lwsm import controller as controller_module
 from lwsm.controller import ProjectController, ProjectStatus
 from lwsm.ports import PortSnapshot, ProbeError
 from lwsm.registry import ProjectRecord
@@ -336,6 +338,83 @@ def test_a_held_status_survives_an_unexpected_exception(qtbot, controllers) -> N
     with qtbot.assertNotEmitted(controller.projects_changed, wait=300):
         controller.poll_once()
     assert controller.rows()[0].status is ProjectStatus.RUNNING
+
+
+# --- LWSM-1073: stop() must actually stop, promptly, and only itself ----------
+
+
+def test_no_snapshot_is_delivered_after_stop(qtbot, controllers) -> None:
+    """INV-16 passed on its wording while failing its stated purpose.
+
+    `waitForDone` waits for `run()` to *finish*, but the emit happens inside
+    `run()` over a queued connection — so the event is already posted and is
+    dispatched on the next event-loop spin, into a controller the app has
+    already torn down. `mainwindow.py` connects that signal, so the late
+    delivery re-enters the window's widgets after teardown.
+    """
+    probe = FakeProbe(5005)
+    probe.gate = threading.Event()
+    controller = build(controllers, [record("a")], probe)
+    emissions: list[int] = []
+    controller.projects_changed.connect(lambda: emissions.append(1))
+
+    controller.poll_once()
+    probe.gate.set()
+    controller.stop()
+    assert emissions == [], "nothing is dispatched before the loop spins"
+
+    # One spin is all it took to reproduce the late delivery.
+    qtbot.wait(200)
+    assert emissions == [], "a snapshot arrived after stop() returned"
+
+
+def test_stop_does_not_wait_on_unrelated_work(qtbot, controllers) -> None:
+    """The controller waited on `QThreadPool.globalInstance()`, so its shutdown
+    blocked on every unrelated runnable in the process — including the
+    per-project reader threads `design.md § State management` already plans."""
+    from PySide6.QtCore import QRunnable, QThreadPool
+
+    release = threading.Event()
+
+    class Blocker(QRunnable):
+        def run(self) -> None:
+            release.wait(timeout=5)
+
+    QThreadPool.globalInstance().start(Blocker())
+    try:
+        probe = FakeProbe(5005)
+        controller = build(controllers, [record("a")], probe)
+        controller.poll_once()
+
+        started = time.perf_counter()
+        controller.stop()
+        elapsed = time.perf_counter() - started
+
+        assert elapsed < 1.0, (
+            f"stop() took {elapsed:.2f}s — it is waiting on the global pool, "
+            f"not on its own probe"
+        )
+    finally:
+        release.set()
+        QThreadPool.globalInstance().waitForDone()
+
+
+def test_stop_is_bounded_when_a_probe_never_returns(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """`§ 6` promises a stale display when a probe never returns. It does not
+    promise an app that cannot be quit."""
+    monkeypatch.setattr(controller_module, "STOP_WAIT_MS", 100)
+    probe = FakeProbe(5005)
+    probe.gate = threading.Event()  # never set
+    controller = build(controllers, [record("a")], probe)
+    controller.poll_once()
+
+    started = time.perf_counter()
+    controller.stop()
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 2.0, f"stop() blocked for {elapsed:.2f}s on a hung probe"
 
 
 def test_start_polling_polls_immediately(qtbot, controllers) -> None:
