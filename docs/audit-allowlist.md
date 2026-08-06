@@ -218,6 +218,68 @@ Do not delete revoked entries — the history is the value.
 - **Confirmed by phase:** FP02
 
 
+## allowlist-006 — contract_doc_drift:docs/specs/ — builtin names and prose identifiers in a spec
+
+- **Status:** active
+- **Tool / rule:** `contract_doc_drift` (via `audit_run`) —
+  `contract_doc_drift`
+- **Location:** `docs/specs/LWSM-1005-vertical-slice.md` — lines 144
+  (`ValueError`), 157 (`TypeError`), 449 (`state_text`), 618
+  (`QMessageBox`), 796 (`ImportError`). 5 findings on 2026-08-06.
+- **Why this is a false positive:** narrower than allowlist-003 and
+  deliberately so — the rule **is** useful against `docs/specs/`, which
+  states this project's own contracts, so this entry carves out two
+  token classes rather than the directory. Verified line by line.
+  Four are **language or framework names appearing in a negative
+  clause**: the spec's `*Breaks when:*` lines describe what the code
+  must **not** do (`TypeError` escaping `load_projects`, a
+  `QMessageBox` reached for inside the controller, an `ImportError`
+  proving only that a module is missing), and `ValueError` names the
+  class CPython raises, not a symbol this project defines. A source
+  match for any of them would be evidence of the defect, not of
+  correctness. The fifth, `state_text`, is a **variable name inside an
+  illustrative f-string** — `f"{state_text}, {name_text}, {port_text}"`
+  — showing how the accessible name is composed; `grep` confirms it
+  appears in no `.py` file and is not meant to. Re-verify if the rule
+  gains a way to distinguish a normative clause from a negative one,
+  or if a spec starts naming a symbol it genuinely requires and the
+  symbol is absent — which is the case this check exists to catch and
+  which this entry must not mask.
+- **Suppression applied:** none — the verb offers no inline
+  suppression and no scope filter.
+- **Logged:** 2026-08-06
+- **Confirmed by phase:** FP03
+
+## allowlist-007 — vulture:theme.py — the adopted token set is kept whole on purpose
+
+- **Status:** active
+- **Tool / rule:** `vulture` — unused variable (60% confidence)
+- **Location:** `src/lwsm/theme.py:38` (`accent_soft`), `:39`
+  (`attention`), `:41` (`is_dark`); plus `pytestmark` in
+  `tests/test_controller.py:24` and `tests/test_mainwindow.py:22`
+- **Why this is a false positive:** the three `Theme` fields are read
+  by nothing in `src/` today, and that is the **documented outcome of
+  a reviewed decision** rather than an oversight.
+  `docs/design.md § Tokens, not colours` defines a theme as nine
+  semantic tokens **plus `is_dark`**, `docs/specs/LWSM-1005-vertical-slice.md`
+  § 4.4 mandates their presence, and § 8 records the rejected
+  alternative — shipping only the tokens P02 renders — on the grounds
+  that the nine are an adopted set and splitting them is arbitrary.
+  `is_dark` drives the light/dark grouping in LWSM-1031's picker, and
+  `accent_soft` / `attention` are consumed by the same item's palettes.
+  Deleting them to satisfy the tool would put the spec and the code in
+  conflict and cost a re-add three items later. `pytestmark` is
+  separate and simpler: pytest reads that name by convention from the
+  module namespace, so no source will ever reference it. Re-verify
+  after LWSM-1031 lands — at that point the three fields **should**
+  have readers, and a still-firing finding would mean the palette
+  layer skipped them.
+- **Suppression applied:** none. `vulture` is not in
+  `scripts/local-ci.sh`, so nothing is gated on it; a whitelist file
+  would be more machinery than the finding is worth.
+- **Logged:** 2026-08-06
+- **Confirmed by phase:** FP03
+
 ## What does NOT belong here
 
 - **Findings that are real but blocked by a missing feature.**
