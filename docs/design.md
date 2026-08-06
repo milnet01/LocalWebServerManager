@@ -46,7 +46,8 @@ flowchart TB
         MW[MainWindow<br/>project list + detail]
         LP[LogPanel]
         TR[TrayIcon]
-        SD[SettingsDialog<br/>scan roots]
+        SD[SettingsDialog<br/>app settings]
+        THM[ThemeManager<br/>palette to QPalette<br/>+ style sheet]
     end
 
     subgraph core["Core (no Qt widgets)"]
@@ -69,6 +70,11 @@ flowchart TB
     MW --> CTL
     TR --> CTL
     SD --> CTL
+    SD --> THM
+    THM --> MW
+    THM --> LP
+    THM --> TR
+    THM --> SD
     CTL --> LP
     CTL --> MW
 
@@ -125,10 +131,8 @@ Two rules the diagram encodes:
   rich text, so a hostile server printing
   `<img src="file:///home/…/.ssh/id_rsa">` gets Qt to load a local
   resource, and deeply nested tags wedge the UI thread in layout.
-  Control characters are stripped and lines longer than **4096
-  characters** are elided — the same per-line cap the Scanner
-  applies, so one limit governs every untrusted string the app
-  displays.
+  Control characters are stripped and over-long lines elided at
+  the per-line cap defined in § Detection rules.
 - **TrayIcon** — a status icon with a per-project start/stop menu,
   the same Open-in-browser action, and the app's only genuine
   Quit. Main responsibility: control and status while the window
@@ -179,7 +183,8 @@ Two rules the diagram encodes:
 
 ## Detection rules
 
-Discovery success criterion 1 is graded on this section: a first
+[Discovery](discovery.md) success criterion 1 is graded on this
+section: a first
 run with no config must find all seven known projects with the
 right launcher and port. Detection is therefore specified here
 rather than left to the implementer, and it is **advisory** —
@@ -204,8 +209,11 @@ is not acceptable on a root whose subdirectories contain
 expiry it returns what it has and says so, rather than hanging a
 first run.
 
-**Launcher, first match wins.** A candidate with no match is not
-a server project and is not listed.
+**Launcher rules, first match wins.** A candidate with no match is
+not a server project and is not listed. These are *launcher rules*
+throughout; the numbered list further down is the separate set of
+*port rules*, and the two are always named in full because both
+start at 1.
 
 0. **A systemd user unit for this project**, found by matching
    `systemctl --user list-unit-files` against the project's
@@ -223,8 +231,8 @@ a server project and is not listed.
    `python3 <file>`.
 4. A root-level `serve.mjs` / `serve.js` → `node <file>`.
 
-**Port-bearing file.** Because rule 1 wins for three of the seven
-known projects, most ports live one hop away from the launcher.
+**Port-bearing file.** Because launcher rule 1 wins for three of
+the seven known projects, most ports live one hop away from the launcher.
 So before extracting a port, the Scanner resolves **which file
 the launcher runs**: it scans the shell script for the last
 `exec`, `python3`/`python`, or `node` invocation naming a
@@ -235,7 +243,7 @@ a static-analysis problem this app has no business solving. That
 project is expected to come back *port unknown* and be given a
 port by hand on first run — an honest limit, not a bug.
 
-**Declared port, first match wins**, searched in the launcher and
+**Port rules, first match wins**, searched in the launcher and
 then in the one-hop file. No match leaves the port empty and the
 row flagged *port unknown*; the user supplies one and Start is
 refused until they do. Guessing would be worse than asking.
@@ -254,7 +262,8 @@ refused until they do. Guessing would be worse than asking.
    the "ends in port" constraint is what stops it matching
    unrelated numbers.
 3. A framework default, only when the launcher identifies a
-   framework **and** neither rule 1 nor rule 2 found anything:
+   framework **and** neither port rule 1 nor port rule 2 found
+   anything:
    Vite `5173`, Flask `5000`, Django `8000`. None of the seven
    known projects currently needs this rule — it exists for
    projects that configure nothing, and if it stays unused it
@@ -264,6 +273,46 @@ refused until they do. Guessing would be worse than asking.
 follows from the launcher match. It drives which verbs are used
 (ADR-0003) and, for the last three, which framework default
 applies.
+
+### The effective port
+
+Four fields can supply a port, so **one precedence chain governs
+every launch, probe and stop**, and "effective port" means the
+first of these that has a value:
+
+1. **Port override** — what the user typed for this project.
+2. **`confirmed_port`** — what the project was last observed to
+   bind.
+3. **Declared port** — what the detection rules read.
+4. **Framework default** — port rule 3, when the launcher
+   identifies a framework.
+
+**The user outranks observation, and that is the deliberate
+choice.** Reversing it would mean a project seen once on 5005 could
+never be moved to 5006: the user types the new port, the app
+prefers the old observation, and the override silently does
+nothing — a wrong value the user cannot correct, which is exactly
+what ADR-0005's "a user-set value is never overwritten" exists to
+prevent. Observation still wins over *guessing*, which is the
+comparison the `confirmed_port` measure was making.
+
+The two lower entries are advisory (ADR-0005), so a project with
+no override and no confirmation reads as *detected*; one with
+nothing at all is *unknown*, and Start is refused until the user
+supplies a port. **A successful launch on an overridden port
+updates `confirmed_port` to what was actually bound** — the
+override says what to ask for, the confirmation records what
+happened, and they answer different questions.
+
+### Detection accuracy is a test suite, not an opinion
+
+**The regression corpus grows with every mistake.** The acceptance
+test for LWSM-1006 runs the rules over a fixture tree mirroring the
+seven real projects and asserts launcher and port for each —
+including those expected to come back *unknown*. Every future
+project that detection gets wrong is **added to that fixture tree
+as a case**, so the rules improve monotonically instead of
+oscillating.
 
 ### Robustness — detection is a hypothesis, observation is proof
 
@@ -296,6 +345,11 @@ descending order of how much they actually buy:
    ("port 5000 — from a framework default") rather than
    mysterious.
 
+   **Confidence, honestly labelled.** Each project shows one of
+   *confirmed* (observed running on this port), *detected* (a rule
+   matched, and which), or *unknown* (nothing matched — the user
+   supplies it and Start is refused until they do).
+
 3. **Disagreement is reported, never silently resolved.** When
    two sources give different ports, the higher-confidence one
    wins *and the conflict is shown*. First-match-wins that hides
@@ -316,13 +370,15 @@ control, so every read is bounded and every result is inert data
 (security review, 2026-08-03):
 
 - **Per-file cap of 256 KB**, read **line by line** with a
-  **4096-character per-line cap** — the same limit the LogPanel
-  elides at, so one number governs every untrusted string. Measure 2 widens the file set to `README.md` and
+  **4096-character per-line cap**. This is the canonical per-line
+  limit: the LogPanel elides at it and `run_command` output is
+  capped by it, so one number governs every untrusted string the
+  app reads or displays. Measure 2 widens the file set to `README.md` and
   `docker-compose.yml`, and nothing stops one of those being 2 GB.
 - **The 20-second budget is checked per line, not per scan.** A
   wall-clock check between files cannot interrupt a regex, and the
   unanchored "left-hand side ending in `port`" pattern is the
-  classic catastrophic-backtracking shape. Rule 2 is implemented as
+  classic catastrophic-backtracking shape. Port rule 2 is implemented as
   a non-backtracking two-step — split on `=`, then match `\d+` —
   rather than as one clever pattern.
 - **`os.walk(followlinks=False)`, and non-regular files are
@@ -337,20 +393,6 @@ control, so every read is bounded and every result is inert data
 Detection results are **data, never instructions**: a detected
 command is displayed and stored, and only ever executed after the
 trust confirmation in ADR-0003.
-
-**Confidence, honestly labelled.** Each project shows one of
-*confirmed* (observed running on this port), *detected* (a rule
-matched, and which), or *unknown* (nothing matched — the user
-supplies it and Start is refused until they do, as above).
-
-**The regression corpus grows with every mistake.** The
-acceptance test for LWSM-1006 runs the rules over a fixture tree
-mirroring the seven real projects and asserts launcher and port
-for each — including those expected to come back *unknown*. Every
-future project that detection gets wrong is **added to that
-fixture tree as a case**, so the rules improve monotonically
-instead of oscillating. Detection accuracy is a test suite, not
-an opinion.
 
 ## Custom project actions
 
@@ -403,8 +445,12 @@ burden:
   by the `Supervisor` like any other child, in its own session; it
   is subject to a **60-second default timeout** (settings-backed)
   after which it is signalled like a stop; a second invocation is
-  refused while one is in flight; its output is capped at the same
-  per-line limit as server output; and it is killed on app quit —
+  refused while one is in flight, a flag the `ProjectController`
+  owns and drops on quit like any other runtime state; its output
+  is capped by § Detection rules' per-line limit; it inherits the
+  same environment a launcher gets, `PORT` and `LWSM_MANAGED`
+  included, so a command sees the project the way the server does;
+  and it is killed on app quit —
   unlike a server, which deliberately survives (ADR-0003). A
   command is a task the user asked for now, not a service.
 - An action is disabled while the project is not running only if
@@ -418,8 +464,7 @@ burden:
   project's `LogBuffer` and its on-disk log exist for the project,
   not for one launch, so a `run_command` on a stopped or
   `running (foreign)` project writes to them exactly as a launcher
-  would; § Observability's "a foreign server has no log file"
-  means no *server* output, not an absent buffer. Failure surfaces
+  would. Failure surfaces
   there like any other output. Nothing about a custom action can
   leave the project in a state the status poll cannot describe —
   a running command is not a project state, and never changes the
@@ -462,8 +507,8 @@ table exists the theme layer has no contract, which is why
 LWSM-1031 owns transcribing it as its first step rather than its
 last.
 
-**Eight palettes** — six aesthetic, three light and three dark,
-plus the two high-contrast ones § Accessibility requires. All
+**Eight palettes** — six aesthetic (three light, three dark) plus
+the two high-contrast ones § Accessibility requires. All
 eight are themes in every respect that matters to the code: same
 token set, same contrast test, same picker.
 
@@ -543,7 +588,9 @@ pans it. Everything below follows from that one fact:
   **first in the row**, not merely be present somewhere in it.
 - **Related information sits together.** A project's name, state,
   port and controls are adjacent and readable **within one lens
-  view** — never name on the far left and state on the far right,
+  view — a 600 logical-pixel-wide window at the row's height**,
+  which is the budget the layout test asserts against — never name
+  on the far left and state on the far right,
   which forces a pan and a memory test. This tempers the usual
   "generous spacing" advice: vertical rhythm stays generous,
   horizontal sprawl does not.
@@ -571,9 +618,11 @@ the six aesthetic ones: maximum-contrast text, heavy borders, a
 thick focus ring, no decorative subtlety. Available in light and
 dark — `contrast-light` and `contrast-dark` in § Look and feel's
 table. This is an assistive tool, not a seventh colour scheme, and
-it is not allowed to regress: the contrast test asserts a floor of
-**7:1** on these two (WCAG AAA) against the 4.5:1 the other six
-must clear, so a change that quietly softens them fails the build.
+it is not allowed to regress: these two clear **7:1** (WCAG AAA)
+against the 4.5:1 the other six must meet, so a change that
+quietly softens them fails the build. That stricter floor is an
+amendment to `testing.md § T8`, which today states one threshold
+for all themes; LWSM-1031 lands it with the palettes.
 
 **An in-app text-size control**, independent of the desktop's
 scaling — 100 % to 200 % — because desktop-wide scaling is a
@@ -602,7 +651,8 @@ and the divergence recorded, since the source app had its own
 reasons for its values.
 
 **Full keyboard operation.** Every action — start, stop, restart,
-open, rescan, custom actions — is reachable without a mouse, with
+open, rescan, centre on screen, custom actions — is reachable
+without a mouse, with
 a visible focus ring that meets contrast on every theme. Tab
 order follows visual order. No action is available only via
 double-click, hover, or a tray icon.
@@ -639,14 +689,25 @@ so LWSM-1032 lands them alongside the four:
 | Promise | How it is checked |
 |---|---|
 | Readable in greyscale (never colour alone) | every state's rendered row differs from every other after a luminance-only transform |
+| High-contrast pair clears 7:1 | the contrast arithmetic again, with a stricter floor for `contrast-light` / `contrast-dark` |
 | Focus ring meets contrast in every theme | the same contrast arithmetic, over focus-ring vs background pairs |
 | Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % and 200 % |
 | A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |
 | Reduce-motion honoured | with the preference set, assert no animation is created |
-| Dialogs parented to what they concern | assert each dialog's parent is the widget that raised it |
+| Confirmations appear over what they concern | assert the dialog's screen rect overlaps the raising widget's — the *result*, never that a parent was passed (ADR-0007) |
+| The state word is first in the row | assert the state label's x-position precedes every other cell's |
+| Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window |
+| Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
+| Nothing important is hover-only | assert every action is reachable without a hover event |
+| Focus is never stolen | drive a poll cycle during editing; assert focus did not move |
+| System font and scaling honoured | assert no widget pins a font family or pixel size |
 
-Until a row has a test, the promise beside it is design intent
-and this document says so rather than implying coverage.
+**Every promise in this section appears in one of those two
+lists.** That is what makes the section trustworthy: not that the
+tests all exist today — LWSM-1032 lands the table's rows — but
+that a promise cannot be added here without a row appearing beside
+it. A claim with neither is decoration, and reviewing this section
+means checking that the two lists still cover it.
 
 ### Everything else
 
@@ -664,8 +725,8 @@ scan and presents the result as a confirmation list. It then
 starts the **1-second status poll** (default, settings-backed)
 and renders.
 
-**The status poll — the dominant loop.** Every second (default,
-settings-backed) the controller takes **one** socket-table
+**The status poll — the dominant loop.** Every tick the
+controller takes **one** socket-table
 snapshot from `PortProbe` and classifies every known project
 against it — one snapshot per tick, never one per project — by
 composing two independent sources:
@@ -681,7 +742,13 @@ probing outranks memory are in **ADR-0004**, which is canonical
 for all three; this section does not restate them. Success
 criterion 2 requires transitions to appear within 2 seconds, and
 worst-case latency is one interval plus probe time — which is why
-the interval is 1 second rather than 2.
+the interval is 1 second rather than 2. **The snapshot carries its
+own budget: ≤ 250 ms for up to 20 projects**, which is what keeps
+the 2-second criterion bounded in the one term that grows with the
+project count. It is one socket-table read per tick regardless of
+how many projects are listed, so the budget is about table size,
+not list length; exceeding it is a performance regression, not a
+correctness one, and the poll skips a tick rather than queueing.
 
 **Starting a project.** Click Start →
 
@@ -697,11 +764,13 @@ the interval is 1 second rather than 2.
    two variables are the whole of what this app adds to the
    environment — ADR-0003's allowlist governs the rest.
    **A `systemd` project takes a different path**: the launcher is
-   `systemctl --user start <unit>`, the port arrives via a drop-in
-   rather than the spawn environment, and the manager supervises
-   no child of its own, so steps 3 and 4 read the unit's journal
-   and the socket table instead (ADR-0003 § Service-managed
-   projects; LWSM-1028).
+   `systemctl --user start <unit>`, and because systemd starts the
+   unit in its own environment rather than the caller's, **both
+   variables travel in the drop-in** — `Environment=PORT=…` and
+   `Environment=LWSM_MANAGED=1` — not in a spawn environment there
+   isn't one of. The manager supervises no child of its own, so
+   steps 3 and 4 read the unit's journal and the socket table
+   instead (ADR-0003 § Service-managed projects; LWSM-1028).
 3. **Stream.** Merged stdout/stderr is redirected to a
    per-project log file and tailed into that project's
    `LogBuffer`, which the `LogPanel` renders live (a file rather
@@ -716,8 +785,9 @@ the interval is 1 second rather than 2.
    **Exiting without ever binding makes it `failed`**, with the
    tail of its log as the explanation — a launcher that exits 0
    having bound nothing is failed, because silence is not success.
-   Taking a long time is not failure and never becomes it; past a
-   soft threshold the label reads `starting (slow — 42s)`.
+   Taking a long time is not failure and never becomes it; past the
+   soft threshold (**30 s** by default, settings-backed) the label
+   reads `starting (slow — 42s)`.
 
 **Stopping.** `SIGTERM` to the **process group**, then `SIGKILL`
 after the grace period if anything in the group is still alive or
@@ -779,9 +849,12 @@ merged output goes to
 (ADR-0003), capped at 5 MB with one rotation. **Per-project, in
 memory:** the `LogBuffer` ring holds the last N lines (default
 2000) tailed from that file, live in the panel and retained after
-exit so a crash can be read after the fact. A server this manager
-never launched — `running (foreign)` — has no log file, and the
-panel says so instead of showing an empty view. **App-level:** the
+exit so a crash can be read after the fact. **A log file belongs to
+the project, not to one launch.** A server this manager never
+launched — `running (foreign)` — contributes no *server* output, so
+the panel says the server's output is unavailable rather than
+showing an empty view; the file still exists and still receives
+that project's `run_command` output (§ Custom project actions). **App-level:** the
 manager's own log at
 `~/.local/state/localwebservermanager/app.log`, INFO by default,
 rotating at 1 MB with 5 kept — every spawn, signal, port-probe
@@ -847,13 +920,17 @@ re-guess a port the app already measured.
 
 **`actions` is executable content in a hand-editable file.**
 It is user-authored by definition — the Scanner cannot produce it
-(§ Custom project actions) — so the trust boundary is the config
-file itself, exactly as ADR-0007 treats `settings.json`. The argv
-is validated as a list of strings on load and run as an argument
-vector, never a shell string; a `projects.json` an attacker can
-write is already a machine an attacker can run commands on, so
-this file is trusted no further and no less than the user's own
-shell profile.
+(§ Custom project actions) — but **user-owned is not the same as
+trusted**, and ADR-0007 is the precedent: it treats the equally
+hand-editable `settings.json` as input to be type-parsed before
+use, because a hand-editable file is also an attacker-editable
+one. So `actions` is validated on load exactly as geometry is —
+argv must be a non-empty list of strings, `open_url` must parse as
+`http`/`https`, `open_file` must resolve inside the project — and
+a record failing any of those is rejected with a named error
+rather than executed. What the file's user-authored status buys is
+narrower than trust: it is why the Scanner may never write an
+`actions` entry, not a reason to skip validating one.
 
 Both are written atomically and version-checked on load;
 **ADR-0005 is canonical for the mechanics** and this section does
@@ -868,8 +945,14 @@ enforced by the Scanner being read-only.
 ## Architecture Decision Records
 
 ADRs for non-obvious choices live in
-[docs/decisions/](decisions/) — one file per decision,
-sequential numbering, never edited after acceptance.
+[docs/decisions/](decisions/) — one file per decision, sequential
+numbering, and **never silently rewritten after acceptance**. A
+decision that new evidence changes gets a dated amendment section
+inside its own file, keeping the original reasoning readable
+beside what replaced it; ADR-0004's *Slowness is not failure* is
+the worked example. Superseding an ADR outright means a new
+number, not an edit to the old one. Nothing here is edited to
+make past reasoning look better than it was.
 
 - [ADR-0001](decisions/0001-record-architecture-decisions.md) —
   Record architecture decisions.
@@ -902,10 +985,14 @@ sequential numbering, never edited after acceptance.
   treatment.
 - [x] At least one ADR per non-obvious choice written.
 - [x] **User has approved this document and the ADRs.**
-  Date: 2026-08-03.
+  Date: 2026-08-03 — covering the document as it stood then.
+  §§ Custom project actions, Look and feel and Accessibility and
+  ADR-0006/0007 were added afterwards and gated by the 2026-08-06
+  cold-eyes loop rather than by that approval.
 
-Once approved, proceed to Phase C — write the four
-`docs/standards/*.md` files, populate `ROADMAP.md`, and write
+Once approved, proceed to Phase C — write the five
+`docs/standards/*.md` files (`coding`, `commits`, `dependencies`,
+`documentation`, `testing`), populate `ROADMAP.md`, and write
 specs for the first 1–3 roadmap items.
 
 ## Cold-eyes loop log
@@ -915,6 +1002,7 @@ specs for the first 1–3 roadmap items.
 | 1 | 2026-08-03 | 2 (general-purpose, strong model) | 4 | 5 | 7 | 10 | All 26 verified and fixed across `design.md`, ADR-0001…0005 and `glossary.md`. Run stopped at one loop **on user instruction** (token cost), not on a convergence test — see note below. |
 | 2 | 2026-08-03 | 1 (Phase D doc audit, whole A–C set) | 2 | 6 | 6 | 6 | All 21 verified and fixed. Functioned as loop 1's missing cold re-read: it found **fix collateral** (a 2-second poll left behind by loop 1's own interval change) and, more seriously, **factual errors in the project inventory** that loop 1 never checked because it trusted the brief. |
 | 3 | 2026-08-06 | 2 (general-purpose, strong model) | 4 | 7 | 10 | 6 | Re-gate of the **post-approval material** — custom actions, look and feel, accessibility, ADR-0006/0007 — which no reviewer had ever read. 27 verified and fixed, 2 dismissed. Dimensions: dim 5×7, dim 4×4, dim 7×3, dim 2×3, dim 10×3, dim 12×2, dims 1/8/9/11/15 ×1 each. Both lanes independently led with the same three: six state tokens for seven states, the two Scanner subsections misfiled under *Custom project actions*, and a palette whose values lived outside the repository. |
+| 4 | 2026-08-06 | 2 (general-purpose, strong model) | 1 | 4 | 11 | 11 | 27 verified and fixed. Dimensions: dim 5×6, dim 2×6, dim 7×4, dim 8×3, dim 12×2, dim 9×3, dim 1×2, dim 15×1. **Roughly 16 of 27 were collateral from loop 3's own fixes** — a 7:1 contrast floor promised against a test that did not carry it, a `ThemeManager` added to the component list but not the diagram, a foreign-log contradiction "resolved" in one section by reinterpreting another from a distance, and a trust posture that cited ADR-0007 while stating the opposite of it. The loop's best find was a **draft** defect neither earlier loop reached: *effective port* is the input to every launch, stop and probe path and was never defined, with four fields able to supply it and precedence stated for only one pair. Collateral outnumbering draft defects on the first split is the signal to sweep rather than dispatch again, so this loop ended with a blast-radius sweep across `ROADMAP.md`, `discovery.md`, ADR-0006 and `testing.md § T8` instead of a loop 5. |
 
 **Loop 1, what it caught.** Both lanes independently led with the
 same three defects, which is the strongest corroboration this

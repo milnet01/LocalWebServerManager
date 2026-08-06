@@ -416,13 +416,18 @@ magnifier, so this is a design input, and
   without a restart. The six palettes are **adopted from
   `finbreak/src/finbreak/ui/theme.py`** (midnight, graphite,
   emerald, ledger, parchment, mint) rather than invented, plus
-  this project's six state tokens and a **high-contrast theme in
-  light and dark**, which is an assistive tool rather than a
-  seventh colour scheme. Follow-system resolves to midnight or
-  ledger. Acceptance: the contrast test in
-  `docs/standards/testing.md § T8` passes for every theme,
-  including the adopted ones — any finbreak pair that falls short
-  is adjusted here and the divergence recorded.
+  this project's **seven** state tokens — one per ADR-0004 derived
+  state, `design.md § Tokens, not colours` canonical — and a
+  **high-contrast theme in light and dark**, which is an assistive
+  tool rather than a seventh colour scheme. finbreak is
+  **provenance**: the values are transcribed into this repo as the
+  item's first step, since a public repo cannot depend on a path
+  outside it. Follow-system resolves to midnight or ledger.
+  Acceptance: the contrast test in `docs/standards/testing.md § T8`
+  passes for every theme, including the adopted ones — any finbreak
+  pair that falls short is adjusted here and the divergence
+  recorded — and T8 gains the 7:1 floor for the two high-contrast
+  palettes.
   Dependencies: LWSM-1005.
   **Layman:** Make it look modern, with a set of dark and light
   colour schemes plus a high-contrast one, switchable on the fly.
@@ -441,9 +446,16 @@ magnifier, so this is a design input, and
   an unmissable focus ring, and an **in-app text-size control
   (100–200 %)** that reflows without clipping. Accessible names
   and descriptions on every interactive widget; state exposed as
-  text so a screen reader announces "Wedding Site, running, port
+  text so a screen reader announces "project-b, running, port
   5005". Acceptance: all four checks in
-  `docs/standards/testing.md § T8` pass.
+  `docs/standards/testing.md § T8` pass, **and** every row of
+  `design.md § Accessibility`'s check table lands — greyscale
+  readability, the 7:1 high-contrast floor, focus-ring contrast,
+  target size, announce-once, reduce-motion, confirmation
+  placement, state-word-first, one-lens-view, feedback placement,
+  no-hover-only, focus-never-stolen and system-font honouring.
+  Four checks alone would let this close with most of the section
+  unbuilt.
   Dependencies: LWSM-1031.
   **Layman:** Make the app genuinely usable with a magnifier — big
   readable state text, things that belong together kept together,
@@ -875,8 +887,8 @@ is the contract.
   tray submenu, per `docs/design.md § Custom project actions`.
   This is what stops the consolidation being a downgrade: the
   applets being retired carry actions the manager otherwise
-  loses. Known cases to reproduce: AI Prompts' *Edit prompts.md*
-  and *Edit blocks.md* (`open_file`), and the Ants stats tray's
+  loses. Known cases to reproduce: project-c's *Edit prompts.md*
+  and *Edit blocks.md* (`open_file`), and project-d's tray
   *Refresh stats now* (`run_command`). Detection never authors an
   action — only the user does.
   Dependencies: LWSM-1015.

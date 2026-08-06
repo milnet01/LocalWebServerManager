@@ -72,9 +72,9 @@ It travels with `PORT` in the same environment, is delivered by
 the same adoption prompt, and is one `os.environ.get` on the
 sibling side.
 
-**Quitting the tray must not become quitting the server.** The
-AI Prompts tray's Quit stops its server, and the Ants stats
-tray's Quit is labelled "Quit (stops the server)". A suppressed
+**Quitting the tray must not become quitting the server.** One
+sibling tray's Quit stops its server, and another's is labelled
+"Quit (stops the server)". A suppressed
 tray means neither runs — which is correct — but any sibling
 retaining a headless quit path must not stop a server the manager
 believes it owns.

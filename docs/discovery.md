@@ -142,7 +142,7 @@ across phases is decided in Phase C, not here.
 - **Custom per-project actions** — a user-authored list of extra
   buttons per project (open a file, open a URL, run a command).
   Added 2026-08-03 for a specific reason: the tray applets being
-  retired carry actions beyond start/stop/open — AI Prompts has
+  retired carry actions beyond start/stop/open — project-c has
   two *open a file in my editor* actions, another has a
   *refresh my data now* command — and a replacement that loses them is a
   downgrade. One mechanism covers all three and anything future.

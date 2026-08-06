@@ -335,6 +335,10 @@ Four checks, all cheap, all headless:
 
 - **Contrast arithmetic** over every theme — every
   text-on-background pair ≥ 4.5:1, every state indicator ≥ 3:1.
+  The two high-contrast palettes clear a stricter **7:1** on text
+  pairs, because a theme whose whole purpose is contrast has to be
+  held to more than the floor everything else meets; softening
+  them is the regression this tier exists to catch.
   Parametrised across themes, so **adding a theme that fails is a
   failing build**, not a discovery months later.
 - **Keyboard reachability** — every action in the window is
