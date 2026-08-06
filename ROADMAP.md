@@ -661,6 +661,32 @@ is the contract.
   Priority: 2.
   Lanes: core, ui, tests.
 
+- 📋 [LWSM-1054] **P06: cover the sibling that respawns itself
+  detached.** project-e's settings page has a Restart button that
+  spawns a fresh copy in a **new session** and then exits 0. So the
+  process this app started exits *cleanly* while the port stays
+  bound by a grandchild in a process group we never created.
+  ADR-0004 already answers it — a clean exit is not evidence of
+  failure, and the re-probe should land on `running (foreign)` with
+  Stop routed through LWSM-1012's guarded path — but nothing
+  exercises it, and `docs/standards/testing.md` T2 names five
+  fixture launcher shapes, none of which respawn. Add a sixth
+  (spawn a detached replacement, then exit 0) and a case to the T7
+  state-table test; T2's list is updated in the same change.
+  Acceptance: after the fixture respawns, the app reports
+  `running (foreign)` rather than `stopped`, and Stop names the
+  surviving process in the confirmation dialog rather than
+  signalling a group it does not own.
+  Dependencies: LWSM-1011, LWSM-1012.
+  **Layman:** One of the sites can restart itself from its own
+  settings page, which makes it look like it stopped when it is
+  really still running. Make sure we notice that instead of
+  mis-reporting it.
+  Kind: test.
+  Source: in-session-2026-08-06.
+  Priority: 2.
+  Lanes: core, tests.
+
 ---
 
 ## P07 — Ports (criterion 4)
@@ -896,6 +922,32 @@ is the contract.
   Source: in-session-2026-08-03.
   Priority: 3.
   Lanes: ui, tests.
+
+- 📋 [LWSM-1053] **P09: decide whether an unattended start may open
+  a browser.** A sibling's launcher may open the user's browser on
+  every start — project-e's does, unconditionally — so a managed
+  start throws a browser window onto the screen nobody asked for.
+  ADR-0006 forbids a sibling conditioning anything but its tray
+  icon on `LWSM_MANAGED`, so a compliant sibling **cannot** fix
+  this itself; the choice is ours. Three ways out: (a) accept it,
+  on the grounds that a project the user chose to start may show
+  itself; (b) widen ADR-0006 from *tray icon* to *unattended-start
+  presentation* — an ADR amendment with a cold-eyes gate, which
+  re-opens the boundary LWSM-1051 pinned; (c) set `BROWSER` to a
+  no-op inside the curated environment of LWSM-1048, which is a
+  standard documented mechanism rather than a private hint, but
+  reaches only siblings that go through Python's `webbrowser` and
+  misses one that shells out to `xdg-open` directly. Decide before
+  LWSM-1030 ships, because the answer changes what the adoption
+  prompt asks of the siblings.
+  Dependencies: LWSM-1030.
+  **Layman:** When the app starts a site for you, that site may
+  fling a browser window open by itself. Decide whether that is
+  fine, or whether we suppress it.
+  Kind: investigate.
+  Source: in-session-2026-08-06.
+  Priority: 3.
+  Lanes: core, docs.
 
 ---
 
