@@ -84,7 +84,7 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 step "Sync dependencies (locked)"
-# --locked, NOT --frozen. Measured on uv 0.11.7, 2026-08-03:
+# --locked, NOT --frozen. Re-measured on uv 0.12.2, 2026-08-06:
 #   pyproject says psutil==7.1.0, uv.lock still says 7.2.2
 #     uv sync --frozen  -> exit 0, lock untouched, TESTED AGAINST 7.2.2
 #     uv sync --locked  -> exit 1

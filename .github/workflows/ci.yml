@@ -55,11 +55,15 @@ jobs:
           # Pinned, because an unpinned setup-uv resolves whatever uv is latest
           # at run time — a floating reference of the kind
           # dependencies.md § 6 forbids, and it made "the local run matches
-          # GitHub exactly" false without saying so. 0.11.7 is what this project
-          # is developed against; 0.12.2 was current on 2026-08-06, and the two
-          # sides move together in one commit or not at all, since the resolver
-          # writes uv.lock.
-          version: "0.11.7"
+          # GitHub exactly" false without saying so. The two sides move together
+          # in one commit or not at all, since the resolver writes uv.lock.
+          #
+          # 0.12.2 since 2026-08-06 (LWSM-1083 / LWSM-1064). The previous pin,
+          # 0.11.7, is affected by GHSA-4gg8-gxpx-9rph: uv does not validate
+          # entry-point names, so a malicious wheel's console_scripts can place
+          # an executable outside the intended environment. Fixed in 0.11.15,
+          # no workaround. Re-locking under 0.12.2 left uv.lock byte-identical.
+          version: "0.12.2"
           enable-cache: true
 
       # Reads .python-version, which is committed so that this machine and a

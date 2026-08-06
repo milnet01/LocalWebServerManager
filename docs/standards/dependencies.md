@@ -84,7 +84,7 @@ lockfile is the moment to check what else in that file is behind. Waiting for
 a scheduled sweep means the sweep is the only thing that ever bumps anything.
 
 **2.5 The lockfile is committed and the gate runs `uv sync --locked`.**
-Specifically `--locked`, **not** `--frozen`. Measured on uv 0.11.7 (2026-08-03)
+Specifically `--locked`, **not** `--frozen`. Re-measured on uv 0.12.2 (2026-08-06)
 with `pyproject.toml` at `psutil==7.1.0` and `uv.lock` still at `7.2.2`:
 `--frozen` exited 0 and left the lock untouched, so the whole run tested the
 *old* version, while `--locked` exited 1. `--frozen` means "do not update the
@@ -194,7 +194,7 @@ command and its output. A row whose `What broke` cannot be reproduced from its
 | Rule | What catches a breach |
 |------|----------------------|
 | §2.1 (exact pins) | **nothing** — a `>=` or `~=` specifier locks and syncs perfectly cleanly. A grep for `>=`/`~=` inside `[project]` and `[project.optional-dependencies]` would catch it; none exists today |
-| §2.1 (lock agrees with `pyproject.toml`) | `uv sync --locked` in `scripts/local-ci.sh`. **Not `--frozen`** — measured on uv 0.11.7, `--frozen` exits 0 against a lockfile that disagrees, so the run tests the *old* pin |
+| §2.1 (lock agrees with `pyproject.toml`) | `uv sync --locked` in `scripts/local-ci.sh`. **Not `--frozen`** — re-measured on uv 0.12.2, `--frozen` exits 0 against a lockfile that disagrees, so the run tests the *old* pin |
 | §2.2 (latest) | **nothing** — a stale-but-valid pin resolves cleanly. Caught only by a human checking, by `/debt-sweep`, or by dependabot once §2.6 is satisfied |
 | §2.3 (Actions, images) | **nothing automated** — `actionlint` checks syntax, not currency. `.github/dependabot.yml` raises PRs, which is a prompt rather than a gate |
 | §2.4 (bump on contact) | **nothing** — a habit, not a check |
