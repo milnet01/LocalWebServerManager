@@ -9,16 +9,17 @@
 
 Current version: **0.0.0** — see [CHANGELOG](CHANGELOG.md) for shipped
 work, [ROADMAP](ROADMAP.md) for what's coming, and
-[docs/standards/](docs/standards/) for the four shareable v1
-standards (coding · documentation · testing · commits) the project
-follows.
+[docs/standards/](docs/standards/) for the five shareable v1
+standards (coding · documentation · testing · commits ·
+dependencies) the project follows.
 
 ## What it's for
 
 If you keep several web projects in one folder, each starts a
 different way, on a different port, and nothing tells you which
-are running. Two servers were live on this machine when the
-project was scoped, with nothing on screen to say so.
+are running. When this project was scoped, two of the author's
+seven local servers were quietly running and nothing on screen
+said so.
 
 This app scans your projects folder, works out how each project
 starts and which port it wants, and gives you one window with a
@@ -28,20 +29,26 @@ project's own start script and never edits your projects.
 
 ## Status
 
-**Pre-alpha — design complete, no code yet.** Phases A–C of the
-[Ants App-Build](https://github.com/milnet01) workflow are done
-and signed off: the problem and success criteria
-([discovery](docs/discovery.md)), the architecture and its seven
-decision records ([design](docs/design.md),
-[decisions](docs/decisions/)), and the eight-phase build order
-([ROADMAP](ROADMAP.md)). P01 — build tooling — is next.
+**Pre-alpha — the design is settled and the build has started.
+There is no usable application yet.**
 
-**To begin (or resume) work:** open a terminal in this directory
-and run `claude`. Once Claude Code is running, type `let's start
-discovery` for a fresh project, or `continue` to resume in
-progress. Claude will summarise current state back to you before
-doing any work — confirm or correct that summary; never let
-Claude resume work without it.
+Done: the problem and success criteria
+([discovery](docs/discovery.md)); the architecture and its seven
+decision records ([design](docs/design.md),
+[decisions](docs/decisions/)); the ten-phase build order
+([ROADMAP](ROADMAP.md)); and **P01 — build tooling**, which is the
+packaging, linting, test harness, CI and application log. The
+design document has been through four independent review passes.
+
+Not done: everything you would actually use. `src/` today holds an
+entry point and a logger. The first window with a live project row
+arrives in P02, and the Start/Stop buttons in P05.
+
+**If you want to watch or contribute**, the honest place to start
+is [ROADMAP.md](ROADMAP.md) — every item has a stable ID, stated
+acceptance criteria and its dependencies, so what is real and what
+is intended are never mixed up. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Features
 
@@ -50,13 +57,41 @@ capability rather than intent — so it stays empty until P02
 delivers the first working slice. What is *planned*, in build
 order, is in the [ROADMAP](ROADMAP.md).
 
+## Requirements
+
+- **Linux, targeting KDE Plasma.** Remembering and restoring the
+  window's position needs KWin, because under Wayland an
+  application may not place its own window — on other desktops
+  that one feature degrades to "opens at the remembered size,
+  wherever the compositor puts it" (ADR-0007). Everything else is
+  ordinary Qt and portable across Linux desktops. macOS and
+  Windows are assessed rather than promised — Windows in
+  particular has no process groups, which is the mechanism the
+  whole start/stop design rests on (ADR-0003). See LWSM-1024 and
+  LWSM-1025.
+- **Python 3.13+**, and [uv](https://docs.astral.sh/uv/).
+
 ## Install
 
-(filled out at P01 — Bootstrap, once tech stack is chosen)
+There is nothing to install for end users yet — no release, no
+package, no AppImage. That is P10.
+
+To work on it:
+
+```bash
+git clone https://github.com/milnet01/LocalWebServerManager.git
+cd LocalWebServerManager
+uv sync                 # resolves from the committed uv.lock
+./scripts/local-ci.sh   # lint, format, tests, entry points — the full gate
+```
+
+`scripts/local-ci.sh` is the single source of truth for CI: the
+GitHub Actions workflow prepares a machine and then calls it, so a
+check cannot exist in CI that you are unable to run first.
 
 ## Quickstart
 
-(filled out at P02 — Vertical slice)
+(filled out at P02, once there is a window to open.)
 
 ## Documentation
 
@@ -80,9 +115,9 @@ order, is in the [ROADMAP](ROADMAP.md).
   project-specific false-positive memory for `/audit` and
   `/code-quality-review`.
 - [docs/ideas.md](docs/ideas.md) — mid-flight ideas pending a
-  user-decision on placement (created on first use).
+  decision on where they belong.
 - [docs/standards/](docs/standards/) — coding, documentation,
-  testing, commits.
+  testing, commits, dependencies.
 - [.claude/workflow.md](.claude/workflow.md) — live workflow
   state and rules.
 

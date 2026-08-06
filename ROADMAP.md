@@ -223,7 +223,7 @@ harness to be known-working before any business code lands.
 
 ### 🧰 Dev experience
 
-- 📋 [LWSM-1001] **P01: uv + ruff + pytest + pytest-qt + CI wired
+- ✅ [LWSM-1001] **P01: uv + ruff + pytest + pytest-qt + CI wired
   up.** `pyproject.toml` declaring Python ≥ 3.13, PySide6 and
   psutil as runtime deps and pytest / pytest-qt / ruff as dev
   deps; `uv sync` resolves and writes `uv.lock`; `pytest` exits 0
@@ -239,8 +239,9 @@ harness to be known-working before any business code lands.
   Source: in-session-2026-08-03.
   Priority: 2.
   Lanes: build, ci, tests.
+  Done 2026-08-03; status corrected 2026-08-06 (the code landed but the bullet was never flipped). Verified against the acceptance clause by clause: pyproject.toml declares requires-python >=3.13, PySide6==6.11.1 and psutil==7.2.2 as runtime deps, pytest-qt==4.5.0 and ruff==0.16.1 as dev deps; uv.lock is resolved and committed; scripts/local-ci.sh exports QT_QPA_PLATFORM=offscreen and 14 tests pass; ruff check and ruff format --check both exit 0; .github/workflows/ci.yml runs on ubuntu-24.04 and calls the same script.
 
-- 📋 [LWSM-1002] **P01: `.gitignore` populated for Python + Qt.**
+- ✅ [LWSM-1002] **P01: `.gitignore` populated for Python + Qt.**
   Adds `__pycache__/`, `*.py[cod]`, `.venv/`, `.pytest_cache/`,
   `.ruff_cache/`, `dist/`, `build/`, `*.egg-info/`, plus
   `.roadmap-counter` (already present) and KDE/IDE dotfiles.
@@ -252,6 +253,7 @@ harness to be known-working before any business code lands.
   Source: in-session-2026-08-03.
   Priority: 3.
   Lanes: build.
+  Done 2026-08-03; status corrected 2026-08-06. Every path named in the acceptance is present in .gitignore (__pycache__/, *.py[cod], .venv/, .pytest_cache/, .ruff_cache/, dist/, build/, *.egg-info/, .roadmap-counter, KDE/IDE dotfiles), and uv.lock is committed rather than ignored — confirmed with git ls-files, with a comment in .gitignore recording why.
 
 - ✅ [LWSM-1004] **P01: create the public GitHub repository.**
   `github.com/milnet01/LocalWebServerManager`, public, MIT, with
@@ -271,7 +273,7 @@ harness to be known-working before any business code lands.
   Priority: 3.
   Lanes: build, ci.
 
-- 📋 [LWSM-1026] **P01: application log.** `app.log` at
+- ✅ [LWSM-1026] **P01: application log.** `app.log` at
   `~/.local/state/localwebservermanager/`, INFO by default,
   rotating at 1 MB with 5 kept, recording every spawn, signal,
   port-probe result and config write — as specified in
@@ -285,6 +287,7 @@ harness to be known-working before any business code lands.
   Source: doc-audit-2026-08-03.
   Priority: 3.
   Lanes: core.
+  Done 2026-08-03; status corrected 2026-08-06. src/lwsm/applog.py logs at INFO into $XDG_STATE_HOME/localwebservermanager (falling back to ~/.local/state), rotating at MAX_BYTES = 1 MiB with BACKUP_COUNT kept. Went beyond the bullet on the security review's finding: _NoFollowRotatingFileHandler opens O_NOFOLLOW 0600 in a 0700 directory, so the log cannot be written through a symlink. Covered by tests/test_applog.py.
 
 ---
 

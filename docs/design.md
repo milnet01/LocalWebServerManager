@@ -845,7 +845,8 @@ carrying the log tail, so the UI has one story to tell.
 
 Three layers. **Per-project, on disk:** each launched server's
 merged output goes to
-`~/.local/state/localwebservermanager/logs/<project>.log`
+`$XDG_STATE_HOME/localwebservermanager/logs/<project>.log`
+(falling back to `~/.local/state` when that variable is unset)
 (ADR-0003), capped at 5 MB with one rotation. **Per-project, in
 memory:** the `LogBuffer` ring holds the last N lines (default
 2000) tailed from that file, live in the panel and retained after
@@ -856,7 +857,7 @@ the panel says the server's output is unavailable rather than
 showing an empty view; the file still exists and still receives
 that project's `run_command` output (§ Custom project actions). **App-level:** the
 manager's own log at
-`~/.local/state/localwebservermanager/app.log`, INFO by default,
+`$XDG_STATE_HOME/localwebservermanager/app.log`, INFO by default,
 rotating at 1 MB with 5 kept — every spawn, signal, port-probe
 result and config write, so "why did it say that?" is answerable
 later.

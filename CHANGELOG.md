@@ -41,9 +41,7 @@ signaling per
 - CI actions pinned to commit SHAs, and the checkout no longer leaves
   the job token in the workspace.
 
-### Added
+<!-- No release has been cut yet. The scaffold is not a release; the
+first version appears above as `## [0.X.0] — YYYY-MM-DD` once there
+is a shipped artefact a user could install. -->
 
-- (Nothing yet — project just scaffolded 2026-08-03. The
-  scaffold itself is not a release; the first real version
-  appears here as `## [0.X.0] — YYYY-MM-DD` once a meaningful
-  shipped artefact exists.)
