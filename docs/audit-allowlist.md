@@ -280,6 +280,33 @@ Do not delete revoked entries — the history is the value.
 - **Logged:** 2026-08-06
 - **Confirmed by phase:** FP03
 
+## allowlist-008 — deptry:DEP002/DEP003 — the project's own package, and dev tools invoked as commands
+
+- **Status:** active
+- **Tool / rule:** `deptry` — `DEP003` (transitive dependency) and
+  `DEP002` (declared but unused)
+- **Location:** 15 findings on 2026-08-06 — `DEP003` x12 on `import lwsm`
+  in `src/lwsm/controller.py`, `mainwindow.py`, `theme.py`, `__main__.py`;
+  `DEP002` x3 on `pytest`, `pytest-qt`, `ruff` in `pyproject.toml`
+- **Why this is a false positive:** two distinct misreadings, both
+  verified. `DEP003` fires on `lwsm` importing **itself** — every one of
+  those lines is an intra-package import (`from lwsm.ports import ...`),
+  and `lwsm` is this project, not a dependency of it; declaring itself
+  would be circular. `DEP002` fires on three dev tools that are correctly
+  declared in the `dev` extra and are invoked as **commands**
+  (`uv run pytest`, `uv run ruff`) rather than imported, which is the only
+  way a test runner and a linter are ever used; `pytest-qt` is loaded by
+  pytest as a plugin through an entry point, so no source will import it
+  either. Acting on any of the five would break the build. Re-verify if
+  deptry gains first-party-package detection, or if a dev tool ever needs
+  a real `import`.
+- **Suppression applied:** none. `deptry` is not in
+  `scripts/local-ci.sh`, so nothing is gated on it; adding a
+  `[tool.deptry]` config section would be more machinery than the finding
+  is worth.
+- **Logged:** 2026-08-06
+- **Confirmed by phase:** FP04
+
 ## What does NOT belong here
 
 - **Findings that are real but blocked by a missing feature.**

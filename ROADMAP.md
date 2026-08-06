@@ -421,6 +421,383 @@ visible.
 
 ---
 
+## FP04 — Second three-lane review fold-in (from the re-run P02 close, 2026-08-06)
+
+Static analysis was clean again — ruff, bandit, semgrep (9 files scanned, 0
+findings), gitleaks (82 commits), shellcheck and actionlint all found nothing,
+and pyright reports only the pre-existing `applog.py:53` that LWSM-1066 owns.
+Every defect below came from reading, for the third close running.
+
+Three lanes re-read the FP03 code cold: the data boundary, the concurrency
+boundary and the presentation layer. **29 findings.** The shape is the point:
+FP03 fixed 14 real defects and, in doing so, left three of its own fixes
+half-done and wrote four confident comments that are false. A fix-pass is not
+self-verifying — this is the evidence for reviewing one.
+
+**Every finding below was reproduced against shipping code before it was written
+down**, and the four most serious were re-reproduced independently rather than
+taken on the reviewers' word.
+
+The pass also surfaced a **tooling** defect that is not about this project's
+code at all: a same-second edit-and-revert whose replacement text is the same
+byte length leaves Python running stale bytecode, because the default `.pyc`
+validation compares only the source's mtime and size. A green test run then
+reports on code that is not on disk. Filed as LWSM-1110.
+
+- 📋 [LWSM-1098] **FP04: `stop()`'s disconnect does not cancel an emission that is already posted, so INV-16 is still violated.**
+  LWSM-1073 disconnected the task's signals before waiting, and that closes
+  only the window it was measured against. Qt dispatches a `QMetaCallEvent`
+  that has already been **posted** regardless of a later disconnect, so a
+  probe that finishes just before `stop()` still delivers on the next spin.
+  Reproduced independently of the reviewer: emissions `[]` when `stop()`
+  returned, `[1]` after one `processEvents()`, status rewritten to `running`.
+  The disconnect only helps when the emit has not yet happened.
+
+  **The test written for this cannot fail against it.**
+  `test_no_snapshot_is_delivered_after_stop` sets the gate and calls `stop()`
+  immediately, so the emit lands *inside* `waitForDone`, after the
+  disconnect. Letting the probe actually finish first makes the same test
+  fail. It catches "no disconnect at all" and not "disconnect too late",
+  which is the defect present.
+
+  Reachable damage today is the test suite, where the fixture stops a
+  controller while pytest-qt keeps spinning; `__main__` stops after
+  `app.exec()` returns, so that one call site never spins again. Any future
+  reload path or `closeEvent` makes it live.
+  Acceptance: a `_stopped` flag the slots themselves check (or
+  `removePostedEvents`), and a test that lets the probe complete before
+  `stop()` and still sees zero emissions.
+  **Layman:** Closing the window can still let one last status message arrive afterwards — the fix for this landed earlier today and only closed half the gap.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1099] **FP04: one `_SnapshotTask` and one `_SnapshotSignals` leak per poll, for the life of the process.**
+  `setAutoDelete(False)` means the pool never deletes the task, and
+  `QThreadPool.start()` has already transferred ownership to C++, so the
+  slot setting `self._task = None` frees nothing. Measured independently:
+  **200 live `_SnapshotTask` objects after 200 completed polls**, one per
+  poll, ~2.5 KiB each — about **210 MiB/day** at the 1000 ms interval.
+  Each leaked signaller is a live `QObject` still holding two connections
+  into the controller, so the connection list grows without bound too.
+
+  **Pre-existing, not introduced by FP03** — `setAutoDelete(False)` dates
+  from `a17b7dd`. FP03 reworked `run()` and the pool and did not catch it.
+  The spec asserts the opposite in § 10: "the ceiling is one task, not one
+  per tick elapsed". That sentence is false and is part of this fix.
+
+  The original comment is still right that the pool must not free a task
+  while a queued emission is in flight, so the fix is not simply flipping
+  `autoDelete` back on.
+  Acceptance: live `_SnapshotTask` count is flat across 200 polls, asserted
+  by a test; § 10's ceiling claim matches what the code does.
+  **Layman:** The app slowly eats memory while it sits there watching — about 210 MB a day, in a program meant to stay open.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1100] **FP04: the abandoned-pool list defers the unbounded wait to interpreter shutdown instead of removing it.**
+  LWSM-1073 bounded `stop()` at `STOP_WAIT_MS` and moved a still-running
+  pool into a module-level `_ABANDONED` list, on a stated premise that is
+  **factually wrong**: "deliberately never released ... holding these is the
+  point, not an oversight". CPython releases module globals at interpreter
+  shutdown, which runs `~QThreadPool`, which calls `waitForDone()` with no
+  timeout.
+
+  Reproduced independently with a 4 s probe and `STOP_WAIT_MS = 100`:
+  `stop()` returned in **0.10 s** exactly as designed, and the **process
+  took 4.16 s** to exit. § 6 promises a stale display, not a process you
+  cannot quit — the outcome the budget exists to prevent, moved thirty lines
+  later.
+  Acceptance: total process wall time after `stop()` is bounded, asserted by
+  a subprocess test that measures exit rather than `stop()`; the comment
+  states the mechanism that actually holds.
+  **Layman:** The app can still refuse to close for as long as a stuck lookup takes — the bounded-wait fix moved the freeze to the very end of shutdown instead of removing it.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1101] **FP04: the glyph column is stale after a font change, so the state glyph is clipped at 200 % text.**
+  `_glyph_width` and the widened left content margin are computed once in
+  `__init__`; `changeEvent`'s `FontChange` branch calls
+  `_apply_text_metrics`, which recomputes only the state and port minimum
+  widths. `paintEvent` draws into `QRect(self._glyph_x, 0,
+  self._glyph_width, ...)`, and `drawText` **clips** to that rectangle.
+
+  Reproduced independently — reserved width stays 13 px while the glyph
+  needs 14 px at 2x and 22 px at 3x, so it already over-runs at 200 %:
+
+  | scale | reserved | needed | clipped |
+  |---|---|---|---|
+  | 1.0 | 13 | 7 | no |
+  | 2.0 | 13 | 14 | yes |
+  | 3.0 | 13 | 22 | yes |
+
+  This breaks `coding.md § O8` clause 4 ("reflows at 200 % text size without
+  clipping") — and `_apply_text_metrics`'s own docstring states the
+  opposite of what it does, which is the LWSM-1071 shape again: a
+  reviewed-and-believed comment describing behaviour the code never had.
+  Acceptance: the glyph column and the left margin are recomputed on
+  `FontChange`; a test asserts the rendered glyph is not clipped at 200 %,
+  not merely that a minimum width changed.
+  **Layman:** Turn the text size up for readability and the little status dot gets sliced in half — which is exactly the setting the people who need it will be using.
+  Kind: accessibility.
+  Lanes: ui, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1102] **FP04: a rejection reason built from a *port* field is completely unbounded.**
+  `_port_or_reason` interpolates `{value!r}`, which escapes but does **not**
+  clip; `_quoted()` is applied to `name` and `path` and never to the port
+  value. Reproduced independently: a 200 KB string in `port` produced a
+  reason of **200,038 characters** against a `MAX_REASON_CHARS` of 120. The
+  ceiling is the 1 MiB file cap, so a hand-edited file yields a ~1 MiB
+  status-bar string and a ~1 MiB log record into a handler that rotates at
+  1 MiB keeping 5 — scrubbing the history the user is told to consult.
+
+  This is LWSM-1078 left half-done, and the spec records **why** it was
+  missed: INV-21's own *Breaks when* clause asserts `{value!r}` on the port
+  fields "already did the right thing". That is half true — escaping yes,
+  bounding no — and the false half is what made the call site look finished.
+  Acceptance: every rejection reason is bounded whatever the file contains,
+  asserted against `MAX_REASON_CHARS` rather than a loose literal; INV-21's
+  clause corrected.
+  **Layman:** The fix that stopped a project's name flooding the status bar was applied to the name and the folder path, and missed the port field right beside them.
+  Kind: security.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1103] **FP04: two records still share one filesystem identity via a doubled leading slash.**
+  Reproduced independently: `/srv/a` and `//srv/a` both load with **no
+  reason recorded**. POSIX gives exactly two leading slashes an
+  implementation-defined meaning and `PurePosixPath` preserves them as a
+  distinct root — `Path('//srv/a').parts == ('//', 'srv', 'a')` — while
+  `realpath` resolves both to the same directory. Three or more slashes
+  collapse; exactly two do not.
+
+  Same class as the `..` hole LWSM-1078 closed, and § 6 calls it out: "two
+  records with one identity is a malformed file". `mainwindow` keys rows on
+  `Path`, so it renders two rows for one directory, and P03 would spawn
+  twice with the same `cwd`.
+
+  Verified clean in the same sweep, so they are not re-searched: trailing
+  slash, `///`, `.` components and `/srv/a/.` all normalise and are caught.
+  Acceptance: a `//` root is refused or normalised, with a reason; the test
+  covers the doubled-slash case explicitly.
+  **Layman:** Two entries pointing at the same folder can still both load if one is written with two slashes at the front.
+  Kind: security.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1104] **FP04: `_read_bounded` leaks a file descriptor when the path is a directory.**
+  `os.open()` on a directory with `O_RDONLY` **succeeds** on Linux;
+  `os.fdopen()` then raises `IsADirectoryError` before the `with` block is
+  entered, so nothing closes the descriptor. Reproduced independently:
+  **50 calls leaked 50 descriptors.**
+
+  Impact is one descriptor today, since `load_projects` runs once from
+  `build_window`. It matters because this helper exists *for* resource
+  discipline, "a directory at that path" is an enumerated shape in § 4.1 and
+  in `test_unusable_files_are_refused` — which therefore leaks on every test
+  run — and LWSM-1008's rescan turns it into an unbounded leak.
+  Acceptance: the descriptor is closed on every failure path, asserted by
+  counting `/proc/self/fd` across repeated calls.
+  **Layman:** Pointing the app at a folder instead of a settings file quietly uses up a system resource each time.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1105] **FP04: the painted ring's colour and the painted glyph's colour are owned by no test.**
+  Both verified by mutation, both leaving the whole suite green:
+
+  - Painting the focus ring in the **state** token instead of the accent —
+    all tests pass. INV-17's two halves never meet: one test asserts a
+    contrast property of the `accent` *token*, the other asserts only that
+    the focused and unfocused renders differ. Neither observes which colour
+    the widget paints, so a palette whose state token sits at 2:1 would ship
+    an invisible ring with INV-17 reporting green.
+  - Painting **every** glyph in the `stopped` token regardless of state —
+    all tests pass. § 4.4 requires "both take the matching state token's
+    colour", and colour is one of `design.md § Accessibility`'s three
+    redundant signals. INV-19 checks the glyph is *drawn*; INV-23 checks only
+    the *word*.
+
+  The same shape as LWSM-1077's re-polish, one level out: the assertion
+  tests a token in isolation rather than the pixel it produces.
+  Acceptance: both are asserted against rendered output with the text or
+  shape held constant, so only the colour can differ.
+  **Layman:** Two of the coloured things on screen could be drawn in completely the wrong colour and every test would still pass.
+  Kind: test.
+  Lanes: ui, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1106] **FP04: a removed row stays visible and overlapping, and its test cannot fail for that.**
+  `QLayout.removeWidget` neither hides nor reparents. Verified by running
+  with two rows and dropping the first: the removed row is still
+  `isVisible()`, still parented to the central widget, still at
+  `QRect(9, 9, 182, 37)` — and the surviving row has moved **into** that
+  rectangle, so the two geometries intersect. `deleteLater` only lands on a
+  `DeferredDelete` pass, so the object is still valid after
+  `processEvents()`.
+
+  In production the loop spins before the next paint, making this sub-frame
+  — but it is an undocumented dependence on Qt's delete ordering, and one
+  `setParent(None)` removes it.
+
+  **The test cannot see any of this.** `test_a_removed_project_loses_its_row`
+  asserts `rows_of(window) == []`, which reads the `_rows` dict and is
+  satisfied by the `pop()` alone; deleting *both* `removeWidget` and
+  `deleteLater` leaves it green. Its docstring says the row "lingered
+  showing its last observed state" — nothing in it can observe showing.
+  Acceptance: the removed widget is hidden and unparented; the test asserts
+  against the widget's visibility and geometry, not the dict.
+  **Layman:** A project removed from the list leaves its row still drawn on screen, on top of the row that moved up into its place.
+  Kind: fix.
+  Lanes: ui, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1107] **FP04: two user-visible strings sit outside the translation contract, and a translator installed later never reaches an existing row.**
+  § 4.4 states "**every** user-visible string in this file goes through
+  `QCoreApplication.translate` under one context". Three gaps, all verified
+  by running:
+
+  - `f" (+{len(notices) - 1} more)"` is never translated — the status bar
+    reads the same with a translator installed.
+  - `self.tr("Local Web Server Manager")` resolves under context
+    `"MainWindow"`, not the `_TR_CONTEXT = "ProjectRow"` the file declares.
+  - A translator installed **after** the window is built never reaches an
+    existing row: there is no `LanguageChange` branch in `changeEvent`, and
+    LWSM-1076's equality guard suppresses the only path that would
+    re-render. A row built after the install renders translated; one built
+    before does not.
+
+  The third makes § 4.4's stated rationale for translating at call time
+  untrue as written. No user-visible impact in P02, which has no language
+  switcher.
+  Acceptance: one context for the whole file, the status-bar string included;
+  a `LanguageChange` branch that retranslates existing rows; the test
+  installs the translator **after** the window is built.
+  **Layman:** A couple of bits of text still cannot be translated, and switching language after the window opens would not change what is already on screen.
+  Kind: fix.
+  Lanes: ui, tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1108] **FP04: five comments, docstrings and spec claims are verifiably false.**
+  Each verified. None is a runtime bug on its own; together they are the
+  mechanism by which the FP03 defects above went unnoticed, because a
+  reviewed comment gets trusted.
+
+  1. `"RecursionError ... is not even an Exception"` — in a code comment, a
+     test docstring, the spec and a commit message. **False:**
+     `RecursionError → RuntimeError → Exception`. The clause is still needed
+     because it is not a `ValueError`, which is all the comment should say.
+     Dangerous because a reader who believes it will "fix" `ports.py`'s
+     `except Exception` to `BaseException` and start swallowing
+     `KeyboardInterrupt`.
+  2. `_apply_text_metrics`'s docstring claims it keeps sizes fresh on a font
+     change; it leaves the glyph column stale (LWSM-1101).
+  3. `_ABANDONED`'s comment claims the objects are never released; Python
+     frees module globals at shutdown (LWSM-1100).
+  4. § 10 claims the outstanding-task ceiling is one, not one per tick
+     (LWSM-1099).
+  5. § 11 lists focus-ring contrast and state-token contrast as checked by
+     "nothing", both false since INV-17/INV-18 landed — and its closing
+     "eight `nothing` rows ... eight is this spec's honest error budget" is
+     therefore wrong by two. § 7's table *was* updated; § 11 was not.
+  Acceptance: each corrected in place, and § 11's count recomputed rather
+  than re-asserted.
+  **Layman:** Several notes in the code and the design document confidently state things that turn out not to be true — which is how the last round of bugs got believed.
+  Kind: doc-fix.
+  Lanes: core, ui, docs.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1109] **FP04: six tests pass against the defect they were written to catch.**
+  Each verified by mutation — the named change leaves the suite green:
+
+  - The `MAX_FILE_BYTES + 1` grow-race read can be replaced with a plain
+    `read()` and the post-check deleted. The mechanism § 4.1 names by name is
+    unguarded; only the `fstat` path is tested.
+  - `MAX_REASON_CHARS` can be set to 400. The clip test asserts `< 500`
+    against a 100,000-char input, so it detects removal and nothing between.
+  - `log.exception` in `run()` can be replaced with `pass`. The assertion
+    looks for `"RuntimeError"`, which the *wrapping* `ProbeError` message
+    supplies from a different log line — so it cannot distinguish
+    "traceback reported" from "no traceback".
+  - `self.update()` in `update_from` can be deleted. `grab()` repaints
+    unconditionally, so no render-based test can see a missing repaint
+    request — and § 4.4 flags this exact line as the hazard.
+  - `_port.setMinimumWidth` can be deleted.
+  - `stop()`'s bounded-wait test patches the budget to 100 ms then asserts
+    `< 2.0` — a 20x-loose threshold that a 1.9 s `stop()` would pass.
+  Acceptance: each assertion is tightened against the constant or the
+  observable it names, and re-mutated to confirm it now goes red.
+  **Layman:** Six of our checks would not notice if the thing they are meant to guard were removed.
+  Kind: test.
+  Lanes: tests.
+  Source: code-quality-review-2026-08-06b.
+
+- 📋 [LWSM-1110] **FP04: stale bytecode can make the gate report on code that is not on disk.**
+  Found during this close, and it is about the toolchain rather than this
+  project's code. Python's default `.pyc` invalidation compares only the
+  source's **mtime and size**. A same-second edit-and-revert whose
+  replacement text is the same byte length therefore leaves the stale
+  bytecode looking valid.
+
+  Observed live: a constant read `400` from an import while the file on
+  disk, `git status` and `git show HEAD` all said `120` — source mtime and
+  the `.pyc`'s recorded mtime were the identical second, and `"120"` and
+  `"400"` are the same length. Clearing `__pycache__` restored `120`.
+
+  This is the "green test over a stale binary" false pass in a language with
+  no build step, and it is invisible: the tree is clean, the diff is empty,
+  and the test run is green. The full gate was re-run on cleared bytecode
+  and is genuinely green at 125 tests, so nothing shipped wrong — but only
+  because it was checked.
+  Acceptance: `scripts/local-ci.sh` exports `PYTHONDONTWRITEBYTECODE=1` (or
+  uses hash-based invalidation) so the gate can never trust a `.pyc`; the
+  trap is recorded in `CLAUDE.md`.
+  Dependencies: none.
+  **Layman:** Python can keep running an old compiled copy of a file after you change it back, so a passing test may not be testing what you are looking at.
+  Kind: chore.
+  Lanes: build, tests.
+  Source: in-session-2026-08-06.
+
+- 📋 [LWSM-1111] **FP04: the low-severity tail from the second P02 review.**
+  Each verified, grouped so none is lost.
+
+  - `_quoted` clips **before** the `repr`, so the bound is ~10x the
+    constant: a 400-char astral non-printable string returns **1203**
+    characters, and a reason interpolates two of them. Contract-conformant
+    ("bounded") but not what the constant reads as.
+  - `ports.snapshot()`'s comprehension sits outside the `try`, so malformed
+    psutil output raises `AttributeError`, not `ProbeError`, against § 4.2's
+    "one exception type". Mitigated by `run()`'s catch-all; costs one line.
+  - Both of `snapshot()`'s filters are untested: dropping `and conn.laddr`
+    passes the **entire** suite, and dropping the `CONN_LISTEN` filter
+    passes everything except one `integration` test — so under `--fast`
+    neither is covered. One fake `net_connections` list closes both.
+  - `poll_once()` after `stop()` is unguarded and re-arms delivery; a
+    `_stopped` flag closes this and LWSM-1098 together.
+  - `test_layering`'s colour detector misses named constants
+    (`Qt.GlobalColor.red` passes) and false-positives on a **trailing**
+    comment, contradicting its own comment about comments.
+  - `_glyph_color` is cached behind the equality guard, so a theme swap with
+    an unchanged row would leave the glyph in the old palette while the word
+    followed the new one. Unreachable in P02; LWSM-1031 is exactly when it
+    becomes reachable.
+  - The chmod-000 registry test silently passes as root, where mode bits are
+    ignored; a `skipif` would make the reason explicit.
+  - `test_refuses_a_device_node` reads the real `/dev/null`, the one test
+    outside `tmp_path` that `testing.md § T1` otherwise forbids.
+  - `vulture` flags unused `context` / `disambiguation` parameters in the
+    test translator overrides; the signature is mandated by
+    `QTranslator.translate`, so an underscore prefix is the fix.
+  - `typos`: "unparseable" should be "unparsable" in the spec.
+  Dependencies: none.
+  **Layman:** Nine small things worth tidying, none of which breaks anything today.
+  Kind: fix.
+  Lanes: core, ui, tests.
+  Source: code-quality-review-2026-08-06b.
+
 ## FP01 — Security fold-in (from the P01 review, 2026-08-03)
 
 **Theme:** findings from the P01 `/audit` + code review + security
