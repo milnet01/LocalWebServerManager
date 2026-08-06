@@ -7,10 +7,13 @@ every case writes its own file under tmp_path.
 from __future__ import annotations
 
 import json
+import os
+import signal
 from pathlib import Path
 
 import pytest
 
+from lwsm import registry
 from lwsm.registry import RegistryError, load_projects
 
 
@@ -179,3 +182,94 @@ def test_a_file_with_no_projects_loads_empty(tmp_path: Path) -> None:
     )
     assert records == []
     assert reasons == []
+
+
+# --- LWSM-1072: the read is bounded and type-checked --------------------------
+
+
+def test_refuses_a_fifo_rather_than_blocking_on_it(tmp_path: Path) -> None:
+    """`Path.read_bytes()` on a FIFO blocks until a writer appears: no window,
+    no error, no log line — the least debuggable failure this app can have.
+
+    Same shape `applog.py` already closed for `app.log`, and the same alarm
+    safety net, so a regression fails this test instead of hanging the suite.
+    `_Blocked` derives from `BaseException` deliberately: a `TimeoutError`
+    subclasses `OSError`, and would be caught by code under test.
+    """
+    path = tmp_path / "projects.json"
+    os.mkfifo(path)
+
+    class _Blocked(BaseException):
+        pass
+
+    def _too_slow(_signum, _frame):
+        raise _Blocked("load_projects blocked on the FIFO")
+
+    previous = signal.signal(signal.SIGALRM, _too_slow)
+    signal.alarm(5)
+    try:
+        with pytest.raises(RegistryError, match="regular file"):
+            load_projects(path)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def test_refuses_a_device_node() -> None:
+    """/dev/null is a character device: reading it succeeds and returns nothing,
+    so without the type check this fails later as 'not valid JSON' — a reason
+    that sends the user looking at the wrong thing."""
+    with pytest.raises(RegistryError, match="regular file"):
+        load_projects(Path("/dev/null"))
+
+
+def test_refuses_an_oversized_file(tmp_path: Path) -> None:
+    """A 600 MB file peaked at 1214 MB RSS. The cap is on the file, not on
+    hope."""
+    path = tmp_path / "projects.json"
+    with path.open("wb") as handle:
+        handle.seek(registry.MAX_FILE_BYTES + 1)
+        handle.write(b"\0")
+
+    with pytest.raises(RegistryError, match="too large"):
+        load_projects(path)
+
+
+def test_a_file_at_the_size_limit_still_loads(tmp_path: Path) -> None:
+    """Guards the cap from being off by one in the direction that refuses
+    ordinary files."""
+    payload = {"schema_version": 1, "projects": [one_good()]}
+    body = json.dumps(payload)
+    padding = registry.MAX_FILE_BYTES - len(body) - len('{"pad": "", ')
+    payload = {"pad": "x" * padding, **payload}
+    path = tmp_path / "projects.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert path.stat().st_size <= registry.MAX_FILE_BYTES
+
+    records, _ = load_projects(path)
+    assert len(records) == 1
+
+
+def test_an_enormous_integer_is_a_registry_error(tmp_path: Path) -> None:
+    """CPython caps integer parsing at 4300 digits and raises ValueError — NOT
+    a JSONDecodeError, so it escaped as itself and `__main__` died with a
+    traceback and no window."""
+    path = tmp_path / "projects.json"
+    path.write_text(
+        '{"schema_version": 1, "projects": [{"path": "/srv/a", "name": "a", '
+        '"port": ' + "9" * 5000 + "}]}",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RegistryError):
+        load_projects(path)
+
+
+def test_deeply_nested_json_is_a_registry_error(tmp_path: Path) -> None:
+    """Nesting exhausts the stack and raises RecursionError, which is not even
+    an Exception subclass's cousin of JSONDecodeError."""
+    path = tmp_path / "projects.json"
+    path.write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+
+    with pytest.raises(RegistryError):
+        load_projects(path)

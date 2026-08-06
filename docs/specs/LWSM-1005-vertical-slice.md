@@ -137,13 +137,34 @@ reasoning about `settings.json`, applied here. `RegistryError` is raised,
 and no records are returned, for four shapes — the file itself is unusable
 and ADR-0005 forbids partially parsing it:
 
-1. The file cannot be read: absent, a directory, permission denied — **any
-   `OSError`**. Catching only `FileNotFoundError` would let the rest escape
-   `main`, which §4.5 step 4 tolerates only `RegistryError` from.
+1. The file cannot be read: absent, a directory, permission denied, **not a
+   regular file, or larger than `MAX_FILE_BYTES` (1 MiB)** — **any `OSError`**.
+   Catching only `FileNotFoundError` would let the rest escape `main`, which
+   §4.5 step 4 tolerates only `RegistryError` from.
+
+   The read goes through a helper that opens with `O_RDONLY | O_NONBLOCK`,
+   `fstat`s the descriptor and refuses anything that is not a regular file,
+   then reads one byte past the cap so a file that grew between the two is
+   still refused. Both halves were reproduced (LWSM-1072): a **FIFO** at the
+   config path made `Path.read_bytes()` block forever — no window, no error,
+   no log line, the least debuggable failure this app can have — and a 600 MB
+   regular file peaked at **1214 MB RSS**. `applog.py` had already solved this
+   class for `app.log`; `registry.py` did not get it. The helper is
+   deliberately **weaker** than `applog._require_private_regular_file` and does
+   not call it: that one also demands a single link and our own ownership,
+   which is right for a log we write and wrong for a config file the user may
+   reasonably hard-link or have installed for them.
 2. The bytes are not valid UTF-8, are not valid JSON, or the top level is
    not an object. The first two are `ValueError` or narrower — and
    `UnicodeDecodeError` is **not** a `json.JSONDecodeError`, so it has to
-   be named. The third raises nothing at all: `json.loads` happily returns
+   be named. **`json.loads` also raises two things that are neither**, both
+   reproduced (LWSM-1072): a 5000-digit `port` hits CPython's 4300-digit
+   integer-parse cap and raises a plain `ValueError`, and deeply nested arrays
+   exhaust the stack and raise `RecursionError` — which is not an `Exception`
+   at all. Both escaped as themselves past a caller that tolerates only
+   `RegistryError`, so the app died with a traceback and no window. The clause
+   is `except (ValueError, RecursionError)`, after the `JSONDecodeError` one
+   because that subclasses `ValueError` and carries the more useful message. The third raises nothing at all: `json.loads` happily returns
    a list or a string, so it is an explicit `isinstance(data, dict)` check
    after a successful parse. An implementer who reads this as "wrap the
    parse in `except ValueError`" ships without it.

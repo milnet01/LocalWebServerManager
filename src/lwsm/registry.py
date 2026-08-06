@@ -10,12 +10,19 @@ before use rather than trusted.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA_VERSION = 1
+
+# A cap on the file, not on hope. Reproduced before this existed: a 600 MB
+# projects.json peaked at 1214 MB RSS. A thousand projects is roughly 200 KB, so
+# 1 MiB is generous for anything a person would hand-write.
+MAX_FILE_BYTES = 1 << 20
 
 # The declared port is the "detected" half and may legitimately be 80 or 443;
 # ADR-0005's 1024-65535 floor governs the *override*, which the user types.
@@ -76,6 +83,41 @@ def _port_or_reason(
     return value, None
 
 
+def _read_bounded(path: Path) -> bytes:
+    """Read `path`, refusing anything that is not a regular file of sane size.
+
+    `applog.py` already solved this class for `app.log`; `registry.py` did not
+    get it. Two failures this closes, both reproduced:
+
+    - A **FIFO** at the config path made `Path.read_bytes()` block forever — no
+      window, no error, no log line. `O_NONBLOCK` makes the open return, and the
+      `fstat` then refuses it.
+    - An oversized file was read whole into memory.
+
+    Deliberately weaker than `applog._require_private_regular_file`, and not a
+    call to it: that one also demands a single link and our own ownership, which
+    is right for a log we write and wrong for a config file the user may
+    reasonably hard-link or have installed for them.
+    """
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(path))
+        if info.st_size > MAX_FILE_BYTES:
+            raise OSError(
+                errno.EFBIG,
+                f"too large: {info.st_size} bytes, limit {MAX_FILE_BYTES}",
+                str(path),
+            )
+        # One byte past the cap, so a file that grew between the fstat and the
+        # read is still refused rather than read whole.
+        raw = handle.read(MAX_FILE_BYTES + 1)
+    if len(raw) > MAX_FILE_BYTES:
+        raise OSError(errno.EFBIG, f"too large: over {MAX_FILE_BYTES} bytes", str(path))
+    return raw
+
+
 def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
     """Return (records, rejection reasons).
 
@@ -83,12 +125,13 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
     shapes in the spec's § 4.1. A single bad record never blanks the list.
     """
     try:
-        raw = path.read_bytes()
+        raw = _read_bounded(path)
     except OSError as exc:
-        # Any OSError, not just FileNotFoundError: a directory at that path or
-        # a permission denial must also arrive as RegistryError, because that
-        # is the only exception `build_window` tolerates.
-        raise RegistryError(f"{path}: cannot be read ({exc})") from exc
+        # Any OSError, not just FileNotFoundError: a directory at that path, a
+        # permission denial, a FIFO or an oversized file must all arrive as
+        # RegistryError, because that is the only exception `build_window`
+        # tolerates. `exc.strerror` rather than `exc` keeps the reason readable.
+        raise RegistryError(f"{path}: cannot be read ({exc.strerror or exc})") from exc
 
     try:
         data = json.loads(raw.decode("utf-8"))
@@ -97,6 +140,17 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
         raise RegistryError(f"{path}: not valid UTF-8 ({exc})") from exc
     except json.JSONDecodeError as exc:
         raise RegistryError(f"{path}: not valid JSON ({exc})") from exc
+    except (ValueError, RecursionError) as exc:
+        # Both reproduced, and neither is a JSONDecodeError, so both escaped as
+        # themselves past a caller that tolerates only RegistryError — the app
+        # died with a traceback and no window. A 5000-digit `port` hits CPython's
+        # 4300-digit integer-parse cap and raises plain ValueError; deeply nested
+        # arrays exhaust the stack and raise RecursionError, which is not even an
+        # Exception. JSONDecodeError is matched above because it subclasses
+        # ValueError and its message is the more useful one.
+        raise RegistryError(
+            f"{path}: cannot be parsed ({type(exc).__name__}: {exc})"
+        ) from exc
 
     # json.loads happily returns a list or a string; nothing raises for these.
     if not isinstance(data, dict):
