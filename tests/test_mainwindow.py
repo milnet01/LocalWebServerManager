@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from lwsm import mainwindow
 from lwsm.__main__ import build_window
 from lwsm.controller import ProjectController, ProjectStatus
 from lwsm.mainwindow import STATE_GLYPHS, MainWindow
@@ -193,6 +194,75 @@ def test_the_row_exposes_only_its_three_cells(qtbot, built) -> None:
     names = accessible_children(rows_of(window)[0])
 
     assert names == ["running", "a", "port 5005"], names
+
+
+# --- LWSM-1076: announced once per change, not once per second ----------------
+
+
+@pytest.fixture
+def announcements(monkeypatch):
+    """Count the accessibility notifications the window raises.
+
+    `QAccessible.installUpdateHandler` — the observing seam Qt provides — is not
+    exposed in PySide6 (checked against the pinned 6.11.1), and AT-SPI is not
+    reachable headless, so this stands in for it by counting the one call the
+    window makes.
+    """
+    from PySide6.QtGui import QAccessible
+
+    raised: list[object] = []
+
+    class CountingAccessible:
+        Event = QAccessible.Event
+
+        @staticmethod
+        def updateAccessibility(event) -> None:
+            raised.append(event.object())
+
+    monkeypatch.setattr(mainwindow, "QAccessible", CountingAccessible)
+    return raised
+
+
+def test_a_state_change_is_announced(qtbot, built, announcements) -> None:
+    """`design.md § Accessibility` promises "a state change announces itself
+    once". Qt does not notify AT-SPI when an accessible name changes, so
+    setAccessibleName alone left that promise unimplemented."""
+    probe = FakeProbe(5005)
+    window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
+    announcements.clear()
+
+    probe.listening.clear()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert rows_of(window)[0]._state.text() == "stopped"
+    assert len(announcements) == 1, (
+        f"a state change raised {len(announcements)} announcements, expected 1"
+    )
+
+
+def test_an_unchanged_row_is_never_re_announced(qtbot, built, announcements) -> None:
+    """The naive half of this fix turns a once-a-second no-op into a
+    once-a-second re-announcement of every unchanged row — the failure INV-13
+    exists to prevent, arriving by another route.
+
+    `_sync_rows` calls `update_from` on every row on every signal, and
+    `QLabel::setText` short-circuits where setStyleSheet and setAccessibleName
+    do not. Spec § 4.4: "the changed rows' text and tokens only".
+    """
+    probe = FakeProbe(5005)
+    window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
+    row = rows_of(window)[0]
+    announcements.clear()
+
+    # Three ticks with nothing changing, driven through the row directly so the
+    # controller's own signal suppression cannot be what makes this pass.
+    for _ in range(3):
+        row.update_from(controller.rows()[0])
+
+    assert announcements == [], (
+        f"{len(announcements)} announcements for a row that did not change"
+    )
 
 
 # --- LWSM-1074: a wide window must not scatter the row ------------------------

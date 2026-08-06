@@ -11,7 +11,13 @@ name, keyboard reachability, its state as text, and a layout that reflows.
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QRectF, Qt
-from PySide6.QtGui import QPainter, QPaintEvent, QPen
+from PySide6.QtGui import (
+    QAccessible,
+    QAccessibleEvent,
+    QPainter,
+    QPaintEvent,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -66,6 +72,7 @@ class ProjectRow(QFrame):
         # "ignored" flag for a QWidget, so the only way to keep something out of
         # the tree is for it not to be a widget.
         self._glyph_text = ""
+        self._view: RowView | None = None
         left, top, right, bottom = layout.getContentsMargins()
         self._glyph_x = left
         self._glyph_width = self.fontMetrics().horizontalAdvance("●") + layout.spacing()
@@ -147,6 +154,17 @@ class ProjectRow(QFrame):
         painter.drawRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset))
 
     def update_from(self, row: RowView) -> None:
+        if row == self._view:
+            # `_sync_rows` calls this on EVERY row on every signal, and only
+            # `QLabel::setText` short-circuits — `setStyleSheet` and
+            # `setAccessibleName` do not, and the announcement below certainly
+            # does not. Without this guard the announcement turns a
+            # once-a-second no-op into a once-a-second re-announcement of every
+            # unchanged row: the failure INV-13 exists to prevent, arriving by
+            # another route. `RowView` is frozen, so the comparison is free.
+            return
+        self._view = row
+
         self._glyph_text = STATE_GLYPHS[row.status]
         self._glyph_color = self._theme.state_color(row.status)
         # The glyph is painted, so unlike the labels below it needs an explicit
@@ -163,6 +181,14 @@ class ProjectRow(QFrame):
         # accessibility-only string that can drift from what is on screen.
         self.setAccessibleName(
             f"{self._state.text()}, {self._name.text()}, {self._port.text()}"
+        )
+        # Qt does NOT notify AT-SPI when an accessible name changes, so
+        # `setAccessibleName` alone left `design.md § Accessibility`'s "a state
+        # change announces itself once" unimplemented — a screen reader was
+        # never told (LWSM-1076). Guarded by the equality check above, so this
+        # fires once per real change and never on an unchanged tick.
+        QAccessible.updateAccessibility(
+            QAccessibleEvent(self, QAccessible.Event.NameChanged)
         )
 
 

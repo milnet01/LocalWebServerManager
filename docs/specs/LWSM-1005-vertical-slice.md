@@ -518,7 +518,13 @@ otherwise.
 
 It builds one row widget per `RowView` **once**, and on each
 `projects_changed` **updates the existing widgets in place** — the changed
-rows' text and tokens only. It does not rebuild the list. Rebuilding would
+rows' text and tokens only. `_sync_rows` calls `update_from` on *every* row on
+*every* signal, so "the changed rows only" is enforced inside `update_from` by
+an equality check against the `RowView` it last rendered, which returns
+immediately when nothing differs. `RowView` is a frozen dataclass, so the
+comparison is free. Without it only `QLabel::setText` short-circuits;
+`setStyleSheet`, `setAccessibleName` and the announcement below do not
+(LWSM-1076). It does not rebuild the list. Rebuilding would
 destroy and recreate every row widget on any one
 project's flip, which discards keyboard focus (`docs/design.md
 § Accessibility`: "the app never steals focus") and re-announces every
@@ -586,6 +592,24 @@ same three facts. Building the name from the cells rather than from the
 model is what makes `docs/design.md § Accessibility`'s "no separate
 accessibility-only string to drift" literally true, and it is why no row
 can announce `port None`.
+
+**A changed row raises an accessibility event; `setAccessibleName` alone does
+not.** Qt does not notify AT-SPI when an accessible name changes, so
+`docs/design.md § Accessibility`'s promise that "a state change announces
+itself once" was unimplemented — the name was correct and no screen reader was
+ever told it had changed. `update_from` now raises a
+`QAccessibleEvent(self, QAccessible.Event.NameChanged)` after updating.
+
+The two halves are one fix, not two: adding the announcement *without* the
+equality check above turns a once-a-second no-op into a once-a-second
+re-announcement of every unchanged row — the failure INV-13 exists to prevent,
+arriving by another route. Verified by removing the check: the
+never-re-announced test goes red.
+
+`QAccessible.installUpdateHandler`, the seam Qt provides for observing these,
+is **not exposed in PySide6** (checked against the pinned 6.11.1) and AT-SPI is
+not reachable headless, so the tests count the call itself. That is a weaker
+surface than this document prefers, and it is the strongest one available.
 
 Nothing sets a colour literal, a font family or a pixel size: colours come
 from tokens, sizes from the text metric (`§ O7`).
@@ -977,6 +1001,16 @@ importing `lwsm.__main__` in a test does not require a display.
   the escaping helper. `{value!r}` on the *port* fields already did the right
   thing, which is why the name fields looked consistent with them.
 
+- **INV-22** — A row whose `RowView` changed raises exactly one accessibility
+  `NameChanged` event; a row whose `RowView` did not raises none.
+  *Test:* `tests/test_mainwindow.py::test_a_state_change_is_announced` and
+  `::test_an_unchanged_row_is_never_re_announced`, the second driving
+  `update_from` directly so the controller's own signal suppression cannot be
+  what makes it pass.
+  *Breaks when:* either half ships without the other. With no event, the name
+  is right and nobody is told. With no equality check, every unchanged row is
+  re-announced once a second.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -1047,7 +1081,7 @@ binds a socket.
 | INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
 | INV-9 | `tests/test_ports.py` | `integration` |
 | INV-3, INV-4, INV-4b, INV-4c, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
-| INV-6, INV-13, INV-15, INV-17, INV-19, INV-20 | `tests/test_mainwindow.py` | `gui` |
+| INV-6, INV-13, INV-15, INV-17, INV-19, INV-20, INV-22 | `tests/test_mainwindow.py` | `gui` |
 | INV-17 (contrast half), INV-18 | `tests/test_theme.py` | none — pure arithmetic, no display |
 | INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
 | INV-8, INV-8b | `tests/test_layering.py` | — |
@@ -1167,6 +1201,7 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_only_its_three_cells` |
 | INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide` |
 | INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line` |
+| INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |
