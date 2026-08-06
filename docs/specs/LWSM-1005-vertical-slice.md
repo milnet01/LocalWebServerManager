@@ -611,6 +611,26 @@ is **not exposed in PySide6** (checked against the pinned 6.11.1) and AT-SPI is
 not reachable headless, so the tests count the call itself. That is a weaker
 surface than this document prefers, and it is the strongest one available.
 
+**Every user-visible string in this file goes through
+`QCoreApplication.translate`** under one context, per `coding.md § 5.2`
+(LWSM-1081). Three decisions came with it, each recorded because each is a
+choice rather than a wrapper:
+
+- **The status words get a UI-side display map, not a wrapped enum.** They come
+  from a core `StrEnum` that the UI rendered with `str()`; translating them by
+  wrapping the enum would put user-visible text in a core module. `state_word()`
+  is that seam.
+- **`%1`, substituted with `str.replace`, not `str.format`.** A translation is
+  data from outside the program: one that dropped or misspelled a `{port}`
+  field would raise inside a signal handler, which is LWSM-1082's crash class
+  by another route. `replace` cannot raise, so a bad translation loses the
+  number rather than the window. Found by a test translator that mangled the
+  placeholder.
+- **Log messages and the `argparse` text are deliberately NOT translated.**
+  Logs are read by whoever is debugging and should match the source; and
+  translating the CLI text needs Qt imported before `argparse` runs, which
+  INV-14 forbids.
+
 Nothing sets a colour literal, a font family or a pixel size: colours come
 from tokens, sizes from the text metric (`§ O7`).
 

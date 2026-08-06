@@ -626,3 +626,69 @@ def test_the_row_resizes_its_cells_when_the_font_grows(qtbot, built) -> None:
     row.setFont(font)
 
     assert row._state.minimumWidth() > before
+
+
+# --- LWSM-1081: the strings are reachable by a translator ----------------------
+
+
+def test_every_visible_string_goes_through_a_translator(qtbot, built) -> None:
+    """`grep` for `.tr(` and `QCoreApplication.translate` across src/ returned
+    zero hits, against `coding.md § 5.2`.
+
+    Asserted by installing a translator and reading the rendered text, not by
+    grepping for the call — a wrapper that is never consulted looks identical
+    to one that is.
+    """
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    class Shouting(QTranslator):
+        def translate(self, context, sourceText, disambiguation=None, n=-1) -> str:
+            return sourceText.upper()
+
+    translator = Shouting()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window, _ = window_for(qtbot, built, [record("a", None)], FakeProbe())
+        row = rows_of(window)[0]
+
+        assert row._state.text() == "UNKNOWN"
+        assert row._port.text() == "NO PORT"
+        assert window.windowTitle() == "LOCAL WEB SERVER MANAGER"
+
+        with_port, _ = window_for(qtbot, built, [record("b", 5005)], FakeProbe(5005))
+        # The number is interpolated into the translated string, not appended
+        # to it — a translator must be able to move it.
+        assert rows_of(with_port)[0]._port.text() == "PORT 5005"
+    finally:
+        app.removeTranslator(translator)
+
+
+def test_the_untranslated_words_are_unchanged(qtbot, built) -> None:
+    """With no translator installed the source strings render as before, so
+    INV-6's announcement and every existing assertion still hold."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    assert rows_of(window)[0].accessibleName() == "running, a, port 5005"
+
+
+def test_a_broken_translation_loses_the_number_not_the_window(qtbot, built) -> None:
+    """A translation is data from outside the program.
+
+    One that drops the placeholder must not take the row down — with
+    `str.format` it raised KeyError inside a signal handler, which is
+    LWSM-1082's crash class arriving by a new route.
+    """
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    class Broken(QTranslator):
+        def translate(self, context, sourceText, disambiguation=None, n=-1) -> str:
+            return "{port} %2 porta"  # every placeholder wrong
+
+    translator = Broken()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+        assert rows_of(window)[0]._port.text() == "{port} %2 porta"
+    finally:
+        app.removeTranslator(translator)

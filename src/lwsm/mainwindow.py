@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QRect, QRectF, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QRect, QRectF, Qt
 from PySide6.QtGui import (
     QAccessible,
     QAccessibleEvent,
@@ -42,13 +42,47 @@ STATE_GLYPHS = {
 }
 
 
+# Every user-visible string in this file goes through this context, so a future
+# translator has one place to look (LWSM-1081, `coding.md § 5.2`). Deliberately
+# NOT applied to log messages, which are read by whoever is debugging and want
+# to match the source, nor to the argparse text in __main__ — translating that
+# needs Qt imported before argparse runs, which INV-14 forbids.
+_TR_CONTEXT = "ProjectRow"
+
+
+def state_word(status: ProjectStatus) -> str:
+    """The UI's word for a status.
+
+    A display map rather than `str(status)`. The words come from a core
+    `StrEnum`, so translating them by wrapping the enum would put user-visible
+    UI text in a core module — this is the seam LWSM-1081 records rather than
+    the wrapper it looked like it needed. An unmapped state falls back to its
+    own value (LWSM-1082).
+    """
+    return {
+        ProjectStatus.RUNNING: QCoreApplication.translate(_TR_CONTEXT, "running"),
+        ProjectStatus.STOPPED: QCoreApplication.translate(_TR_CONTEXT, "stopped"),
+        ProjectStatus.UNKNOWN: QCoreApplication.translate(_TR_CONTEXT, "unknown"),
+    }.get(status, str(status))
+
+
 def port_text(effective_port: int | None) -> str:
     """The word and the number, never a bare number.
 
     design.md § Accessibility gives the announcement as "…, port 5005"; a bare
     number leaves a listener with something unlabelled.
     """
-    return f"port {effective_port}" if effective_port is not None else "no port"
+    if effective_port is None:
+        return QCoreApplication.translate(_TR_CONTEXT, "no port")
+    # Qt's own %1 placeholder, substituted with str.replace rather than
+    # str.format. A translation is data from outside the program: one that
+    # dropped or misspelled a `{port}` field would raise KeyError or IndexError
+    # here, inside a signal handler, which is the LWSM-1082 crash class
+    # arriving by a new route. `replace` cannot raise whatever comes back — a
+    # bad translation loses the number instead of taking the window down.
+    return QCoreApplication.translate(_TR_CONTEXT, "port %1").replace(
+        "%1", str(effective_port)
+    )
 
 
 class ProjectRow(QFrame):
@@ -194,7 +228,7 @@ class ProjectRow(QFrame):
         # repaint request — nothing else marks the row dirty.
         self.update()
 
-        self._state.setText(str(row.status))
+        self._state.setText(state_word(row.status))
         self._name.setText(row.name)
         self._port.setText(port_text(row.effective_port))
 
@@ -238,7 +272,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self._controller = controller
         self._theme = theme
-        self.setWindowTitle("Local Web Server Manager")
+        self.setWindowTitle(self.tr("Local Web Server Manager"))
         self.setPalette(theme.to_palette())
         # Set once for the whole window; rows carry a state property the rules
         # in it select on.
