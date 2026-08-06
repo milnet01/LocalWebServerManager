@@ -435,6 +435,14 @@ magnifier, so this is a design input, and
   Source: user-2026-08-03.
   Priority: 2.
   Lanes: ui, tests.
+  Cold-eyes 2026-08-06 (design.md loops 3-4): this item now owns
+  transcribing the finbreak palette values INTO this repo as its
+  first step — a public repo cannot depend on a path outside it, so
+  the theme layer had no buildable contract until that lands. Token
+  count corrected six -> seven (one per ADR-0004 derived state,
+  including the previously missing running (foreign)). Acceptance
+  gains the 7:1 floor for the two high-contrast palettes, now
+  written into testing.md § T8.
 
 - 📋 [LWSM-1032] **P04: accessibility pass — magnifier-first.**
   The primary user is partially sighted and reads with a screen
@@ -464,6 +472,11 @@ magnifier, so this is a design input, and
   Source: user-2026-08-03.
   Priority: 1.
   Lanes: ui, tests.
+  Cold-eyes 2026-08-06 (design.md loops 3-4): acceptance widened.
+  "All four T8 checks pass" would have let this close green with
+  most of the section unbuilt — thirteen of its promises had no test
+  surface at all. design.md § Accessibility now carries a check
+  table, and every row of it is part of this item's acceptance.
 
 - 📋 [LWSM-1040] **P04: keyboard-first navigation.** Number keys
   jump to a project, Enter starts or stops the selected one, `/`
