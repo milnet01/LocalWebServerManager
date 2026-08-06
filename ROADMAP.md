@@ -938,12 +938,15 @@ is the contract.
   standard documented mechanism rather than a private hint, but
   reaches only siblings that go through Python's `webbrowser` and
   misses one that shells out to `xdg-open` directly. **(c) has
-  since been shown to work in practice** — project-e's adoption
-  session pointed `BROWSER` at a recording script to observe
-  `webbrowser.open` without opening tabs, which is exactly this
-  lever; note that same project's *frozen* build takes the
-  `xdg-open` path and would be unaffected, so (c) is a partial
-  answer, not a complete one. Decide before
+  since been tested both ways, and it is **partial by
+  measurement, not by inference**. project-e's session pointed
+  `BROWSER` at a recording script and observed `webbrowser.open`
+  honouring it — that is the lever working. It then built that
+  project's *frozen* artefact and watched it ignore `BROWSER`
+  entirely, because a frozen build shells out to `xdg-open`
+  directly. So (c) covers from-source siblings and silently
+  misses frozen ones, which is the worst shape for a suppression
+  mechanism: it would look like it worked. Decide before
   LWSM-1030 ships, because the answer changes what the adoption
   prompt asks of the siblings.
   Dependencies: LWSM-1030.
