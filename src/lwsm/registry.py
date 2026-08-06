@@ -69,7 +69,17 @@ def default_projects_path() -> Path:
     is already `applog.py::default_state_dir`.
     """
     raw = os.environ.get("XDG_CONFIG_HOME", "")
-    base = Path(raw) if raw and Path(raw).is_absolute() else Path.home() / ".config"
+    if raw and Path(raw).is_absolute():
+        base = Path(raw)
+    else:
+        try:
+            base = Path.home() / ".config"
+        except RuntimeError as exc:
+            # Path.home() raises when neither HOME nor a passwd entry resolves —
+            # rare, but real in a stripped container, and it happened before any
+            # window or log existed. RegistryError is what the caller already
+            # turns into an empty window with a reason (INV-15).
+            raise RegistryError(f"cannot locate a home directory ({exc})") from exc
     return base / "localwebservermanager" / "projects.json"
 
 
@@ -159,7 +169,10 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
         raise RegistryError(f"{path}: cannot be read ({exc.strerror or exc})") from exc
 
     try:
-        data = json.loads(raw.decode("utf-8"))
+        # utf-8-sig, not utf-8: an editor-added BOM is invisible in that
+        # editor and would otherwise refuse the whole file with a reason
+        # naming byte 0, which sends the user looking at the wrong thing.
+        data = json.loads(raw.decode("utf-8-sig"))
     except UnicodeDecodeError as exc:
         # Not a JSONDecodeError, so it has to be caught by name.
         raise RegistryError(f"{path}: not valid UTF-8 ({exc})") from exc

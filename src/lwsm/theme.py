@@ -87,11 +87,15 @@ class Theme:
         return QColor(self.state_token(status))
 
     def state_token(self, status: ProjectStatus) -> str:
+        # .get, not [...]: same reason as the glyph lookup in mainwindow — this
+        # is reached from a signal handler, and LWSM-1011 adds four states. A
+        # state with no token of its own reads in the ordinary text colour
+        # rather than crashing the window.
         return {
             ProjectStatus.RUNNING: self.state_running,
             ProjectStatus.STOPPED: self.state_stopped,
             ProjectStatus.UNKNOWN: self.state_unknown,
-        }[status]
+        }.get(status, self.text)
 
     # The dynamic property a state-carrying widget sets, and the selector the
     # generated style sheet matches on. Named here because both ends must agree

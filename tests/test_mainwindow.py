@@ -547,3 +547,82 @@ def test_notices_reach_the_status_bar(qtbot, built, tmp_path) -> None:
     assert "bad-one" in message, message
     assert "(+1 more)" in message, message
     assert len(rows_of(window)) == 1, "the good record still renders"
+
+
+# --- LWSM-1082: the low-severity tail ------------------------------------------
+
+
+class ShrinkingController:
+    """Stands in for LWSM-1008's rescan: the record list can lose an entry."""
+
+    def __init__(self, controller: ProjectController) -> None:
+        self._controller = controller
+        self.drop = False
+
+    def rows(self):
+        rows = self._controller.rows()
+        return [] if self.drop else rows
+
+    def __getattr__(self, item):
+        return getattr(self._controller, item)
+
+
+def test_a_removed_project_loses_its_row(qtbot, built) -> None:
+    """`_sync_rows` only ever added. A project dropped from the list lingered
+    showing its last observed state, which `§ O5` forbids."""
+    controller = ProjectController([record("a", 5005)], FakeProbe(5005))
+    built.append(controller)
+    shrinking = ShrinkingController(controller)
+    window = MainWindow(shrinking, Theme.default(), [])
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert len(rows_of(window)) == 1
+
+    shrinking.drop = True
+    window._sync_rows()
+
+    assert rows_of(window) == [], "the row outlived the project"
+
+
+def test_an_unmapped_state_does_not_crash_the_row(qtbot, built) -> None:
+    """`STATE_GLYPHS[...]` and the theme's token map both ran inside a signal
+    handler, so a state added by LWSM-1011 would be a UI crash rather than a
+    missing glyph."""
+    from enum import StrEnum
+
+    from lwsm.controller import RowView
+
+    class FutureStatus(StrEnum):
+        # ADR-0004's seven states; LWSM-1011 splits the collapsed `running` into
+        # these. A separate enum rather than a bare string, so the row is handed
+        # the same shape a real new member would have.
+        FOREIGN = "running (foreign)"
+
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    row = rows_of(window)[0]
+
+    invented = RowView(
+        path=Path("/srv/a"),
+        name="a",
+        effective_port=5005,
+        status=FutureStatus.FOREIGN,
+    )
+    row.update_from(invented)
+
+    # The word still carries the state, which is the signal that must survive.
+    assert row._state.text() == "running (foreign)"
+
+
+def test_the_row_resizes_its_cells_when_the_font_grows(qtbot, built) -> None:
+    """Computed once, the minimum widths would go stale under LWSM-1032's
+    100-200 % text-size control."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    row = rows_of(window)[0]
+    before = row._state.minimumWidth()
+
+    font = row.font()
+    font.setPointSizeF(font.pointSizeF() * 2)
+    row.setFont(font)
+
+    assert row._state.minimumWidth() > before

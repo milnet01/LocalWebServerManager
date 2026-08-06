@@ -343,3 +343,30 @@ def test_a_path_containing_a_nul_byte_is_refused(tmp_path: Path) -> None:
 
     assert records == []
     assert len(reasons) == 1
+
+
+def test_a_byte_order_mark_does_not_refuse_the_file(tmp_path: Path) -> None:
+    """An editor-added BOM is invisible in that editor, and decoding as plain
+    utf-8 refused the whole file with a reason naming byte 0."""
+    path = tmp_path / "projects.json"
+    payload = {"schema_version": 1, "projects": [one_good()]}
+    path.write_text(json.dumps(payload), encoding="utf-8-sig")
+
+    records, reasons = load_projects(path)
+
+    assert len(records) == 1
+    assert reasons == []
+
+
+def test_a_missing_home_directory_is_a_registry_error(monkeypatch) -> None:
+    """`Path.home()` raises when neither HOME nor a passwd entry resolves, and
+    it did so before any window or log existed."""
+
+    def no_home() -> Path:
+        raise RuntimeError("Could not determine home directory")
+
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setattr(Path, "home", staticmethod(no_home))
+
+    with pytest.raises(RegistryError, match="home directory"):
+        registry.default_projects_path()

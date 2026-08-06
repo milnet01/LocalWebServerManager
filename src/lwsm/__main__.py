@@ -95,12 +95,14 @@ def main(argv: list[str] | None = None) -> int:
     # one, so reuse it rather than raising.
     app = QApplication.instance() or QApplication([])
     window, controller = build_window(default_projects_path())
-    window.show()
-    status = app.exec()
-    # Stops the timer and waits for any outstanding probe, so a pool thread
-    # cannot emit into a controller being torn down.
-    controller.stop()
-    return status
+    try:
+        window.show()
+        return app.exec()
+    finally:
+        # In a `finally`, so an exception out of show() or exec() cannot leave a
+        # pool thread outliving its controller — the race INV-16 exists to
+        # prevent. Stops the timer and waits, bounded, for any outstanding probe.
+        controller.stop()
 
 
 if __name__ == "__main__":

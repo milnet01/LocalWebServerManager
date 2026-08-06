@@ -10,7 +10,9 @@ name, keyboard reachability, its state as text, and a layout that reflows.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QRectF, Qt
+from pathlib import Path
+
+from PySide6.QtCore import QEvent, QRect, QRectF, Qt
 from PySide6.QtGui import (
     QAccessible,
     QAccessibleEvent,
@@ -107,12 +109,23 @@ class ProjectRow(QFrame):
         # which forces a pan and a memory test").
         layout.addStretch(1)
 
-        # Sized from the text metric, never a pixel constant, so the row
-        # reflows when the text grows.
-        self._state.setMinimumWidth(self.fontMetrics().horizontalAdvance("stopped_"))
-        self._port.setMinimumWidth(self.fontMetrics().horizontalAdvance("no port_"))
-
+        self._apply_text_metrics()
         self.update_from(row)
+
+    def _apply_text_metrics(self) -> None:
+        """Sizes from the text metric, never a pixel constant (`§ O7`).
+
+        Re-applied on every font change rather than computed once, so
+        LWSM-1032's 100-200 % text-size control does not leave these stale.
+        """
+        metrics = self.fontMetrics()
+        self._state.setMinimumWidth(metrics.horizontalAdvance("stopped_"))
+        self._port.setMinimumWidth(metrics.horizontalAdvance("no port_"))
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self._apply_text_metrics()
 
     def focus_ring_width(self) -> int:
         """Derived from the text metric, never a pixel constant (`§ O7`).
@@ -172,7 +185,10 @@ class ProjectRow(QFrame):
             return
         self._view = row
 
-        self._glyph_text = STATE_GLYPHS[row.status]
+        # .get, not [...]: this runs inside a signal handler, so an unmapped
+        # state would be a UI crash rather than a missing glyph — and LWSM-1011
+        # adds four states. The word still carries the state either way.
+        self._glyph_text = STATE_GLYPHS.get(row.status, "")
         self._glyph_color = self._theme.state_color(row.status)
         # The glyph is painted, so unlike the labels below it needs an explicit
         # repaint request — nothing else marks the row dirty.
@@ -233,7 +249,7 @@ class MainWindow(QMainWindow):
         self._rows_layout.addStretch(1)
         self.setCentralWidget(central)
 
-        self._rows: dict[object, ProjectRow] = {}
+        self._rows: dict[Path, ProjectRow] = {}
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
 
@@ -246,7 +262,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(text)
 
     def _sync_rows(self) -> None:
-        for view in self._controller.rows():
+        views = self._controller.rows()
+        for view in views:
             existing = self._rows.get(view.path)
             if existing is None:
                 widget = ProjectRow(view, self._theme, self)
@@ -255,3 +272,13 @@ class MainWindow(QMainWindow):
                 self._rows_layout.insertWidget(self._rows_layout.count() - 1, widget)
             else:
                 existing.update_from(view)
+
+        # Rows are also REMOVED. Without this a project dropped from the list
+        # lingers showing its last observed state, which `§ O5` forbids —
+        # harmless in P02 where the list cannot change, but the signal is
+        # already called projects_changed and LWSM-1008 will change it.
+        live = {view.path for view in views}
+        for path in [known for known in self._rows if known not in live]:
+            widget = self._rows.pop(path)
+            self._rows_layout.removeWidget(widget)
+            widget.deleteLater()
