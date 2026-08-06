@@ -576,6 +576,36 @@ is the contract.
   Priority: 2.
   Lanes: ui.
 
+- 📋 [LWSM-1055] **P05: a per-project browser choice for Open in
+  browser.**
+  LWSM-1016 opens the desktop default. A project the user always
+  wants in a *particular* browser — a work profile, one carrying the
+  right extensions, one kept apart from a personal session — means
+  opening it by hand every time. Store an optional browser choice
+  per project in the registry, falling back to the desktop default
+  when unset. **Pick from the browsers the system reports, never a
+  free-text command string:** LWSM-1049 constrains Open in browser
+  to http/https through `QDesktopServices` precisely because this
+  button carries the manager's credibility, and a per-project
+  *command* hands that back. The field is user-set only and must
+  never be populated by detection, which LWSM-1049 already classes
+  as untrusted input. Acceptance: two projects set to different
+  browsers each open in the right one; a project with none set opens
+  in the desktop default; a browser since uninstalled falls back to
+  the default with a visible message rather than failing silently.
+  **Interacts with LWSM-1053** — a sibling that opens its own
+  browser at startup ignores this preference entirely, so once this
+  lands the sibling browser-open stops being cosmetic and starts
+  contradicting a setting the user deliberately chose.
+  Dependencies: LWSM-1016, LWSM-1007.
+  **Layman:** Choose which browser each site opens in — handy if
+  you keep one browser for work and another for everything else —
+  instead of every site using the system default.
+  Kind: implement.
+  Source: user-2026-08-06.
+  Priority: 2.
+  Lanes: ui, core, tests.
+
 ---
 
 ## P06 — The full state model (criterion 3)

@@ -75,6 +75,48 @@ journal); §2 is the only part that changes.
 
 Append-only. Newest at the top.
 
+### 2026-08-06 — Port-contract campaign complete; design.md re-gate is next
+
+**All six adopters are done.** project-e (`CL-0056` / `1bb017c`)
+was the last; project-f remains a deliberate permanent
+non-adopter. Every adoption was verified with real processes, not
+by reading. `docs/private/inventory.md` carries the per-project
+evidence.
+
+The campaign found three real bugs in sibling projects that had
+nothing to do with ports, each surfaced by verifying rather than
+trusting: a dead settings tier in project-d (closed by them the
+same day), and in project-e a tray that **has never once appeared
+from source** — its venv is built without system site-packages so
+`gi` is invisible, and the graceful fallback hid it at INFO. That
+one turned out wider than first diagnosed: a locally built
+AppImage has it too, because the GI stack is installed only in
+that project's CI release workflow. The one pre-release check
+that should have caught it is structurally blind to it.
+
+**Two prompt-template lessons** went back into
+`docs/private/port-contract-prompt.md` for any future adopter:
+wait for the port and never for a duration (a fixed `sleep`
+produced a false negative on a project that takes ~45 s to bind),
+and a frozen windowed build can have `sys.stdout` as `None`, so
+the rule-5 URL print needs a guard or it turns the error path
+into a crash.
+
+**Agreed next action: re-gate `docs/design.md`** — the standing
+risk recorded in the 2026-08-03 entry below is now the blocker
+for P02. Four sections (Detection rules, Custom project actions,
+Look and feel, Accessibility) and ADR-0006/0007 have only ever
+been read by their author. **The one-line ADR-0004 amendment
+rides along in the same pass**: "slowness is not failure" now has
+two independently measured projects behind it (~40 s and ~45 s to
+bind), not one lucky catch — recorded here because it is a
+decision taken in conversation and it would otherwise be lost.
+
+Note for whoever runs it: `design.md` is 817 lines / 39 KB, and
+its own loop log ends with the lesson that produced loop 2's best
+finding — **tell a reviewer what to check, not what is true.** A
+brief that asserts facts gets them trusted.
+
 ### 2026-08-03 — P01 built; FP01 contracts landed
 
 P01's code is in and the gate is green (14 tests, ruff, shellcheck,
