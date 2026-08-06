@@ -7,7 +7,7 @@
 | **Project phase** | P01 — Bootstrap: all four bullets ✅ 2026-08-06; the phase stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03 |
 | **Active item ID** | (none — pre-code phases produce documents, not roadmap items) |
 | **Active step** | (n/a until P01) |
-| **Last update** | 2026-08-06 (`design.md` re-gated; public-facing docs corrected; **three user decisions recorded but NOT implemented** — see the top journal entry) |
+| **Last update** | 2026-08-06 (`FP02` closed: audit + two-lane cold review, 16 findings fixed, 22 tests green, `/feature-review` ran all 12 promises. **Three user doc decisions from the entry below are STILL not implemented** — SECURITY.md, CODE_OF_CONDUCT.md, ADR-0007 citations) |
 | **Blocked on** | — (nothing blocking; three small doc tasks are queued and specified) |
 | **Next gate** | P02 — vertical slice, now unblocked: `design.md` is gated and safe to build UI from. Clear the three queued doc tasks first — they are ~30 minutes and the decisions are already made. P01 stays open until FP01's five 🚧 items land in P05/P06 |
 | **Convergence checkpoint** | 5 (consecutive `FP##` items immediately preceding any ✅-`implement`-Kind close in the active release block — see `~/.claude/commands/close-phase.md § 5a-6`) |
@@ -74,6 +74,80 @@ journal); §2 is the only part that changes.
 ## §3. Session journal
 
 Append-only. Newest at the top.
+
+### 2026-08-06 — FP02: audit + two-lane cold review, 16 findings closed
+
+**Every tool finding was a false positive; every real defect came from
+reading.** Same result P01 recorded, now with numbers: 187
+`contract_doc_drift` hits plus bandit, vulture, deptry, typos and
+yamllint — all verified non-defects, all logged. The two reading lanes
+produced 4 CRITICAL, 5 HIGH and 8 MEDIUM, and **not one false positive
+between them**.
+
+**The four that mattered**, each reproduced against shipping code before
+being touched:
+
+- **`O_NOFOLLOW` was doing about half the job it was added for.** A *hard
+  link* is not a symlink, so linking `app.log` to any file the user owns
+  fed it every record — the class docstring's stated guarantee was
+  false. And `O_NOFOLLOW` does not reject a *FIFO*, where `O_WRONLY`
+  blocks until a reader appears: a named pipe at `app.log` hung startup
+  indefinitely with no error and no log line. The handler now
+  interrogates the fd instead of trusting the path.
+- **The gate could report a clean pass while a linter never ran.**
+  `actionlint` and `yamllint` shared one flag, so with `actionlint`
+  absent — the likelier case, it has no distro package — `yamllint` set
+  the flag and suppressed the actionlint skip too: `Local CI passed.`,
+  zero SKIPs, exit 0. This is exactly what the `SKIPPED` machinery was
+  built to prevent, and it had been defeated by a variable name.
+- **An externally deleted log file was lost silently forever.** The
+  idempotence guard compared only the path, so it reused a handler
+  holding an unlinked inode. logrotate and `systemd-tmpfiles` both do
+  this.
+- **CI floated its toolchain.** `setup-uv` was unpinned, so CI resolved
+  whatever uv was newest (0.12.2) while this project is developed against
+  0.11.7 — and `local-ci.sh`'s "Measured on uv 0.11.7" evidence comment
+  therefore described a resolver CI did not run.
+
+**One finding was calibrated DOWN rather than fixed, and it is the
+instructive one.** The review asked for a symlinked state directory to be
+refused. Implementing it broke
+`test_idempotent_through_a_symlinked_state_dir`, which exists because a
+symlinked `~/.local/state` is ordinary with dotfile managers. Planting
+that symlink needs write access to the user's own `~/.local/state`, which
+already implies enough access to edit their shell startup files — so it is
+no escalation, while refusing it breaks a documented setup. The reviewer
+had flagged the same threat-boundary uncertainty itself. **The test suite
+is what caught the over-fix**, one run after it landed.
+
+**Two fixes of mine broke things, both caught by the gate rather than by
+review.** A `# nosemgrep` whose rule-qualified id is 106 characters
+failed ruff's 88-column limit — and placed four lines above the call it
+did not suppress anyway, since semgrep honours it only on the offending
+line or the one directly above. And a new test **passed for the wrong
+reason** on first run: its `SIGALRM` guard raised `TimeoutError`, which
+subclasses `OSError` and so satisfied the `pytest.raises(OSError)` it
+existed to protect. It now raises a `BaseException` subclass.
+
+**Deliberately left alone: two frozen records.** `LWSM-1026`'s dated
+resolution note and the P01 journal entry both still say the handler
+stops a symlink, now an understatement. Both are past-tense records of
+what was true on 2026-08-03; the FP02 bullets and the CHANGELOG carry the
+correction instead of rewriting them.
+
+**Verified after:** full gate green with `LWSM_REQUIRE_ALL_TOOLS=1` (22
+tests, up from 14), every analyser clean, re-run audit down to the single
+allowlisted class. `/feature-review` then ran all 12 user-visible
+promises **by executing them**, including a real 2.7 MB rotation to check
+the new `fstat` gate survives `doRollover` — it does, 4 generations, all
+0600.
+
+**Tail on the roadmap as `FP02` (LWSM-1064..1068):** bump uv to 0.12.2 on
+both sides in one commit, decide whether two instances may share one
+`app.log` (needs the ADR-0004 "no lock files" question settled — it reads
+as banning *persisted* state, not a single-instance guard), put a type
+checker in the gate, and settle where the version number lives.
+`LWSM-1068` shipped in the same pass.
 
 ### 2026-08-06 — Public-facing docs corrected; three decisions taken, NOT yet implemented
 
