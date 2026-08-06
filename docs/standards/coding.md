@@ -248,6 +248,21 @@ it happens to be right (ADR-0004). The same applies to a port
 holder whose PID cannot be resolved: report that it cannot be
 named rather than guessing.
 
+### O6. Qt for Python, not Qt for C++ transliterated
+
+- New-style signals: `Signal()` / `Slot()` from `PySide6.QtCore`.
+- `QSettings` is **not** used — config is JSON at known XDG
+  paths, per `docs/design.md § Persistence`, so it stays
+  hand-editable.
+- Widget parenting owns lifetime; don't hold Python references to
+  parented children solely to keep them alive.
+- Check an API exists in the installed PySide6 before designing
+  around it. Verified 2026-08-03:
+  `QProcess.setChildProcessModifier` does **not** exist in
+  PySide6 6.11, which is why ADR-0003 exists at all. A C++ Qt
+  method appearing in the Qt docs is not evidence that the Python
+  binding exposes it.
+
 ### O7. No literal colours, sizes or fonts in widget code
 
 A widget names a **theme token** (`window`, `base`, `text`,
@@ -275,18 +290,3 @@ magnifier.** Any new interactive widget lands with all four of:
 A widget missing any of these is incomplete, in the same way an
 untested one is. Retrofitting accessibility is how it never
 happens.
-
-### O6. Qt for Python, not Qt for C++ transliterated
-
-- New-style signals: `Signal()` / `Slot()` from `PySide6.QtCore`.
-- `QSettings` is **not** used — config is JSON at known XDG
-  paths, per `docs/design.md § Persistence`, so it stays
-  hand-editable.
-- Widget parenting owns lifetime; don't hold Python references to
-  parented children solely to keep them alive.
-- Check an API exists in the installed PySide6 before designing
-  around it. Verified 2026-08-03:
-  `QProcess.setChildProcessModifier` does **not** exist in
-  PySide6 6.11, which is why ADR-0003 exists at all. A C++ Qt
-  method appearing in the Qt docs is not evidence that the Python
-  binding exposes it.

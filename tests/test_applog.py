@@ -14,6 +14,9 @@ effect wearing a test's clothes.
 from __future__ import annotations
 
 import logging
+import os
+import signal
+import stat
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -178,6 +181,121 @@ def test_refuses_to_write_through_a_planted_symlink(tmp_path: Path):
         applog.configure_logging(state_dir=state)
 
     assert victim.read_text() == "original\n", "log was written through the symlink"
+
+
+def test_refuses_to_write_through_a_hard_link(tmp_path: Path):
+    """A hard link is not a symlink, so `O_NOFOLLOW` does not see it.
+
+    Same impact as the symlink case above and the same attacker: a local process
+    that can create a name in the state directory links `app.log` to a file we
+    own, and every record lands in it. Reproduced 2026-08-06 against the
+    `O_NOFOLLOW`-only handler — the victim gained our log lines. A link count
+    above one is the tell.
+    """
+    state = tmp_path / "state"
+    state.mkdir()
+    victim = tmp_path / "victim.txt"
+    victim.write_text("original\n")
+    os.link(victim, state / "app.log")
+
+    with pytest.raises(OSError):
+        applog.configure_logging(state_dir=state)
+
+    assert victim.read_text() == "original\n", "log was written through the hard link"
+
+
+def test_refuses_a_fifo_rather_than_blocking_on_it(tmp_path: Path):
+    """`O_NOFOLLOW` does not reject a non-regular file, and `O_WRONLY` on a FIFO
+    blocks until a reader appears.
+
+    So a FIFO planted at `app.log` is a denial of service with no error, no
+    timeout and no log line: reproduced 2026-08-06, startup hung indefinitely.
+    The alarm is the safety net — without it a regression hangs the whole suite
+    instead of failing this one test.
+
+    `_Blocked` derives from `BaseException`, deliberately: the obvious
+    `TimeoutError` is a subclass of `OSError`, so the alarm would satisfy the
+    `pytest.raises(OSError)` below and this test would pass by timing out —
+    which it did, on first run.
+    """
+    state = tmp_path / "state"
+    state.mkdir()
+    os.mkfifo(state / "app.log")
+
+    class _Blocked(BaseException):
+        pass
+
+    def _too_slow(signum, frame):
+        raise _Blocked("configure_logging blocked on the FIFO")
+
+    previous = signal.signal(signal.SIGALRM, _too_slow)
+    signal.alarm(5)
+    try:
+        with pytest.raises(OSError):
+            applog.configure_logging(state_dir=state)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def test_refuses_a_symlinked_state_directory(tmp_path: Path):
+    """`O_NOFOLLOW` on the log file covers only the final path component.
+
+    A symlink at the state DIRECTORY therefore redirected the whole log tree,
+    and `Path.chmod` followed it — handing out a 0700 chmod of the target as
+    well. Reproduced 2026-08-06: a 0755 victim directory became 0700 and
+    received the log.
+    """
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    victim.chmod(0o755)
+    link = tmp_path / "linkdir"
+    link.symlink_to(victim)
+
+    with pytest.raises(OSError):
+        applog.configure_logging(state_dir=link)
+
+    assert not (victim / "app.log").exists(), "log was written through the symlink"
+    mode = stat.S_IMODE(victim.stat().st_mode)
+    assert mode == 0o755, f"victim directory was chmod'ed to {oct(mode)}"
+
+
+def test_created_parent_directories_are_private_too(tmp_path: Path):
+    """`mkdir(parents=True, mode=…)` applies the mode to the leaf only.
+
+    Every intermediate it creates lands at the umask default — measured 0o755
+    before the fix. `~/.local/state` at 0755 is the XDG norm and leaks nothing,
+    but a deeper injected state directory got world-traversable intermediates,
+    which is not what the 0700 comment in this module claims.
+    """
+    nested = tmp_path / "outer" / "inner" / "leaf"
+    applog.configure_logging(state_dir=nested)
+
+    for created in (tmp_path / "outer", tmp_path / "outer" / "inner", nested):
+        mode = stat.S_IMODE(created.stat().st_mode)
+        assert mode == 0o700, f"{created} is {oct(mode)}, want 0o700"
+
+
+def test_reopens_the_log_after_it_is_deleted_underneath_us(tmp_path: Path):
+    """logrotate, `systemd-tmpfiles` and a user tidying `~/.local/state` all do
+    this, and the failure is silent.
+
+    The idempotence guard compared the path only, so it reused a handler holding
+    an fd to an unlinked inode: every later record was written to a file no
+    longer reachable by any name. Reproduced 2026-08-06 — the log never
+    reappeared. "Why did it say that?" is unanswerable afterwards, which is the
+    one thing `design.md § Observability` asks this log to guarantee.
+    """
+    log_path = applog.configure_logging(state_dir=tmp_path)
+    applog.get_logger().info("before the delete")
+    os.unlink(log_path)
+
+    applog.configure_logging(state_dir=tmp_path)
+    applog.get_logger().info("after the delete")
+
+    assert log_path.exists(), "the log file was never reopened"
+    assert "after the delete" in log_path.read_text()
+    assert len(_our_handlers()) == 1, "the stale handler was left attached"
 
 
 def test_default_level_is_info_and_info_is_written(tmp_path: Path):
