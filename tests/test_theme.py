@@ -49,3 +49,36 @@ def test_the_focus_ring_clears_the_indicator_floor(theme: Theme) -> None:
         f"the focus ring is {ratio:.2f}:1 against the window, below § T8's "
         f"{INDICATOR_FLOOR}:1 for a non-text indicator"
     )
+
+
+# --- LWSM-1075: every token that renders as TEXT clears the text floor --------
+
+# The state tokens colour the state *word*, not just the glyph, so they are
+# text pairs and take § T8's 4.5:1 rather than the 3:1 an indicator gets.
+TEXT_TOKENS = [
+    "text",
+    "muted_text",
+    "state_running",
+    "state_stopped",
+    "state_unknown",
+]
+
+
+@pytest.mark.parametrize("token", TEXT_TOKENS)
+@pytest.mark.parametrize("theme", THEMES)
+def test_every_text_token_clears_the_text_floor(theme: Theme, token: str) -> None:
+    """This is the *default* palette, so a failure here is what a first run
+    gets — not an edge case behind a setting."""
+    ratio = contrast_ratio(getattr(theme, token), theme.window)
+    assert ratio >= TEXT_FLOOR, (
+        f"{token} is {ratio:.2f}:1 against the window, below § T8's "
+        f"{TEXT_FLOOR}:1 for a text pair"
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_body_text_clears_the_floor_on_the_base_surface(theme: Theme) -> None:
+    """`window` is not the only background a token lands on: `base` is what
+    LWSM-1007's list view and P05's inputs will paint under."""
+    assert contrast_ratio(theme.text, theme.base) >= TEXT_FLOOR
+    assert contrast_ratio(theme.text, theme.alt_base) >= TEXT_FLOOR

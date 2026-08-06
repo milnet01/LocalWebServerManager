@@ -59,7 +59,11 @@ class Theme:
             is_dark=False,
             state_running="#1a7f3c",
             state_stopped="#5a5a63",
-            state_unknown="#8a6d1f",
+            # Darkened from #8a6d1f under LWSM-1075: that value computed to
+            # 4.46:1 against `window`, under § T8's 4.5:1 text floor, and this
+            # is the palette a first run gets. 4.79:1 leaves a margin rather
+            # than sitting on the line the way state_running does at 4.61:1.
+            state_unknown="#856819",
         )
 
     def focus_ring_color(self) -> QColor:

@@ -799,6 +799,23 @@ importing `lwsm.__main__` in a test does not require a display.
   managers; called bare they wait for nothing, and an inactive window makes
   `hasFocus()` false.
 
+- **INV-18** — Every token that renders as **text** clears `testing.md
+  § T8`'s 4.5:1 against the surface it is painted on. The state tokens count
+  as text pairs, not indicators: they colour the state *word*, not only the
+  glyph. Measured on the default palette — `text` 15.63:1, `muted_text`
+  6.21:1, `state_stopped` 6.21:1, `state_unknown` 4.79:1, `state_running`
+  4.61:1.
+  *Test:* `tests/test_theme.py::test_every_text_token_clears_the_text_floor`,
+  parametrised over tokens **and** over themes, so the palettes LWSM-1031
+  adds inherit the check and one that fails is a failing build.
+  *Breaks when:* a palette is eyeballed. `state_unknown` shipped at
+  **4.46:1** — a miss of 0.04 that no reviewer would catch by looking, in
+  the palette a first run gets (LWSM-1075).
+  *Guard:* `::test_the_contrast_formula_matches_published_values` pins the
+  arithmetic to WCAG's published values first, because a miscomputed ratio
+  passes every palette silently and that is indistinguishable from a clean
+  one.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -870,7 +887,7 @@ binds a socket.
 | INV-9 | `tests/test_ports.py` | `integration` |
 | INV-3, INV-4, INV-4b, INV-4c, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
 | INV-6, INV-13, INV-15, INV-17 | `tests/test_mainwindow.py` | `gui` |
-| INV-17 (contrast half) | `tests/test_theme.py` | none — pure arithmetic, no display |
+| INV-17 (contrast half), INV-18 | `tests/test_theme.py` | none — pure arithmetic, no display |
 | INV-7 | `tests/test_mainwindow.py` | `gui`, `integration` |
 | INV-8, INV-8b | `tests/test_layering.py` | — |
 | INV-14 | `tests/test_main.py` (existing file) | `integration` (spawns a subprocess) |
@@ -985,6 +1002,7 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-15 | `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window` |
 | INV-16 | `tests/test_controller.py::test_stop_waits_for_the_outstanding_task` |
 | INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held` |
+| INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |
