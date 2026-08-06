@@ -3,8 +3,10 @@ server logs (ADR-0003). Contract: `docs/design.md § Observability`."""
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
+import stat
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -14,19 +16,132 @@ BACKUP_COUNT = 5
 _LINE_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 
 
+def _require_private_regular_file(fd: int, path: str) -> None:
+    """Raise unless `fd` is a regular file, singly linked, owned by us."""
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode):
+        raise OSError(errno.EINVAL, "log path is not a regular file", path)
+    if info.st_nlink != 1:
+        raise OSError(errno.EMLINK, "log path has another hard link", path)
+    if info.st_uid != os.geteuid():
+        raise OSError(errno.EPERM, "log path is owned by another user", path)
+
+
 class _NoFollowRotatingFileHandler(RotatingFileHandler):
-    """`RotatingFileHandler` that refuses to write through a symlink.
+    """`RotatingFileHandler` that writes only to a private regular file.
 
     The stock handler opens the path with `open()`, so a symlink planted at
     `app.log` by another local process redirects the whole log — attacker-
     chosen content appended into any file this user owns. Verified 2026-08-03
     before this class existed. `O_NOFOLLOW` makes that an `OSError` instead.
+
+    `O_NOFOLLOW` closed only part of it. Both gaps below were reproduced
+    2026-08-06 against the previous version of this class:
+
+    - a **hard link** is not a symlink, so a link from `app.log` to a file we
+      own still received every record — the guarantee stated above was false;
+    - `O_NOFOLLOW` does not reject a **FIFO**, and `O_WRONLY` on one blocks
+      until a reader appears, so startup hung indefinitely with no error, no
+      timeout and no log line.
+
+    So the fd is interrogated rather than trusted. `O_NONBLOCK` is what makes
+    that possible at all — without it the FIFO case never reaches the check —
+    and it is dropped again once the check passes, because a regular file must
+    write blocking or a record can be short-written.
     """
 
     def _open(self):
-        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK
         fd = os.open(self.baseFilename, flags, 0o600)
+        try:
+            _require_private_regular_file(fd, self.baseFilename)
+            os.set_blocking(fd, True)
+        except BaseException:
+            os.close(fd)
+            raise
+        # `open()` owns the fd from here, including if it raises — so this is
+        # outside the try, or a failure there would close the fd twice.
         return open(fd, self.mode, encoding=self.encoding, errors=self.errors)
+
+
+def _prepare_state_dir(directory: Path) -> None:
+    """Create `directory` and every missing component of it as 0700.
+
+    `mkdir(parents=True, mode=0o700)` applies the mode to the LEAF only, so
+    every intermediate it created landed at the umask default — measured 0o755
+    on 2026-08-06, while the comment at the call site claimed 0700 throughout.
+    Creating each component explicitly is what makes that claim true.
+
+    A **symlinked** state directory is supported on purpose, not overlooked: a
+    symlinked `~/.local/state` is ordinary with dotfile managers, and
+    `test_idempotent_through_a_symlinked_state_dir` pins it. The 2026-08-06
+    review proposed refusing one, on the grounds that `O_NOFOLLOW` on the log
+    file covers only the final component. That was calibrated down: planting a
+    symlink here needs write access to the user's own `~/.local/state`, which
+    already implies enough access to edit their shell startup files, so it is
+    not an escalation — whereas refusing it breaks a documented configuration.
+    The file itself is still guarded, by the handler above.
+
+    `O_DIRECTORY` is deliberate though, and does not conflict with that: it
+    rejects a plain file (or a symlink to one) sitting where the state directory
+    should be, which is never legitimate, and gives `fchmod` a target that
+    cannot change under it between the check and the call.
+    """
+    missing = []
+    probe = directory
+    while not probe.exists():
+        missing.append(probe)
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    for path in reversed(missing):
+        path.mkdir(mode=0o700)
+
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fchmod(fd, 0o700)
+    finally:
+        os.close(fd)
+
+
+def _handler_stream_is_current(handler: RotatingFileHandler, target: Path) -> bool:
+    """True when `handler`'s open fd is still the file living at `target`.
+
+    An external delete or replace — logrotate, `systemd-tmpfiles`, or a user
+    tidying `~/.local/state` — leaves the handler holding an unlinked inode, and
+    every later record goes somewhere no name can reach. Comparing inodes is
+    what `logging.handlers.WatchedFileHandler` does, for this exact reason.
+    """
+    stream = getattr(handler, "stream", None)
+    if stream is None or stream.closed:
+        return False
+    try:
+        open_file = os.fstat(stream.fileno())
+        on_disk = os.stat(target)
+    except OSError:
+        return False
+    return (open_file.st_dev, open_file.st_ino) == (on_disk.st_dev, on_disk.st_ino)
+
+
+def configure_stderr_logging(level: int = logging.INFO) -> None:
+    """Attach a stderr handler in place of the file one.
+
+    For the entry point to call when `configure_logging` raises: a diagnostic
+    log that cannot be written is a reason to warn, not to refuse to start. The
+    hardening above deliberately turns several hostile filesystem states into an
+    `OSError`, so without this it would have converted a log-integrity attack
+    into a total-outage one.
+    """
+    logger = get_logger()
+    logger.setLevel(level)
+    logger.propagate = False
+    for existing in list(logger.handlers):
+        logger.removeHandler(existing)
+        existing.close()
+    handler = logging.StreamHandler()
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter(_LINE_FORMAT))
+    logger.addHandler(handler)
 
 
 def default_state_dir() -> Path:
@@ -70,9 +185,7 @@ def configure_logging(
     # signal, port probe and config write, i.e. the user's whole project
     # inventory and directory layout. `.gitignore` treats that as private, so
     # writing it world-readable would contradict the project's own posture.
-    # mkdir's mode does not apply to an existing directory, hence the chmod.
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    directory.chmod(0o700)
+    _prepare_state_dir(directory)
     log_path = directory / "app.log"
 
     logger = get_logger()
@@ -91,12 +204,17 @@ def configure_logging(
     for existing in list(logger.handlers):
         if not isinstance(existing, RotatingFileHandler):
             continue
-        if Path(existing.baseFilename) == target:
+        if Path(existing.baseFilename) == target and _handler_stream_is_current(
+            existing, target
+        ):
             existing.setLevel(level)
             return log_path
-        # Reconfigured to a different directory: drop the old handler rather
-        # than accumulating one per call, which would fan every record out to
+        # Two cases land here, and both mean the handler has to go. Reconfigured
+        # to a different directory: keeping it would fan every record out to
         # every previous location and make the returned path only half true.
+        # Same path but a different inode: the file was deleted or replaced
+        # underneath us, so keeping it would append into an unlinked inode
+        # forever, silently (reproduced 2026-08-06).
         logger.removeHandler(existing)
         existing.close()
 

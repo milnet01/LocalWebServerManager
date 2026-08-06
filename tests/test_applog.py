@@ -225,7 +225,7 @@ def test_refuses_a_fifo_rather_than_blocking_on_it(tmp_path: Path):
     class _Blocked(BaseException):
         pass
 
-    def _too_slow(signum, frame):
+    def _too_slow(_signum, _frame):
         raise _Blocked("configure_logging blocked on the FIFO")
 
     previous = signal.signal(signal.SIGALRM, _too_slow)
@@ -238,26 +238,20 @@ def test_refuses_a_fifo_rather_than_blocking_on_it(tmp_path: Path):
         signal.signal(signal.SIGALRM, previous)
 
 
-def test_refuses_a_symlinked_state_directory(tmp_path: Path):
-    """`O_NOFOLLOW` on the log file covers only the final path component.
+def test_refuses_a_plain_file_where_the_state_dir_should_be(tmp_path: Path):
+    """A regular file at the state-directory path is never legitimate.
 
-    A symlink at the state DIRECTORY therefore redirected the whole log tree,
-    and `Path.chmod` followed it — handing out a 0700 chmod of the target as
-    well. Reproduced 2026-08-06: a 0755 victim directory became 0700 and
-    received the log.
+    Distinct from a symlinked state directory, which IS supported — see
+    `test_idempotent_through_a_symlinked_state_dir` and the reasoning in
+    `_prepare_state_dir`. This pins the half of the 2026-08-06 finding that
+    survived calibration: `O_DIRECTORY` must reject a non-directory rather than
+    letting the failure surface later as a confusing open error on `app.log`.
     """
-    victim = tmp_path / "victim"
-    victim.mkdir()
-    victim.chmod(0o755)
-    link = tmp_path / "linkdir"
-    link.symlink_to(victim)
+    blocker = tmp_path / "state"
+    blocker.write_text("not a directory\n")
 
     with pytest.raises(OSError):
-        applog.configure_logging(state_dir=link)
-
-    assert not (victim / "app.log").exists(), "log was written through the symlink"
-    mode = stat.S_IMODE(victim.stat().st_mode)
-    assert mode == 0o755, f"victim directory was chmod'ed to {oct(mode)}"
+        applog.configure_logging(state_dir=blocker)
 
 
 def test_created_parent_directories_are_private_too(tmp_path: Path):
