@@ -61,8 +61,8 @@ flowchart TB
 
     subgraph outside["Outside this app"]
         FS[(Sibling project<br/>directories)]
-        CFG[(~/.config/…<br/>projects.json<br/>settings.json)]
-        LOGF[(~/.local/state/…<br/>per-project<br/>log files)]
+        CFG[($XDG_CONFIG_HOME/…<br/>projects.json<br/>settings.json)]
+        LOGF[($XDG_STATE_HOME/…<br/>per-project<br/>log files)]
         PROC([Server processes])
         NET([Listening TCP sockets])
     end
@@ -1038,7 +1038,8 @@ not `app.py`, with its port two hops away in `config.py`; and
 `project-a` already reads `PROJECT_A_PORT`. Four of
 the seven turn out to take a port from the environment already.
 Every one of those errors had been copied into
-`docs/port-contract-prompt.md`, which was about to be pasted into
+`docs/private/port-contract-prompt.md` (author-private), which was
+about to be pasted into
 seven other codebases — so a wrong fact would have shipped seven
 times. All verified against the files and corrected.
 

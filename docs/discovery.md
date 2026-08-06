@@ -237,9 +237,9 @@ Considered and deliberately excluded:
   a `.bat` / `.ps1` vocabulary. Recorded as considered so the
   reasoning survives, and revisited only if real demand appears.
 - **Reason:** stated project intent (see `CLAUDE.md` § "Licence
-  and visibility"). The repo does not exist yet; it is created
-  once P01 has something worth showing, and creating it needs
-  explicit authorisation at the time.
+  and visibility"). The repo was created public on 2026-08-03
+  (LWSM-1004), from a squashed orphan commit — the pre-publication
+  history named author-private services and is kept locally only.
 
 Because the repo is public, the GitHub-public optional templates
 (`CONTRIBUTING.md`, `.github/dependabot.yml`, issue templates, PR

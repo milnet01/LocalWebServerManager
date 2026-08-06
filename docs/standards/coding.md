@@ -224,8 +224,12 @@ The Scanner reads; nothing writes. No config file, no lock file,
 no marker, no log — a sibling project's directory is read-only to
 this app, and that constraint is in `docs/discovery.md § Out of
 scope`, not merely a convention. App state goes under
-`~/.config/localwebservermanager/` and
-`~/.local/state/localwebservermanager/`.
+`$XDG_CONFIG_HOME/localwebservermanager/` and
+`$XDG_STATE_HOME/localwebservermanager/`, each falling back to
+its `~/.config` / `~/.local/state` default when the variable is
+unset or not absolute. The state half is
+`src/lwsm/applog.py::default_state_dir`; the config half has no
+code yet and this is the rule it must follow when P09 writes it.
 
 ### O4. Every spawn is an argument vector
 

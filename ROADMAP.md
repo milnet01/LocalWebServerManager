@@ -77,7 +77,8 @@ change** rather than code that exists.
   root `<scan root>/`, which is also shipped as the
   **default** scan root. `docs/standards/testing.md § T1`,
   `docs/design.md`, ADR-0002/0003/0007 and
-  `docs/port-contract-prompt.md` repeat the paths and name
+  the adoption prompt (now `docs/private/port-contract-prompt.md`,
+  author-private) repeat the paths and name
   sibling projects. Two of those services carry personal data.
   **This is in all 24 commits**, so `.gitignore` cannot fix it —
   either rewrite history or start the public repo from one
@@ -201,7 +202,8 @@ change** rather than code that exists.
   reads as style advice, and the prompt is about to be pasted
   into seven codebases where the obvious next step is "if
   managed, skip the confirmation". One sentence in ADR-0006 and
-  `docs/port-contract-prompt.md`: a presentation hint with no
+  the adoption prompt (now `docs/private/port-contract-prompt.md`,
+  author-private): a presentation hint with no
   security value — never grant, skip or relax anything on it.
   Free now, impossible to retrofit across seven repos later.
   **Done 2026-08-03 — ADR-0006 and the adoption prompt now state in the normative voice that `LWSM_MANAGED` has no security value and may never grant, skip or relax anything.**
@@ -1092,6 +1094,97 @@ is why it sits after the app works.
   Source: user-2026-08-03.
   Priority: 3.
   Lanes: docs, build.
+
+---
+
+## DS01 — Debt sweep (2026-08-06)
+
+The first debt sweep, run over the whole history because there had
+never been one and the only tag is not an ancestor of HEAD. Every
+dependency, action pin and runner image came back current, so
+nothing below is technology debt. These are the items the sweep
+could not close itself: each needs a decision, or work, or the
+program actually running.
+
+### 🧹 Cleanup / debt
+
+- 📋 [LWSM-1056] **DS01: `main()` is a shipped entry point with no test.**
+  `src/lwsm/__main__.py::main` takes an optional argv, branches on
+  `--version` and returns an exit code, and nothing asserts on any of
+  it. `scripts/local-ci.sh` § Entry points only `e.load()`s the
+  console script — it proves the module resolves, never that calling
+  it does the right thing. Assert `main(["--version"]) == 0` and the
+  string it prints, with the state dir injected so the test does not
+  touch the real one (testing.md § T1).
+  Dependencies: none.
+  **Layman:** The one command the app already ships is never actually run by a test — only checked that it exists.
+  Kind: test.
+  Source: debt-sweep-2026-08-06.
+  Priority: 3.
+  Lanes: tests.
+
+- 📋 [LWSM-1057] **DS01: two measurements of the pre-scrub commit count disagree.**
+  `ROADMAP.md` § FP01 intro and LWSM-1045's body say the leak was in
+  "all 24 commits"; LWSM-1045's own resolution note says "all 26
+  commits", and `docs/journal/P01.md` says 24. Derived this sweep:
+  the `pre-public-history` tag holds 30 commits and the scrub commit
+  `9dcabc9` is the 27th, so 26 preceded it. Either both were true
+  when written and each needs its date, or 24 is simply wrong. The
+  sweep did not adjudicate, because rewriting a dated finding is a
+  call the author makes, not a sweep.
+  Dependencies: none.
+  **Layman:** Two places in the roadmap count the same thing differently; the real number looks like 26.
+  Kind: doc-fix.
+  Source: debt-sweep-2026-08-06.
+  Priority: 4.
+  Lanes: docs.
+
+- 📋 [LWSM-1058] **DS01: decide whether contract-landed-only items are 🚧 or 📋.**
+  LWSM-1046 … LWSM-1050 are all 🚧, which the legend defines as
+  "being tackled now". What actually landed is each one's *contract*
+  (ADR edits, 2026-08-03); every implementation is deferred to P05 or
+  P06 and none has started. Either the legend gains a word for
+  "designed, not built", or these five flip to 📋 with the contract
+  noted in the body. Left alone by the sweep: it is a question about
+  the roadmap's own vocabulary, and five statuses move on the answer.
+  Dependencies: none.
+  **Layman:** Five security items are marked "in progress" when only their design is done and no code has started.
+  Kind: doc-fix.
+  Source: debt-sweep-2026-08-06.
+  Priority: 3.
+  Lanes: docs.
+
+- 📋 [LWSM-1059] **DS01: `pytest-qt` and the `gui` / `integration` markers are declared but unexercised.**
+  `pyproject.toml` pins `pytest-qt==4.5.0` and registers both
+  markers; no test uses either, so `local-ci.sh --fast` (which
+  deselects `integration`) currently deselects nothing and the
+  headless Qt path under `QT_QPA_PLATFORM=offscreen` has never run.
+  That is expected before P02 — but it means the first GUI test is
+  also the first proof the harness works, which is the wrong moment
+  to find out it does not. Cannot be confirmed without running Qt.
+  Dependencies: LWSM-1005.
+  **Layman:** The test tools for the window are installed but nothing has used them yet, so we do not know they work.
+  Kind: test.
+  Source: debt-sweep-2026-08-06.
+  Priority: 3.
+  Lanes: tests, build.
+
+- 📋 [LWSM-1060] **DS01: three agreed doc tasks exist only in a session journal.**
+  `.claude/workflow.md` § 3 records three decisions the user took on
+  2026-08-06 that are in no roadmap item: a `SECURITY.md` pointing at
+  GitHub private vulnerability reporting (with the repo setting
+  enabled), `CODE_OF_CONDUCT.md` as Contributor Covenant 2.1 verbatim
+  replacing the homemade paragraph in `CONTRIBUTING.md`, and
+  replacing ADR-0007's four unresolvable `OneUp/updater.py` citations
+  with the technique itself. `docs/standards/documentation.md` § 2.4
+  and § 2.5 require the first two files; neither is at the repo root.
+  Filed here so they outlive the journal entry.
+  Dependencies: none.
+  **Layman:** Three jobs you already decided on are written down only in a session note — this puts them on the roadmap so they cannot get lost.
+  Kind: doc.
+  Source: debt-sweep-2026-08-06.
+  Priority: 2.
+  Lanes: docs.
 
 ---
 

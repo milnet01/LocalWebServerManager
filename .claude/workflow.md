@@ -4,15 +4,15 @@
 
 | Field | Value |
 |-------|-------|
-| **Project phase** | P01 — Bootstrap: all four bullets ✅ 2026-08-06; the phase stays open only for FP01's six 🚧 security items (P05/P06). Phases A–D closed 2026-08-03 |
+| **Project phase** | P01 — Bootstrap: all four bullets ✅ 2026-08-06; the phase stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03 |
 | **Active item ID** | (none — pre-code phases produce documents, not roadmap items) |
 | **Active step** | (n/a until P01) |
 | **Last update** | 2026-08-06 (`design.md` re-gated; public-facing docs corrected; **three user decisions recorded but NOT implemented** — see the top journal entry) |
 | **Blocked on** | — (nothing blocking; three small doc tasks are queued and specified) |
-| **Next gate** | P02 — vertical slice, now unblocked: `design.md` is gated and safe to build UI from. Clear the three queued doc tasks first — they are ~30 minutes and the decisions are already made. P01 stays open until FP01's six 🚧 items land in P05/P06 |
+| **Next gate** | P02 — vertical slice, now unblocked: `design.md` is gated and safe to build UI from. Clear the three queued doc tasks first — they are ~30 minutes and the decisions are already made. P01 stays open until FP01's five 🚧 items land in P05/P06 |
 | **Convergence checkpoint** | 5 (consecutive `FP##` items immediately preceding any ✅-`implement`-Kind close in the active release block — see `~/.claude/commands/close-phase.md § 5a-6`) |
 | **Debt-sweep phase threshold** | 5 (auto-prompt for `/debt-sweep` after this many phases without one) |
-| **Last debt sweep** | (none yet) |
+| **Last debt sweep** | 2026-08-06 (`DS01`, whole history — no dependency drift; doc drift fixed, four items filed to the roadmap) |
 | **Repo visibility** | **PUBLIC** (`github.com/milnet01/LocalWebServerManager`, 2026-08-03) — free CI minutes, so pushes need no batching gate |
 
 ### Step progress

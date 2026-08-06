@@ -89,7 +89,8 @@ other-writable, is refused outright.
 The confirmation is not security theatre only if it shows what will
 actually run: the resolved path and argv, never a friendly summary.
 - stdout and stderr are **merged and redirected to a per-project
-  file** under `~/.local/state/localwebservermanager/logs/`, not
+  file** under `$XDG_STATE_HOME/localwebservermanager/logs/`
+  (falling back to `~/.local/state` when unset), not
   to a pipe the manager holds. A reader thread tails that file
   into the project's `LogBuffer` via a queued Qt signal. Merging
   keeps the ordering the user would have seen in a terminal.

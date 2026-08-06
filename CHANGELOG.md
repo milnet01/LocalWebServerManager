@@ -23,6 +23,11 @@ signaling per
 
 ### Added
 
+- The `lwsm` console script and `python -m lwsm`, with a
+  `--version` flag. No interface yet — it configures logging,
+  reports where it is logging to, and exits 0. CI asserts the
+  entry point actually resolves, because a console script can
+  name a module that does not exist while the build stays green.
 - Build tooling: uv + exact pins, ruff, pytest + pytest-qt, and a
   GitHub Actions workflow that calls `scripts/local-ci.sh` rather
   than restating its steps, so the local gate and CI cannot drift.

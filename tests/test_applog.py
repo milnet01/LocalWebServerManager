@@ -1,9 +1,9 @@
 """Application log — LWSM-1026.
 
 Contract: `docs/design.md § Observability` — an app-level log at
-`~/.local/state/localwebservermanager/app.log`, INFO by default, rotating at
-1 MB with 5 kept, recording every spawn, signal, port-probe result and config
-write.
+`$XDG_STATE_HOME/localwebservermanager/app.log` (falling back to `~/.local/state`
+when that variable is unset), INFO by default, rotating at 1 MB with 5 kept,
+recording every spawn, signal, port-probe result and config write.
 
 These tests name what the design promises, not what the implementation does
 (testing.md § 2). None of them touches the real state directory: T1 forbids it,

@@ -113,7 +113,20 @@ Feature set`, formalised as an ADR in Phase B.
 
 ## Build and test
 
-(Filled in at P01 — Bootstrap, once tech stack is chosen.)
+```bash
+uv sync --extra dev     # resolves from the committed uv.lock
+./scripts/local-ci.sh   # the whole gate
+./scripts/local-ci.sh --fast   # same, minus the integration tests
+```
+
+There is no compile step. `scripts/local-ci.sh` runs, in order:
+`uv sync --locked`, `ruff check`, `ruff format --check`,
+`python -m compileall src tests` (the syntax gate), an
+entry-point resolution check, `pytest`, `shellcheck`, and
+`actionlint` + `yamllint`. A check whose tool is missing is
+reported as an explicit **SKIP**, never folded into the pass.
+
+See **Before pushing** above for when the gate is mandatory.
 
 ## Commit conventions
 
@@ -129,29 +142,27 @@ authorises a push.
 
 ## Licence and visibility
 
-MIT, and **intended to be published as a public repository**
-(user, 2026-08-03) under the name `LocalWebServerManager` on
-`github.com/milnet01`. The repo does **not exist yet** — it is
-created once P01 has something worth showing, and creating it
-needs explicit authorisation at the time.
+MIT, and **published as a public repository** at
+`github.com/milnet01/LocalWebServerManager` (LWSM-1004, created
+2026-08-03 from a squashed orphan commit — the pre-publication
+history named author-private services and is kept locally under
+the `pre-public-history` tag).
 
 Two consequences to hold on to:
 
-- **Everything in this tree becomes world-readable**, including
+- **Everything in this tree is world-readable**, including
   `ROADMAP.md`, `docs/specs/`, and any security finding folded
-  into the roadmap while still open. There is no private-item
-  mechanism today — the file *is* the record.
+  into the roadmap while still open. `docs/private/` is
+  gitignored and is the only place author-private facts go.
 - **`LICENSE` names Anthony Schemel** as copyright holder. Keep
   it a legal person, not the project name.
 
 ## Push policy
 
 Inherits from the user's global `~/.claude/CLAUDE.md` § 6
-(public repos: push freely; private: batch + ask). Once the
-repo exists it will be **public**, so the free-CI-minutes rule
-applies and pushes need no batching gate — but until it exists
-there is nothing to push to, and `git push` will fail with no
-remote.
+(public repos: push freely; private: batch + ask). This repo is
+**public**, so the free-CI-minutes rule applies: push freely, no
+batching gate. `main` tracks `origin/main`.
 
 Detect repo visibility once per session via
 `gh repo view --json visibility -q .visibility` and cache; the
@@ -159,7 +170,24 @@ result is recorded in `.claude/workflow.md` § 1 status header.
 
 ## Module map
 
-(Filled in at P01 — Bootstrap, once `src/` is non-empty.)
+Three modules at P01. The layering rule is
+[`docs/standards/coding.md § O1`](docs/standards/coding.md): a
+core module may import `QtCore` but never `QtWidgets`, so every
+one of them is testable without a display.
+
+- **`src/lwsm/__init__.py`** — the package docstring stating that
+  rule, and `__version__`.
+- **`src/lwsm/__main__.py`** — `main()`, behind both the `lwsm`
+  console script and `python -m lwsm`. Handles `--version`,
+  configures logging, prints where it is logging to. No GUI
+  until P02.
+- **`src/lwsm/applog.py`** — the application log.
+  `default_state_dir()`, `get_logger()`, `configure_logging()`,
+  and a `_NoFollowRotatingFileHandler` that opens `O_NOFOLLOW`
+  0600 inside a 0700 directory so the log cannot be written
+  through a planted symlink.
+
+`tests/test_applog.py` is the only test file so far.
 
 ## Resumption flow — MANDATORY summarise-back
 
