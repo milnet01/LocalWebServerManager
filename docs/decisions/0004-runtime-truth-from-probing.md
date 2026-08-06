@@ -120,6 +120,12 @@ seconds**, so the manager would have reported a perfectly healthy
 launch as a failure and shown the user a lie — the precise defect
 this whole ADR exists to prevent, reintroduced by a constant.
 
+That is no longer a single lucky catch: the adoption campaign
+finished with **two independently measured projects** past the old
+deadline — ~40 s and ~45 s to bind — the second found because a
+fixed `sleep` in the verification prompt produced a false negative
+on it (2026-08-06).
+
 No deadline can be right here. Bind time depends on the project's
 own work, ranges over an order of magnitude between a static
 server and a cold `npm run dev`, and is not knowable in advance.
