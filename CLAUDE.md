@@ -124,7 +124,21 @@ There is no compile step. `scripts/local-ci.sh` runs, in order:
 `python -m compileall src tests` (the syntax gate), an
 entry-point resolution check, `pytest`, `shellcheck`, and
 `actionlint` + `yamllint`. A check whose tool is missing is
-reported as an explicit **SKIP**, never folded into the pass.
+reported as an explicit **SKIP**, never folded into the pass —
+**each tool is tracked separately**, because sharing one flag
+between `actionlint` and `yamllint` made a missing `actionlint`
+report a clean pass (reproduced and fixed 2026-08-06).
+
+In CI, a SKIP is **fatal**: the workflow sets
+`LWSM_REQUIRE_ALL_TOOLS=1`, so the machine that is supposed to
+hold every tool cannot report green on a degraded run. Locally it
+stays a warning — a missing linter should not stop you testing
+your own change.
+
+`.python-version` is committed, so a developer's machine and the
+runner resolve the **same** interpreter. `requires-python` is only
+a floor, and `filterwarnings = ["error"]` would turn any
+divergence into a red build that does not reproduce locally.
 
 See **Before pushing** above for when the gate is mandatory.
 
@@ -178,16 +192,24 @@ one of them is testable without a display.
 - **`src/lwsm/__init__.py`** — the package docstring stating that
   rule, and `__version__`.
 - **`src/lwsm/__main__.py`** — `main()`, behind both the `lwsm`
-  console script and `python -m lwsm`. Handles `--version`,
-  configures logging, prints where it is logging to. No GUI
-  until P02.
+  console script and `python -m lwsm`. An `argparse` parser, so
+  `--version` and `--help` work and an unrecognised option exits
+  2 rather than being ignored. Prints where it is logging to, and
+  starts anyway — with a warning on stderr — when the log
+  directory cannot be used. No GUI until P02.
 - **`src/lwsm/applog.py`** — the application log.
   `default_state_dir()`, `get_logger()`, `configure_logging()`,
-  and a `_NoFollowRotatingFileHandler` that opens `O_NOFOLLOW`
-  0600 inside a 0700 directory so the log cannot be written
-  through a planted symlink.
+  `configure_stderr_logging()` (the fallback the entry point uses
+  when the file log is unavailable), and a
+  `_NoFollowRotatingFileHandler` that writes only to a private
+  regular file: `O_NOFOLLOW` 0600 inside a 0700 directory, and
+  then an `fstat` requiring one link and our own ownership, so
+  neither a symlink nor a **hard link** nor a **FIFO** planted at
+  `app.log` can redirect or block the log. The last two were
+  reproduced against the `O_NOFOLLOW`-only version on 2026-08-06.
 
-`tests/test_applog.py` is the only test file so far.
+`tests/test_applog.py` and `tests/test_main.py` are the test
+files so far.
 
 ## Resumption flow — MANDATORY summarise-back
 

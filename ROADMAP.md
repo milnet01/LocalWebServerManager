@@ -1244,6 +1244,98 @@ program actually running.
 
 ---
 
+## FP02 — Audit + review fold-in (2026-08-06)
+
+A static-analysis pass and a two-lane cold code review over the whole 540-line
+tree. Every finding was reproduced against the shipping code before it was acted
+on, and every one of the tool findings turned out to be a false positive: all
+187 `contract_doc_drift` hits, plus bandit, vulture, deptry, typos and yamllint.
+The reading review found the real defects, which is the same result P01
+recorded. Both reviewers independently confirmed the delegation property, the
+pins and the workflow's security posture. Items below are what remained after
+triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
+
+- 📋 [LWSM-1064] **Bump uv to 0.12.2 on both machines in one commit.**
+  CI was resolving whatever uv was newest at run time while this project
+  is developed against 0.11.7 — a floating reference dependencies.md § 6
+  forbids. FP02 pinned CI to 0.11.7 so the two sides match TODAY, which
+  fixes the floating reference but leaves the project a minor version
+  behind (0.12.2 was current 2026-08-06). The resolver writes uv.lock, so
+  the bump must move the local toolchain, the ci.yml pin and any
+  re-locked uv.lock together, and re-check the `--locked` vs `--frozen`
+  evidence comment in local-ci.sh, which is measured against 0.11.7.
+  Acceptance: `uv --version` matches the ci.yml pin, the gate is green,
+  and that comment names the version it was re-measured on.
+  **Layman:** Update the tool that installs our dependencies, on this computer and on GitHub at the same time.
+  Kind: chore.
+  Source: code-quality-review-2026-08-06.
+
+- 📋 [LWSM-1065] **Decide whether two instances may share one app.log.**
+  `RotatingFileHandler` is not multi-process safe, and ADR-0004 rules out
+  PID and lock files, so nothing currently prevents two instances. A
+  renames app.log to app.log.1 while B still holds the old descriptor and
+  keeps appending to the renamed inode; B's own rollover then renames A's
+  fresh file, and `doRollover`'s `os.remove` can discard a whole
+  generation. Verified as a property of the stdlib handler, not observed
+  in the wild — nothing runs two copies yet. Two candidate answers: the
+  single-instance guard P09's tray/session work needs anyway, or a
+  PID-qualified filename, which costs the single fixed path
+  design.md § Observability promises. Needs the ADR-0004 question settled
+  first: does "no lock files" ban a single-instance guard, or only
+  PERSISTED runtime state? It reads as the latter.
+  **Layman:** If you open the app twice, the two copies can scramble each other's log files. Decide how to stop that.
+  Kind: investigate.
+  Source: code-quality-review-2026-08-06.
+
+- 📋 [LWSM-1066] **Put a type checker in the gate.**
+  Nothing type-checks this project. Running pyright by hand during the
+  2026-08-06 audit found one real mismatch on the tree as it stands:
+  `_NoFollowRotatingFileHandler._open` returns the `IO[Any]` that `open()`
+  infers from a `str` mode, where `logging.FileHandler._open` declares
+  `TextIOWrapper`. No runtime effect — the object IS a TextIOWrapper —
+  which is why it was left rather than papered over with a cast plus two
+  imports in a five-line security-critical method. The fix is a checker
+  that keeps it honest, not one annotation. Acceptance: the checker runs
+  in scripts/local-ci.sh (so it is runnable before a push, per this
+  project's arrangement), its strictness level is a recorded decision
+  rather than a default, and `_open` is clean under it.
+  **Layman:** Add a tool that catches a class of mistake nothing currently checks for.
+  Kind: test.
+  Source: audit-2026-08-06.
+
+- 📋 [LWSM-1067] **Settle where the version number lives.**
+  `pyproject.toml`, `src/lwsm/__init__.py`, `README.md` and `ROADMAP.md`
+  all carry it, all reading 0.0.0, with no lockstep check and no
+  `.claude/bump.json`. Both review lanes raised it independently. Not a
+  defect today — nothing has been released and all four agree — which is
+  exactly why it is cheap to fix now. `importlib.metadata.version()`
+  is the obvious source for `__init__.py`, but it needs a decision about
+  running from an uninstalled source tree, so it is a call to make rather
+  than an edit to apply. Belongs with P10 packaging, or earlier if a
+  `/bump` recipe lands first.
+  **Layman:** The version is written in four places by hand; make it one place.
+  Kind: chore.
+  Source: code-quality-review-2026-08-06.
+
+- ✅ [LWSM-1068] **Give contract_doc_drift a scope carve-out in the audit allowlist.**
+  The rule treats every backticked token in a doc as a claim about this
+  project's source symbols. Against `docs/specs/` that is useful; against
+  `docs/standards/` — generic format standards — it can never come back
+  clean, because their backticks are naming counter-examples the docs
+  themselves forbid (`strName`, `iCount`), C++/Qt idioms a Python project
+  will never contain, format vocabulary (`Kind:`, `Layman:`), plain prose
+  (`yesterday`, `recently`), citations into other repositories
+  (`roadmapdialog.cpp`), and forward references to modules
+  coding.md § O1 itself names as unbuilt. Verified line by line and
+  logged to `.ants_review_falsepos.jsonl` on 2026-08-06; this bullet is
+  the allowlist entry that ledger cannot substitute for, since
+  `docs/audit-allowlist.md` is what triage reads first. Entries
+  allowlist-001 and -002 are the pattern to follow.
+  **Layman:** Stop one checker from reporting the same 187 non-problems on every single run.
+  Kind: doc.
+  Source: audit-2026-08-06.
+  Resolved 2026-08-06 in the same pass that raised it: `docs/audit-allowlist.md` gains allowlist-003 for the 187 `contract_doc_drift` hits across `docs/standards/`, with the per-category evidence, and allowlist-004 for bandit B101 in the test files. Both follow the allowlist-001/-002 format and both name a re-verify trigger.
+
 ## 💭 Considered — not scheduled
 
 - 💭 [LWSM-1023] **Support more kinds of web server.** Detection

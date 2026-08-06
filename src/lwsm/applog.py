@@ -99,7 +99,12 @@ def _prepare_state_dir(directory: Path) -> None:
 
     fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        os.fchmod(fd, 0o700)
+        # semgrep's insecure-file-permissions rule calls 0o700 "widely
+        # permissive" and suggests 0o644, which is world-READABLE and the
+        # opposite of what this directory needs; 0o700 is owner-only, and on a
+        # directory the x bit is what makes it traversable at all. Verified
+        # false positive — docs/audit-allowlist.md allowlist-005.
+        os.fchmod(fd, 0o700)  # nosemgrep
     finally:
         os.close(fd)
 

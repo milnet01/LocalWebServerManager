@@ -126,6 +126,98 @@ Do not delete revoked entries — the history is the value.
 - **Confirmed by phase:** DS01
 
 
+## allowlist-003 — contract_doc_drift:docs/standards/ — format standards are not source contracts
+
+- **Status:** active
+- **Tool / rule:** `contract_doc_drift` (via `audit_run`) —
+  `contract_doc_drift`
+- **Location:** every `docs/standards/*.md` file. 187 findings on
+  2026-08-06 — `roadmap-format.md` 68, `coding.md` 31,
+  `spec-format.md` 21, `testing.md` 21, `commits.md` 19,
+  `documentation.md` 19, `README.md` 7, `dependencies.md` 1.
+- **Why this is a false positive:** the rule reads a backticked token
+  in a document as a claim that the project's source contains that
+  symbol. That is a fair check against `docs/specs/`, which states
+  this project's own contracts. `docs/standards/` states **formats and
+  conventions**, so its backticks are none of them source claims.
+  Verified line by line: naming counter-examples the document itself
+  forbids (`coding.md` § 4 gives `strName` and `iCount` as Hungarian
+  notation *not* to use); C++ and Qt idiom names in `coding.md`
+  § 5.1/5.2, which a Python project will never contain
+  (`std::make_unique`, `QSaveFile`, `qDebug`); roadmap and commit
+  vocabulary (`Kind:`, `Lanes:`, `Layman:`, `PROJ-NNNN`,
+  `Co-Authored-By:`); ordinary prose that happens to be backticked
+  (`yesterday`, `recently`, `size`); citations into **other**
+  repositories (`roadmap-format.md` cites Ants Terminal's
+  `roadmapdialog.cpp` and `remotecontrol.cpp`); and forward references
+  to core modules that `coding.md` § O1 itself lists as not yet built
+  (`supervisor`, `logbuffer`, `controller`) plus P04 theme tokens
+  (`accent`, `state_running`). The check cannot come back clean against
+  these files while they remain format standards. Re-verify if it gains
+  a path scope, or if a standard starts citing this project's symbols
+  as its own contract.
+- **Suppression applied:** none — the verb offers no inline
+  suppression and no scope filter. Also recorded in
+  `.ants_review_falsepos.jsonl` so a re-run's brief carries it.
+- **Logged:** 2026-08-06
+- **Confirmed by phase:** FP02
+
+## allowlist-004 — bandit:B101 — pytest's assert is how pytest works
+
+- **Status:** active
+- **Tool / rule:** `bandit` — `B101` (`assert_used`)
+- **Location:** `tests/test_applog.py`, `tests/test_main.py` — every
+  assertion in them (28 findings on 2026-08-06, all LOW severity /
+  HIGH confidence)
+- **Why this is a false positive:** pytest's entire assertion mechanism
+  is the bare `assert` statement, so the rule fires on correct test
+  code by construction. No production `assert` exists — bandit over
+  `src/` alone reports nothing. The project already encodes this
+  judgement for ruff's port of the same rule:
+  `pyproject.toml [tool.ruff.lint.per-file-ignores]` sets
+  `"tests/**" = ["S101", …]`, scoped to tests so the production rule
+  keeps its teeth. bandit's own default severity floor (`-ll`, which
+  `audit_run` uses) filters these to zero; they were visible only
+  because this session re-ran bandit without the floor to prove the
+  tool had analysed the tree rather than crashed. Re-verify if a B101
+  ever appears under `src/`.
+- **Suppression applied:** none needed at the default severity floor.
+- **Logged:** 2026-08-06
+- **Confirmed by phase:** FP02
+
+
+## allowlist-005 — semgrep:insecure-file-permissions — 0o700 on the state directory
+
+- **Status:** active
+- **Tool / rule:** `semgrep` —
+  `python.lang.security.audit.insecure-file-permissions.insecure-file-permissions`
+- **Location:** `src/lwsm/applog.py`, the `os.fchmod(fd, 0o700)` call in
+  `_prepare_state_dir`
+- **Why this is a false positive:** the rule's message is wrong on its own
+  terms here. It calls `0o700` "widely permissive" and recommends `0o644`
+  as "a good default" — but `0o644` is world-**readable**, strictly more
+  permissive than `0o700`, and this is the directory holding a log of the
+  user's whole project inventory and directory layout. `0o700` is
+  owner-only, and on a *directory* the execute bit is what makes it
+  traversable at all, so `0o644` would also make it unusable. Following
+  the advice would regress the finding this project fixed deliberately and
+  would break `test_state_dir_and_log_are_not_world_readable`, which
+  asserts exactly `0o700`. The rule appears to be written for regular
+  files and does not distinguish a directory mode. It began firing on
+  2026-08-06 only because the mode is now set through `os.fchmod` on a
+  directory fd rather than `Path.chmod`; the mode itself is unchanged.
+  Re-verify if the rule learns to distinguish directories.
+- **Suppression applied:** inline — a trailing `# nosemgrep` on the
+  `os.fchmod` call, with a comment above citing this entry. Deliberately
+  the bare form rather than the rule-qualified one: the qualified id is
+  106 characters, which exceeds the project's 88-column `ruff` limit and
+  failed the gate. `# nosemgrep` on its own line four lines above the
+  call also did **not** suppress — semgrep honours it only on the
+  offending line or the line immediately preceding it.
+- **Logged:** 2026-08-06
+- **Confirmed by phase:** FP02
+
+
 ## What does NOT belong here
 
 - **Findings that are real but blocked by a missing feature.**

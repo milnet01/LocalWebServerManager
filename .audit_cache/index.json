@@ -1,0 +1,85 @@
+{
+    "history": [
+        {
+            "commit": "c39bde3",
+            "findings_file": "findings-2026-08-06T16-20-02Z-c39bde3.json",
+            "iso_timestamp": "2026-08-06T16:20:02Z",
+            "sarif": "audit-2026-08-06T16-20-02Z-c39bde3.sarif"
+        }
+    ],
+    "last_run": {
+        "branch": "main",
+        "by_tool": {
+            "bandit": {
+                "elapsed_ms": 1704,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "changelog_test_coverage": {
+                "elapsed_ms": 0,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "clang-tidy": {
+                "elapsed_ms": 872,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "clazy": {
+                "elapsed_ms": 902,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "contract_doc_drift": {
+                "elapsed_ms": 7,
+                "raw_count": 184,
+                "status": "ok"
+            },
+            "cppcheck": {
+                "elapsed_ms": 182,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "gitleaks": {
+                "elapsed_ms": 1278,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "ruff": {
+                "elapsed_ms": 831,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "semgrep": {
+                "elapsed_ms": 3960,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "shellcheck": {
+                "elapsed_ms": 28,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "spec_code_drift": {
+                "elapsed_ms": 0,
+                "raw_count": 0,
+                "status": "ok"
+            },
+            "trivy": {
+                "elapsed_ms": 2068,
+                "raw_count": 0,
+                "status": "ok"
+            }
+        },
+        "commit": "b7604b5",
+        "elapsed_total_ms": 4224,
+        "findings_file": "findings-2026-08-06T16-54-51Z-b7604b5.json",
+        "findings_truncated": false,
+        "iso_timestamp": "2026-08-06T16:54:51Z",
+        "sarif": "audit-2026-08-06T16-54-51Z-b7604b5.sarif",
+        "scope": "full",
+        "total_actionable": 184,
+        "total_raw": 184
+    },
+    "version": 1
+}
