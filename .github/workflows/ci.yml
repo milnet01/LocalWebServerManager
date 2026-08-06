@@ -12,11 +12,17 @@ on:
   pull_request:
     branches: [main]
 
-# A new push to the same branch makes the older run irrelevant; cancelling it
-# keeps queue time (and, on private repos, minutes) down.
+# A new push to the same branch makes the older run irrelevant on a PR, where
+# only the head commit is ever merged; cancelling it keeps queue time (and, on
+# private repos, minutes) down.
+#
+# NOT on a push to main, though. This project pushes straight to main, so two
+# pushes in quick succession would cancel the first commit's run and leave it
+# permanently ungated — nothing ever comes back to it (OWASP CICD-SEC-01,
+# insufficient flow control).
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -26,6 +32,10 @@ jobs:
     # Pinned rather than ubuntu-latest so a runner-image roll cannot turn a
     # green build red without a commit explaining it.
     runs-on: ubuntu-24.04
+    # The tests bind real sockets and spawn real children (testing.md § T2/T3),
+    # so a hang is a plausible failure rather than a hypothetical one. The
+    # default is 360 minutes; the whole gate runs in well under one.
+    timeout-minutes: 15
     steps:
       # Pinned to a commit SHA, not a tag: a major tag is a moving reference,
       # and these two lines are the only third-party CODE that runs in this
@@ -36,14 +46,29 @@ jobs:
         with:
           persist-credentials: false
 
+      # The version comment is TRAILING, like checkout's above: dependabot
+      # rewrites that form when it bumps the SHA. On its own line it would go on
+      # asserting a version the pin no longer points at.
       - name: Install uv
-        # v9.0.0
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          # Pinned, because an unpinned setup-uv resolves whatever uv is latest
+          # at run time — a floating reference of the kind
+          # dependencies.md § 6 forbids, and it made "the local run matches
+          # GitHub exactly" false without saying so. 0.11.7 is what this project
+          # is developed against; 0.12.2 was current on 2026-08-06, and the two
+          # sides move together in one commit or not at all, since the resolver
+          # writes uv.lock.
+          version: "0.11.7"
           enable-cache: true
 
+      # Reads .python-version, which is committed so that this machine and a
+      # developer's resolve the SAME interpreter. requires-python is only a
+      # floor (>=3.13), and with filterwarnings=["error"] in pyproject.toml a
+      # single new-version DeprecationWarning is a red build that does not
+      # reproduce locally.
       - name: Install Python
-        run: uv python install 3.13
+        run: uv python install
 
       # Qt needs these even to start offscreen; a bare runner has none of them
       # and PySide6 fails to import with a bare "libEGL.so.1: cannot open
@@ -57,11 +82,23 @@ jobs:
       # actionlint is pinned, not @latest: docs/standards/dependencies.md § 2.1
       # forbids a floating reference, and a linter that silently changes
       # version can turn a green build red with no commit explaining it.
-      - name: Install shellcheck and actionlint
+      # yamllint is installed rather than taken from the runner image. The image
+      # does ship it, but relying on that made the one tool the gate depends on
+      # implicitly the one whose removal from a future image would silently
+      # degrade the YAML check — and LWSM_REQUIRE_ALL_TOOLS below now turns that
+      # into a failure, so it must actually be here.
+      - name: Install shellcheck, actionlint and yamllint
         run: |
-          sudo apt-get install -y --no-install-recommends shellcheck
+          sudo apt-get install -y --no-install-recommends shellcheck yamllint
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # LWSM_REQUIRE_ALL_TOOLS turns a SKIP into a failure HERE only. On a
+      # developer's machine a missing linter must not stop them testing
+      # their own change; on the machine that is supposed to hold every
+      # tool, a green tick that cannot be told apart from a degraded run is
+      # worse than a red one. The list of checks lives only in the script.
       - name: Run the gate
+        env:
+          LWSM_REQUIRE_ALL_TOOLS: 1
         run: ./scripts/local-ci.sh

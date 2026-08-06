@@ -19,8 +19,29 @@ set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
 
+usage() {
+    printf 'usage: %s [--fast]\n' "$0"
+    printf '  --fast   skip the slowest stage (still lints and tests)\n'
+}
+
+# Every argument is examined, not just $1: an unrecognised one used to be
+# ignored silently, so `--fst` or `--help` ran the full gate and looked like it
+# had been honoured.
 FAST=0
-[[ ${1:-} == "--fast" ]] && FAST=1
+for arg in "$@"; do
+    case $arg in
+        --fast) FAST=1 ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'unknown argument: %s\n' "$arg" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
 
 # Qt needs no display: every test is headless by contract
 # (docs/standards/testing.md § T6), and CI runners have no X server. Setting
@@ -30,10 +51,27 @@ export QT_QPA_PLATFORM=offscreen
 # Keep the run reproducible: a stray PORT in the developer's shell would be
 # inherited by anything the tests spawn (ADR-0002 sets it per child, but a
 # leaked one could still confuse a fixture).
-unset PORT LWSM_MANAGED || true
+# No `|| true`: the only way `unset` fails is a readonly variable, which is
+# exactly the case worth hearing about rather than hiding.
+unset PORT LWSM_MANAGED
 
-step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
-fail() { printf '\n\033[31mFAILED: %s\033[0m\n' "$1" >&2; exit 1; }
+# Colour only when stdout is a terminal, and never when NO_COLOR is set
+# (no-color.org). Escape codes in a CI log or a pipe are noise.
+if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
+    BOLD=$'\033[1m'; RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'
+    RESET=$'\033[0m'
+else
+    BOLD=''; RED=''; GREEN=''; YELLOW=''; RESET=''
+fi
+
+step() { CURRENT_STEP="$1"; printf '\n%s==> %s%s\n' "$BOLD" "$1" "$RESET"; }
+fail() { printf '\n%sFAILED: %s%s\n' "$RED" "$1" "$RESET" >&2; exit 1; }
+
+# `set -E` above is inert without an ERR trap, which left `fail` with a single
+# caller: a ruff or pytest failure exited non-zero with no banner naming the
+# step that broke. CURRENT_STEP is what makes the trap able to say.
+CURRENT_STEP="startup"
+trap 'fail "$CURRENT_STEP"' ERR
 
 # Checks that could not run because a tool is absent. Tracked, because a
 # skipped check followed by a green "passed" is indistinguishable from a full
@@ -97,32 +135,49 @@ else
 fi
 
 step "Workflow and config YAML"
-# actionlint covers .github/workflows/ only, so dependabot.yml needs yamllint
-# regardless — otherwise the better-equipped machine checks LESS, and a
-# malformed package-ecosystem reaches GitHub, which reports config errors on
-# its own dashboard rather than in the build.
-YAML_CHECKED=0
+# The two tools check DIFFERENT things and are tracked separately. They used to
+# share one YAML_CHECKED flag, and the consequence was the exact failure the
+# SKIPPED machinery exists to prevent: with actionlint absent and yamllint
+# present, yamllint set the flag, which suppressed the actionlint skip as well,
+# and the run reported "Local CI passed." with zero SKIPs and exit 0.
+# Reproduced 2026-08-06 with stub executables on PATH. actionlint is the one
+# most likely to be missing, since it has no distro package.
+#
+# actionlint owns workflow semantics — an invalid `uses:`, a bad expression, a
+# typo'd `runs-on`, and shellcheck over every `run:` block. `yamllint -d
+# relaxed` validates none of that; what it adds is .github/dependabot.yml,
+# which actionlint does not read at all, so a malformed package-ecosystem
+# would otherwise reach GitHub and be reported on its dashboard rather than in
+# the build.
 if command -v actionlint >/dev/null 2>&1; then
     actionlint
-    YAML_CHECKED=1
+else
+    skip "actionlint (workflow semantics and run-block shell unchecked)"
 fi
 if command -v yamllint >/dev/null 2>&1; then
     yamllint -d relaxed .github/
-    YAML_CHECKED=1
-elif [[ $YAML_CHECKED -eq 1 ]]; then
-    skip "yamllint (.github/dependabot.yml unchecked)"
-fi
-if [[ $YAML_CHECKED -eq 0 ]]; then
+else
     # Deliberately no Python fallback: PyYAML is not a dependency, so
     # `import yaml` would crash on a clean machine — a gate that fails because
     # the gate is broken is worse than one that admits it did not run.
-    skip "workflow YAML"
+    skip "yamllint (.github/dependabot.yml unchecked)"
     printf 'install yamllint (your package manager, or: pipx install yamllint)\n'
 fi
 
 if ((${#SKIPPED[@]})); then
-    printf '\n\033[33mLocal CI passed, with %d check(s) SKIPPED: %s\033[0m\n' \
-        "${#SKIPPED[@]}" "${SKIPPED[*]}"
+    # On a developer's machine a skip is a warning: a missing linter should not
+    # stop someone testing their own change. On the machine that is SUPPOSED to
+    # hold every tool it is a failure, because a green tick is what a reader
+    # trusts and it cannot distinguish a full run from a degraded one. CI sets
+    # LWSM_REQUIRE_ALL_TOOLS=1; the list of checks stays in this one file either
+    # way.
+    printf '\n%sLocal CI passed, with %d check(s) SKIPPED: %s%s\n' \
+        "$YELLOW" "${#SKIPPED[@]}" "${SKIPPED[*]}" "$RESET"
+    if [[ ${LWSM_REQUIRE_ALL_TOOLS:-0} == 1 ]]; then
+        printf '%sLWSM_REQUIRE_ALL_TOOLS=1 and %d check(s) did not run.%s\n' \
+            "$RED" "${#SKIPPED[@]}" "$RESET" >&2
+        exit 1
+    fi
 else
-    printf '\n\033[32mLocal CI passed.\033[0m\n'
+    printf '\n%sLocal CI passed.%s\n' "$GREEN" "$RESET"
 fi
