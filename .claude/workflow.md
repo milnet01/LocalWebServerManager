@@ -4,12 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| **Project phase** | P01 — Bootstrap (next); Phases A–D closed 2026-08-03 |
+| **Project phase** | P01 — Bootstrap: all four bullets ✅ 2026-08-06; the phase stays open only for FP01's six 🚧 security items (P05/P06). Phases A–D closed 2026-08-03 |
 | **Active item ID** | (none — pre-code phases produce documents, not roadmap items) |
 | **Active step** | (n/a until P01) |
-| **Blocked on** | — |
-| **Last update** | 2026-08-06 (`design.md` re-gated — loops 3 and 4, 54 findings fixed; the 2026-08-03 standing risk is closed) |
-| **Next gate** | P02 — vertical slice, now unblocked: `design.md` is gated and safe to build UI from. P01 stays open until FP01's six 🚧 items land in P05/P06 |
+| **Last update** | 2026-08-06 (`design.md` re-gated; public-facing docs corrected; **three user decisions recorded but NOT implemented** — see the top journal entry) |
+| **Blocked on** | — (nothing blocking; three small doc tasks are queued and specified) |
+| **Next gate** | P02 — vertical slice, now unblocked: `design.md` is gated and safe to build UI from. Clear the three queued doc tasks first — they are ~30 minutes and the decisions are already made. P01 stays open until FP01's six 🚧 items land in P05/P06 |
 | **Convergence checkpoint** | 5 (consecutive `FP##` items immediately preceding any ✅-`implement`-Kind close in the active release block — see `~/.claude/commands/close-phase.md § 5a-6`) |
 | **Debt-sweep phase threshold** | 5 (auto-prompt for `/debt-sweep` after this many phases without one) |
 | **Last debt sweep** | (none yet) |
@@ -74,6 +74,76 @@ journal); §2 is the only part that changes.
 ## §3. Session journal
 
 Append-only. Newest at the top.
+
+### 2026-08-06 — Public-facing docs corrected; three decisions taken, NOT yet implemented
+
+**Session ended here deliberately (user restarted CC). Everything
+below is written down because it exists nowhere else.**
+
+**Done and pushed** (`9eacb03` and the three commits before it):
+
+- **P01 is genuinely complete.** LWSM-1001, LWSM-1002 and LWSM-1026
+  were still 📋 while their code had been in the tree since
+  2026-08-03. Each was verified clause by clause against its own
+  acceptance before flipping — pins and runner image, every
+  `.gitignore` path plus `uv.lock` tracked, the log's XDG dir,
+  1 MiB rotation and `O_NOFOLLOW` handler — and the local gate was
+  run green (14 tests, ruff, shellcheck, YAML, entry points). The
+  flip notes carry the evidence. **P01 as a phase still stays open
+  until FP01's six 🚧 items land in P05/P06** — unchanged.
+- **README rewritten where it lied.** It told visitors "design
+  complete, no code yet" and "P01 is next" — both false since
+  2026-08-03. It also said four standards (five), eight phases
+  (ten), and had empty Install/Quickstart stubs. Now: an honest
+  Status section separating done from not-done, real Requirements
+  and Install sections, and every command in them executed before
+  it landed (`uv sync`, `./scripts/local-ci.sh`, the clone URL
+  against `gh repo view`).
+- **CONTRIBUTING** gained a "the app does not run yet" warning up
+  front, names `./scripts/local-ci.sh` as the gate rather than
+  saying "run lint and tests", and its version-check command was
+  replaced with one that works.
+- **CHANGELOG** had **two `### Added` blocks** under
+  `[Unreleased]`, the second still saying "nothing yet" while the
+  first listed shipped P01 work. Removed.
+- One real broken link fixed in `docs/private/`, and
+  `design.md § Observability` corrected to `$XDG_STATE_HOME` —
+  it stated only the fallback path, while the shipped code is
+  XDG-first.
+
+**THREE DECISIONS TAKEN BY THE USER — implement these next.**
+None is written into the repo yet:
+
+1. **SECURITY.md → GitHub private vulnerability reporting.** No
+   email address anywhere in the repo. Needs the repo setting
+   enabled (`gh api -X PATCH repos/milnet01/LocalWebServerManager
+   -f security_and_analysis=...`, or the Settings → Security
+   toggle) **and** a `SECURITY.md` pointing at the Report a
+   vulnerability button. `documentation.md § 2.4` also wants a
+   supported-version table — say plainly that no version is
+   supported yet because nothing has been released.
+2. **CODE_OF_CONDUCT.md → Contributor Covenant 2.1 verbatim**, per
+   `documentation.md § 2.5`. Delete the three-line homemade code
+   of conduct from `CONTRIBUTING.md` and link the new file
+   instead. Its enforcement-contact slot uses the same GitHub
+   private-reporting route as decision 1 — **do not put an email
+   in it**.
+3. **ADR-0007: copy the reasoning in, keep the names as credit.**
+   Replace the unresolvable citations
+   (`OneUp/updater.py:1932-1966`, `updater.py:1902`,
+   `updater.py:541`, `OneUp/tests/gui-smoke.py:282-305`) with a
+   description of the technique itself — the one-shot KWin script
+   over D-Bus, why a script running inside KWin may place windows
+   when the app may not, and the behavioural-test shape — so the
+   ADR stands alone for a public reader. Keep `OneUp` /
+   `finbreak` / `SystemManager` named as provenance, since the
+   value of "proven on real code" is lost if they are stripped.
+   This closes the last open item from the design re-gate.
+
+**Known and deliberately not fixed:** `plan-skeleton.md:3` links
+`../specs/<ID>-<topic>.md`, which `doc_integrity` reports as a
+broken link every run. It is a **template placeholder and correct
+as written** — do not "fix" it.
 
 ### 2026-08-06 — `design.md` re-gated; the standing risk is closed
 
