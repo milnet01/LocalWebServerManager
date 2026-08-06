@@ -173,6 +173,33 @@ and ADR-0005 forbids partially parsing it:
    hand-edited `"schema_version": true` would otherwise pass.
 4. `projects` is absent, or is not a list.
 
+**A rejection reason is built with `repr` and clipped, never interpolated
+raw** (LWSM-1078). The file is attacker-editable and a reason travels to two
+places — `log.warning` in §4.5 and the status bar — so both properties are
+load-bearing: `repr` escapes a newline, without which a project name forges
+what reads as a second log record, and the clip bounds it, without which a
+50 MB name produced a 50 MB status string. `MAX_REASON_CHARS` is 120.
+
+**Two path shapes are refused rather than accepted or normalised**, both
+reproduced:
+
+- **`..` in any component.** `PurePath` keeps it, so `/srv/a` and
+  `/srv/c/../a` compare unequal and *both* load — two records with one
+  identity, which §6 calls a malformed file. Refused rather than lexically
+  normalised, because collapsing `..` is wrong when a component is a symlink,
+  and P03 passes this path as a spawn `cwd`.
+- **A NUL byte.** It passes `is_absolute()` and loads, though every later `os`
+  call on it raises `ValueError`.
+
+**The status bar needs no `PlainText` call, and this was checked rather than
+assumed.** The P02 review held that `statusBar().showMessage(...)` leaves Qt's
+`AutoText` free to render markup, unlike the row labels which set `PlainText`
+explicitly. Measured against the pinned PySide6 6.11.1: `QStatusBar` has no
+child `QLabel` and paints the message through `style()->drawItemText`, which is
+plain-text only. Rendering `<b>bold</b>` drew **508** ink pixels against **232**
+for `bold` — the markup is drawn literally. That quarter of the finding is
+**dismissed as unverified**; the other three were real and are fixed above.
+
 Each **element** of `projects` that is not a JSON object is skipped with a
 reason — it has no fields to check, and indexing it would raise a
 `TypeError` that shape 2 does not cover. Every field of every surviving
@@ -180,7 +207,7 @@ record is then type-checked before use:
 
 | Field | Accepted | Why that range |
 |---|---|---|
-| `path` | non-empty `str`, absolute, unique within the file | ADR-0005 makes the absolute path the identity; a duplicate would give two rows one identity |
+| `path` | non-empty `str`, absolute, **free of `..` and of NUL bytes**, unique within the file | ADR-0005 makes the absolute path the identity; a duplicate would give two rows one identity |
 | `name` | non-empty `str` | it is the row's label and the accessible name |
 | `port` | absent, `null`, or an `int` 1–65535 | the *declared* half. A project that genuinely declares 80 or 443 is legitimate data, so ADR-0005's 1024–65535 floor does **not** apply here — that floor governs the override |
 | `port_override` | absent, `null`, or an `int` 1024–65535 | ADR-0005: "an override is validated at entry against the same 1024–65535 range ADR-0002 requires" |
@@ -941,6 +968,15 @@ importing `lwsm.__main__` in a test does not require a display.
   widget's alignment rather than on the layout — which is why it reads as
   correct in the code.
 
+- **INV-21** — A rejection reason contains no raw newline and is bounded in
+  length, whatever the file contains.
+  *Test:* `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`
+  (asserts the newline survives **escaped** rather than being stripped, so the
+  reason still says what was wrong) and `::test_an_enormous_name_is_clipped`.
+  *Breaks when:* a name is interpolated as `{raw_name}` rather than through
+  the escaping helper. `{value!r}` on the *port* fields already did the right
+  thing, which is why the name fields looked consistent with them.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -1007,7 +1043,7 @@ binds a socket.
 
 | Invariant | File | Marker |
 |---|---|---|
-| INV-1, INV-2, INV-10 | `tests/test_registry.py` | — |
+| INV-1, INV-2, INV-10, INV-21 | `tests/test_registry.py` | — |
 | INV-3b | `tests/test_ports.py` | — (monkeypatched counter; binds nothing) |
 | INV-9 | `tests/test_ports.py` | `integration` |
 | INV-3, INV-4, INV-4b, INV-4c, INV-5, INV-11, INV-12, INV-16 | `tests/test_controller.py` | `gui` (a `QTimer`, queued cross-thread signals and `QThreadPool` all need a Qt application object) |
@@ -1130,6 +1166,7 @@ outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
 | INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
 | INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_only_its_three_cells` |
 | INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide` |
+| INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |

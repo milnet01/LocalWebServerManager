@@ -24,6 +24,11 @@ SCHEMA_VERSION = 1
 # 1 MiB is generous for anything a person would hand-write.
 MAX_FILE_BYTES = 1 << 20
 
+# A rejection reason reaches both the app log and the status bar, and the name
+# in it is hand-edited text. Long enough to identify a project, short enough
+# that a hostile file cannot flood either.
+MAX_REASON_CHARS = 120
+
 # The declared port is the "detected" half and may legitimately be 80 or 443;
 # ADR-0005's 1024-65535 floor governs the *override*, which the user types.
 DECLARED_PORT_RANGE = (1, 65535)
@@ -65,6 +70,19 @@ def default_projects_path() -> Path:
     raw = os.environ.get("XDG_CONFIG_HOME", "")
     base = Path(raw) if raw and Path(raw).is_absolute() else Path.home() / ".config"
     return base / "localwebservermanager" / "projects.json"
+
+
+def _quoted(value: str) -> str:
+    """Escape and clip a hand-edited string before it reaches a log or the UI.
+
+    The file is attacker-editable, and a rejection reason travels to both
+    `log.warning` and the status bar. `repr` is what makes that safe (LWSM-1078):
+    it escapes a newline, so a name cannot forge what looks like a second log
+    record, and the clip bounds it — a 50 MB name produced a 50 MB status string.
+    """
+    clipped = value[:MAX_REASON_CHARS]
+    ellipsis = "…" if len(value) > MAX_REASON_CHARS else ""
+    return f"{clipped!r}{ellipsis}"
 
 
 def _is_int(value: object) -> bool:
@@ -185,31 +203,46 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
             reasons.append(f"projects[{index}]: 'name' must be a non-empty string")
             continue
 
+        name = _quoted(raw_name)
+
         raw_path = entry.get("path")
         if not isinstance(raw_path, str) or not raw_path:
-            reasons.append(f"{raw_name}: 'path' must be a non-empty string")
+            reasons.append(f"{name}: 'path' must be a non-empty string")
+            continue
+        if "\x00" in raw_path:
+            # It passes is_absolute() and would load, but every later os call on
+            # it raises ValueError — and P03 passes this path as a spawn cwd.
+            reasons.append(f"{name}: path {_quoted(raw_path)} contains a NUL byte")
             continue
 
         project_path = Path(raw_path)
         if not project_path.is_absolute():
-            reasons.append(f"{raw_name}: path {raw_path!r} is not absolute")
+            reasons.append(f"{name}: path {_quoted(raw_path)} is not absolute")
+            continue
+        if ".." in project_path.parts:
+            # PurePath keeps '..', so /srv/a and /srv/c/../a are unequal and both
+            # would load — two records with one identity, which § 6 calls a
+            # malformed file. Refused rather than normalised: collapsing '..'
+            # lexically is wrong when a component is a symlink, and this path
+            # becomes a spawn cwd in P03.
+            reasons.append(f"{name}: path {_quoted(raw_path)} must not contain '..'")
             continue
         if project_path in seen:
             # ADR-0005 makes the absolute path the identity, so two records
             # sharing one is a malformed file, not a merge question.
-            reasons.append(f"{raw_name}: path {raw_path!r} is already registered")
+            reasons.append(f"{name}: path {_quoted(raw_path)} is already registered")
             continue
         seen.add(project_path)
 
         # A bad port loses the field, not the row: the project still exists and
         # the user still needs to see it.
         port, reason = _port_or_reason(
-            entry.get("port"), "port", *DECLARED_PORT_RANGE, raw_name
+            entry.get("port"), "port", *DECLARED_PORT_RANGE, name
         )
         if reason:
             reasons.append(reason)
         override, reason = _port_or_reason(
-            entry.get("port_override"), "port_override", *OVERRIDE_PORT_RANGE, raw_name
+            entry.get("port_override"), "port_override", *OVERRIDE_PORT_RANGE, name
         )
         if reason:
             reasons.append(reason)

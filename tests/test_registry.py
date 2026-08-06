@@ -273,3 +273,73 @@ def test_deeply_nested_json_is_a_registry_error(tmp_path: Path) -> None:
 
     with pytest.raises(RegistryError):
         load_projects(path)
+
+
+# --- LWSM-1078: names are attacker-controlled text -----------------------------
+
+
+def test_a_newline_in_a_name_cannot_forge_a_log_line(tmp_path: Path) -> None:
+    """The reason reaches `log.warning` in `__main__`, so a raw newline lets a
+    project name write what looks like a second log record."""
+    forged = "evil\nWARNING  lwsm: everything is fine"
+    path = write(
+        tmp_path,
+        {"schema_version": 1, "projects": [{"name": forged, "path": "relative"}]},
+    )
+
+    _, reasons = load_projects(path)
+
+    assert len(reasons) == 1
+    assert "\n" not in reasons[0], reasons[0]
+    assert "\\n" in reasons[0], "the newline must survive, escaped, not vanish"
+
+
+def test_an_enormous_name_is_clipped(tmp_path: Path) -> None:
+    """A 50 MB name produced a 50 MB status string."""
+    path = write(
+        tmp_path,
+        {"schema_version": 1, "projects": [{"name": "A" * 100_000, "path": "nope"}]},
+    )
+
+    _, reasons = load_projects(path)
+
+    assert len(reasons) == 1
+    assert len(reasons[0]) < 500, f"reason is {len(reasons[0])} characters"
+
+
+def test_a_path_with_a_parent_component_is_refused(tmp_path: Path) -> None:
+    """`PurePath` keeps `..`, so `/srv/a` and `/srv/c/../a` are unequal and both
+    load — two records with one identity, which `§ 6` calls a malformed file.
+
+    Refused rather than normalised: collapsing `..` lexically is wrong when a
+    component is a symlink, and P03 passes this path as a spawn `cwd`.
+    """
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [one_good(), one_good(path="/srv/c/../project-a", name="b")],
+        },
+    )
+
+    records, reasons = load_projects(path)
+
+    assert len(records) == 1, "both records loaded under one identity"
+    assert any(".." in reason for reason in reasons), reasons
+
+
+def test_a_path_containing_a_nul_byte_is_refused(tmp_path: Path) -> None:
+    """It passes `is_absolute()` and loads, though every later `os` call on it
+    raises `ValueError`."""
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [{"name": "a", "path": "/srv/a\x00b", "port": 5005}],
+        },
+    )
+
+    records, reasons = load_projects(path)
+
+    assert records == []
+    assert len(reasons) == 1
