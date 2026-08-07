@@ -843,7 +843,7 @@ first two bullets because the leaf findings are their instances:
    can be deleted with all 150 tests still green, because what is covered is
    the helper and never the wiring that reaches it.
 
-- 📋 [LWSM-1112] **FP05: a fix is applied at the mechanism, and the sweep for sibling call sites is a rule rather than a habit.**
+- ✅ [LWSM-1112] **FP05: a fix is applied at the mechanism, and the sweep for sibling call sites is a rule rather than a habit.**
   Root cause 1. Six instances found this pass, each a fix that closed the one
   call site it was reported against: `_quoted` applied to the port fields but
   not `schema_version` (LWSM-1102); `Path.home()` guarded in
@@ -865,6 +865,7 @@ first two bullets because the leaf findings are their instances:
   Kind: refactor.
   Lanes: docs, core.
   Source: code-quality-review-2026-08-07.
+  Resolved (2026-08-07, 812460c): `coding.md § 1.6` carries the clause. Numbered 1.6 rather than 1.4 (where it reads better) because README.md and dependencies.md both cite § 1.5 and inserting ahead would have silently repointed them — the rule itself, broken while writing it, and the note records that. Two additions beyond the finding: search for the defect's SHAPE not the symptom, and a mechanism is not only a function (three of the six were a *rule* applied unevenly, which "who else calls this?" does not catch). All six instances closed: 1, 2, 3 and 5 fixed by LWSM-1114/1116/1117/1113; 4 filed as known-issue-006 (P06), 6 as known-issue-010 (P03), both with live owners. APPLYING THE CLAUSE TO THIS PASS FOUND TWO MORE: known-issue-005 and known-issue-007 named LWSM-1115 and LWSM-1117 as their owners and both were closed without them — now fixed and marked resolved, pinning the shipped STOP_WAIT_MS (with spec § 4.3's headroom reasoning) and MAX_REASON_CHARS. And MAX_REASONS, added by LWSM-1115 four commits earlier, carried the identical defect: its assertions read `<= MAX_REASONS + 1`, so 100 -> 100000 would have passed and restored the flood the cap exists to stop. Both mutation-verified.
 
 - ✅ [LWSM-1113] **FP05: a test proves the fix is reached, not merely that its helper works.**
   Root cause 2, and the more serious of the two. Four shipped fixes are
