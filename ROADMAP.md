@@ -961,7 +961,7 @@ first two bullets because the leaf findings are their instances:
   Source: code-quality-review-2026-08-07.
   Resolved (2026-08-07, 8e9c779): the guard matches registry.py:75-82 in shape, raising `OSError` rather than `RegistryError` — that is applog's existing error contract and the one type `main`'s handler catches. Reproduced first: `main([])` died with `RuntimeError`, `caught by except OSError? False`, on 3.13.14. The end-to-end test then found a SECOND half not in this bullet: `main` called `build_window(default_projects_path())`, and an argument is evaluated before the call, so the `RegistryError` LWSM-1026's guard raises was thrown outside the only catch written for it — the guard was present and unreachable, the same root cause one layer up. `build_window` now takes `Path | None` and resolves the default inside its own try. Spec § 4.5 and INV-15 updated. Both tests drive the real mechanism (HOME cleared, passwd entry removed) and assert the window is shown WITH its reason; mutation-verified both ways.
 
-- 📋 [LWSM-1117] **FP05: the abandoned-pool wait is bounded only for callers that go through `run()` — the mechanism is still unbounded, and the test suite pays it today.**
+- ✅ [LWSM-1117] **FP05: the abandoned-pool wait is bounded only for callers that go through `run()` — the mechanism is still unbounded, and the test suite pays it today.**
   `stop()` bounds its own wait and moves a still-running pool into
   `_ABANDONED`; `~QThreadPool` then calls `waitForDone()` with no timeout at
   interpreter shutdown. The only thing bounding that is
@@ -989,6 +989,7 @@ first two bullets because the leaf findings are their instances:
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-07.
+  Resolved (2026-08-07, 9918aea): `wait_for_abandoned_probes(timeout_ms)` is the non-exiting half — it reaps idle pools and returns how many are still live; a session fixture calls it, and the test that abandons a pool now releases its own fake probe. Suite gap 2.58 s -> 0.26 s (5.09/7.67 became 8.99/9.25), inside the acceptance's 0.5 s and asserted by a subprocess test that stamps its last line and compares it to process exit, isolating shutdown cost from startup. TWO CORRECTIONS to this bullet, both measured: (1) the wait is UNBOUNDED, not ~3.3 s — a probe that truly never returns hung the interpreter indefinitely, killed at three minutes, main thread on a futex joining the pool thread; the suite's 2.6 s was 2.6 s only because FakeProbe.gate.wait carries a 5 s timeout. (2) No Python-level ownership trick avoids it — dropping, holding, reparenting and Shiboken-invalidating the wrapper all hung identically against a stuck probe, so there was no new bound to add, only reach to fix. Acceptance clause 1 is met for every caller that reaps; a caller that neither exits nor reaps still blocks, and that is unfixable from a core module because ending the process would override an exit code it cannot see (LWSM-1100's exact failure). An atexit guard prints the reason to stderr first — a diagnosis, not a bound, documented as one in both the docstring and spec § 6.
 
 - 📋 [LWSM-1118] **FP05: the theme's palette reaches the `QMainWindow` and nothing below it, so a dark palette renders text at 1.25:1.**
   `mainwindow.py:318` calls `setPalette(theme.to_palette())` and `:321` then
