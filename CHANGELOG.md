@@ -89,6 +89,32 @@ signaling per
 
 ### Fixed
 
+- **Two more pieces of text can be translated, and switching language reaches rows already on screen** (LWSM-1107)
+
+- **A project removed from the list no longer stays drawn on screen** (LWSM-1106)
+  It was left visible on top of the row that moved up into its place.
+
+- **Pointing the app at a folder instead of a settings file no longer uses up a system resource** (LWSM-1104)
+
+- **The status dot is no longer sliced in half at large text sizes** (LWSM-1101)
+  The space reserved for it was measured once at startup and never again,
+  so at 200 % text the dot needed 14 pixels and had 13 — exactly the
+  setting the people who rely on it are using.
+
+- **Closing the window cannot let one last status update through** (LWSM-1098)
+  A status message already on its way was still delivered after shutdown.
+
+- **Quitting is no longer held up by a stuck port lookup** (LWSM-1100)
+  The shutdown wait was bounded but only moved: the process still waited
+  for the stuck lookup at the very end. Measured at 4.16 s to exit behind
+  a 4 s probe. The app now ends without waiting for work it has already
+  given up on.
+
+- **The app no longer leaks memory while it watches** (LWSM-1099)
+  One internal task and one signal object were kept for the life of the
+  process on every one-second poll — about 210 MB a day, in a program
+  meant to stay open. Measured at 200 retained objects after 200 polls.
+
 - **Screen readers are told what changed, and not told what did not (LWSM-1071, LWSM-1076)**
   The little status dot was read aloud as "black circle", which a note in the
   code claimed could not happen. It is now drawn rather than labelled, so it
@@ -158,6 +184,18 @@ signaling per
   one.
 
 ### Security
+
+- **Two entries for the same folder can no longer both load** (LWSM-1103)
+  A path written with two slashes at the front counted as a different
+  folder from the same path with one, so the same project could appear
+  twice.
+
+- **A hand-edited project file cannot flood the status bar or the log** (LWSM-1102)
+  A long value in a project's port field produced a 200,000-character
+  message, which would have pushed the app's own history out of the log
+  the user is told to consult. Long values in the name and folder path
+  were already capped; the cap now covers every field, and caps the
+  escaped text rather than the raw text.
 
 - **The tool that installs dependencies is updated for a published advisory (LWSM-1083, LWSM-1064)**
   `uv` is moved from 0.11.7 to 0.12.2, both on this machine and in CI.

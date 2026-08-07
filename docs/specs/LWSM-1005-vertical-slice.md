@@ -384,23 +384,40 @@ on a pool thread and emits, checked with `QObject.__init__(self)` and
 chosen anyway, because it is the shape PySide6's own documentation uses and
 it keeps the auto-delete question below off a multiply-inherited object.
 
-`setAutoDelete(False)`, and the controller holds the one outstanding task
-as an attribute until its signal arrives. The pool's default auto-delete
-would free the task while a queued emission from its signaller is still in
-flight.
+**The signaller belongs to the controller, not to the task**, and is created
+once. The task keeps the pool's default auto-delete, so it is freed as soon as
+`run()` returns.
 
-**Shutdown is part of the contract, and it has three parts** (LWSM-1073).
-`ProjectController.stop()` stops the `QTimer`, **disconnects the outstanding
-task's two signals**, and then waits on its **own** pool for at most
-`STOP_WAIT_MS`.
+This was `setAutoDelete(False)` with a signaller per task, on the reasoning
+that the pool would otherwise free the task while a queued emission was still
+in flight. The emission needs its **signaller** to survive, not its task — and
+`QThreadPool.start()` transfers ownership to C++, so with auto-delete off
+nothing on the Python side could free a task at all: 200 live `_SnapshotTask`
+and 200 live `_SnapshotSignals` after 200 completed polls, about 210 MiB/day
+at the 1000 ms interval, plus a connection list growing behind every retained
+signaller (LWSM-1099). Moving the signaller up is what lets auto-delete stay
+on. The controller holds a `_in_flight` flag rather than the task, because a
+reference to an auto-deleted task outlives its C++ object.
 
-- **The disconnect comes before the wait, and without it the wait is not
-  enough.** `waitForDone` waits for `run()` to *return*, but the emit happens
-  inside `run()` over a queued connection — so by the time it returns the event
-  is already posted, and it is dispatched on the next event-loop spin into a
+**Shutdown is part of the contract, and it has four parts** (LWSM-1073,
+LWSM-1098, LWSM-1100). `ProjectController.stop()` sets `_stopped`, stops the
+`QTimer`, and waits on its **own** pool for at most `STOP_WAIT_MS`; `run()` —
+not `main()` — then ends the process if a probe was abandoned.
+
+- **`_stopped` is checked in the slots, and disconnecting cannot replace it.**
+  `waitForDone` waits for `run()` to *return*, but the emit happens inside
+  `run()` over a queued connection — so by the time it returns the event is
+  already posted, and it is dispatched on the next event-loop spin into a
   controller that has been torn down. `mainwindow.py` connects that signal, so
   the late delivery re-enters the window's widgets after teardown. Reproduced:
   zero emissions immediately after `stop()` returned, one after a single spin.
+
+  Cutting the connections in `stop()` was the first fix and closed only the
+  window it was measured against: Qt dispatches a `QMetaCallEvent` that has
+  already been **posted** regardless of any later disconnect, so a probe
+  finishing just *before* `stop()` still delivered (LWSM-1098). The flag is
+  what holds, and it also guards `poll_once`, which was otherwise free to
+  re-arm delivery after shutdown.
 - **The pool is private, not `QThreadPool.globalInstance()`.** Waiting on the
   global pool makes this controller's shutdown block on every unrelated
   runnable in the process — including the per-project reader threads
@@ -414,12 +431,26 @@ task's two signals**, and then waits on its **own** pool for at most
   nothing times out into a *state*, so ADR-0004's "slowness is not failure"
   is untouched.
 
-When the budget expires, the pool and its task are moved to a module-level
-list and deliberately never released. Both halves are load-bearing:
-`~QThreadPool` calls `waitForDone()` with no timeout, so destroying it would
-reintroduce at teardown exactly the hang the budget bounds; and letting Python
-collect a `_SnapshotTask` the pool is still executing would destroy a live C++
-object. `stop()` is idempotent — `main` calls it and so does every test
+When the budget expires, the pool is moved to a module-level list so it is not
+destroyed: `~QThreadPool` calls `waitForDone()` with no timeout, so letting it
+go would reintroduce at teardown exactly the hang the budget bounds.
+
+**That defers the hang rather than removing it, and the second half is what
+bounds it** (LWSM-1100). CPython releases module globals at interpreter
+shutdown, which destroys those pools and runs that unbounded wait: measured,
+`stop()` returned in 0.10 s and the process took **4.16 s** to exit behind a
+4 s probe. There is no Qt-level way to cancel a running `QRunnable` or to stop
+`~QThreadPool` waiting, so the only thing that bounds it is declining to run
+the destructor — `exit_without_waiting_for_abandoned_probes` `os._exit`s after
+flushing, and only while an abandoned pool still holds a thread.
+
+**That call lives in `run()`, not in `main()`,** and the split is load-bearing
+rather than tidiness. Tests call `main()` in-process, and an earlier test
+abandons a probe; with the exit inside `main()` the pytest run ended at 40 % of
+the suite **with exit code 0** and a truncated report that read as green.
+Anything that ends the process belongs behind the console-script entry point.
+
+`stop()` is idempotent — `main` calls it and so does every test
 fixture. `main` calls it after `app.exec()`
 returns, and every test fixture calls it in teardown — `§ T5` ("every test
 kills what it started") covers pool threads as much as sockets, and a task
@@ -985,10 +1016,17 @@ importing `lwsm.__main__` in a test does not require a display.
   delivery.
   *Test:* `tests/test_controller.py::test_stop_waits_for_the_outstanding_task`,
   with a fake probe that blocks until released, plus
-  `::test_no_snapshot_is_delivered_after_stop` (counts emissions across an
-  event-loop spin), `::test_stop_does_not_wait_on_unrelated_work` (a blocker
-  runnable on the global pool) and
-  `::test_stop_is_bounded_when_a_probe_never_returns`.
+  `::test_no_snapshot_is_delivered_after_stop` (which lets the probe
+  **complete** before `stop()` — gating it instead put the emit inside
+  `waitForDone`, where the test could only catch "no disconnect at all" and not
+  the "disconnect too late" that was actually shipping, LWSM-1098),
+  `::test_a_poll_started_after_stop_delivers_nothing`,
+  `::test_stop_does_not_wait_on_unrelated_work` (a blocker runnable on the
+  global pool), `::test_stop_is_bounded_when_a_probe_never_returns` (asserted
+  against the patched budget, not a 20x-loose literal) and
+  `::test_the_process_exits_promptly_when_a_probe_is_abandoned`, which measures
+  the **process** in a subprocess — every in-process assertion here passed
+  while LWSM-1100 was live.
   *Breaks when:* `stop()` only stops the `QTimer` — the pool thread then
   emits into a controller the test has already dropped, which is the
   once-a-week flake `§ T5` exists to prevent.

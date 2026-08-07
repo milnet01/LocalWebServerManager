@@ -444,7 +444,7 @@ byte length leaves Python running stale bytecode, because the default `.pyc`
 validation compares only the source's mtime and size. A green test run then
 reports on code that is not on disk. Filed as LWSM-1110.
 
-- 📋 [LWSM-1098] **FP04: `stop()`'s disconnect does not cancel an emission that is already posted, so INV-16 is still violated.**
+- ✅ [LWSM-1098] **FP04: `stop()`'s disconnect does not cancel an emission that is already posted, so INV-16 is still violated.**
   LWSM-1073 disconnected the task's signals before waiting, and that closes
   only the window it was measured against. Qt dispatches a `QMetaCallEvent`
   that has already been **posted** regardless of a later disconnect, so a
@@ -471,8 +471,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, a3804b2): a `_stopped` flag checked inside the slots, replacing the disconnect — Qt dispatches an already-posted QMetaCallEvent regardless of a later disconnect. The test now lets the probe COMPLETE before stop() and went red at [1] == [] first. The same flag guards poll_once.
 
-- 📋 [LWSM-1099] **FP04: one `_SnapshotTask` and one `_SnapshotSignals` leak per poll, for the life of the process.**
+- ✅ [LWSM-1099] **FP04: one `_SnapshotTask` and one `_SnapshotSignals` leak per poll, for the life of the process.**
   `setAutoDelete(False)` means the pool never deletes the task, and
   `QThreadPool.start()` has already transferred ownership to C++, so the
   slot setting `self._task = None` frees nothing. Measured independently:
@@ -495,8 +496,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, a3804b2): the signaller moved onto the controller and is created once, so the task keeps auto-delete and the pool frees it as run() returns. Reproduced first at 200 live tasks and 200 live signallers after 200 polls; test_completed_tasks_do_not_accumulate now asserts a flat count. Spec § 10's false ceiling claim corrected with the measurement.
 
-- 📋 [LWSM-1100] **FP04: the abandoned-pool list defers the unbounded wait to interpreter shutdown instead of removing it.**
+- ✅ [LWSM-1100] **FP04: the abandoned-pool list defers the unbounded wait to interpreter shutdown instead of removing it.**
   LWSM-1073 bounded `stop()` at `STOP_WAIT_MS` and moved a still-running
   pool into a module-level `_ABANDONED` list, on a stated premise that is
   **factually wrong**: "deliberately never released ... holding these is the
@@ -516,8 +518,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, ab407f0): exit_without_waiting_for_abandoned_probes os._exit()s after flushing, and only while an abandoned pool still holds a thread. Reproduced first: stop() 0.10 s, process exit 4.16 s. The call lives in a new run(), not main() — placed in main() first, it ended the pytest run at 40% of the suite with exit code 0 and a report that read as green. Console script now names lwsm.__main__:run, pinned by a test. Subprocess test 30.2 s red -> 0.59 s green.
 
-- 📋 [LWSM-1101] **FP04: the glyph column is stale after a font change, so the state glyph is clipped at 200 % text.**
+- ✅ [LWSM-1101] **FP04: the glyph column is stale after a font change, so the state glyph is clipped at 200 % text.**
   `_glyph_width` and the widened left content margin are computed once in
   `__init__`; `changeEvent`'s `FontChange` branch calls
   `_apply_text_metrics`, which recomputes only the state and port minimum
@@ -544,8 +547,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: accessibility.
   Lanes: ui, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, 4e248ec): the glyph column and left margin are derived in _apply_text_metrics from a stored base margin. Reserved 13/20/28 px at 100/200/300% against 7/14/22 needed; ink strictly inside the column at every scale and the 300% glyph recovers its clipped pixels (195 -> 237). The test asserts rendered ink bounds, not that a width changed.
 
-- 📋 [LWSM-1102] **FP04: a rejection reason built from a *port* field is completely unbounded.**
+- ✅ [LWSM-1102] **FP04: a rejection reason built from a *port* field is completely unbounded.**
   `_port_or_reason` interpolates `{value!r}`, which escapes but does **not**
   clip; `_quoted()` is applied to `name` and `path` and never to the port
   value. Reproduced independently: a 200 KB string in `port` produced a
@@ -565,8 +569,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: security.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, d4ec994): _port_or_reason routes the value through _quoted, and _quoted now escapes THEN clips so the bound is the constant rather than ~10x it. Reproduced first at 200,038 characters. INV-21's Breaks-when clause corrected — its false half is why LWSM-1078 stopped at the name and path.
 
-- 📋 [LWSM-1103] **FP04: two records still share one filesystem identity via a doubled leading slash.**
+- ✅ [LWSM-1103] **FP04: two records still share one filesystem identity via a doubled leading slash.**
   Reproduced independently: `/srv/a` and `//srv/a` both load with **no
   reason recorded**. POSIX gives exactly two leading slashes an
   implementation-defined meaning and `PurePosixPath` preserves them as a
@@ -587,8 +592,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: security.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, d4ec994): a `//` root is refused with a reason, like `..`. Reproduced first: /srv/a and //srv/a both loaded with no reason recorded. Spec § 4.1 now lists three refused path shapes, with the trailing-slash, ///, and `.` cases recorded as verified clean.
 
-- 📋 [LWSM-1104] **FP04: `_read_bounded` leaks a file descriptor when the path is a directory.**
+- ✅ [LWSM-1104] **FP04: `_read_bounded` leaks a file descriptor when the path is a directory.**
   `os.open()` on a directory with `O_RDONLY` **succeeds** on Linux;
   `os.fdopen()` then raises `IsADirectoryError` before the `with` block is
   entered, so nothing closes the descriptor. Reproduced independently:
@@ -605,8 +611,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, d4ec994): the fstat runs on the raw descriptor and every path out of _read_bounded closes it. Reproduced first at 50 descriptors leaked over 50 calls, asserted now by counting /proc/self/fd.
 
-- 📋 [LWSM-1105] **FP04: the painted ring's colour and the painted glyph's colour are owned by no test.**
+- ✅ [LWSM-1105] **FP04: the painted ring's colour and the painted glyph's colour are owned by no test.**
   Both verified by mutation, both leaving the whole suite green:
 
   - Painting the focus ring in the **state** token instead of the accent —
@@ -629,8 +636,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: test.
   Lanes: ui, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, 3a266ab): the ring test reads the pen colour off the top edge (QPainter antialiasing is off, so it is exact) and names the state token as the value it must not be; the glyph test drives one row through two statuses with the glyph text held constant. Both mutations previously left the WHOLE suite green and now redden exactly one test each.
 
-- 📋 [LWSM-1106] **FP04: a removed row stays visible and overlapping, and its test cannot fail for that.**
+- ✅ [LWSM-1106] **FP04: a removed row stays visible and overlapping, and its test cannot fail for that.**
   `QLayout.removeWidget` neither hides nor reparents. Verified by running
   with two rows and dropping the first: the removed row is still
   `isVisible()`, still parented to the central widget, still at
@@ -654,8 +662,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: fix.
   Lanes: ui, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, 25f8294): setParent(None) instead of removeWidget, which neither hides nor reparents. The test asserts visibility and parenthood rather than the _rows dict — deleting both removeWidget and deleteLater left the old assertion green. A second test pins the overlap scenario, asserting as a precondition that the survivor moves into the vacated rectangle.
 
-- 📋 [LWSM-1107] **FP04: two user-visible strings sit outside the translation contract, and a translator installed later never reaches an existing row.**
+- ✅ [LWSM-1107] **FP04: two user-visible strings sit outside the translation contract, and a translator installed later never reaches an existing row.**
   § 4.4 states "**every** user-visible string in this file goes through
   `QCoreApplication.translate` under one context". Three gaps, all verified
   by running:
@@ -680,8 +689,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: fix.
   Lanes: ui, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, 25f8294): one context for the whole file including the status-bar summary and the window title (self.tr resolved under the CLASS), plus a LanguageChange branch driving ProjectRow.retranslate, which clears the held view so LWSM-1076's guard cannot swallow it. Honest limit recorded in the spec: the handler is pinned, Qt's broadcast is not — with the loop running and the window the only registered top-level widget, installTranslator returned True and Qt did not post LanguageChange to it, while a bare QMainWindow did receive it.
 
-- 📋 [LWSM-1108] **FP04: five comments, docstrings and spec claims are verifiably false.**
+- ✅ [LWSM-1108] **FP04: five comments, docstrings and spec claims are verifiably false.**
   Each verified. None is a runtime bug on its own; together they are the
   mechanism by which the FP03 defects above went unnoticed, because a
   reviewed comment gets trusted.
@@ -709,8 +719,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: doc-fix.
   Lanes: core, ui, docs.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, 9aee812): all five corrected. RecursionError IS an Exception (RecursionError -> RuntimeError -> Exception); the comment, test docstring and spec now say it is not a ValueError, which is what they meant. § 11's two false `nothing` rows removed — focus-ring and state-token contrast are covered by test_theme.py — one row moved to `partly` for LWSM-1101's 200% test, and the error budget re-derived mechanically at five rather than re-asserted. The ROADMAP's own dated resolution note repeating the RecursionError claim is left alone as a frozen record.
 
-- 📋 [LWSM-1109] **FP04: six tests pass against the defect they were written to catch.**
+- ✅ [LWSM-1109] **FP04: six tests pass against the defect they were written to catch.**
   Each verified by mutation — the named change leaves the suite green:
 
   - The `MAX_FILE_BYTES + 1` grow-race read can be replaced with a plain
@@ -734,8 +745,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: test.
   Lanes: tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, 085e90f): five tightened and each re-mutated to confirm it now goes red — the grow-race read (matched on `too large`, since without the post-check the file fails as invalid JSON, also a RegistryError), MAX_REASON_CHARS, log.exception (now asserts a record carrying exc_info), _port.setMinimumWidth, and stop()'s budget. The sixth, self.update(), is NOT closable at the pixel level: a paintEvent counter stays green with it deleted because the labels change text on the same tick. The test asserts the call and says so; it becomes load-bearing at LWSM-1011.
 
-- 📋 [LWSM-1110] **FP04: stale bytecode can make the gate report on code that is not on disk.**
+- ✅ [LWSM-1110] **FP04: stale bytecode can make the gate report on code that is not on disk.**
   Found during this close, and it is about the toolchain rather than this
   project's code. Python's default `.pyc` invalidation compares only the
   source's **mtime and size**. A same-second edit-and-revert whose
@@ -760,8 +772,9 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: chore.
   Lanes: build, tests.
   Source: in-session-2026-08-06.
+  Resolved (2026-08-07, c7908aa): PYTHONDONTWRITEBYTECODE=1 exported for the whole script, AND the syntax gate given -f --invalidation-mode checked-hash — compileall's job is to WRITE bytecode so it ignores that variable, and by default it skips a file whose .pyc looks current by the same mtime-and-size test that causes this, so the stale .pyc survived it. Verified by planting the trap: a same-second same-length 120 -> 400 substitution imported as 400, and as 120 after the new syntax step.
 
-- 📋 [LWSM-1111] **FP04: the low-severity tail from the second P02 review.**
+- ✅ [LWSM-1111] **FP04: the low-severity tail from the second P02 review.**
   Each verified, grouped so none is lost.
 
   - `_quoted` clips **before** the `repr`, so the bound is ~10x the
@@ -797,6 +810,7 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Kind: fix.
   Lanes: core, ui, tests.
   Source: code-quality-review-2026-08-06b.
+  Resolved (2026-08-07, c045e62): nine of ten closed — snapshot()'s comprehension moved inside the try, both of its filters tested (each mutation reddens under -m 'not integration', where neither was covered before), the colour detector taught named constants and given tokenise-based comment stripping, the chmod-000 case skipped explicitly as root, the device-node test moved into tmp_path, the vulture parameters underscore-prefixed, and the spec typo fixed. _glyph_color's caching behind the equality guard is deliberately NOT fixed — unreachable in P02 because the theme is built once — and is named at the guard pointing at LWSM-1031.
 
 ## FP01 — Security fold-in (from the P01 review, 2026-08-03)
 
