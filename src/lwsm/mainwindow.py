@@ -221,6 +221,20 @@ class ProjectRow(QFrame):
         inset = width / 2
         painter.drawRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset))
 
+    def retranslate(self) -> None:
+        """Re-render every cell from the `RowView` already held.
+
+        `update_from` short-circuits on an unchanged view (LWSM-1076), which is
+        right for a poll tick and wrong for a language change: the data did not
+        change, the words for it did. Without this a translator installed
+        *after* the window was built never reached an existing row, while a row
+        built afterwards rendered translated — so § 4.4's stated reason for
+        translating at call time was untrue as written (LWSM-1107).
+        """
+        view, self._view = self._view, None
+        if view is not None:
+            self.update_from(view)
+
     def update_from(self, row: RowView) -> None:
         if row == self._view:
             # `_sync_rows` calls this on EVERY row on every signal, and only
@@ -286,7 +300,12 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self._controller = controller
         self._theme = theme
-        self.setWindowTitle(self.tr("Local Web Server Manager"))
+        # QCoreApplication.translate under the file's one context, not
+        # `self.tr(...)` — tr resolves under the *class*, so this string landed
+        # in "MainWindow" (and Qt then walked QMainWindow, QWidget, QObject and
+        # QPaintDevice looking for it) while every other string in this file is
+        # in `_TR_CONTEXT`. § 4.4 asks for one place for a translator to look.
+        self.setWindowTitle(self._window_title())
         self.setPalette(theme.to_palette())
         # Set once for the whole window; rows carry a state property the rules
         # in it select on.
@@ -302,9 +321,43 @@ class MainWindow(QMainWindow):
         controller.projects_changed.connect(self._sync_rows)
 
         if notices:
-            first = notices[0]
-            extra = f" (+{len(notices) - 1} more)" if len(notices) > 1 else ""
-            self.set_status_message(f"{first}{extra}")
+            self.set_status_message(self._notice_summary(notices))
+
+    @staticmethod
+    def _window_title() -> str:
+        return QCoreApplication.translate(_TR_CONTEXT, "Local Web Server Manager")
+
+    @staticmethod
+    def _notice_summary(notices: list[str]) -> str:
+        """The first notice, plus a count of the rest.
+
+        The "(+N more)" half was an f-string and so never reached a translator,
+        leaving it identical in every language against § 4.4's "**every**
+        user-visible string in this file" (LWSM-1107). `%1` and `str.replace`
+        for the same reason as `port_text`: a translation is data from outside
+        the program and must not be able to raise in here.
+        """
+        first = notices[0]
+        if len(notices) == 1:
+            return first
+        extra = QCoreApplication.translate(_TR_CONTEXT, " (+%1 more)").replace(
+            "%1", str(len(notices) - 1)
+        )
+        return f"{first}{extra}"
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.LanguageChange:
+            # Qt sends LanguageChange to top-level widgets and does NOT
+            # propagate it to children, so the rows are retranslated from here
+            # — the same shape as a generated `retranslateUi`.
+            #
+            # The status bar is deliberately not re-derived: `build_window`
+            # may have replaced the notice summary with a RegistryError, and
+            # re-applying the summary here would silently overwrite it.
+            self.setWindowTitle(self._window_title())
+            for row in self._rows.values():
+                row.retranslate()
 
     def set_status_message(self, text: str) -> None:
         self.statusBar().showMessage(text)
@@ -328,5 +381,13 @@ class MainWindow(QMainWindow):
         live = {view.path for view in views}
         for path in [known for known in self._rows if known not in live]:
             widget = self._rows.pop(path)
-            self._rows_layout.removeWidget(widget)
+            # setParent(None), not removeWidget: removeWidget takes the widget
+            # out of the LAYOUT and neither hides nor reparents it, so the row
+            # stayed visible, stayed a child of the central widget, and kept
+            # its rectangle — which the surviving row then moved into, leaving
+            # the two overlapping. `deleteLater` only lands on a DeferredDelete
+            # pass, so the object is still valid and still painted until then.
+            # Sub-frame in production; an undocumented dependence on Qt's
+            # delete ordering all the same (LWSM-1106).
+            widget.setParent(None)
             widget.deleteLater()

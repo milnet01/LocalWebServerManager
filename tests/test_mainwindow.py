@@ -45,9 +45,15 @@ def built() -> Iterator[list[ProjectController]]:
         controller.stop()
 
 
-def window_for(qtbot, built, records, probe) -> tuple[MainWindow, ProjectController]:
+def build_controller(built, records, probe) -> ProjectController:
+    """A controller the `built` fixture will stop in teardown (§ T5, INV-16)."""
     controller = ProjectController(records, probe)
     built.append(controller)
+    return controller
+
+
+def window_for(qtbot, built, records, probe) -> tuple[MainWindow, ProjectController]:
+    controller = build_controller(built, records, probe)
     window = MainWindow(controller, Theme.default(), [])
     qtbot.addWidget(window)
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
@@ -555,13 +561,19 @@ def test_notices_reach_the_status_bar(qtbot, built, tmp_path) -> None:
 class ShrinkingController:
     """Stands in for LWSM-1008's rescan: the record list can lose an entry."""
 
-    def __init__(self, controller: ProjectController) -> None:
+    def __init__(
+        self, controller: ProjectController, keep_from: int | None = None
+    ) -> None:
+        """`drop` removes every row, or every row before `keep_from`."""
         self._controller = controller
         self.drop = False
+        self._keep_from = keep_from
 
     def rows(self):
         rows = self._controller.rows()
-        return [] if self.drop else rows
+        if not self.drop:
+            return rows
+        return [] if self._keep_from is None else rows[self._keep_from :]
 
     def __getattr__(self, item):
         return getattr(self._controller, item)
@@ -569,20 +581,79 @@ class ShrinkingController:
 
 def test_a_removed_project_loses_its_row(qtbot, built) -> None:
     """`_sync_rows` only ever added. A project dropped from the list lingered
-    showing its last observed state, which `§ O5` forbids."""
-    controller = ProjectController([record("a", 5005)], FakeProbe(5005))
-    built.append(controller)
+    showing its last observed state, which `§ O5` forbids.
+
+    Asserts the widget is gone from the SCREEN, not from `_rows`. Reading the
+    dict is satisfied by the `pop()` alone: deleting both `removeWidget` and
+    `deleteLater` left the previous shape of this test green (LWSM-1106).
+    """
+    controller = build_controller(built, [record("a", 5005)], FakeProbe(5005))
     shrinking = ShrinkingController(controller)
     window = MainWindow(shrinking, Theme.default(), [])
     qtbot.addWidget(window)
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
     assert len(rows_of(window)) == 1
+    widget = rows_of(window)[0]
+    with qtbot.waitExposed(window):
+        window.show()
 
     shrinking.drop = True
     window._sync_rows()
 
     assert rows_of(window) == [], "the row outlived the project"
+    # `QLayout.removeWidget` neither hides nor reparents, and `deleteLater`
+    # only lands on a DeferredDelete pass — so the widget was still visible,
+    # still parented and still occupying its rectangle after processEvents().
+    assert not widget.isVisible(), "the removed row is still on screen"
+    assert widget.parent() is None, "the removed row is still in the window"
+
+
+def test_a_removed_row_does_not_overlap_the_row_that_replaces_it(qtbot, built) -> None:
+    """The surviving row moves up INTO the removed row's rectangle.
+
+    Verified with two rows, dropping the first: the removed row stayed at
+    `QRect(9, 9, 182, 37)` and the survivor moved into it, so the two
+    geometries intersected. Sub-frame in production because the loop spins
+    before the next paint — but that is an undocumented dependence on Qt's
+    delete ordering, and one `setParent(None)` removes it (LWSM-1106).
+    """
+    controller = build_controller(
+        built, [record("a", 5005), record("b", 5006)], FakeProbe(5005)
+    )
+    # Drops the FIRST row, so the survivor moves up into its rectangle.
+    shrinking = ShrinkingController(controller, keep_from=1)
+    window = MainWindow(shrinking, Theme.default(), [])
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert len(rows_of(window)) == 2
+    removed = rows_of(window)[0]
+    with qtbot.waitExposed(window):
+        window.show()
+    vacated = removed.geometry()
+
+    shrinking.drop = True
+    window._sync_rows()
+    # `activate()` rather than a loop spin: the re-layout has to have happened
+    # for the survivor to have moved, but spinning would run the
+    # DeferredDelete pass and destroy the very widget under test.
+    window._rows_layout.activate()
+    survivor = rows_of(window)[0]
+
+    # The precondition, asserted rather than assumed: the survivor really does
+    # move into the space the removed row held, so a row left visible and
+    # parented is drawn on top of it. Without this, the two assertions below
+    # could pass in a layout where nothing ever moved.
+    assert survivor.geometry().intersects(vacated), (
+        f"the survivor at {survivor.geometry()} did not move into the vacated "
+        f"{vacated} — this test is no longer exercising the overlap"
+    )
+    # Not a rect comparison: once unparented, the removed widget keeps its old
+    # rectangle in its own coordinate space, so comparing the two says nothing.
+    # Hidden and unparented is what makes it undrawable in this window.
+    assert not removed.isVisible(), "the removed row is still on screen"
+    assert removed.parent() is None, "the removed row is still in the window"
 
 
 def test_an_unmapped_state_does_not_crash_the_row(qtbot, built) -> None:
@@ -730,6 +801,109 @@ def test_the_untranslated_words_are_unchanged(qtbot, built) -> None:
     INV-6's announcement and every existing assertion still hold."""
     window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
     assert rows_of(window)[0].accessibleName() == "running, a, port 5005"
+
+
+def test_a_translator_installed_later_reaches_an_existing_row(qtbot, built) -> None:
+    """§ 4.4's stated reason for translating at call time was untrue as written.
+
+    There was no `LanguageChange` branch, and LWSM-1076's equality guard
+    suppresses the only path that would re-render — so a row built *before* the
+    translator rendered untranslated forever while one built after rendered
+    translated. Every existing translator test installs first and so cannot see
+    it (LWSM-1107).
+    """
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    class Shouting(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return sourceText.upper()
+
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
+
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    row = rows_of(window)[0]
+    assert row._state.text() == "running", "precondition: built untranslated"
+
+    translator = Shouting()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        # The event is delivered by hand, and that is a real limit on what this
+        # test proves. Measured against the pinned PySide6 6.11.1: with the
+        # event loop running and the window the only registered top-level
+        # widget, `installTranslator` returned True and Qt still did **not**
+        # post `LanguageChange` to it — while a bare `QMainWindow` in the same
+        # shape did receive it. So this pins the handler, which is the half
+        # this project owns; it does not pin Qt's broadcast.
+        #
+        # No user-visible impact in P02, which has no language switcher. A
+        # switcher (LWSM-1032's neighbourhood) installs the translator itself
+        # and can send this same event, so the mechanism is what it needs.
+        QApplication.sendEvent(window, QEvent(QEvent.Type.LanguageChange))
+
+        assert row._state.text() == "RUNNING", (
+            "a row built before the translator was installed never retranslated"
+        )
+        assert row._port.text() == "PORT 5005"
+        assert window.windowTitle() == "LOCAL WEB SERVER MANAGER"
+        # The announcement must follow the words a listener actually hears.
+        assert row.accessibleName() == "RUNNING, a, PORT 5005"
+    finally:
+        app.removeTranslator(translator)
+
+
+def test_the_status_bar_summary_is_translatable(qtbot, built) -> None:
+    """`f" (+{len(notices) - 1} more)"` was built with an f-string and never
+    reached a translator, so the status bar read the same in every language —
+    against § 4.4's "**every** user-visible string in this file" (LWSM-1107).
+    """
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    class Shouting(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return sourceText.upper()
+
+    translator = Shouting()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window = MainWindow(
+            build_controller(built, [record("a", 5005)], FakeProbe(5005)),
+            Theme.default(),
+            ["first notice", "second notice", "third notice"],
+        )
+        qtbot.addWidget(window)
+        assert "MORE" in window.statusBar().currentMessage(), (
+            window.statusBar().currentMessage()
+        )
+    finally:
+        app.removeTranslator(translator)
+
+
+def test_every_translated_string_uses_one_context(qtbot, built) -> None:
+    """§ 4.4: one context for the whole file, so a translator has one place to
+    look. `self.tr("Local Web Server Manager")` resolved under `"MainWindow"`,
+    not the `_TR_CONTEXT = "ProjectRow"` the file declares (LWSM-1107)."""
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    seen: list[str] = []
+
+    class Recording(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            seen.append(context)
+            return sourceText
+
+    translator = Recording()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    finally:
+        app.removeTranslator(translator)
+
+    assert seen, "no string was routed through a translator at all"
+    assert set(seen) == {mainwindow._TR_CONTEXT}, sorted(set(seen))
 
 
 def test_a_broken_translation_loses_the_number_not_the_window(qtbot, built) -> None:

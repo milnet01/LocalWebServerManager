@@ -638,6 +638,28 @@ choice rather than a wrapper:
   Logs are read by whoever is debugging and should match the source; and
   translating the CLI text needs Qt imported before `argparse` runs, which
   INV-14 forbids.
+- **A `LanguageChange` branch retranslates the rows**, and translating at call
+  time is not enough on its own. Three gaps went with that assumption, all
+  three verified by running (LWSM-1107): the status bar's `(+N more)` was an
+  f-string and reached no translator at all; the window title used `self.tr`,
+  which resolves under the *class* — so it landed in `"MainWindow"` (and Qt
+  then walked `QMainWindow`, `QWidget`, `QObject`, `QPaintDevice`) rather than
+  the one context this file declares; and a translator installed **after** the
+  window was built never reached an existing row, because LWSM-1076's equality
+  guard suppresses the only path that would re-render. `ProjectRow.retranslate`
+  clears the held view so that guard cannot swallow it.
+
+  **What is pinned here is the handler, not Qt's delivery.** Measured against
+  the pinned PySide6 6.11.1, with the loop running and the window the only
+  registered top-level widget: `installTranslator` returned `True` and Qt did
+  **not** post `LanguageChange` to it, while a bare `QMainWindow` in the same
+  shape did receive it. Unexplained, and out of this project's hands. No
+  user-visible impact in P02, which has no language switcher; a switcher
+  installs the translator itself and can send the event.
+
+  The status bar is deliberately **not** re-derived on a language change:
+  `build_window` may have replaced the notice summary with a `RegistryError`,
+  and re-applying the summary would silently overwrite it.
 
 Nothing sets a colour literal, a font family or a pixel size: colours come
 from tokens, sizes from the text metric (`§ O7`).
