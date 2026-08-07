@@ -1030,7 +1030,7 @@ first two bullets because the leaf findings are their instances:
   Lanes: ui, tests.
   Source: code-quality-review-2026-08-07.
 
-- 📋 [LWSM-1120] **FP05: nothing verifies that `run()` calls the bounded exit, or that `main()` stops the controller.**
+- ✅ [LWSM-1120] **FP05: nothing verifies that `run()` calls the bounded exit, or that `main()` stops the controller.**
   The two shutdown promises in spec § 6, neither of them wired-tested.
   `test_the_process_exits_promptly_when_a_probe_is_abandoned` writes a
   subprocess script that calls
@@ -1051,6 +1051,7 @@ first two bullets because the leaf findings are their instances:
   Kind: test.
   Lanes: tests.
   Source: code-quality-review-2026-08-07.
+  Resolved (2026-08-07, 6e32593): closed by LWSM-1113 rather than separately — its acceptance was exactly two of that item's nine tests. test_run_bounds_the_process_exit and test_main_stops_the_controller_when_the_loop_returns both go red on the mutation they name (run() reduced to `code = main(); return code`, and main()'s `finally: controller.stop()` removed); both left all 150 tests green before.
 
 ## FP01 — Security fold-in (from the P01 review, 2026-08-03)
 
