@@ -235,6 +235,39 @@ def test_refuses_an_oversized_file(tmp_path: Path) -> None:
         load_projects(path)
 
 
+def test_a_file_that_grows_after_the_size_check_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`_read_bounded` reads one byte past the cap and post-checks the length,
+    so a file that grew between the `fstat` and the read is still refused
+    rather than read whole.
+
+    The mechanism § 4.1 names by name was unguarded: replacing the
+    `MAX_FILE_BYTES + 1` read with a plain `read()` and deleting the post-check
+    left the suite green, because only the `fstat` path was tested (LWSM-1109).
+
+    The growth is simulated by an `fstat` that under-reports the size, which is
+    what a real grow-between-check-and-read looks like from in here. Matched on
+    "too large" and not merely `RegistryError`: without the post-check the
+    oversized file is read whole and then fails as *invalid JSON*, which is a
+    `RegistryError` too and would pass a looser assertion.
+    """
+    path = tmp_path / "projects.json"
+    path.write_bytes(b"x" * (registry.MAX_FILE_BYTES + 10))
+
+    real_fstat = os.fstat
+
+    def under_reporting_fstat(fd):
+        values = list(tuple(real_fstat(fd)))
+        values[6] = 10  # st_size
+        return os.stat_result(values)
+
+    monkeypatch.setattr(registry.os, "fstat", under_reporting_fstat)
+
+    with pytest.raises(RegistryError, match="too large"):
+        load_projects(path)
+
+
 def test_a_file_at_the_size_limit_still_loads(tmp_path: Path) -> None:
     """Guards the cap from being off by one in the direction that refuses
     ordinary files."""

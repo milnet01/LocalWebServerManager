@@ -453,6 +453,49 @@ def test_focus_is_visible_not_merely_held(qtbot, built) -> None:
     )
 
 
+def test_a_status_change_requests_a_repaint(qtbot, built, monkeypatch) -> None:
+    """The glyph is painted, so `update_from` has to mark the row dirty itself.
+
+    **This asserts the call, not the pixels, and that is a deliberate retreat.**
+    § 4.4 flags `self.update()` as a hazard because `grab()` repaints
+    unconditionally, so no render-based test can see a missing repaint request
+    (LWSM-1109). Trying anyway: a `paintEvent` counter stayed green with
+    `self.update()` deleted, because the three labels change text on the same
+    tick and the row is repainted regardless. In P02 there is no observable
+    difference at all, so the mechanism is the only surface left — and a test
+    that goes red on the mutation beats one that cannot.
+
+    It stops being redundant at LWSM-1011, whose seven states allow a status to
+    change while the word rendered for it does not: then nothing else dirties
+    the row and only this call repaints the glyph.
+    """
+    probe = FakeProbe(5005)
+    window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
+    row = rows_of(window)[0]
+    with qtbot.waitExposed(window):
+        window.show()
+
+    calls: list[int] = []
+    real_update = row.update
+
+    def spy(*args, **kwargs) -> None:
+        calls.append(1)
+        real_update(*args, **kwargs)
+
+    # On the instance: `ProjectRow` is a Python class, so `self.update()`
+    # resolves to this before QWidget.update.
+    row.update = spy
+
+    probe.listening.clear()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert calls, (
+        "a status change did not request a repaint — at LWSM-1011 the painted "
+        "glyph would keep its old colour until something else dirtied the row"
+    )
+
+
 def test_the_focus_ring_is_painted_in_the_accent_token(qtbot, built) -> None:
     """INV-17's two halves never met, so the ring's COLOUR was owned by nothing.
 
@@ -781,13 +824,18 @@ def test_the_row_resizes_its_cells_when_the_font_grows(qtbot, built) -> None:
     100-200 % text-size control."""
     window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
     row = rows_of(window)[0]
-    before = row._state.minimumWidth()
+    state_before = row._state.minimumWidth()
+    # The port cell too: `_port.setMinimumWidth` could be deleted outright and
+    # the suite stayed green, because only the state cell was asserted
+    # (LWSM-1109).
+    port_before = row._port.minimumWidth()
 
     font = row.font()
     font.setPointSizeF(font.pointSizeF() * 2)
     row.setFont(font)
 
-    assert row._state.minimumWidth() > before
+    assert row._state.minimumWidth() > state_before
+    assert row._port.minimumWidth() > port_before
 
 
 def glyph_ink_bounds(row) -> tuple[int, int]:

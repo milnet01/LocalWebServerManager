@@ -324,6 +324,15 @@ def test_an_unexpected_exception_is_reported_not_silent(
     assert "RuntimeError" in caplog.text, (
         "the app log must name what actually went wrong, not just that it did"
     )
+    # The assertion above cannot tell "traceback reported" from "no traceback":
+    # the wrapping ProbeError's own message carries the string "RuntimeError"
+    # from a different log line, so replacing `log.exception` in `run()` with
+    # `pass` left it green (LWSM-1109). Only `log.exception` attaches exc_info.
+    with_traceback = [record for record in caplog.records if record.exc_info]
+    assert with_traceback, (
+        "no log record carries a traceback — an unexpected exception is a "
+        "defect report, and the stack is the report"
+    )
 
 
 def test_a_held_status_survives_an_unexpected_exception(qtbot, controllers) -> None:
@@ -626,7 +635,13 @@ def test_stop_is_bounded_when_a_probe_never_returns(
     controller.stop()
     elapsed = time.perf_counter() - started
 
-    assert elapsed < 2.0, f"stop() blocked for {elapsed:.2f}s on a hung probe"
+    # Against the patched budget, not a literal: `< 2.0` with the budget at
+    # 100 ms was a 20x-loose threshold that a 1.9 s stop() would pass
+    # (LWSM-1109). 5x leaves room for a loaded machine and nothing else.
+    budget = controller_module.STOP_WAIT_MS / 1000
+    assert elapsed < budget * 5, (
+        f"stop() blocked for {elapsed:.2f}s against a {budget:.2f}s budget"
+    )
 
 
 def test_start_polling_polls_immediately(qtbot, controllers) -> None:
