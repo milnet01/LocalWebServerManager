@@ -89,6 +89,46 @@ signaling per
 
 ### Fixed
 
+- **Quitting is no longer delayed by a port check that never finishes** (LWSM-1117)
+  A port check that hangs could keep the process alive indefinitely. That was
+  already handled for the app itself, but not for anything else that uses the
+  same machinery — including the test suite, which paid a hidden 2.6 seconds on
+  every run. Measured while fixing it: against a check that genuinely never
+  returns, the wait was not slow but unbounded — a probe process had to be killed
+  after three minutes.
+
+- **Turning up the system text size now resizes rows already on screen** (LWSM-1119)
+  Changing the application font did nothing to rows that were already displayed;
+  only rows created afterwards picked it up. For a partially-sighted user the
+  text-size setting is the one most likely to be changed, and it was the one
+  route that did not work.
+
+- **Colour themes now reach the text, not just the window frame** (LWSM-1118)
+  The theme's colours were applied to the window and discarded before they
+  reached the rows inside it. The default light theme hid this by luck — the
+  fallback colour happened to have better contrast — but a dark theme rendered
+  project names and ports at 1.25:1 against a 4.5:1 readability floor, which is
+  effectively invisible. Found before any dark theme shipped.
+
+- **The app starts on a machine with no home directory instead of crashing** (LWSM-1116)
+  Where no home directory can be resolved — rare, but real in a stripped
+  container — the app died with a traceback and no window, instead of falling
+  back to printing its log to the terminal as it was designed to. The same fix
+  found a second half nobody had reported: the guard protecting the project-list
+  path was being evaluated outside the code that catches it, so it had never
+  been able to do anything.
+
+- **A broken project file can no longer wipe your log or stall the window** (LWSM-1114)
+  Two limits were missing from `projects.json` handling. One field —
+  `schema_version` — was never length-limited, so a large value in it produced a
+  single log record over a megabyte and forced the log to roll over, destroying
+  the history you are told to consult. And nothing bounded how *many* problems
+  were reported: a maximally broken file produced 524,271 of them, 28.7 MB of
+  log, and 8.7 seconds of no window at all before the app appeared. Now at most
+  100 problems are reported, with a line saying how many more there were, and
+  every value is length-limited. Measured after: 101 problems, 5 KB, one
+  millisecond. (LWSM-1115)
+
 - **Two more pieces of text can be translated, and switching language reaches rows already on screen** (LWSM-1107)
 
 - **A project removed from the list no longer stays drawn on screen** (LWSM-1106)

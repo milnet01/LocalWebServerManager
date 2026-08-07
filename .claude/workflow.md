@@ -4,14 +4,14 @@
 
 | Field | Value |
 |-------|-------|
-| **Project phase** | P02 — Vertical slice: LWSM-1005 ✅ 2026-08-06. P01 stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03 |
-| **Active item ID** | **FP05** (LWSM-1112…1120) — 9 items: **2 ✅ (LWSM-1113, LWSM-1120), 7 📋**. Generated 2026-08-07 by the third P02 close attempt. **Two root causes + the seven HIGH findings only**; the MEDIUM/LOW tail is routed to owning phases in `docs/known-issues.md` (15 entries, each with a named owner) |
-| **Active step** | 1 (fresh item — steps 1–9 all ⬜) |
-| **Last update** | 2026-08-07 (**Third P02 close attempt: BLOCKED, and the process changed.** Static analysis clean for the fourth close running — and this time each tool was verified to have *run*, which caught `pip-audit` exiting pass-like having audited nothing. All 170 `contract_doc_drift` hits are allowlist-003/-006; four allowlist entries refreshed. Three lanes produced **25 findings, 7 HIGH**, and the four highest-consequence were re-reproduced independently and matched exactly. **Two themes, each found by all three lanes:** a fix landing at the reported call site rather than at the mechanism (six instances — the same shape FP04 reported about FP03, now three passes running), and tests asserting the artefact rather than the delivery (**four shipped fixes are deletable with all 150 tests green**). **The stop-and-ask rule fired and was honoured:** rather than a third whole fold-in taking P02 to 54 fix items, the user's call was root causes + HIGHs into `FP05` and the tail routed to owning phases. **Reviews now run once per phase, then the phase closes** — see Convergence checkpoint) |
+| **Project phase** | **P02 CLOSED 2026-08-07** — vertical slice LWSM-1005 plus five fix-passes (FP02–FP05, 37 fix items). P01 stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03. **Next is P03** (LWSM-1006 Scanner, LWSM-1007 registry persistence, LWSM-1039 backup, LWSM-1008 first-run flow) |
+| **Active item ID** | — (none active). **`FP05` is complete: all nine items ✅** (LWSM-1112…1120). The MEDIUM/LOW tail stays routed in `docs/known-issues.md`, each entry with a named owner |
+| **Active step** | — (P02 closed; a P03 item has not been started) |
+| **Last update** | 2026-08-07 (**FP05 complete and P02 closed.** All nine items shipped, every fix mutation-verified, 185 tests up from 159, full gate green. Four of the nine bullets were corrected by measurement — LWSM-1117's wait is unbounded rather than ~3.3 s, LWSM-1116 had an unreported second half, and LWSM-1115's own fix introduced the defect known-issue-005 describes. The rule-14 gate ran as one batched `/cold-eyes` over `coding.md` + `testing.md`: **converged in 2 loops**, 12 then 15 verified findings, all fixed. Loop 2's split was 11 fix collateral vs 4 draft defects, so it converged by sweep rather than a third dispatch. Two user corrections folded in: prose counts of growing sets are now banned and tested (`tests/test_docs.py`), and the `.audit_cache` history exposure is assessed and accepted as known-issue-016) |
 | **Superseded** | 2026-08-07 (**FP04's 14 bullets are all closed and green at 150 tests**, up from 125, in ten commits — one per bullet-group, each with its red test first. The 21 held commits plus these are **pushed**; GitHub Actions is healthy again and CI passed on `3ce8b18`. **The pass's own worst moment is the one to remember:** LWSM-1100's first shape put `os._exit` inside `main()`, and since tests call `main()` in-process and an earlier test abandons a probe, the pytest run ended at **40 % of the suite with exit code 0** and a report that read as green. The gate caught it, not review. That is the third time this project has been bitten by a green run that was not one) |
 | **Superseded (older)** | 2026-08-06 (**P02 close re-run: BLOCKED again.** FP03's 14 items are all ✅ and the gate is green at 125 tests, verified on **cleared bytecode**. Static analysis clean for the third close running — ruff, bandit, semgrep (9 files scanned, 0 findings), gitleaks (82 commits), shellcheck, actionlint; pyright reports only LWSM-1066's pre-existing one. Three lanes re-read the FP03 code cold and produced **29 findings**, folded into `FP04`. Six reproduced independently rather than taken on the reviewers' word. **The shape is the finding:** FP03 left three of its own fixes half-done and wrote five confident comments that are false) |
-| **Blocked on** | — (nothing blocking; the push hold is lifted, user-confirmed 2026-08-07, and everything through `c045e62` is on `origin/main`) |
-| **Next gate** | Work `FP05` (LWSM-1112…1120) through steps 1–4 of the per-phase loop — each item red-test-first, per `superpowers:test-driven-development`. **Then close P02 without a fourth review**: the 2026-08-07 process decision is one review per phase, so steps 5–6 do **not** run again for P02. Two of the nine items (LWSM-1112, LWSM-1113) add clauses to `coding.md` and `testing.md` respectively, so both standards need the rule-14 `/cold-eyes` gate before P02 closes. **Deliberately batched into ONE gate run covering both files, not two** (decided 2026-08-07): they are two files changed in the same pass and gating them separately means a second reviewer re-reading overlapping ground. `testing.md § T9` is already written and is therefore ungated until LWSM-1112's `coding.md` clause lands — if LWSM-1112 is dropped or deferred, T9 still owes its gate and must not ship unreviewed. **`P02-complete` is still tagged at `a17b7dd` and PUSHED** — it asserts P02 complete at a commit predating 28 fixes now, and `commits.md § 4.2` puts that tag on the *closing* commit. Moving it force-updates a published ref, so it needs the user's explicit say-so; do it when P02 actually closes |
+| **Blocked on** | **One decision only: the `P02-complete` tag.** It is tagged at `a17b7dd` and **pushed**, now 52 commits behind the real closing commit, which contradicts `commits.md § 4.2` (tag goes on the *closing* commit). Moving it force-updates a published ref, and § 4.2 also says never force-push a tag — so it needs the user's explicit say-so. Nothing else blocks P03 |
+| **Next gate** | Start **P03** with `LWSM-1006` (Scanner implements the detection rules) — spec-first via `/write-spec`, since `docs/design.md § Detection rules` is the contract and the scanner is where P02's registry stops being hand-written. **Steps 5–6 run ONCE for P03 and then it closes**, per the 2026-08-07 process decision. Note for whoever picks it up: `coding.md § O1`'s core-module criterion now says a new core module is added to `tests/test_layering.py`'s `CORE_MODULES` in the commit that creates it — `scanner.py` is the first to test that |
 | **Convergence checkpoint** | 5 (consecutive `FP##` items immediately preceding any ✅-`implement`-Kind close in the active release block — see `~/.claude/commands/close-phase.md § 5a-6`). **Measured 2026-08-06: P02 is ONE feature item (LWSM-1005) that has so far produced 28 fix items across FP03 + FP04** — a 28:1 ratio. Two reasons to expect it not to hold: P02 absorbed every foundational decision at once (logging, threading, theming, accessibility), which later phases now inherit; and the second review found fewer *new kinds* of defect than the first. **If an `FP05` is generated, do not simply work it** — the checkpoint is at 5 and would not fire, but the ratio is the real signal. Stop and ask whether the review process has become the bottleneck, and say so to the user rather than grinding on. Committed to in chat 2026-08-07; recorded here because that promise otherwise lives nowhere. **FIRED AND HONOURED 2026-08-07.** `FP05` was generated (25 findings, 7 HIGH), the ratio was put to the user before any work started, and two decisions came back. **(1) Scope:** `FP05` takes the two root causes and the seven HIGHs; the MEDIUM/LOW tail is routed to the phase that owns the code it lands in, as 15 named-owner entries in `docs/known-issues.md`. P02 therefore ends at 37 fix items, not 54. **(2) Process, standing from now on:** **one `/audit` + `/code-quality-review` per phase, then the phase closes.** Findings above the bar are fixed; the rest are routed to owning phases. The reasoning is that three passes over P02 each found a new *class* of defect rather than repeats — a good argument for reviewing once and a bad one for reviewing until clean, which was turning review into the development method. The convergence checkpoint of 5 stays as a backstop but is no longer the primary control |
 | **Debt-sweep phase threshold** | 5 (auto-prompt for `/debt-sweep` after this many phases without one) |
 | **Last debt sweep** | 2026-08-06 (`DS01`, whole history — no dependency drift; doc drift fixed, four items filed to the roadmap) |
@@ -76,6 +76,68 @@ journal); §2 is the only part that changes.
 ## §3. Session journal
 
 Append-only. Newest at the top.
+
+### 2026-08-07 — FP05: all nine closed, P02 closes, and four bullets were wrong
+
+**The pass's own bullets were corrected four times by measurement**, which is
+the thing to carry forward: a fold-in bullet is a reviewer's reading, and this
+pass found it understating the defect as often as overstating it.
+
+- **LWSM-1117 said the abandoned-pool wait costs the suite ~3.3 s. It is
+  unbounded.** A probe that genuinely never returns hung the interpreter
+  indefinitely — killed at three minutes, main thread on a futex joining the
+  pool thread. The suite only ever saw 2.6 s because the *fake* probe carries a
+  5 s timeout. Four ways to avoid the destructor were tried (drop the
+  reference, hold it, reparent, invalidate the Shiboken wrapper) and all four
+  hung identically, so there was no new bound to add — only reach to fix.
+- **LWSM-1116 had a second half nobody reported.** The end-to-end test failed
+  after the named fix landed: `main` called `build_window(default_projects_path())`,
+  and Python evaluates the argument *before* the call, so the `RegistryError`
+  that LWSM-1026's guard raises was thrown outside the only catch written for
+  it. The guard had been present and unreachable since 2026-08-03.
+- **LWSM-1114's acceptance became a test rather than a grep**, because the same
+  mechanism had been fixed at a single call site three times running.
+- **LWSM-1115's own fix introduced the defect known-issue-005 describes** —
+  `MAX_REASONS` was asserted relative to itself, so 100 → 100000 would have
+  passed. Caught by re-reading the routed owners of the items this pass closed.
+
+**Two tests could not fail for the thing they named, and both were caught by
+running them rather than reading them.** LWSM-1118's first version took the
+nearest pixel of the whole grab and *passed against the unfixed code*, because
+the label's light-grey background sat nearer a near-white dark token than the
+black text did. Its second version isolated the ink and still could not assert
+the token: with antialiasing on, a name label held **0** pixels of a pure
+`#ff00ff` out of 119, across 40 fringe colours. `NoAntialias` made the ink
+exactly one colour — 80 px of `#000000` before, 80 px of `#eef0ff` after.
+
+**The rule-14 gate earned its cost on the thing a self-read cannot do.** Two
+clauses written in the same pass, by the same author, from the same root
+causes — and they contradicted each other in three places, most sharply where
+`coding.md § 1.6` recommended a sweep test that `testing.md § 2.1`, `§ 9` and
+`§ 3.1` all forbade, with no test type admitting it. Loop 2 then found that
+**loop 1's own fixes contradicted each other four more times**, and that loop 1
+had introduced a false claim: "`ruff` enforces `snake_case` in the gate" — it
+does not, and enabling `pep8-naming` flags nine sites, every one a Qt override
+that must be camelCase. Collateral outnumbered draft defects 11 to 4, which is
+the documented signal to sweep rather than dispatch a third loop.
+
+**Executing a prescribed command before it shipped caught two wrong forms.**
+`§ 2.2`'s revert recipe was ported from CMake/ctest to pytest; `git stash push`
+reverts nothing when the fix is committed, and `git checkout HEAD~1` lands on a
+revision that still has it. **Both reported the test passing in the "must
+FAIL" position** — a mutation that reads as verified having changed nothing.
+
+**Two user corrections landed mid-pass, and both were right.** Prose counts of
+growing sets ("five standards", "eight modules") go stale during active
+development — and loop 1 had just "fixed" one by substituting a fresh wrong
+number for a stale one. Seven sites, second occurrence, so it became a test
+(`tests/test_docs.py`). And `.audit_cache`: already gitignored, but four
+scan-output files sit in two *published* commits, which `git status` cannot
+show. Assessed as 184 doc-drift false positives plus one absolute path, and the
+decision not to rewrite published history is recorded as known-issue-016.
+
+**185 tests, up from 159.** Every fix mutation-verified; every acceptance met
+or its shortfall stated.
 
 ### 2026-08-07 — FP04: all 14 closed, and the fix that faked a green suite
 
