@@ -11,6 +11,7 @@ Qt application object, which `qtbot` supplies (`docs/standards/testing.md
 
 from __future__ import annotations
 
+import gc
 import logging
 import threading
 import time
@@ -35,13 +36,21 @@ class FakeProbe:
         self.calls = 0
         self.threads: list[int] = []
         self.gate: threading.Event | None = None
+        # Set on the pool thread as the probe returns. Waiting on this rather
+        # than on `qtbot.waitUntil` is the point: waitUntil spins the event
+        # loop, which would deliver the very emission a test may need to still
+        # be in flight when it calls stop().
+        self.finished = threading.Event()
 
     def snapshot(self) -> PortSnapshot:
         self.calls += 1
         self.threads.append(threading.get_ident())
         if self.gate is not None:
             self.gate.wait(timeout=5)
-        return PortSnapshot(frozenset(self.listening))
+        try:
+            return PortSnapshot(frozenset(self.listening))
+        finally:
+            self.finished.set()
 
 
 class FailingProbe:
@@ -417,21 +426,90 @@ def test_no_snapshot_is_delivered_after_stop(qtbot, controllers) -> None:
     dispatched on the next event-loop spin, into a controller the app has
     already torn down. `mainwindow.py` connects that signal, so the late
     delivery re-enters the window's widgets after teardown.
+
+    The probe is allowed to **complete** before `stop()` is called, which is
+    the window a disconnect cannot close: Qt dispatches a `QMetaCallEvent`
+    that has already been posted regardless of any later disconnect
+    (LWSM-1098). Gating the probe instead puts the emit *inside*
+    `waitForDone`, after the disconnect, where the earlier shape of this test
+    could only catch "no disconnect at all".
     """
     probe = FakeProbe(5005)
-    probe.gate = threading.Event()
     controller = build(controllers, [record("a")], probe)
     emissions: list[int] = []
     controller.projects_changed.connect(lambda: emissions.append(1))
 
     controller.poll_once()
-    probe.gate.set()
+    assert probe.finished.wait(timeout=5), "the probe never ran"
+    # The emit is the next statement after the probe returns; this lets it be
+    # posted without spinning the loop that would deliver it.
+    time.sleep(0.05)
+
     controller.stop()
     assert emissions == [], "nothing is dispatched before the loop spins"
 
     # One spin is all it took to reproduce the late delivery.
     qtbot.wait(200)
     assert emissions == [], "a snapshot arrived after stop() returned"
+
+
+def test_a_poll_started_after_stop_delivers_nothing(qtbot, controllers) -> None:
+    """`poll_once` was unguarded, so a stray tick re-armed delivery into a
+    controller that had already been torn down (LWSM-1111)."""
+    probe = FakeProbe(5005)
+    controller = build(controllers, [record("a")], probe)
+    emissions: list[int] = []
+    controller.projects_changed.connect(lambda: emissions.append(1))
+
+    controller.stop()
+    controller.poll_once()
+    qtbot.wait(200)
+
+    assert probe.calls == 0, "a stopped controller must not probe again"
+    assert emissions == [], "a stopped controller emitted"
+
+
+def test_completed_tasks_do_not_accumulate(qtbot, controllers) -> None:
+    """`setAutoDelete(False)` kept every task for the life of the process.
+
+    `QThreadPool.start()` transfers ownership to C++, so the slot clearing the
+    controller's own reference freed nothing: one `_SnapshotTask` and one
+    `_SnapshotSignals` per tick, about **210 MiB/day** at the 1000 ms
+    interval, in an app whose whole point is to stay open (LWSM-1099). Each
+    leaked signaller also held two live connections into the controller, so
+    the connection list grew without bound beside it.
+
+    The probe toggles so every poll changes status and therefore emits
+    (INV-5), which is what makes each iteration wait for a *completed* poll
+    rather than for a sleep.
+    """
+
+    class TogglingProbe:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def snapshot(self) -> PortSnapshot:
+            self.calls += 1
+            return PortSnapshot(frozenset({5005} if self.calls % 2 else set()))
+
+    probe = TogglingProbe()
+    controller = build(controllers, [record("a")], probe)
+
+    def live(kind: type) -> int:
+        gc.collect()
+        return sum(1 for obj in gc.get_objects() if type(obj) is kind)
+
+    polls = 200
+    for _ in range(polls):
+        with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+            controller.poll_once()
+    assert probe.calls == polls
+
+    # At most the one still referenced by the controller — never one per tick.
+    tasks = live(controller_module._SnapshotTask)
+    signals = live(controller_module._SnapshotSignals)
+    assert tasks <= 1, f"{tasks} live tasks after {polls} completed polls"
+    assert signals <= 1, f"{signals} live signallers after {polls} completed polls"
 
 
 def test_stop_does_not_wait_on_unrelated_work(qtbot, controllers) -> None:

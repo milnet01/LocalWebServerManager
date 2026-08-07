@@ -1229,9 +1229,21 @@ measurements minutes apart on an idle machine gave 9 and 12, so it is a
 property of the machine at an instant, not a figure this spec can assert.)
 The controller holds one `dict[Path, ProjectStatus]` sized by the record
 count, and the window holds one widget per record, created once. No new
-build target. One `_SnapshotTask` per tick with `setAutoDelete(False)`,
-held by the controller and released when its signal arrives; at most one is
-outstanding (INV-12), so the ceiling is one task, not one per tick elapsed.
+build target. One `_SnapshotTask` per tick, deleted by the pool as `run()`
+returns, and one `_SnapshotSignals` for the controller's whole life rather
+than one per task; at most one task is outstanding (INV-12), so the ceiling
+is one task, not one per tick elapsed.
+
+That ceiling was **asserted here and not delivered** until LWSM-1098's
+sibling fix. A per-task signaller had to outlive `run()` for its queued
+emission to survive, which forced `setAutoDelete(False)` — and
+`QThreadPool.start()` has already transferred ownership to C++, so clearing
+the controller's own reference freed nothing. Measured: 200 live
+`_SnapshotTask` objects after 200 completed polls, one per tick, ~2.5 KiB
+each — about 210 MiB/day at the 1000 ms interval, plus a connection list
+growing without bound behind each retained signaller. Moving the signaller
+onto the controller is what lets `autoDelete` stay on.
+`test_completed_tasks_do_not_accumulate` now holds the claim.
 
 ## 11. What checks this
 

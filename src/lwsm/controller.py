@@ -71,14 +71,21 @@ class _SnapshotTask(QRunnable):
     The signals live on a composed QObject because QRunnable is not one:
     `issubclass(QRunnable, QObject)` is False under the pinned PySide6 6.11.1,
     and a Signal declared directly on a QRunnable subclass has no `emit`.
+
+    That signaller belongs to the **controller**, not to this task, and is
+    reused for every poll. Owning one per task meant it had to outlive `run()`
+    for the queued emission to survive — which forced `setAutoDelete(False)`,
+    and `QThreadPool.start()` has already transferred ownership to C++, so
+    nothing on the Python side could ever free the task afterwards: one task
+    and one signaller retained per tick for the life of the process
+    (LWSM-1099). A controller-owned signaller lets the pool delete each task
+    the moment `run()` returns, which is what `autoDelete` is for.
     """
 
-    def __init__(self, probe: SupportsSnapshot) -> None:
+    def __init__(self, probe: SupportsSnapshot, signals: _SnapshotSignals) -> None:
         super().__init__()
         self._probe = probe
-        self.signals = _SnapshotSignals()
-        # The pool would otherwise free us while a queued emission is in flight.
-        self.setAutoDelete(False)
+        self.signals = signals
 
     def run(self) -> None:
         # Two layers, because the emit can fail too. The inner one turns any
@@ -134,8 +141,19 @@ class ProjectController(QObject):
         self._timer = QTimer(self)
         self._timer.setInterval(POLL_INTERVAL_MS)
         self._timer.timeout.connect(self.poll_once)
-        self._task: _SnapshotTask | None = None
+        # One signaller for the controller's whole life, connected once. Both
+        # connections are queued: it is created here, on the owning thread,
+        # and every emit happens on a pool thread.
+        self._signals = _SnapshotSignals(self)
+        self._signals.done.connect(self._on_snapshot)
+        self._signals.failed.connect(self._on_probe_error)
+        # Not the task itself: with autoDelete on, the pool frees it as soon as
+        # `run()` returns, so a reference held here would outlive the C++ object.
+        self._in_flight = False
         self._emitted_once = False
+        # Set by stop(), and the only thing that actually closes INV-16. See
+        # stop() for why cutting the connections cannot.
+        self._stopped = False
         # Repeated-failure suppression, see _on_probe_error.
         self._last_error: str | None = None
         self._repeated_errors = 0
@@ -164,25 +182,25 @@ class ProjectController(QObject):
         self._timer.start()
 
     def stop(self) -> None:
-        """Timer off, signals cut, then a bounded wait for the outstanding task.
+        """Timer off, delivery refused, then a bounded wait for the task.
 
         Without the wait a pool thread emits into a controller being torn
         down — the flake `docs/standards/testing.md § T5` exists to prevent.
         Idempotent: `main` calls it, and so does every test fixture.
+
+        `_stopped` is what closes INV-16, and it is checked in the slots rather
+        than enforced by disconnecting here. Cutting the connections only
+        helps while the emit has not yet happened: Qt dispatches a
+        `QMetaCallEvent` that has already been **posted** regardless of any
+        later disconnect, so a probe finishing just before `stop()` still
+        delivered on the next spin (LWSM-1098). The earlier disconnect closed
+        the window it was measured against and no other.
         """
+        self._stopped = True
         self._timer.stop()
         # Otherwise a suppressed run's count dies with the process.
         self._flush_repeated_error()
-        task, self._task = self._task, None
-        if task is not None:
-            # Cut the connections BEFORE waiting. `waitForDone` waits for
-            # `run()` to *return*, but the emit happens inside `run()` over a
-            # queued connection — so by then the event is already posted and is
-            # dispatched on the next event-loop spin, into a controller that has
-            # been torn down. INV-16 passed on its wording ("no task is
-            # outstanding") while failing its purpose.
-            task.signals.done.disconnect(self._on_snapshot)
-            task.signals.failed.disconnect(self._on_probe_error)
+        self._in_flight = False
 
         if not self._pool.waitForDone(STOP_WAIT_MS):
             # An unbounded wait here makes a probe that never returns into an
@@ -194,25 +212,27 @@ class ProjectController(QObject):
                 STOP_WAIT_MS,
             )
             self._pool.setParent(None)
-            _ABANDONED.extend((self._pool, task))
+            _ABANDONED.append(self._pool)
             self._pool = QThreadPool(self)
             self._pool.setMaxThreadCount(1)
 
     def poll_once(self) -> None:
-        if self._task is not None:
+        if self._stopped:
+            # A stray tick after stop() would re-arm delivery into a controller
+            # the app has already torn down (LWSM-1111).
+            return
+        if self._in_flight:
             # design.md § Data flow: "the poll skips a tick rather than
             # queueing". Queueing is how a briefly-slow socket table becomes a
             # permanently-lagging one.
             return
-        task = _SnapshotTask(self._probe)
-        # Connected on the owning thread before submission, so both are queued.
-        task.signals.done.connect(self._on_snapshot)
-        task.signals.failed.connect(self._on_probe_error)
-        self._task = task
-        self._pool.start(task)
+        self._in_flight = True
+        self._pool.start(_SnapshotTask(self._probe, self._signals))
 
     def _on_snapshot(self, snapshot: PortSnapshot) -> None:
-        self._task = None
+        if self._stopped:
+            return
+        self._in_flight = False
         # A success ends any suppressed run, so a failure that recurs after a
         # recovery is logged again rather than folded into the old count.
         self._flush_repeated_error()
@@ -223,7 +243,9 @@ class ProjectController(QObject):
         self._maybe_emit(previous)
 
     def _on_probe_error(self, exc: ProbeError) -> None:
-        self._task = None
+        if self._stopped:
+            return
+        self._in_flight = False
         # An unreadable socket table is not evidence that anything stopped, so
         # every status keeps its previous value (INV-4b).
         #
