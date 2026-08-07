@@ -2,10 +2,8 @@
 # Commit Standards — v1
 
 A shareable contract for git commits in this project. Pairs with
-the other four standards in this folder ([coding](coding.md),
-[documentation](documentation.md), [testing](testing.md),
-[dependencies](dependencies.md)) — see the [index](README.md) for
-the full set.
+the other standards in this folder — see the [index](README.md)
+for the full set.
 
 This standard governs every commit, plus the release-orchestration
 work under ROADMAP bullets with `Kind: chore` or `release`.

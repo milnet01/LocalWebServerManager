@@ -2,9 +2,7 @@
 # Coding Standards — v1
 
 A shareable contract for code in this project. Pairs with the
-other four standards in this folder ([documentation](documentation.md),
-[testing](testing.md), [commits](commits.md),
-[dependencies](dependencies.md)) — see the [index](README.md) for
+other standards in this folder — see the [index](README.md) for
 the full set.
 
 This standard governs ROADMAP bullets with `Kind: implement`,

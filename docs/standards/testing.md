@@ -2,9 +2,7 @@
 # Testing Standards — v1
 
 A shareable contract for tests in this project. Pairs with the
-other four standards in this folder ([coding](coding.md),
-[documentation](documentation.md), [commits](commits.md),
-[dependencies](dependencies.md)) — see the [index](README.md) for
+other standards in this folder — see the [index](README.md) for
 the full set.
 
 This standard governs ROADMAP bullets with `Kind: test`, plus the

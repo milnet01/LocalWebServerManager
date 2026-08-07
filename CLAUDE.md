@@ -184,7 +184,8 @@ result is recorded in `.claude/workflow.md` § 1 status header.
 
 ## Module map
 
-Eight modules at P02. The layering rule is
+The modules below are the list; P03 and P05 each add to it, so no
+count is written here (`documentation.md § 1.5`). The layering rule is
 [`docs/standards/coding.md § O1`](docs/standards/coding.md): a
 core module may import `QtCore` but never `QtWidgets`, so every
 one of them is testable without a display. **`tests/test_layering.py`
@@ -344,7 +345,7 @@ working is cheaper than corrective rounds later.
 
 ## Standards reference
 
-The five standards (`coding`, `documentation`, `testing`,
+The standards (`coding`, `documentation`, `testing`,
 `commits`, `dependencies`) plus `roadmap-format` live in
 [`docs/standards/`](docs/standards/) — see its
 [README](docs/standards/README.md) for the index, the

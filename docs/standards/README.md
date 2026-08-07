@@ -1,9 +1,14 @@
 # Project Standards
 
-Five short, focused standards that govern how this project is
+Short, focused standards that govern how this project is
 written, tested, documented, committed, and kept up to date. Each
 standard is v1 and self-contained; cross-references between them
 are explicit.
+
+The table below is the count — no prose in this folder states one.
+A number written out is a second source of truth that goes stale
+the next time a standard is added, and this project has already
+fixed that drift twice.
 
 | Standard | Covers |
 |----------|--------|
@@ -29,7 +34,7 @@ Fill-in-the-blanks starting points, copied by `/write-spec`:
 
 ## How they fit together
 
-The five standards plus `ROADMAP.md` form a closed loop:
+The standards plus `ROADMAP.md` form a closed loop:
 
 1. **ROADMAP item** declares an `[ID]`, `Kind:`, and `Source:`
    (per [roadmap-format § 3](roadmap-format.md)).

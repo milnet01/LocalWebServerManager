@@ -45,6 +45,34 @@ corrected in one, and the surviving three become the next review
 pass's findings, so a document that repeats itself actively
 delays its own convergence.
 
+**A count of a set that can grow is not written in prose at all** —
+not even once. Each of these was true when written and expired the
+next time something was added:
+
+- `Five short, focused standards`
+- `the other four standards in this folder`
+- `Eight modules at P02`
+- `The five standards plus ROADMAP.md`
+
+The list, table or directory *is* the count; prose beside it is a
+second source of truth with a shorter shelf life than the first.
+Write `the standards in this folder` and link the index.
+
+This project has now fixed that exact drift **twice** — "four
+standards (five), eight phases (ten)" on 2026-08-06, and seven more
+sites on 2026-08-07, one of which was a *repair* of the first that
+substituted a fresh wrong number for a stale one. That is why the
+rule is "drop it", not "keep it current": keeping it current is the
+step everybody skips, and refreshing it is indistinguishable from
+fixing it.
+
+**A dated measurement is the opposite and stays.** "524,271 reasons
+at the file-size cap (2026-08-07)", "150 tests at the time", "4.29:1
+on `alt_base`" — these are evidence about a past run, not claims
+about the present, so they do not rot. The test is whether the
+sentence would become *false* as the project grows, or merely
+*older*. Anchor the second kind to its date; delete the first kind.
+
 A field or concept has exactly one name, too. One thing with two
 names is the beginning of two things.
 
@@ -174,7 +202,7 @@ your own unless the project has a specific reason.
 
 For projects accepting external contributors: build steps, test
 expectations, how to file issues, how to propose features. Should
-link to all four standards docs in this folder.
+link to the standards docs in this folder.
 
 
 ## 3. ROADMAP.md and CHANGELOG.md formats
