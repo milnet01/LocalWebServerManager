@@ -1172,6 +1172,31 @@ importing `lwsm.__main__` in a test does not require a display.
   same direction. A test that cannot distinguish "both right" from "both
   wrong" is the shape to watch for here.
 
+- **INV-24** — A theme's `text` token is the colour a row's name and port cells
+  are actually rendered in, not merely the colour the `QPalette` holds.
+  *Test:* `tests/test_mainwindow.py::test_the_theme_reaches_the_cells_not_only_the_window`,
+  under a **dark** theme, because under the default one the invariant cannot
+  fail: Fusion's fallback black is darker than the `text` token, so the wrong
+  colour has *better* contrast and nothing looks wrong. Antialiasing is switched
+  off for the grab (`QFont.StyleStrategy.NoAntialias`) so the token can be
+  asserted exactly — with it on, a name label rendered 0 pixels of a pure
+  `#ff00ff` out of 119 and its ink spanned 40 colours including near-white
+  subpixel fringe, which a first version of the test matched instead of the
+  text.
+  *Breaks when:* the palette is set on the **window** rather than on the
+  **application**. `setStyleSheet` installs `QStyleSheetStyle`, which re-resolves
+  every descendant from the application palette and discards the widget's own —
+  so `to_palette()`'s 13 roles reached the frame and stopped. Measured before
+  the fix: `window` at `WindowText=#1b1b1f` against the central widget, the row
+  and all three cell labels at `#000000`, and a dark theme rendering the name
+  and port at **1.25:1 and 1.27:1** against `§ T8`'s 4.5:1 floor — invisible,
+  for a primary user who is partially sighted (LWSM-1118).
+
+  `theme.py`'s claim that "tokens expand into a QPalette so native widgets
+  follow the theme" was false for three reviews because the light default made
+  the failure look like success. A palette assertion that does not render is not
+  evidence about what a user sees.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -1433,6 +1458,7 @@ onto the controller is what lets `autoDelete` stay on.
 | INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`, plus `::test_no_file_sourced_value_is_interpolated_without_the_clip` for the mechanism-wide sweep |
 | INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced` |
 | INV-23 | `tests/test_mainwindow.py::test_the_state_word_takes_its_colour_from_the_status` |
+| INV-24 | `tests/test_mainwindow.py::test_the_theme_reaches_the_cells_not_only_the_window` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
 | O8.4 — reflow at 200 % text size | **partly** — `test_the_glyph_is_not_clipped_when_the_text_size_doubles` renders at 200 % and asserts the glyph's ink stays inside its column (LWSM-1101), and `test_the_row_resizes_its_cells_when_the_font_grows` covers the cell minimums. Neither covers the row *reflowing*; the text-size control itself is LWSM-1032 |

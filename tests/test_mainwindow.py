@@ -7,6 +7,7 @@ which conftest.py sets when it is unset.
 from __future__ import annotations
 
 import socket
+from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -217,6 +218,88 @@ def test_the_state_word_is_still_coloured_from_the_theme(qtbot, built) -> None:
     assert themed != unthemed, (
         "the state word renders identically with and without the theme's style "
         "sheet — the generated rules are not reaching it"
+    )
+
+
+def ink_colours(label) -> Counter[str]:
+    """The colours a label's *text* contributes, counted, background excluded.
+
+    Two steps, and both were forced by a version of this that could not fail:
+
+    - **Antialiasing is turned off first.** With it on, a one-character label
+      rendered 0 pixels of a pure `#ff00ff` out of 119 and the ink spanned 40
+      distinct colours including near-white subpixel fringe.
+      `test_the_state_word_is_still_coloured_from_the_theme` records the same
+      thing and dodges it by diffing two renders. Off, the ink is exactly one
+      colour and the token can be asserted rather than approximated.
+    - **The text is blanked and re-rendered to isolate the ink.** A first
+      version took the nearest pixel of the whole grab and *passed against the
+      unfixed code*, because the label's background was Fusion's light grey,
+      which sat nearer a near-white dark-theme token than the black text did.
+    """
+    from PySide6.QtGui import QColor, QFont
+
+    crisp = QFont(label.font())
+    crisp.setStyleStrategy(QFont.StyleStrategy.NoAntialias)
+    label.setFont(crisp)
+
+    text = label.text()
+    with_text = label.grab().toImage()
+    label.setText("")
+    without_text = label.grab().toImage()
+    label.setText(text)
+    return Counter(
+        QColor(with_text.pixel(x, y)).name()
+        for y in range(with_text.height())
+        for x in range(with_text.width())
+        if with_text.pixel(x, y) != without_text.pixel(x, y)
+    )
+
+
+def test_the_theme_reaches_the_cells_not_only_the_window(qtbot, built) -> None:
+    """INV-24 — a palette set on the window reached the window and nothing in it.
+
+    `setStyleSheet` installs `QStyleSheetStyle`, which re-resolves every
+    descendant's palette from the **application** palette and discards the one
+    just set on the widget. Verified on live widgets before the fix: `window`
+    carried `WindowText=#1b1b1f` while `centralWidget`, the row and the name and
+    port labels all carried Fusion's `#000000`.
+
+    The light default hides it, which is why it survived three reviews: Fusion's
+    black is *darker* than the `text` token, so contrast is accidentally better.
+    A dark theme makes it visible at once — name and port rendered at 1.25:1 and
+    1.27:1 against § T8's 4.5:1 floor, i.e. invisible, for a primary user who is
+    partially sighted. So this test uses a dark theme, deliberately: under the
+    default palette it cannot fail.
+
+    Measured on 2026-08-07: the name cell's ink was **80 pixels of exactly
+    `#000000`** before the fix and **80 pixels of exactly `#eef0ff`** after, so
+    this asserts the token itself rather than a tolerance.
+    """
+    from dataclasses import replace
+
+    dark = replace(
+        Theme.default(),
+        window="#16161a",
+        base="#1e1e24",
+        alt_base="#26262e",
+        text="#eef0ff",
+        is_dark=True,
+    )
+    controller = build_controller(built, [record("aaaa", 5005)], FakeProbe(5005))
+    window = MainWindow(controller, dark, [])
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    with qtbot.waitExposed(window):
+        window.show()
+
+    ink = ink_colours(rows_of(window)[0]._name)
+
+    assert ink, "the name cell rendered no text at all"
+    assert set(ink) == {dark.text}, (
+        f"the name cell's ink is {dict(ink)}, not the theme's text token "
+        f"{dark.text} — the palette reached the window and not the cell"
     )
 
 
@@ -1111,10 +1194,19 @@ def test_the_window_carries_the_theme_palette(qtbot, built) -> None:
     thrown away, and the only test that could have noticed was looking at the
     wrong end of the call.
 
-    Scope is deliberately the window's own palette. **The theme does not in fact
-    reach the window's descendants** — `setStyleSheet` makes Qt re-resolve every
-    child from the *application* palette — which is LWSM-1118's finding and
-    LWSM-1118's test. This one pins the call; that one pins the propagation.
+    Scope is the window's own palette. It used to carry a note here saying the
+    theme "does not in fact reach the window's descendants" — true when it was
+    written and **false since LWSM-1118**, which is why it is rewritten rather
+    than left standing: a comment stating a fixed defect as current fact is the
+    LWSM-1108 class of error, and this project has already had to clear one
+    round of those.
+
+    The window now inherits the palette from the application rather than having
+    it set directly, so this and
+    `test_the_theme_reaches_the_cells_not_only_the_window` redden on the same
+    mutation. They are still separate: this one fails if the theme reaches
+    nothing at all, that one fails if it reaches the frame and stops there —
+    which is exactly the state that survived three reviews.
     """
     from PySide6.QtGui import QColor, QPalette
 

@@ -124,7 +124,13 @@ class Theme:
         )
 
     def to_palette(self) -> QPalette:
-        """Tokens expand into a QPalette so native widgets follow the theme."""
+        """Tokens expand into a QPalette so native widgets follow the theme.
+
+        True only once the palette is set on the **QApplication**. Setting it on
+        a window that also carries a style sheet themes the frame and nothing
+        inside it, and this sentence was false for three reviews on that
+        account — see INV-24 and `MainWindow.__init__` (LWSM-1118).
+        """
         palette = QPalette()
         palette.setColor(QPalette.ColorRole.Window, QColor(self.window))
         palette.setColor(QPalette.ColorRole.Base, QColor(self.base))

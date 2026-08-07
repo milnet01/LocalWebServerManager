@@ -45,6 +45,28 @@ def _reap_abandoned_probes():
         )
 
 
+@pytest.fixture(autouse=True)
+def _restore_application_palette():
+    """Undo `MainWindow`'s application-palette change between tests (LWSM-1118).
+
+    A `QApplication` is created once per session, so the palette `MainWindow`
+    now sets on it outlives the window that set it. Without this, the one test
+    that builds a dark theme would tint every test that ran after it — and
+    since most assertions here are about *relative* colour, that would surface
+    somewhere unrelated rather than as an obvious failure.
+
+    A no-op until a `QApplication` exists, which is the non-GUI tests.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    before = app.palette() if app is not None else None
+    yield
+    app = QApplication.instance()
+    if app is not None and before is not None:
+        app.setPalette(before)
+
+
 @pytest.fixture
 def dense_malformed_file(tmp_path: Path) -> Path:
     """A projects.json at `MAX_FILE_BYTES` holding as many rejectable elements

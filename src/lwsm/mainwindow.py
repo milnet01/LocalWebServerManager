@@ -21,6 +21,7 @@ from PySide6.QtGui import (
     QPen,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -315,7 +316,25 @@ class MainWindow(QMainWindow):
         # QPaintDevice looking for it) while every other string in this file is
         # in `_TR_CONTEXT`. § 4.4 asks for one place for a translator to look.
         self.setWindowTitle(self._window_title())
-        self.setPalette(theme.to_palette())
+        # On the APPLICATION, not on `self`. `setStyleSheet` below installs
+        # QStyleSheetStyle, and that re-resolves every descendant's palette from
+        # the application palette — so a `self.setPalette(...)` themed the window
+        # frame and nothing inside it. Verified on live widgets: `window` carried
+        # WindowText=#1b1b1f while the central widget, the row and all three
+        # cell labels carried Fusion's #000000. The light default hid it,
+        # because Fusion's black is *darker* than the `text` token so contrast
+        # was accidentally better; a dark theme rendered the name and port at
+        # 1.25:1 and 1.27:1 against § T8's 4.5:1 floor (LWSM-1118).
+        #
+        # Application-wide is also the right scope rather than a workaround:
+        # the theme governs P05's dialogs and P09's tray as much as this window,
+        # and LWSM-1031's switcher will re-apply it here. The window inherits it
+        # like every other widget, so the `self.setPalette` that used to sit here
+        # became redundant and was removed with it — a line no test could redden
+        # is the LWSM-1113 defect this pass exists to close.
+        app = QApplication.instance()
+        if app is not None:
+            app.setPalette(theme.to_palette())
         # Set once for the whole window; rows carry a state property the rules
         # in it select on.
         self.setStyleSheet(theme.style_sheet())
