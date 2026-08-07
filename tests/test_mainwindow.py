@@ -628,6 +628,67 @@ def test_the_row_resizes_its_cells_when_the_font_grows(qtbot, built) -> None:
     assert row._state.minimumWidth() > before
 
 
+def glyph_ink_bounds(row) -> tuple[int, int]:
+    """The leftmost and rightmost columns the glyph actually paints.
+
+    Blank the glyph and re-render: the difference IS the glyph, which is the
+    same trick `test_the_glyph_is_still_painted_after_leaving_the_label` uses
+    and for the same reason — '○' and '?' are antialiased strokes, so no pixel
+    in them equals the pure token colour.
+
+    Scanned across the **whole row**, never across the reserved column: a
+    count scoped to the column cannot see that the column is the problem.
+    """
+    with_glyph = row.grab().toImage()
+    kept, row._glyph_text = row._glyph_text, ""
+    without_glyph = row.grab().toImage()
+    row._glyph_text = kept
+
+    columns = [
+        x
+        for y in range(with_glyph.height())
+        for x in range(with_glyph.width())
+        if with_glyph.pixel(x, y) != without_glyph.pixel(x, y)
+    ]
+    assert columns, "the glyph painted nothing at all"
+    return min(columns), max(columns)
+
+
+def test_the_glyph_is_not_clipped_when_the_text_size_doubles(qtbot, built) -> None:
+    """`coding.md § O8` clause 4: reflows at 200 % text size without clipping.
+
+    `_glyph_width` and the widened left content margin were computed once in
+    `__init__`, and `changeEvent`'s `FontChange` branch recomputed only the
+    state and port minimum widths — while `_apply_text_metrics`'s own
+    docstring claimed it kept sizes fresh. `paintEvent` draws into
+    `QRect(self._glyph_x, 0, self._glyph_width, ...)` and `drawText` **clips**
+    to that rectangle.
+
+    Measured before the fix: 13 px reserved against 14 px needed at 200 % and
+    22 px at 300 %, with the ink running to both edges of the reserved
+    rectangle at both scales (unclipped at 100 %, ink [14, 20] inside a
+    [11, 24) column). This is the setting the people who need the glyph will
+    be using.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    row = rows_of(window)[0]
+    shown(qtbot, window)
+
+    font = row.font()
+    font.setPointSizeF(font.pointSizeF() * 2)
+    row.setFont(font)
+
+    left, right = glyph_ink_bounds(row)
+    last_column = row._glyph_x + row._glyph_width - 1
+
+    # Strictly inside, not merely overlapping: clipped ink runs to the
+    # rectangle's own edges, which is precisely what 200 % produced.
+    assert row._glyph_x < left <= right < last_column, (
+        f"the glyph paints columns [{left}, {right}] in a reserved column of "
+        f"[{row._glyph_x}, {last_column}] — it is being clipped at 200 % text"
+    )
+
+
 # --- LWSM-1081: the strings are reachable by a translator ----------------------
 
 

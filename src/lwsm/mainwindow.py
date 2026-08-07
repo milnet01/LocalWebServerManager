@@ -113,13 +113,11 @@ class ProjectRow(QFrame):
         # PySide6 types the latter as `object`, which a checker cannot unpack.
         margins = layout.contentsMargins()
         self._glyph_x = margins.left()
-        self._glyph_width = self.fontMetrics().horizontalAdvance("●") + layout.spacing()
-        layout.setContentsMargins(
-            margins.left() + self._glyph_width,
-            margins.top(),
-            margins.right(),
-            margins.bottom(),
-        )
+        # Kept because _apply_text_metrics re-derives the left margin from it on
+        # every font change: adding the glyph column to whatever the margin
+        # currently is would compound it on each call.
+        self._base_margins = margins
+        self._glyph_width = 0
 
         self._state = QLabel(self)
         self._name = QLabel(self)
@@ -151,10 +149,26 @@ class ProjectRow(QFrame):
 
         Re-applied on every font change rather than computed once, so
         LWSM-1032's 100-200 % text-size control does not leave these stale.
+
+        The **glyph column is one of them**, and until LWSM-1101 it was not:
+        it and the widened left margin were computed once in `__init__` while
+        this docstring already claimed otherwise. `paintEvent` clips the glyph
+        to that column, so 13 px stayed reserved against 14 px needed at 200 %
+        and 22 px at 300 % — a state indicator sliced in half at exactly the
+        text size the users who depend on it are running.
         """
         metrics = self.fontMetrics()
         self._state.setMinimumWidth(metrics.horizontalAdvance("stopped_"))
         self._port.setMinimumWidth(metrics.horizontalAdvance("no port_"))
+
+        layout = self.layout()
+        self._glyph_width = metrics.horizontalAdvance("●") + layout.spacing()
+        layout.setContentsMargins(
+            self._base_margins.left() + self._glyph_width,
+            self._base_margins.top(),
+            self._base_margins.right(),
+            self._base_margins.bottom(),
+        )
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
