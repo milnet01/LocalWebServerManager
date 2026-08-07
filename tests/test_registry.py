@@ -304,7 +304,132 @@ def test_an_enormous_name_is_clipped(tmp_path: Path) -> None:
     _, reasons = load_projects(path)
 
     assert len(reasons) == 1
-    assert len(reasons[0]) < 500, f"reason is {len(reasons[0])} characters"
+    # Against the constant, not a loose literal: `< 500` against a 100,000-char
+    # input detected removal of the clip and nothing between — `MAX_REASON_CHARS`
+    # could be set to 400 and this stayed green (LWSM-1109).
+    assert len(reasons[0]) <= 2 * registry.MAX_REASON_CHARS, (
+        f"reason is {len(reasons[0])} characters against a "
+        f"MAX_REASON_CHARS of {registry.MAX_REASON_CHARS}"
+    )
+
+
+def test_the_clip_bounds_the_escaped_text_not_the_raw_text() -> None:
+    """`_quoted` clipped BEFORE the `repr`, so the bound was ~10x the constant.
+
+    Every character here is a non-printable astral code point, which `repr`
+    escapes to a 10-character `\\U000e0001` sequence. Clipping first therefore
+    bounded the *input* at `MAX_REASON_CHARS` and let the output reach ten
+    times that: 400 such characters returned **1203** characters, and a
+    rejection reason interpolates two of them (LWSM-1111). An `'A' * 100_000`
+    input cannot see this — `repr` adds two quotes to it and nothing more.
+    """
+    hostile = "\U000e0001" * 400
+
+    quoted = registry._quoted(hostile)
+
+    # +1 for the ellipsis the clip appends.
+    assert len(quoted) <= registry.MAX_REASON_CHARS + 1, (
+        f"{len(quoted)} characters out of a MAX_REASON_CHARS of "
+        f"{registry.MAX_REASON_CHARS}"
+    )
+
+
+def test_a_hostile_port_field_cannot_flood_the_reason(tmp_path: Path) -> None:
+    """`_quoted` reached `name` and `path` and never the port fields.
+
+    `_port_or_reason` interpolated `{value!r}`, which escapes but does not
+    clip, so a 200 KB string in `port` produced a reason of **200,038**
+    characters against a `MAX_REASON_CHARS` of 120 (LWSM-1102). The ceiling is
+    the 1 MiB file cap, so a hand-edited file yielded a ~1 MiB status-bar
+    string and a ~1 MiB log record into a handler that rotates at 1 MiB
+    keeping 5 — scrubbing the very history the user is told to consult.
+
+    LWSM-1078 fixed the name and the path and stopped there because INV-21's
+    own *Breaks when* clause said `{value!r}` on the port fields "already did
+    the right thing". Half true: escaping yes, bounding no.
+    """
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [
+                {"name": "a", "path": "/srv/a", "port": "X" * 200_000},
+                {"name": "b", "path": "/srv/b", "port_override": "Y" * 200_000},
+            ],
+        },
+    )
+
+    records, reasons = load_projects(path)
+
+    # A bad port loses the field, not the row.
+    assert len(records) == 2
+    assert len(reasons) == 2, reasons
+    for reason in reasons:
+        # One quoted name plus one quoted value, each bounded by the constant,
+        # plus the fixed template text.
+        assert len(reason) <= 3 * registry.MAX_REASON_CHARS, (
+            f"reason is {len(reason)} characters against a MAX_REASON_CHARS "
+            f"of {registry.MAX_REASON_CHARS}"
+        )
+
+
+def test_a_doubled_leading_slash_is_not_a_second_identity(tmp_path: Path) -> None:
+    """POSIX gives exactly two leading slashes an implementation-defined
+    meaning, and `PurePosixPath` preserves them as a distinct root —
+    `Path('//srv/a').parts == ('//', 'srv', 'a')` — while `realpath` resolves
+    both to the same directory. Three or more collapse; exactly two do not.
+
+    So `/srv/a` and `//srv/a` both loaded with no reason recorded: two records
+    with one identity, which `§ 6` calls a malformed file. `mainwindow` keys
+    rows on `Path`, so it drew two rows for one directory, and P03 would spawn
+    twice with the same `cwd` (LWSM-1103). Same class as the `..` hole
+    LWSM-1078 closed, and refused for the same reason.
+    """
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [one_good(), one_good(path="//srv/project-a", name="b")],
+        },
+    )
+
+    records, reasons = load_projects(path)
+
+    assert len(records) == 1, "both records loaded under one identity"
+    assert any("//" in reason for reason in reasons), reasons
+
+
+@pytest.mark.skipif(
+    not Path("/proc/self/fd").exists(), reason="descriptor count needs /proc"
+)
+def test_a_directory_at_the_path_does_not_leak_a_descriptor(tmp_path: Path) -> None:
+    """`os.open()` on a directory with `O_RDONLY` **succeeds** on Linux, and
+    `os.fdopen()` then raised `IsADirectoryError` before the `with` block was
+    entered — so nothing closed the descriptor. 50 calls leaked 50 (LWSM-1104).
+
+    One descriptor today, because `load_projects` runs once from
+    `build_window`. It matters because this helper exists *for* resource
+    discipline, "a directory at that path" is an enumerated shape in `§ 4.1`
+    and in `test_unusable_files_are_refused` — which therefore leaked on every
+    test run — and LWSM-1008's rescan makes it unbounded.
+    """
+    a_directory = tmp_path / "dir.json"
+    a_directory.mkdir()
+
+    def open_descriptors() -> int:
+        return len(os.listdir("/proc/self/fd"))
+
+    with pytest.raises(RegistryError):
+        load_projects(a_directory)
+    before = open_descriptors()
+
+    for _ in range(50):
+        with pytest.raises(RegistryError):
+            load_projects(a_directory)
+
+    assert open_descriptors() <= before, (
+        f"{open_descriptors() - before} descriptors leaked over 50 refusals"
+    )
 
 
 def test_a_path_with_a_parent_component_is_refused(tmp_path: Path) -> None:

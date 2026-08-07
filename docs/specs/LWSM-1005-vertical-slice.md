@@ -180,7 +180,7 @@ load-bearing: `repr` escapes a newline, without which a project name forges
 what reads as a second log record, and the clip bounds it, without which a
 50 MB name produced a 50 MB status string. `MAX_REASON_CHARS` is 120.
 
-**Two path shapes are refused rather than accepted or normalised**, both
+**Three path shapes are refused rather than accepted or normalised**, all
 reproduced:
 
 - **`..` in any component.** `PurePath` keeps it, so `/srv/a` and
@@ -188,6 +188,14 @@ reproduced:
   identity, which §6 calls a malformed file. Refused rather than lexically
   normalised, because collapsing `..` is wrong when a component is a symlink,
   and P03 passes this path as a spawn `cwd`.
+- **A doubled leading slash.** The same hole in a second form, and it survived
+  the fix above (LWSM-1103). POSIX gives *exactly* two leading slashes an
+  implementation-defined meaning and `PurePosixPath` preserves them as a
+  distinct root — `Path('//srv/a').parts == ('//', 'srv', 'a')` — while
+  `realpath` resolves both to the same directory, so `/srv/a` and `//srv/a`
+  both loaded with no reason recorded. Three or more slashes collapse;
+  exactly two do not. Verified clean in the same sweep and therefore not
+  re-searched: a trailing slash, `///`, `.` components and `/srv/a/.`.
 - **A NUL byte.** It passes `is_absolute()` and loads, though every later `os`
   call on it raises `ValueError`.
 
@@ -1034,10 +1042,21 @@ importing `lwsm.__main__` in a test does not require a display.
   length, whatever the file contains.
   *Test:* `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`
   (asserts the newline survives **escaped** rather than being stripped, so the
-  reason still says what was wrong) and `::test_an_enormous_name_is_clipped`.
-  *Breaks when:* a name is interpolated as `{raw_name}` rather than through
-  the escaping helper. `{value!r}` on the *port* fields already did the right
-  thing, which is why the name fields looked consistent with them.
+  reason still says what was wrong), `::test_an_enormous_name_is_clipped`,
+  `::test_the_clip_bounds_the_escaped_text_not_the_raw_text` and
+  `::test_a_hostile_port_field_cannot_flood_the_reason`.
+  *Breaks when:* any hand-edited value is interpolated as `{value!r}` rather
+  than through `_quoted`, **or** the clip is applied before the escape rather
+  than after.
+
+  This clause used to say `{value!r}` on the *port* fields "already did the
+  right thing". Half true, and the false half is what made LWSM-1078 stop at
+  the name and path: `repr` escapes but does not clip, so a 200 KB string in
+  `port` produced a **200,038**-character reason against a constant of 120
+  (LWSM-1102). Clipping before the escape was bounding the wrong string in the
+  same way — 400 non-printable astral characters returned **1203**
+  (LWSM-1111). Escaping and bounding are two properties; a clause naming one
+  of them satisfied is not evidence about the other.
 
 - **INV-22** — A row whose `RowView` changed raises exactly one accessibility
   `NameChanged` event; a row whose `RowView` did not raises none.

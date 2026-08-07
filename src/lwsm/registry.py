@@ -83,17 +83,29 @@ def default_projects_path() -> Path:
     return base / "localwebservermanager" / "projects.json"
 
 
-def _quoted(value: str) -> str:
-    """Escape and clip a hand-edited string before it reaches a log or the UI.
+def _quoted(value: object) -> str:
+    """Escape and clip a hand-edited value before it reaches a log or the UI.
 
     The file is attacker-editable, and a rejection reason travels to both
     `log.warning` and the status bar. `repr` is what makes that safe (LWSM-1078):
     it escapes a newline, so a name cannot forge what looks like a second log
     record, and the clip bounds it — a 50 MB name produced a 50 MB status string.
+
+    **Escape first, then clip.** Clipping the input instead bounded the wrong
+    string: `repr` expands a non-printable astral character to a 10-character
+    `\\U000e0001` sequence, so 400 of them returned 1203 characters against a
+    constant of 120, and a reason interpolates two such values (LWSM-1111).
+    Truncating an escaped string can leave an unterminated quote, which is
+    cosmetic; it cannot reintroduce a raw newline, which is the property that
+    matters.
+
+    Takes `object`, not `str`, because the port fields carry whatever JSON
+    held and they need the same bound (LWSM-1102).
     """
-    clipped = value[:MAX_REASON_CHARS]
-    ellipsis = "…" if len(value) > MAX_REASON_CHARS else ""
-    return f"{clipped!r}{ellipsis}"
+    escaped = repr(value)
+    if len(escaped) <= MAX_REASON_CHARS:
+        return escaped
+    return f"{escaped[:MAX_REASON_CHARS]}…"
 
 
 def _is_int(value: object) -> TypeGuard[int]:
@@ -114,7 +126,9 @@ def _port_or_reason(
     if value is None:
         return None, None
     if not _is_int(value) or not low <= value <= high:
-        return None, f"{name}: {field} {value!r} is not an integer {low}-{high}"
+        # _quoted, not {value!r}: repr escapes but does not clip, and a 200 KB
+        # string in `port` produced a 200,038-character reason (LWSM-1102).
+        return None, f"{name}: {field} {_quoted(value)} is not an integer {low}-{high}"
     return value, None
 
 
@@ -135,8 +149,12 @@ def _read_bounded(path: Path) -> bytes:
     reasonably hard-link or have installed for them.
     """
     fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as handle:
-        info = os.fstat(handle.fileno())
+    try:
+        # Interrogated on the raw descriptor, before anything wraps it.
+        # `os.fdopen` on a directory raises `IsADirectoryError` *before* its
+        # `with` block is entered, so wrapping first left nothing owning the
+        # descriptor and nothing closing it: 50 calls leaked 50 (LWSM-1104).
+        info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise OSError(errno.EINVAL, "not a regular file", str(path))
         if info.st_size > MAX_FILE_BYTES:
@@ -145,6 +163,13 @@ def _read_bounded(path: Path) -> bytes:
                 f"too large: {info.st_size} bytes, limit {MAX_FILE_BYTES}",
                 str(path),
             )
+        handle = os.fdopen(fd, "rb")
+    except BaseException:
+        # Nothing else owns the descriptor yet, on any path out of here.
+        os.close(fd)
+        raise
+
+    with handle:
         # One byte past the cap, so a file that grew between the fstat and the
         # read is still refused rather than read whole.
         raw = handle.read(MAX_FILE_BYTES + 1)
@@ -238,6 +263,15 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
         project_path = Path(raw_path)
         if not project_path.is_absolute():
             reasons.append(f"{name}: path {_quoted(raw_path)} is not absolute")
+            continue
+        if project_path.parts[:1] == ("//",):
+            # POSIX gives EXACTLY two leading slashes an implementation-defined
+            # meaning, and PurePosixPath keeps them as a distinct root, while
+            # realpath resolves '//srv/a' and '/srv/a' to the same directory —
+            # so both loaded, two records under one identity. Three or more
+            # slashes collapse; two do not. Refused rather than normalised, for
+            # the same reason as '..' below.
+            reasons.append(f"{name}: path {_quoted(raw_path)} must not begin with '//'")
             continue
         if ".." in project_path.parts:
             # PurePath keeps '..', so /srv/a and /srv/c/../a are unequal and both
