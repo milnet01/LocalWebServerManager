@@ -2,9 +2,10 @@
 # Commit Standards — v1
 
 A shareable contract for git commits in this project. Pairs with
-the other three standards in this folder ([coding](coding.md),
-[documentation](documentation.md), [testing](testing.md)) — see
-the [index](README.md) for the full set.
+the other four standards in this folder ([coding](coding.md),
+[documentation](documentation.md), [testing](testing.md),
+[dependencies](dependencies.md)) — see the [index](README.md) for
+the full set.
 
 This standard governs every commit, plus the release-orchestration
 work under ROADMAP bullets with `Kind: chore` or `release`.
@@ -63,7 +64,14 @@ ID. Don't ship code that should have been planned.
 
 ### 1.4 Body
 
-Optional, but encouraged when the change isn't self-explanatory.
+Optional, but encouraged when the change isn't self-explanatory —
+and **mandatory for `Kind: fix` / `audit-fix` / `review-fix`**,
+which owe two lines this standard does not itself define: the
+mechanism sweep (`coding.md § 1.6`) and the mutation record
+(`testing.md § T9`). Both were added 2026-08-07 and both put
+required content here, so a reader who took "optional" at face
+value would omit them in good faith.
+
 Format:
 
 ```

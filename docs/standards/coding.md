@@ -2,9 +2,10 @@
 # Coding Standards — v1
 
 A shareable contract for code in this project. Pairs with the
-other three standards in this folder ([documentation](documentation.md),
-[testing](testing.md), [commits](commits.md)) — see the
-[index](README.md) for the full set.
+other four standards in this folder ([documentation](documentation.md),
+[testing](testing.md), [commits](commits.md),
+[dependencies](dependencies.md)) — see the [index](README.md) for
+the full set.
 
 This standard governs ROADMAP bullets with `Kind: implement`,
 `fix`, `refactor`, `audit-fix`, or `review-fix`. The other kinds
@@ -68,52 +69,69 @@ canonical source. When unsure what's current, check the
 library docs first. Stale idioms compile but they age the
 codebase.
 
-### 1.6 A fix names the other call sites of the same mechanism
+### 1.6 A change names the other call sites of the same mechanism
 
-A fix closes a **mechanism**, not the one call site it was reported
-against. Before a fix is done, name the other places that mechanism
-is used, and either fix them in the same change or say in the commit
-why they are out of scope. "I did not look" is not one of the two.
+**Applies to every Kind this standard governs** — `implement`, `fix`,
+`refactor`, `audit-fix`, `review-fix`. A new mechanism applied
+unevenly on the day it lands is the same defect as a fix applied
+unevenly later, and three of the six instances below arrived that way.
+
+A change closes a **mechanism**, not the one call site it was reported
+against. Before it is done, name the other places that mechanism is
+used, and take exactly one of three outcomes:
+
+1. **Fix them in the same change.**
+2. **Say in the commit why they are out of scope.**
+3. **Say the sweep found nothing** — one line naming what you searched
+   for and what it returned (`swept for bare {…!r} across src/: no
+   other sites`).
+
+Outcome 3 is not optional politeness. Without it a clean sweep and a
+skipped one produce byte-identical output, so the one behaviour this
+rule exists to ban — "I did not look" — is the one it cannot detect,
+and the rule decays into advice.
 
 Finding them is a grep, not a memory exercise — search for the
 *defect's shape* rather than for the symptom: the helper that should
 have been called (`_quoted`), the guard that should have wrapped it
 (`Path.home()`), the flag that should have been checked (`_stopped`).
 
-**Where possible, make the sweep a test rather than a habit.** A
-one-off grep protects this change; an assertion protects every later
-one. `test_no_file_sourced_value_is_interpolated_without_the_clip`
-reads its whole module and fails on any un-clipped interpolation, so
-the *next* instance is caught at the gate rather than by the next
-review. Prefer that whenever the shape is greppable.
-
-**A mechanism is not only a function.** Three of FP05's six instances
+**A mechanism is not only a function.** Three of the instances below
 were a *rule* applied unevenly rather than a helper called unevenly —
 a bound placed on one exit path, a guard on one of two sibling slots,
 a floor checked against one of two backgrounds. Ask "what did I decide
 here, and where else does that decision apply?", not just "who else
 calls this?".
 
+**Where the shape recurs, make the sweep a test** — a source-invariant
+test, `testing.md § 3.6`, which sanctions the shape and carries the
+rules for writing one. A one-off grep protects this change; an
+assertion protects every later one.
+
+Not on every fix, though: **three or more call sites, or the second
+time the same shape has been found.** A two-site mechanism found once
+is served by the grep and the commit line, and a permanent test
+guarding two lines is the scaffolding § 1.1 rejects.
+
 **Why this is a standard and not advice.** Three consecutive review
 passes — FP03, FP04 and FP05 — each reported this shape as their most
-common finding, and FP05 found six instances at once: `_quoted` applied
-to the port fields but not `schema_version`; `Path.home()` guarded in
-`registry` but not `applog`; a shutdown bound placed in `run()` rather
-than in the abandonment mechanism; staleness handled on the exception
-path but not the hang path; a `_stopped` flag checked in one slot but
-not its sibling; a contrast floor enforced against `window` but not
-`alt_base`. Each was cheap to find and cheap to fix at the time, and
-instead cost a review cycle apiece.
+common finding, and FP05 found **six instances at once**: a clipping
+helper applied to two fields of three, a home-directory guard present
+in one module and absent in its twin, a shutdown bound placed on one
+exit path, staleness handled on the exception path but not the hang
+path, a stop flag checked in one slot but not its sibling, and a
+contrast floor enforced against one background of two. Each was cheap
+to find and cheap to fix at the time, and instead cost a review cycle
+apiece.
 
-`/apply-fixes` already runs a blast-radius sweep, so a fix routed
+`/apply-fixes` already runs a blast-radius sweep, so a change routed
 through it gets this for free. The gap this closes is that nothing
-made it mandatory for a fix written outside that skill.
+made it mandatory for one written outside that skill.
 
-**Renumbering note.** This clause is § 1.6 and not § 1.4 — where it
-reads best, beside § 1.3's reuse rule — because `README.md` and
-`dependencies.md` both cite `coding.md § 1.5`, and inserting ahead of
-it would have silently repointed them. Which is this very rule: the
-numbering is a mechanism with call sites elsewhere.
+**Numbering note.** This is § 1.6 rather than § 1.4 beside § 1.3's
+reuse rule, where it reads better, because `README.md` and
+`dependencies.md` both cite `coding.md § 1.5` and inserting ahead of it
+would have silently repointed them — this rule, applied to itself.
 
 
 ## 2. Error handling
@@ -152,16 +170,24 @@ Don't:
 
 ## 4. Naming
 
-- **Functions** — verb phrases (`parseRGBColor`, `applyTheme`).
-- **Variables** — noun phrases (`m_currentTab`, `gridSize`).
-- **Booleans** — `is*` / `has*` / `can*` (`isReady`, `hasFocus`).
+- **Functions** — verb phrases (`parse_rgb_color`, `apply_theme`).
+- **Variables** — noun phrases (`current_tab`, `grid_size`).
+- **Booleans** — `is_*` / `has_*` / `can_*` (`is_ready`,
+  `has_focus`).
 - **Constants** — match the file's existing style. Don't mix
   SCREAMING_SNAKE and PascalCase in one file.
 - **Avoid abbreviations** except universally-known (`url`, `id`,
   `db`). Prefer `temperature` over `temp` when ambiguous.
-- **No Hungarian notation.** `m_` prefix for member fields is
-  fine where a project uses it; type prefixes (`strName`, `iCount`)
-  are not.
+- **No Hungarian notation.** Type prefixes (`strName`, `iCount`)
+  are not naming, they are a comment that rots. The `m_` member
+  prefix is fine in a project that already uses it; **this project
+  does not** — plain attribute names, a leading underscore for
+  private (`self._rows`).
+
+The examples above are Python because this project is Python and
+`ruff` enforces `snake_case` in the gate; they were camelCase with
+`m_` prefixes until 2026-08-07, which is the form a reader copies.
+The rules themselves are language-neutral.
 
 
 ## 5. Language-specific notes
@@ -337,3 +363,13 @@ magnifier.** Any new interactive widget lands with all four of:
 A widget missing any of these is incomplete, in the same way an
 untested one is. Retrofitting accessibility is how it never
 happens.
+
+
+## Cold-eyes loop log
+
+Rule-14 gate history for this standard. Written by `/cold-eyes` as
+each loop happens, never back-filled.
+
+| Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Verified | Outcome |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 4 | 4 | 4 | 12 verified, 0 unverified, 12 fixed | Converged. Batched run with `testing.md`; both files gained a clause in FP05 from the same pair of root causes, so gating them separately would have meant a second reviewer re-reading overlapping ground. Dimensions: dim 6×3, dim 7×3, dim 2×2, dim 15×1, dim 8×1, dim 12×1, dim 11×1. **Both lanes independently found the same three primary defects**, which is the signal worth recording: § 1.6 named no `Kind:` trigger while its companion `testing.md § T9` enumerated three; § 1.6's two permitted outcomes produced no artefact in the null case, so a clean sweep and a skipped one were byte-identical — the one behaviour the rule bans was the one it could not detect; and § 1.6's preferred "sweep test" was a shape `testing.md § 2.1` and § 9 both forbid and § 3.1's no-I/O rule excluded, with no test type admitting it. The third is the one a gate earns its cost on: the two clauses were written in the same pass, by the same author, and contradicted each other. Fixed by adding a third mandatory outcome, an explicit Kind list, a bound on when a sweep test is warranted, and `testing.md § 3.6` as a sanctioned type. Also corrected: `§ 4`'s naming examples were camelCase with `m_` prefixes in a `ruff`-enforced snake_case project, and the header said "other three standards" against five. Remaining C++/CMake residue routed to LWSM-1062, which already owns the fork reconciliation. |

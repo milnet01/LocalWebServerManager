@@ -2,9 +2,10 @@
 # Testing Standards — v1
 
 A shareable contract for tests in this project. Pairs with the
-other three standards in this folder ([coding](coding.md),
-[documentation](documentation.md), [commits](commits.md)) — see
-the [index](README.md) for the full set.
+other four standards in this folder ([coding](coding.md),
+[documentation](documentation.md), [commits](commits.md),
+[dependencies](dependencies.md)) — see the [index](README.md) for
+the full set.
 
 This standard governs ROADMAP bullets with `Kind: test`, plus the
 regression-test follow-through expected for `Kind: fix`,
@@ -66,17 +67,54 @@ A reviewer reading just the test names should be able to tell
 which tests are validating contract vs. which are merely guarding
 the current code path.
 
+**One exception, and it is deliberate: the source-invariant test
+(§ 3.6).** A test that scans a module's own source for the *shape
+of a past defect* mirrors the implementation on purpose — the
+contract it validates is that the shape is absent, so there is
+nothing else for it to anchor to. It is exempt from this section
+and from § 9's mirror-the-source anti-pattern. `coding.md § 1.6`
+is what asks for one, and § 3.6 bounds when.
+
 ### 2.2 Verify the test fails on broken code
 
 Even when following TDD strictly, double-check before claiming a
 test locks in a fix:
 
 ```bash
-git checkout HEAD~1 -- src/foo.cpp     # revert the fix
-cmake --build build && ctest -R the_new_test    # must FAIL
-git checkout HEAD -- src/foo.cpp       # restore the fix
-ctest -R the_new_test                  # must PASS
+git checkout <fix-commit>^ -- src/lwsm/foo.py            # revert the fix
+PYTHONDONTWRITEBYTECODE=1 uv run pytest -k the_new_test  # must FAIL
+git checkout HEAD -- src/lwsm/foo.py                     # restore the fix
+PYTHONDONTWRITEBYTECODE=1 uv run pytest -k the_new_test  # must PASS
 ```
+
+**Name the fix's own commit; do not assume it is the last one.**
+Two shorter forms were run against this repo on 2026-08-07 while
+writing this block, and **both reported the test passing in the
+"must FAIL" position** — which reads exactly like a verified
+mutation and is worse than no check:
+
+- `git stash push <file>` reverts *uncommitted* work, so against a
+  fix that is already committed it reverts nothing.
+- `git checkout HEAD~1 -- <file>` reverts exactly one commit, so with
+  six commits landed since the fix it lands on a revision that still
+  contains it.
+
+`<fix-commit>^` reddened the test on the first attempt. If the fix is
+genuinely still uncommitted, the revert is just undoing your own edit
+and this block is not what you need.
+
+`PYTHONDONTWRITEBYTECODE=1` is not decoration. Python invalidates
+bytecode on mtime **and size**, so a same-size revert-and-restore
+can leave a stale `.pyc` that makes the mutation appear to have no
+effect — reproduced on this project 2026-08-06. `local-ci.sh`
+exports it; a bare `pytest` does not.
+
+Check the `-k` pattern matched what you meant. A pattern matching
+nothing **exits 5** (measured), so a typo fails a `&&` chain rather
+than passing one — the "must FAIL" step cannot be satisfied by a
+misspelling. The real hazard is a pattern matching the *wrong*
+tests: that exits 0 and reports a green run of code you did not
+touch.
 
 If the test passes on broken code, it's not testing what you
 think. Rewrite it.
@@ -95,8 +133,12 @@ spec.md § 2.1`. Reader can move between spec and test fluidly.
 
 ### 3.1 Unit tests
 
-Test a single function or class in isolation. Fast (< 10 ms
-each), deterministic, no I/O, no external services.
+Test a single function or class in isolation. Deterministic, no
+I/O, no external services. **Speed budget is § 6's and stated
+only there** — this line used to say "< 10 ms each" against § 6's
+"< 100 ms", an order of magnitude apart with neither section
+naming the other, so the same test passed one and failed the
+other depending on which a reviewer cited.
 
 ### 3.2 Feature-conformance tests
 
@@ -139,6 +181,40 @@ For rule-based tools (linters, audit checks): keep `bad.cpp` and
 `good.cpp` files in `tests/audit_fixtures/<rule>/`, run the rule
 against them, assert N hits on `bad` and 0 on `good`. Count-based,
 not line-number-based — line numbers shift across edits.
+
+### 3.6 Source-invariant tests
+
+A test that reads a module's own source and fails on the *shape of
+a past defect* — `coding.md § 1.6`'s "make the sweep a test rather
+than a habit". `test_no_file_sourced_value_is_interpolated_without_the_clip`
+is the worked example: it reads `registry.py` and fails on any
+un-clipped `{…!r}` interpolation, so the fourth instance of a
+defect already found three times is caught at the gate instead of
+by the next review.
+
+Exempt from § 2.1 and § 9's mirror-the-source rule, and from
+§ 3.1's no-I/O rule, because reading the source *is* the assertion.
+Both exemptions are deliberate and neither generalises: this is the
+only test type in this standard that may do either.
+
+**When to write one, so it does not become scaffolding (`coding.md
+§ 1.1`):** the mechanism has three or more call sites, **or** this
+is the second time the same shape has been found. A two-site
+mechanism found once is served by the grep and the commit line.
+
+**Rules, because this type is the easiest to write badly:**
+
+- **Assert the shape's absence, not a file's contents.** Match a
+  pattern, never a line count or a whole-file hash — those fail on
+  every unrelated edit, which trains people to update the expected
+  value without reading it.
+- **Exclude comments.** The comment explaining a past defect
+  usually contains the defect's own shape, so a naive match reports
+  the documentation as a violation.
+- **Name it for the invariant, not for the grep** — what must not
+  be true, not what regex you ran.
+- **Scope it to one module.** A tree-wide scan fires on unrelated
+  code and gets deleted rather than fixed.
 
 
 ## 4. spec.md authoring
@@ -276,10 +352,13 @@ flaky machine-dependent messes. These rules pick the line.
 
 A test may not read or write the user's real
 `~/.config/localwebservermanager/`, and may not read, write, or
-launch any **sibling** project — anything under
-`<scan root>/` other than this repository itself.
-(This repo lives under that path, so the ban is on the
-neighbours, not on our own fixtures and source.) Config paths
+launch any **sibling** project — anything inside a configured
+**scan root** (`docs/design.md § Detection rules`; this
+repository's own parent directory is one) other than this
+repository itself. Stated as a path rather than a placeholder
+because the ban's extent *is* the definition: the repo sits
+several levels deep, and each level would give a different
+answer. Config paths
 are injected, and every fixture builds its own throwaway project
 tree in `tmp_path`. A test that starts `project-f` is not a
 test, it is a side effect.
@@ -329,6 +408,14 @@ under an offscreen platform (`QT_QPA_PLATFORM=offscreen`) so CI
 needs no X server. If a test needs a visible window to pass, the
 thing it is testing is in the wrong layer — see coding § O1.
 
+### T7. The state table is a parametrised test, not prose
+
+ADR-0004's seven states are the app's core contract. They get one
+parametrised test whose cases are named after the states, so a
+new state cannot be added without a case appearing. Test names
+anchor to the ADR (`test_running_wrong_port_when_child_binds_elsewhere`),
+not to the function that happens to implement it.
+
 ### T8. Accessibility has tests, or it is decoration
 
 Four checks, all cheap, all headless:
@@ -357,29 +444,40 @@ ships.
 ### T9. A test proves the fix is *reached*, not that its helper works
 
 Added 2026-08-07 after the third review of P02 found **four shipped fixes that
-could be deleted with all 150 tests still green**: `run()`'s call to the
-bounded process exit (the whole of LWSM-1100), `MainWindow.setPalette`,
-`main()`'s `finally: controller.stop()`, and all three of the log handler's
-filesystem checks at once.
+could be deleted with the whole suite still green** — 150 tests at the time.
 
 None of those was an untested *feature*. Each had a test that named it and
 asserted the wrong end of the call:
 
-| The test asserted | What it could not see |
-|---|---|
-| the `QPalette` **object** `to_palette()` returns | that no widget ever receives it |
-| the entry-point **string** `lwsm.__main__:run` | that `run()` does anything |
-| the helper, called **directly** in a subprocess script | that the caller calls it |
-| that an `OSError` was raised | that it was raised by *this* check and not a later one |
+| The fix | The test asserted | What it could not see |
+|---|---|---|
+| `run()`'s call to the bounded process exit (all of LWSM-1100) | the entry-point **string** `lwsm.__main__:run` | that `run()` does anything |
+| `MainWindow.setPalette` | the `QPalette` **object** `to_palette()` returns | that no widget ever receives it |
+| `main()`'s `finally: controller.stop()` | the helper, called **directly** in a subprocess script | that the caller calls it |
+| all three of the log handler's filesystem checks | that an `OSError` was raised | that it was raised by *this* check and not a later one |
+
+(The `setPalette` row is a historical record and its line is deliberately gone:
+LWSM-1118 later moved the palette to the application, which made the window's
+own call redundant. A row here names what a past review found, not what is in
+the tree today.)
 
 So the rule, for every `Kind: fix`, `audit-fix` and `review-fix` change:
 
-1. **Name the line the fix adds.** Delete it, run the suite, and confirm at
-   least one test goes red. If none does, the test you just wrote is testing
-   something else and the fix ships unguarded. This is § 2.2 applied to the
-   *wiring* rather than to the behaviour, and it is the half § 2.2 lets through:
-   a fix can be genuinely absent from the shipping path while the behaviour it
-   implements is tested elsewhere.
+1. **Revert the smallest edit the fix made, and confirm at least one test goes
+   red.** Delete the line it added, restore the line it removed, or put back the
+   value it changed — § 2.2's whole-file revert does this generically. If
+   nothing reddens, the test you just wrote is testing something else and the
+   fix ships unguarded.
+
+   **Not "delete the line the fix adds", which is what this step said until the
+   gate caught it.** Plenty of fixes add no line: this pass alone changed a
+   constant, removed a redundant call, and replaced one expression with another.
+   Deleting a *changed* line removes the behaviour rather than restoring the
+   defect, so it reddens for the wrong reason and the mutation reads as passed.
+
+   This is § 2.2 applied to the *wiring* rather than to the behaviour, and it is
+   the half § 2.2 lets through: a fix can be genuinely absent from the shipping
+   path while the behaviour it implements is tested elsewhere.
 2. **Assert the consequence only that line produces.** Where two mechanisms
    reach the same outcome, the shared outcome is not evidence. A refusal that
    two different checks can both raise needs the *message*, or the side effect
@@ -391,6 +489,13 @@ So the rule, for every `Kind: fix`, `audit-fix` and `review-fix` change:
    never reach the `S_ISREG` check, because the open failed first — the test
    read as covering it for months.
 
+**When `coding.md § 1.6`'s sweep fixed several call sites in one change, the
+mutation is run per *site*, not per change.** One red run does not discharge the
+others — that is the same "a fix is reached" question asked five more times.
+Where the sweep is instead expressed as a single source-invariant test
+(§ 3.6), that one test discharges § 7 for every site it covers, and one
+mutation of it is enough.
+
 Record the mutation and its result in the commit body. "Verified red on
 deletion" is one line and it is the whole evidence that the guard exists.
 
@@ -401,10 +506,13 @@ against rendered pixels. T9 is for the case where the *only* difference between
 fixed and unfixed is that a call happens, and § 2.1 would otherwise argue
 against writing the test at all.
 
-### T7. The state table is a parametrised test, not prose
 
-ADR-0004's seven states are the app's core contract. They get one
-parametrised test whose cases are named after the states, so a
-new state cannot be added without a case appearing. Test names
-anchor to the ADR (`test_running_wrong_port_when_child_binds_elsewhere`),
-not to the function that happens to implement it.
+
+## Cold-eyes loop log
+
+Rule-14 gate history for this standard. Written by `/cold-eyes` as
+each loop happens, never back-filled.
+
+| Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Verified | Outcome |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 4 | 4 | 4 | 12 verified, 0 unverified, 12 fixed | Converged. Batched run with `coding.md` — see that file's log for why. Dimensions: dim 6×3, dim 7×3, dim 2×2, dim 15×1, dim 8×1, dim 12×1, dim 11×1. **Both lanes independently found that `§ T9` step 1 only worked for a fix that ADDS a line** — it read "Name the line the fix adds. Delete it" while a large share of fixes change or remove one, and deleting a *changed* line removes the behaviour rather than restoring the defect, so it reddens for the wrong reason and reads as verified. Generalised to reverting the smallest edit, which `§ 2.2` already did. **`§ 2.2` itself was a CMake/ctest recipe in a Python project**, and `§ T9` explicitly stands on it, so following the new clause led to an unrunnable command; now the project's pytest form, and **executing it before it shipped caught two wrong revert forms**, both of which reported the test passing in the "must FAIL" position. `§ 3.6` added to sanction the source-invariant test `coding.md § 1.6` asks for, with the exemptions stated and bounded. Also fixed: `§ 3.1`'s "< 10 ms" against `§ 6`'s "< 100 ms" for the same tests; `§ T9`'s "150 tests" stated as standing fact when the suite is at 173; T7 restored to sequence after T9 had been inserted between T8 and T7; T1's undefined `<scan root>` placeholder; and the header's "other three standards" against five. Remaining C++/CMake residue routed to LWSM-1062. |

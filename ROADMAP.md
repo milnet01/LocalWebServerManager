@@ -2228,6 +2228,7 @@ program actually running.
   Source: debt-sweep-2026-08-06.
   Priority: 2.
   Lanes: docs.
+  Progress (2026-08-07, FP05 rule-14 gate): the cold-eyes run over coding.md + testing.md found the fork's most consequential residue and fixed the load-bearing part. Both lanes independently flagged that `testing.md § 2.2` was a CMake/ctest recipe in a Python project — which matters because § T9 explicitly stands on § 2.2, so a developer following the new clause landed on an unrunnable command. § 2.2 is now the project's own pytest form and was EXECUTED before it shipped (which caught two wrong revert forms — see the section). coding.md § 4's naming examples were camelCase with `m_` prefixes and are now Python. STILL OUTSTANDING and owned here: 16 further C++/CMake hits in testing.md — § 3.2's CMakeLists/`test_<name>.cpp` block, § 3.4 and § 6's `LABELS perf` / `LABELS fast` vocabulary (pytest has markers, and this project's convention is that markers go on tests not files), and § 5's QVERIFY2 example. Left deliberately: porting them is a per-hunk judgement across a standard, which is this bullet's job, not a gate's.
 
 - 📋 [LWSM-1063] **DS01: `design.md` cites a path inside a sibling repo that no reader can resolve.**
   `docs/design.md:253` points at `project-g/run.sh:87` to evidence
