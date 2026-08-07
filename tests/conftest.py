@@ -9,11 +9,40 @@ is unset, and leave an explicit choice alone.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _reap_abandoned_probes():
+    """Do not let the run end holding an abandoned pool (LWSM-1117).
+
+    `~QThreadPool` joins its thread with **no timeout**, and that join happens
+    after pytest has printed its report — so the cost is invisible to pytest's
+    own number and shows up only as process wall time. Measured 2026-08-07:
+    5.09 s reported against **7.67 s** wall, all 2.6 s of it here.
+
+    2.6 s and not forever only because the fake probe that causes it carries a
+    5 s timeout; against a probe that truly never returns the same shape hung
+    the interpreter indefinitely. The entry point's escape is an `os._exit`,
+    which a test process must never take — it would override pytest's exit code
+    with this function's, which is exactly how LWSM-1100 produced a run
+    truncated to 40 % and reported green. So the suite reaps instead.
+    """
+    yield
+    from lwsm.controller import wait_for_abandoned_probes
+
+    still_live = wait_for_abandoned_probes(5000)
+    if still_live:  # pragma: no cover - a diagnosis, not a behaviour
+        print(
+            f"\n{still_live} abandoned probe pool(s) survived the run; "
+            "the test that abandoned one did not release its fake probe.",
+            file=sys.stderr,
+        )
 
 
 @pytest.fixture

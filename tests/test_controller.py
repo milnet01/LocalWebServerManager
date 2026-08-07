@@ -620,6 +620,138 @@ def test_the_process_exits_promptly_when_a_probe_is_abandoned(tmp_path) -> None:
     )
 
 
+@pytest.mark.integration
+def test_a_process_that_reaps_does_not_pay_for_shutdown(tmp_path) -> None:
+    """Acceptance (2) of LWSM-1117, asserted rather than observed.
+
+    The reviewer's finding was a *measurement*: the suite's process wall was
+    3.3 s longer than the time pytest reported, all of it spent after pytest had
+    finished, in `~QThreadPool`. A number in a report rots; this asserts it.
+
+    The script stamps its own last line, and the test compares that stamp to
+    when the process actually exited — so what is measured is **shutdown cost
+    alone**, with interpreter startup and the work itself excluded. Comparing
+    total wall to a literal would fold in PySide6's ~0.3 s import and make the
+    threshold meaningless.
+
+    Not merged with `test_the_process_exits_promptly_when_a_probe_is_abandoned`:
+    that one covers the `os._exit` path, which only the entry point may take.
+    This one covers every other caller, which must reach shutdown holding
+    nothing rather than exit early.
+    """
+    script = tmp_path / "reap_then_exit.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import os, sys, threading, time
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            from pathlib import Path
+            from PySide6.QtCore import QCoreApplication
+            from lwsm import controller as cm
+            from lwsm.controller import ProjectController
+            from lwsm.ports import PortSnapshot
+            from lwsm.registry import ProjectRecord
+
+            cm.STOP_WAIT_MS = 100
+            GATE = threading.Event()
+
+            class GatedProbe:
+                def snapshot(self):
+                    GATE.wait(timeout=30)
+                    return PortSnapshot(frozenset())
+
+            app = QCoreApplication([])
+            record = ProjectRecord(
+                path=Path("/srv/a"), name="a", port=5005, port_override=None
+            )
+            controller = ProjectController([record], GatedProbe())
+            controller.poll_once()
+            time.sleep(0.3)
+            controller.stop()          # bounded at 100 ms, abandons the pool
+            GATE.set()                 # the probe can now finish
+            cm.wait_for_abandoned_probes(5000)
+            print(f"SCRIPT_END {time.time():.6f}", flush=True)
+            """
+        )
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=90
+    )
+    exited_at = time.time()
+
+    assert proc.returncode == 0, proc.stderr
+    stamp = [ln for ln in proc.stdout.splitlines() if ln.startswith("SCRIPT_END")]
+    assert stamp, f"the script did not reach its end: {proc.stdout!r} {proc.stderr!r}"
+    shutdown_cost = exited_at - float(stamp[0].split()[1])
+
+    # 0.5 s is the acceptance's own figure. Without the reap this is the
+    # remainder of the probe's 30 s wait.
+    assert shutdown_cost < 0.5, (
+        f"the process spent {shutdown_cost:.2f}s after its last line — the "
+        f"abandoned pool reached interpreter shutdown still holding a thread"
+    )
+
+
+@pytest.mark.integration
+def test_an_unreaped_probe_says_so_before_the_process_blocks(tmp_path) -> None:
+    """The hang is not preventable here, so it is at least diagnosable.
+
+    A caller that neither exits nor reaps still blocks in `~QThreadPool`, and
+    nothing can change that from inside a library: the only escape is `os._exit`
+    with an exit code this code cannot see. What the `atexit` guard changes is
+    that the process says why *before* it stops responding, instead of dying
+    silently after its last line — which took three probe cycles and a
+    three-minute kill to identify on 2026-08-07.
+
+    The probe finishes at 3 s so this test terminates. That is the one thing the
+    real failure does not do, and it is why the assertion is on the message
+    rather than on the timing.
+    """
+    script = tmp_path / "never_reap.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import os, sys, time
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            from pathlib import Path
+            from PySide6.QtCore import QCoreApplication
+            from lwsm import controller as cm
+            from lwsm.controller import ProjectController
+            from lwsm.ports import PortSnapshot
+            from lwsm.registry import ProjectRecord
+
+            cm.STOP_WAIT_MS = 100
+
+            class SlowProbe:
+                def snapshot(self):
+                    time.sleep(3)
+                    return PortSnapshot(frozenset())
+
+            app = QCoreApplication([])
+            record = ProjectRecord(
+                path=Path("/srv/a"), name="a", port=5005, port_override=None
+            )
+            controller = ProjectController([record], SlowProbe())
+            controller.poll_once()
+            time.sleep(0.3)
+            controller.stop()   # abandons the pool; neither reaped nor exited
+            """
+        )
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=90
+    )
+
+    assert "never returned and were not reaped" in proc.stderr, (
+        f"the process blocked with no explanation: {proc.stderr!r}"
+    )
+    assert "wait_for_abandoned_probes" in proc.stderr, (
+        "the warning must name the way out, or it only reports the symptom"
+    )
+
+
 def test_stop_is_bounded_when_a_probe_never_returns(
     qtbot, controllers, monkeypatch
 ) -> None:
@@ -627,7 +759,8 @@ def test_stop_is_bounded_when_a_probe_never_returns(
     promise an app that cannot be quit."""
     monkeypatch.setattr(controller_module, "STOP_WAIT_MS", 100)
     probe = FakeProbe(5005)
-    probe.gate = threading.Event()  # never set
+    gate = threading.Event()
+    probe.gate = gate
     controller = build(controllers, [record("a")], probe)
     controller.poll_once()
 
@@ -642,6 +775,44 @@ def test_stop_is_bounded_when_a_probe_never_returns(
     assert elapsed < budget * 5, (
         f"stop() blocked for {elapsed:.2f}s against a {budget:.2f}s budget"
     )
+
+    # Release the fake AFTER the assertion, so the abandoned pool can go idle
+    # and the session-wide reaper can drop it. Left unset, this test leaked a
+    # blocked thread into the rest of the run and the whole suite paid for it in
+    # `~QThreadPool` at interpreter shutdown — 2.6 s that pytest's own number
+    # cannot see, because it is spent after pytest has finished (LWSM-1117).
+    # `FakeProbe.gate.wait` has a 5 s timeout, which is the *only* reason that
+    # was 2.6 s rather than forever.
+    gate.set()
+    controller_module.wait_for_abandoned_probes(2000)
+
+
+def test_wait_for_abandoned_probes_reaps_a_pool_whose_probe_finished(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """The non-exiting half of the bound, for every caller that is not `run()`.
+
+    `exit_without_waiting_for_abandoned_probes` is an `os._exit` and so belongs
+    only to the entry point. Everything else — this suite, a future embedder, a
+    reload path — needs a way to *not be holding* an abandoned pool when the
+    interpreter shuts down, because there it is joined with no timeout at all.
+    """
+    monkeypatch.setattr(controller_module, "STOP_WAIT_MS", 100)
+    probe = FakeProbe(5005)
+    gate = threading.Event()
+    probe.gate = gate
+    controller = build(controllers, [record("a")], probe)
+    controller.poll_once()
+    controller.stop()
+
+    assert controller_module.wait_for_abandoned_probes(100) == 1, (
+        "a pool whose probe is still blocked must be reported as live"
+    )
+
+    gate.set()
+
+    assert controller_module.wait_for_abandoned_probes(2000) == 0
+    assert controller_module._ABANDONED == [], "the reaped pool was not dropped"
 
 
 def test_start_polling_polls_immediately(qtbot, controllers) -> None:

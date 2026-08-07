@@ -919,7 +919,7 @@ first two bullets because the leaf findings are their instances:
   Source: code-quality-review-2026-08-07.
   Resolved (2026-08-07, 38a4439): `schema_version` goes through `_quoted`. The acceptance's third clause — "no bare `!r}` interpolation of file-sourced data remains in the module" — is now a test rather than a one-off grep: `test_no_file_sourced_value_is_interpolated_without_the_clip` reads the module and fails on any non-comment `!r}`, so the fourth call site is caught at the gate rather than by a fourth review. INV-21 rephrased from "a rejection reason" to "every message carrying a hand-edited value", because the narrow wording is what let a *raised* message sit unbounded through two fixes of this mechanism. Both new tests mutation-verified against the restored `{version!r}`.
 
-- 📋 [LWSM-1115] **FP05: nothing bounds the *number* of rejection reasons, so a 1 MiB file costs 8.7 s of blank screen and destroys the log.**
+- ✅ [LWSM-1115] **FP05: nothing bounds the *number* of rejection reasons, so a 1 MiB file costs 8.7 s of blank screen and destroys the log.**
   `_quoted` bounds each reason; nothing bounds how many there are, and
   `build_window` emits one `log.warning` per reason. The cheapest bad element
   is two bytes. Reproduced: a maximally dense malformed file at the cap gave
@@ -937,6 +937,7 @@ first two bullets because the leaf findings are their instances:
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-07.
+  Resolved (2026-08-07, 2ea6803): reproduced first and the numbers matched the reviewer exactly — 524,271 reasons / 20,859,730 characters / 28.7 MB written. `load_projects` now keeps at most MAX_REASONS (100) and appends one tail naming the rest; the tail is not optional, because a cap with no tail reads as completeness. Measured after: 101 reasons, 5,153 bytes, 1 ms of logging. Three tests, all mutation-verified, and the third is the delivery half in test_mainwindow.py — that the cap reaches `build_window`, which is where the 8.7 s was spent. The wall-time clause of the acceptance is met as an order-of-magnitude smoke bound only; the log-record count is the real assertion, because a loaded machine makes any timing assertion flaky. Spec § 6 gains the registry half of an amplification it described only for the probe path.
 
 - ✅ [LWSM-1116] **FP05: `applog.default_state_dir()` is missing the `Path.home()` guard its registry twin has, so the app dies with a traceback and no window.**
   `Path.home()` raises `RuntimeError` when neither `HOME` nor a passwd entry

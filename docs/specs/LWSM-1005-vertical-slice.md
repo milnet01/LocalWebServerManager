@@ -1238,6 +1238,34 @@ importing `lwsm.__main__` in a test does not require a display.
   and `~QThreadPool` has no timeout. Measured at 4.16 s to exit behind a 4 s
   probe while `stop()` itself returned in 0.10 s (LWSM-1100). A stale display
   is promised here; an app that cannot be quit is not.
+- **Something other than `run()` holds an abandoned pool at shutdown.** The
+  clause above bounds the *app*, and for a while that was read as bounding the
+  mechanism. It does not: `exit_without_waiting_for_abandoned_probes` is an
+  `os._exit`, so only an entry point may call it, and every other process — the
+  test suite, a future embedder, a reload path — inherited the wait in full
+  (LWSM-1117). Such a caller must instead reach shutdown holding **nothing**:
+  `wait_for_abandoned_probes(timeout_ms)` reaps the pools that have gone idle
+  and returns how many have not.
+
+  Two facts measured while closing it, both stronger than the report that
+  raised it:
+
+  - The wait is **unbounded**, not "about 3 s". A probe that genuinely never
+    returns hung the interpreter indefinitely — killed at three minutes, main
+    thread on a futex joining the pool thread. The suite's 2.6 s was 2.6 s only
+    because its *fake* probe carries a 5 s timeout.
+  - **No Python-level ownership trick avoids it.** Dropping the reference,
+    holding it, reparenting it, and invalidating the Shiboken wrapper were each
+    run against a truly stuck probe; all four hung identically. The C++
+    destructor joins the thread regardless. This is why the only bound is
+    declining to run the destructor, and why nothing here tries to cancel a
+    running `QRunnable` — Qt offers no way to.
+
+  A caller that neither exits nor reaps therefore still blocks, and that cannot
+  be fixed from inside a core module: ending the process here would override an
+  exit code this code cannot see, which is exactly LWSM-1100's failure. An
+  `atexit` guard prints the reason to stderr first, so the hang is diagnosable
+  rather than silent. It is a diagnosis, not a bound, and is documented as one.
 - **Two records share a port.** Both rows read `running` off the same
   socket. ADR-0005 catches this at merge time, and there is no merge in
   P02 — LWSM-1007 owns it. Named here so a reviewer knows it was seen.

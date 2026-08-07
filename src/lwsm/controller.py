@@ -7,6 +7,7 @@ so the whole poll loop is testable without a display. Contract:
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import sys
@@ -42,6 +43,73 @@ STOP_WAIT_MS = 2000
 # behind a 4 s probe. `exit_without_waiting_for_abandoned_probes` is the half
 # that actually bounds it; this list only keeps the pool alive until then.
 _ABANDONED: list[QThreadPool] = []
+
+
+def wait_for_abandoned_probes(timeout_ms: int = STOP_WAIT_MS) -> int:
+    """Reap abandoned pools that have gone idle. Returns how many are still live.
+
+    The other half of the bound, for every caller that is **not** ending the
+    process. `exit_without_waiting_for_abandoned_probes` is an `os._exit`, so it
+    belongs to the entry point alone — which left this suite, and any future
+    embedder or reload path, inheriting the unbounded wait in full (LWSM-1117).
+
+    Two things were measured on 2026-08-07 while closing that, and both are
+    worse than the report it came from:
+
+    - The wait is not "~3.3 s", it is **unbounded**. A probe that genuinely
+      never returns hung the interpreter indefinitely — killed at three minutes,
+      main thread on a futex joining the pool thread. The suite escaped only
+      because its fake probe happens to carry a 5 s timeout.
+    - **Nothing at the Python level avoids it.** Dropping the reference, holding
+      it, reparenting it, and invalidating the Shiboken wrapper were each tried
+      against a truly stuck probe; all four hung identically. The C++ destructor
+      joins the thread regardless, which is why the only bound is declining to
+      run it — and why this function reaps rather than cancels. There is no
+      Qt-level way to cancel a running `QRunnable`.
+
+    So a caller that cannot exit the process must instead arrive at interpreter
+    shutdown holding nothing. Call this once the work that was abandoned has had
+    a chance to finish; a non-zero return means it has not, and that this process
+    will block on exit.
+    """
+    for pool in list(_ABANDONED):
+        # waitForDone per pool rather than one shared deadline: the budget is a
+        # per-probe allowance, and the common case is a single pool.
+        if pool.waitForDone(timeout_ms):
+            _ABANDONED.remove(pool)
+    return len(_ABANDONED)
+
+
+def _warn_about_unreaped_probes() -> None:
+    """Say so, loudly, if a live abandoned pool reaches interpreter shutdown.
+
+    Deliberately **not** a bound — it cannot be one, for the reason
+    `wait_for_abandoned_probes` records: at this point the only escape is
+    `os._exit`, and a library that ends the process here would be overriding an
+    exit code it cannot see, which is precisely the LWSM-1100 failure (a pytest
+    run truncated to 40 % and reported green).
+
+    What it buys is diagnosis. Without it the symptom is a process that stops
+    dead after its last line with no output at all — three probe cycles and a
+    three-minute kill to identify, on 2026-08-07. With it, the reason is on
+    stderr before the hang starts.
+    """
+    live = [pool for pool in _ABANDONED if pool.activeThreadCount()]
+    if not live:
+        return
+    # print, not log: logging handlers may already be closed at this point, and
+    # a message that gets swallowed here is the whole problem.
+    print(
+        f"lwsm: {len(live)} port probe(s) never returned and were not reaped; "
+        "this process will now block in ~QThreadPool, which has no timeout. "
+        "An entry point should call exit_without_waiting_for_abandoned_probes; "
+        "any other caller should call wait_for_abandoned_probes.",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+atexit.register(_warn_about_unreaped_probes)
 
 
 def exit_without_waiting_for_abandoned_probes(code: int) -> None:
