@@ -72,7 +72,8 @@ codebase.
 **Applies to every Kind this standard governs** — `implement`, `fix`,
 `refactor`, `audit-fix`, `review-fix`. A new mechanism applied
 unevenly on the day it lands is the same defect as a fix applied
-unevenly later, and three of the six instances below arrived that way.
+unevenly later, and the shutdown bound, the stop flag and the
+contrast floor below all arrived that way.
 
 A change closes a **mechanism**, not the one call site it was reported
 against. Before it is done, name the other places that mechanism is
@@ -80,7 +81,7 @@ used, and take exactly one of three outcomes:
 
 1. **Fix them in the same change.**
 2. **Say in the commit why they are out of scope.**
-3. **Say the sweep found nothing** — one line naming what you searched
+3. **Say the sweep found nothing** — one line naming what you looked
    for and what it returned (`swept for bare {…!r} across src/: no
    other sites`).
 
@@ -89,27 +90,29 @@ skipped one produce byte-identical output, so the one behaviour this
 rule exists to ban — "I did not look" — is the one it cannot detect,
 and the rule decays into advice.
 
-Finding them is a grep, not a memory exercise — search for the
-*defect's shape* rather than for the symptom: the helper that should
-have been called (`_quoted`), the guard that should have wrapped it
-(`Path.home()`), the flag that should have been checked (`_stopped`).
+For a **helper-shaped** mechanism, finding the others is a grep rather
+than a memory exercise — search for the *defect's shape*, not the
+symptom: the helper that should have been called (`_quoted`), the
+guard that should have wrapped it (`Path.home()`), the flag that
+should have been checked (`_stopped`).
 
-**A mechanism is not only a function.** Three of the instances below
-were a *rule* applied unevenly rather than a helper called unevenly —
-a bound placed on one exit path, a guard on one of two sibling slots,
-a floor checked against one of two backgrounds. Ask "what did I decide
-here, and where else does that decision apply?", not just "who else
-calls this?".
+**A mechanism is not only a function**, and this is the half a grep
+cannot reach. Several instances below were a *rule* applied unevenly
+rather than a helper called unevenly — a bound placed on one exit
+path, a guard on one of two sibling slots, a floor checked against
+one of two backgrounds. You cannot search for the *absence* of a
+bound. So ask "what did I decide here, and where else does that
+decision apply?", and let outcome 3's line name the **enumeration**
+instead of a search: the set you walked and the answer for each
+(`checked both exit paths in controller.py; bound present on both`).
+An enumeration you cannot state is a mechanism you have not yet
+defined.
 
-**Where the shape recurs, make the sweep a test** — a source-invariant
-test, `testing.md § 3.6`, which sanctions the shape and carries the
-rules for writing one. A one-off grep protects this change; an
-assertion protects every later one.
-
-Not on every fix, though: **three or more call sites, or the second
-time the same shape has been found.** A two-site mechanism found once
-is served by the grep and the commit line, and a permanent test
-guarding two lines is the scaffolding § 1.1 rejects.
+**Where the mechanism is wide or the shape has recurred, make the
+sweep a test** — a source-invariant test. **`testing.md § 3.6` is
+canonical for when to write one and how**; deliberately not restated
+here, because § 1.5 two sections up says what two copies of one rule
+do to each other.
 
 **Why this is a standard and not advice.** Three consecutive review
 passes — FP03, FP04 and FP05 — each reported this shape as their most
@@ -122,9 +125,16 @@ contrast floor enforced against one background of two. Each was cheap
 to find and cheap to fix at the time, and instead cost a review cycle
 apiece.
 
-`/apply-fixes` already runs a blast-radius sweep, so a change routed
-through it gets this for free. The gap this closes is that nothing
-made it mandatory for one written outside that skill.
+`/apply-fixes` runs a blast-radius sweep, so a change routed through
+it has already *done* the search half. It does **not** discharge the
+recording: whether a change went through that skill is itself
+invisible in the commit, so treating it as an exemption restores the
+byte-identical output outcome 3 exists to prevent. Record the line
+either way, and say where it came from
+(`/apply-fixes blast-radius: no other sites`). The skill is also
+local to one machine, and this is a public repository — an outside
+contributor has no way to invoke the exemption or to tell whether it
+was used.
 
 **Numbering note.** This is § 1.6 rather than § 1.4 beside § 1.3's
 reuse rule, where it reads better, because `README.md` and
@@ -182,10 +192,21 @@ Don't:
   does not** — plain attribute names, a leading underscore for
   private (`self._rows`).
 
-The examples above are Python because this project is Python and
-`ruff` enforces `snake_case` in the gate; they were camelCase with
-`m_` prefixes until 2026-08-07, which is the form a reader copies.
-The rules themselves are language-neutral.
+The examples above are Python because this project is Python, and
+examples are the form a reader copies — they were camelCase with
+`m_` prefixes until 2026-08-07. The rules themselves are
+language-neutral.
+
+**Nothing in the gate enforces this; it is held by review.** `ruff`
+selects `E, W, F, I, UP, B, RUF100, S` — **not** `N`
+(`pep8-naming`) — so `def parseHeader(strName)` passes clean. That
+is deliberate rather than an oversight: enabling `N` flags nine
+existing sites and **every one is a Qt override that must be
+camelCase** (`changeEvent`, `paintEvent`, `updateAccessibility`,
+and `QTranslator.translate`'s `sourceText`). A naming rule that
+fights the framework at its own boundary would be suppressed nine
+times and then ignored. Measured 2026-08-07 by enabling `N` and
+reading all nine.
 
 
 ## 5. Language-specific notes
@@ -274,11 +295,22 @@ the baseline — these are in addition.
 ### O1. The core never imports `QtWidgets`
 
 `docs/design.md § Architecture` splits core from UI, and the
-split is enforced by import. Core modules (`scanner`, `registry`,
-`ports`, `supervisor`, `logbuffer`, `controller`) may import
-`QtCore` for signals and timers; a `QtWidgets` import in any of
-them is a review failure, because it is what makes the core
-headless-testable.
+split is enforced by import. A **core module is every module under
+`src/lwsm/` that is not `mainwindow.py` or `theme.py`** — a
+criterion rather than a list, because the list was wrong: it named
+`scanner`, `supervisor` and `logbuffer`, none of which exist yet
+(P03 and P05 build them), while omitting `applog.py`, which does
+exist and imports no Qt at all. A `QtWidgets` import in a core
+module is a review failure, because import-freedom is what makes
+the core headless-testable.
+
+**A new core module is added to `tests/test_layering.py`'s
+`CORE_MODULES` in the commit that creates it.** That list is what
+actually enforces this, and it does not yet name every module the
+criterion above covers — `applog.py` is absent from it. So the rule
+and its check disagree, and the check is the one that runs.
+Widening it is `LWSM-1006`'s job, since P03 is what next adds a
+core module.
 
 ### O2. Nothing touches a widget off the UI thread
 
@@ -371,3 +403,4 @@ each loop happens, never back-filled.
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Verified | Outcome |
 |---|---|---|---|---|---|---|---|---|
 | 1 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 4 | 4 | 4 | 12 verified, 0 unverified, 12 fixed | Converged. Batched run with `testing.md`; both files gained a clause in FP05 from the same pair of root causes, so gating them separately would have meant a second reviewer re-reading overlapping ground. Dimensions: dim 6×3, dim 7×3, dim 2×2, dim 15×1, dim 8×1, dim 12×1, dim 11×1. **Both lanes independently found the same three primary defects**, which is the signal worth recording: § 1.6 named no `Kind:` trigger while its companion `testing.md § T9` enumerated three; § 1.6's two permitted outcomes produced no artefact in the null case, so a clean sweep and a skipped one were byte-identical — the one behaviour the rule bans was the one it could not detect; and § 1.6's preferred "sweep test" was a shape `testing.md § 2.1` and § 9 both forbid and § 3.1's no-I/O rule excluded, with no test type admitting it. The third is the one a gate earns its cost on: the two clauses were written in the same pass, by the same author, and contradicted each other. Fixed by adding a third mandatory outcome, an explicit Kind list, a bound on when a sweep test is warranted, and `testing.md § 3.6` as a sanctioned type. Also corrected: `§ 4`'s naming examples were camelCase with `m_` prefixes in a `ruff`-enforced snake_case project, and the header said "other three standards" against five. Remaining C++/CMake residue routed to LWSM-1062, which already owns the fork reconciliation. |
+| 2 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 7 | 6 | 2 | 15 verified, 0 unverified, 15 fixed | **Converged by sweep, not by dispatch.** Origin split: **11 fix collateral vs 4 draft defects**, a decisive margin on the first split, which is the documented signal to sweep loop 1's own edits rather than send a third cold read. The sweep is what this row records. Loop 1's fixes had contradicted each other in four places, all in § 1.6: the `/apply-fixes` sentence read as an exemption from the outcome-3 recording that loop 1 had just made mandatory, restoring the byte-identical output the mandate exists to prevent; outcome 3 demanded a *grep line* for a mechanism the same section says is often rule-shaped and therefore ungreppable (you cannot search for the absence of a bound) — now it names an enumeration instead; the sweep-test threshold was stated in full in both standards, which § 1.5 twelve lines above forbids by name, so `testing.md § 3.6` is now canonical and § 1.6 points; and the "where the shape recurs" lead disagreed with the "three or more call sites" qualifier nine lines later. **The most serious finding was a false claim loop 1 introduced**: "`ruff` enforces `snake_case` in the gate" — it does not, `select` omits `pep8-naming`, and `def parseHeader(strName)` passes clean. Verified by enabling `N`, which flags nine sites, **every one a Qt override that must be camelCase**; the rule is held by review and now says so. Draft defects: `§ O1` named `scanner`, `supervisor` and `logbuffer`, none of which exist, while omitting `applog.py`, which does and is core by O1's own criterion — replaced with a criterion plus the instruction to widen `test_layering.py`'s `CORE_MODULES`, which is the thing that actually enforces it. |

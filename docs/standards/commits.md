@@ -63,12 +63,19 @@ ID. Don't ship code that should have been planned.
 ### 1.4 Body
 
 Optional, but encouraged when the change isn't self-explanatory —
-and **mandatory for `Kind: fix` / `audit-fix` / `review-fix`**,
-which owe two lines this standard does not itself define: the
-mechanism sweep (`coding.md § 1.6`) and the mutation record
-(`testing.md § T9`). Both were added 2026-08-07 and both put
-required content here, so a reader who took "optional" at face
-value would omit them in good faith.
+and **mandatory for every Kind `coding.md` governs** (`implement`,
+`fix`, `refactor`, `audit-fix`, `review-fix`), which owe lines this
+standard does not itself define:
+
+- the **mechanism sweep** (`coding.md § 1.6`) — all five Kinds;
+- the **mutation record** (`testing.md § T9`) — the three fix Kinds.
+
+Both were added 2026-08-07 and both put required content here, so a
+reader who took "optional" at face value would omit them in good
+faith. The list is all five and not just the fix Kinds because
+`§ 1.6` governs all five: scoping this narrower left `implement`
+and `refactor` commits legitimately free of the sweep line, which
+is the pair § 1.6 says three of its own instances came from.
 
 Format:
 

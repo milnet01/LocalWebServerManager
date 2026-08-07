@@ -5,9 +5,18 @@ A shareable contract for tests in this project. Pairs with the
 other standards in this folder — see the [index](README.md) for
 the full set.
 
-This standard governs ROADMAP bullets with `Kind: test`, plus the
-regression-test follow-through expected for `Kind: fix`,
-`audit-fix`, and `review-fix` work.
+This standard governs ROADMAP bullets with `Kind: test`; the
+feature-conformance test § 7 requires of `Kind: implement` work;
+the regression-test follow-through expected for `Kind: fix`,
+`audit-fix` and `review-fix`; and the source-invariant test
+`coding.md § 1.6` hands to § 3.6, which reaches `Kind: refactor`
+too. In short: every Kind that ships code.
+
+The narrower list this used to carry — `test` plus the three fix
+kinds — contradicted § 1 (TDD for "every code change that ships
+behaviour") and § 7 (a conformance test per `Kind: implement`), so
+a developer on a feature bullet could read the header and conclude
+this standard did not govern them.
 
 
 ## 1. TDD policy — test first, code second
@@ -97,9 +106,13 @@ mutation and is worse than no check:
   six commits landed since the fix it lands on a revision that still
   contains it.
 
-`<fix-commit>^` reddened the test on the first attempt. If the fix is
-genuinely still uncommitted, the revert is just undoing your own edit
-and this block is not what you need.
+`<fix-commit>^` reddened the test on the first attempt.
+
+**Commit the fix before running this block.** `git checkout <rev> -- <path>`
+overwrites the working copy with no stash and no reflog entry, so against a
+fix you have not committed yet it does not reveal anything — it destroys it.
+That is a live hazard rather than a theoretical one: § 1's TDD cycle has you
+holding exactly such an edit at step 3.
 
 `PYTHONDONTWRITEBYTECODE=1` is not decoration. Python invalidates
 bytecode on mtime **and size**, so a same-size revert-and-restore
@@ -132,11 +145,14 @@ spec.md § 2.1`. Reader can move between spec and test fluidly.
 ### 3.1 Unit tests
 
 Test a single function or class in isolation. Deterministic, no
-I/O, no external services. **Speed budget is § 6's and stated
-only there** — this line used to say "< 10 ms each" against § 6's
-"< 100 ms", an order of magnitude apart with neither section
-naming the other, so the same test passed one and failed the
-other depending on which a reviewer cited.
+I/O, no external services — **one exception, the source-invariant
+test (§ 3.6), which reads a module's source on purpose.**
+
+**Speed budget is § 6's and stated only there.** This line used to
+say "< 10 ms each" against § 6's "< 100 ms", an order of magnitude
+apart with neither section naming the other, so the same test
+passed one and failed the other depending on which a reviewer
+cited.
 
 ### 3.2 Feature-conformance tests
 
@@ -212,7 +228,10 @@ mechanism found once is served by the grep and the commit line.
 - **Name it for the invariant, not for the grep** — what must not
   be true, not what regex you ran.
 - **Scope it to one module.** A tree-wide scan fires on unrelated
-  code and gets deleted rather than fixed.
+  code and gets deleted rather than fixed. Where the mechanism's
+  sites span modules, that means **one test per module holding a
+  site** — a scoped test covers only what it can read, and T9 and
+  § 7 are discharged only for those sites.
 
 
 ## 4. spec.md authoring
@@ -324,7 +343,8 @@ code change, with a single commit referencing the ROADMAP ID.
 - ❌ Tests written *after* the fix without verifying they fail on
   pre-fix code (§2.2).
 - ❌ Tests that mirror the function's source — regression guards,
-  not validation.
+  not validation. (One exception: the source-invariant test,
+  § 3.6, where the shape's absence *is* the contract.)
 - ❌ Mocking what should be a real integration test.
 - ❌ `if (...) skip;` branches that hide platform-specific bugs.
 - ❌ Tests that print "FAIL" but exit 0.
@@ -353,10 +373,11 @@ A test may not read or write the user's real
 launch any **sibling** project — anything inside a configured
 **scan root** (`docs/design.md § Detection rules`; this
 repository's own parent directory is one) other than this
-repository itself. Stated as a path rather than a placeholder
-because the ban's extent *is* the definition: the repo sits
-several levels deep, and each level would give a different
-answer. Config paths
+repository itself. Anchored to the scan root and this
+repository's parent rather than to an absolute path, so the rule
+reads the same on any checkout — and so the ban's extent is
+decidable without asking, which a bare `<scan root>` placeholder
+was not. Config paths
 are injected, and every fixture builds its own throwaway project
 tree in `tmp_path`. A test that starts `project-f` is not a
 test, it is a side effect.
@@ -461,11 +482,18 @@ the tree today.)
 
 So the rule, for every `Kind: fix`, `audit-fix` and `review-fix` change:
 
-1. **Revert the smallest edit the fix made, and confirm at least one test goes
-   red.** Delete the line it added, restore the line it removed, or put back the
-   value it changed — § 2.2's whole-file revert does this generically. If
-   nothing reddens, the test you just wrote is testing something else and the
-   fix ships unguarded.
+1. **Revert the smallest edit the fix made, and confirm the fix's own test goes
+   red** — run it by name (`PYTHONDONTWRITEBYTECODE=1 uv run pytest -k
+   the_new_test`), not the whole suite, so an unrelated failure cannot stand in
+   for it. Delete the line it added, restore the line it removed, or put back
+   the value it changed. If it does not redden, the test you just wrote is
+   testing something else and the fix ships unguarded.
+
+   **§ 2.2's whole-file revert is not a substitute here.** It undoes every edit
+   the fix made to that file at once, so against a multi-site sweep it produces
+   one red run for all of them — and the per-site rule below would then credit
+   that one run to every site. Use it for a single-site fix; edit the one line
+   in place otherwise.
 
    **Not "delete the line the fix adds", which is what this step said until the
    gate caught it.** Plenty of fixes add no line: this pass alone changed a
@@ -491,18 +519,24 @@ So the rule, for every `Kind: fix`, `audit-fix` and `review-fix` change:
 mutation is run per *site*, not per change.** One red run does not discharge the
 others — that is the same "a fix is reached" question asked five more times.
 Where the sweep is instead expressed as a single source-invariant test
-(§ 3.6), that one test discharges § 7 for every site it covers, and one
-mutation of it is enough.
+(§ 3.6), one mutation of that test is enough for **every site it can actually
+read**, and it satisfies § 7's regression-test requirement for those sites too.
+Read literally: a § 3.6 test is scoped to one module, so a mechanism whose
+sites span modules needs one such test per module, and the sites outside them
+are back to a mutation each.
 
 Record the mutation and its result in the commit body. "Verified red on
 deletion" is one line and it is the whole evidence that the guard exists.
 
-**This does not license a spy on every call.** An assertion on a rendered
-pixel, a returned value or an observable state change is strictly better and
-stays the default — nine of the eleven mutations the same review ran died
-against rendered pixels. T9 is for the case where the *only* difference between
+**This does not license a spy on every call — and it narrows the assertion
+style, not the section.** Steps 1–3 and the commit record apply to every change
+of the Kinds named above, whatever the fix looks like. What is reserved is the
+*call-happened spy*: reach for one only where the **only** difference between
 fixed and unfixed is that a call happens, and § 2.1 would otherwise argue
-against writing the test at all.
+against writing the test at all. Everywhere else, an assertion on a rendered
+pixel, a returned value or an observable state change is strictly better and
+stays the default — nine of the eleven mutations that review ran died against
+rendered pixels.
 
 
 
@@ -514,3 +548,4 @@ each loop happens, never back-filled.
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Verified | Outcome |
 |---|---|---|---|---|---|---|---|---|
 | 1 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 4 | 4 | 4 | 12 verified, 0 unverified, 12 fixed | Converged. Batched run with `coding.md` — see that file's log for why. Dimensions: dim 6×3, dim 7×3, dim 2×2, dim 15×1, dim 8×1, dim 12×1, dim 11×1. **Both lanes independently found that `§ T9` step 1 only worked for a fix that ADDS a line** — it read "Name the line the fix adds. Delete it" while a large share of fixes change or remove one, and deleting a *changed* line removes the behaviour rather than restoring the defect, so it reddens for the wrong reason and reads as verified. Generalised to reverting the smallest edit, which `§ 2.2` already did. **`§ 2.2` itself was a CMake/ctest recipe in a Python project**, and `§ T9` explicitly stands on it, so following the new clause led to an unrunnable command; now the project's pytest form, and **executing it before it shipped caught two wrong revert forms**, both of which reported the test passing in the "must FAIL" position. `§ 3.6` added to sanction the source-invariant test `coding.md § 1.6` asks for, with the exemptions stated and bounded. Also fixed: `§ 3.1`'s "< 10 ms" against `§ 6`'s "< 100 ms" for the same tests; `§ T9`'s "150 tests" stated as standing fact when the suite is at 173; T7 restored to sequence after T9 had been inserted between T8 and T7; T1's undefined `<scan root>` placeholder; and the header's "other three standards" against five. Remaining C++/CMake residue routed to LWSM-1062. |
+| 2 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 7 | 6 | 2 | 15 verified, 0 unverified, 15 fixed | **Converged by sweep, not by dispatch** — 11 fix collateral vs 4 draft defects; see `coding.md`'s log for the split and the shared findings. Both lanes independently found that loop 1's own two additions to `§ T9` contradicted each other: step 1 endorsed § 2.2's **whole-file** revert while the paragraph below required the mutation **per site**, and a whole-file revert of a multi-site sweep produces exactly one red run — which the per-site rule would then credit to every site, the precise failure T9 exists to catch. Step 1 also passed on "at least one test goes red", satisfiable by any unrelated failure; it now names the fix's own test and runs it by name. `§ T9`'s closing paragraph read as narrowing the whole section to call-happened-spy cases while its opening applied to every fix of three Kinds — it now narrows the *assertion style* only. Draft defects: the header scoped this standard to `test` plus three fix Kinds while `§ 1` binds "every code change that ships behaviour" and `§ 7` binds `Kind: implement`; and `§ 2.2`'s `git checkout <rev> -- <path>` silently destroys an uncommitted fix, which § 1's TDD cycle has you holding at step 3 — now says commit first. `§ 3.1` and `§ 9` gained the reciprocal pointer to § 3.6's exemption, which loop 1 had declared only at the exempt end, and `§ 3.6` now says a mechanism spanning modules needs one test per module. |
