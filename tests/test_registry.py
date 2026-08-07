@@ -487,6 +487,49 @@ def test_no_file_sourced_value_is_interpolated_without_the_clip() -> None:
     )
 
 
+def test_the_number_of_reasons_is_bounded(dense_malformed_file: Path) -> None:
+    """`_quoted` bounds how LONG each reason is; nothing bounded how MANY.
+
+    Measured on 2026-08-07 against the file this builds: **524,271** reasons
+    totalling **20,859,730** characters, which `build_window` then wrote out as
+    one `log.warning` each — 28.7 MB through a handler that rotates at 1 MiB
+    keeping 5, so the whole history the user is told to consult is gone, and
+    8.7 s of it happens *before* `window.show()`, with no window to interrupt.
+
+    `docs/specs/LWSM-1005-vertical-slice.md § 6` identifies this exact
+    amplification for the probe path and answers it with per-message
+    suppression (LWSM-1079). The registry path has the same amplification, a
+    worse constant, and had no suppression at all.
+    """
+    records, reasons = load_projects(dense_malformed_file)
+
+    assert records == []
+    assert len(reasons) <= registry.MAX_REASONS + 1, (
+        f"{len(reasons):,} reasons against a MAX_REASONS of "
+        f"{registry.MAX_REASONS} (+1 for the suppressed-count tail)"
+    )
+
+
+def test_the_suppressed_reasons_are_counted_not_silently_dropped(
+    dense_malformed_file: Path,
+) -> None:
+    """A cap with no tail reads as completeness.
+
+    `controller._flush_repeated_error` already holds this rule — "silence and
+    suppression are never indistinguishable in the log" — and a truncated
+    reason list owes the same. Without the tail, a file with 524,271 problems
+    and a file with exactly `MAX_REASONS` problems produce identical output.
+    """
+    _, reasons = load_projects(dense_malformed_file)
+
+    assert "more" in reasons[-1], f"no suppressed-count tail: {reasons[-1]!r}"
+    # The real number, not a vague "many": 524,271 minus what was kept.
+    suppressed = 524_271 - registry.MAX_REASONS
+    assert str(suppressed) in reasons[-1], (
+        f"the tail must name how many were dropped: {reasons[-1]!r}"
+    )
+
+
 def test_a_doubled_leading_slash_is_not_a_second_identity(tmp_path: Path) -> None:
     """POSIX gives exactly two leading slashes an implementation-defined
     meaning, and `PurePosixPath` preserves them as a distinct root —

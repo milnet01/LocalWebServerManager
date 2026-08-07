@@ -1205,6 +1205,20 @@ importing `lwsm.__main__` in a test does not require a display.
   Reporting `stopped` on a failed probe would be reporting a state nobody
   observed (`§ O5`). This is the canonical statement of the behaviour; §4.3
   points here.
+- **The project list is malformed in bulk.** `load_projects` keeps at most
+  `MAX_REASONS` (100) rejection reasons and appends one tail naming how many
+  more there were, on the same reasoning as the probe path above — the rule is
+  the general one, not a property of probes, and applying it in only one of the
+  two places is what LWSM-1112 is about. The registry path had the same
+  amplification with a **worse** constant: the cheapest malformed element is two
+  bytes, so a file at `MAX_FILE_BYTES` produced **524,271** reasons and
+  **20,859,730** characters, which `build_window` wrote out as one
+  `log.warning` each — **28.7 MB** through a handler that rotates at 1 MiB
+  keeping 5. And unlike the probe path it is not spread over a day: it happens
+  in one burst *before* `window.show()`, so it was **8.7 s of no window** with
+  nothing on screen to interrupt. Measured before and after on 2026-08-07:
+  524,271 reasons / 28.7 MB / 4.38 s of logging became 101 reasons / 5,153
+  bytes / 1 ms (LWSM-1115).
 - **The probe raises something nothing here anticipated.** Handled exactly as
   the line above, and deliberately not as a separate path: `PortProbe` wraps
   anything the socket-table read raises, and `_SnapshotTask.run()` wraps

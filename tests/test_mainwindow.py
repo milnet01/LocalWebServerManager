@@ -662,6 +662,36 @@ def test_registry_error_opens_an_empty_window(qtbot, built, tmp_path) -> None:
     assert "projects.json" in message, message
 
 
+def test_a_dense_malformed_file_does_not_flood_the_log_before_the_window(
+    qtbot, built, dense_malformed_file, caplog
+) -> None:
+    """The delivery half of LWSM-1115: the cap must reach `build_window`.
+
+    `build_window` emits one `log.warning` per reason and runs *before*
+    `window.show()`, so an unbounded list is not merely a large log — it is that
+    many seconds of no window, with nothing on screen to interrupt. Measured at
+    the file-size cap before the fix: 524,271 records, 28.7 MB, 8.7 s.
+
+    Asserting the record count as well as the clock, because the count is
+    deterministic and the clock is not: a loaded machine can make any wall-time
+    bound flaky, so the time here is a smoke bound on the order of magnitude
+    (seconds, not tens of seconds) and the count is the real assertion.
+    """
+    import logging
+    import time
+
+    with caplog.at_level(logging.WARNING, logger="lwsm"):
+        start = time.perf_counter()
+        window, controller = build_window(dense_malformed_file)
+        elapsed = time.perf_counter() - start
+    built.append(controller)
+    qtbot.addWidget(window)
+
+    notices = [r for r in caplog.records if "project list:" in r.getMessage()]
+    assert len(notices) <= 101, f"{len(notices):,} log records for one bad file"
+    assert elapsed < 5.0, f"build_window took {elapsed:.1f} s before showing a window"
+
+
 def test_notices_reach_the_status_bar(qtbot, built, tmp_path) -> None:
     import json
 

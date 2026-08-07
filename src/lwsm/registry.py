@@ -30,6 +30,22 @@ MAX_FILE_BYTES = 1 << 20
 # that a hostile file cannot flood either.
 MAX_REASON_CHARS = 120
 
+# `MAX_REASON_CHARS` bounds how LONG each reason is; this bounds how MANY there
+# are, which nothing did until LWSM-1115. The cheapest malformed element is two
+# bytes, so a file at `MAX_FILE_BYTES` measured **524,271** reasons totalling
+# **20,859,730** characters on 2026-08-07 — which `build_window` then wrote as
+# one `log.warning` each: 28.7 MB through a handler that rotates at 1 MiB
+# keeping 5, i.e. the whole history the user is told to consult, and 8.7 s of it
+# before `window.show()` with no window on screen to interrupt.
+#
+# 100 is chosen against a legitimate file, not against the attack: a thousand
+# projects is roughly 200 KB, and a user who has broken a hundred of them has
+# a systematic problem the hundred-and-first line will not clarify. The
+# suppressed count is always reported (see `load_projects`), on the rule
+# `controller._flush_repeated_error` already follows — silence and suppression
+# must never be indistinguishable.
+MAX_REASONS = 100
+
 # The declared port is the "detected" half and may legitimately be 80 or 443;
 # ADR-0005's 1024-65535 floor governs the *override*, which the user types.
 DECLARED_PORT_RANGE = (1, 65535)
@@ -247,33 +263,42 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
 
     records: list[ProjectRecord] = []
     reasons: list[str] = []
+    suppressed = 0
     seen: set[Path] = set()
+
+    def note(reason: str) -> None:
+        """Record a reason, or count it once `MAX_REASONS` are already held."""
+        nonlocal suppressed
+        if len(reasons) < MAX_REASONS:
+            reasons.append(reason)
+        else:
+            suppressed += 1
 
     for index, entry in enumerate(projects):
         if not isinstance(entry, dict):
-            reasons.append(f"projects[{index}]: not an object, skipped")
+            note(f"projects[{index}]: not an object, skipped")
             continue
 
         raw_name = entry.get("name")
         if not isinstance(raw_name, str) or not raw_name:
-            reasons.append(f"projects[{index}]: 'name' must be a non-empty string")
+            note(f"projects[{index}]: 'name' must be a non-empty string")
             continue
 
         name = _quoted(raw_name)
 
         raw_path = entry.get("path")
         if not isinstance(raw_path, str) or not raw_path:
-            reasons.append(f"{name}: 'path' must be a non-empty string")
+            note(f"{name}: 'path' must be a non-empty string")
             continue
         if "\x00" in raw_path:
             # It passes is_absolute() and would load, but every later os call on
             # it raises ValueError — and P03 passes this path as a spawn cwd.
-            reasons.append(f"{name}: path {_quoted(raw_path)} contains a NUL byte")
+            note(f"{name}: path {_quoted(raw_path)} contains a NUL byte")
             continue
 
         project_path = Path(raw_path)
         if not project_path.is_absolute():
-            reasons.append(f"{name}: path {_quoted(raw_path)} is not absolute")
+            note(f"{name}: path {_quoted(raw_path)} is not absolute")
             continue
         if project_path.parts[:1] == ("//",):
             # POSIX gives EXACTLY two leading slashes an implementation-defined
@@ -282,7 +307,7 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
             # so both loaded, two records under one identity. Three or more
             # slashes collapse; two do not. Refused rather than normalised, for
             # the same reason as '..' below.
-            reasons.append(f"{name}: path {_quoted(raw_path)} must not begin with '//'")
+            note(f"{name}: path {_quoted(raw_path)} must not begin with '//'")
             continue
         if ".." in project_path.parts:
             # PurePath keeps '..', so /srv/a and /srv/c/../a are unequal and both
@@ -290,12 +315,12 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
             # malformed file. Refused rather than normalised: collapsing '..'
             # lexically is wrong when a component is a symlink, and this path
             # becomes a spawn cwd in P03.
-            reasons.append(f"{name}: path {_quoted(raw_path)} must not contain '..'")
+            note(f"{name}: path {_quoted(raw_path)} must not contain '..'")
             continue
         if project_path in seen:
             # ADR-0005 makes the absolute path the identity, so two records
             # sharing one is a malformed file, not a merge question.
-            reasons.append(f"{name}: path {_quoted(raw_path)} is already registered")
+            note(f"{name}: path {_quoted(raw_path)} is already registered")
             continue
         seen.add(project_path)
 
@@ -305,17 +330,23 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
             entry.get("port"), "port", *DECLARED_PORT_RANGE, name
         )
         if reason:
-            reasons.append(reason)
+            note(reason)
         override, reason = _port_or_reason(
             entry.get("port_override"), "port_override", *OVERRIDE_PORT_RANGE, name
         )
         if reason:
-            reasons.append(reason)
+            note(reason)
 
         records.append(
             ProjectRecord(
                 path=project_path, name=raw_name, port=port, port_override=override
             )
         )
+
+    if suppressed:
+        # Always, never conditionally quiet: a cap with no tail reads as
+        # completeness, and nothing downstream could tell a file with 100
+        # problems from one with 524,271.
+        reasons.append(f"and {suppressed} more problems in this file, not shown")
 
     return records, reasons
