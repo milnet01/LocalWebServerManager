@@ -299,6 +299,27 @@ exports `PYTHONDONTWRITEBYTECODE=1` so the gate can never trust a `.pyc`
 `__pycache__` before believing any ad-hoc measurement**, because the gate's
 guard does not cover a bare `pytest` you run yourself.
 
+**Trap: monkeypatching a Qt virtual method after the widget exists does
+nothing.** PySide6 decides whether a Python override exists when the object is
+*constructed*, so `monkeypatch.setattr(ProjectRow, "paintEvent", spy)` on an
+already-built row is never called and the test silently measures nothing. Two
+routes that do work: substitute a subclass for the *name the code constructs*
+(`monkeypatch.setattr(mainwindow, "ProjectRow", CountingRow)`) **before** the
+window is built, or — for a method you merely *call* rather than override, like
+`update()` — set the spy on the instance, since `ProjectRow` is a Python class
+and `self.update()` finds the instance attribute first. Hit on 2026-08-07 while
+writing LWSM-1109's repaint test.
+
+**Trap: `QCoreApplication.installTranslator` only broadcasts once the event
+loop is running**, because it is gated on `is_app_running`. With no `exec()`,
+no `LanguageChange` is posted anywhere and a translator test sees nothing
+happen. Worse, and unexplained after four probes on 2026-08-07: with the loop
+running and the window the only registered top-level widget, `installTranslator`
+returned `True` and Qt still did **not** post the event to `MainWindow`, while a
+bare `QMainWindow` in the same shape did receive it. So a language test must
+send `QEvent.Type.LanguageChange` by hand and say what it therefore does not
+prove — see `test_a_translator_installed_later_reaches_an_existing_row`.
+
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the
 *system* Python and report the project's own declared dependencies as
