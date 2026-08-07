@@ -329,6 +329,51 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** LWSM-1066 (FP02 — put a type checker in the gate)
 - **Logged:** 2026-08-07
 
+### From the repository itself
+
+## known-issue-016 — Generated audit output sits in two published commits
+
+- **Found by:** user, 2026-08-07, asking whether `.audit_cache` should be
+  gitignored so the world cannot read the app's problems
+- **Class:** accepted, will not be fixed — see the decision below
+- **Detail:** the answer to the question as asked is **yes, and it already is**:
+  `.gitignore:126` ignores `.audit_cache/*`, with one deliberate exception for
+  `.gitleaks-audit-run.toml` (120 bytes of gitleaks *input* config: two path
+  regexes, no findings, no paths). But the tree is not the exposure. Four files
+  — two `.sarif`, two `findings-*.json` — were tracked between **`aa3e0f4`**
+  ("FP02: record the pass") and **`7c5e63d`** ("chore: stop tracking generated
+  audit output"), and **both commits are on `origin/main`**, so the content is
+  retrievable from GitHub history. `git status` cannot show this, which is why
+  it survived a security pass and three reviews.
+- **What is actually exposed**, read rather than assumed:
+  - `findings-*.json` — **184 findings, every one `contract_doc_drift`,
+    severity `UNKNOWN`**, e.g. "doc references `PROJ-NNNN` but no match in
+    project sources". The FP02 journal records that every tool finding that
+    pass was a false positive, and this is that set.
+  - `*.sarif` — the same, plus a `clang++` error carrying **one absolute
+    path**: `/mnt/Games/Scripts/Linux/LocalWebServerManager/build/compile_commands.json`.
+  - **No credentials, no unfixed vulnerabilities, no `/home/<user>` path.** The
+    single real disclosure is the drive-and-directory layout in that path.
+- **Decision (2026-08-07, user deferred to the recommendation): leave the
+  history alone.** Rewriting it means force-pushing `main` on a public repo,
+  which `commits.md § 3.3` forbids without explicit authorisation and which
+  costs more than the disclosure is worth: every commit SHA from `aa3e0f4`
+  onward changes, published tags including `P02-complete` must be re-pointed,
+  existing clones and forks break — and GitHub retains unreferenced objects and
+  fork copies regardless, so the removal would not even be reliable. A
+  disclosure of "this project lives on a drive called `/mnt/Games`" does not
+  justify that.
+- **Why it will not recur:** the ignore rule predates this entry and holds. Note
+  for whoever reads this next: today's ignored output is *also* 170 ×
+  `contract_doc_drift` and nothing else, so the rule is currently protecting
+  low-value content — its value arrives the first time a scan surfaces a real
+  unfixed vulnerability, which is exactly when it must already be in place.
+- **Residual, if it ever matters:** teaching the audit tooling to emit
+  repo-relative paths only would make a future accidental commit leak nothing.
+  That is Ants tooling rather than this project, so it is named here and not
+  filed as a roadmap item.
+- **Logged:** 2026-08-07
+
 
 ## What does NOT belong here
 
