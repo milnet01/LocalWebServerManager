@@ -427,6 +427,66 @@ def test_a_hostile_port_field_cannot_flood_the_reason(tmp_path: Path) -> None:
         )
 
 
+def test_a_hostile_schema_version_cannot_flood_the_error(tmp_path: Path) -> None:
+    """The last field in the module still interpolated as `{version!r}`.
+
+    Same defect as the port fields one call site over (LWSM-1102), and the
+    third time this one mechanism has been fixed at a single call site:
+    LWSM-1078 did `name` and `path`, LWSM-1102 did the port fields, and
+    `schema_version` was left because nobody swept for the others (LWSM-1112).
+
+    This one is worse than the port case in two ways. It raises rather than
+    returning a reason, so the whole string reaches `log.warning` **and**
+    `set_status_message` with no per-reason bound anywhere in its path; and a
+    200 KB value measured **200,093** characters against a `MAX_REASON_CHARS`
+    of 120, rising to 1,000,093 at the 1 MiB file cap — a single 1,093,449-byte
+    log record into a handler that rotates at 1 MiB keeping 5, which scrubs the
+    history the user is told to consult.
+    """
+    path = write(
+        tmp_path,
+        {"schema_version": "X" * 200_000, "projects": []},
+    )
+
+    with pytest.raises(RegistryError) as caught:
+        load_projects(path)
+
+    message = str(caught.value)
+    # The path is interpolated too and tmp_path is not hostile input, so the
+    # bound is the quoted value plus the fixed template, not the constant alone.
+    assert len(message) <= len(str(path)) + 3 * registry.MAX_REASON_CHARS, (
+        f"error is {len(message)} characters against a MAX_REASON_CHARS of "
+        f"{registry.MAX_REASON_CHARS}"
+    )
+
+
+def test_no_file_sourced_value_is_interpolated_without_the_clip() -> None:
+    """`grep '!r}'` over the module must find nothing.
+
+    The acceptance criterion LWSM-1114 was written against, kept as a test so
+    the next `{value!r}` is caught at the gate rather than by the next review.
+    Three separate passes have now found one of these; a fourth should not have
+    to read for it.
+
+    Scoped to `!r}` — an f-string conversion — rather than to `repr(`, which
+    `_quoted` itself legitimately calls.
+    """
+    source = Path(registry.__file__).read_text(encoding="utf-8")
+
+    offenders = [
+        f"{number}: {line.strip()}"
+        for number, line in enumerate(source.splitlines(), start=1)
+        # The comment in `_port_or_reason` cites the defect by name, so match
+        # only lines that are not comments.
+        if "!r}" in line and not line.strip().startswith("#")
+    ]
+
+    assert offenders == [], (
+        "file-sourced values must go through _quoted, which escapes AND clips; "
+        f"repr alone only escapes: {offenders}"
+    )
+
+
 def test_a_doubled_leading_slash_is_not_a_second_identity(tmp_path: Path) -> None:
     """POSIX gives exactly two leading slashes an implementation-defined
     meaning, and `PurePosixPath` preserves them as a distinct root —

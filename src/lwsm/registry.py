@@ -228,8 +228,14 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
 
     version = data.get("schema_version")
     if not _is_int(version) or version != SCHEMA_VERSION:
+        # _quoted, not {version!r}, for the reason `_port_or_reason` records —
+        # and this was the last call site still carrying the defect after
+        # LWSM-1078 fixed name/path and LWSM-1102 fixed the port fields. It is
+        # the worst of the three: this string is raised, so it reaches both the
+        # log and the status bar with no per-reason bound anywhere in its path
+        # (LWSM-1114).
         raise RegistryError(
-            f"{path}: schema_version {version!r} is not {SCHEMA_VERSION}; "
+            f"{path}: schema_version {_quoted(version)} is not {SCHEMA_VERSION}; "
             "refusing to guess at its contents"
         )
 

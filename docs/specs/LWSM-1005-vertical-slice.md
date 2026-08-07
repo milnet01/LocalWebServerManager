@@ -1102,13 +1102,22 @@ importing `lwsm.__main__` in a test does not require a display.
   widget's alignment rather than on the layout — which is why it reads as
   correct in the code.
 
-- **INV-21** — A rejection reason contains no raw newline and is bounded in
-  length, whatever the file contains.
+- **INV-21** — Every message carrying a hand-edited value contains no raw
+  newline and is bounded in length, whatever the file contains. This covers the
+  `RegistryError` messages as well as the per-record rejection reasons: a raised
+  message reaches `log.warning` and `set_status_message` by the same route a
+  reason does, and it was the clause saying "rejection reason" that let
+  `schema_version` sit unbounded through two fixes of this mechanism
+  (LWSM-1114).
   *Test:* `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`
   (asserts the newline survives **escaped** rather than being stripped, so the
   reason still says what was wrong), `::test_an_enormous_name_is_clipped`,
-  `::test_the_clip_bounds_the_escaped_text_not_the_raw_text` and
-  `::test_a_hostile_port_field_cannot_flood_the_reason`.
+  `::test_the_clip_bounds_the_escaped_text_not_the_raw_text`,
+  `::test_a_hostile_port_field_cannot_flood_the_reason`,
+  `::test_a_hostile_schema_version_cannot_flood_the_error` and
+  `::test_no_file_sourced_value_is_interpolated_without_the_clip` (the
+  whole-module sweep, so the *next* call site is caught at the gate rather than
+  by a fourth review).
   *Breaks when:* any hand-edited value is interpolated as `{value!r}` rather
   than through `_quoted`, **or** the clip is applied before the escape rather
   than after.
@@ -1363,7 +1372,7 @@ onto the controller is what lets `autoDelete` stay on.
 | INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
 | INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_only_its_three_cells` |
 | INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide` |
-| INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line` |
+| INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`, plus `::test_no_file_sourced_value_is_interpolated_without_the_clip` for the mechanism-wide sweep |
 | INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced` |
 | INV-23 | `tests/test_mainwindow.py::test_the_state_word_takes_its_colour_from_the_status` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
