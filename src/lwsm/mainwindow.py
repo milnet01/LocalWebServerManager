@@ -151,6 +151,15 @@ class ProjectRow(QFrame):
         Re-applied on every font change rather than computed once, so
         LWSM-1032's 100-200 % text-size control does not leave these stale.
 
+        That was true only of a font set on *this widget* until LWSM-1119. An
+        application-level change — the route a text-size control actually takes
+        — delivered no `FontChange` here at all, because the window's style
+        sheet makes Qt resolve a font onto every descendant and so marks it
+        explicitly set. `MainWindow.changeEvent` now pushes the window font down
+        to close that; the sentence above is accurate again, and was the third
+        comment in this file found stating an intention as a fact (after
+        LWSM-1071 and LWSM-1101).
+
         The **glyph column is one of them**, and until LWSM-1101 it was not:
         it and the widened left margin were computed once in `__init__` while
         this docstring already claimed otherwise. `paintEvent` clips the glyph
@@ -386,6 +395,25 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(self._window_title())
             for row in self._rows.values():
                 row.retranslate()
+        elif event.type() == QEvent.Type.FontChange:
+            # Same shape, same reason, and a second consequence of the style
+            # sheet. QStyleSheetStyle resolves a font onto every descendant,
+            # which marks it explicitly set — so an application font change
+            # reaches this window and stops, delivering no `FontChange` to a row
+            # and not updating its font either. Measured 2026-08-07:
+            # `QApplication.setFont()` and `MainWindow.setFont()` each produced
+            # **zero** calls to `ProjectRow._apply_text_metrics`, against 1 for
+            # `row.setFont()`. Isolated against a bare QWidget tree, the same
+            # change delivers 1 `FontChange` with no style sheet and 0 with one.
+            #
+            # That made `§ O8` clause 4's 100-200 % text-size path dead by the
+            # only route a real control takes, while three tests reported it
+            # covered because all three called `row.setFont` (LWSM-1119).
+            #
+            # Pushing `self.font()` rather than `QApplication.font()` so
+            # `MainWindow.setFont()` works too — both raise this event here.
+            for row in self._rows.values():
+                row.setFont(self.font())
 
     def set_status_message(self, text: str) -> None:
         self.statusBar().showMessage(text)

@@ -46,25 +46,31 @@ def _reap_abandoned_probes():
 
 
 @pytest.fixture(autouse=True)
-def _restore_application_palette():
-    """Undo `MainWindow`'s application-palette change between tests (LWSM-1118).
+def _restore_application_appearance():
+    """Undo per-test writes to the application palette and font.
 
-    A `QApplication` is created once per session, so the palette `MainWindow`
-    now sets on it outlives the window that set it. Without this, the one test
-    that builds a dark theme would tint every test that ran after it — and
-    since most assertions here are about *relative* colour, that would surface
-    somewhere unrelated rather than as an obvious failure.
+    A `QApplication` is created once per session, so both outlive the window
+    that set them:
+
+    - `MainWindow` sets the application **palette** (LWSM-1118), so the one
+      test that builds a dark theme would otherwise tint every later test —
+      and since most assertions here compare colours *relatively*, that would
+      surface somewhere unrelated rather than as an obvious failure.
+    - The LWSM-1119 test sets the application **font**, which would leave every
+      later render at double size and silently change every text metric the
+      suite measures.
 
     A no-op until a `QApplication` exists, which is the non-GUI tests.
     """
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance()
-    before = app.palette() if app is not None else None
+    before = (app.palette(), app.font()) if app is not None else None
     yield
     app = QApplication.instance()
     if app is not None and before is not None:
-        app.setPalette(before)
+        app.setPalette(before[0])
+        app.setFont(before[1])
 
 
 @pytest.fixture

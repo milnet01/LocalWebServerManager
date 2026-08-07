@@ -684,6 +684,45 @@ def test_the_focus_ring_grows_with_the_text(qtbot, built) -> None:
     assert row.focus_ring_width() > small
 
 
+def test_an_application_font_change_reflows_an_existing_row(qtbot, built) -> None:
+    """INV-25 — `§ O8` clause 4's 200 % path, by the route a real control uses.
+
+    `_apply_text_metrics`'s docstring says it is re-applied on every font change
+    "so LWSM-1032's 100-200 % text-size control does not leave these stale". It
+    was not: measured on 2026-08-07, `QApplication.setFont()` and
+    `MainWindow.setFont()` each produced **zero** calls to it and left the row's
+    metrics unchanged, because `setStyleSheet` makes QStyleSheetStyle resolve a
+    font onto every descendant — which marks it explicitly set, so neither the
+    `FontChange` event nor the new value propagates. Isolated against a bare
+    `QWidget` tree: 1 `FontChange` without a style sheet, 0 with one.
+
+    Only `row.setFont()` worked, and all three tests covering the 200 % path
+    used exactly that — so the suite reported the path as covered while the
+    route a text-size control actually takes was dead. This test drives the
+    **application** font for that reason; driving the row's would restore the
+    same blind spot.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    row = rows_of(window)[0]
+    before = (row._glyph_width, row.layout().contentsMargins().left())
+
+    bigger = QApplication.font()
+    bigger.setPointSizeF(bigger.pointSizeF() * 2)
+    QApplication.setFont(bigger)
+    qtbot.wait(1)
+
+    after = (row._glyph_width, row.layout().contentsMargins().left())
+    assert after != before, (
+        f"the row's metrics are unchanged at {before} after the application "
+        f"font doubled — the reflow never reached it"
+    )
+    assert row._glyph_width > before[0], (
+        f"the glyph column shrank or held at {after[0]} from {before[0]}"
+    )
+
+
 # --- INV-13: rows are updated, not rebuilt ------------------------------------
 
 

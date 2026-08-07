@@ -1197,6 +1197,25 @@ importing `lwsm.__main__` in a test does not require a display.
   the failure look like success. A palette assertion that does not render is not
   evidence about what a user sees.
 
+- **INV-25** — Changing the **application** font reflows a row that already
+  exists, not only rows built afterwards.
+  *Test:* `tests/test_mainwindow.py::test_an_application_font_change_reflows_an_existing_row`,
+  driving `QApplication.setFont` and asserting the glyph column and left margin
+  both move.
+  *Breaks when:* a test drives `row.setFont` instead. That is not a style note —
+  it is how this stayed hidden. The window's style sheet makes
+  `QStyleSheetStyle` resolve a font onto every descendant, marking it explicitly
+  set, so an application font change reached the window and stopped: measured
+  **zero** calls to `ProjectRow._apply_text_metrics` for both
+  `QApplication.setFont()` and `MainWindow.setFont()`, against 1 for
+  `row.setFont()`. Isolated against a bare `QWidget` tree, the same change
+  delivers 1 `FontChange` with no style sheet and 0 with one. All three tests
+  covering `§ O8` clause 4's 100-200 % path used `row.setFont`, so the suite
+  reported the path as covered while the route a real text-size control takes
+  was dead (LWSM-1119). `MainWindow.changeEvent` now pushes the window font down
+  to the rows, the same shape as its `LanguageChange` branch and for the same
+  reason.
+
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
@@ -1459,9 +1478,10 @@ onto the controller is what lets `autoDelete` stay on.
 | INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced` |
 | INV-23 | `tests/test_mainwindow.py::test_the_state_word_takes_its_colour_from_the_status` |
 | INV-24 | `tests/test_mainwindow.py::test_the_theme_reaches_the_cells_not_only_the_window` |
+| INV-25 | `tests/test_mainwindow.py::test_an_application_font_change_reflows_an_existing_row` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
-| O8.4 — reflow at 200 % text size | **partly** — `test_the_glyph_is_not_clipped_when_the_text_size_doubles` renders at 200 % and asserts the glyph's ink stays inside its column (LWSM-1101), and `test_the_row_resizes_its_cells_when_the_font_grows` covers the cell minimums. Neither covers the row *reflowing*; the text-size control itself is LWSM-1032 |
+| O8.4 — reflow at 200 % text size | **partly** — `test_the_glyph_is_not_clipped_when_the_text_size_doubles` renders at 200 % and asserts the glyph's ink stays inside its column (LWSM-1101), and `test_the_row_resizes_its_cells_when_the_font_grows` covers the cell minimums. Neither covers the row *reflowing*; the text-size control itself is LWSM-1032. Both drive `row.setFont`, and until LWSM-1119 that was the **only** route that worked, so this row read "partly covered" while the application-font route was dead — INV-25 now covers that route, and it is the one a control uses |
 | "The state word is first in the row" | **nothing** — §4.4 claims it and no invariant asserts it; LWSM-1032's x-position row is the surface |
 | `§ O7`'s font-family and pixel-size half | **nothing**, and **unowned** — INV-8b checks colour literals only, so a widget pinning `setFont(QFont("DejaVu Sans"))` or a fixed height passes every test here. No roadmap item schedules this check; LWSM-1032's rows are about rendered output, not about source literals |
 | The 2 s criterion under load | **nothing** — INV-7 measures one project on an idle machine; the ≤250 ms snapshot budget at 20 projects is unmeasured until there are 20 projects to measure, which no roadmap item yet creates |
