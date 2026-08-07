@@ -866,7 +866,7 @@ first two bullets because the leaf findings are their instances:
   Lanes: docs, core.
   Source: code-quality-review-2026-08-07.
 
-- 📋 [LWSM-1113] **FP05: a test proves the fix is reached, not merely that its helper works.**
+- ✅ [LWSM-1113] **FP05: a test proves the fix is reached, not merely that its helper works.**
   Root cause 2, and the more serious of the two. Four shipped fixes are
   deletable with the full suite green, verified by mutation:
 
@@ -894,8 +894,9 @@ first two bullets because the leaf findings are their instances:
   Kind: test.
   Lanes: tests, docs.
   Source: code-quality-review-2026-08-07.
+  Resolved (2026-08-07, 6e32593): nine wiring tests added, each mutation-verified — the shipped line it guards was deleted and the named test confirmed red. All four table mutations now redden at least one test named for them. `docs/standards/testing.md § T9` carries the rule and is written but UNGATED: it is deliberately batched with LWSM-1112's `coding.md` clause into one rule-14 /cold-eyes run. Bullet flip itself was missed on 2026-08-07 and corrected in the FP05 continuation session; the work and the commit predate this note.
 
-- 📋 [LWSM-1114] **FP05: `schema_version` is the one field still interpolated raw, so a hand-edited file yields a 1 MiB log record and status string.**
+- ✅ [LWSM-1114] **FP05: `schema_version` is the one field still interpolated raw, so a hand-edited file yields a 1 MiB log record and status string.**
   `registry.py:232` uses `{version!r}`, which escapes but does not clip;
   `_quoted` (escape **and** clip to `MAX_REASON_CHARS`) is applied to `name`
   and `path` and not to this one. `grep '!r}'` finds exactly one hit in the
@@ -916,6 +917,7 @@ first two bullets because the leaf findings are their instances:
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-07.
+  Resolved (2026-08-07, 38a4439): `schema_version` goes through `_quoted`. The acceptance's third clause — "no bare `!r}` interpolation of file-sourced data remains in the module" — is now a test rather than a one-off grep: `test_no_file_sourced_value_is_interpolated_without_the_clip` reads the module and fails on any non-comment `!r}`, so the fourth call site is caught at the gate rather than by a fourth review. INV-21 rephrased from "a rejection reason" to "every message carrying a hand-edited value", because the narrow wording is what let a *raised* message sit unbounded through two fixes of this mechanism. Both new tests mutation-verified against the restored `{version!r}`.
 
 - 📋 [LWSM-1115] **FP05: nothing bounds the *number* of rejection reasons, so a 1 MiB file costs 8.7 s of blank screen and destroys the log.**
   `_quoted` bounds each reason; nothing bounds how many there are, and
@@ -936,7 +938,7 @@ first two bullets because the leaf findings are their instances:
   Lanes: core, tests.
   Source: code-quality-review-2026-08-07.
 
-- 📋 [LWSM-1116] **FP05: `applog.default_state_dir()` is missing the `Path.home()` guard its registry twin has, so the app dies with a traceback and no window.**
+- ✅ [LWSM-1116] **FP05: `applog.default_state_dir()` is missing the `Path.home()` guard its registry twin has, so the app dies with a traceback and no window.**
   `Path.home()` raises `RuntimeError` when neither `HOME` nor a passwd entry
   resolves. `registry.default_projects_path()` wraps it and re-raises as
   `RegistryError` (`registry.py:75-82`); `applog.default_state_dir()`
@@ -956,6 +958,7 @@ first two bullets because the leaf findings are their instances:
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-07.
+  Resolved (2026-08-07, 8e9c779): the guard matches registry.py:75-82 in shape, raising `OSError` rather than `RegistryError` — that is applog's existing error contract and the one type `main`'s handler catches. Reproduced first: `main([])` died with `RuntimeError`, `caught by except OSError? False`, on 3.13.14. The end-to-end test then found a SECOND half not in this bullet: `main` called `build_window(default_projects_path())`, and an argument is evaluated before the call, so the `RegistryError` LWSM-1026's guard raises was thrown outside the only catch written for it — the guard was present and unreachable, the same root cause one layer up. `build_window` now takes `Path | None` and resolves the default inside its own try. Spec § 4.5 and INV-15 updated. Both tests drive the real mechanism (HOME cleared, passwd entry removed) and assert the window is shown WITH its reason; mutation-verified both ways.
 
 - 📋 [LWSM-1117] **FP05: the abandoned-pool wait is bounded only for callers that go through `run()` — the mechanism is still unbounded, and the test suite pays it today.**
   `stop()` bounds its own wait and moves a still-running pool into
