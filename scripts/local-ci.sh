@@ -19,6 +19,19 @@ set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
 
+# The gate must never read a .pyc it cannot prove is current. Python's default
+# bytecode invalidation compares only the source's mtime and SIZE, so a
+# same-second edit whose replacement text is the same byte length leaves the
+# stale bytecode looking valid. Observed live on 2026-08-06: a constant read
+# 400 from an import while the file on disk, `git status` and `git show HEAD`
+# all said 120 — and the test run was green. This is the "green test over a
+# stale binary" false pass in a language with no build step, and it is
+# invisible: clean tree, empty diff, passing suite (LWSM-1110).
+#
+# Writing none is better than trusting one. The cost is recompiling each run,
+# which is milliseconds at this size.
+export PYTHONDONTWRITEBYTECODE=1
+
 usage() {
     printf 'usage: %s [--fast]\n' "$0"
     printf '  --fast   skip the slowest stage (still lints and tests)\n'
@@ -103,7 +116,17 @@ uv run ruff format --check .
 step "Syntax gate (compileall)"
 # The "build" for a pure-Python project. `import lwsm` would miss any submodule
 # that nothing imports yet, which at this stage is most of them.
-uv run python -m compileall -q src tests
+#
+# -f and checked-hash, not the defaults, and PYTHONDONTWRITEBYTECODE above does
+# not cover this step: compileall's whole job is to WRITE bytecode, so it
+# ignores that variable, and by default it skips a file whose .pyc looks
+# current by the same mtime-and-size test that produced LWSM-1110. So the
+# stale .pyc survived the syntax gate and the tests then imported it.
+#   -f                          recompile regardless of timestamps
+#   --invalidation-mode checked-hash   record the source's hash in the .pyc, so
+#                               every later import verifies CONTENT rather than
+#                               a timestamp, and cannot go stale at all
+uv run python -m compileall -q -f --invalidation-mode checked-hash src tests
 
 step "Entry points resolve"
 # compileall proves every file that EXISTS parses; it cannot know that

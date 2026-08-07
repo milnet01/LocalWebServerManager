@@ -287,6 +287,18 @@ sibling; do not blank its name. **Assert against the AT tree's
 children**, not only the parent's accessible name, or the test cannot
 see this.
 
+**Trap: a stale `.pyc` can make a green run report on code that is not
+on disk.** Python's default bytecode invalidation compares only the source's
+**mtime and size**, so a same-second edit-and-revert whose replacement text is
+the same byte length leaves the stale bytecode looking valid. Observed live on
+2026-08-06: a constant read `400` from an import while the file, `git status`
+and `git show HEAD` all said `120`; clearing `__pycache__` restored it. Clean
+tree, empty diff, passing suite — nothing visible is wrong. `local-ci.sh` now
+exports `PYTHONDONTWRITEBYTECODE=1` so the gate can never trust a `.pyc`
+(LWSM-1110); **do the same (`PYTHONDONTWRITEBYTECODE=1 uv run pytest`) or clear
+`__pycache__` before believing any ad-hoc measurement**, because the gate's
+guard does not cover a bare `pytest` you run yourself.
+
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the
 *system* Python and report the project's own declared dependencies as
