@@ -135,6 +135,11 @@ Do not delete revoked entries — the history is the value.
   2026-08-06 — `roadmap-format.md` 68, `coding.md` 31,
   `spec-format.md` 21, `testing.md` 21, `commits.md` 19,
   `documentation.md` 19, `README.md` 7, `dependencies.md` 1.
+  **Re-verified 2026-08-07 (FP05): 164 findings** — `roadmap-format.md` 63,
+  `coding.md` 22, `spec-format.md` 19, `commits.md` 18,
+  `documentation.md` 18, `testing.md` 16, `README.md` 7,
+  `dependencies.md` 1. The drop is the rule getting quieter, not the
+  standards changing; the reasoning below still holds line for line.
 - **Why this is a false positive:** the rule reads a backticked token
   in a document as a claim that the project's source contains that
   symbol. That is a fair check against `docs/specs/`, which states
@@ -223,9 +228,23 @@ Do not delete revoked entries — the history is the value.
 - **Status:** active
 - **Tool / rule:** `contract_doc_drift` (via `audit_run`) —
   `contract_doc_drift`
-- **Location:** `docs/specs/LWSM-1005-vertical-slice.md` — lines 144
-  (`ValueError`), 157 (`TypeError`), 449 (`state_text`), 618
-  (`QMessageBox`), 796 (`ImportError`). 5 findings on 2026-08-06.
+- **Location:** `docs/specs/LWSM-1005-vertical-slice.md`. 5 findings on
+  2026-08-06 at lines 144 (`ValueError`), 157 (`TypeError`), 449
+  (`state_text`), 618 (`QMessageBox`), 796 (`ImportError`).
+  **Re-verified 2026-08-07 (FP05): 6 findings**, the spec having grown
+  945 → 1430 lines — lines 209 (`QStatusBar`), 212 (`bold`), 217
+  (`TypeError`), 595 (`state_text`), 920 (`QMessageBox`), 1254
+  (`ImportError`). `ValueError` no longer fires. **Two tokens are new
+  and were verified individually rather than waved through on the
+  entry's existing reasoning**, since this entry must not mask a real
+  drift: both are from the FP03 measurement prose the spec now records.
+  `QStatusBar` is absent from source because the code reaches the widget
+  through `self.statusBar()` (`mainwindow.py:372`) and never names the
+  class — a source match would require an import the project does not
+  need. `bold` is the literal string that measurement rendered
+  (`<b>bold</b>` drew 508 ink pixels against 232 for `bold`), i.e. test
+  data quoted in prose, not a symbol. Both fall inside this entry's
+  existing two token classes.
 - **Why this is a false positive:** narrower than allowlist-003 and
   deliberately so — the rule **is** useful against `docs/specs/`, which
   states this project's own contracts, so this entry carves out two
@@ -256,7 +275,19 @@ Do not delete revoked entries — the history is the value.
 - **Tool / rule:** `vulture` — unused variable (60% confidence)
 - **Location:** `src/lwsm/theme.py:38` (`accent_soft`), `:39`
   (`attention`), `:41` (`is_dark`); plus `pytestmark` in
-  `tests/test_controller.py:24` and `tests/test_mainwindow.py:22`
+  `tests/test_controller.py:24` and `tests/test_mainwindow.py:22`.
+  **Extended 2026-08-07 (FP05)** with three more names pytest reads by
+  convention and no source will ever reference: `_reset_logging` in
+  `tests/test_applog.py:41` and `tests/test_main.py:27` (both
+  `@pytest.fixture(autouse=True)`, so pytest runs them without any
+  call-site), and `_no_event_loop` in `tests/test_main.py:73` (a plain
+  fixture, requested via `@pytest.mark.usefixtures("_no_event_loop")` at
+  `:86` — a **string**, which is structurally invisible to a static
+  reference scan). Verified by grep before adding. `applog.py:53`
+  (`_open`) also appears in vulture's output; it is a real
+  `FileHandler` override that logging calls through the base class and
+  is the single pre-existing pyright mismatch **LWSM-1066** owns —
+  tracked there, not suppressed here.
 - **Why this is a false positive:** the three `Theme` fields are read
   by nothing in `src/` today, and that is the **documented outcome of
   a reviewed decision** rather than an oversight.
@@ -287,7 +318,11 @@ Do not delete revoked entries — the history is the value.
   `DEP002` (declared but unused)
 - **Location:** 15 findings on 2026-08-06 — `DEP003` x12 on `import lwsm`
   in `src/lwsm/controller.py`, `mainwindow.py`, `theme.py`, `__main__.py`;
-  `DEP002` x3 on `pytest`, `pytest-qt`, `ruff` in `pyproject.toml`
+  `DEP002` x3 on `pytest`, `pytest-qt`, `ruff` in `pyproject.toml`.
+  **Re-verified 2026-08-07 (FP05): 16 findings** — `DEP003` x13, the extra
+  one being the deferred `from lwsm.controller import ...` inside `run()`
+  at `__main__.py:125`, added by LWSM-1100. Same intra-package self-import
+  class; the count moved, the reasoning did not.
 - **Why this is a false positive:** two distinct misreadings, both
   verified. `DEP003` fires on `lwsm` importing **itself** — every one of
   those lines is an intra-package import (`from lwsm.ports import ...`),

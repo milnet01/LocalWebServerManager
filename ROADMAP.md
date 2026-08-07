@@ -812,6 +812,246 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Source: code-quality-review-2026-08-06b.
   Resolved (2026-08-07, c045e62): nine of ten closed — snapshot()'s comprehension moved inside the try, both of its filters tested (each mutation reddens under -m 'not integration', where neither was covered before), the colour detector taught named constants and given tokenise-based comment stripping, the chmod-000 case skipped explicitly as root, the device-node test moved into tmp_path, the vulture parameters underscore-prefixed, and the spec typo fixed. _glyph_color's caching behind the equality guard is deliberately NOT fixed — unreachable in P02 because the theme is built once — and is named at the guard pointing at LWSM-1031.
 
+## FP05 — Third three-lane review fold-in (from the second re-run P02 close, 2026-08-07)
+
+Static analysis was clean for the **fourth** close running — ruff, bandit,
+semgrep, gitleaks, trivy, shellcheck, actionlint, zizmor and pip-audit all found
+nothing, each verified to have actually run rather than trusted on a zero. The
+170 `contract_doc_drift` hits are allowlist-003 and allowlist-006 in full. Every
+defect below came from reading.
+
+Three lanes re-read the FP04 code cold — the data boundary, the concurrency
+boundary and the presentation layer. **25 findings, 7 of them HIGH.** The four
+highest-consequence were re-reproduced independently of the reviewers and all
+four held exactly.
+
+**This pass is deliberately not the whole list.** P02 is one feature item that
+had already produced 28 fix items across FP03 and FP04; a third full fold-in
+would have made it 54, and the ratio — not the convergence checkpoint, which
+would not have fired — is what stopped it. The user's call on 2026-08-07 was to
+fix the **two root causes and the seven HIGH findings** here, and hand the
+MEDIUM and LOW tail to the phases that already own the code it lands in. Those
+are in `docs/known-issues.md` with a named owner each, not dropped.
+
+**Two themes were found independently by all three lanes**, and they are the
+first two bullets because the leaf findings are their instances:
+
+1. **A fix landed at the call site it was reported against, not at the
+   mechanism.** Six instances this pass. This is the same shape FP04 reported
+   about FP03, now for the third time running.
+2. **Tests assert the artefact, not the delivery.** Four separate shipped fixes
+   can be deleted with all 150 tests still green, because what is covered is
+   the helper and never the wiring that reaches it.
+
+- 📋 [LWSM-1112] **FP05: a fix is applied at the mechanism, and the sweep for sibling call sites is a rule rather than a habit.**
+  Root cause 1. Six instances found this pass, each a fix that closed the one
+  call site it was reported against: `_quoted` applied to the port fields but
+  not `schema_version` (LWSM-1102); `Path.home()` guarded in
+  `registry.default_projects_path` but not `applog.default_state_dir`; the
+  shutdown bound placed in `run()` rather than in the abandonment mechanism
+  (LWSM-1100); LWSM-1069's staleness handling covering the exception path but
+  not the hang path; the `_stopped` flag checked in `_on_snapshot` but not
+  `_on_probe_error` (LWSM-1098); and the contrast floor enforced against
+  `window` but not `alt_base`.
+
+  The leaf fixes are separate bullets below. What this one owns is the rule:
+  `docs/standards/coding.md` gains a clause requiring that a fix names the
+  other call sites of the same mechanism and either fixes them or says why
+  they are out of scope — and `/apply-fixes` already owns a blast-radius
+  sweep, so the gap is that nothing makes it mandatory.
+  Acceptance: `coding.md` carries the clause; each of the six instances is
+  either fixed by its own bullet here or filed with an owner.
+  **Layman:** The same bug keeps getting fixed in one place while its twin two files over is left alone — this makes checking for the twin part of the job.
+  Kind: refactor.
+  Lanes: docs, core.
+  Source: code-quality-review-2026-08-07.
+
+- 📋 [LWSM-1113] **FP05: a test proves the fix is reached, not merely that its helper works.**
+  Root cause 2, and the more serious of the two. Four shipped fixes are
+  deletable with the full suite green, verified by mutation:
+
+  | Deleted | Suite |
+  |---|---|
+  | `run()`'s call to `exit_without_waiting_for_abandoned_probes` — all of LWSM-1100 | 150 passed |
+  | `MainWindow.setPalette(theme.to_palette())` | 150 passed, twice |
+  | `main()`'s `finally: controller.stop()` | 150 passed |
+  | all three of `applog`'s `S_ISREG` / `O_DIRECTORY` / `fchmod` checks at once | 19 passed |
+
+  The pattern is exact: the palette test asserts the `QPalette` **object**
+  and never that a widget receives it; the entry-point test asserts the
+  **string** `lwsm.__main__:run` and never that `run()` does anything. The
+  computational assertions in this codebase are strong — the presentation
+  lane killed 10 of 11 mutations against rendered pixels. What nothing covers
+  is whether the thing that was built is plugged in.
+
+  Also folded in here, same class: `_on_probe_error`'s `_stopped` guard,
+  `run()`'s outer catch-all (INV-4c's second layer, which demonstrably fires),
+  and `_flush_repeated_error` on the success path — each deletable with 150
+  green.
+  Acceptance: `docs/standards/testing.md` carries the rule; every mutation in
+  the table above reddens at least one test named for it.
+  **Layman:** Several fixes we shipped could be deleted and every test would still pass — the tests check the part that was built, not that it is switched on.
+  Kind: test.
+  Lanes: tests, docs.
+  Source: code-quality-review-2026-08-07.
+
+- 📋 [LWSM-1114] **FP05: `schema_version` is the one field still interpolated raw, so a hand-edited file yields a 1 MiB log record and status string.**
+  `registry.py:232` uses `{version!r}`, which escapes but does not clip;
+  `_quoted` (escape **and** clip to `MAX_REASON_CHARS`) is applied to `name`
+  and `path` and not to this one. `grep '!r}'` finds exactly one hit in the
+  module. Reproduced independently of the reviewer: a 200 KB
+  `schema_version` produced a `RegistryError` of **200,093 characters**
+  against a cap of 120; at the 1 MiB file cap the reviewer measured
+  1,000,093 and a single log record of 1,093,449 bytes, which forces an
+  immediate rollover.
+
+  This is INV-21's own *Breaks when* clause verbatim, and the exact defect
+  LWSM-1102 fixed on the port fields one call site over — an instance of
+  LWSM-1112.
+  Acceptance: `schema_version` goes through `_quoted`; a test feeds an
+  oversized value and asserts the message length against
+  `MAX_REASON_CHARS`; no bare `!r}` interpolation of file-sourced data
+  remains in the module.
+  **Layman:** One field in the project file was never length-limited, so a big value in it can blow away the whole log the user is told to check.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-07.
+
+- 📋 [LWSM-1115] **FP05: nothing bounds the *number* of rejection reasons, so a 1 MiB file costs 8.7 s of blank screen and destroys the log.**
+  `_quoted` bounds each reason; nothing bounds how many there are, and
+  `build_window` emits one `log.warning` per reason. The cheapest bad element
+  is two bytes. Reproduced: a maximally dense malformed file at the cap gave
+  **524,271 reasons / 20,859,730 total characters**, then **8.7 s** spent
+  logging, all five backups overwritten and prior history gone. `build_window`
+  runs before `window.show()`, so that is 8.7 s of no window and no way to
+  interrupt.
+
+  Spec § 6 identifies this exact amplification for the probe path and answers
+  it with per-message suppression (LWSM-1079). The registry path has the same
+  amplification, a worse constant, and no suppression.
+  Acceptance: the reason list is capped with an "and N more" tail; a test at
+  the file-size cap asserts both the reason count and the wall time.
+  **Layman:** A badly broken project file can freeze the app for nine seconds before the window appears, and wipe the log while it does it.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-07.
+
+- 📋 [LWSM-1116] **FP05: `applog.default_state_dir()` is missing the `Path.home()` guard its registry twin has, so the app dies with a traceback and no window.**
+  `Path.home()` raises `RuntimeError` when neither `HOME` nor a passwd entry
+  resolves. `registry.default_projects_path()` wraps it and re-raises as
+  `RegistryError` (`registry.py:75-82`); `applog.default_state_dir()`
+  (`applog.py:160`) calls it bare, and `main` guards `configure_logging()`
+  with `except OSError` only — so the `RuntimeError` sails straight past.
+  Reproduced: `main([])` died with `RuntimeError`, `caught by except OSError?
+  False`.
+
+  `__main__.py:76-78` states the contract this breaks — "A log we cannot write
+  is worth a warning, not a crash" — and the `configure_stderr_logging`
+  fallback, whose own docstring says the hardening "would have converted a
+  log-integrity attack into a total-outage one", is never reached. Another
+  instance of LWSM-1112.
+  Acceptance: the guard matches `registry.py:75-82`; a test clears `HOME` and
+  the passwd entry and asserts a window still opens with a stderr warning.
+  **Layman:** On a machine with no home directory set, the app crashes instead of falling back to printing its log to the terminal.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-07.
+
+- 📋 [LWSM-1117] **FP05: the abandoned-pool wait is bounded only for callers that go through `run()` — the mechanism is still unbounded, and the test suite pays it today.**
+  `stop()` bounds its own wait and moves a still-running pool into
+  `_ABANDONED`; `~QThreadPool` then calls `waitForDone()` with no timeout at
+  interpreter shutdown. The only thing bounding that is
+  `exit_without_waiting_for_abandoned_probes`, whose only caller is `run()`.
+  Every other process — the test suite, any future embedder or reload path —
+  inherits the unbounded wait.
+
+  Measured independently of the reviewer, and the numbers matched:
+
+  | run | pytest reports | process wall |
+  |---|---|---|
+  | full suite | 4.13 s | **7.65 s** |
+  | minus `test_stop_is_bounded_when_a_probe_never_returns` | 4.03 s | **4.31 s** |
+
+  So every `./scripts/local-ci.sh` and every CI run pays ~3.3 s blocked in a
+  destructor, invisible to the suite, which reports 150 passed either way. The
+  reviewer showed it scales with the gate: raising only the fake probe's
+  timeout moved process wall by +14.95 s while pytest's own number did not
+  move. LWSM-1100's note says the wait was "removed"; it was removed on one
+  path. Instance of LWSM-1112.
+  Acceptance: nothing outside `run()` can reach interpreter shutdown holding an
+  abandoned pool; the suite's own process wall drops to within ~0.5 s of the
+  time pytest reports, asserted rather than observed.
+  **Layman:** The fix that stopped the app hanging on quit only works when it is launched the normal way — our own test runs still wait three seconds for it every time.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-07.
+
+- 📋 [LWSM-1118] **FP05: the theme's palette reaches the `QMainWindow` and nothing below it, so a dark palette renders text at 1.25:1.**
+  `mainwindow.py:318` calls `setPalette(theme.to_palette())` and `:321` then
+  calls `setStyleSheet(...)`, which installs `QStyleSheetStyle` — and that
+  re-resolves every descendant's palette from the **application** palette,
+  discarding the one just set. `to_palette()`'s 13 roles never reach the
+  central widget, the rows, or the cell labels. Verified on live widgets:
+  `window WindowText=#1b1b1f` (themed) against `row`/`state`
+  `WindowText=#000000` (Fusion defaults).
+
+  The light default hides it — Fusion's black is *darker* than the `text`
+  token, so contrast is accidentally better. Building a dark theme makes it
+  visible at once: name and port cells rendered at **1.25:1 and 1.27:1**
+  against a 4.5:1 floor, i.e. invisible, for a primary user who is partially
+  sighted. `theme.py:127` claims "Tokens expand into a QPalette so native
+  widgets follow the theme"; they do not. Confirmed independently that
+  deleting the `setPalette` call leaves **150 tests green** — this is also a
+  LWSM-1113 instance.
+  Acceptance: a rendered-pixel test asserts a cell's ink matches the `text`
+  token under a non-default palette; the fix survives the style sheet.
+  **Layman:** The colour theme only reaches the window frame, not the text inside it. Harmless in the light theme by luck, and unreadable the day a dark theme ships.
+  Kind: fix.
+  Lanes: ui, tests.
+  Source: code-quality-review-2026-08-07.
+
+- 📋 [LWSM-1119] **FP05: a runtime application-font change never reaches an existing row, so O8 clause 4's 200 % path does not work by the route a text-size control uses.**
+  Same stylesheet root cause as LWSM-1118. Measured: `QApplication.setFont()`
+  and `MainWindow.setFont()` produce **no `FontChange` event on the row at
+  all** — 0 calls to `_apply_text_metrics`, metrics unchanged at
+  `(13, 52, 47)`. Only `row.setFont()` works, and `grep -rn setFont src tests`
+  returns three hits, all `row.setFont`, in the three tests that cover this.
+  So the suite reports the 200 % path as covered while the route a real
+  control would use is dead.
+
+  `_apply_text_metrics`'s docstring says it is re-applied "so LWSM-1032's
+  100-200 % text-size control does not leave these stale" — the third false
+  comment of this class, after LWSM-1071 and LWSM-1101. Rows built *after* the
+  app font changes do pick it up, so only existing rows are frozen.
+  Acceptance: `QApplication.setFont()` reflows an already-built row; the test
+  drives the application font, not the widget's.
+  **Layman:** Turning up the system text size does nothing to rows already on screen — and the setting our partially-sighted user is most likely to change is exactly this one.
+  Kind: accessibility.
+  Lanes: ui, tests.
+  Source: code-quality-review-2026-08-07.
+
+- 📋 [LWSM-1120] **FP05: nothing verifies that `run()` calls the bounded exit, or that `main()` stops the controller.**
+  The two shutdown promises in spec § 6, neither of them wired-tested.
+  `test_the_process_exits_promptly_when_a_probe_is_abandoned` writes a
+  subprocess script that calls
+  `exit_without_waiting_for_abandoned_probes(0)` **directly**
+  (`tests/test_controller.py:602`), so it tests the function and not the
+  wiring; `test_the_console_script_names_run_not_main` asserts only the
+  entry-point string. Confirmed independently: reducing `run()` to
+  `code = main(); return code` — the whole of LWSM-1100 — leaves **150
+  passed**. Removing `main()`'s `finally: controller.stop()` likewise leaves
+  150 passed.
+
+  Given LWSM-1117, `run()`'s call is the single line bounding process exit,
+  and it is the highest-consequence unguarded line in the tree. `build_window`
+  is already the testable seam INV-15 uses.
+  Acceptance: a test fails when `run()` no longer calls the bounded exit, and
+  another fails when `main()` no longer stops the controller.
+  **Layman:** The line that stops the app hanging on quit could be deleted and every test would still pass.
+  Kind: test.
+  Lanes: tests.
+  Source: code-quality-review-2026-08-07.
+
 ## FP01 — Security fold-in (from the P01 review, 2026-08-03)
 
 **Theme:** findings from the P01 `/audit` + code review + security
