@@ -18,24 +18,37 @@ if TYPE_CHECKING:
     from lwsm.mainwindow import MainWindow
 
 
-def build_window(projects_path: Path) -> tuple[MainWindow, ProjectController]:
+def build_window(
+    projects_path: Path | None = None,
+) -> tuple[MainWindow, ProjectController]:
     """Load, construct and connect. Does not run an event loop.
 
     Split out of `main` so LWSM-1005 INV-15 can observe the RegistryError
     catch: `main` ends in a blocking `app.exec()`, so a test that called it
     would never return, and a test that built the window itself would be
     testing the window rather than the catch.
+
+    `projects_path` defaults to `None` — meaning "resolve it here" — because
+    **resolving it can raise**, and until 2026-08-07 `main` called
+    `build_window(default_projects_path())`, which evaluates the argument
+    *before* entering the function and therefore outside the only catch written
+    for it. On a machine with no home directory the guard `default_projects_path`
+    has carried since LWSM-1026 produced a `RegistryError` that nothing caught,
+    so the app died with a traceback and no window — the guard was there and
+    unreachable (LWSM-1116). Tests still pass a path explicitly.
     """
     from lwsm.controller import ProjectController
     from lwsm.mainwindow import MainWindow
     from lwsm.ports import PortProbe
-    from lwsm.registry import RegistryError, load_projects
+    from lwsm.registry import RegistryError, default_projects_path, load_projects
     from lwsm.theme import Theme
 
     log = applog.get_logger(__name__)
     notices: list[str] = []
     error: str | None = None
     try:
+        if projects_path is None:
+            projects_path = default_projects_path()
         records, notices = load_projects(projects_path)
     except RegistryError as exc:
         # Not fatal: a missing projects.json is a first run, not a crash, for
@@ -92,12 +105,12 @@ def main(argv: list[str] | None = None) -> int:
     # argparse handles above — need no Qt and therefore no display (INV-14).
     from PySide6.QtWidgets import QApplication
 
-    from lwsm.registry import default_projects_path
-
     # Qt permits one QApplication per process, and a test session already has
     # one, so reuse it rather than raising.
     app = QApplication.instance() or QApplication([])
-    window, controller = build_window(default_projects_path())
+    # No argument: resolving the default path is itself fallible, so it happens
+    # inside build_window's RegistryError catch rather than out here (LWSM-1116).
+    window, controller = build_window()
     try:
         window.show()
         return app.exec()

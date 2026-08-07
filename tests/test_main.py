@@ -111,6 +111,61 @@ def test_starts_even_when_the_state_directory_is_unusable(
     )
 
 
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+def test_starts_even_when_there_is_no_home_directory(monkeypatch, capsys, tmp_path):
+    """The same promise as the test above, by the one route that bypassed it.
+
+    Drives the real mechanism rather than monkeypatching `Path.home`: with
+    `HOME` unset, `posixpath.expanduser` falls back to the passwd entry, and
+    with that gone too it returns `~` unexpanded, which `Path.expanduser` turns
+    into `RuntimeError`. Measured on 3.13.14 before the fix — `main([])` died
+    with `RuntimeError`, `caught by except OSError? False`.
+
+    This asserts a **window**, not just a return code. `main` returning 0 is
+    what the stubbed `exec` gives it either way, so a test that stopped there
+    would stay green with the window never built.
+    """
+    import pwd
+
+    def no_passwd_entry(uid: int) -> object:
+        raise KeyError(f"no passwd entry for uid {uid}")
+
+    monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    # The config path has had this guard since LWSM-1026, so it raises
+    # RegistryError and `build_window` turns it into an empty window (INV-15).
+    # Left unset on purpose: the two halves of the XDG rule must both survive
+    # having no home, and stubbing one of them out would hide half the path.
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setattr(pwd, "getpwuid", no_passwd_entry)
+
+    from lwsm import mainwindow as mainwindow_module
+
+    # Recorded from inside `main`, not read back afterwards: `main`'s local
+    # reference is the only one, so the window is destroyed the moment it
+    # returns and `QApplication.topLevelWidgets()` comes back empty either way.
+    shown: list[str] = []
+    monkeypatch.setattr(
+        mainwindow_module.MainWindow,
+        "show",
+        lambda self: shown.append(self.statusBar().currentMessage()),
+    )
+
+    assert main([]) == 0, "a machine with no home directory must not stop the app"
+
+    assert len(shown) == 1, "no window was shown"
+    # INV-15's actual promise: the window opens *and says why it is empty*.
+    # Asserting only that a window exists would stay green if the reason were
+    # dropped, which is the LWSM-1113 shape this pass is closing.
+    assert "home directory" in shown[0], shown[0]
+
+    captured = capsys.readouterr()
+    assert "log" in captured.err.lower(), (
+        f"the failure was not reported to the user: {captured.err!r}"
+    )
+
+
 def test_the_console_script_names_run_not_main() -> None:
     """The process-ending exit lives in `run()`, and this pins it there.
 
@@ -222,8 +277,10 @@ def test_main_stops_the_controller_when_the_loop_returns(
         def show(self) -> None:
             return None
 
+    # `_path=None` matches build_window's signature since LWSM-1116: `main`
+    # calls it with no argument so the path resolution happens inside its catch.
     monkeypatch.setattr(
-        entry, "build_window", lambda _path: (FakeWindow(), SpyController())
+        entry, "build_window", lambda _path=None: (FakeWindow(), SpyController())
     )
 
     assert main([]) == 0

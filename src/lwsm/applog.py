@@ -150,15 +150,31 @@ def configure_stderr_logging(level: int = logging.INFO) -> None:
 
 
 def default_state_dir() -> Path:
-    """`$XDG_STATE_HOME/localwebservermanager`, else `~/.local/state/...`."""
+    """`$XDG_STATE_HOME/localwebservermanager`, else `~/.local/state/...`.
+
+    Raises `OSError` when there is no home directory to fall back to — the same
+    guard `registry.default_projects_path` has carried since LWSM-1026, added
+    here on 2026-08-07 after a review found the twin call site unguarded
+    (LWSM-1116). `OSError` rather than a bespoke type because it is this
+    module's existing error contract and the entry point's one handler.
+    """
     xdg = os.environ.get("XDG_STATE_HOME")
     # The XDG spec requires a relative path to be ignored, not resolved against
     # the cwd — honouring one would put the log somewhere different per launch.
-    base = (
-        Path(xdg)
-        if xdg and Path(xdg).is_absolute()
-        else Path.home() / ".local" / "state"
-    )
+    if xdg and Path(xdg).is_absolute():
+        base = Path(xdg)
+    else:
+        try:
+            base = Path.home() / ".local" / "state"
+        except RuntimeError as exc:
+            # Path.home() raises when neither HOME nor a passwd entry resolves.
+            # Uncaught it was a RuntimeError, which `__main__.main`'s `except
+            # OSError` does not catch, so the app died with a traceback and no
+            # window — turning a missing home directory into the total outage
+            # `configure_stderr_logging` exists to prevent.
+            raise OSError(
+                errno.ENOENT, f"cannot locate a home directory ({exc})"
+            ) from exc
     return base / "localwebservermanager"
 
 

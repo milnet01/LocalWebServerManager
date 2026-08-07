@@ -760,9 +760,20 @@ finds the log when the window misbehaves.
    separate function**:
 
    ```python
-   def build_window(projects_path: Path) -> tuple[MainWindow, ProjectController]:
+   def build_window(
+       projects_path: Path | None = None,
+   ) -> tuple[MainWindow, ProjectController]:
        """Load, construct and connect. Does not run an event loop."""
    ```
+
+   `projects_path` defaults to `None`, meaning **resolve it inside this
+   function**, and that default is load-bearing rather than a convenience.
+   `default_projects_path()` can raise `RegistryError` — it has guarded
+   `Path.home()` since LWSM-1026 — and while `main` called
+   `build_window(default_projects_path())` the argument was evaluated *before*
+   the call, so the only catch written for that exception could not see it. On a
+   machine with no home directory the app died with a traceback and no window
+   (LWSM-1116). A fallible default belongs inside the boundary that handles it.
 
    `build_window` calls `load_projects(projects_path)`, then `PortProbe`,
    `ProjectController`, `MainWindow(controller, Theme.default(), notices)`
@@ -1000,10 +1011,15 @@ importing `lwsm.__main__` in a test does not require a display.
   *Test:* `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window`,
   calling `build_window` on a path with no file. It targets `build_window`
   rather than `main` because `main` blocks in `app.exec()`, so a test that
-  called it would never return.
+  called it would never return. `tests/test_main.py::test_starts_even_when_there_is_no_home_directory`
+  covers the half that test cannot: it drives `main` with the event loop stubbed
+  and asserts the window is **shown** with the reason in its status bar, which
+  is the only way to observe a `RegistryError` raised by resolving the *default*
+  path rather than by reading a given one.
   *Breaks when:* the exception propagates — a missing `projects.json` is
   first-run, not a crash, on the same reasoning that keeps an unwritable
-  log from killing startup.
+  log from killing startup — **or** a fallible path resolution is moved back to
+  `main`, where the argument is evaluated outside the catch (LWSM-1116).
 
 - **INV-16** — After `ProjectController.stop()` returns, **no snapshot is
   ever delivered to the controller again**, `stop()` has not waited on work

@@ -96,6 +96,32 @@ def test_default_state_dir_follows_the_xdg_spec(monkeypatch, tmp_path: Path):
     )
 
 
+def test_a_missing_home_directory_is_an_oserror_not_a_runtimeerror(monkeypatch):
+    """The twin of `registry.default_projects_path`, which has had this guard
+    since LWSM-1026 while this one went without it (LWSM-1116).
+
+    `Path.home()` raises `RuntimeError` when neither `HOME` nor a passwd entry
+    resolves — rare, but real in a stripped container. `__main__.main` guards
+    `configure_logging()` with `except OSError` only, so the bare `RuntimeError`
+    sailed past it and killed the app before any window or log existed, which is
+    exactly the total outage `configure_stderr_logging` exists to prevent.
+
+    `OSError` rather than a new exception type because that is already this
+    module's error contract: every other way `configure_logging` can fail —
+    unwritable directory, symlink, hard link, FIFO — raises `OSError`, and the
+    entry point's one handler is written against it.
+    """
+
+    def no_home() -> Path:
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setattr(Path, "home", staticmethod(no_home))
+
+    with pytest.raises(OSError, match="home directory"):
+        applog.default_state_dir()
+
+
 def test_get_logger_does_not_double_the_package_prefix():
     """Modules pass `__name__`, which already starts with `lwsm.`.
 
