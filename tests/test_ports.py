@@ -70,6 +70,68 @@ def test_one_net_connections_call_per_snapshot(monkeypatch: pytest.MonkeyPatch) 
     assert len(calls) == 1, "one read per snapshot, never one per address family"
 
 
+class FakeConn:
+    """One row of what `psutil.net_connections` returns."""
+
+    def __init__(self, status, laddr) -> None:
+        self.status = status
+        self.laddr = laddr
+
+
+class FakeAddr:
+    def __init__(self, port: int) -> None:
+        self.port = port
+
+
+def test_only_listening_sockets_with_an_address_are_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both of `snapshot()`'s filters were untested (LWSM-1111).
+
+    Dropping `and conn.laddr` passed the **entire** suite; dropping the
+    `CONN_LISTEN` filter passed everything except one `integration` test — so
+    under `--fast`, which is what runs before most pushes, neither was covered
+    at all. One fake connection list closes both, with no socket bound.
+    """
+    monkeypatch.setattr(
+        psutil,
+        "net_connections",
+        lambda **_: [
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5005)),
+            # Established, not listening: a browser talking to someone else's
+            # server must not make that port read as one of ours.
+            FakeConn(psutil.CONN_ESTABLISHED, FakeAddr(6006)),
+            # Listening but with no local address — the field is typed as
+            # possibly empty, and `.port` on it would take the poll down.
+            FakeConn(psutil.CONN_LISTEN, None),
+        ],
+    )
+
+    snapshot = PortProbe().snapshot()
+
+    assert snapshot.listening == frozenset({5005})
+
+
+def test_malformed_psutil_output_is_still_a_probe_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§ 4.2 promises ONE exception type out of this method.
+
+    The comprehension sat outside the `try`, so a row whose `laddr` is not an
+    address raised a bare `AttributeError` from `snapshot()` rather than a
+    `ProbeError` (LWSM-1111). `_SnapshotTask.run()`'s catch-all mitigated it;
+    the contract is still the contract.
+    """
+    monkeypatch.setattr(
+        psutil,
+        "net_connections",
+        lambda **_: [FakeConn(psutil.CONN_LISTEN, "not-an-address")],
+    )
+
+    with pytest.raises(ProbeError):
+        PortProbe().snapshot()
+
+
 def test_psutil_error_becomes_a_probe_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def denied(**_: object) -> list:
         # AccessDenied subclasses psutil.Error, so it needs no separate clause.

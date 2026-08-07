@@ -244,6 +244,15 @@ class ProjectRow(QFrame):
             # once-a-second no-op into a once-a-second re-announcement of every
             # unchanged row: the failure INV-13 exists to prevent, arriving by
             # another route. `RowView` is frozen, so the comparison is free.
+            #
+            # It also caches `_glyph_color`, and that is a live edge the moment
+            # the palette can change: a theme swap with an unchanged RowView
+            # would leave the glyph in the old palette while the *word* follows
+            # the new one, because the word is restyled by the sheet and the
+            # glyph is painted from this cached value. Unreachable in P02 — the
+            # theme is built once — and LWSM-1031 is exactly when it becomes
+            # reachable, so it is named here rather than guarded speculatively
+            # (LWSM-1111). `retranslate()` is the shape the fix takes.
             return
         self._view = row
 

@@ -13,7 +13,9 @@ QtWidgets is the opposite of a module importing it.
 from __future__ import annotations
 
 import ast
+import io
 import re
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -29,8 +31,33 @@ CORE_MODULES = ["registry.py", "ports.py", "controller.py"]
 COLOUR_EXEMPT = {"theme.py"}
 WIDGET_MODULES = ["mainwindow.py"]
 
-COLOUR_LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|QColor\s*\(")
+# Named constants are colours too: `Qt.GlobalColor.red` and
+# `QColorConstants.Red` both pin a value the theme is supposed to own, and both
+# sailed past the hex-and-QColor pattern (LWSM-1111).
+COLOUR_LITERAL = re.compile(
+    r"#[0-9a-fA-F]{3,8}\b"
+    r"|QColor\s*\("
+    r"|Qt\.GlobalColor\.\w+"
+    r"|QColorConstants\.[\w.]+"
+)
 PINNED_FONT = re.compile(r"QFont\s*\(\s*[\"']")
+
+
+def strip_comments(source: str) -> str:
+    """Source with comments removed and string literals untouched.
+
+    This used to blank only lines whose first non-space character is `#`, so a
+    **trailing** comment mentioning a hex value was reported as a colour
+    literal — the check contradicting its own comment about comments
+    (LWSM-1111). Splitting every line on `#` is not the fix either: it would
+    cut a `#` inside a string. Tokenising is what tells the two apart.
+    """
+    lines = source.splitlines()
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.COMMENT:
+            row, column = token.start
+            lines[row - 1] = lines[row - 1][:column]
+    return "\n".join(lines)
 
 
 def imported_names(module: str) -> set[str]:
@@ -80,14 +107,39 @@ def test_the_import_check_can_actually_fail(tmp_path: Path) -> None:
 def test_no_colour_literals_in_widget_code(module: str) -> None:
     assert module not in COLOUR_EXEMPT
     source = (SRC / module).read_text(encoding="utf-8")
-    # Strip comments: a hex value quoted in a comment explaining the rule is not
-    # a breach of it.
-    code = "\n".join(
-        line.split("#")[0] if line.lstrip().startswith("#") else line
-        for line in source.splitlines()
-    )
-    found = COLOUR_LITERAL.findall(code)
+    # A hex value quoted in a comment explaining the rule is not a breach of it.
+    found = COLOUR_LITERAL.findall(strip_comments(source))
     assert not found, f"{module} names a colour instead of a theme token: {found}"
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        'self._pen = QColor("#ff0000")',
+        "self._pen = QColor(255, 0, 0)",
+        "painter.setPen(Qt.GlobalColor.red)",
+        "painter.setPen(QColorConstants.Red)",
+    ],
+    ids=["hex", "rgb", "globalcolor", "colorconstants"],
+)
+def test_the_colour_check_can_actually_fail(snippet: str) -> None:
+    """The two named-constant forms passed the detector unchallenged, so a
+    widget could pin a colour and INV-8b would report green (LWSM-1111)."""
+    assert COLOUR_LITERAL.search(strip_comments(snippet)), snippet
+
+
+def test_a_hex_value_in_a_trailing_comment_is_not_a_breach() -> None:
+    """The detector's own comment said comments are stripped; only whole-line
+    ones were, so this line was reported as a colour literal (LWSM-1111)."""
+    source = "width = 1  # the accent token is #2f6feb in the default palette\n"
+    assert not COLOUR_LITERAL.search(strip_comments(source))
+
+
+def test_a_hash_inside_a_string_is_not_mistaken_for_a_comment() -> None:
+    """The other half of the same trade-off: splitting on `#` would truncate
+    this line and hide a real breach behind it."""
+    source = 'label.setText("#1")  # a caption\nself._pen = QColor("#ff0000")\n'
+    assert COLOUR_LITERAL.search(strip_comments(source))
 
 
 @pytest.mark.parametrize("module", WIDGET_MODULES)

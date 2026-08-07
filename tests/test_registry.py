@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import stat
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,11 @@ def test_unusable_files_are_refused(tmp_path: Path) -> None:
     unreadable.write_text("{}", encoding="utf-8")
     unreadable.chmod(0o000)
     try:
+        if os.geteuid() == 0:
+            # root ignores the mode bits, so the open SUCCEEDS and this case
+            # silently proves nothing. Stated rather than left to pass
+            # vacuously (LWSM-1111).
+            pytest.skip("mode bits do not deny root")
         with pytest.raises(RegistryError, match="cannot be read"):
             load_projects(unreadable)
     finally:
@@ -215,12 +221,25 @@ def test_refuses_a_fifo_rather_than_blocking_on_it(tmp_path: Path) -> None:
         signal.signal(signal.SIGALRM, previous)
 
 
-def test_refuses_a_device_node() -> None:
-    """/dev/null is a character device: reading it succeeds and returns nothing,
-    so without the type check this fails later as 'not valid JSON' — a reason
-    that sends the user looking at the wrong thing."""
+def test_refuses_a_device_node(tmp_path: Path) -> None:
+    """A character device: reading it succeeds and returns nothing, so without
+    the type check this fails later as 'not valid JSON' — a reason that sends
+    the user looking at the wrong thing.
+
+    The node is created under `tmp_path` rather than reading the real
+    `/dev/null`, which was the one test outside `tmp_path` that `testing.md
+    § T1` otherwise forbids (LWSM-1111). Falls back to `/dev/null` where
+    `mknod` needs privileges this run does not have, since the point is the
+    character device and not who made it.
+    """
+    node = tmp_path / "projects.json"
+    try:
+        os.mknod(node, 0o600 | stat.S_IFCHR, os.makedev(1, 3))
+    except (PermissionError, OSError):
+        node = Path("/dev/null")
+
     with pytest.raises(RegistryError, match="regular file"):
-        load_projects(Path("/dev/null"))
+        load_projects(node)
 
 
 def test_refuses_an_oversized_file(tmp_path: Path) -> None:

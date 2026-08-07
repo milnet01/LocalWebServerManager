@@ -59,13 +59,25 @@ class PortProbe:
                 f"could not read the socket table: {type(exc).__name__}: {exc}"
             ) from exc
 
+        # Inside the try as well, and not only the call: the comprehension
+        # touches `conn.status` and `conn.laddr.port` on objects psutil built,
+        # so malformed output raised a bare AttributeError from here — not the
+        # ProbeError § 4.2 promises as this method's one exception type
+        # (LWSM-1111). `run()`'s catch-all masked it; the contract is still the
+        # contract, and it costs one line.
+        #
         # The laddr guard is belt-and-braces: no listening entry has a falsy
         # laddr on this machine, but the field is typed as possibly empty and an
         # AttributeError mid-tick would take the poll down.
-        return PortSnapshot(
-            frozenset(
-                conn.laddr.port
-                for conn in connections
-                if conn.status == psutil.CONN_LISTEN and conn.laddr
+        try:
+            return PortSnapshot(
+                frozenset(
+                    conn.laddr.port
+                    for conn in connections
+                    if conn.status == psutil.CONN_LISTEN and conn.laddr
+                )
             )
-        )
+        except Exception as exc:
+            raise ProbeError(
+                f"could not read the socket table: {type(exc).__name__}: {exc}"
+            ) from exc

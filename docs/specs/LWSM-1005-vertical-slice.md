@@ -1114,7 +1114,7 @@ importing `lwsm.__main__` in a test does not require a display.
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
   a status-bar line naming the path it looked at (INV-15). First run is not
   an error state until LWSM-1008 lands the scan-and-confirm flow.
-- **`projects.json` unparseable, not an object, or missing / wrong
+- **`projects.json` unparsable, not an object, or missing / wrong
   `schema_version` or `projects`.** `RegistryError` naming the file and
   which of §4.1's four shapes it hit. Nothing is written back — P02 never
   writes the file at all.

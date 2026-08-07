@@ -913,7 +913,7 @@ def test_every_visible_string_goes_through_a_translator(qtbot, built) -> None:
     from PySide6.QtCore import QCoreApplication, QTranslator
 
     class Shouting(QTranslator):
-        def translate(self, context, sourceText, disambiguation=None, n=-1) -> str:
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
             return sourceText.upper()
 
     translator = Shouting()
@@ -1055,7 +1055,7 @@ def test_a_broken_translation_loses_the_number_not_the_window(qtbot, built) -> N
     from PySide6.QtCore import QCoreApplication, QTranslator
 
     class Broken(QTranslator):
-        def translate(self, context, sourceText, disambiguation=None, n=-1) -> str:
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
             return "{port} %2 porta"  # every placeholder wrong
 
     translator = Broken()
