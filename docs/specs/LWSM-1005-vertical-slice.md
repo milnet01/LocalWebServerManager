@@ -160,8 +160,12 @@ and ADR-0005 forbids partially parsing it:
    be named. **`json.loads` also raises two things that are neither**, both
    reproduced (LWSM-1072): a 5000-digit `port` hits CPython's 4300-digit
    integer-parse cap and raises a plain `ValueError`, and deeply nested arrays
-   exhaust the stack and raise `RecursionError` — which is not an `Exception`
-   at all. Both escaped as themselves past a caller that tolerates only
+   exhaust the stack and raise `RecursionError` — which is not a `ValueError`
+   (it is `RecursionError → RuntimeError → Exception`), so `except ValueError`
+   alone does not catch it. This sentence used to say `RecursionError` "is not
+   an `Exception` at all", which is false; an implementer who believed it
+   would widen a handler to `BaseException` and start swallowing
+   `KeyboardInterrupt` (LWSM-1108). Both escaped as themselves past a caller that tolerates only
    `RegistryError`, so the app died with a traceback and no window. The clause
    is `except (ValueError, RecursionError)`, after the `JSONDecodeError` one
    because that subclasses `ValueError` and carries the more useful message. The third raises nothing at all: `json.loads` happily returns
@@ -1326,22 +1330,29 @@ onto the controller is what lets `autoDelete` stay on.
 | INV-23 | `tests/test_mainwindow.py::test_the_state_word_takes_its_colour_from_the_status` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
-| O8.2 — focus **ring** contrast | **nothing** — contrast arithmetic over ring-vs-background pairs is one of LWSM-1032's rows |
-| O8.4 — reflow at 200 % text size | **nothing** — the text-size control itself is LWSM-1032; P02 pins no sizes, which is necessary and not sufficient |
-| Contrast of the three state tokens in the default palette | **nothing** — `§ T8`'s contrast arithmetic is one of LWSM-1032's surfaces; P02 introduces a palette nothing measures |
+| O8.4 — reflow at 200 % text size | **partly** — `test_the_glyph_is_not_clipped_when_the_text_size_doubles` renders at 200 % and asserts the glyph's ink stays inside its column (LWSM-1101), and `test_the_row_resizes_its_cells_when_the_font_grows` covers the cell minimums. Neither covers the row *reflowing*; the text-size control itself is LWSM-1032 |
 | "The state word is first in the row" | **nothing** — §4.4 claims it and no invariant asserts it; LWSM-1032's x-position row is the surface |
 | `§ O7`'s font-family and pixel-size half | **nothing**, and **unowned** — INV-8b checks colour literals only, so a widget pinning `setFont(QFont("DejaVu Sans"))` or a fixed height passes every test here. No roadmap item schedules this check; LWSM-1032's rows are about rendered output, not about source literals |
 | The 2 s criterion under load | **nothing** — INV-7 measures one project on an idle machine; the ≤250 ms snapshot budget at 20 projects is unmeasured until there are 20 projects to measure, which no roadmap item yet creates |
 
-Eight `nothing` rows, up from three once the ones that only *looked*
-covered were separated out. Six are surfaces LWSM-1032 creates; **two are
-unowned** — the `§ O7` font/size check and the 2-second criterion under
-load — and being unowned is the point of listing them, since a gap with a
-roadmap id is scheduled and a gap without one is only known. Per
-`spec-format § 0`'s "one number that matters", eight is this spec's honest
-error budget, and the accessibility rows are the bulk of it — the expected
-shape for a phase that builds the row correctly but cannot yet test that it
-did.
+**Five `nothing` rows**, plus one partly-covered. Three are surfaces
+LWSM-1032 creates; **two are unowned** — the `§ O7` font/size check and the
+2-second criterion under load — and being unowned is the point of listing
+them, since a gap with a roadmap id is scheduled and a gap without one is
+only known. Per `spec-format § 0`'s "one number that matters", five is this
+spec's honest error budget, and the accessibility rows are still the bulk of
+it — the expected shape for a phase that builds the row correctly but cannot
+yet test that it did.
+
+The count was **eight**, and stayed eight after INV-17 and INV-18 landed
+(LWSM-1108). Two rows claimed "nothing" against checks that existed: focus-ring
+contrast is `test_theme.py::test_the_focus_ring_clears_the_indicator_floor`,
+and the three state tokens' contrast is
+`test_every_text_token_clears_the_text_floor`, which parametrises over
+`state_running`, `state_stopped` and `state_unknown`. § 7's table *was* updated
+when they landed and this section was not — so the number was wrong by two, and
+a count re-asserted rather than re-derived is how it stayed wrong. Recomputed
+from the rows above, not carried forward.
 
 ## 12. Cross-doc impact
 

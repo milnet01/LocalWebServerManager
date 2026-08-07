@@ -266,8 +266,10 @@ def test_an_enormous_integer_is_a_registry_error(tmp_path: Path) -> None:
 
 
 def test_deeply_nested_json_is_a_registry_error(tmp_path: Path) -> None:
-    """Nesting exhausts the stack and raises RecursionError, which is not even
-    an Exception subclass's cousin of JSONDecodeError."""
+    """Nesting exhausts the stack and raises RecursionError, which is not a
+    ValueError — `RecursionError -> RuntimeError -> Exception` — so it escapes
+    the `except ValueError` that covers the rest of `json.loads`' failures and
+    has to be named on its own (LWSM-1108)."""
     path = tmp_path / "projects.json"
     path.write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
 

@@ -208,9 +208,14 @@ def load_projects(path: Path) -> tuple[list[ProjectRecord], list[str]]:
         # themselves past a caller that tolerates only RegistryError — the app
         # died with a traceback and no window. A 5000-digit `port` hits CPython's
         # 4300-digit integer-parse cap and raises plain ValueError; deeply nested
-        # arrays exhaust the stack and raise RecursionError, which is not even an
-        # Exception. JSONDecodeError is matched above because it subclasses
-        # ValueError and its message is the more useful one.
+        # arrays exhaust the stack and raise RecursionError, which is not a
+        # ValueError — it is RecursionError -> RuntimeError -> Exception, so it
+        # needs naming here whatever `except ValueError` would catch. This
+        # comment used to say RecursionError "is not even an Exception", which
+        # is false, and dangerously so: a reader who believed it would widen
+        # ports.py's `except Exception` to BaseException and start swallowing
+        # KeyboardInterrupt (LWSM-1108). JSONDecodeError is matched above
+        # because it subclasses ValueError and its message is more useful.
         raise RegistryError(
             f"{path}: cannot be parsed ({type(exc).__name__}: {exc})"
         ) from exc
