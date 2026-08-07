@@ -487,6 +487,30 @@ def test_no_file_sourced_value_is_interpolated_without_the_clip() -> None:
     )
 
 
+def test_the_shipped_bounds_are_pinned() -> None:
+    """Every clip assertion is relative to the constant, so none pins its value.
+
+    After LWSM-1109 the assertions read `<= registry.MAX_REASON_CHARS`, which
+    detects *removal* of the clip and not *loosening* of it: 120 → 100000 left
+    the suite green (known-issue-005). Spec § 4.1 states the number as part of
+    the contract, so it gets an assertion of its own.
+
+    `MAX_REASONS` is pinned here for the same reason and it is the more
+    pointed one — it was added by LWSM-1115 with **exactly this defect**, in
+    the same pass whose whole subject is fixes that miss their siblings
+    (`coding.md § 1.6`). Its tests assert `<= MAX_REASONS + 1`, so 100 →
+    100000 would have passed and restored the flood the cap exists to stop.
+    """
+    assert registry.MAX_REASON_CHARS == 120
+    assert registry.MAX_REASONS == 100
+    # Not independent numbers: the pair is what bounds the total, and the
+    # product is what a status bar and a log line actually have to absorb.
+    assert registry.MAX_REASON_CHARS * registry.MAX_REASONS < 20_000, (
+        "the worst-case reason volume is what LWSM-1115 bounded; raising "
+        "either constant has to be justified against that product"
+    )
+
+
 def test_the_number_of_reasons_is_bounded(dense_malformed_file: Path) -> None:
     """`_quoted` bounds how LONG each reason is; nothing bounded how MANY.
 

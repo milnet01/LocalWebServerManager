@@ -141,6 +141,15 @@ in the current build. Owners are named, not implied.
   reason-count cap, which is rewriting the same assertions.
 - **Will be addressed in:** LWSM-1115 (FP05 — bound the reason count)
 - **Logged:** 2026-08-07
+- **RESOLVED 2026-08-07** (with LWSM-1112's sweep, one item later than routed):
+  `test_the_shipped_bounds_are_pinned` asserts both `MAX_REASON_CHARS == 120`
+  and their product, so raising either has to be justified against the volume
+  a status bar and a log line actually absorb. It also pins **`MAX_REASONS`**,
+  which LWSM-1115 had just added carrying this exact defect — its assertions
+  read `<= MAX_REASONS + 1`, so 100 → 100000 would have passed and restored the
+  flood the cap exists to stop. Found by re-reading the routed owners of the
+  items this pass closed, which is `coding.md § 1.6` applied to the pass's own
+  output.
 
 ### From the concurrency lane
 
@@ -176,6 +185,13 @@ in the current build. Owners are named, not implied.
   literal, landing with the teardown work.
 - **Will be addressed in:** LWSM-1117 (FP05 — bound the abandoned-pool wait)
 - **Logged:** 2026-08-07
+- **RESOLVED 2026-08-07** (with LWSM-1117, as routed):
+  `test_the_shipped_stop_budget_is_pinned` asserts the shipped 2000 and the
+  ~60× headroom over the measured 33.4 ms probe that spec § 4.3 justifies it
+  with, so an edit has to change the reasoning too. The patching tests are left
+  alone deliberately — a test must not wait two real seconds, so the shipped
+  value needs its own assertion rather than a rewrite of theirs. Verified: 2000
+  → 60000 left the whole suite green before, and reddens exactly this test now.
 
 ## known-issue-008 — If `main()` raises, the bounded exit is skipped and the process hangs
 

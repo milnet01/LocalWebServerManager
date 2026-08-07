@@ -68,6 +68,53 @@ canonical source. When unsure what's current, check the
 library docs first. Stale idioms compile but they age the
 codebase.
 
+### 1.6 A fix names the other call sites of the same mechanism
+
+A fix closes a **mechanism**, not the one call site it was reported
+against. Before a fix is done, name the other places that mechanism
+is used, and either fix them in the same change or say in the commit
+why they are out of scope. "I did not look" is not one of the two.
+
+Finding them is a grep, not a memory exercise — search for the
+*defect's shape* rather than for the symptom: the helper that should
+have been called (`_quoted`), the guard that should have wrapped it
+(`Path.home()`), the flag that should have been checked (`_stopped`).
+
+**Where possible, make the sweep a test rather than a habit.** A
+one-off grep protects this change; an assertion protects every later
+one. `test_no_file_sourced_value_is_interpolated_without_the_clip`
+reads its whole module and fails on any un-clipped interpolation, so
+the *next* instance is caught at the gate rather than by the next
+review. Prefer that whenever the shape is greppable.
+
+**A mechanism is not only a function.** Three of FP05's six instances
+were a *rule* applied unevenly rather than a helper called unevenly —
+a bound placed on one exit path, a guard on one of two sibling slots,
+a floor checked against one of two backgrounds. Ask "what did I decide
+here, and where else does that decision apply?", not just "who else
+calls this?".
+
+**Why this is a standard and not advice.** Three consecutive review
+passes — FP03, FP04 and FP05 — each reported this shape as their most
+common finding, and FP05 found six instances at once: `_quoted` applied
+to the port fields but not `schema_version`; `Path.home()` guarded in
+`registry` but not `applog`; a shutdown bound placed in `run()` rather
+than in the abandonment mechanism; staleness handled on the exception
+path but not the hang path; a `_stopped` flag checked in one slot but
+not its sibling; a contrast floor enforced against `window` but not
+`alt_base`. Each was cheap to find and cheap to fix at the time, and
+instead cost a review cycle apiece.
+
+`/apply-fixes` already runs a blast-radius sweep, so a fix routed
+through it gets this for free. The gap this closes is that nothing
+made it mandatory for a fix written outside that skill.
+
+**Renumbering note.** This clause is § 1.6 and not § 1.4 — where it
+reads best, beside § 1.3's reuse rule — because `README.md` and
+`dependencies.md` both cite `coding.md § 1.5`, and inserting ahead of
+it would have silently repointed them. Which is this very rule: the
+numbering is a mechanism with call sites elsewhere.
+
 
 ## 2. Error handling
 

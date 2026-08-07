@@ -787,6 +787,27 @@ def test_stop_is_bounded_when_a_probe_never_returns(
     controller_module.wait_for_abandoned_probes(2000)
 
 
+def test_the_shipped_stop_budget_is_pinned() -> None:
+    """The budget tests all substitute their own value, so none pins the real one.
+
+    Both of them patch `STOP_WAIT_MS` and then assert against
+    `controller_module.STOP_WAIT_MS`, which makes INV-16's "returned within
+    `STOP_WAIT_MS`" true for *any* value: 2000 → 60000 left the whole suite
+    green (known-issue-007). Patching is right — a test must not wait two real
+    seconds — so the shipped value needs its own assertion rather than a
+    rewrite of those.
+
+    2000 ms is a user-visible quit delay, justified in spec § 4.3 as ~60×
+    headroom over a measured 33.4 ms probe. This pins both halves of that
+    sentence, so a future edit has to change the reasoning too.
+    """
+    assert controller_module.STOP_WAIT_MS == 2000
+    assert controller_module.STOP_WAIT_MS / 33.4 > 50, (
+        "spec § 4.3 justifies this budget as ~60x headroom over a 33.4 ms "
+        "probe; that reasoning no longer holds"
+    )
+
+
 def test_wait_for_abandoned_probes_reaps_a_pool_whose_probe_finished(
     qtbot, controllers, monkeypatch
 ) -> None:
