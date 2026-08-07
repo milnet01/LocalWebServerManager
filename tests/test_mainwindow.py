@@ -453,6 +453,97 @@ def test_focus_is_visible_not_merely_held(qtbot, built) -> None:
     )
 
 
+def test_the_focus_ring_is_painted_in_the_accent_token(qtbot, built) -> None:
+    """INV-17's two halves never met, so the ring's COLOUR was owned by nothing.
+
+    One test asserts a contrast property of the `accent` *token*; the other
+    asserts only that the focused and unfocused renders differ. Neither
+    observes which colour the widget paints — so painting the ring in the
+    *state* token left the whole suite green, and a palette whose state token
+    sat at 2:1 would have shipped an invisible ring with INV-17 reporting
+    green (LWSM-1105).
+
+    QPainter antialiasing is off by default, so the ring's straight edges are
+    the pen colour exactly and no tolerance is needed.
+    """
+    from PySide6.QtGui import QColor
+
+    theme = Theme.default()
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    row = rows_of(window)[0]
+
+    row.setFocus()
+    assert row.hasFocus(), "the fixture must actually focus the row"
+    focused = row.grab().toImage()
+
+    # The middle of the top edge: ring, never text, on every row width.
+    painted = QColor(focused.pixel(row.width() // 2, 0))
+
+    assert painted == theme.focus_ring_color(), (
+        f"the ring is painted {painted.name()}, not the accent token "
+        f"{theme.focus_ring_color().name()}"
+    )
+    # Named explicitly, because the state token is what a plausible edit would
+    # reach for and it is the mutation that left every test green.
+    assert painted != theme.state_color(ProjectStatus.RUNNING), (
+        "the ring is painted in the state token"
+    )
+
+
+def glyph_column_pixels(row, glyph: str = "●") -> list[int]:
+    """The glyph column's pixels, with the glyph text forced to a constant.
+
+    Two statuses paint different *shapes* as well as different colours, so
+    comparing them directly proves nothing about colour — the same reasoning
+    as `render_with_common_text` one level out. Forcing one glyph leaves the
+    state token as the only thing that can still differ.
+    """
+    row._glyph_text = glyph
+    row.update()
+    image = row.grab().toImage()
+    return [
+        image.pixel(x, y)
+        for y in range(image.height())
+        for x in range(row._glyph_x, row._glyph_x + row._glyph_width)
+    ]
+
+
+def test_the_painted_glyph_takes_the_matching_state_token(qtbot, built) -> None:
+    """§ 4.4 requires the glyph to take "the matching state token's colour",
+    and colour is one of `design.md § Accessibility`'s three redundant signals.
+
+    Nothing checked it: INV-19 checks the glyph is *drawn* and INV-23 checks
+    only the *word*, so painting every glyph in the `stopped` token regardless
+    of state left the whole suite green (LWSM-1105).
+
+    One row driven through two statuses by the real poll path, so the geometry,
+    the font and the glyph text are all identical and the colour is the only
+    remaining variable.
+    """
+    probe = FakeProbe(5005)
+    window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
+    with qtbot.waitExposed(window):
+        window.show()
+    row = rows_of(window)[0]
+    assert row._view.status is ProjectStatus.RUNNING
+    running = glyph_column_pixels(row)
+
+    probe.listening.clear()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert row._view.status is ProjectStatus.STOPPED
+    stopped = glyph_column_pixels(row)
+
+    assert running != stopped, (
+        "the glyph renders identically for running and stopped with the same "
+        "glyph text — it is not taking the state token's colour"
+    )
+
+
 def test_the_focus_ring_grows_with_the_text(qtbot, built) -> None:
     """`§ O7`: sizes come from the text metric. A pixel constant would thin the
     ring to a hairline at LWSM-1032's 200 % text setting."""
