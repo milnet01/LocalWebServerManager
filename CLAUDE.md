@@ -194,8 +194,16 @@ substring search reports all of them as violations.
 
 - **`src/lwsm/__init__.py`** — the package docstring stating that
   rule, and `__version__`.
-- **`src/lwsm/__main__.py`** — `main()`, behind both the `lwsm`
-  console script and `python -m lwsm`. An `argparse` parser, so
+- **`src/lwsm/__main__.py`** — `main()`, plus the thin **`run()`**
+  the `lwsm` console script and `python -m lwsm` actually name.
+  `run()` is `main()` followed by
+  `exit_without_waiting_for_abandoned_probes`, and the split is
+  load-bearing: that call is an `os._exit` when a probe was
+  abandoned, and while it sat inside `main()` **one abandoned probe
+  ended the pytest run at 40 % of the suite with exit code 0** and
+  a report that read as green (LWSM-1100). Anything that ends the
+  process belongs behind `run()`, never in `main()`, which tests
+  call in-process. An `argparse` parser, so
   `--version` and `--help` work and an unrecognised option exits
   2 rather than being ignored. Prints where it is logging to, and
   starts anyway — with a warning on stderr — when the log

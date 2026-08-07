@@ -8,6 +8,8 @@ so the whole poll loop is testable without a display. Contract:
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -28,13 +30,54 @@ POLL_INTERVAL_MS = 1000
 # stays stale, and only the app's ability to quit is bounded.
 STOP_WAIT_MS = 2000
 
-# Pools and tasks abandoned by stop() because their probe was still running.
-# Two reasons this list exists rather than letting them go: ~QThreadPool calls
-# waitForDone() with NO timeout, so destroying one would reintroduce at teardown
-# exactly the hang the budget above bounds; and Python collecting a _SnapshotTask
-# the pool is still executing would destroy a live C++ object. The process is on
-# its way out — holding these is the point, not an oversight.
-_ABANDONED: list[object] = []
+# Pools abandoned by stop() because their probe was still running. The list
+# exists because ~QThreadPool calls waitForDone() with NO timeout, so letting
+# one be destroyed reintroduces exactly the hang the budget above bounds.
+#
+# It does not make them immortal, and the comment here used to claim it did.
+# CPython releases module globals at interpreter shutdown, which destroys these
+# pools, which runs that unbounded wait — so holding them *defers* the hang to
+# the last moment of the process rather than removing it. Measured before
+# LWSM-1100: stop() returned in 0.10 s and the process took 4.16 s to exit
+# behind a 4 s probe. `exit_without_waiting_for_abandoned_probes` is the half
+# that actually bounds it; this list only keeps the pool alive until then.
+_ABANDONED: list[QThreadPool] = []
+
+
+def exit_without_waiting_for_abandoned_probes(code: int) -> None:
+    """End the process now if `stop()` gave up on a probe. Otherwise return.
+
+    `§ 6` promises that a probe which never returns leaves a **stale display**,
+    and `stop()`'s budget delivers that much. What neither delivers is the
+    exit: the abandoned pool is destroyed during interpreter shutdown, and
+    `~QThreadPool` waits for its thread with no timeout. So the app quits when
+    the stuck probe says so, which is the outcome the budget exists to prevent.
+
+    There is no Qt-level way to cancel a running `QRunnable` or to keep a
+    `QThreadPool` from waiting in its destructor, so the only thing that bounds
+    this is declining to run the destructor at all. Called from `main` rather
+    than from a hook inside `stop()`, because ending the process is the entry
+    point's decision to make and not a core module's — and because `stop()` is
+    called by every test fixture.
+
+    Returns untouched on the ordinary path, where nothing was abandoned.
+    """
+    # A probe that finished after stop() gave up on it leaves an idle pool,
+    # whose destructor returns at once. Only a pool still holding a thread is
+    # worth skipping the interpreter's own cleanup for.
+    _ABANDONED[:] = [pool for pool in _ABANDONED if pool.activeThreadCount()]
+    if not _ABANDONED:
+        return
+    log.warning(
+        "%d port probe(s) never returned; exiting without waiting for them",
+        len(_ABANDONED),
+    )
+    # os._exit skips every flush the interpreter would have done, including the
+    # one that writes the line above.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    logging.shutdown()
+    os._exit(code)
 
 
 class ProjectStatus(StrEnum):

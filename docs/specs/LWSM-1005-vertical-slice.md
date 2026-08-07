@@ -1109,6 +1109,13 @@ importing `lwsm.__main__` in a test does not require a display.
   leaves the last-known state on screen — visibly stale, rather than
   wrongly confident. No watchdog: nothing here may time out into a wrong
   state (ADR-0004 § Slowness is not failure).
+- **The app quits while a probe is stuck.** `stop()` waits `STOP_WAIT_MS`
+  and then abandons the pool, and `run()` — not `main()` — ends the process
+  without waiting for it. Both halves are needed: abandoning alone only
+  *defers* the wait, because the pool is destroyed at interpreter shutdown
+  and `~QThreadPool` has no timeout. Measured at 4.16 s to exit behind a 4 s
+  probe while `stop()` itself returned in 0.10 s (LWSM-1100). A stale display
+  is promised here; an app that cannot be quit is not.
 - **Two records share a port.** Both rows read `running` off the same
   socket. ADR-0005 catches this at merge time, and there is no merge in
   P02 — LWSM-1007 owns it. Named here so a reviewer knows it was seen.

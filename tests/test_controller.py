@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import gc
 import logging
+import subprocess
+import sys
+import textwrap
 import threading
 import time
 from collections.abc import Iterator
@@ -541,6 +544,71 @@ def test_stop_does_not_wait_on_unrelated_work(qtbot, controllers) -> None:
     finally:
         release.set()
         QThreadPool.globalInstance().waitForDone()
+
+
+@pytest.mark.integration
+def test_the_process_exits_promptly_when_a_probe_is_abandoned(tmp_path) -> None:
+    """`stop()` being bounded is not the same as the process being bounded.
+
+    `stop()` moved a still-running pool into `_ABANDONED` on the stated
+    premise that holding it means it is "deliberately never released". CPython
+    releases module globals at interpreter shutdown, which runs
+    `~QThreadPool`, which calls `waitForDone()` with **no timeout** — so the
+    budget did not remove the unbounded wait, it moved it thirty lines later.
+    Measured before the fix: `stop()` returned in 0.10 s and the process took
+    4.16 s to exit behind a 4 s probe (LWSM-1100).
+
+    Measures the **process**, in a subprocess, because that is the thing whose
+    boundedness `§ 6` is about; every in-process assertion here passed while
+    the defect was live.
+    """
+    script = tmp_path / "abandon_a_probe.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import os, sys, time
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            from pathlib import Path
+            from PySide6.QtCore import QCoreApplication
+            from lwsm import controller as cm
+            from lwsm.controller import ProjectController
+            from lwsm.ports import PortSnapshot
+            from lwsm.registry import ProjectRecord
+
+            cm.STOP_WAIT_MS = 100
+
+            class HangingProbe:
+                def snapshot(self):
+                    time.sleep(30)
+                    return PortSnapshot(frozenset())
+
+            app = QCoreApplication([])
+            record = ProjectRecord(
+                path=Path("/srv/a"), name="a", port=5005, port_override=None
+            )
+            controller = ProjectController([record], HangingProbe())
+            controller.poll_once()
+            time.sleep(0.3)          # let the probe reach its sleep
+            controller.stop()        # bounded at 100 ms, abandons the pool
+            cm.exit_without_waiting_for_abandoned_probes(0)
+            sys.exit(0)              # only reached when nothing was abandoned
+            """
+        )
+    )
+
+    started = time.perf_counter()
+    proc = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=90
+    )
+    elapsed = time.perf_counter() - started
+
+    assert proc.returncode == 0, proc.stderr
+    # The probe sleeps 30 s. Anything near that is the interpreter waiting on
+    # ~QThreadPool; anything near 1 s is the process declining to.
+    assert elapsed < 10.0, (
+        f"the process took {elapsed:.2f}s to exit after a 100 ms stop() — "
+        f"the wait was deferred, not removed"
+    )
 
 
 def test_stop_is_bounded_when_a_probe_never_returns(

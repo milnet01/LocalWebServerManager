@@ -110,6 +110,26 @@ def test_starts_even_when_the_state_directory_is_unusable(
     )
 
 
+def test_the_console_script_names_run_not_main() -> None:
+    """The process-ending exit lives in `run()`, and this pins it there.
+
+    `run()` calls `exit_without_waiting_for_abandoned_probes`, which is an
+    `os._exit` when a probe was abandoned (LWSM-1100). `main()` must stay free
+    of it because tests call `main()` in-process: while the exit sat inside
+    `main`, one abandoned probe earlier in the session ended the pytest run at
+    40 % of the suite — **with exit code 0** and a truncated report that read
+    as green. Moving it back is the regression this guards.
+    """
+    import importlib.metadata as metadata
+
+    entry_points = [
+        entry
+        for entry in metadata.entry_points(group="console_scripts")
+        if entry.dist and entry.dist.name == "localwebservermanager"
+    ]
+    assert [entry.value for entry in entry_points] == ["lwsm.__main__:run"]
+
+
 @pytest.mark.integration
 def test_version_needs_no_display():
     """INV-14 — `--version` must not need a platform plugin.

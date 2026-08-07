@@ -1,4 +1,7 @@
-"""Entry point for the `lwsm` console script and `python -m lwsm`."""
+"""Entry point for the `lwsm` console script and `python -m lwsm`.
+
+Both name `run()`, not `main()`. See `run()` for why the two are separate.
+"""
 
 from __future__ import annotations
 
@@ -105,5 +108,26 @@ def main(argv: list[str] | None = None) -> int:
         controller.stop()
 
 
+def run() -> int:
+    """The shipped `lwsm` command: `main`, then a process exit that is bounded.
+
+    Deliberately separate from `main`. `stop()` bounds only its own wait — a
+    pool it gave up on is destroyed at interpreter shutdown, where
+    `~QThreadPool` waits for the stuck probe with no timeout, so the app quit
+    when the probe said so rather than when the user did (LWSM-1100).
+
+    Ending the process cannot live inside `main`, because tests call `main()`
+    in-process: with the exit there, one abandoned probe earlier in the session
+    ended the pytest run at 40 % — with exit code 0 and a report that looked
+    green, which is the failure this project keeps finding and is not about to
+    ship on purpose.
+    """
+    from lwsm.controller import exit_without_waiting_for_abandoned_probes
+
+    code = main()
+    exit_without_waiting_for_abandoned_probes(code)
+    return code
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run())
