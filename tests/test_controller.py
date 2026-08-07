@@ -653,3 +653,137 @@ def test_start_polling_polls_immediately(qtbot, controllers) -> None:
 
     # Not left to the timer, which would leave the window blank for a second.
     assert controller.rows()[0].status is ProjectStatus.RUNNING
+
+
+# --- LWSM-1113: the wiring, not just the helper -------------------------------
+#
+# Every test below reddens when a *shipped* line is deleted. Each was verified
+# by deleting that line and watching the named test fail; before them, all three
+# deletions left the full suite green (§ T9).
+
+
+class FailingProbeThatSignalsCompletion:
+    """`FailingProbe`, plus the `finished` event the stop() tests need.
+
+    Kept separate rather than folded into `FailingProbe`: the existing failure
+    tests drive the probe through `drain`, which waits on `calls`, and adding an
+    event they never clear would be state nobody resets.
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.finished = threading.Event()
+
+    def snapshot(self) -> PortSnapshot:
+        self.calls += 1
+        try:
+            raise ProbeError("socket table unavailable")
+        finally:
+            self.finished.set()
+
+
+class RecoveringProbe:
+    """Fails a fixed number of times, then succeeds."""
+
+    def __init__(self, failures: int) -> None:
+        self.calls = 0
+        self._failures = failures
+
+    def snapshot(self) -> PortSnapshot:
+        self.calls += 1
+        if self.calls <= self._failures:
+            raise ProbeError("socket table unavailable")
+        return PortSnapshot(frozenset({5005}))
+
+
+def test_no_failure_is_delivered_after_stop(qtbot, controllers) -> None:
+    """INV-16's failure twin, which nothing covered.
+
+    INV-16 says *no* snapshot reaches the controller again, and
+    `test_no_snapshot_is_delivered_after_stop` drives only a successful probe —
+    so `_on_snapshot`'s `_stopped` guard was pinned and `_on_probe_error`'s was
+    not. Deleting the latter left all 150 tests green (LWSM-1113).
+
+    It is also the likelier of the two on the path that matters: a probe which
+    outlives `stop()` is usually one that ends by failing. Unguarded, the late
+    failure clears `_in_flight`, logs, and reaches `_maybe_emit` — which emits
+    unconditionally while `_emitted_once` is False, straight into
+    `MainWindow._sync_rows` after teardown.
+
+    Shaped like its successful twin: the probe is allowed to **complete** before
+    `stop()`, so the emit is already posted and no disconnect can recall it.
+    """
+    probe = FailingProbeThatSignalsCompletion()
+    controller = build(controllers, [record("a")], probe)
+    emissions: list[int] = []
+    controller.projects_changed.connect(lambda: emissions.append(1))
+
+    controller.poll_once()
+    assert probe.finished.wait(timeout=5), "the probe never ran"
+    # Let the emit be posted without spinning the loop that would deliver it.
+    time.sleep(0.05)
+
+    controller.stop()
+    assert emissions == [], "nothing is dispatched before the loop spins"
+
+    qtbot.wait(200)
+    assert emissions == [], "a probe failure arrived after stop() returned"
+
+
+def test_a_task_whose_signaller_is_gone_reports_rather_than_raises(caplog) -> None:
+    """INV-4c's *outer* layer, which fires for real and was untested.
+
+    A task abandoned by `stop()` can outlive the QObject its signals live on, so
+    `emit` raises `RuntimeError: Signal source has been deleted` — from outside
+    the inner clause, which is how it escaped `run()` before LWSM-1073. PySide6
+    swallows what escapes `run()`, so the regression would come back silently:
+    a traceback on stderr, exit 0, and no signal. Deleting the outer clause left
+    all 150 tests green (LWSM-1113).
+
+    Destroying the parent destroys the child signaller with it, which is the
+    real teardown order — the QApplication outlives neither.
+    """
+    from PySide6.QtCore import QObject
+
+    from lwsm.controller import _SnapshotSignals, _SnapshotTask
+
+    owner = QObject()
+    task = _SnapshotTask(FakeProbe(5005), _SnapshotSignals(owner))
+    del owner
+    gc.collect()
+
+    with caplog.at_level(logging.DEBUG, logger="lwsm.controller"):
+        task.run()
+
+    assert any("no live signaller" in r.getMessage() for r in caplog.records), [
+        r.getMessage() for r in caplog.records
+    ]
+
+
+def test_a_success_reports_the_suppressed_count(qtbot, controllers, caplog) -> None:
+    """`§ 6` promises the count on three occasions; only two were tested.
+
+    The suppressed count is reported "when the message changes, when a poll
+    **succeeds**, and on `stop()`". The change and stop() halves each redden a
+    test; the success half did not — deleting `_flush_repeated_error` from
+    `_on_snapshot` left all 150 tests green (LWSM-1113).
+
+    It is the half that matters for a recovering machine: without it, a failure
+    that returns after a recovery is folded into the old count instead of being
+    logged as news.
+    """
+    probe = RecoveringProbe(failures=3)
+    controller = build(controllers, [record("a")], probe)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.controller"):
+        # One logged failure, then two suppressed.
+        drain(qtbot, controller, probe, 3)
+        caplog.clear()
+        controller.poll_once()
+        qtbot.waitUntil(lambda: probe.calls >= 4, timeout=2000)
+        qtbot.wait(10)
+
+    assert any("repeated 2 more times" in r.getMessage() for r in caplog.records), (
+        "the recovery did not report the suppressed run: "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )

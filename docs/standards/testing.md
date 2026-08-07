@@ -354,6 +354,53 @@ These fail loudly rather than warning. An accessibility
 regression that only warns is an accessibility regression that
 ships.
 
+### T9. A test proves the fix is *reached*, not that its helper works
+
+Added 2026-08-07 after the third review of P02 found **four shipped fixes that
+could be deleted with all 150 tests still green**: `run()`'s call to the
+bounded process exit (the whole of LWSM-1100), `MainWindow.setPalette`,
+`main()`'s `finally: controller.stop()`, and all three of the log handler's
+filesystem checks at once.
+
+None of those was an untested *feature*. Each had a test that named it and
+asserted the wrong end of the call:
+
+| The test asserted | What it could not see |
+|---|---|
+| the `QPalette` **object** `to_palette()` returns | that no widget ever receives it |
+| the entry-point **string** `lwsm.__main__:run` | that `run()` does anything |
+| the helper, called **directly** in a subprocess script | that the caller calls it |
+| that an `OSError` was raised | that it was raised by *this* check and not a later one |
+
+So the rule, for every `Kind: fix`, `audit-fix` and `review-fix` change:
+
+1. **Name the line the fix adds.** Delete it, run the suite, and confirm at
+   least one test goes red. If none does, the test you just wrote is testing
+   something else and the fix ships unguarded. This is § 2.2 applied to the
+   *wiring* rather than to the behaviour, and it is the half § 2.2 lets through:
+   a fix can be genuinely absent from the shipping path while the behaviour it
+   implements is tested elsewhere.
+2. **Assert the consequence only that line produces.** Where two mechanisms
+   reach the same outcome, the shared outcome is not evidence. A refusal that
+   two different checks can both raise needs the *message*, or the side effect
+   the other one leaves behind — the `O_DIRECTORY` case above raised `OSError`
+   either way, and the only thing separating them was whether the victim file
+   got chmodded.
+3. **A stub must be able to express the breach.** A fake that cannot produce
+   the failure makes its test green by construction. The reader-less FIFO could
+   never reach the `S_ISREG` check, because the open failed first — the test
+   read as covering it for months.
+
+Record the mutation and its result in the commit body. "Verified red on
+deletion" is one line and it is the whole evidence that the guard exists.
+
+**This does not license a spy on every call.** An assertion on a rendered
+pixel, a returned value or an observable state change is strictly better and
+stays the default — nine of the eleven mutations the same review ran died
+against rendered pixels. T9 is for the case where the *only* difference between
+fixed and unfixed is that a call happens, and § 2.1 would otherwise argue
+against writing the test at all.
+
 ### T7. The state table is a parametrised test, not prose
 
 ADR-0004's seven states are the app's core contract. They get one

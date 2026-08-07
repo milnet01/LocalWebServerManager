@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from lwsm import __main__ as entry
 from lwsm import __version__, applog
 from lwsm.__main__ import main
 
@@ -156,3 +157,74 @@ def test_version_needs_no_display():
 
     assert result.returncode == 0, result.stderr
     assert __version__ in result.stdout
+
+
+# --- LWSM-1113: the two shutdown promises, wired rather than assumed ----------
+
+
+def test_run_bounds_the_process_exit(monkeypatch) -> None:
+    """`run()` must actually call the bound, not merely be named in the metadata.
+
+    `test_the_console_script_names_run_not_main` asserts the entry-point
+    *string*, and `test_the_process_exits_promptly_when_a_probe_is_abandoned`
+    calls `exit_without_waiting_for_abandoned_probes` directly in its subprocess
+    script — so both pass while `run()` does nothing. Reducing `run()` to
+    `code = main(); return code`, which deletes the whole of LWSM-1100, left all
+    150 tests green (LWSM-1113).
+
+    That call is the single line bounding process exit for the shipped command,
+    because `stop()`'s budget covers only its own wait — see LWSM-1117.
+    """
+    from lwsm import controller as controller_module
+
+    bounded: list[int] = []
+    monkeypatch.setattr(entry, "main", lambda: 7)
+    monkeypatch.setattr(
+        controller_module,
+        "exit_without_waiting_for_abandoned_probes",
+        lambda code: bounded.append(code),
+    )
+
+    assert entry.run() == 7, "run() must return main()'s exit code unchanged"
+    assert bounded == [7], (
+        "run() returned without bounding the process exit — an abandoned probe "
+        "would hold the process open for as long as it takes"
+    )
+
+
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+def test_main_stops_the_controller_when_the_loop_returns(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """`main`'s `finally: controller.stop()` is INV-16's production call site.
+
+    `§ 6` states it as a contract — "without it a pool thread emits into a
+    controller being torn down during interpreter shutdown" — and nothing
+    observed it: removing the `finally`, and removing the `stop()` call
+    outright, each left all 150 tests green (LWSM-1113).
+
+    Fakes rather than the real window, deliberately: what is under test is that
+    `main` calls `stop()` on whatever `build_window` handed it, and a real
+    controller would make the assertion depend on a poll completing.
+    """
+    # `main` still configures the real logger and resolves the real config
+    # path; both are redirected into tmp_path (§ T1).
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    stops: list[int] = []
+
+    class SpyController:
+        def stop(self) -> None:
+            stops.append(1)
+
+    class FakeWindow:
+        def show(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        entry, "build_window", lambda _path: (FakeWindow(), SpyController())
+    )
+
+    assert main([]) == 0
+    assert stops == [1], "main() returned without stopping the controller"

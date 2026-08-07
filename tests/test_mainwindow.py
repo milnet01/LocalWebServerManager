@@ -1066,3 +1066,33 @@ def test_a_broken_translation_loses_the_number_not_the_window(qtbot, built) -> N
         assert rows_of(window)[0]._port.text() == "{port} %2 porta"
     finally:
         app.removeTranslator(translator)
+
+
+# --- LWSM-1113: the palette is applied, not merely built ----------------------
+
+
+def test_the_window_carries_the_theme_palette(qtbot, built) -> None:
+    """`to_palette()` has to reach a widget, and nothing checked that it did.
+
+    `tests/test_theme.py::test_every_palette_role_carries_its_token` asserts the
+    returned `QPalette` **object** — so deleting
+    `self.setPalette(theme.to_palette())` from `MainWindow.__init__` left all
+    150 tests green, twice over (LWSM-1113). The palette was built correctly and
+    thrown away, and the only test that could have noticed was looking at the
+    wrong end of the call.
+
+    Scope is deliberately the window's own palette. **The theme does not in fact
+    reach the window's descendants** — `setStyleSheet` makes Qt re-resolve every
+    child from the *application* palette — which is LWSM-1118's finding and
+    LWSM-1118's test. This one pins the call; that one pins the propagation.
+    """
+    from PySide6.QtGui import QColor, QPalette
+
+    theme = Theme.default()
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+
+    actual = window.palette().color(QPalette.ColorRole.WindowText)
+    assert actual == QColor(theme.text), (
+        f"the window's WindowText is {actual.name()}, not the theme's "
+        f"{theme.text} — to_palette() was built and never applied"
+    )

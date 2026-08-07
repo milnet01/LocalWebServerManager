@@ -374,3 +374,90 @@ def test_each_line_carries_a_timestamp_and_a_level(tmp_path: Path):
     # only `assert False` and never shows the line.
     assert line[:4].isdigit(), f"no 4-digit year at line start: {line!r}"
     assert line[4] == "-", f"no ISO date separator at position 4: {line!r}"
+
+
+# --- LWSM-1113: the three hardening checks, each pinned by its own consequence -
+#
+# All three could be deleted together with `tests/test_applog.py` still green,
+# because each had a test that *named* it and was satisfied by a different
+# mechanism (§ T9). What each test below asserts is the consequence only that
+# check produces.
+
+
+def test_refuses_a_fifo_that_has_a_reader_attached(tmp_path: Path):
+    """The `S_ISREG` check, which the reader-less FIFO test never reaches.
+
+    `test_refuses_a_fifo_rather_than_blocking_on_it` plants a FIFO with **no
+    reader**, and `os.open(..., O_WRONLY | O_NONBLOCK)` then fails on its own
+    with `ENXIO` before any check runs — so it pins `O_NONBLOCK`, not
+    `S_ISREG`. Deleting the `S_ISREG` clause left that test, and the whole
+    file, green.
+
+    A reader is also the realistic shape: an attacker planting a FIFO to
+    **capture** the log is holding one open. With a reader attached the open
+    succeeds, and `S_ISREG` is the only thing standing between the handler and
+    writing the user's whole project inventory into someone else's pipe.
+    """
+    state = tmp_path / "state"
+    state.mkdir()
+    fifo = state / "app.log"
+    os.mkfifo(fifo)
+
+    reader = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        with pytest.raises(OSError) as exc_info:
+            applog.configure_logging(state_dir=state)
+        assert "not a regular file" in str(exc_info.value), (
+            f"refused for the wrong reason: {exc_info.value!r}"
+        )
+    finally:
+        os.close(reader)
+
+
+def test_a_plain_file_at_the_state_dir_path_is_not_chmodded(tmp_path: Path):
+    """The `O_DIRECTORY` flag, pinned by what happens to the victim.
+
+    `test_refuses_a_plain_file_where_the_state_dir_should_be` asserts only that
+    `OSError` is raised — and without `O_DIRECTORY` it still is, later, when
+    `app.log` under a regular file gives `ENOTDIR`. So that test passes either
+    way while the mutant quietly `fchmod`s the user's file to 0700 on the way
+    past. The mode is the only observable difference, so the mode is what this
+    asserts.
+    """
+    blocker = tmp_path / "state"
+    blocker.write_text("not a directory\n")
+    blocker.chmod(0o644)
+
+    with pytest.raises(OSError):
+        applog.configure_logging(state_dir=blocker)
+
+    mode = stat.S_IMODE(blocker.stat().st_mode)
+    assert mode == 0o644, (
+        f"a regular file at the state-dir path was chmodded to {oct(mode)}; "
+        "O_DIRECTORY is what stops the fchmod reaching it"
+    )
+
+
+def test_a_pre_existing_permissive_state_dir_is_tightened(tmp_path: Path):
+    """The `fchmod`, whose only real job is a directory it did not create.
+
+    `mkdir(mode=0o700)` already yields 0700 under the ambient umask, so both
+    existing permission tests — which only ever see a freshly created
+    directory — pass with the `fchmod` deleted. Tightening a state directory
+    that was *already* there and permissive is the case it exists for, and it
+    is the realistic one: an upgrade from a version that wrote 0755, or a
+    directory a backup tool restored with the wrong mode.
+    """
+    state = tmp_path / "state"
+    state.mkdir()
+    # The permissive mode IS the precondition — S103 is correct in general and
+    # inverted here, where 0o777 is the hostile state under test.
+    os.chmod(state, 0o777)  # noqa: S103
+
+    applog.configure_logging(state_dir=state)
+
+    mode = stat.S_IMODE(state.stat().st_mode)
+    assert mode == 0o700, (
+        f"a pre-existing world-writable state dir stayed at {oct(mode)}; the log "
+        "records the user's whole project inventory and directory layout"
+    )
