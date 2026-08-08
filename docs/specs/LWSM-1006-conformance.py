@@ -396,6 +396,74 @@ check(
 )
 
 print()
+print("=== § 4.6 rule 3: evidence tests are exact or whole-word, never substring ===")
+FRAMEWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(flask|django)\b", re.IGNORECASE)
+for line, want in [
+    ("import flask", True),
+    ("from flask import Flask", True),
+    ("import flask_login", False),
+    ("from flask_wtf import FlaskForm", False),
+    ("import django", True),
+    ("import django_extensions", False),
+]:
+    check(f"import evidence {line!r}", bool(FRAMEWORK_IMPORT.match(line)), want)
+for dep, want in [("vite", True), ("vitest", False), ("@vitejs/plugin-react", False)]:
+    check(
+        f"vite exact key {dep!r}",
+        dep == "vite",
+        want,
+        "substring would say True for all three",
+    )
+
+print()
+print("=== § 4.4 step 2: an empty or prefixed WorkingDirectory ===")
+check(
+    "Path('').resolve() IS the cwd",
+    str(Path("").resolve()),
+    os.getcwd(),
+    "<- why an empty value must never be resolved",
+)
+for raw, want in [
+    ("!/home/ants", "/home/ants"),
+    ("-/var/lib/app", "/var/lib/app"),
+    ("/srv/app", "/srv/app"),
+]:
+    check(f"strip systemd prefix {raw!r}", raw.lstrip("-!"), want)
+
+print()
+print("=== § 4.4: the escaped unit name must pass ADR-0003's widened pattern ===")
+WIDE = re.compile(r"^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)$")
+NARROW = re.compile(r"^[A-Za-z0-9@:_.\-]{1,255}\.(service|socket|target|timer)$")
+escaped = "app-ai\\x2dprompts\\x2dtray@autostart.service"
+check(
+    "narrow class rejects a real escaped unit",
+    bool(NARROW.match(escaped)),
+    False,
+    "<- which would make the unescaping step dead code",
+)
+check("widened class accepts it", bool(WIDE.match(escaped)), True)
+check(
+    "widened class still rejects a leading dash",
+    bool(WIDE.match("-M.service")) and not "-M.service".startswith("-"),
+    False,
+)
+
+print()
+print("=== INV-4: a writer-less FIFO reads as EOF, not a block ===")
+fifo_dir = Path(tempfile.mkdtemp())
+fifo = fifo_dir / "start.sh"
+os.mkfifo(fifo)
+fifo_fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+check("S_ISREG on a FIFO fd", stat.S_ISREG(os.fstat(fifo_fd).st_mode), False)
+with os.fdopen(fifo_fd, "r") as handle:
+    check(
+        "readline on a writer-less FIFO",
+        handle.readline(4096),
+        "",
+        "<- EOF. So 'did not block' passes with S_ISREG deleted; assert the REASON",
+    )
+
+print()
 print("=== § 4.4 step 1: undoing systemd's \\xNN escaping ===")
 
 

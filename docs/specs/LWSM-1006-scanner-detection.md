@@ -119,8 +119,8 @@ class Confidence(enum.Enum):
 class PortFinding:
     port: int
     rule: PortRule
-    source: str  # escaped-and-clipped (§ 4.2): a file name, "the <unit>
-    # unit", or one of rule 3's fixed framework names
+    source: str  # sanitised like `name`: a project-relative POSIX path,
+    # "the <unit> unit", or one of rule 3's fixed framework names
 
 
 @dataclass(frozen=True)
@@ -171,7 +171,16 @@ class SupportsUnitLookup(Protocol):
 
     def properties(
         self, unit: str, names: Sequence[str], timeout: float
-    ) -> dict[str, str]: ...
+    ) -> dict[str, str]:
+        """TOTAL over `names`: every one is a key, absent ones map to "".
+
+        Without that, `props["WorkingDirectory"]` on a unit that sets none
+        raises `KeyError` — not an `OSError`, so the clause above does not
+        catch it and it escapes `scan()`. Making the adapter total is the
+        same obligation as translating the exceptions, and for the same
+        reason.
+        """
+        ...
 ```
 
 `Deadline`, used throughout § 4.3, is a `dataclass(slots=True)` holding one
@@ -193,10 +202,17 @@ log and the status bar with neither `registry.py::_quoted`'s escape nor its
 120-character clip — the defect LWSM-1078, LWSM-1102 and LWSM-1114 each closed
 at one call site. `rule` plus `source` is the whole of the provenance
 `design.md § Robustness` measure 2 asks for ("port 5000 — from a framework
-default"), so the field was deleted rather than defended. `source` is a file
-name, a unit name or a fixed framework name — short by construction, but **not
-therefore safe**: a filename may contain a newline, so it goes through § 4.2's
-escape-then-clip like every other untrusted string this module surfaces.
+default"), so the field was deleted rather than defended.
+
+**`source`'s form is fixed, because INV-11 asserts it exactly**: a
+**project-relative POSIX path** for a file (`start.sh`, `lib/launcher.py` —
+§ 4.5 permits a hop three components down, so the bare basename would be
+ambiguous), `the <unit> unit` for either systemd property, or rule 3's
+framework name. It takes **`name`'s sanitiser, not `_quoted`** — U+FFFD for
+control characters and the same clip — for `name`'s reason: it is a display
+string, and `repr` would render a row's provenance as `'lib/launcher.py'`,
+quotes included. A filename may still contain a newline, so it is sanitised;
+it is just not *escaped*.
 
 **`name` is sanitised, and not by `_quoted`.** It carries the same
 attacker-supplied bytes as a skip reason — a Linux directory name may contain a
@@ -306,7 +322,11 @@ reasoning about `_read_bounded` — and the same applies to `PortFinding.source`
 which is a file or unit name from the same untrusted tree and reaches the same
 status bar.
 
-`MAX_SKIP_REASONS = 100`, and whenever anything
+Each reason is clipped at `MAX_REASON_CHARS = 120` — the same name and value
+`registry.py` uses, since it bounds the same thing for the same reason;
+`MAX_DISPLAY_NAME_CHARS` is a separate constant because it bounds a *display*
+string under a different sanitiser, and one name for two policies is how they
+drift apart. `MAX_SKIP_REASONS = 100`, and whenever anything
 was suppressed the count is appended as a final entry, exactly as
 `registry.py::load_projects` does — unconditionally *given suppression*, never
 conditionally quiet about it. Clipping each reason bounds how *long* they
@@ -488,6 +508,7 @@ escape `scan()` as an unhandled exception:
 | 20,000 nested `[…]`, well-formed, **40 KB** | `RecursionError` | **no** — a `RuntimeError` |
 | bytes that are not valid UTF-8 | `UnicodeDecodeError` | yes, but not a `JSONDecodeError` |
 | a valid document whose root is `5`, `[1,2]` or `null` | `AttributeError` on `.get("scripts")` | no |
+| `{"dependencies": 5}`, reached by rule 3's evidence scan | `TypeError` on the membership test | no |
 
 Measured 2026-08-08. The file is decoded `utf-8-sig` before parsing — an
 editor-added BOM is invisible in that editor, and `registry.py::load_projects`
@@ -495,8 +516,14 @@ records that same reasoning — which is what turns the second row into a
 `UnicodeDecodeError` rather than a confusing `JSONDecodeError` about byte 0.
 
 So the parse catches **`ValueError`** (covering `JSONDecodeError` and
-`UnicodeDecodeError`), **`RecursionError`**, and checks that the root is a
-`dict` before touching `scripts`. All three are non-matches with a reason.
+`UnicodeDecodeError`) and **`RecursionError`**, and **type-checks every
+container before touching it**: the root, `scripts`, and — the arm an earlier
+draft missed — `dependencies` and `devDependencies`, which rule 3's evidence
+scan reads and which no clause constrained. `"dependencies": 5` makes
+`"vite" in deps` raise `TypeError`, and `TypeError` is neither a `ValueError`
+nor a `RecursionError`, so it escaped `scan()` and took **every other
+project's row with it** — one hostile `package.json` deleting the whole list.
+A non-`dict` there is *no evidence*, with a reason. All four are non-matches.
 
 **`registry.py::load_projects` already names every one of these** — its
 `except (ValueError, RecursionError)` clause and its `isinstance(data, dict)`
@@ -561,7 +588,22 @@ requires both and `design.md § Detection rules` states only the first:
    ```
 
    `FragmentPath` or `WorkingDirectory` must resolve **inside** the candidate
-   directory. Without this, `mkdir <scan root>/project-a` — an empty directory
+   directory — and **an empty value contributes no evidence and is never
+   resolved**. `Path("").resolve()` is the *current working directory*
+   (measured 2026-08-08), so resolving an absent `WorkingDirectory` makes any
+   name-matched unit bind whenever the manager was launched from inside a
+   scan-root project — `cd ~/projects/foo && lwsm` — which is precisely the
+   empty-directory-drives-somebody-else's-service outcome this step exists to
+   stop, arriving through the check meant to prevent it. The same applies to
+   `FragmentPath`.
+
+   **`WorkingDirectory` is not a bare path, and usually is not one at all.**
+   systemd prefixes it with `-` (ignore if missing) or `!` (run privileged),
+   and both are printed. Measured 2026-08-08 across the real user units on this
+   machine: **13 of 14 print a `!`-prefixed path** such as `!/home/ants`; only
+   the one hand-written unit prints a bare path. So leading `-` and `!` are
+   stripped before resolution, or the containment check compares a path that
+   cannot exist and never matches anything. Without this, `mkdir <scan root>/project-a` — an empty directory
    with no code in it — is enough to make the UI present a row whose Start and
    Stop drive somebody else's service.
 
@@ -587,6 +629,14 @@ requires both and `design.md § Detection rules` states only the first:
      case and would otherwise put a line in `skipped` for every candidate on
      the machine. A masked unit is a user who *disabled* something this app
      was about to drive, which is worth one line.
+
+     **A third branch: the unit loads, has a real `FragmentPath`, and it
+     resolves *outside* the candidate.** That is the `mkdir <scan root>/project-a`
+     case the whole step exists for — a real unit belonging to someone else,
+     carrying this project's name — so it **records a reason**
+     (`<name>: unit <unit> is not bound to this directory`). It is the one
+     branch where something surprising happened, and the one an operator will
+     want to see; `not-found` stays silent because having no unit is ordinary.
 
      Without that asymmetry the distinction is unobservable and INV-7's
      `::test_a_not_found_unit_is_not_confused_with_a_masked_one` has nothing to
@@ -640,8 +690,24 @@ rejected, and `--` is passed immediately before it in every `systemctl` argv
 this module builds. A name beginning with `-` is consumed by `systemctl` as an
 option — `--host=`, `-M`, `--machine=` all redirect which manager is driven.
 
-**That pattern is ADR-0003's general one and is deliberately wider than what
-step 1 proposes.** This module lists `--type=service` only, so a `.socket`,
+**The escaped name is what goes into every argv; the unescaped stem is used
+only for the name comparison.** Those are two different strings and the spec
+has to say which is which: `systemctl` accepts only the escaped form, while the
+comparison in step 1 needs the unescaped one. **The validator therefore admits
+`\`** — as `^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)$` — because
+ADR-0003's class as written has no backslash, so `app-ai\x2dprompts\x2dtray@autostart.service`
+(a real unit on the author's machine) fails validation and can never reach an
+argv. Left unfixed that has one of two shapes, both bad: the unescaping step
+becomes dead code and every such project falls through to launcher rule 1 — so
+the manager offers to spawn a script for a server systemd already owns, the
+double-instance hazard ADR-0003 § Service-managed projects exists to prevent —
+or the name is passed unvalidated and the guard is bypassed for exactly the
+names that contain escapes. Widening the class costs nothing: a backslash is
+inert in an `execve` argv, and the leading-`-` rejection plus the `--`
+separator remain the actual defence. § 12 gains the ADR-0003 amendment.
+
+**That pattern is otherwise ADR-0003's general one and is deliberately wider
+than what step 1 proposes.** This module lists `--type=service` only, so a `.socket`,
 `.target` or `.timer` name can only arrive from a future caller passing one in
 — ADR-0003's second binding route, the registry's own recorded unit name, which
 § 9 defers to LWSM-1007. The validator is shared with
@@ -958,9 +1024,17 @@ is why table order could not be left implicit; § 12 item 6a carries it.)
 
 | # | Framework | Identified by | Default |
 |---|---|---|---|
-| 1 | Vite | `vite` in `package.json`'s `dependencies` / `devDependencies`, or in the chosen `scripts` value | 5173 |
-| 2 | Django | a root-level `manage.py`, or `import django` in the launcher's Python file | 8000 |
-| 3 | Flask | `import flask` / `from flask import` in the launcher's Python file | 5000 |
+| 1 | Vite | `vite` as an **exact key** of `dependencies` / `devDependencies`, or as a **substring** of the chosen `scripts` value | 5173 |
+| 2 | Django | a root-level `manage.py`, or `^\s*(?:import\|from)\s+django\b` in the launcher's Python file | 8000 |
+| 3 | Flask | `^\s*(?:import\|from)\s+flask\b` in the launcher's Python file | 5000 |
+
+**Every evidence test is exact or whole-word, never a substring**, and this is
+the third time in this spec that a loose match fabricates a port. Measured
+2026-08-08: `import flask_login` **contains** `import flask`, so a substring
+test reports 5000 for a project with no Flask app; `vitest` and
+`@vitejs/plugin-react` both contain `vite`. The `\b` and the exact-key rule are
+what stop it. § 7's corpus gains `vitest` and `flask_login` fixtures, both
+expecting *unknown*.
 
 **Which kinds can reach which evidence**, because the table above does not say
 and "the launcher's Python file" means different things per kind:
@@ -971,6 +1045,16 @@ and "the launcher's Python file" means different things per kind:
 | `PYTHON` | no | `manage.py`, or its launcher file | its launcher file |
 | `SHELL` | no | a one-hop target ending `.py`, **and then** `manage.py` or `import django` in it | `import flask` in a one-hop target ending `.py` |
 | `NODE` via rule 4, `SYSTEMD` | no | no | no |
+
+**The two Vite tests differ on purpose, and conflating them fabricates ports.**
+A dependency block has keys, so the test is exact-key membership; a script value
+is a string, so the test there is a substring. Read as a substring in both,
+`{"devDependencies": {"vitest": "^2.0.0"}}` — a **test runner**, among the
+commonest devDependencies in a modern Node project, and not a server at all —
+identifies Vite and reports the project `DETECTED` on 5173. That is the same
+fabrication class measured for `"get-port": "^7.0.0"` → 7, arriving through
+rule 3 instead of rule 2. § 7's corpus gains a `vitest` fixture expecting
+*unknown*.
 
 A `SHELL` project **does** reach Django and Flask evidence, because § 4.5's own
 worked hop is `run.sh` → `launcher.py` and a shell launcher legitimately runs
@@ -1091,8 +1175,16 @@ is the property the derivation exists for.
   descriptor, not opened for reading.
   *Test:* `tests/test_scanner.py::test_a_fifo_launcher_does_not_block`, under
   a `SIGALRM` guard raising a `BaseException` subclass so the guard cannot be
-  swallowed by the assertion it protects.
+  swallowed by the assertion it protects — **and asserting the recorded
+  reason**, not merely that the call returned.
   *Breaks when:* a FIFO at `start.sh` with no writer.
+  **The reason is the only observable that separates the two guards.** Measured
+  2026-08-08: opened `O_NONBLOCK`, a writer-less FIFO's `readline` returns `''`
+  — EOF, not a block. So `O_NONBLOCK` alone satisfies "did not block", and
+  deleting the `S_ISREG` check leaves the FIFO reading as an *empty file*: the
+  project is listed with no port instead of refused with a reason, and a test
+  named for blocking never sees it. This is `testing.md § T9` item 2 — where
+  two mechanisms reach the same outcome, the shared outcome is not evidence.
 
 - **INV-5** — A scan returns within its budget and says so, rather than
   running to completion.
@@ -1325,10 +1417,18 @@ is the property the derivation exists for.
 - **INV-20** — No file beneath an excluded directory name is opened, and a
   launcher-shaped file inside one is never a project's launcher.
   *Test:* `tests/test_scanner.py::test_nothing_inside_node_modules_is_read`,
-  over a fixture project holding both `node_modules/serve.py` and a root-level
-  `start.sh`, asserting the detected launcher is `("./start.sh",)` and — via a
-  patched opener recording every path — that no path under `node_modules` was
-  opened.
+  over a fixture whose root `start.sh` **declares no port of its own and reads
+  `exec python3 node_modules/pkg/serve.py`**, that file declaring one — so the
+  hop *is* resolved and constraint 3 is the only thing refusing it — asserting
+  the project comes back *unknown* and, via a patched opener recording every
+  path, that nothing under `node_modules` was opened. A second fixture hops
+  four components down (`exec python3 a/b/c/d.py`) for constraint 4.
+  **The obvious fixture cannot see either constraint.** A `start.sh` that
+  declares its own port ends the search file-major before the hop is ever
+  resolved, so deleting constraints 3 and 4 leaves that test — and every other
+  named test — green, and a `run.sh` reading
+  `exec python3 node_modules/foo/bin.py` is happily followed. The fixture has
+  to force the hop.
   *Breaks when:* a future change reinstates a recursive walk without the prune
   list, or the one-hop resolution stops checking § 4.5 constraint 3. **This is
   the acceptance clause the no-walk decision has to pay for**: with nothing
@@ -1401,7 +1501,10 @@ with the rules it is meant to lock:
 | `project-f` | `start.sh` declaring its port directly | detected, port rule 1 |
 | `project-g` | `run.sh` with `${PORT:-8080}` | detected, port rule 1's first alternative |
 | framework fixture (§ 3) | `serve.py` importing Flask, no port anywhere | detected, **port rule 3** |
-| exclusion fixture (INV-20) | root `start.sh` declaring a port, plus `node_modules/serve.py` declaring a different one | detected from `start.sh`; nothing under `node_modules` opened |
+| exclusion fixture (INV-20) | `start.sh` with **no port**, reading `exec python3 node_modules/pkg/serve.py`, that file declaring one | **unknown**; nothing under `node_modules` opened |
+| depth fixture (INV-20) | `start.sh` with no port, hopping four components down | **unknown** — constraint 4 refuses it |
+| `vitest` fixture (rule 3) | `package.json` with `devDependencies: {"vitest": …}`, `"dev": "vitest"`, no port | **unknown** — `vite` is an exact key, and `vitest` is not it |
+| `flask_login` fixture (rule 3) | `serve.py` containing `import flask_login`, no port | **unknown** — the evidence is whole-word `flask` |
 
 **The `project-d` and `project-e` rows carry an explicit negative, and they
 have to.** Both are `SHELL` projects whose hop target is a `.py` file, and
@@ -1608,7 +1711,7 @@ someone last checked them against reality.
 
 ## 12. Cross-doc impact
 
-Five documents change in the same release, across the eleven edits below.
+Six documents change in the same release, across the twelve edits below.
 Items 1–6a are all amendments to `design.md`, which this spec found
 under-specified or wrong in seven separate places, and item 7 is the same for
 `coding.md`. **They are not edited by this spec's gate** — that pass reviews
@@ -1648,6 +1751,10 @@ purpose rather than silently reconciled (`.claude/workflow.md § 2`).
    the depth bound and the eight excluded directory names constrain the
    one-hop target instead. Settled with the user 2026-08-08 (§ 3), so this is
    an amendment to make rather than a question to carry.
+6b. **`docs/decisions/0003-launch-via-project-scripts.md`, the unit-name
+    pattern** — the character class gains `\\`, so a systemd-escaped name can
+    pass validation and reach an argv. Without it the escaping step § 4.4
+    step 1 requires is dead code.
 7. **`docs/standards/coding.md § O1`** — the core-module criterion becomes the
    four-way split in § 4.7. As worded it is a two-way split that covers
    `__main__.py`, which imports `QtWidgets` by design, so any check derived
@@ -1664,6 +1771,7 @@ purpose rather than silently reconciled (`.claude/workflow.md § 2`).
 
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
+| 7 | 2026-08-08 | 2 (general-purpose, strong model) — lanes given **different methods again**: one played the attacker who owns a scanned directory, one *wrote the module on paper* from the document alone | Q2 ×2 · Q3 ×8 · Q4 ×2 | **12 verified, 0 unverified, 12 fixed.** Zero wording findings for the fourth loop running. The write-the-code lane is the method to keep: it found four gaps the adversarial lane did not, because "I cannot write this line without choosing" is a sharper test than "is this wrong". **Two findings would each have let one hostile project directory delete every other project's row:** `{"dependencies": 5}` makes rule 3's membership test raise **`TypeError`**, which is neither `ValueError` nor `RecursionError`, so it escaped `scan()` on the one path into `package.json` § 4.4's failure table did not govern; and `properties()` was never contractually total, so `props["WorkingDirectory"]` on a unit that sets none is a `KeyError` — also not an `OSError`. **The sharpest is the one the containment check was supposed to be:** `Path("").resolve()` **is the current working directory**, so an absent `WorkingDirectory` "resolves inside" whatever directory the manager was launched from — `cd ~/projects/foo && lwsm` and any name-matched unit binds, which is exactly the `mkdir <scan root>/project-a` attack step 2 exists to stop, arriving through the check meant to prevent it. Measuring that also found the value is rarely a bare path: **13 of the 14 real user units on this machine print `!/home/ants`**, and systemd's `-` / `!` prefixes were being resolved literally. Two more fabrication routes closed, both the loose-match shape this spec has now hit three times: `vitest` and `@vitejs/plugin-react` contain `vite`, and `import flask_login` contains `import flask`. And the escaped unit name — the only form `systemctl` accepts — **could not pass ADR-0003's own validator**, whose class has no backslash, so the unescaping step was dead code and every such project fell through to spawning a script systemd already owns. Two invariants added last loop had tests that could not fail: INV-20's fixture declared its port in `start.sh`, so the hop was never resolved and constraints 3 and 4 were unobservable; and a writer-less FIFO **reads as EOF, not a block** (measured), so INV-4's "did not block" stayed green with `S_ISREG` deleted. Doc 1673 → 1781 lines. |
 | 6 | 2026-08-08 | 2 (general-purpose, strong model) — lanes given **different methods**: one worked error and boundary paths, one traced a concrete input through the document | Q2 ×3 · Q3 ×4 · Q4 ×1 | **8 verified, 0 unverified, 8 fixed** (10 raw; 2 found twice). **Zero wording findings again.** The count went 14 → 6 → 8 rather than continuing to halve, and the reason is visible in the split: giving the two lanes different *methods* surfaced classes a third identical cold read would not have. That is worth more than a monotone curve. **Three of the eight are the same shape — a mechanism `registry.py` already solved, re-implemented here without it**, which is `coding.md § 1.6` failing in its usual direction: (1) the `package.json` parse caught `JSONDecodeError` only, while 20,000 well-formed nested arrays in **40 KB** raise `RecursionError` (not a `ValueError`), invalid UTF-8 raises `UnicodeDecodeError`, and a root of `5` or `[1,2]` raises `AttributeError` on `.get("scripts")` — `registry.py::load_projects` names all three by hand and the scanner inherited none; (2) `DetectedProject.name` travelled **raw and unbounded** while skip reasons and `PortFinding.source` were both escaped-and-clipped, so a directory named `evil⏎PORT=1 detected` reaches the log and status bar by the one path that survives detection — the LWSM-1078 shape, at the one call site the sweep missed. Also: rule 2's fenced code still used `re.search` where the prose beside it promised `finditer`, so `'server_port': 70000, 'port': 5000` returned `None` against the prose's 5000; INV-17's fixture carried the `Environment=` prefix § 4.4 states `properties()` strips, so a literal fake makes a *correct* implementation fail and invites re-breaking `project-a`; § 3 claimed § 7 tests that nothing under `node_modules` is opened, and **no such test, fixture, invariant or row existed** — the one place the no-walk decision trades a mechanism for a claim, now INV-20; a `SHELL` project running `exec node serve.mjs` with a stray `manage.py` reached Django's 8000; `scripts.dev` present-but-invalid had no defined fall-through; and INV-8's 300-character case was unreachable through `scan()` (`NAME_MAX` is 255) so it survived deleting the bound it tests. Doc 1563 → 1661 lines. |
 | 5 | 2026-08-08 | 2 (general-purpose, strong model) | Q2 ×3 · Q3 ×3 | **6 verified, 0 unverified, 6 fixed** (9 raw across the lanes; 4 were the same defect found twice). **Again zero wording, structure or duplication findings from either lane.** Count halved against loop 4 (14 → 6) with the signal still at 100%, which is what convergence looks like when the instrument is only asking about the build — loops 1–3 held flat at ~25 findings a loop because six of their fifteen dimensions could never come back clean. **The pass's best find is the one mechanism § 4 still stated as prose:** the one-hop target was "the **last** `exec`, `python3`, `python` or `node` invocation naming a path", which never said *which token* is the path — measured 2026-08-08, `exec python3 -u launcher.py` gives `python3` under "the token after the keyword", `exec env PORT=1 python3 launcher.py` gives `env`, and `python3 -m http.server 8080` gives `-m`. It is now a four-step tokenise-and-select rule, and it also gained the comment stripper, without which a `# exec python3 old.py` *below* the live invocation is "the last" one and the Scanner hops to the retired launcher. Also: the two markers `;` was dropped from in loop 4 were still parametrised in INV-19, so its test would have gone red against the stripper the same document specifies; rule 3 had three frameworks and no precedence, so `manage.py` beside `import flask` was 8000 or 5000 depending on the implementer; a hung `systemctl` drew its timeout from the *scan* budget, so one hang consumed all 20 s and returned zero projects against § 6's promise that a systemd-less machine "scans normally" — it now has its own 2 s bound; INV-7's masked-vs-not-found test had **no differing observable** to assert, so it passed against exactly the implementation it forbids, and masked now records a reason where not-found records none. One collateral: loop 4 narrowed rule 2 to a single source in § 4.4 and left § 4.6 restating three rules as two-source. Doc 1497 → 1563 lines. |
 | 4 | 2026-08-08 | 2 (general-purpose, strong model) — **first loop under the four-question brief** | Q1 ×2 · Q2 ×5 · Q3 ×5 · Q4 ×2 | **14 verified, 0 unverified, 14 fixed**, plus 1 collateral. **Every finding from both lanes changed what gets built; neither returned a single wording, structure or duplication finding.** That is the brief, not luck: it asks four questions and names the rest out of scope. Against loop 3's ~11 build-changing out of 26, the signal went from 42% to 100% and the brief itself from 24 KB to 3.4 KB. The worst three, none reachable by the fifteen-dimension passes that preceded them: **(1)** `package.json`'s dependency block was being fed to the port rules, and `"get-port": "^7.0.0"` — a real, common npm package — yields port **7** through `KEY_IS_PORT`'s hyphen; `"detect-port"` yields **1**. Scope narrowed to the chosen `scripts` value alone. **(2)** `systemctl show -p Environment` prints `Environment=STATS_PORT=4321 …`, and splitting *with* that prefix leaves a first token on which rule 2's key is `Environment` and rule 1's `PORT=` is preceded by `_` — neither matches, so `project-a` comes back *unknown*, the precise failure INV-17 exists to prevent. The `NAME=` prefix removal is now stated. **(3)** The `;` I had added to the comment-marker set is a **statement separator**, not a comment marker, in every language this module reads: `cd /app ; exec node serve.mjs --port 8080` lost its port, so did an npm `"dev"` script and a shell assignment. Dropped. Also: the ordering *inside* one source was left open where the ordering *between* sources had been settled (line-major, 3000 vs 8080 on the same file); `path` was "absolute" where four other clauses need it *resolved*, which under a symlinked scan root gives one project two registry identities; `systemctl` failing with no D-Bus session raises `JSONDecodeError`/`CalledProcessError`, neither an `OSError`, so `scan()` raised instead of degrading; INV-16's fixture had no launcher, so rejection 5 already excluded it and the self-exclusion guard shipped unreached; and a refused launcher dropped the whole candidate, letting anyone who can plant a symlink named `start.sh` delete a project from the manager. The one collateral: dropping `;` retired the measurement that justified the `ExecStart` stripper exemption — the exemption is kept on its scope argument and the stale reason replaced, caught by the conformance script on the next run. Doc 1265 → 1497 lines. |
