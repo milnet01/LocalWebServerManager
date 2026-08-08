@@ -9,10 +9,6 @@ on 2026-08-08 under the size gate (`docs/standards/spec-format.md § 5.4`).
 LWSM-1121 (the remaining port sources and conflict reporting).
 **Pairs with:** LWSM-1050 — this item lands that bullet's implementation, per
 its own text; LWSM-1050 does not ship separately.
-**Blocked on:** one user decision — § 3's third scope decision, whether the
-recursive walk is built as `design.md` words it or replaced by the constraints
-in § 4.5. § 4.2 is written for the second branch and is not implementable under
-the first without a new subsection.
 
 **Layman:** Teach the app to look through a folder of projects and work out,
 for each one, how it starts and which port it wants — and to say plainly when
@@ -71,19 +67,24 @@ Three consequences, which the invariants in § 5 trace back to:
   of lines already in the contract, and the fixture tree gains one project that
   has a framework and no port anywhere, so the rule is exercised rather than
   carried untested.
-- **PROPOSED, and not yet confirmed — the recursive walk is not built.** Every
-  launcher rule in `design.md § Detection rules` matches at the project root,
-  and the one-hop port-bearing file is *named by the launcher* and opened
-  directly, not found by searching. So nothing in this item's rule set reads a
-  file that a walk would have to find, and building a three-level walk to feed
-  no reader is the scaffolding `coding.md § 1.1` forbids. The depth bound and
-  the eight excluded directory names are not dropped: they become constraints
-  on the one-hop target (§ 4.5), where they are the only place they can still
-  do work. **This diverges from `design.md § Detection rules` § Where it
-  looks**, so it is surfaced here per `.claude/workflow.md § 2`'s no-silent-
-  drift rule rather than absorbed; § 12 carries the amendment that follows if
-  the user confirms it. If the user prefers the walk built as written, § 4.2
-  gains it and this decision is struck.
+- **The recursive walk is not built** (user, 2026-08-08). Every launcher rule
+  in `design.md § Detection rules` matches at the project root, and the
+  one-hop port-bearing file is *named by the launcher* and opened directly,
+  not found by searching. So nothing in this item's rule set reads a file a
+  walk would have to find, and building a three-level walk to feed no reader
+  is the scaffolding `coding.md § 1.1` forbids — on a scan root whose
+  subdirectories hold `node_modules` it would also be the dominant term in the
+  20-second budget. The depth bound and the eight excluded directory names are
+  **not** dropped: they become constraints on the one-hop target (§ 4.5),
+  which is the only place they can still do work. This diverges from
+  `design.md § Detection rules § Where it looks`, which § 12 item 6 amends —
+  surfaced rather than absorbed, per `.claude/workflow.md § 2`.
+
+  The roadmap's acceptance clause "`node_modules` is never descended" is met
+  by construction rather than by a prune list: nothing walks, so nothing
+  descends. § 7's test asserts the observable form of that — no file inside a
+  `node_modules` is opened, and a `serve.py` planted there is not detected as
+  the project's launcher.
 
 ## 4. Design
 
@@ -1195,11 +1196,10 @@ file-or-unit name, having lost the matched line for the reason in § 4.1.
 | § 4.6's rules detect the *seven real* projects correctly | **nothing** — the fixture tree mirrors them, and a fixture that has drifted from the project it mirrors passes while the real detection fails. `testing.md § T1` forbids reading the real ones, so this is a limit rather than a defect |
 | § 4.3's `errors="replace"` decode never raises on any real file | **nothing** — untestable in general; the tests cover UTF-8, Latin-1 bytes and a binary blob |
 | § 4.2's self-exclusion under a **non-editable** install | **nothing** — INV-16 covers the source-checkout case, which is the one that occurs. A wheel install plus a checkout inside a scan root lists the checkout; judged not worth a second mechanism |
-| § 3's proposed no-walk decision matching what the user wants | **nothing** — a preference, not a contract; § 12 carries the `design.md` amendment it needs |
 
-Twenty-three rows, **five** with a bolded `nothing` — this spec's honest error
-budget, per `spec-format.md § 0`. Recounted after the review loop rather than
-adjusted: 18 invariant rows plus 5. Three of the five are one shape — a test
+Twenty-two rows, **four** with a bolded `nothing` — this spec's honest error
+budget, per `spec-format.md § 0`. Recounted after each review loop rather than
+adjusted: 18 invariant rows plus 4. Three of the four are one shape — a test
 fake, a fixture tree and a measured command line can only be as true as the day
 someone last checked them against reality.
 
@@ -1240,10 +1240,11 @@ purpose rather than silently reconciled (`.claude/workflow.md § 2`).
     § 4.6 table names which evidence each launcher kind can reach, so a stray
     `manage.py` beside a `serve.mjs` cannot fabricate 8000. Numbered `6a`
     rather than renumbering, since § 4.6 already cites it.
-6. **`docs/design.md § Detection rules § Where it looks`** — only if the user
-   confirms § 3's proposed scope decision: the recursive walk becomes a
-   statement that the rules are root-level and the depth bound and exclusion
-   list constrain the one-hop target.
+6. **`docs/design.md § Detection rules § Where it looks`** — the recursive
+   walk becomes a statement that the launcher rules are root-level, and that
+   the depth bound and the eight excluded directory names constrain the
+   one-hop target instead. Settled with the user 2026-08-08 (§ 3), so this is
+   an amendment to make rather than a question to carry.
 7. **`docs/standards/coding.md § O1`** — the core-module criterion becomes the
    four-way split in § 4.7. As worded it is a two-way split that covers
    `__main__.py`, which imports `QtWidgets` by design, so any check derived
