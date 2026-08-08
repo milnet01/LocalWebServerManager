@@ -1344,17 +1344,23 @@ path. `docs/design.md § Detection rules` is the contract.
   deep, skipping `node_modules` / `.git` / `.venv` / `venv` /
   `__pycache__` / `dist` / `build` / `.cache`, under a 20-second
   budget. Launcher precedence and declared-port sources exactly
-  as specified, including framework defaults, plus the extra
-  sources robustness demands: `.env`, systemd `Environment=` /
-  `ExecStart`, `docker-compose.yml` `ports:`, and a README
-  `localhost:NNNN` at lowest confidence. Every value carries
-  **its provenance** and a confidence of *detected* or *unknown*;
-  conflicting sources are reported rather than silently resolved.
+  as specified, including framework defaults, read from the
+  launcher and the **one** file it runs — which for a `systemd`
+  project means the unit's `Environment=` / `ExecStart`, the unit
+  being that project's launcher. Every value carries **its
+  provenance** and a confidence of *detected* or *unknown*.
   Acceptance: against a fixture tree mirroring the seven real
   projects, each is found with the right launcher and port or an
   honest *unknown*, `node_modules` is never descended, and the
   fixture tree is the **regression corpus every future
   mis-detection gets added to**.
+  **Scope narrowed 2026-08-08 (user, size gate).** The three
+  remaining sources measure 2 names — `.env`, `docker-compose.yml`,
+  `README.md` — and measure 3's conflict reporting moved to
+  **LWSM-1121**; none of the seven is detected by them. This item
+  also lands **LWSM-1050**'s hardening, per that bullet, and
+  widens `tests/test_layering.py`'s `CORE_MODULES` per
+  `coding.md § O1`.
   Dependencies: LWSM-1005.
   **Layman:** Teach the app to find your projects by itself and work
   out how each one starts.
@@ -1406,6 +1412,36 @@ path. `docs/design.md § Detection rules` is the contract.
   Source: in-session-2026-08-03.
   Priority: 2.
   Lanes: ui, tests.
+
+- 📋 [LWSM-1121] **P03: Scanner reads the extra port sources and
+  reports conflicts.** Beyond the launcher and its one-hop file
+  (LWSM-1006), the three remaining sources
+  [`design.md § Robustness`](docs/design.md) measure 2 names: a
+  `.env` / `.env.local` `PORT=`, a `docker-compose.yml` `ports:`
+  mapping, and — lowest confidence — a `localhost:NNNN` in the
+  project's `README.md`. Each value carries its provenance, and
+  measure 3 lands with them: when two sources give different ports
+  the higher-confidence one wins **and the conflict is shown**,
+  never silently resolved.
+  Split out of LWSM-1006 by the user on 2026-08-08 on the size gate
+  (`docs/standards/spec-format.md § 5.4`): the seven known projects
+  are all detected from the launcher and its one-hop file, so these
+  sources are robustness beyond that item's acceptance test rather
+  than part of it. The systemd unit's `Environment=` / `ExecStart`
+  stays with LWSM-1006, because for a `systemd` project the unit
+  **is** the launcher and reading it is that item's one-hop rule.
+  Acceptance: a fixture project per source is detected with the
+  right port and the right provenance label, and a fixture whose
+  `.env` and launcher disagree reports both rather than resolving
+  to one.
+  Dependencies: LWSM-1006.
+  **Layman:** Also look in a few other common places for a
+  project's port, and say so when two of them disagree instead of
+  quietly picking one.
+  Kind: implement.
+  Source: in-session-2026-08-08 (split from LWSM-1006).
+  Priority: 2.
+  Lanes: core, tests.
 
 ---
 
