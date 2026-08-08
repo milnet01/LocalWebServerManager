@@ -22,8 +22,24 @@ import pytest
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "lwsm"
 
-# coding.md § O1 names these; scanner, supervisor and logbuffer arrive later.
-CORE_MODULES = ["registry.py", "ports.py", "controller.py"]
+# A new core module is added here in the commit that creates it
+# (`coding.md § O1`). `scanner.py` is the first to test that; `applog.py` was
+# absent from this list while the criterion covered it, so the rule and its
+# check disagreed and the check is the one that runs (LWSM-1006 § 4.7).
+CORE_MODULES = [
+    "applog.py",
+    "controller.py",
+    "ports.py",
+    "registry.py",
+    "scanner.py",
+]
+
+# The complement of core, named explicitly rather than derived from
+# `coding.md § O1` as it was once worded: that was a two-way split excluding
+# only the two UI modules, so anything deriving from it pulled in
+# `__main__.py`, which imports QtWidgets **by design** — and would redden
+# `test_core_never_imports_qtwidgets` on the day the derivation landed.
+NON_CORE_MODULES = {"mainwindow.py", "theme.py", "__main__.py", "__init__.py"}
 
 # theme.py is the token DEFINITION site, so the palette's values necessarily
 # live there. § O7's rule is about widget code, and this allowlist is explicit
@@ -84,6 +100,16 @@ def test_core_never_imports_qtwidgets(module: str) -> None:
         f"{module} is a core module: a QtWidgets import is what makes it "
         f"need a display — found {sorted(offenders)}"
     )
+
+
+def test_the_core_module_list_matches_the_criterion() -> None:
+    """A source-invariant test (`testing.md § 3.6`): the list above is what
+    actually enforces § O1, so a sixth core module that never reaches it is a
+    `QtWidgets` import passing every gate — which is how `applog.py` came to be
+    missing from it in the first place."""
+    on_disk = {path.name for path in SRC.glob("*.py")}
+
+    assert on_disk - NON_CORE_MODULES == set(CORE_MODULES)
 
 
 def test_the_import_check_can_actually_fail(tmp_path: Path) -> None:

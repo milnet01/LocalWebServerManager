@@ -23,6 +23,14 @@ signaling per
 
 ### Added
 
+- **Detect projects, their launchers and their declared ports** (LWSM-1006)
+  Point the app at a folder of projects and it works out, for each
+  one, how that project starts and which port it wants — reading the
+  launcher the project already has rather than asking you to write
+  anything down. Where nothing in the project says which port, it
+  says *unknown* instead of guessing, and every port it does find is
+  labelled with the rule and the file it came from.
+
 - **A window that shows each project's live status** (LWSM-1005)
   `lwsm` now opens a window listing the projects named in
   `~/.config/localwebservermanager/projects.json`, written by hand for
@@ -88,6 +96,12 @@ signaling per
   default.
 
 ### Fixed
+
+- **The core/UI layering check now covers every module the rule names** (LWSM-1006)
+  `applog.py` was covered by the rule and missing from the check, and
+  the rule itself was worded in a way that would have failed on the
+  entry point. Both corrected, and a new test derives the list from
+  the rule so the two cannot drift apart again.
 
 - **Quitting is no longer delayed by a port check that never finishes** (LWSM-1117)
   A port check that hangs could keep the process alive indefinitely. That was
@@ -224,6 +238,14 @@ signaling per
   one.
 
 ### Security
+
+- **Every file the scanner reads is read under a bound** (LWSM-1050)
+  The scanner reads files inside other people's project folders, so
+  none of it is trusted: a size cap and a line cap per file, a
+  deadline checked per line, a refusal of anything that is not an
+  ordinary file, a refusal of symlinks at both the folder and the
+  file level, and a containment check so a launcher cannot point the
+  scanner at something outside its own project.
 
 - **Two entries for the same folder can no longer both load** (LWSM-1103)
   A path written with two slashes at the front counted as a different
