@@ -695,6 +695,16 @@ Exactly one hop is followed — `project-e` puts its port two hops out (`run.sh`
 `config.py`) and is expected back as *port unknown*, which is an honest limit
 rather than a bug.
 
+**A token containing a NUL byte is rejected before anything else touches it.**
+`os.path.commonpath` accepts one happily, and then `Path.resolve()` and
+`os.open()` both raise **`ValueError`** — not an `OSError`, so § 4.3's
+"any `OSError` rejects that file and continues" does not catch it and the scan
+raises. Measured 2026-08-08 on `exec python3 laun\x00cher.py`, which a hostile
+launcher can write directly. `registry.py::load_projects` already refuses a NUL
+in a path, and its comment names the consumer: *"every later os call on it
+raises ValueError — and P03 passes this path as a spawn cwd."* P03 is this
+item, and the guard did not arrive with it.
+
 The target is accepted only when **all six** hold. Constraints 1-5 are checked
 after resolution — which is about the *parent* components, since a project may
 reasonably hold a symlinked subdirectory — and constraint 6 is about the final
@@ -1051,7 +1061,9 @@ is the property the derivation exists for.
   `start.sh` symlinked to a readable file outside the project and asserting
   that file's port is not detected.
   *Breaks when:* a `run.sh` whose last invocation is
-  `exec python3 ../../../.ssh/config`, or a `start.sh` that is a symlink out of
+  `exec python3 ../../../.ssh/config`, one naming a token with an embedded NUL
+  (`ValueError` from `resolve()`, which is not an `OSError` and escapes the
+  scan), or a `start.sh` that is a symlink out of
   the project — the case § 4.3's `O_NOFOLLOW` bullet measures, and the one this
   invariant promised for two drafts with no rule behind it.
 
