@@ -27,8 +27,8 @@ rules can reach — a declared port, labelled with which rule found it and in
 which file. Where nothing says, the project comes back honestly *unknown*
 rather than carrying a guess. Everything the Scanner reads belongs to somebody
 else, so it also ships the bounds that make reading it safe: LWSM-1050's
-per-file cap, per-line cap, per-line deadline, symlink refusal, non-regular
-refusal and containment check.
+per-file cap, per-line cap, per-line deadline, symlink refusal at both the
+candidate and the file level, non-regular refusal and containment check.
 
 ## 2. Problem
 
@@ -117,7 +117,8 @@ class Confidence(enum.Enum):
 class PortFinding:
     port: int
     rule: PortRule
-    source: str  # what was read: a file's name, or "the <unit> unit"
+    source: str  # the evidence: a file name, "the <unit> unit", or a
+    # framework name for rule 3, which reads no new file
 
 
 @dataclass(frozen=True)
@@ -144,8 +145,12 @@ class ScanResult:
 class SupportsUnitLookup(Protocol):
     """The systemd surface, injected so `testing.md § T1` holds.
 
-    Both calls are bounded by the scan's own deadline; a timeout raises
-    `OSError`, which § 6 turns into "rule 0 disabled for this scan".
+    Both calls are bounded by the scan's own deadline. The real adapter
+    **translates `subprocess.TimeoutExpired` into `OSError`** before it
+    leaves — measured 2026-08-08, `TimeoutExpired` is a `SubprocessError`
+    and NOT an `OSError`, so a caller catching `OSError` per this docstring
+    would otherwise let a hang escape as an unhandled exception. `OSError`
+    is what § 6 turns into "rule 0 disabled for this scan".
     """
 
     def unit_names(self, timeout: float) -> list[str]: ...
@@ -211,17 +216,19 @@ LWSM-1007's, and a Scanner that reads the real config could not satisfy
 `testing.md § T1`. `now` is injected for the same reason the budget test needs
 to be deterministic rather than slow.
 
-A candidate is an **immediate subdirectory** of a scan root. **Three
-rejections happen before any file is opened**; the fourth is decided only after
-the launcher rules have run, since rule 2 parses `package.json` and rule 0
-calls `systemctl`. Each records a reason in `skipped`:
+A candidate is an **immediate subdirectory** of a scan root. Five rejections,
+ordered cheapest first so that **only the last one opens a file**: rejections
+1-4 are decided from the path alone, while "no launcher matched" needs rule 2
+to parse `package.json` and rule 0 to call `systemctl`. Each records a reason in `skipped`:
 
 1. **Not a directory.**
 2. **A symlink.** Refused rather than resolved. Measured 2026-08-08 on Python
    3.13.14: `os.walk(followlinks=False)` declines to *descend* into a
    symlinked subdirectory but still lists it in `dirnames`, and walking a
-   symlinked directory **as the top** follows it — a scan of `<root>/proj_link`
-   pointing at `<root>/proj` returned `['proj_link', 'real']`. So
+   symlinked directory **as the top** follows it. Measured with `<root>/proj`
+   containing a subdirectory `real`, and `<root>/proj_link` a symlink to
+   `proj`: walking `proj_link` returned both `proj_link` and `real`, i.e. it
+   descended through the link. So
    `followlinks=False` is not the guard at candidate level; refusing the
    candidate is.
 3. **This application's own directory.** A candidate is skipped when
@@ -238,16 +245,32 @@ calls `systemctl`. Each records a reason in `skipped`:
    both a wheel install *and* a source checkout inside a scan root, who sees
    their own checkout listed. § 11 records this rather than pretending the
    guard is universal.
-4. **No launcher matched** (§ 4.4). A candidate with no match is not a server
+4. **Already seen.** Two scan roots may overlap, or one may sit inside
+   another, so the same directory can arrive twice; the second is skipped.
+   ADR-0005 makes the absolute path the identity, so two records sharing one is
+   a malformed result rather than a merge question — the rule
+   `registry.py::load_projects` already applies to its own input. Comparison is
+   on the **resolved** path, since rejection 2 has already removed the symlink
+   route to the same target.
+5. **No launcher matched** (§ 4.4). A candidate with no match is not a server
    project and is not listed.
 
-**`skipped` is capped, not merely clipped.** `MAX_SKIP_REASONS = 100`, and the
-count of suppressed reasons is **always** appended as a final entry, exactly as
-`registry.py::load_projects` does. Clipping each reason bounds how *long* they
+**`skipped` is capped, not merely clipped.** `MAX_SKIP_REASONS = 100`, and whenever anything
+was suppressed the count is appended as a final entry, exactly as
+`registry.py::load_projects` does — unconditionally *given suppression*, never
+conditionally quiet about it. Clipping each reason bounds how *long* they
 are and nothing bounds how *many* — the gap LWSM-1115 closed in the registry
 after a file at its size cap produced **524,271** reasons totalling 20,859,730
 characters, 8.7 s of them logged before the window appeared. A scan root with a
 large subdirectory count reaches the same shape by a different road.
+
+**Same value as `registry.py::MAX_REASONS`, and deliberately not shared.** The
+two bound different populations — hand-edited records in one file against
+subdirectories on disk — so they will move independently, and importing a
+private constant across modules to save one line would couple them into moving
+together. The `MAX_SOURCE_*` names diverge because the *numbers* differ; this
+one diverges because the *reasons* do.
+
 The **20-second budget** (`SCAN_BUDGET_SECONDS = 20.0`) is checked before each
 candidate and, inside a file read, **before each line** — not once per scan. A
 wall-clock check between files cannot interrupt work already under way. On
@@ -261,8 +284,22 @@ MAX_SOURCE_FILE_BYTES = 256 * 1024
 MAX_SOURCE_LINE_CHARS = 4096
 
 
-def _read_lines(path: Path, deadline: Deadline) -> list[str]: ...
+def _read_bytes(path: Path) -> bytes: ...  # whole file, under the byte cap
+def _read_lines(path: Path, deadline: Deadline) -> list[str]: ...  # line-capped
 ```
+
+**Two readers, because the line cap is right for scanning and wrong for
+parsing.** `_read_lines` is what the port rules consume: capped lines with the
+tail of an over-long one discarded, which is safe because a port declaration
+past character 4096 of one line is not a declaration anyone wrote on purpose.
+`_read_bytes` is what `package.json` needs, because JSON has no line structure
+to cap. Measured 2026-08-08: a minified `package.json` with 300
+`devDependencies` is **6,252 characters on one line**, and truncating it at
+4096 raises `JSONDecodeError: Unterminated string`. Under a single line-capped
+reader every minified `package.json` — an ordinary artefact — would be reported
+as malformed and its project silently dropped from the list. Both readers share
+the same open, the same `O_NOFOLLOW`, the same `S_ISREG` check and the same
+`MAX_SOURCE_FILE_BYTES`; only the framing differs.
 
 Named `MAX_SOURCE_*` rather than reusing `registry.py`'s `MAX_FILE_BYTES`,
 because they are different numbers for different jobs — 1 MiB for a config
@@ -276,10 +313,25 @@ apply to a *path* before any file is opened. What follows is this function's
 own contract, and the last two bullets are how it behaves on failure, not
 limits it enforces:
 
-- Opened `O_RDONLY | O_NONBLOCK`, then `fstat` on the raw descriptor: refused
-  unless `stat.S_ISREG`. A FIFO at `start.sh` would otherwise block `open()`
-  until a writer appears — the failure `registry.py::_read_bounded` was
-  written for, reproduced there on 2026-08-06.
+- Opened `O_RDONLY | O_NONBLOCK | O_NOFOLLOW`, then `fstat` on the raw
+  descriptor: refused unless `stat.S_ISREG`. Two different attacks, two
+  different flags:
+
+  - A FIFO at `start.sh` would block `open()` until a writer appears — the
+    failure `registry.py::_read_bounded` was written for, reproduced there on
+    2026-08-06. `O_NONBLOCK` plus the `S_ISREG` check is what stops it.
+  - **A symlinked `start.sh` is read straight through, and `S_ISREG` cannot
+    see it.** Measured 2026-08-08: a `start.sh` symlinked to a file outside the
+    project opened cleanly, `S_ISREG` on the resulting descriptor returned
+    `True` — it describes the *target* — `os.access(X_OK)` also returned
+    `True`, and the target's contents were read. `O_NOFOLLOW` is the only guard
+    that refuses it (`ELOOP`, "Too many levels of symbolic links"). Without
+    this flag INV-1's containment promise holds for the one-hop target and not
+    for the launcher itself, which is the file this module opens first.
+
+  This is why `applog.py`'s handler uses `O_NOFOLLOW` and why `registry.py`'s
+  reader does not: the log is a file we own, the config is one the user may
+  reasonably symlink, and a sibling project's launcher is neither.
 - Refused above `MAX_SOURCE_FILE_BYTES`, checked on the `fstat` size *and*
   again on the bytes actually read, so a file that grows between the two is
   still refused.
@@ -316,9 +368,9 @@ count.
 
 ### 4.4 Launcher rules, first match wins
 
-Numbered as `design.md § Detection rules` numbers them, from 0. These are
-*launcher* rules; § 4.6's are *port* rules, and both start at 1 in the
-original, which is why each is always named in full.
+Numbered as `design.md § Detection rules` numbers them: these *launcher* rules
+from 0, § 4.6's *port* rules from 1. The two sets overlap at every number from
+1 up, which is why each is always named in full.
 
 The last column is the **port-bearing content** § 4.6's rules are run over, and
 it is named per rule because it differs per rule — a question the design left
@@ -337,19 +389,24 @@ Every path is at the project root, and every within-rule list is ordered: rule
 The `argv` column shows the **preferred** alternate; § 4.1's rule is that
 `argv` names whichever alternate actually matched.
 
-**Only rule 1 has a one-hop file.** Rules 2, 3 and 4 name the file they run
+**Only rule 1 has a one-hop *file*.** Rules 2, 3 and 4 name the file they run
 directly, so there is nothing to follow; rule 0's unit is read through
-`systemctl` rather than opened. So "in either file" in § 4.6 means *the two
-sources this table gives*, which for rules 0, 2, 3 and 4 is a single source.
+`systemctl` rather than opened. But three of the five kinds still have **two
+sources**, and § 4.6's file-major ordering runs them left to right as this
+table lists them: rule 0 takes `Environment=` then `ExecStart=`, rule 1 the
+script then its hop target, rule 2 `package.json` then the chosen `scripts`
+value. Only rules 3 and 4 have a single source.
 
 **Rule 1 requires the execute bit** (`os.access(path, os.X_OK)`) and a regular
 file. A `start.sh` without it is not a launcher match, and the reason is
 recorded — running it would fail at spawn time with a message about a file the
 user never chose.
 
-**Rule 2 parses `package.json` through § 4.3's bounded read.** A malformed or
-oversized one is not a match, with a reason. `scripts` must be an object and
-the chosen value a non-empty string.
+**Rule 2 parses `package.json` through § 4.3's `_read_bytes`**, not
+`_read_lines` — a minified one is a single 6,252-character line in the measured
+case, and the line cap would make it unparseable. A malformed or oversized one
+is not a match, with a reason. `scripts` must be an object and the chosen value
+a non-empty string.
 
 **Rule 0 — the systemd path.** Detection is two steps, because ADR-0003
 requires both and `design.md § Detection rules` states only the first:
@@ -468,9 +525,43 @@ scope decision is what moved them here.
 the same first-match-wins the launcher rules use, stated because "anywhere in
 the file" left it open when two lines match.
 
-**Rule 1 — an explicit port setting.** Anywhere in the line:
-`PORT=N`, `PORT=${PORT:-N}`, `--port N`, `--port=N`, `localhost:N`,
-`127.0.0.1:N`.
+**Rule 1 — an explicit port setting**, anywhere in the line. Given as code for
+the same reason rule 2 is, and because **rule 1 runs first, so its looseness
+costs more**:
+
+```python
+RULE_1 = re.compile(
+    r"(?:^|[^A-Za-z0-9_])PORT=\$\{PORT:-(\d{1,5})\}"  # PORT=${PORT:-N}
+    r"|(?:^|[^A-Za-z0-9_])PORT=(\d{1,5})"  # PORT=N
+    r"|--port[= ](\d{1,5})"  # --port N / --port=N
+    r"|(?:localhost|127\.0\.0\.1):(\d{1,5})",  # localhost:N
+    re.IGNORECASE,
+)
+```
+
+Two things the prose form left open, both of which change what gets built:
+
+- **The `PORT=` alternatives need the same left boundary rule 2 has.** Measured
+  2026-08-08, an unanchored `PORT=(\d+)` returns 99 for `TRANSPORT=99`, 5 for
+  `EXPORT=5` and 4321 for `APP_PORT=4321` — reintroducing, in the
+  higher-priority rule, exactly the false positives § 4.6 corrected rule 2 to
+  reject. `[^A-Za-z0-9_]` excludes the underscore as well as letters, because
+  `APP_PORT` is the shape INV-17's own fixture uses.
+- **`${PORT:-N}` needs its own alternative and must come first.** A plain
+  `PORT=(\d+)` does not match `PORT=${PORT:-8080}` at all — the character after
+  `=` is `$` — so without this branch the form `design.md` singles out as
+  mattering (`project-g` declares 8080 this way) is missed by rule 1 and picked
+  up, if at all, by rule 2. Listed first because Python's alternation is
+  ordered and the plain branch would otherwise never be reached for that line.
+
+`\d{1,5}` rather than `\d+`: a port cannot exceed five digits, and it stops a
+4096-character run of digits being captured and then discarded by the range
+check below.
+
+Run 2026-08-08 over twelve lines — the six accepted forms above plus
+`TRANSPORT=99`, `EXPORT=5`, `APP_PORT=4321`, `SERVER_PORT = 3000`,
+`const viewport = 1280` and `export PORT=8080` — with every result as stated
+here. § 7 parametrises the same twelve.
 
 **Rule 2 — an assignment whose key is a port.** A non-backtracking two-step.
 The prose form admitted two readings — whether `:` is partitioned out of the
@@ -491,11 +582,18 @@ def rule_2(line: str) -> int | None:
         key = left.strip().strip("'\"").rstrip("'\" \t")
         if key.lower() != "port" and not KEY_IS_PORT.search(key):
             continue
-        digits = re.search(r"\d+", right)
-        if digits:
+        digits = re.search(r"\d{1,5}", right)
+        # The range check lives HERE, not at the call site: an out-of-range
+        # value must let the search carry on to the next separator, the next
+        # line and the next source, which a returned int cannot express.
+        if digits and PORT_RANGE[0] <= int(digits.group()) <= PORT_RANGE[1]:
             return int(digits.group())
     return None
 ```
+
+`PORT_RANGE` is `registry.py`'s `DECLARED_PORT_RANGE`, `(1, 65535)` —
+deliberately not ADR-0005's 1024–65535, which governs the *override* the user
+types. A project may legitimately declare 80.
 
 **The key must not merely *end in* the letters `port`, which is what
 `design.md` says.** Measured 2026-08-08, the literal rule accepts
@@ -517,9 +615,12 @@ example `design.md` gives and rejects all four:
 | `report: 7` | **7** | none |
 | `export = 5` | **5** | none |
 
-Produced 2026-08-08 by running both rules over those ten lines under
-`uv run python3` on 3.13.14; § 7 ships the table as a parametrised test so the
-figures are an output rather than a transcription.
+Produced 2026-08-08 by running both key rules over those ten lines under
+`uv run python3` on 3.13.14. **Both columns**, not just the shipping one:
+`test_port_rule_2_keys` parametrises the boundary rule, and its counterpart
+asserts that the literal "ends in port" variant returns the four values in the
+left column — so the argument for the change stays an output rather than
+becoming a transcription the day someone edits the table.
 
 **Rule 3 — a framework default**, only when neither rule 1 nor rule 2 found
 anything in **any** of the sources the § 4.4 table gives this launcher kind.
@@ -532,11 +633,23 @@ a new file:
 | Django | a root-level `manage.py`, or `import django` in the launcher's Python file | 8000 |
 | Flask | `import flask` / `from flask import` in the launcher's Python file | 5000 |
 
-A `SYSTEMD` or `SHELL` project reaches no framework evidence — neither has a
-`package.json` this rule reads or a Python launcher file — so rule 3 never
-fires for one, and such a project with no port comes back *unknown*. That is
-the correct answer, not a gap: guessing 5000 for a shell script would be the
-invented value `design.md` refuses.
+**Which kinds can reach which evidence**, because the table above does not say
+and "the launcher's Python file" means different things per kind:
+
+| Kind | Vite | Django | Flask |
+|---|---|---|---|
+| `NODE` via rule 2 | yes — its `package.json` | no | no |
+| `PYTHON` | no | `manage.py`, or its launcher file | its launcher file |
+| `SHELL` | no | `manage.py`, or a one-hop target ending `.py` | the same |
+| `NODE` via rule 4, `SYSTEMD` | no | `manage.py` only | no |
+
+A `SHELL` project **does** reach Django and Flask evidence — `manage.py` needs
+no Python launcher to exist, and § 4.5's own worked hop is `run.sh` →
+`launcher.py`. An earlier draft claimed rule 3 never fires for `SHELL` or
+`SYSTEMD`, which its own table contradicted. A project reaching no evidence at
+all comes back *unknown*, and that is the correct answer rather than a gap:
+guessing 5000 for a shell script would be the invented value `design.md`
+refuses.
 
 **Order is file-major, and `design.md` does not say which.** "Port rules, first
 match wins, searched in the launcher and then in the one-hop file" admits two
@@ -551,8 +664,8 @@ then 2 within the second, then rule 3 across both. The launcher is the file
 that actually runs, and rule 3's own wording ("only when neither port rule 1
 nor port rule 2 found anything") already scopes across both sources, which only
 file-major makes coherent. "Both sources" means whatever the § 4.4 table gives
-that launcher kind — a single source for rules 0, 2, 3 and 4. § 12 carries the
-amendment.
+that launcher kind, in its listed order — two for rules 0, 1 and 2, one for
+rules 3 and 4. § 12 carries the amendment.
 
 **The example has to be a line rule 2 accepts, and the first one written was
 not.** An earlier draft used `PORT_BASE = 3000`, whose key ends in `BASE`;
@@ -601,10 +714,15 @@ is the property the derivation exists for.
 ## 5. Invariants
 
 - **INV-1** — No file outside a candidate's own resolved directory is opened.
-  *Test:* `tests/test_scanner.py::test_a_hop_out_of_the_project_is_refused`.
+  *Test:* `tests/test_scanner.py::test_a_hop_out_of_the_project_is_refused`
+  and `::test_a_symlinked_launcher_is_refused`, the second planting a
+  `start.sh` symlinked to a readable file outside the project and asserting
+  that file's port is not detected.
   *Breaks when:* a `run.sh` whose last invocation is
-  `exec python3 ../../../.ssh/config`, or a symlink inside the project whose
-  target resolves outside it.
+  `exec python3 ../../../.ssh/config`, or a `start.sh` that is a symlink out of
+  the project — measured 2026-08-08 to pass both `S_ISREG` and `os.access`,
+  since each describes the *target*. `O_NOFOLLOW` (§ 4.3) is the only guard
+  that sees it, and until loop 2 this invariant had no rule behind that half.
 
 - **INV-2** — A candidate directory that is itself a symlink is skipped, with
   a reason, and nothing inside it is read.
@@ -613,14 +731,19 @@ is the property the derivation exists for.
   be walked normally under `followlinks=False`, which is why this is a
   candidate-level guard rather than a walk argument.
 
-- **INV-3** — No file contributes more than `MAX_SOURCE_FILE_BYTES`, and no
-  line more than `MAX_SOURCE_LINE_CHARS`; the remainder of an over-long line
-  is discarded rather than scanned.
-  *Test:* `tests/test_scanner.py::test_an_oversized_file_is_refused` and
+- **INV-3** — No file contributes more than `MAX_SOURCE_FILE_BYTES`, through
+  either reader; and no line reaches the port rules longer than
+  `MAX_SOURCE_LINE_CHARS`, the remainder being discarded rather than scanned.
+  *Test:* `tests/test_scanner.py::test_an_oversized_file_is_refused`,
+  parametrised over both readers, and
   `::test_an_over_long_line_is_clipped_and_its_tail_not_scanned`, the second
   planting `PORT=9999` past the cap and asserting it is not found.
   *Breaks when:* a 2 GB `start.sh`, or a single 100 MB line in one. (Not a
   `README.md` — this item never opens one; that is LWSM-1121's source.)
+  **The line half is scoped to the port rules on purpose**: `_read_bytes`
+  applies no line cap, because `package.json` has no lines to cap and a
+  minified one measured 6,252 characters on a single line. The byte cap is
+  what bounds it, and it is the half that bounds memory.
 
 - **INV-4** — A non-regular file at a launcher or hop path is refused on the
   descriptor, not opened for reading.
@@ -647,9 +770,13 @@ is the property the derivation exists for.
 
 - **INV-7** — A systemd unit is bound to a project only when its
   `FragmentPath` or `WorkingDirectory` resolves inside that project.
-  *Test:* `tests/test_scanner.py::test_a_name_match_alone_does_not_bind_a_unit`.
+  *Test:* `tests/test_scanner.py::test_a_name_match_alone_does_not_bind_a_unit`
+  and `::test_a_not_found_unit_is_not_confused_with_a_masked_one`, the second
+  giving the fake `LoadState=not-found` and `LoadState=masked` in turn, both
+  with an empty `FragmentPath`.
   *Breaks when:* an empty directory is created whose name matches a real unit
-  belonging to another project.
+  belonging to another project; or the implementation reads an empty
+  `FragmentPath` as "no such unit", which a masked unit also produces.
 
 - **INV-8** — A unit name failing ADR-0003's pattern never reaches an argv,
   and every `systemctl` argv this module builds carries `--` before the name.
@@ -658,12 +785,20 @@ is the property the derivation exists for.
   a `.mount` suffix.
   *Breaks when:* a unit named `--host=evil.example.service` is proposed.
 
-- **INV-9** — Port rule 2 matches a key that is `port` or ends with a
-  non-alphanumeric character followed by `port`, and no other.
+- **INV-9** — Both port rules require a non-alphanumeric, non-underscore
+  character before `port`: rule 2's key is `port` or ends with one, and rule
+  1's `PORT=` is anchored the same way. Neither matches any other key.
   *Test:* `tests/test_scanner.py::test_port_rule_2_keys`, parametrised over
-  § 4.6's ten lines.
+  § 4.6's ten lines, and `::test_port_rule_1_forms`, parametrised over § 4.6's
+  twelve — the six accepted forms plus `TRANSPORT=99`, `EXPORT=5`,
+  `APP_PORT=4321`, `SERVER_PORT = 3000` and `const viewport = 1280`, none of
+  which rule 1 may claim.
   *Breaks when:* `const viewport = 1280` is scanned — measured 2026-08-08 to
-  return 1280 under the rule as `design.md` words it.
+  return 1280 under the rule as `design.md` words it — or `TRANSPORT=99` is,
+  which an unanchored rule 1 returns 99 for. **Rule 1 is the one that matters
+  more**, because it runs first: an unanchored `PORT=` reintroduces in the
+  higher-priority rule exactly what fixing rule 2 removed, and until loop 2 the
+  spec gave rule 1 no pattern at all.
 
 - **INV-10** — Port rules resolve file-major: rules 1 then 2 in the launcher,
   then rules 1 then 2 in the one-hop file, then rule 3 across both.
@@ -699,9 +834,11 @@ is the property the derivation exists for.
 
 - **INV-13** — The Scanner writes nothing anywhere: no file created, modified,
   or removed under any scan root.
-  *Test:* `tests/test_scanner.py::test_a_scan_leaves_the_tree_byte_identical`,
-  comparing a recursive `(path, size, mtime_ns, mode)` snapshot of the fixture
-  tree before and after.
+  *Test:* `tests/test_scanner.py::test_a_scan_leaves_the_tree_untouched`,
+  comparing a recursive `(path, sha256, mtime_ns, mode)` snapshot of the
+  fixture tree before and after. The hash and not just the size, because a
+  same-length overwrite is exactly the mutation a size comparison cannot
+  see — the shape that produced this project's stale-`.pyc` incident.
   *Breaks when:* a future convenience writes a cache or a marker into a
   project — `coding.md § O3`'s standing prohibition.
 
@@ -723,9 +860,9 @@ is the property the derivation exists for.
 - **INV-15** — The rule-2 matcher is linear in line length at its own bound: an
   adversarial 4096-character line completes in well under a second.
   *Test:* `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack`,
-  calling `rule_2` **directly** on two synthetic `MAX_SOURCE_LINE_CHARS`
-  strings — 4090 `a`s followed by `port`, and 102 colon-separated fields — with
-  a 1-second ceiling.
+  calling `rule_2` **directly** on two synthetic strings at the line cap —
+  4092 `a`s followed by `port` (4096 characters), and 102 colon-separated
+  fields — with a 1-second ceiling.
   *Breaks when:* the two-step is replaced by a single pattern with a nested
   quantifier. Measured 2026-08-08: CPython 3.13.14 still backtracks
   catastrophically — `(a+)+$` against 24 `a`s took **1.10 s**, doubling per
@@ -783,6 +920,12 @@ is the property the derivation exists for.
 - **A scan root does not exist, or is not readable.** One reason in `skipped`,
   and the other roots are scanned. A missing root is ordinary — an unmounted
   drive — and must not blank the result.
+- **A scan root is itself a symlink.** Followed, and deliberately: the user
+  typed this path, so it is a choice rather than something planted in a
+  directory this app happened to walk into. § 4.2's refusal applies to
+  *candidates*, which arrive from the filesystem and not from the user. The
+  candidates found beneath it are still each resolved and checked, so a
+  symlinked root cannot smuggle a symlinked candidate past rejection 2.
 - **A project has a launcher and no readable port source.** `port is None`,
   confidence *unknown*. `design.md` requires Start to be refused until the user
   supplies one; refusing is LWSM-1007's and P05's, and this item's obligation
@@ -801,15 +944,23 @@ is the property the derivation exists for.
 
 ## 7. Tests
 
-New file `tests/test_scanner.py`, plus two additions to
-`tests/test_layering.py`. Every test is headless (`testing.md § T6`); the
+New file `tests/test_scanner.py`. `tests/test_layering.py` gains one new test
+and a widened `CORE_MODULES` list. Every test is headless (`testing.md § T6`); the
 module imports no Qt, so none of them needs `pytest-qt`.
 
 **The fixture tree is the deliverable, not scaffolding.** A session-scoped
 fixture builds a throwaway tree via **`tmp_path_factory.mktemp("scan_root")`**
 mirroring the seven known projects — each shape from `docs/discovery.md`'s
-inventory, including the two expected back as *unknown* — plus the
-framework-default project § 3 added.
+inventory — plus the framework-default project § 3 added.
+
+**The two expected back as *unknown* are `project-d` and `project-e`**, and
+naming them is what makes the corpus buildable. `project-e` puts its port two
+hops out (`run.sh` -> `launcher.py` -> `config.py`); `project-d`'s is a *saved
+setting* inside `settings_manager.py`, which no static rule reads. The other
+five are detected: `project-a` from its systemd unit, `project-b` and
+`project-c` from their Python launchers, `project-f` from `start.sh` itself,
+`project-g` from `run.sh`'s `${PORT:-8080}` — the form rule 1 needs its own
+alternative for.
 
 **`tmp_path_factory`, not `tmp_path`.** `tmp_path` is function-scoped, so a
 session-scoped fixture requesting it raises `ScopeMismatch` at collection —
@@ -840,7 +991,7 @@ binding does not reach.
 | INV-10 | `test_the_launcher_outranks_the_hop_file` |
 | INV-11 | `test_a_finding_reports_the_rule_that_matched`, `test_project_e_shape_comes_back_unknown` |
 | INV-12 | `test_a_detected_project_has_no_user_owned_field` |
-| INV-13 | `test_a_scan_leaves_the_tree_byte_identical` |
+| INV-13 | `test_a_scan_leaves_the_tree_untouched` |
 | INV-14 | `test_core_never_imports_qtwidgets`, `test_the_core_module_list_matches_the_criterion` |
 | INV-15 | `test_the_port_matcher_does_not_backtrack` |
 | INV-16 | `test_the_app_does_not_detect_itself` |
@@ -855,7 +1006,10 @@ corpus exists to catch.
 
 **Every test is seen failing before the code exists** (`testing.md § 1`), and
 the four that guard a *bound* rather than a behaviour are additionally
-mutation-checked per `testing.md § T9`: INV-3, INV-4, INV-15 and INV-18 each
+mutation-checked in `testing.md § T9`'s manner — **adopted voluntarily here,
+since T9 binds `Kind: fix`, `audit-fix` and `review-fix` and this item is
+`Kind: implement`**; a bound that ships unreached is the same defect whichever
+kind introduced it. INV-3, INV-4, INV-15 and INV-18 each
 have their guard line removed in place and the named test re-run alone
 (`PYTHONDONTWRITEBYTECODE=1 uv run pytest -k <name>`), with the result in the
 commit body. Those four are singled out because each can pass for a reason
@@ -898,8 +1052,10 @@ orders of magnitude rather than by a hair — which is what keeps it off
   guess where `--output=json` is a fact. JSON is also the current idiom for
   systemd 261 (`coding.md § 1.5`).
 - **Trust `systemctl show`'s exit code to mean the unit exists.** Rejected on
-  the measurement: it exits 0 for a unit that does not exist and prints a
-  synthesised record. An empty `FragmentPath` is the signal.
+  the measurement: it exits 0 for a unit that does not exist, for a unit whose
+  *name* it rejects, and prints a synthesised record either way.
+  **`LoadState=not-found` is the signal** (§ 4.4 step 2) — not the exit code,
+  and not an empty `FragmentPath`, which a *masked* unit also has.
 - **Treat `design.md`'s "ends in `port`" literally.** Rejected on the
   measurement in § 4.6: it accepts `viewport`, `transport`, `report` and
   `export`, and `const viewport = 1280` is ordinary in the exact kind of
@@ -934,7 +1090,8 @@ orders of magnitude rather than by a hair — which is what keeps it off
 ## 10. Resource cost
 
 No new dependency: `os`, `re`, `json`, `stat`, `enum`, `dataclasses`,
-`pathlib`, `subprocess`, `time`. No new build target.
+`pathlib`, `subprocess`, `time`, `typing` (`Protocol`) and `collections.abc`
+(`Sequence`, `Callable`). No new build target.
 
 Bounded by construction, and every bound is named: at most
 `MAX_SOURCE_FILE_BYTES` (256 KB) resident per file, one file at a time; at
@@ -970,7 +1127,7 @@ file-or-unit name, having lost the matched line for the reason in § 4.1.
 | INV-10 | `tests/test_scanner.py::test_the_launcher_outranks_the_hop_file` |
 | INV-11 | `tests/test_scanner.py::test_a_finding_reports_the_rule_that_matched`, `::test_project_e_shape_comes_back_unknown` |
 | INV-12 | `tests/test_scanner.py::test_a_detected_project_has_no_user_owned_field` |
-| INV-13 | `tests/test_scanner.py::test_a_scan_leaves_the_tree_byte_identical` |
+| INV-13 | `tests/test_scanner.py::test_a_scan_leaves_the_tree_untouched` |
 | INV-14 | `tests/test_layering.py::test_core_never_imports_qtwidgets`, `::test_the_core_module_list_matches_the_criterion` |
 | INV-15 | `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack` |
 | INV-16 | `tests/test_scanner.py::test_the_app_does_not_detect_itself` |
@@ -997,8 +1154,8 @@ under-specified or wrong in six separate places, and item 7 is the same for
 this document only. They land as one `Kind: doc-fix` commit alongside the
 implementation and are gated then, which is also when the code proves each
 correction was the right one. Until they land, `design.md` and this spec
-disagree in seven places, all seven listed here on purpose rather than
-silently reconciled (`.claude/workflow.md § 2`).
+disagree in items 1-6, and `coding.md` in item 7 — every one listed here on
+purpose rather than silently reconciled (`.claude/workflow.md § 2`).
 
 1. **`docs/design.md § Detection rules`, port rule 2** — "ends in `port` or
    `PORT`" becomes the non-alphanumeric-boundary form, with the four
@@ -1040,4 +1197,5 @@ silently reconciled (`.claude/workflow.md § 2`).
 
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
+| 2 | 2026-08-08 | 2 (general-purpose, strong model) | 2 | 4 | 7 | 11 | **24 verified, 0 unverified, 24 fixed**, plus 7 collateral the 4b sweep caught. Dimensions: dim 5×6, dim 4×4, dim 2×4, dim 7×3, dim 10×3, dim 15×2, dim 12×1, dim 6×1. **Origin split: 12 draft defects, 12 fix collateral** — no decisive margin either way, so the loop dispatched rather than sweeping. Both lanes led with the same contradiction, and it was collateral: loop 1 changed § 4.4's missing-unit signal to `LoadState=not-found` and left § 8 asserting the empty `FragmentPath` it had just retired. **The loop's most valuable finding was a draft defect neither loop-1 lane reached, and it is a security gap** — INV-1 has promised since the first draft that a symlink resolving out of the project is refused, and no rule implemented that half for the *launcher itself*: `commonpath` guarded only the one-hop target. Measured 2026-08-08, a `start.sh` symlinked outside the project passes `S_ISREG` **and** `os.access(X_OK)` — both describe the target — and its contents are read. `O_NOFOLLOW` is the only guard that sees it, which is precisely the LWSM-1050 containment promise this item is chartered to land. Second: **rule 1 had no pattern at all**, only prose, while running *ahead* of the rule § 4.6 had carefully bounded — measured, an unanchored `PORT=` returns 99 for `TRANSPORT=99` and 4321 for `APP_PORT=4321`, the latter being INV-17's own fixture. It also missed `PORT=${PORT:-N}` entirely, the form `project-g` uses. Third, from executing the new reader: **a minified `package.json` is 6,252 characters on one line**, so the 4096 line cap turned an ordinary artefact into `JSONDecodeError` and silently dropped a legitimate Node project; § 4.3 now has two readers. Doc 1042 → 1201 lines. |
 | 1 | 2026-08-08 | 2 (general-purpose, strong model) | 3 | 7 | 7 | 8 | **25 verified, 0 unverified, 25 fixed.** Dimensions: dim 5×10, dim 4×4, dim 7×3, dim 15×3, dim 10×2, dim 6×2, dim 2×1. **Both lanes independently led with the same two defects**, which is the strongest corroboration this gate produces. (1) **A `systemd` project had no port-detection path at all** — § 4.5 restricted the one hop to `SHELL`, rule 0 read the unit only to *bind* it, and § 4.6 named no source, so `project-a` came back *unknown* and the acceptance test could not pass; both roadmap bullets say this item carries the unit's `Environment=` / `ExecStart`. Now § 4.4 step 3. (2) **INV-14 prescribed a test that fails on landing**: it derived `CORE_MODULES` from `coding.md § O1`'s criterion, which is a two-way split covering `__main__.py` — and `__main__.py` imports `QtWidgets` by design, so the derivation would also redden the sibling test. The criterion itself is now amended (§ 12 item 7). Lane B alone found the third: **INV-10's discriminating fixture was rejected by this spec's own rule 2** — `PORT_BASE` ends in `BASE`, so both orderings returned 8080 and the test guarding the file-major decision was green by construction. Also fixed: the reason list had `registry.py`'s per-reason clip and not its `MAX_REASONS` count cap (§ 1.6's exact failure shape, one pass after the spec cited that very site); `PortFinding.line` carried a hostile file's bytes to the log and status bar unescaped, and the field was **deleted** rather than defended; INV-15 asserted a 40,000-character line that INV-3 makes unreachable. **A 26th defect came from Phase 4a's execute-before-it-lands rule, not from a lane:** the prescribed `systemctl --user show -- <unit> -p FragmentPath` puts its options *after* the `--`, so `systemctl` reads them as unit names and dumps all **832** property lines. Three invariants added (INV-16 self-exclusion, INV-17 the systemd port, INV-18 the reason cap). Doc 716 → 1042 lines. |
