@@ -6,7 +6,7 @@
 |-------|-------|
 | **Project phase** | **P03 OPEN** (started 2026-08-08) — LWSM-1006 Scanner is the active item and its spec is through the gate; LWSM-1007, LWSM-1039, LWSM-1008 and LWSM-1121 follow. **P02 CLOSED 2026-08-07** — vertical slice LWSM-1005 plus five fix-passes (FP02–FP05, 37 fix items). P01 stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03. **Next is P03** (LWSM-1006 Scanner, LWSM-1007 registry persistence, LWSM-1039 backup, LWSM-1008 first-run flow) |
 | **Active item ID** | **`LWSM-1006`** — Scanner implements the detection rules. Contract: [`docs/specs/LWSM-1006-scanner-detection.md`](../docs/specs/LWSM-1006-scanner-detection.md), with [`LWSM-1006-conformance.py`](../docs/specs/LWSM-1006-conformance.py) beside it executing every pattern the spec prescribes. Scope was **narrowed the same day**: the `.env` / `docker-compose.yml` / `README.md` port sources and conflict reporting moved to **LWSM-1121**, and the item also carries **LWSM-1050**'s hardening. `FP05` remains complete (LWSM-1112…1120); its MEDIUM/LOW tail stays routed in `docs/known-issues.md` |
-| **Active step** | **1 — verify spec.** Six `/cold-eyes` loops, one conformance pass and one mechanical sweep; 129 findings verified, 129 fixed, 0 deferred. Loop 7 is the last review pass; implementation (steps 3–4) follows regardless of its outcome unless it returns a CRITICAL |
+| **Active step** | **3 — write failing tests** (steps 1–2 ✅). The spec is **accepted**: 7 `/cold-eyes` loops, 1 conformance pass, 1 mechanical sweep, ~120 findings verified, all fixed, 0 deferred, 0 CRITICAL in loop 7. **No further review loops** — the decision and its evidence are in the roadmap bullet's 2026-08-08 note. Next concrete action: write `tests/test_scanner.py` red-first against the spec's 20 invariants, then `src/lwsm/scanner.py` |
 | **Last update** | 2026-08-08 (**P03 started; LWSM-1006's spec is through the gate and implementation is next.** The session's real finding is about the *gate*, not the spec: under the fifteen-dimension brief, loops 1–3 produced 75 findings of which roughly 34 would have changed what gets built — the count held flat at ~25 a loop and never converged, because six of the dimensions can never come back clean and fixing their findings is what introduced the next loop's real defects. **The brief was rewritten to four questions** — is a claim false, do two passages give different behaviour, is a required behaviour unspecified, is a test clause unfalsifiable — with everything else explicitly out of scope. Loops 4–6 then produced 28 findings, **100% build-changing, zero wording**, on a brief 7× smaller (24 KB → 3.4 KB). Global rule 14 has been rewritten around it. Two other instruments now carry work reviewers were doing badly: `LWSM-1006-conformance.py` executes every pattern the spec prescribes and has caught **five** defects including three of my own fixes on the run after I made them; and a **mechanical sweep** of `registry.py`'s twelve defensive mechanisms against the spec found the one gap reviewers had missed — a NUL byte in a hop token raises `ValueError`, not `OSError`, and escapes the scan) |
 | **Superseded (P02 close)** | 2026-08-07 (**FP05 complete and P02 closed.** All nine items shipped, every fix mutation-verified, 185 tests up from 159, full gate green. Four of the nine bullets were corrected by measurement — LWSM-1117's wait is unbounded rather than ~3.3 s, LWSM-1116 had an unreported second half, and LWSM-1115's own fix introduced the defect known-issue-005 describes. The rule-14 gate ran as one batched `/cold-eyes` over `coding.md` + `testing.md`: **converged in 2 loops**, 12 then 15 verified findings, all fixed. Loop 2's split was 11 fix collateral vs 4 draft defects, so it converged by sweep rather than a third dispatch. Two user corrections folded in: prose counts of growing sets are now banned and tested (`tests/test_docs.py`), and the `.audit_cache` history exposure is assessed and accepted as known-issue-016) |
 | **Superseded** | 2026-08-07 (**FP04's 14 bullets are all closed and green at 150 tests**, up from 125, in ten commits — one per bullet-group, each with its red test first. The 21 held commits plus these are **pushed**; GitHub Actions is healthy again and CI passed on `3ce8b18`. **The pass's own worst moment is the one to remember:** LWSM-1100's first shape put `os._exit` inside `main()`, and since tests call `main()` in-process and an earlier test abandons a probe, the pytest run ended at **40 % of the suite with exit code 0** and a report that read as green. The gate caught it, not review. That is the third time this project has been bitten by a green run that was not one) |
@@ -24,9 +24,9 @@ While an item is active, Claude marks the current step 🚧;
 completed steps flip to ✅. Resets to all ⬜ when a new item
 becomes active.
 
-1. 🚧 Verify spec (research first if non-trivial)
+1. ✅ Verify spec (research first if non-trivial)
 2. ✅ Verify dependencies on the roadmap DAG
-3. ⬜ Write failing tests
+3. 🚧 Write failing tests
 4. ⬜ Implement until tests pass
 5. ⬜ Run `/audit` (read `docs/audit-allowlist.md` first)
 6. ⬜ Run `/code-quality-review` (same allowlist read)
@@ -49,6 +49,7 @@ Sub-findings:
   - ✅ Spec drafted, gate run to convergence on the four-question brief
   - ✅ Conformance script executes every prescribed pattern — green
   - ✅ registry.py's twelve guards swept against the spec — one gap, closed
+  - ✅ Spec Status flipped to accepted; roadmap bullet flipped to 🚧
   - 📋 Implement src/lwsm/scanner.py test-first
   - 📋 Widen tests/test_layering.py CORE_MODULES (+ scanner.py, + applog.py)
   - 📋 Land the eight doc amendments in § 12 (design.md ×7, coding.md § O1)
@@ -94,6 +95,62 @@ journal); §2 is the only part that changes.
 ## §3. Session journal
 
 Append-only. Newest at the top.
+
+### 2026-08-08 — LWSM-1006's spec, and the review that would not converge
+
+**The spec is accepted and implementation has started. The durable finding is
+about the gate, not the scanner.**
+
+`/cold-eyes` ran seven loops. Loops 1–3 used the fifteen-dimension brief and
+produced 75 findings — roughly 34 build-changing, 41 wording. The count held
+**flat at ~25 a loop and never converged**, and the reason is structural: six of
+those dimensions (clarity, structure, dedup, examples, token efficiency,
+audience fit) can never come back clean, every finding became an edit, and the
+edits broke things that were true. All three of loop 3's CRITICALs were defects
+that loops 1 and 2's own fixes had introduced.
+
+**The brief was rewritten to four questions** — is a claim false; do two
+passages give different behaviour for the same input; is a required behaviour
+unspecified; is a test clause unfalsifiable — with wording, structure,
+duplication and examples named explicitly out of scope. Loops 4–7 produced 40
+findings, **100 % build-changing, zero wording**, on a brief that went 24 KB →
+3.4 KB. The user's global rule 14 was rewritten around it the same day.
+
+**Two instruments took over work the reviewers were doing badly.**
+
+- `docs/specs/LWSM-1006-conformance.py` executes every regex, bound and
+  predicate the spec prescribes against inputs chosen to break them. It has
+  caught **7** defects, three of them my own fixes on the run right after I made
+  them — including a rule that fabricated port 23456 out of `PORT = 123456`, a
+  stripper that read `# PORT=9999 (old)` as live, and a fix for that stripper
+  which then ate `http://localhost:3000`. None needed a model.
+- A **mechanical sweep** of `registry.py`'s twelve defensive mechanisms against
+  the spec — one command — found the one gap seven reviewer lanes had missed: a
+  NUL byte in a hop token raises `ValueError`, not `OSError`, and escapes the
+  scan. `registry.py`'s own comment names P03 as the consumer.
+
+**The method matters more than the loop count.** Loop 7's two lanes were given
+different methods; the one told to *write the module on paper from the document
+alone* found four gaps the adversarial lane did not, because "I cannot write
+this line without choosing" is a sharper test than "is this wrong". That is the
+argument for stopping review and implementing, and it is why loop 7 is the last.
+
+**Three findings would each have let one hostile project directory crash the
+whole scan** — `{"dependencies": 5}` raising `TypeError`, a non-total
+`properties()` raising `KeyError`, and a NUL token raising `ValueError`, none of
+them an `OSError`. And the containment check defeated itself:
+`Path("").resolve()` **is the current working directory**, so an absent
+`WorkingDirectory` "resolves inside" wherever the manager was launched from.
+Measuring that found 13 of the 14 real user units on this machine print
+`!/home/ants` — systemd's `-`/`!` prefixes were being resolved literally.
+
+**Scope decisions taken with the user and not to be reopened:** the three-level
+recursive walk is **not built** (every launcher rule is root-level and the one
+deeper file is named by the launcher, so it would feed no reader); the `.env` /
+`docker-compose.yml` / `README.md` port sources and conflict reporting moved to
+**LWSM-1121**; port rule 3's framework default **is** built, with a fixture that
+exercises it. Size was explicitly ruled out as a concern — the user's words:
+*"I don't care if the spec is 10000 lines as long as it is accurate."*
 
 ### 2026-08-07 — FP05: all nine closed, P02 closes, and four bullets were wrong
 

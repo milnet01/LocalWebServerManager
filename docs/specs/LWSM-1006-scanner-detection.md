@@ -1,6 +1,6 @@
 # LWSM-1006 — Detect projects, their launchers and their declared ports
 
-**Status:** spec draft (2026-08-08).
+**Status:** accepted (2026-08-08).
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1006 (in-session-2026-08-03), narrowed by the user
 on 2026-08-08 under the size gate (`docs/standards/spec-format.md § 5.4`).
