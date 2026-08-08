@@ -529,7 +529,22 @@ requires both and `design.md § Detection rules` states only the first:
    - **`LoadState=not-found` is the missing-unit signal, not an empty
      `FragmentPath` and not the exit code.** A unit that does not exist exits
      **0** and prints a synthesised record with `FragmentPath=` empty; so does
-     a unit that exists but is masked, and the two need telling apart.
+     a unit that exists but is masked.
+
+     **The two produce the same launcher outcome and different reasons, and
+     the reason is the whole difference.** Neither binds — no `FragmentPath`
+     means nothing to contain-check — so rule 0 does not match either way and
+     the candidate falls through to launcher rule 1. But `masked` records a
+     reason in `skipped` (`<name>: unit <unit> is masked`) and `not-found`
+     records **none**, because a project simply having no unit is the ordinary
+     case and would otherwise put a line in `skipped` for every candidate on
+     the machine. A masked unit is a user who *disabled* something this app
+     was about to drive, which is worth one line.
+
+     Without that asymmetry the distinction is unobservable and INV-7's
+     `::test_a_not_found_unit_is_not_confused_with_a_masked_one` has nothing to
+     assert — it would pass against an implementation that treats them
+     identically, which is the behaviour that invariant exists to reject.
    - **A name `systemctl` rejects also exits 0**, printing
      `Invalid unit name "--host=evil.example.service" …` on stderr and an empty
      record on stdout. So the validation below is the guard, not a
@@ -600,10 +615,36 @@ and is recorded once, not once per candidate.
 Only for `kind == SHELL`, because that is the only launcher that runs another
 file whose name it names — rules 2, 3 and 4 name the file they run, and rule
 0's equivalent hop is § 4.4 step 3, which reaches the unit's properties through
-`systemctl` rather than by opening anything. The script is scanned for the
-**last** `exec`,
-`python3`, `python` or `node` invocation naming a path, and exactly one hop is
-followed — `project-e` puts its port two hops out (`run.sh` → `launcher.py` →
+`systemctl` rather than by opening anything.
+
+**Finding the target is a tokenise-and-select rule, not a search for "a
+path".** It was prose until loop 5 — the only matching mechanism in § 4 that
+was — and prose is what left three implementers free to pick three different
+tokens:
+
+1. **Strip comments first** (§ 4.6's `strip_comment`, same two markers). The
+   scan is over stripped lines, so a commented-out invocation cannot win. This
+   matters because the rule takes the **last** invocation: measured
+   2026-08-08, a script ending
+   `exec python3 new.py` / `# exec python3 old.py (kept for reference)`
+   resolves to **`old.py`** unstripped and `new.py` stripped.
+2. Take the **last** line still containing `exec`, `python3`, `python` or
+   `node` as a whole word.
+3. Split it on whitespace, **drop every token beginning with `-`**, and strip
+   surrounding quotes.
+4. Take the **last** remaining token that satisfies § 4.5's six constraints.
+
+Steps 3 and 4 are what the prose left open, and each of these lines resolves
+differently under "the token after the keyword": `exec python3 -u launcher.py`
+gives `python3`, `exec env PORT=1 python3 launcher.py` gives `env`, and
+`python3 -m http.server 8080` gives `-m`. Under the rule above the first two
+give `launcher.py` and the third gives **no hop at all**, which is correct —
+`http.server` runs no file in the project. `exec "$DIR/launcher.py"` also gives
+no hop: an unexpanded shell variable cannot resolve, so it fails constraint 1
+rather than being guessed at. This module does not expand shell variables and
+must not start.
+
+Exactly one hop is followed — `project-e` puts its port two hops out (`run.sh` → `launcher.py` →
 `config.py`) and is expected back as *port unknown*, which is an honest limit
 rather than a bug.
 
@@ -845,11 +886,19 @@ anything in **any** of the sources the § 4.4 table gives this launcher kind.
 The framework is identified from evidence the scan has already read, never from
 a new file:
 
-| Framework | Identified by | Default |
-|---|---|---|
-| Vite | `vite` in `package.json`'s `dependencies` / `devDependencies`, or in the chosen `scripts` value | 5173 |
-| Django | a root-level `manage.py`, or `import django` in the launcher's Python file | 8000 |
-| Flask | `import flask` / `from flask import` in the launcher's Python file | 5000 |
+**The table order is the precedence**, and it is stated because a project can
+satisfy two rows: a `PYTHON` candidate with a root-level `manage.py` *and* an
+`import flask` in its launcher matches Django and Flask both, and nothing else
+in the spec breaks the tie. First row wins; `PortFinding.source` names the
+framework that won, so a wrong guess is diagnosable rather than mysterious.
+(`design.md` lists the three in a different order — Vite, Flask, Django — which
+is why table order could not be left implicit; § 12 item 6a carries it.)
+
+| # | Framework | Identified by | Default |
+|---|---|---|---|
+| 1 | Vite | `vite` in `package.json`'s `dependencies` / `devDependencies`, or in the chosen `scripts` value | 5173 |
+| 2 | Django | a root-level `manage.py`, or `import django` in the launcher's Python file | 8000 |
+| 3 | Flask | `import flask` / `from flask import` in the launcher's Python file | 5000 |
 
 **Which kinds can reach which evidence**, because the table above does not say
 and "the launcher's Python file" means different things per kind:
@@ -888,8 +937,11 @@ then 2 within the second, then rule 3 across both. The launcher is the file
 that actually runs, and rule 3's own wording ("only when neither port rule 1
 nor port rule 2 found anything") already scopes across both sources, which only
 file-major makes coherent. "Both sources" means whatever the § 4.4 table gives
-that launcher kind, in its listed order — two for rules 0, 1 and 2, one for
-rules 3 and 4. § 12 carries the amendment.
+that launcher kind, in its listed order — **two for launcher rules 0 and 1,
+one for launcher rules 2, 3 and 4**. Rule 2's single source is the chosen
+`scripts` value; an implementer who went looking for a second one would find
+only the rest of `package.json`, which § 4.4 measures as fabricating 7 from
+`"get-port": "^7.0.0"`. § 12 carries the amendment.
 
 **The example has to be a line rule 2 accepts, and the first one written was
 not.** An earlier draft used `PORT_BASE = 3000`, whose key ends in `BASE`;
@@ -994,7 +1046,9 @@ is the property the derivation exists for.
   *Test:* `tests/test_scanner.py::test_a_name_match_alone_does_not_bind_a_unit`
   and `::test_a_not_found_unit_is_not_confused_with_a_masked_one`, the second
   giving the fake `LoadState=not-found` and `LoadState=masked` in turn, both
-  with an empty `FragmentPath`.
+  with an empty `FragmentPath`, and asserting that **only the masked one puts a
+  reason in `skipped`** — the single observable that differs, without which the
+  test passes against an implementation that never distinguishes them.
   *Breaks when:* an empty directory is created whose name matches a real unit
   belonging to another project; or the implementation reads an empty
   `FragmentPath` as "no such unit", which a masked unit also produces.
@@ -1009,8 +1063,10 @@ is the property the derivation exists for.
 - **INV-19** — Neither port rule reads a commented-out line, and neither
   returns a port from a negative number.
   *Test:* `tests/test_scanner.py::test_a_commented_out_port_is_not_detected`,
-  parametrised over `#`, `//` and `;` at line start, a trailing `# was 9090`
-  that must **not** suppress the live value on the same line,
+  parametrised over `#` and `//` at line start, a trailing `# was 9090`
+  that must **not** suppress the live value on the same line, `; PORT=9999`
+  which **does** yield 9999 because § 4.6 deliberately carries two markers and
+  not three,
   `http://localhost:3000` whose `//` is **not** a comment, and
   `NAME = "a # b"`, which yields **no port** — the stripper does truncate it at
   the quoted `#` and that is harmless, since the key left of the separator is
@@ -1057,8 +1113,11 @@ is the property the derivation exists for.
   actually produced it, and a project with no readable port has `port is None`
   and `confidence is Confidence.UNKNOWN` rather than a substitute.
   *Test:* `tests/test_scanner.py::test_a_finding_reports_the_rule_that_matched`,
-  parametrised over one fixture per rule and asserting the exact
-  `(rule, source)` pair, and
+  parametrised over one fixture per rule **and one whose port lives in the
+  one-hop target rather than the launcher** — the only case that proves
+  `source` names the file actually read, and the only coverage § 4.5's
+  tokenise-and-select rule gets outside the conformance corpus — each asserting
+  the exact `(rule, source)` pair, and
   `::test_project_e_shape_comes_back_unknown`.
   *Breaks when:* a port read from the one-hop file is labelled as coming from
   the launcher, or the framework default is applied to a project whose
@@ -1175,9 +1234,15 @@ is the property the derivation exists for.
 - **`systemctl` is absent.** Rule 0 is disabled for the whole scan, recorded
   once in `skipped`, and every other rule proceeds. A machine without systemd
   scans normally.
-- **`systemctl` hangs.** The subprocess carries a timeout drawn from the same
-  deadline as the file reads, and a timeout disables rule 0 exactly as absence
-  does. Without this the 20-second budget is a promise the scan cannot keep.
+- **`systemctl` hangs.** Each call is bounded by
+  `min(SYSTEMCTL_TIMEOUT_SECONDS, deadline.remaining())` with
+  `SYSTEMCTL_TIMEOUT_SECONDS = 2.0` — **its own budget, not the scan's** — and
+  a timeout disables rule 0 exactly as absence does, leaving the scan to
+  continue. Drawing the timeout from the scan deadline alone would make a
+  single hung `systemctl` consume the whole 20 seconds and set `timed_out`,
+  which contradicts this clause: a scan cannot both carry on normally and be
+  out of time. `timed_out` therefore means *the scan deadline expired*, never
+  *a subprocess was slow*.
 - **A scan root does not exist, or is not readable.** One reason in `skipped`,
   and the other roots are scanned. A missing root is ordinary — an unmounted
   drive — and must not blank the result.
@@ -1490,6 +1555,7 @@ purpose rather than silently reconciled (`.claude/workflow.md § 2`).
 
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
+| 5 | 2026-08-08 | 2 (general-purpose, strong model) | Q2 ×3 · Q3 ×3 | **6 verified, 0 unverified, 6 fixed** (9 raw across the lanes; 4 were the same defect found twice). **Again zero wording, structure or duplication findings from either lane.** Count halved against loop 4 (14 → 6) with the signal still at 100%, which is what convergence looks like when the instrument is only asking about the build — loops 1–3 held flat at ~25 findings a loop because six of their fifteen dimensions could never come back clean. **The pass's best find is the one mechanism § 4 still stated as prose:** the one-hop target was "the **last** `exec`, `python3`, `python` or `node` invocation naming a path", which never said *which token* is the path — measured 2026-08-08, `exec python3 -u launcher.py` gives `python3` under "the token after the keyword", `exec env PORT=1 python3 launcher.py` gives `env`, and `python3 -m http.server 8080` gives `-m`. It is now a four-step tokenise-and-select rule, and it also gained the comment stripper, without which a `# exec python3 old.py` *below* the live invocation is "the last" one and the Scanner hops to the retired launcher. Also: the two markers `;` was dropped from in loop 4 were still parametrised in INV-19, so its test would have gone red against the stripper the same document specifies; rule 3 had three frameworks and no precedence, so `manage.py` beside `import flask` was 8000 or 5000 depending on the implementer; a hung `systemctl` drew its timeout from the *scan* budget, so one hang consumed all 20 s and returned zero projects against § 6's promise that a systemd-less machine "scans normally" — it now has its own 2 s bound; INV-7's masked-vs-not-found test had **no differing observable** to assert, so it passed against exactly the implementation it forbids, and masked now records a reason where not-found records none. One collateral: loop 4 narrowed rule 2 to a single source in § 4.4 and left § 4.6 restating three rules as two-source. Doc 1497 → 1563 lines. |
 | 4 | 2026-08-08 | 2 (general-purpose, strong model) — **first loop under the four-question brief** | Q1 ×2 · Q2 ×5 · Q3 ×5 · Q4 ×2 | **14 verified, 0 unverified, 14 fixed**, plus 1 collateral. **Every finding from both lanes changed what gets built; neither returned a single wording, structure or duplication finding.** That is the brief, not luck: it asks four questions and names the rest out of scope. Against loop 3's ~11 build-changing out of 26, the signal went from 42% to 100% and the brief itself from 24 KB to 3.4 KB. The worst three, none reachable by the fifteen-dimension passes that preceded them: **(1)** `package.json`'s dependency block was being fed to the port rules, and `"get-port": "^7.0.0"` — a real, common npm package — yields port **7** through `KEY_IS_PORT`'s hyphen; `"detect-port"` yields **1**. Scope narrowed to the chosen `scripts` value alone. **(2)** `systemctl show -p Environment` prints `Environment=STATS_PORT=4321 …`, and splitting *with* that prefix leaves a first token on which rule 2's key is `Environment` and rule 1's `PORT=` is preceded by `_` — neither matches, so `project-a` comes back *unknown*, the precise failure INV-17 exists to prevent. The `NAME=` prefix removal is now stated. **(3)** The `;` I had added to the comment-marker set is a **statement separator**, not a comment marker, in every language this module reads: `cd /app ; exec node serve.mjs --port 8080` lost its port, so did an npm `"dev"` script and a shell assignment. Dropped. Also: the ordering *inside* one source was left open where the ordering *between* sources had been settled (line-major, 3000 vs 8080 on the same file); `path` was "absolute" where four other clauses need it *resolved*, which under a symlinked scan root gives one project two registry identities; `systemctl` failing with no D-Bus session raises `JSONDecodeError`/`CalledProcessError`, neither an `OSError`, so `scan()` raised instead of degrading; INV-16's fixture had no launcher, so rejection 5 already excluded it and the self-exclusion guard shipped unreached; and a refused launcher dropped the whole candidate, letting anyone who can plant a symlink named `start.sh` delete a project from the manager. The one collateral: dropping `;` retired the measurement that justified the `ExecStart` stripper exemption — the exemption is kept on its scope argument and the stale reason replaced, caught by the conformance script on the next run. Doc 1265 → 1497 lines. |
 | 3-conf | 2026-08-08 | **none — no reviewer dispatched.** An execution pass, not a review loop | 1 | 1 | 1 | 1 | **4 verified, 4 fixed.** `docs/specs/LWSM-1006-conformance.py` transcribes every pattern, bound and predicate § 4 prescribes and runs them against inputs chosen to break them. Written after loop 3 on the observation that all three of that loop's CRITICALs were false claims about *patterns* — a class no reader catches and no reviewer is needed for. It found, in one run: **(CRIT)** `re.search(r"\d{1,5}(?![0-9])", " 123456")` returns **23456** — a lookahead alone does not reject a longer number in a *search*, because the engine advances past the unmatchable first digit and matches the tail; rule 1 was immune only because `PORT=` anchors its digits, so the fix applied one loop earlier had been applied to the call site rather than to the mechanism (`coding.md § 1.6` exactly). **(HIGH)** `# PORT=9999 (old)` was detected as port 9999 — no rule anywhere mentioned comments, and a commented-out previous port is the commonest shape in a real launcher. **(MED)** the quote-aware stripper written to fix that cut `http://localhost:3000` at the `//`, killing a documented rule-1 form, at 766 µs/call against the replacement's 64 µs. **(LOW)** `PORT = -1` yielded **1**. Also corrected: § 4.4's stated reason for splitting `Environment=` was wrong — the real failure is that `partition` examines only the first `KEY=`, so a port that is not the first variable is invisible. The run is recorded here rather than as a loop because **no reviewer was dispatched**; it is a deterministic check, and it converges where a judgement review does not. |
 | 3 | 2026-08-08 | 2 (general-purpose, strong model) | 3 | 4 | 6 | 13 | **26 verified, 0 unverified, 26 fixed**, plus 2 collateral the 4b sweep caught. Dimensions: dim 5×8, dim 4×6, dim 7×3, dim 10×2, dim 6×2, dim 1×2, dim 2×1, dim 15×1, dim 11×1. **Origin split: 6 draft defects against ~20 fix collateral** — the decisive margin the loop-economics rule names, and the reason this run stops here rather than dispatching a fourth. **All three CRITICALs were defects the previous two loops' own fixes introduced**, which is the shape that margin describes. (1) Loop 2's `\d{1,5}` does not *reject* a longer number, it takes the first five digits of one: measured, `PORT=123456` → **12345**, `--port 999999999` → **99999**, each passing the range check and fabricating a port out of a line that declares none — the one outcome § 4.1 forbids. `(?![0-9])` closes it. (2) Loop 2's INV-9 said both rules exclude the underscore; rule 2's shipped class **admits** it, and must, since that is the only reason `DEFAULT_PORT` and `server_port` match at all — an implementer building from that invariant loses two of the seven detections § 7 requires. (3) Loop 1's INV-15 fixture, `"a" * 4092 + "port"`, contains no separator, so `rule_2` returns before `KEY_IS_PORT` ever runs: instrumented at **0 regex calls**, green by construction, and green under its own prescribed mutation. The corrected fixture costs **74.41 µs** against the 0.24 µs the old one "measured" — so loop 1's figure was timing an early return. Two draft defects worth naming: an unreadable launcher's effect on its *candidate* was never stated (both a listed project with no port and a skip passed INV-1 and INV-4), and `skipped` reasons plus `PortFinding.source` were length-bounded but never **escaped**, while § 4.3's own § 1.6 sweep asserted both halves were present — a filename may contain a newline, which is LWSM-1078 exactly. The duplicated 18-row invariant→test table in § 7 was deleted in favour of § 11's. Doc 1195 → 1265 lines. |
