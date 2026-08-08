@@ -403,9 +403,8 @@ recorded — running it would fail at spawn time with a message about a file the
 user never chose.
 
 **Rule 2 parses `package.json` through § 4.3's `_read_bytes`**, not
-`_read_lines` — a minified one is a single 6,252-character line in the measured
-case, and the line cap would make it unparseable. A malformed or oversized one
-is not a match, with a reason. `scripts` must be an object and the chosen value
+`_read_lines`, for the reason § 4.3 measures. A malformed or oversized one is
+not a match, with a reason. `scripts` must be an object and the chosen value
 a non-empty string.
 
 **Rule 0 — the systemd path.** Detection is two steps, because ADR-0003
@@ -720,9 +719,8 @@ is the property the derivation exists for.
   that file's port is not detected.
   *Breaks when:* a `run.sh` whose last invocation is
   `exec python3 ../../../.ssh/config`, or a `start.sh` that is a symlink out of
-  the project — measured 2026-08-08 to pass both `S_ISREG` and `os.access`,
-  since each describes the *target*. `O_NOFOLLOW` (§ 4.3) is the only guard
-  that sees it, and until loop 2 this invariant had no rule behind that half.
+  the project — the case § 4.3's `O_NOFOLLOW` bullet measures, and the one this
+  invariant promised for two drafts with no rule behind it.
 
 - **INV-2** — A candidate directory that is itself a symlink is skipped, with
   a reason, and nothing inside it is read.
@@ -740,10 +738,9 @@ is the property the derivation exists for.
   planting `PORT=9999` past the cap and asserting it is not found.
   *Breaks when:* a 2 GB `start.sh`, or a single 100 MB line in one. (Not a
   `README.md` — this item never opens one; that is LWSM-1121's source.)
-  **The line half is scoped to the port rules on purpose**: `_read_bytes`
-  applies no line cap, because `package.json` has no lines to cap and a
-  minified one measured 6,252 characters on a single line. The byte cap is
-  what bounds it, and it is the half that bounds memory.
+  **The line half is scoped to the port rules on purpose** — `_read_bytes`
+  applies no line cap, for the reason § 4.3 gives; the byte cap is what bounds
+  it, and it is the half that bounds memory.
 
 - **INV-4** — A non-regular file at a launcher or hop path is refused on the
   descriptor, not opened for reading.
@@ -789,10 +786,8 @@ is the property the derivation exists for.
   character before `port`: rule 2's key is `port` or ends with one, and rule
   1's `PORT=` is anchored the same way. Neither matches any other key.
   *Test:* `tests/test_scanner.py::test_port_rule_2_keys`, parametrised over
-  § 4.6's ten lines, and `::test_port_rule_1_forms`, parametrised over § 4.6's
-  twelve — the six accepted forms plus `TRANSPORT=99`, `EXPORT=5`,
-  `APP_PORT=4321`, `SERVER_PORT = 3000` and `const viewport = 1280`, none of
-  which rule 1 may claim.
+  § 4.6's ten lines, and `::test_port_rule_1_forms`, parametrised over the
+  twelve § 4.6 lists for rule 1.
   *Breaks when:* `const viewport = 1280` is scanned — measured 2026-08-08 to
   return 1280 under the rule as `design.md` words it — or `TRANSPORT=99` is,
   which an unanchored rule 1 returns 99 for. **Rule 1 is the one that matters
@@ -806,9 +801,8 @@ is the property the derivation exists for.
   with `SERVER_PORT = 3000` in the launcher and `--port 8080` in the hop file,
   asserting 3000.
   *Breaks when:* the implementation iterates rules outermost, which returns
-  8080 for that fixture. **The fixture line is load-bearing and was wrong
-  once** — `PORT_BASE = 3000` matches neither rule 1 nor rule 2 (measured), so
-  it made both orderings return 8080 and the test green either way.
+  8080 for that fixture. **The fixture line is load-bearing** — § 4.6 records
+  the line that was tried first and could not discriminate.
 
 - **INV-11** — The `rule` and `source` a finding reports are the ones that
   actually produced it, and a project with no readable port has `port is None`
