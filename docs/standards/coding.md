@@ -295,22 +295,38 @@ the baseline — these are in addition.
 ### O1. The core never imports `QtWidgets`
 
 `docs/design.md § Architecture` splits core from UI, and the
-split is enforced by import. A **core module is every module under
-`src/lwsm/` that is not `mainwindow.py` or `theme.py`** — a
-criterion rather than a list, because the list was wrong: it named
-`scanner`, `supervisor` and `logbuffer`, none of which exist yet
-(P03 and P05 build them), while omitting `applog.py`, which does
-exist and imports no Qt at all. A `QtWidgets` import in a core
-module is a review failure, because import-freedom is what makes
-the core headless-testable.
+split is enforced by import. A `QtWidgets` import in a core module
+is a review failure, because import-freedom is what makes the core
+headless-testable.
+
+The split is a criterion rather than a list, because the list was
+wrong: it named `scanner`, `supervisor` and `logbuffer`, none of
+which existed, while omitting `applog.py`, which did. It is a
+**four-way** split, corrected 2026-08-08 by LWSM-1006:
+
+| Layer | Modules | Rule |
+|---|---|---|
+| UI | `mainwindow.py`, `theme.py` | may import `QtWidgets` |
+| Entry point | `__main__.py` | may import `QtWidgets`; **is** where the `QApplication` is built |
+| Package marker | `__init__.py` | imports nothing |
+| Core | everything else | `QtCore` only, never `QtWidgets` |
+
+**Two-way was not merely imprecise, it was unimplementable.** As
+worded — "every module that is not `mainwindow.py` or `theme.py`"
+— the criterion covered `__main__.py`, which imports
+`QApplication` **by design** (deliberately inside `main()`, after
+`argparse`, so `--version` needs no display). So any check derived
+from it added `__main__.py` to the core list and reddened on the
+day it landed.
 
 **A new core module is added to `tests/test_layering.py`'s
 `CORE_MODULES` in the commit that creates it.** That list is what
-actually enforces this, and it does not yet name every module the
-criterion above covers — `applog.py` is absent from it. So the rule
-and its check disagree, and the check is the one that runs.
-Widening it is `LWSM-1006`'s job, since P03 is what next adds a
-core module.
+actually enforces this, and
+`::test_the_core_module_list_matches_the_criterion` now derives
+the same set from the table above and asserts equality — so a
+module the criterion covers can no longer be quietly missing from
+the check, which is how `applog.py` came to be absent for two
+phases.
 
 ### O2. Nothing touches a widget off the UI thread
 

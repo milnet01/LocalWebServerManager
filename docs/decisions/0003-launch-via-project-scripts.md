@@ -231,12 +231,25 @@ value and ignoring the wrong one are two different properties.
 
 **A unit name is untrusted input** (security review, 2026-08-03):
 
-- **Validate it** against `^[A-Za-z0-9@:_.\-]{1,255}\.(service|socket|target|timer)$`,
+- **Validate it** against
+  `^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)$`,
   reject a leading `-`, and pass `--` before it. A name beginning
   with `-` is consumed by `systemctl` as an *option* — `--host=`,
   `-M`, `--machine=` all redirect which manager is driven. The
   project's own `coding.md § 7` already mandates the `--`
   separator; it simply was not carried into this table.
+
+  **The class admits `\` on purpose** (LWSM-1006, 2026-08-08).
+  `systemctl` accepts only the *escaped* form of a unit name, and
+  `app-ai\x2dprompts\x2dtray@autostart.service` — a real unit on
+  the author's machine — fails a class with no backslash in it. So
+  without this the escaping step is dead code and every such
+  project falls through to a script launcher, spawning a second
+  instance of a server systemd already owns: the exact hazard
+  § Service-managed projects exists to prevent. Widening costs
+  nothing — a backslash is inert in an `execve` argv, and the
+  leading-`-` rejection plus the `--` separator remain the actual
+  defence.
 - **Bind by `FragmentPath`, not by directory name.** Matching on
   the project's directory name means `mkdir <scan root>/project-a`
   — an empty directory with no code in it — is enough to make the

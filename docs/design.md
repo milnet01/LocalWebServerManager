@@ -201,13 +201,30 @@ for a folder instead of scanning nothing and reporting an empty list.
 subdirectories** are candidate projects, **excluding this
 application's own directory** — once P01 lands a `pyproject.toml`
 and a run script, the manager would otherwise list and offer to
-launch itself. Within a candidate the walk goes at most **3
-levels deep** and skips `node_modules`, `.git`, `.venv`, `venv`,
-`__pycache__`, `dist`, `build` and `.cache`. Unbounded recursion
-is not acceptable on a root whose subdirectories contain
-`node_modules`. The whole scan carries a **20-second budget**; on
-expiry it returns what it has and says so, rather than hanging a
-first run.
+launch itself — and **excluding any candidate that is itself a
+symlink**, which is refused rather than resolved. That refusal is
+its own rule because `os.walk(followlinks=False)` does not cover
+it: measured 2026-08-08, that flag declines to *descend* into a
+symlinked subdirectory but still lists it, and walking one as the
+top follows it.
+
+**Nothing recurses into a candidate.** Every launcher rule below
+matches at the project root, and the one port-bearing file below
+the root is *named by the launcher* and opened directly rather
+than found by searching — so a walk would feed no reader, and on a
+scan root whose subdirectories hold `node_modules` it would be the
+dominant term in the budget. The **3-level depth bound** and the
+`node_modules`, `.git`, `.venv`, `venv`, `__pycache__`, `dist`,
+`build`, `.cache` exclusion list are **not** dropped: they
+constrain the one-hop target instead, which is the only place they
+can still do work. Settled with the user 2026-08-08; the
+implementation and its invariants are
+[`docs/specs/LWSM-1006-scanner-detection.md`](specs/LWSM-1006-scanner-detection.md)
+§ 4.5, and INV-20 is what keeps "`node_modules` is never
+descended" from being a claim with no mechanism behind it.
+
+The whole scan carries a **20-second budget**; on expiry it
+returns what it has and says so, rather than hanging a first run.
 
 **Launcher rules, first match wins.** A candidate with no match is
 not a server project and is not listed. These are *launcher rules*
@@ -215,9 +232,18 @@ throughout; the numbered list further down is the separate set of
 *port rules*, and the two are always named in full because both
 start at 1.
 
-0. **A systemd user unit for this project**, found by matching
-   `systemctl --user list-unit-files` against the project's
-   directory name. This outranks everything below it: if systemd
+0. **A systemd user unit for this project**, found in **two**
+   steps, because a name match alone is not a binding. First
+   *propose* by matching `systemctl --user list-unit-files
+   --type=service --output=json` against the project's directory
+   name (after undoing systemd's `\xNN` escaping). Then **bind by
+   location**: the unit's `FragmentPath` or `WorkingDirectory`
+   must resolve *inside* that directory, or it is not this
+   project's unit. Without the second step `mkdir <scan
+   root>/project-a` — an empty directory with no code in it — is
+   enough to put somebody else's service behind a Start button,
+   which is why ADR-0003's security review rejected binding by
+   name. This outranks everything below it: if systemd
    already owns the server, running its script directly would
    create a second instance fighting the first for the port.
    `project-a` is the known case
@@ -243,8 +269,32 @@ a static-analysis problem this app has no business solving. That
 project is expected to come back *port unknown* and be given a
 port by hand on first run — an honest limit, not a bug.
 
-**Port rules, first match wins**, searched in the launcher and
-then in the one-hop file. No match leaves the port empty and the
+**Port rules, first match wins**, searched **file-major**: rules 1
+then 2 within the launcher, then rules 1 then 2 within the one-hop
+file, then rule 3 across both. "Searched in the launcher and then
+in the one-hop file" alone admits a rule-major reading, and the
+two disagree whenever the launcher's match comes from a
+lower-numbered rule than the hop file's — with `SERVER_PORT =
+3000` in the launcher and `--port 8080` in the hop file,
+rule-major returns 8080 and file-major returns 3000. The launcher
+is the file that actually runs, and rule 3's own scope ("only when
+neither port rule found anything") is coherent only under
+file-major. **Within one source the scan is line-major**: each
+line is offered to rule 1 then rule 2 before the next line is
+read, because a declaration near the top is the one a human reads
+as authoritative.
+
+**A commented-out line is not a declaration.** A line whose first
+non-whitespace characters are `#` or `//` is skipped, and a
+trailing comment is cut at the first such marker — measured
+2026-08-08, without this `# PORT=9999 (old)` reads as port 9999,
+and the previous port commented out above the current one is the
+commonest shape in a real launcher. `;` is deliberately **not** a
+marker: in every language these rules read it is a statement
+separator, and treating it as one lost the port on `cd /app ; exec
+node serve.mjs --port 8080`.
+
+No match leaves the port empty and the
 row flagged *port unknown*; the user supplies one and Start is
 refused until they do. Guessing would be worse than asking.
 
@@ -252,22 +302,39 @@ refused until they do. Guessing would be worse than asking.
    `localhost:N` / `127.0.0.1:N` anywhere in the file. The
    `${PORT:-N}` form matters: it is how `project-g/run.sh:87`
    declares 8080 while already honouring the contract.
-2. An assignment whose left-hand side **ends in** `port` or
-   `PORT`, case-insensitive, with an integer literal anywhere on
-   the right — `PORT = 8765`, `DEFAULT_PORT = 4322`,
-   `'server_port': 5000`, `"port": 5173`, and
+2. An assignment whose left-hand side **is** `port` — either
+   exactly, or preceded by a **non-alphanumeric character** —
+   case-insensitive, with an integer literal anywhere on the right
+   — `PORT = 8765`, `DEFAULT_PORT = 4322`, `'server_port': 5000`,
+   `"port": 5173`, and
    `const PORT = Number(process.env.PROJECT_A_PORT) || 4321`. The
    match is **not anchored to the start of the line**, which is
-   what lets it reach `DEFAULT_PORT` and the `|| 4321` fallback;
-   the "ends in port" constraint is what stops it matching
-   unrelated numbers.
+   what lets it reach `DEFAULT_PORT` and the `|| 4321` fallback.
+
+   **Not merely "ends in `port`", which is what this rule said
+   until 2026-08-08.** Measured, the literal form accepts `const
+   viewport = 1280` → 1280, `transport = 4` → 4, `report: 7` → 7
+   and `export = 5` → 5; a viewport is ordinary in exactly the
+   kind of project this app scans. Requiring a separating
+   character keeps every example above and rejects all four.
 3. A framework default, only when the launcher identifies a
    framework **and** neither port rule 1 nor port rule 2 found
    anything:
-   Vite `5173`, Flask `5000`, Django `8000`. None of the seven
-   known projects currently needs this rule — it exists for
-   projects that configure nothing, and if it stays unused it
-   should be deleted rather than carried.
+   Vite `5173`, Django `8000`, Flask `5000` — **in that order**,
+   because a project can satisfy two rows and nothing else breaks
+   the tie. **Which evidence each launcher kind can reach is part
+   of the rule**, not an implementation detail: a `serve.mjs` or a
+   systemd unit identifies no framework, so a stray `manage.py`
+   beside a Node server must not fabricate 8000 for it. The
+   per-kind table is
+   [`docs/specs/LWSM-1006-scanner-detection.md`](specs/LWSM-1006-scanner-detection.md)
+   § 4.6. Every evidence test is **exact or whole-word, never a
+   substring** — `vitest` and `@vitejs/plugin-react` both contain
+   `vite`, and `import flask_login` contains `import flask`. None
+   of the seven known projects needs this rule; it is built rather
+   than deleted because it is a handful of lines already in the
+   contract, and the fixture tree carries a project that exercises
+   it (user, 2026-08-08).
 
 **Runtime kind** — `systemd`, `python`, `node`, or `shell` —
 follows from the launcher match. It drives which verbs are used
@@ -376,15 +443,27 @@ control, so every read is bounded and every result is inert data
   app reads or displays. Measure 2 widens the file set to `README.md` and
   `docker-compose.yml`, and nothing stops one of those being 2 GB.
 - **The 20-second budget is checked per line, not per scan.** A
-  wall-clock check between files cannot interrupt a regex, and the
-  unanchored "left-hand side ending in `port`" pattern is the
-  classic catastrophic-backtracking shape. Port rule 2 is implemented as
-  a non-backtracking two-step — split on `=`, then match `\d+` —
-  rather than as one clever pattern.
-- **`os.walk(followlinks=False)`, and non-regular files are
-  skipped.** A FIFO planted in a scanned directory blocks `open()`
-  for ever; a symlinked directory can walk out of the scan root
-  entirely.
+  wall-clock check between files cannot interrupt work already
+  under way. Port rule 2 is implemented as a non-backtracking
+  two-step — split on `=`, then match `\d+` — rather than as one
+  clever pattern.
+
+  **This paragraph used to call the unanchored "ends in `port`"
+  pattern "the classic catastrophic-backtracking shape", and that
+  is false.** Measured 2026-08-08: CPython 3.13.14 still backtracks
+  catastrophically *in general* — `(a+)+$` against 24 characters
+  takes 1.10 s and doubles per character added — but that
+  *specific* pattern is linear, at 0.0006 s over a
+  40,001-character line. The two-step stays, on simplicity and
+  immunity rather than on a hazard that was not reproduced.
+- **Non-regular files are skipped, and every open is
+  `O_NOFOLLOW`.** A FIFO planted at a launcher path blocks
+  `open()` for ever, which `O_NONBLOCK` plus an `fstat` on the raw
+  descriptor is what stops. `O_NOFOLLOW` is a *second* guard for a
+  different attack: measured 2026-08-08, a `start.sh` symlinked
+  outside the project opens cleanly, `S_ISREG` returns true — it
+  describes the target — and `os.access(X_OK)` does too, so the
+  outside file is read. Nothing but `O_NOFOLLOW` refuses it.
 - **The one-hop launcher target is `commonpath`-checked against the
   project root after resolution.** Otherwise `exec python3
   ../../../.ssh/config` is read, and its contents surface in the UI

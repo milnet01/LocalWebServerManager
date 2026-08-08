@@ -1024,7 +1024,7 @@ is why table order could not be left implicit; § 12 item 6a carries it.)
 
 | # | Framework | Identified by | Default |
 |---|---|---|---|
-| 1 | Vite | `vite` as an **exact key** of `dependencies` / `devDependencies`, or as a **substring** of the chosen `scripts` value | 5173 |
+| 1 | Vite | `vite` as an **exact key** of `dependencies` / `devDependencies`, or as a **whole word** (`\bvite\b`) in the chosen `scripts` value | 5173 |
 | 2 | Django | a root-level `manage.py`, or `^\s*(?:import\|from)\s+django\b` in the launcher's Python file | 8000 |
 | 3 | Flask | `^\s*(?:import\|from)\s+flask\b` in the launcher's Python file | 5000 |
 
@@ -1046,15 +1046,26 @@ and "the launcher's Python file" means different things per kind:
 | `SHELL` | no | a one-hop target ending `.py`, **and then** `manage.py` or `import django` in it | `import flask` in a one-hop target ending `.py` |
 | `NODE` via rule 4, `SYSTEMD` | no | no | no |
 
-**The two Vite tests differ on purpose, and conflating them fabricates ports.**
-A dependency block has keys, so the test is exact-key membership; a script value
-is a string, so the test there is a substring. Read as a substring in both,
+**The two Vite tests differ in *form* and agree in strictness.** A dependency
+block has keys, so the test is exact-key membership; a script value is a string,
+so the test there is whole-word. Neither is a bare substring: read that way,
 `{"devDependencies": {"vitest": "^2.0.0"}}` — a **test runner**, among the
 commonest devDependencies in a modern Node project, and not a server at all —
 identifies Vite and reports the project `DETECTED` on 5173. That is the same
 fabrication class measured for `"get-port": "^7.0.0"` → 7, arriving through
 rule 3 instead of rule 2. § 7's corpus gains a `vitest` fixture expecting
 *unknown*.
+
+**Corrected 2026-08-08 during implementation, and the correction is the table
+above** (`.claude/workflow.md § 2` — surfaced, not absorbed). Until then the
+script-value half of row 1 read *substring*, which contradicts this section's
+own rule two paragraphs earlier that "every evidence test is exact or
+whole-word, never a substring" — and § 7's `vitest` fixture, whose `"dev"`
+script is `"vitest"`, is the case that settles it: under the substring form that
+fixture comes back `DETECTED` on 5173 against its own stated expectation of
+*unknown*. The acceptance test found it on its first run, which no reading of
+the document had. Whole-word keeps every real Vite dev script — `vite`,
+`vite --host`, `./node_modules/.bin/vite` all match `\bvite\b`.
 
 A `SHELL` project **does** reach Django and Flask evidence, because § 4.5's own
 worked hop is `run.sh` → `launcher.py` and a shell launcher legitimately runs
@@ -1340,8 +1351,7 @@ is the property the derivation exists for.
   *Test:* `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack`,
   calling `rule_2` **directly** on two synthetic strings at the line cap:
   `"a" * 4088 + "port = 1"` (4096 characters) and 102 colon-separated fields,
-  with a 1-second ceiling. Both figures come from
-  `docs/specs/LWSM-1006-conformance.py`, which prints them on every run.
+  with a 1-second ceiling.
   *Breaks when:* the two-step is replaced by a single pattern with a nested
   quantifier. Measured 2026-08-08: CPython 3.13.14 still backtracks
   catastrophically — `(a+)+$` against 24 `a`s took **1.10 s**, doubling per
@@ -1539,26 +1549,22 @@ Every invariant's test is named in its own bullet in § 5 and tabulated in
 § 11. It is not tabulated a third time here: the same eighteen rows stood
 in two places for three loops and had already drifted twice.
 
-**`docs/specs/LWSM-1006-conformance.py` runs every pattern in this document
-now**, before any of it is implemented — the regexes, the range check, the line
-cap, the containment check, the unit-name validator, the comment stripper and
-INV-15's timing bound, each against inputs chosen to break it. It exists
+**`docs/specs/LWSM-1006-conformance.py` ran every pattern in this document
+before any of it was implemented** — the regexes, the range check, the line cap,
+the containment check, the unit-name validator, the comment stripper and
+INV-15's timing bound, each against inputs chosen to break it. It existed
 because three cold-eyes loops read those patterns and passed them, and running
-them found four false claims in two minutes. Re-run it after **any** edit to a
-fenced pattern in § 4:
+them found four false claims in two minutes; by the end it had caught seven.
 
-```
-PYTHONDONTWRITEBYTECODE=1 uv run python3 docs/specs/LWSM-1006-conformance.py
-```
-
-**Definition of done includes deleting it.** When `scanner.py` exists its cases
-move into `tests/test_scanner.py` pointed at the real module, and the script
-goes — a second copy of the patterns is a second source of truth, and it is
-only tolerable while the first one does not exist yet.
+**It was deleted on 2026-08-08 when `scanner.py` landed**, exactly as this
+section required: its cases now live in `tests/test_scanner.py` pointed at the
+real module, so there is one copy of the patterns rather than two. A second
+source of truth was tolerable only while the first did not exist.
 
 Plus the acceptance test the roadmap names:
 `test_every_fixture_project_is_detected_as_expected` — named for the corpus
-rather than for seven, since the tree already holds eight and grows with every
+rather than for seven, since the tree already holds more than the seven real
+projects and grows with every
 mis-detection — parametrised over the fixture tree, asserting launcher **and** port — including the *unknown* cases, since a
 rule that quietly starts guessing for `project-e` is the regression this
 corpus exists to catch.
@@ -1577,14 +1583,25 @@ whose open fails before the `S_ISREG` check is reached, a fast line that was
 never long enough to backtrack, a reason list that never reached its cap. That
 is `testing.md § T9` item 3: a stub must be able to express the breach.
 
+**Run 2026-08-08, and two of the four came back green on the first attempt** —
+which is the whole reason the pass is prescribed. INV-3's over-long-line test
+was dead: its fixture's tail read `xxxPORT=9999`, which rule 1's left boundary
+rejects anyway, so the discard logic it claimed to guard could be deleted with
+no effect. It now plants ` PORT=9999`, with a space. And INV-3's **byte** cap is
+enforced at three sites — the `fstat`, `_read_bytes`' check on the bytes
+actually read, and `_read_lines`' running total — deliberately, so removing any
+one leaves the others catching it. **Mutate the mechanism, not one line of
+it**; and mutating `MAX_SOURCE_FILE_BYTES` instead proves nothing, because the
+fixture derives its own size from that constant. All five mutations then
+reddened.
+
 **INV-15's one-second ceiling is a duration, and `testing.md § T4` bans those
 for *waits*, not for bounds.** T4's target is `time.sleep` standing in for a
 condition, where the condition is the thing to poll for; here the elapsed time
 *is* the assertion, and there is nothing to poll. The ceiling is set against a
 measurement rather than a guess: **153.53 µs/call** for the 4096-character key
-line and **70.25 µs/call** for the 102-field line (2026-08-08, printed by
-`docs/specs/LWSM-1006-conformance.py`), so 1 second is a margin of roughly
-6,500× and 14,000×. A machine slow enough
+line and **70.25 µs/call** for the 102-field line (2026-08-08), so 1 second is a
+margin of roughly 6,500× and 14,000×. A machine slow enough
 to fail it honestly has a problem, and a backtracking replacement fails it by
 orders of magnitude rather than by a hair — which is what keeps it off
 `testing.md § 3.4`'s flaky-perf-test list.
@@ -1720,6 +1737,12 @@ implementation and are gated then, which is also when the code proves each
 correction was the right one. Until they land, `design.md` and this spec
 disagree in items 1-6, and `coding.md` in item 7 — every one listed here on
 purpose rather than silently reconciled (`.claude/workflow.md § 2`).
+
+**Items 1–9 landed 2026-08-08 with the implementation**, items 1–8 as the one
+`doc-fix` commit this section prescribes. Item 6a's edit carries the whole-word
+correction § 4.6 records, so `design.md` states the strict form rather than the
+substring this spec shipped with. Item 10 belongs to the closing commit, since
+a bullet is flipped when the phase closes and not when the code lands.
 
 1. **`docs/design.md § Detection rules`, port rule 2** — "ends in `port` or
    `PORT`" becomes the non-alphanumeric-boundary form, with the four

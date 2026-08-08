@@ -26,9 +26,9 @@ becomes active.
 
 1. ✅ Verify spec (research first if non-trivial)
 2. ✅ Verify dependencies on the roadmap DAG
-3. 🚧 Write failing tests
-4. ⬜ Implement until tests pass
-5. ⬜ Run `/audit` (read `docs/audit-allowlist.md` first)
+3. ✅ Write failing tests
+4. ✅ Implement until tests pass
+5. 🚧 Run `/audit` (read `docs/audit-allowlist.md` first)
 6. ⬜ Run `/code-quality-review` (same allowlist read)
 7. ⬜ Fold actionable findings → new FP## roadmap item
 8. ⬜ Update CHANGELOG / ROADMAP / journal
@@ -50,12 +50,26 @@ Sub-findings:
   - ✅ Conformance script executes every prescribed pattern — green
   - ✅ registry.py's twelve guards swept against the spec — one gap, closed
   - ✅ Spec Status flipped to accepted; roadmap bullet flipped to 🚧
-  - 📋 Implement src/lwsm/scanner.py test-first
-  - 📋 Widen tests/test_layering.py CORE_MODULES (+ scanner.py, + applog.py)
-  - 📋 Land the eight doc amendments in § 12 (design.md ×7, coding.md § O1)
-  - 📋 Move the conformance cases into tests/test_scanner.py, delete the script
-Tests: 178 passing, 0 failing (no scanner tests written yet)
+  - ✅ src/lwsm/scanner.py implemented test-first; all 20 invariants covered
+  - ✅ tests/test_layering.py CORE_MODULES widened (+ scanner.py, + applog.py),
+       plus the derivation test so it cannot silently miss a module again
+  - ✅ The § 12 doc amendments landed (design.md ×7, coding.md § O1,
+       ADR-0003's unit-name class, CLAUDE.md, CHANGELOG)
+  - ✅ Conformance cases moved into tests/test_scanner.py; the script is deleted
+  - 📋 Steps 5-6: /audit + /code-quality-review, then P03 closes
+Tests: 370 passing, 0 failing (was 178). Full gate green.
 ```
+
+**One spec correction came out of the implementation, not out of a review**
+(`.claude/workflow.md § 2` — surfaced, not absorbed): § 4.6's rule-3 table said
+`vite` is matched as a **substring** of the chosen `scripts` value, while the
+same section's general rule two paragraphs later says every evidence test is
+"exact or whole-word, never a substring" — and § 7's own `vitest` fixture, whose
+`"dev"` script is `"vitest"`, comes back `DETECTED` on 5173 under the substring
+form against its stated expectation of *unknown*. The acceptance test caught it
+on its first run. The table now says whole-word; `design.md` item 6a states the
+strict form. **Seven cold-eyes loops and a conformance script did not find this;
+running the rules against the corpus did.**
 
 **The one decision taken this session that outlives it:** `design.md`'s
 three-level recursive walk is **not built** (user, 2026-08-08). Every launcher

@@ -257,13 +257,46 @@ Added at P02 (LWSM-1005), contract in
   decorative and excluded from the accessible name, which is
   built from the rendered cell strings.
 
+Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
+[`docs/specs/LWSM-1006-scanner-detection.md`](docs/specs/LWSM-1006-scanner-detection.md):
+
+- **`src/lwsm/scanner.py`** — core, no Qt at all, like `ports.py`.
+  `scan()`, `DetectedProject`, `PortFinding`, `ScanResult`,
+  `LauncherKind`, `PortRule`, `Confidence`, `Deadline`, and the
+  `SupportsUnitLookup` Protocol the systemd surface is injected
+  through. **Everything it reads belongs to somebody else**, so
+  every open goes through **one** function, `_open_source`
+  (`O_RDONLY|O_NONBLOCK|O_NOFOLLOW`) — that single seam is what the
+  tests patch to prove no file outside a candidate is ever touched.
+  `port is None` means *unknown*; it is never a guess.
+  **`CORE_MODULES` in `tests/test_layering.py` now covers
+  `applog.py` too**, and a new source-invariant test derives the
+  list from `coding.md § O1`'s four-way split so a core module can
+  no longer be silently missing from it.
+
 Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
 `test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
-`test_layering.py`, plus `conftest.py` (sets
+`test_layering.py`, `test_scanner.py` (+ `scanner_fixtures.py`,
+the detection regression corpus every future mis-detection is
+added to), plus `conftest.py` (sets
 `QT_QPA_PLATFORM=offscreen` when unset, so a bare `pytest` cannot
 open a real window). **Markers go on tests, not files** — marking
 a whole file by its heaviest test makes `--fast` silently skip
 every light test beside it.
+
+**Trap: a `testing.md § T9` mutation that removes ONE of several
+redundant guards proves nothing.** LWSM-1006's byte cap is checked in
+three places — the `fstat`, the bytes `_read_bytes` actually read, and
+`_read_lines`' running total — deliberately, so a file that grows
+between the fstat and the read is still refused. Deleting any one left
+the test green, which reads exactly like "the bound is untested" and is
+not what it means. **Mutate the whole mechanism, not one line of it**;
+and mutating the *constant* instead is worthless whenever the fixture
+derives its own size from that constant. Hit 2026-08-08 — two of the
+four prescribed mutations came back green on the first attempt, and one
+of them was a genuinely dead assertion (a tail reading `xxxPORT=9999`,
+which rule 1's left boundary rejects anyway, so the discard logic it
+claimed to test could be deleted).
 
 **Trap: `ruff format` formats fenced ` ```python ` blocks inside
 Markdown**, and `local-ci.sh` runs it over `.`. A spec with code
