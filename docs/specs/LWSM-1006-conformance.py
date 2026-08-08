@@ -19,6 +19,7 @@ it is named in the spec's Definition of done for exactly that reason.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -89,9 +90,9 @@ def rule_2(line: str) -> int | None:
         key = left.strip().strip("'\"").rstrip("'\" \t")
         if key.lower() != "port" and not KEY_IS_PORT.search(key):
             continue
-        digits = re.search(r"(?<![0-9-])\d{1,5}(?![0-9])", right)
-        if digits and PORT_RANGE[0] <= int(digits.group()) <= PORT_RANGE[1]:
-            return int(digits.group())
+        for digits in re.finditer(r"(?<![0-9-])\d{1,5}(?![0-9])", right):
+            if PORT_RANGE[0] <= int(digits.group()) <= PORT_RANGE[1]:
+                return int(digits.group())
     return None
 
 
@@ -234,8 +235,38 @@ check("hyphen separated key", rule_2("server-port: 5000"), 5000)
 
 print()
 print("=== § 4.6: an out-of-range match must not end the scan (finditer) ===")
-check("in-range after out-of-range", rule_1("localhost:99999 and PORT=8080"), 8080)
-check("out-of-range alone", rule_1("localhost:99999"), None)
+check(
+    "rule 1: in-range after out-of-range", rule_1("localhost:99999 and PORT=8080"), 8080
+)
+check("rule 1: out-of-range alone", rule_1("localhost:99999"), None)
+check(
+    "rule 2: in-range after out-of-range",
+    rule_2("'server_port': 70000, 'port': 5000"),
+    5000,
+)
+check("rule 2: two numbers, first out of range", rule_2("PORT = 70000 5000"), 5000)
+check("rule 2: out-of-range alone", rule_2("PORT = 70000"), None)
+
+print()
+print("=== § 4.4: package.json parse failures that are not JSONDecodeError ===")
+for label, doc, want in [
+    ("20k nested arrays", "[" * 20000 + "]" * 20000, "RecursionError"),
+    ("invalid utf-8", b"\xff\xfe{}", "UnicodeDecodeError"),
+    ("non-object root", "[1,2]", "AttributeError"),
+]:
+    try:
+        parsed = json.loads(doc.decode("utf-8-sig") if isinstance(doc, bytes) else doc)
+        parsed.get("scripts")
+        got = "parsed"
+    except Exception as exc:  # classifying the exception IS the check
+        got = type(exc).__name__
+    check(f"package.json {label}", got, want)
+check(
+    "RecursionError is a ValueError",
+    issubclass(RecursionError, ValueError),
+    False,
+    "<- why the spec names it separately",
+)
 
 print()
 print("=== § 4.4: package.json — what the port rules must NEVER see ===")
@@ -414,8 +445,6 @@ check("over-long line clipped to the cap", len(first), 4096)
 check("port past the cap is not found", rule_1(first), None)
 
 # a minified package.json survives _read_bytes and dies under _read_lines
-import json  # noqa: E402
-
 pkg = json.dumps(
     {
         "scripts": {"dev": "vite --port 5173"},
