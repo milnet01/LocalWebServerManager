@@ -50,15 +50,17 @@ PORT_RANGE = (1, 65535)
 
 
 def rule_1(line: str) -> int | None:
-    m = RULE_1.search(strip_comment(line))
-    if not m:
-        return None
-    value = int(next(g for g in m.groups() if g is not None))
-    return value if PORT_RANGE[0] <= value <= PORT_RANGE[1] else None
+    # finditer, not search: an out-of-range value is not a match and scanning
+    # resumes after it, so `localhost:99999 and PORT=8080` yields 8080.
+    for m in RULE_1.finditer(strip_comment(line)):
+        value = int(next(g for g in m.groups() if g is not None))
+        if PORT_RANGE[0] <= value <= PORT_RANGE[1]:
+            return value
+    return None
 
 
 # --------------------------------------------------------- § 4.6 comments
-COMMENT = re.compile(r"(?:^|\s)(?:#|//|;)")
+COMMENT = re.compile(r"(?:^|\s)(?:#|//)")
 
 
 def strip_comment(line: str) -> str:
@@ -189,16 +191,28 @@ for line, want in [
     ("# PORT=9999 (old)", None),
     ("#  PORT=9999", None),
     ("// PORT = 9999", None),
-    ("; PORT=9999", None),
     ("   # PORT=8080", None),
     ("PORT=8080  # was 9090", 8080),
     ("PORT = 8080  // note with # inside", 8080),
     ("http://localhost:3000/", None),  # rule 1's form; `//` is not a comment
+    # `;` is a statement separator, not a comment marker, in every language
+    # this module reads. Including it lost the port on all three of these.
+    ("cd /app ; exec node serve.mjs --port 8080", None),  # rule 1's job
+    ('"dev": "cd app ; vite --port 5173"', None),  # rule 1's job
     ('NAME = "a # b"', None),
     ('opts = {"port": 5173}  # dev', 5173),
 ]:
     check(f"comment {line!r}", rule_2(line), want)
 check("rule_1 also strips", rule_1("# PORT=9999"), None)
+check(
+    "';' must NOT eat a shell separator",
+    rule_1("cd /app ; exec node s.mjs --port 8080"),
+    8080,
+)
+check(
+    "';' must NOT eat an npm script", rule_1('"dev": "cd app ; vite --port 5173"'), 5173
+)
+check("';' must NOT eat a shell assignment", rule_1("export FOO=1 ; PORT=9000"), 9000)
 
 print("=== § 4.6 / INV-19: a negative number is not a port ===")
 check("rule_2('PORT = -1')", rule_2("PORT = -1"), None)
@@ -217,6 +231,78 @@ check(
 check("key is exactly port", rule_2("port=1234"), 1234)
 check("trailing whitespace key", rule_2("PORT\t= 8080"), 8080)
 check("hyphen separated key", rule_2("server-port: 5000"), 5000)
+
+print()
+print("=== § 4.6: an out-of-range match must not end the scan (finditer) ===")
+check("in-range after out-of-range", rule_1("localhost:99999 and PORT=8080"), 8080)
+check("out-of-range alone", rule_1("localhost:99999"), None)
+
+print()
+print("=== § 4.4: package.json — what the port rules must NEVER see ===")
+for pair, note in [
+    ('"get-port": "^7.0.0"', "a real npm package"),
+    ('"detect-port": "^1.5.1"', "another one"),
+]:
+    got = rule_2(pair)
+    if got is not None:
+        print(f"  note  rule_2({pair!r}) -> {got!r} ({note})")
+        print("        ^ WHY dependencies are never offered to the port rules")
+check(
+    "dependency blocks are excluded by SCOPE, not by the rules",
+    rule_2('"get-port": "^7.0.0"') is not None,
+    True,
+    "the rules DO match it; § 4.4 keeps them away from it",
+)
+
+print()
+print("=== § 4.4 step 3: the Environment= prefix must be removed first ===")
+raw = "Environment=STATS_PORT=4321 STATS_REFRESH_HOURS=24"
+with_prefix = [rule_1(tok) or rule_2(tok) for tok in raw.split()]
+check(
+    "split WITH the prefix finds nothing",
+    any(with_prefix),
+    False,
+    "<- this is why properties() strips NAME=",
+)
+without = [rule_1(tok) or rule_2(tok) for tok in raw.split("=", 1)[1].split()]
+check("split WITHOUT the prefix finds 4321", next(p for p in without if p), 4321)
+
+print()
+print("=== § 4.4 step 3: ExecStart is exempt from the comment stripper ===")
+rec = "{ path=/usr/bin/node ; argv[]=/usr/bin/node serve.mjs --port 5000 ; pid=0 }"
+# With `;` dropped from the marker set this record survives stripping. The
+# exemption is kept on the scope argument (a property value is not a file
+# line), NOT on this measurement — which no longer reproduces, and saying so
+# is the point: a rule resting on a stale reason is one someone later deletes.
+check(
+    "record survives the two-marker stripper",
+    bool(re.search(r"argv\[\]=([^;]*)", strip_comment(rec))),
+    True,
+)
+check(
+    "a '#' inside a quoted command is still cut",
+    strip_comment("argv[]=/bin/sh -c 'x --port 8080 # prod'"),
+    "argv[]=/bin/sh -c 'x --port 8080",
+)
+argv = re.search(r"argv\[\]=([^;]*)", rec)
+check(
+    "extracting first preserves the port", rule_1(argv.group(1)) if argv else None, 5000
+)
+
+print()
+print("=== § 4.6: line-major within one source ===")
+src = ["SERVER_PORT = 3000", "exec node serve.js --port 8080"]
+line_major = next((p for ln in src for p in [rule_1(ln) or rule_2(ln)] if p), None)
+whole_file_rule_1_first = next(
+    (p for fn in (rule_1, rule_2) for ln in src for p in [fn(ln)] if p), None
+)
+check("line-major picks the earlier line", line_major, 3000)
+check("rule-major would pick the later one", whole_file_rule_1_first, 8080)
+check(
+    "the two orderings differ, so the choice matters",
+    line_major != whole_file_rule_1_first,
+    True,
+)
 
 print()
 print("=== § 4.6: file-major vs rule-major, INV-10's fixture ===")

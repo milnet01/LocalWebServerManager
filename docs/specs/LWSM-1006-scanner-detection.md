@@ -124,7 +124,7 @@ class PortFinding:
 
 @dataclass(frozen=True)
 class DetectedProject:
-    path: Path  # absolute, the identity (ADR-0005)
+    path: Path  # RESOLVED, absolute; the identity (ADR-0005)
     name: str  # the directory's own name
     kind: LauncherKind
     argv: tuple[str, ...]  # empty for SYSTEMD; the unit drives it
@@ -146,12 +146,24 @@ class ScanResult:
 class SupportsUnitLookup(Protocol):
     """The systemd surface, injected so `testing.md § T1` holds.
 
-    Both calls are bounded by the scan's own deadline. The real adapter
-    **translates `subprocess.TimeoutExpired` into `OSError`** before it
-    leaves — measured 2026-08-08, `TimeoutExpired` is a `SubprocessError`
-    and NOT an `OSError`, so a caller catching `OSError` per this docstring
-    would otherwise let a hang escape as an unhandled exception. `OSError`
-    is what § 6 turns into "rule 0 disabled for this scan".
+    Both calls are bounded by the scan's own deadline. `OSError` is the ONLY
+    exception this Protocol may raise, and the real adapter is responsible
+    for making that true — it **translates every other failure mode into
+    one**. Measured 2026-08-08, three of them are not `OSError` subclasses
+    and each would otherwise escape `scan()` as an unhandled exception:
+
+    - `subprocess.TimeoutExpired` (a `SubprocessError`) — the hang.
+    - `subprocess.CalledProcessError` (a `SubprocessError`) — a non-zero
+      exit. The common cause is not a missing `systemctl`: with no user
+      D-Bus session `systemctl --user` exits **1** with empty stdout and
+      "Failed to connect to user scope bus" on stderr.
+    - `json.JSONDecodeError` (a `ValueError`) — what `--output=json` parsing
+      raises on that empty stdout.
+
+    Absence (`FileNotFoundError`) is already an `OSError` and needs no
+    translation. § 6's "a machine without systemd scans normally" is only
+    true because of this clause; without it the first run on such a machine
+    raises instead of returning a `ScanResult`.
     """
 
     def unit_names(self, timeout: float) -> list[str]: ...
@@ -184,6 +196,16 @@ default"), so the field was deleted rather than defended. `source` is a file
 name, a unit name or a fixed framework name — short by construction, but **not
 therefore safe**: a filename may contain a newline, so it goes through § 4.2's
 escape-then-clip like every other untrusted string this module surfaces.
+
+**`path` is the *resolved* path, not merely an absolute one**, and the
+distinction is not academic: § 6 deliberately follows a symlinked scan root, so
+a root of `~/projects → /mnt/data/projects` makes `~/projects/foo` and
+`/mnt/data/projects/foo` the same directory under two names. ADR-0005 makes
+this field the registry identity, so storing the unresolved form would give one
+project two identities across scans and the merge would report a remove plus an
+add. It is also the value § 4.2 rejection 4 compares, the project root § 4.5
+constraint 1 checks against, and the working directory P05 spawns in — one
+value, four jobs, and they must be the same value.
 
 **`DetectedProject` has no `actions` field and no user-owned field of any
 kind.** That is the structural half of `design.md § Custom project actions`'s
@@ -357,22 +379,34 @@ limits it enforces:
   100,000-character single line came back as 25 chunks. **The remainder of an
   over-long line is discarded rather than scanned**, which is what stops a
   pattern being split across a chunk boundary and matching half of itself.
-- The deadline is checked before each line.
+- The deadline is checked before each line, and **expiry abandons the
+  candidate in progress**: it is not listed, no partial port is reported for
+  it, and the scan returns immediately with `timed_out=True`. Reporting what
+  was read so far would hand the caller an honest-looking *unknown* the project
+  never earned — and LWSM-1007 is about to persist that list.
 - Decoded `utf-8` with `errors="replace"`. A sibling's file is not required to
   be text, and a `UnicodeDecodeError` three levels into someone else's repo is
   not a fact worth stopping a scan for.
 - Any `OSError` rejects that file with a reason and continues. A permission
   denial on one project is not a failure of the scan.
 
-**When the file refused is the launcher itself, the candidate is not listed** —
-rejection 5, "no launcher matched", with the read's reason rather than a bare
-"no match". A symlinked, FIFO or oversized `start.sh` is a file this app has
-declined to read, so it has no launcher it is willing to run, and offering a
-Start button for it would promise something the spawn cannot deliver. The
-alternative — a `SHELL` project with `port is None` — reads to the user as "we
-found your project and could not find its port", which is a different and
-false statement. Only a refused *hop target* leaves the project listed, because
-there the launcher is still runnable and only the port is unknown.
+**A refused launcher file is not a match, and the rules continue.** A
+symlinked, FIFO or oversized `start.sh` is a file this app has declined to
+read, so it cannot be the launcher — but § 4.4's alternation carries on to
+`run.sh`, and then to rules 2, 3 and 4. Only when *every* alternate is refused
+or absent does rejection 5 fire and the candidate go unlisted, carrying the
+read's reason rather than a bare "no match".
+
+**Continuing is the security answer, not the lenient one.** Stopping at the
+first refused file would mean anyone able to drop a symlink named `start.sh`
+into a project directory could delete that project from the manager — a
+denial of service bought with one file, in a directory this app already treats
+as hostile. Falling through to a `run.sh` that reads cleanly costs nothing and
+removes the lever. An earlier draft said the candidate is dropped outright;
+that was reasoning about one file rather than about the project.
+
+A refused *hop target* likewise leaves the project listed: the launcher is
+still runnable and only the port is unknown.
 
 **Sweep, per `coding.md § 1.6`** — two mechanisms, both enumerated rather than
 grepped, because neither is a helper you can search for the absence of.
@@ -407,7 +441,7 @@ open.
 |---|---|---|---|---|
 | 0 | a bound systemd user unit (below) | `SYSTEMD` | empty; `unit` set | the unit's `Environment=` and `ExecStart=` |
 | 1 | executable `start.sh`, else executable `run.sh` | `SHELL` | `("./start.sh",)` | the script, then its one-hop target (§ 4.5) |
-| 2 | `package.json` with `scripts.dev`, else `scripts.start` | `NODE` | `("npm", "run", "dev")` | `package.json`, and the chosen `scripts` value |
+| 2 | `package.json` with `scripts.dev`, else `scripts.start` | `NODE` | `("npm", "run", "dev")` | the chosen `scripts` value, and nothing else from that file |
 | 3 | `serve.py`, else `server.py`, else `app.py` | `PYTHON` | `("python3", "serve.py")` | the matched `.py` file |
 | 4 | `serve.mjs`, else `serve.js` | `NODE` | `("node", "serve.mjs")` | the matched `.js`/`.mjs` file |
 
@@ -418,11 +452,11 @@ The `argv` column shows the **preferred** alternate; § 4.1's rule is that
 
 **Only rule 1 has a one-hop *file*.** Rules 2, 3 and 4 name the file they run
 directly, so there is nothing to follow; rule 0's unit is read through
-`systemctl` rather than opened. But three of the five launcher *rules* still
+`systemctl` rather than opened. But two of the five launcher *rules* still
 have **two sources**, and § 4.6's file-major ordering runs them left to right as this
-table lists them: rule 0 takes `Environment=` then `ExecStart=`, rule 1 the
-script then its hop target, rule 2 `package.json` then the chosen `scripts`
-value. Only rules 3 and 4 have a single source.
+table lists them: rule 0 takes `Environment=` then `ExecStart=`, and rule 1 the
+script then its hop target. Rules 2, 3 and 4 have a **single** source — for
+rule 2 that is the chosen `scripts` value alone, for the reason below.
 
 **Rule 1 requires the execute bit** (`os.access(path, os.X_OK)`) and a regular
 file. A `start.sh` without it is not a launcher match, and the reason is
@@ -433,14 +467,29 @@ user never chose.
 `_read_lines`, for the reason § 4.3 measures. A malformed or oversized one is
 not a match, with a reason.
 
-**The port rules never see `package.json`'s raw text.** They run over the
-*parsed* values — each string in `scripts`, and each key/value pair in
-`dependencies` / `devDependencies` — one value per line-equivalent, each clipped
-to `MAX_SOURCE_LINE_CHARS` before a rule touches it. Splitting the raw bytes on
-newlines instead would either lose most of a minified file to the line cap or
-breach INV-3's promise that nothing longer reaches the rules; parsing first
-avoids both, and it is the only source in this spec where structure is
-available to parse. `scripts` must be an object and the chosen value
+**The port rules never see `package.json`'s raw text, and they see exactly one
+value from it: the `scripts` entry this rule chose.** Not every script, and
+**never** `dependencies` or `devDependencies`. That value is clipped to
+`MAX_SOURCE_LINE_CHARS` and offered to rules 1 and 2 like any other line.
+Splitting the raw bytes on newlines instead would either lose most of a
+minified file to the line cap or breach INV-3; parsing first avoids both, and
+this is the only source in the spec where structure is available to parse.
+
+**Both exclusions are load-bearing, and each was measured 2026-08-08:**
+
+- **A dependency block fabricates ports.** `"get-port": "^7.0.0"` — a real and
+  common npm package — partitions on `:`, and `get-port` satisfies
+  `KEY_IS_PORT` through the hyphen, so the digit search returns **7**.
+  `"detect-port": "^1.5.1"` returns **1**. Both would be reported as
+  `DETECTED` with `PortRule.ASSIGNMENT`, which is the manufactured value
+  § 4.1's "`None` means *unknown*, never a guess" exists to forbid. Dependency
+  names are rule 3's *framework evidence* (`vite`) and are never offered to
+  rules 1 and 2.
+- **A script the launcher does not run is not evidence.** With
+  `"build": "vite build --port 9000"` above `"dev": "vite --port 3000"`,
+  scanning every script in document order returns **9000** — the port of a
+  build step — and the chosen script can never correct it, because
+  first-match-wins has already fired. Only the chosen entry is read. `scripts` must be an object and the chosen value
 a non-empty string.
 
 **Rule 0 — the systemd path.** Detection is two steps, because ADR-0003
@@ -491,10 +540,22 @@ requires both and `design.md § Detection rules` states only the first:
    two properties just fetched, and § 4.6's rules 1 and 2 run over them in this
    order: `Environment=` first, then `ExecStart=`.
 
-   Measured 2026-08-08 against a real unit, `Environment` is a single
-   space-separated line of `KEY=VALUE` pairs —
-   `Environment=STATS_PORT=4321 STATS_REFRESH_HOURS=24` — so it is **split on
-   whitespace** and each pair offered to the port rules separately.
+   Measured 2026-08-08 against a real unit, `systemctl` prints
+   `Environment=STATS_PORT=4321 STATS_REFRESH_HOURS=24`. **`properties()`
+   returns the value with its `NAME=` prefix already removed** — that is what
+   its `dict[str, str]` return means — so what the rules receive is
+   `STATS_PORT=4321 STATS_REFRESH_HOURS=24`, a single space-separated line of
+   `KEY=VALUE` pairs, **split on whitespace** and offered to the port rules one
+   pair at a time.
+
+   **The prefix is load-bearing and its removal has to be stated.** Measured:
+   split with the prefix left on, the first token is
+   `Environment=STATS_PORT=4321`, on which rule 2 partitions at the first `=`
+   and gets the key `Environment` (not a port key) while rule 1's `PORT=` is
+   preceded by `_` and excluded by its own boundary — so **neither rule
+   matches**, and `project-a` comes back *unknown*: exactly the failure this
+   step exists to prevent. With the prefix removed, `STATS_PORT=4321` yields
+   4321 through rule 2.
    **The reason is that `partition` examines only the FIRST `KEY=` on a line.**
    Measured: unsplit, `STATS_PORT=4321 REFRESH=24` still yields 4321 because
    the port happens to come first, while `REFRESH=24 STATS_PORT=4321` yields
@@ -574,20 +635,45 @@ scope decision is what moved them here.
 
 ### 4.6 Port rules, first match wins
 
-**Comments are stripped before either rule sees a line.** A line whose first
-non-whitespace characters are `#`, `//` or `;` is skipped entirely, and a
-trailing comment is cut at the first such marker that is not inside a quoted
-string. Without this, `# PORT=9999 (old)` is detected as port 9999 — measured
-2026-08-08 — which is the commonest shape in a real launcher: the *previous*
-port, commented out, sitting above the current one. The app's whole value is
-telling the truth about what a project does, and reading a disabled line as
-live is the sharpest way to fail at that.
+**`systemctl` property values are exempt from the comment stripper, and
+`argv[]=` is extracted from the record before anything else touches it.** The
+stripper is defined over the *lines of a file*; a property value is not one,
+and a `#` inside a command it quotes (`argv[]=/bin/sh -c 'x --port 8080 # prod'`)
+is part of that command rather than a comment about it. Extraction first is
+what makes the ordering unambiguous either way.
+
+**This rule survived the reason that produced it, which is worth recording.**
+It was written when the marker set still included `;`, and systemd separates a
+record's fields with ` ; ` — stripping first then left
+`{ path=/usr/bin/node` and lost the port entirely (measured 2026-08-08).
+Dropping `;` from the marker set removed that failure, so the exemption is no
+longer load-bearing against it; it is kept because the scope argument above
+stands on its own, and stated that way rather than left resting on a
+measurement that no longer reproduces.
+
+**Comments are stripped before either rule sees a line of a file.** A line
+whose first non-whitespace characters are `#` or `//` is skipped entirely, and
+a trailing comment is cut at the first such marker. Without this,
+`# PORT=9999 (old)` is detected as port 9999 — measured 2026-08-08 — which is
+the commonest shape in a real launcher: the *previous* port, commented out,
+sitting above the current one. The app's whole value is telling the truth about
+what a project does, and reading a disabled line as live is the sharpest way to
+fail at that.
+
+**Two markers, not three — `;` is deliberately absent.** An earlier draft
+included it, on the analogy of `.ini` files. In every language this module
+actually reads it is a **statement separator**, and the cost is measured:
+`cd /app ; exec node serve.mjs --port 8080` loses its port, so does
+`"dev": "cd app ; vite --port 5173"`, and so does `export FOO=1 ; PORT=9000`
+(2026-08-08). It bought nothing in exchange — `#` already covers every
+commented-out port in a shell or Python file, and `//` covers JavaScript.
 
 **A marker counts only at line start or after whitespace, and that single
-condition is the whole rule.**
+condition is the whole rule.** There is no quote-awareness, deliberately (see
+below), so a `#` inside a string does cut the line.
 
 ```python
-COMMENT = re.compile(r"(?:^|\s)(?:#|//|;)")
+COMMENT = re.compile(r"(?:^|\s)(?:#|//)")
 
 
 def strip_comment(line: str) -> str:
@@ -615,9 +701,15 @@ a line that declares an impossible one. `PORT = 80.80` still yields 80, which
 is correct — the first whole number on the right is the declaration, and a
 fractional port is not a form anyone writes.
 
-**Within one source, the first matching line wins**, scanning top to bottom —
-the same first-match-wins the launcher rules use, stated because "anywhere in
-the file" left it open when two lines match.
+**Within one source the scan is line-major: each line is offered to rule 1
+then rule 2 before the next line is read**, and the first line to yield a port
+wins. Stated because "anywhere in the file" left it open, and because the two
+readings disagree — measured 2026-08-08 on a launcher holding
+`SERVER_PORT = 3000` above `exec node serve.js --port 8080`, line-major returns
+**3000** and running rule 1 over the whole file first returns **8080**. This is
+§ 4.6's between-source ordering asked one level down, and the same answer:
+proximity to the top of the file beats rule precedence, because a declaration
+near the top is the one a human reads as authoritative.
 
 **Rule 1 — an explicit port setting**, anywhere in the line. Given as code for
 the same reason rule 2 is, and because **rule 1 runs first, so its looseness
@@ -635,6 +727,13 @@ RULE_1 = re.compile(
 
 The port is the **first non-`None` group** of the match; the four alternatives
 are mutually exclusive, so exactly one is ever set.
+
+**An out-of-range value is not a match, and scanning resumes after it** — the
+rest of the same line, then the next line, then the next source. So rule 1 uses
+`finditer` and returns the first in-range value rather than `search` and a
+range check on one result: `localhost:99999 and PORT=8080` on one line yields
+**8080**, where checking only the first match would yield nothing and hand the
+line to rule 2. Rule 2's fenced code carries the same rule inside its loop.
 
 Two things the prose form left open, both of which change what gets built:
 
@@ -911,8 +1010,13 @@ is the property the derivation exists for.
   returns a port from a negative number.
   *Test:* `tests/test_scanner.py::test_a_commented_out_port_is_not_detected`,
   parametrised over `#`, `//` and `;` at line start, a trailing `# was 9090`
-  that must **not** suppress the live value on the same line, and
-  `NAME = "a # b"` whose quoted `#` must not truncate it; plus
+  that must **not** suppress the live value on the same line,
+  `http://localhost:3000` whose `//` is **not** a comment, and
+  `NAME = "a # b"`, which yields **no port** — the stripper does truncate it at
+  the quoted `#` and that is harmless, since the key left of the separator is
+  `NAME` either way. The case asserts the *outcome*, not that the line survives
+  intact: asserting the latter would demand the quote-aware loop § 4.6 rejected
+  for eating `http://localhost:3000`. Plus
   `::test_a_negative_number_is_not_a_port`.
   *Breaks when:* a launcher carries its previous port commented out above the
   current one — measured 2026-08-08 to return 9999 for `# PORT=9999 (old)`
@@ -1024,10 +1128,17 @@ is the property the derivation exists for.
 - **INV-16** — A candidate containing this application's own package is never
   listed as a project.
   *Test:* `tests/test_scanner.py::test_the_app_does_not_detect_itself`, with a
-  fixture candidate holding a `src/lwsm/__init__.py` and a monkeypatched
-  `lwsm.__file__` pointing into it.
+  fixture candidate holding a `src/lwsm/__init__.py`, a monkeypatched
+  `lwsm.__file__` pointing into it, **and an executable `start.sh`**.
   *Breaks when:* the manager is run from a checkout sitting inside a scan
   root, and offers to launch itself.
+  **The launcher in the fixture is what makes this falsifiable.** Without it
+  the candidate matches no launcher rule, so rejection 5 already keeps it out
+  and the test stays green with the self-exclusion guard deleted — the guard
+  ships unreached. With it, rejection 3 is the only thing standing between the
+  fixture and a listed row, which is also the real situation rejection 3
+  describes: once P01's launcher exists, this repository *does* look like a
+  project.
 
 - **INV-17** — A `systemd` project's port comes from its unit's `Environment=`
   and `ExecStart=`, in that order, and not from any file in the project
@@ -1103,14 +1214,35 @@ fixture builds a throwaway tree via **`tmp_path_factory.mktemp("scan_root")`**
 mirroring the seven known projects — each shape from `docs/discovery.md`'s
 inventory — plus the framework-default project § 3 added.
 
-**The two expected back as *unknown* are `project-d` and `project-e`**, and
-naming them is what makes the corpus buildable. `project-e` puts its port two
-hops out (`run.sh` -> `launcher.py` -> `config.py`); `project-d`'s is a *saved
-setting* inside `settings_manager.py`, which no static rule reads. The other
-five are detected: `project-a` from its systemd unit, `project-b` and
-`project-c` from their Python launchers, `project-f` from `start.sh` itself,
-`project-g` from `run.sh`'s `${PORT:-8080}` — the form rule 1 needs its own
-alternative for.
+**Each fixture's expected result is derived from what the fixture contains,
+never asserted from what the real project does.** That distinction is the
+corpus's whole value, and getting it backwards produces a test that disagrees
+with the rules it is meant to lock:
+
+| Fixture | What it holds | Expected, by the rules |
+|---|---|---|
+| `project-a` | a bound unit whose `Environment=` carries the port | detected, rule 0 + port rule 2 |
+| `project-b` | `serve.py` with a port assignment | detected, launcher rule 3 + port rule 2 |
+| `project-c` | `server.py` with a port assignment | detected, launcher rule 3 + port rule 2 |
+| `project-d` | `start.sh` hopping to a `.py` that **imports neither Flask nor Django**, port held in a saved setting | **unknown** |
+| `project-e` | `run.sh` → `launcher.py` → `config.py`, port two hops out, no framework import in the hop target | **unknown** |
+| `project-f` | `start.sh` declaring its port directly | detected, port rule 1 |
+| `project-g` | `run.sh` with `${PORT:-8080}` | detected, port rule 1's first alternative |
+| framework fixture (§ 3) | `serve.py` importing Flask, no port anywhere | detected, **port rule 3** |
+
+**The `project-d` and `project-e` rows carry an explicit negative, and they
+have to.** Both are `SHELL` projects whose hop target is a `.py` file, and
+§ 4.6's table lets a `SHELL` project reach Flask and Django evidence exactly
+that way. The real `project-d` runs on **5000** — Flask's default — so a
+fixture whose hop target imports Flask would make rule 3 return 5000, which is
+the *right* port and the *wrong* test result. Either the fixture omits the
+import (as specified above) and the expectation is *unknown*, or it includes
+one and the expectation becomes `PortRule.FRAMEWORK_DEFAULT`. What it may not
+be is a fixture whose content nobody stated and an expectation nobody derived.
+
+`testing.md § T1` forbids reading the real projects, so the corpus is only ever
+as true as the day someone last checked it against them — recorded in § 11 as
+one of the four `nothing` rows rather than pretended away.
 
 **`tmp_path_factory`, not `tmp_path`.** `tmp_path` is function-scoped, so a
 session-scoped fixture requesting it raises `ScopeMismatch` at collection —
@@ -1358,6 +1490,7 @@ purpose rather than silently reconciled (`.claude/workflow.md § 2`).
 
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
+| 4 | 2026-08-08 | 2 (general-purpose, strong model) — **first loop under the four-question brief** | Q1 ×2 · Q2 ×5 · Q3 ×5 · Q4 ×2 | **14 verified, 0 unverified, 14 fixed**, plus 1 collateral. **Every finding from both lanes changed what gets built; neither returned a single wording, structure or duplication finding.** That is the brief, not luck: it asks four questions and names the rest out of scope. Against loop 3's ~11 build-changing out of 26, the signal went from 42% to 100% and the brief itself from 24 KB to 3.4 KB. The worst three, none reachable by the fifteen-dimension passes that preceded them: **(1)** `package.json`'s dependency block was being fed to the port rules, and `"get-port": "^7.0.0"` — a real, common npm package — yields port **7** through `KEY_IS_PORT`'s hyphen; `"detect-port"` yields **1**. Scope narrowed to the chosen `scripts` value alone. **(2)** `systemctl show -p Environment` prints `Environment=STATS_PORT=4321 …`, and splitting *with* that prefix leaves a first token on which rule 2's key is `Environment` and rule 1's `PORT=` is preceded by `_` — neither matches, so `project-a` comes back *unknown*, the precise failure INV-17 exists to prevent. The `NAME=` prefix removal is now stated. **(3)** The `;` I had added to the comment-marker set is a **statement separator**, not a comment marker, in every language this module reads: `cd /app ; exec node serve.mjs --port 8080` lost its port, so did an npm `"dev"` script and a shell assignment. Dropped. Also: the ordering *inside* one source was left open where the ordering *between* sources had been settled (line-major, 3000 vs 8080 on the same file); `path` was "absolute" where four other clauses need it *resolved*, which under a symlinked scan root gives one project two registry identities; `systemctl` failing with no D-Bus session raises `JSONDecodeError`/`CalledProcessError`, neither an `OSError`, so `scan()` raised instead of degrading; INV-16's fixture had no launcher, so rejection 5 already excluded it and the self-exclusion guard shipped unreached; and a refused launcher dropped the whole candidate, letting anyone who can plant a symlink named `start.sh` delete a project from the manager. The one collateral: dropping `;` retired the measurement that justified the `ExecStart` stripper exemption — the exemption is kept on its scope argument and the stale reason replaced, caught by the conformance script on the next run. Doc 1265 → 1497 lines. |
 | 3-conf | 2026-08-08 | **none — no reviewer dispatched.** An execution pass, not a review loop | 1 | 1 | 1 | 1 | **4 verified, 4 fixed.** `docs/specs/LWSM-1006-conformance.py` transcribes every pattern, bound and predicate § 4 prescribes and runs them against inputs chosen to break them. Written after loop 3 on the observation that all three of that loop's CRITICALs were false claims about *patterns* — a class no reader catches and no reviewer is needed for. It found, in one run: **(CRIT)** `re.search(r"\d{1,5}(?![0-9])", " 123456")` returns **23456** — a lookahead alone does not reject a longer number in a *search*, because the engine advances past the unmatchable first digit and matches the tail; rule 1 was immune only because `PORT=` anchors its digits, so the fix applied one loop earlier had been applied to the call site rather than to the mechanism (`coding.md § 1.6` exactly). **(HIGH)** `# PORT=9999 (old)` was detected as port 9999 — no rule anywhere mentioned comments, and a commented-out previous port is the commonest shape in a real launcher. **(MED)** the quote-aware stripper written to fix that cut `http://localhost:3000` at the `//`, killing a documented rule-1 form, at 766 µs/call against the replacement's 64 µs. **(LOW)** `PORT = -1` yielded **1**. Also corrected: § 4.4's stated reason for splitting `Environment=` was wrong — the real failure is that `partition` examines only the first `KEY=`, so a port that is not the first variable is invisible. The run is recorded here rather than as a loop because **no reviewer was dispatched**; it is a deterministic check, and it converges where a judgement review does not. |
 | 3 | 2026-08-08 | 2 (general-purpose, strong model) | 3 | 4 | 6 | 13 | **26 verified, 0 unverified, 26 fixed**, plus 2 collateral the 4b sweep caught. Dimensions: dim 5×8, dim 4×6, dim 7×3, dim 10×2, dim 6×2, dim 1×2, dim 2×1, dim 15×1, dim 11×1. **Origin split: 6 draft defects against ~20 fix collateral** — the decisive margin the loop-economics rule names, and the reason this run stops here rather than dispatching a fourth. **All three CRITICALs were defects the previous two loops' own fixes introduced**, which is the shape that margin describes. (1) Loop 2's `\d{1,5}` does not *reject* a longer number, it takes the first five digits of one: measured, `PORT=123456` → **12345**, `--port 999999999` → **99999**, each passing the range check and fabricating a port out of a line that declares none — the one outcome § 4.1 forbids. `(?![0-9])` closes it. (2) Loop 2's INV-9 said both rules exclude the underscore; rule 2's shipped class **admits** it, and must, since that is the only reason `DEFAULT_PORT` and `server_port` match at all — an implementer building from that invariant loses two of the seven detections § 7 requires. (3) Loop 1's INV-15 fixture, `"a" * 4092 + "port"`, contains no separator, so `rule_2` returns before `KEY_IS_PORT` ever runs: instrumented at **0 regex calls**, green by construction, and green under its own prescribed mutation. The corrected fixture costs **74.41 µs** against the 0.24 µs the old one "measured" — so loop 1's figure was timing an early return. Two draft defects worth naming: an unreadable launcher's effect on its *candidate* was never stated (both a listed project with no port and a skip passed INV-1 and INV-4), and `skipped` reasons plus `PortFinding.source` were length-bounded but never **escaped**, while § 4.3's own § 1.6 sweep asserted both halves were present — a filename may contain a newline, which is LWSM-1078 exactly. The duplicated 18-row invariant→test table in § 7 was deleted in favour of § 11's. Doc 1195 → 1265 lines. |
 | 2 | 2026-08-08 | 2 (general-purpose, strong model) | 2 | 4 | 7 | 11 | **24 verified, 0 unverified, 24 fixed**, plus 7 collateral the 4b sweep caught. Dimensions: dim 5×6, dim 4×4, dim 2×4, dim 7×3, dim 10×3, dim 15×2, dim 12×1, dim 6×1. **Origin split: 12 draft defects, 12 fix collateral** — no decisive margin either way, so the loop dispatched rather than sweeping. Both lanes led with the same contradiction, and it was collateral: loop 1 changed § 4.4's missing-unit signal to `LoadState=not-found` and left § 8 asserting the empty `FragmentPath` it had just retired. **The loop's most valuable finding was a draft defect neither loop-1 lane reached, and it is a security gap** — INV-1 has promised since the first draft that a symlink resolving out of the project is refused, and no rule implemented that half for the *launcher itself*: `commonpath` guarded only the one-hop target. Measured 2026-08-08, a `start.sh` symlinked outside the project passes `S_ISREG` **and** `os.access(X_OK)` — both describe the target — and its contents are read. `O_NOFOLLOW` is the only guard that sees it, which is precisely the LWSM-1050 containment promise this item is chartered to land. Second: **rule 1 had no pattern at all**, only prose, while running *ahead* of the rule § 4.6 had carefully bounded — measured, an unanchored `PORT=` returns 99 for `TRANSPORT=99` and 4321 for `APP_PORT=4321`, the latter being INV-17's own fixture. It also missed `PORT=${PORT:-N}` entirely, the form `project-g` uses. Third, from executing the new reader: **a minified `package.json` is 6,252 characters on one line**, so the 4096 line cap turned an ordinary artefact into `JSONDecodeError` and silently dropped a legitimate Node project; § 4.3 now has two readers. Doc 1042 → 1201 lines. |
