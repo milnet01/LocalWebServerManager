@@ -477,28 +477,6 @@ for label, line in [
         FAILS.append(f"INV-15: {label} exceeds the 1 s ceiling")
 
 print()
-print("=== § 4.5: a NUL byte in a hop token (registry.py's guard, swept in) ===")
-nul_target = root / "laun\x00cher.py"
-check(
-    "commonpath accepts a NUL happily",
-    os.path.commonpath([str(root), str(nul_target)]) == str(root),
-    True,
-    "<- which is why the guard cannot live there",
-)
-for label, fn in (
-    ("resolve()", lambda: nul_target.resolve()),
-    ("os.open()", lambda: os.open(nul_target, os.O_RDONLY)),
-):
-    try:
-        fn()
-        got = "no error"
-    except ValueError:
-        got = "ValueError"
-    except OSError:
-        got = "OSError"
-    check(f"NUL token: {label} raises", got, "ValueError", "<- NOT an OSError")
-
-print()
 print("=== § 4.5: commonpath containment ===")
 root = (d / "proj").resolve()
 for target, want in [
@@ -524,6 +502,30 @@ excluded = {
 }
 hit = set((root / "node_modules" / "x.py").relative_to(root).parts) & excluded
 check("node_modules target is excluded", bool(hit), True)
+
+print()
+print("=== § 4.5: a NUL byte in a hop token (registry.py's guard, swept in) ===")
+nul_target = root / "laun\x00cher.py"
+check(
+    "commonpath accepts a NUL happily",
+    os.path.commonpath([str(root), str(nul_target)]) == str(root),
+    True,
+    "<- which is why the guard cannot live there",
+)
+for label, fn in (
+    ("resolve()", lambda: nul_target.resolve()),
+    ("os.open()", lambda: os.open(nul_target, os.O_RDONLY)),
+):
+    try:
+        fn()
+        got = "no error"
+    except ValueError:
+        got = "ValueError"
+    except OSError:
+        got = "OSError"
+    check(f"NUL token: {label} raises", got, "ValueError", "<- NOT an OSError")
+
+print()
 
 print()
 print("=" * 70)
