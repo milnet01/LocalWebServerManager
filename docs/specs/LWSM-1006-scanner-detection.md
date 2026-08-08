@@ -493,9 +493,15 @@ requires both and `design.md § Detection rules` states only the first:
 
    Measured 2026-08-08 against a real unit, `Environment` is a single
    space-separated line of `KEY=VALUE` pairs —
-   `Environment=STATS_PORT=4321 STATS_REFRESH_HOURS=24` — so it is split on
-   whitespace and each pair offered to the port rules separately; feeding the
-   whole line in would let rule 2 partition on the wrong `=`. `ExecStart` is a
+   `Environment=STATS_PORT=4321 STATS_REFRESH_HOURS=24` — so it is **split on
+   whitespace** and each pair offered to the port rules separately.
+   **The reason is that `partition` examines only the FIRST `KEY=` on a line.**
+   Measured: unsplit, `STATS_PORT=4321 REFRESH=24` still yields 4321 because
+   the port happens to come first, while `REFRESH=24 STATS_PORT=4321` yields
+   `None` — the port is invisible whenever another variable precedes it, which
+   is ordinary. An earlier draft justified the split by saying rule 2 would
+   "partition on the wrong `=`"; that is not what goes wrong, and a wrong
+   reason is a reason someone will later decide is obsolete. `ExecStart` is a
    **structured record**, not a command line —
    `ExecStart={ path=/usr/bin/node ; argv[]=/usr/bin/node serve.mjs ; … }` — so
    only the `argv[]=` field is scanned, and rule 2 is not run over it at all,
@@ -568,6 +574,47 @@ scope decision is what moved them here.
 
 ### 4.6 Port rules, first match wins
 
+**Comments are stripped before either rule sees a line.** A line whose first
+non-whitespace characters are `#`, `//` or `;` is skipped entirely, and a
+trailing comment is cut at the first such marker that is not inside a quoted
+string. Without this, `# PORT=9999 (old)` is detected as port 9999 — measured
+2026-08-08 — which is the commonest shape in a real launcher: the *previous*
+port, commented out, sitting above the current one. The app's whole value is
+telling the truth about what a project does, and reading a disabled line as
+live is the sharpest way to fail at that.
+
+**A marker counts only at line start or after whitespace, and that single
+condition is the whole rule.**
+
+```python
+COMMENT = re.compile(r"(?:^|\s)(?:#|//|;)")
+
+
+def strip_comment(line: str) -> str:
+    match = COMMENT.search(line)
+    return line if not match else line[: match.start()]
+```
+
+The condition is not a simplification for its own sake — **without it the
+stripper eats `http://localhost:3000` at the `//`**, silently killing one of
+rule 1's six documented forms. The first version written here was a
+quote-aware character loop, on the theory that `NAME = "a # b"` must not be
+truncated; it did exactly that damage, and cost **766 µs** per call against
+this one's **64 µs** on a line at the cap (measured 2026-08-08). Truncating a
+quoted `#` is harmless — the key left of the separator decides the match, and
+`NAME` is not a port key — so the loop was buying nothing and breaking
+something.
+
+The stripper is shared by both port rules and by rule 3's evidence scan, so a
+framework identified from a commented-out import cannot happen either.
+
+**A negative number is not a port.** Rule 2's digit pattern is
+`(?<![0-9-])\d{1,5}(?![0-9])`, excluding a preceding `-` as well as a digit:
+without it `PORT = -1` yields **1** (measured), inventing a plausible port from
+a line that declares an impossible one. `PORT = 80.80` still yields 80, which
+is correct — the first whole number on the right is the declaration, and a
+fractional port is not a form anyone writes.
+
 **Within one source, the first matching line wins**, scanning top to bottom —
 the same first-match-wins the launcher rules use, stated because "anywhere in
 the file" left it open when two lines match.
@@ -614,6 +661,17 @@ is the one thing § 4.1's "`None` means *unknown*, never a guess" forbids. With
 the lookahead all three return `None`. The `{1,5}` bound remains, so a
 4096-character run of digits is never captured in the first place.
 
+**Rule 2 needs the mirror-image guard as well, and for a reason rule 1 does
+not have.** Rule 1's digits are anchored — they must sit immediately after
+`PORT=`, `--port ` or `localhost:` — so a failed match at that position ends
+the attempt. Rule 2 runs a bare `re.search` over the right-hand side, and a
+search that cannot match at the first digit **advances and matches the tail**:
+measured 2026-08-08, `PORT = 123456` returned **23456**. So rule 2 carries
+`(?<![0-9])` as well as `(?![0-9])`. This is the same fabrication class caught
+in rule 1 one loop earlier, surviving in the sibling rule — `coding.md § 1.6`'s
+"a mechanism, not the call site it was reported against", and it was found by
+running both rules over the same corpus rather than by reading either.
+
 Run 2026-08-08 over twelve lines — the six accepted forms above plus
 `TRANSPORT=99`, `EXPORT=5`, `APP_PORT=4321`, `SERVER_PORT = 3000`,
 `const viewport = 1280` and `export PORT=8080` — with every result as stated
@@ -638,7 +696,12 @@ def rule_2(line: str) -> int | None:
         key = left.strip().strip("'\"").rstrip("'\" \t")
         if key.lower() != "port" and not KEY_IS_PORT.search(key):
             continue
-        digits = re.search(r"\d{1,5}(?![0-9])", right)  # see rule 1 on the lookahead
+        # BOTH boundaries, and `-` on the left. A lookahead alone is not
+        # enough in a *search*:
+        # the engine, unable to match at the first digit, advances and matches
+        # the tail — ` 123456` yields `23456`. Rule 1 is immune only because
+        # `PORT=` anchors its digits to a fixed position.
+        digits = re.search(r"(?<![0-9-])\d{1,5}(?![0-9])", right)
         # The range check lives HERE, not at the call site: an out-of-range
         # value must let the search carry on to the next separator, the next
         # line and the next source, which a returned int cannot express.
@@ -844,6 +907,20 @@ is the property the derivation exists for.
   a `.mount` suffix.
   *Breaks when:* a unit named `--host=evil.example.service` is proposed.
 
+- **INV-19** — Neither port rule reads a commented-out line, and neither
+  returns a port from a negative number.
+  *Test:* `tests/test_scanner.py::test_a_commented_out_port_is_not_detected`,
+  parametrised over `#`, `//` and `;` at line start, a trailing `# was 9090`
+  that must **not** suppress the live value on the same line, and
+  `NAME = "a # b"` whose quoted `#` must not truncate it; plus
+  `::test_a_negative_number_is_not_a_port`.
+  *Breaks when:* a launcher carries its previous port commented out above the
+  current one — measured 2026-08-08 to return 9999 for `# PORT=9999 (old)`
+  before the stripper existed — or a line reads `PORT = -1`, which returned
+  **1**.
+  **Found by executing the rules against a corpus, not by reading them**, after
+  three review loops had passed over both patterns.
+
 - **INV-9** — Both port rules require a separating character before `port`,
   and **the two classes differ on the underscore, deliberately**: rule 2 uses
   `[^A-Za-z0-9]`, which *admits* `_`; rule 1 uses `[^A-Za-z0-9_]`, which does
@@ -924,7 +1001,8 @@ is the property the derivation exists for.
   *Test:* `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack`,
   calling `rule_2` **directly** on two synthetic strings at the line cap:
   `"a" * 4088 + "port = 1"` (4096 characters) and 102 colon-separated fields,
-  with a 1-second ceiling.
+  with a 1-second ceiling. Both figures come from
+  `docs/specs/LWSM-1006-conformance.py`, which prints them on every run.
   *Breaks when:* the two-step is replaced by a single pattern with a nested
   quantifier. Measured 2026-08-08: CPython 3.13.14 still backtracks
   catastrophically — `(a+)+$` against 24 `a`s took **1.10 s**, doubling per
@@ -935,8 +1013,8 @@ is the property the derivation exists for.
   two `partition` calls and `KEY_IS_PORT` **never runs** — the test was green by
   construction and survived its own prescribed mutation. Instrumented
   2026-08-08: 0 regex calls against the old fixture, 1 against the new, and the
-  cost moved 0.24 µs → **74.41 µs** per call, so the old figure was timing the
-  early return rather than the rule. This is `testing.md § T9` item 3 and
+  cost moved 0.24 µs → **154 µs** per call (comment-stripping included), so the
+  old figure was timing the early return rather than the rule. This is `testing.md § T9` item 3 and
   `/write-spec`'s "which rule makes this fixture fail?" — a clause that reads
   as sound and tests nothing.
   **The bound is 4096 rather than 40,000** because INV-3 caps every line at
@@ -1053,6 +1131,23 @@ Every invariant's test is named in its own bullet in § 5 and tabulated in
 § 11. It is not tabulated a third time here: the same eighteen rows stood
 in two places for three loops and had already drifted twice.
 
+**`docs/specs/LWSM-1006-conformance.py` runs every pattern in this document
+now**, before any of it is implemented — the regexes, the range check, the line
+cap, the containment check, the unit-name validator, the comment stripper and
+INV-15's timing bound, each against inputs chosen to break it. It exists
+because three cold-eyes loops read those patterns and passed them, and running
+them found four false claims in two minutes. Re-run it after **any** edit to a
+fenced pattern in § 4:
+
+```
+PYTHONDONTWRITEBYTECODE=1 uv run python3 docs/specs/LWSM-1006-conformance.py
+```
+
+**Definition of done includes deleting it.** When `scanner.py` exists its cases
+move into `tests/test_scanner.py` pointed at the real module, and the script
+goes — a second copy of the patterns is a second source of truth, and it is
+only tolerable while the first one does not exist yet.
+
 Plus the acceptance test the roadmap names:
 `test_every_fixture_project_is_detected_as_expected` — named for the corpus
 rather than for seven, since the tree already holds eight and grows with every
@@ -1078,9 +1173,10 @@ is `testing.md § T9` item 3: a stub must be able to express the breach.
 for *waits*, not for bounds.** T4's target is `time.sleep` standing in for a
 condition, where the condition is the thing to poll for; here the elapsed time
 *is* the assertion, and there is nothing to poll. The ceiling is set against a
-measurement rather than a guess: 74.41 µs/call for the 4096-character key line
-and 1.35 µs/call for the 102-field line (2026-08-08, 1000 iterations each), so
-1 second is a margin of roughly 13,000× and 740,000×. A machine slow enough
+measurement rather than a guess: **153.53 µs/call** for the 4096-character key
+line and **70.25 µs/call** for the 102-field line (2026-08-08, printed by
+`docs/specs/LWSM-1006-conformance.py`), so 1 second is a margin of roughly
+6,500× and 14,000×. A machine slow enough
 to fail it honestly has a problem, and a backtracking replacement fails it by
 orders of magnitude rather than by a hair — which is what keeps it off
 `testing.md § 3.4`'s flaky-perf-test list.
@@ -1192,14 +1288,15 @@ file-or-unit name, having lost the matched line for the reason in § 4.1.
 | INV-16 | `tests/test_scanner.py::test_the_app_does_not_detect_itself` |
 | INV-17 | `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit` |
 | INV-18 | `tests/test_scanner.py::test_the_reason_list_is_capped_and_says_so`, `::test_a_newline_in_a_directory_name_cannot_forge_a_log_record` |
+| INV-19 | `tests/test_scanner.py::test_a_commented_out_port_is_not_detected`, `::test_a_negative_number_is_not_a_port` |
 | § 4.4 rule 0's real `systemctl` calls behave as measured | **nothing** — every test injects `SupportsUnitLookup`, per `testing.md § T1`. The measurements in § 4.4 are dated and reproducible by hand; nothing re-runs them, and a `systemctl` whose output shape changes breaks detection with every test green |
 | § 4.6's rules detect the *seven real* projects correctly | **nothing** — the fixture tree mirrors them, and a fixture that has drifted from the project it mirrors passes while the real detection fails. `testing.md § T1` forbids reading the real ones, so this is a limit rather than a defect |
 | § 4.3's `errors="replace"` decode never raises on any real file | **nothing** — untestable in general; the tests cover UTF-8, Latin-1 bytes and a binary blob |
 | § 4.2's self-exclusion under a **non-editable** install | **nothing** — INV-16 covers the source-checkout case, which is the one that occurs. A wheel install plus a checkout inside a scan root lists the checkout; judged not worth a second mechanism |
 
-Twenty-two rows, **four** with a bolded `nothing` — this spec's honest error
+Twenty-three rows, **four** with a bolded `nothing` — this spec's honest error
 budget, per `spec-format.md § 0`. Recounted after each review loop rather than
-adjusted: 18 invariant rows plus 4. Three of the four are one shape — a test
+adjusted: 19 invariant rows plus 4. Three of the four are one shape — a test
 fake, a fixture tree and a measured command line can only be as true as the day
 someone last checked them against reality.
 
@@ -1261,6 +1358,7 @@ purpose rather than silently reconciled (`.claude/workflow.md § 2`).
 
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
+| 3-conf | 2026-08-08 | **none — no reviewer dispatched.** An execution pass, not a review loop | 1 | 1 | 1 | 1 | **4 verified, 4 fixed.** `docs/specs/LWSM-1006-conformance.py` transcribes every pattern, bound and predicate § 4 prescribes and runs them against inputs chosen to break them. Written after loop 3 on the observation that all three of that loop's CRITICALs were false claims about *patterns* — a class no reader catches and no reviewer is needed for. It found, in one run: **(CRIT)** `re.search(r"\d{1,5}(?![0-9])", " 123456")` returns **23456** — a lookahead alone does not reject a longer number in a *search*, because the engine advances past the unmatchable first digit and matches the tail; rule 1 was immune only because `PORT=` anchors its digits, so the fix applied one loop earlier had been applied to the call site rather than to the mechanism (`coding.md § 1.6` exactly). **(HIGH)** `# PORT=9999 (old)` was detected as port 9999 — no rule anywhere mentioned comments, and a commented-out previous port is the commonest shape in a real launcher. **(MED)** the quote-aware stripper written to fix that cut `http://localhost:3000` at the `//`, killing a documented rule-1 form, at 766 µs/call against the replacement's 64 µs. **(LOW)** `PORT = -1` yielded **1**. Also corrected: § 4.4's stated reason for splitting `Environment=` was wrong — the real failure is that `partition` examines only the first `KEY=`, so a port that is not the first variable is invisible. The run is recorded here rather than as a loop because **no reviewer was dispatched**; it is a deterministic check, and it converges where a judgement review does not. |
 | 3 | 2026-08-08 | 2 (general-purpose, strong model) | 3 | 4 | 6 | 13 | **26 verified, 0 unverified, 26 fixed**, plus 2 collateral the 4b sweep caught. Dimensions: dim 5×8, dim 4×6, dim 7×3, dim 10×2, dim 6×2, dim 1×2, dim 2×1, dim 15×1, dim 11×1. **Origin split: 6 draft defects against ~20 fix collateral** — the decisive margin the loop-economics rule names, and the reason this run stops here rather than dispatching a fourth. **All three CRITICALs were defects the previous two loops' own fixes introduced**, which is the shape that margin describes. (1) Loop 2's `\d{1,5}` does not *reject* a longer number, it takes the first five digits of one: measured, `PORT=123456` → **12345**, `--port 999999999` → **99999**, each passing the range check and fabricating a port out of a line that declares none — the one outcome § 4.1 forbids. `(?![0-9])` closes it. (2) Loop 2's INV-9 said both rules exclude the underscore; rule 2's shipped class **admits** it, and must, since that is the only reason `DEFAULT_PORT` and `server_port` match at all — an implementer building from that invariant loses two of the seven detections § 7 requires. (3) Loop 1's INV-15 fixture, `"a" * 4092 + "port"`, contains no separator, so `rule_2` returns before `KEY_IS_PORT` ever runs: instrumented at **0 regex calls**, green by construction, and green under its own prescribed mutation. The corrected fixture costs **74.41 µs** against the 0.24 µs the old one "measured" — so loop 1's figure was timing an early return. Two draft defects worth naming: an unreadable launcher's effect on its *candidate* was never stated (both a listed project with no port and a skip passed INV-1 and INV-4), and `skipped` reasons plus `PortFinding.source` were length-bounded but never **escaped**, while § 4.3's own § 1.6 sweep asserted both halves were present — a filename may contain a newline, which is LWSM-1078 exactly. The duplicated 18-row invariant→test table in § 7 was deleted in favour of § 11's. Doc 1195 → 1265 lines. |
 | 2 | 2026-08-08 | 2 (general-purpose, strong model) | 2 | 4 | 7 | 11 | **24 verified, 0 unverified, 24 fixed**, plus 7 collateral the 4b sweep caught. Dimensions: dim 5×6, dim 4×4, dim 2×4, dim 7×3, dim 10×3, dim 15×2, dim 12×1, dim 6×1. **Origin split: 12 draft defects, 12 fix collateral** — no decisive margin either way, so the loop dispatched rather than sweeping. Both lanes led with the same contradiction, and it was collateral: loop 1 changed § 4.4's missing-unit signal to `LoadState=not-found` and left § 8 asserting the empty `FragmentPath` it had just retired. **The loop's most valuable finding was a draft defect neither loop-1 lane reached, and it is a security gap** — INV-1 has promised since the first draft that a symlink resolving out of the project is refused, and no rule implemented that half for the *launcher itself*: `commonpath` guarded only the one-hop target. Measured 2026-08-08, a `start.sh` symlinked outside the project passes `S_ISREG` **and** `os.access(X_OK)` — both describe the target — and its contents are read. `O_NOFOLLOW` is the only guard that sees it, which is precisely the LWSM-1050 containment promise this item is chartered to land. Second: **rule 1 had no pattern at all**, only prose, while running *ahead* of the rule § 4.6 had carefully bounded — measured, an unanchored `PORT=` returns 99 for `TRANSPORT=99` and 4321 for `APP_PORT=4321`, the latter being INV-17's own fixture. It also missed `PORT=${PORT:-N}` entirely, the form `project-g` uses. Third, from executing the new reader: **a minified `package.json` is 6,252 characters on one line**, so the 4096 line cap turned an ordinary artefact into `JSONDecodeError` and silently dropped a legitimate Node project; § 4.3 now has two readers. Doc 1042 → 1201 lines. |
 | 1 | 2026-08-08 | 2 (general-purpose, strong model) | 3 | 7 | 7 | 8 | **25 verified, 0 unverified, 25 fixed.** Dimensions: dim 5×10, dim 4×4, dim 7×3, dim 15×3, dim 10×2, dim 6×2, dim 2×1. **Both lanes independently led with the same two defects**, which is the strongest corroboration this gate produces. (1) **A `systemd` project had no port-detection path at all** — § 4.5 restricted the one hop to `SHELL`, rule 0 read the unit only to *bind* it, and § 4.6 named no source, so `project-a` came back *unknown* and the acceptance test could not pass; both roadmap bullets say this item carries the unit's `Environment=` / `ExecStart`. Now § 4.4 step 3. (2) **INV-14 prescribed a test that fails on landing**: it derived `CORE_MODULES` from `coding.md § O1`'s criterion, which is a two-way split covering `__main__.py` — and `__main__.py` imports `QtWidgets` by design, so the derivation would also redden the sibling test. The criterion itself is now amended (§ 12 item 7). Lane B alone found the third: **INV-10's discriminating fixture was rejected by this spec's own rule 2** — `PORT_BASE` ends in `BASE`, so both orderings returned 8080 and the test guarding the file-major decision was green by construction. Also fixed: the reason list had `registry.py`'s per-reason clip and not its `MAX_REASONS` count cap (§ 1.6's exact failure shape, one pass after the spec cited that very site); `PortFinding.line` carried a hostile file's bytes to the log and status bar unescaped, and the field was **deleted** rather than defended; INV-15 asserted a 40,000-character line that INV-3 makes unreachable. **A 26th defect came from Phase 4a's execute-before-it-lands rule, not from a lane:** the prescribed `systemctl --user show -- <unit> -p FragmentPath` puts its options *after* the `--`, so `systemctl` reads them as unit names and dumps all **832** property lines. Three invariants added (INV-16 self-exclusion, INV-17 the systemd port, INV-18 the reason cap). Doc 716 → 1042 lines. |
