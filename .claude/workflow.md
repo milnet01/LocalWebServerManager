@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Project phase** | **P02 CLOSED 2026-08-07** — vertical slice LWSM-1005 plus five fix-passes (FP02–FP05, 37 fix items). P01 stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03. **Next is P03** (LWSM-1006 Scanner, LWSM-1007 registry persistence, LWSM-1039 backup, LWSM-1008 first-run flow) |
-| **Active item ID** | — (none active). **`FP05` is complete: all nine items ✅** (LWSM-1112…1120). The MEDIUM/LOW tail stays routed in `docs/known-issues.md`, each entry with a named owner |
-| **Active step** | — (P02 closed; a P03 item has not been started) |
-| **Last update** | 2026-08-07 (**FP05 complete and P02 closed.** All nine items shipped, every fix mutation-verified, 185 tests up from 159, full gate green. Four of the nine bullets were corrected by measurement — LWSM-1117's wait is unbounded rather than ~3.3 s, LWSM-1116 had an unreported second half, and LWSM-1115's own fix introduced the defect known-issue-005 describes. The rule-14 gate ran as one batched `/cold-eyes` over `coding.md` + `testing.md`: **converged in 2 loops**, 12 then 15 verified findings, all fixed. Loop 2's split was 11 fix collateral vs 4 draft defects, so it converged by sweep rather than a third dispatch. Two user corrections folded in: prose counts of growing sets are now banned and tested (`tests/test_docs.py`), and the `.audit_cache` history exposure is assessed and accepted as known-issue-016) |
+| **Project phase** | **P03 OPEN** (started 2026-08-08) — LWSM-1006 Scanner is the active item and its spec is through the gate; LWSM-1007, LWSM-1039, LWSM-1008 and LWSM-1121 follow. **P02 CLOSED 2026-08-07** — vertical slice LWSM-1005 plus five fix-passes (FP02–FP05, 37 fix items). P01 stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03. **Next is P03** (LWSM-1006 Scanner, LWSM-1007 registry persistence, LWSM-1039 backup, LWSM-1008 first-run flow) |
+| **Active item ID** | **`LWSM-1006`** — Scanner implements the detection rules. Contract: [`docs/specs/LWSM-1006-scanner-detection.md`](../docs/specs/LWSM-1006-scanner-detection.md), with [`LWSM-1006-conformance.py`](../docs/specs/LWSM-1006-conformance.py) beside it executing every pattern the spec prescribes. Scope was **narrowed the same day**: the `.env` / `docker-compose.yml` / `README.md` port sources and conflict reporting moved to **LWSM-1121**, and the item also carries **LWSM-1050**'s hardening. `FP05` remains complete (LWSM-1112…1120); its MEDIUM/LOW tail stays routed in `docs/known-issues.md` |
+| **Active step** | **1 — verify spec.** Six `/cold-eyes` loops, one conformance pass and one mechanical sweep; 129 findings verified, 129 fixed, 0 deferred. Loop 7 is the last review pass; implementation (steps 3–4) follows regardless of its outcome unless it returns a CRITICAL |
+| **Last update** | 2026-08-08 (**P03 started; LWSM-1006's spec is through the gate and implementation is next.** The session's real finding is about the *gate*, not the spec: under the fifteen-dimension brief, loops 1–3 produced 75 findings of which roughly 34 would have changed what gets built — the count held flat at ~25 a loop and never converged, because six of the dimensions can never come back clean and fixing their findings is what introduced the next loop's real defects. **The brief was rewritten to four questions** — is a claim false, do two passages give different behaviour, is a required behaviour unspecified, is a test clause unfalsifiable — with everything else explicitly out of scope. Loops 4–6 then produced 28 findings, **100% build-changing, zero wording**, on a brief 7× smaller (24 KB → 3.4 KB). Global rule 14 has been rewritten around it. Two other instruments now carry work reviewers were doing badly: `LWSM-1006-conformance.py` executes every pattern the spec prescribes and has caught **five** defects including three of my own fixes on the run after I made them; and a **mechanical sweep** of `registry.py`'s twelve defensive mechanisms against the spec found the one gap reviewers had missed — a NUL byte in a hop token raises `ValueError`, not `OSError`, and escapes the scan) |
+| **Superseded (P02 close)** | 2026-08-07 (**FP05 complete and P02 closed.** All nine items shipped, every fix mutation-verified, 185 tests up from 159, full gate green. Four of the nine bullets were corrected by measurement — LWSM-1117's wait is unbounded rather than ~3.3 s, LWSM-1116 had an unreported second half, and LWSM-1115's own fix introduced the defect known-issue-005 describes. The rule-14 gate ran as one batched `/cold-eyes` over `coding.md` + `testing.md`: **converged in 2 loops**, 12 then 15 verified findings, all fixed. Loop 2's split was 11 fix collateral vs 4 draft defects, so it converged by sweep rather than a third dispatch. Two user corrections folded in: prose counts of growing sets are now banned and tested (`tests/test_docs.py`), and the `.audit_cache` history exposure is assessed and accepted as known-issue-016) |
 | **Superseded** | 2026-08-07 (**FP04's 14 bullets are all closed and green at 150 tests**, up from 125, in ten commits — one per bullet-group, each with its red test first. The 21 held commits plus these are **pushed**; GitHub Actions is healthy again and CI passed on `3ce8b18`. **The pass's own worst moment is the one to remember:** LWSM-1100's first shape put `os._exit` inside `main()`, and since tests call `main()` in-process and an earlier test abandons a probe, the pytest run ended at **40 % of the suite with exit code 0** and a report that read as green. The gate caught it, not review. That is the third time this project has been bitten by a green run that was not one) |
 | **Superseded (older)** | 2026-08-06 (**P02 close re-run: BLOCKED again.** FP03's 14 items are all ✅ and the gate is green at 125 tests, verified on **cleared bytecode**. Static analysis clean for the third close running — ruff, bandit, semgrep (9 files scanned, 0 findings), gitleaks (82 commits), shellcheck, actionlint; pyright reports only LWSM-1066's pre-existing one. Three lanes re-read the FP03 code cold and produced **29 findings**, folded into `FP04`. Six reproduced independently rather than taken on the reviewers' word. **The shape is the finding:** FP03 left three of its own fixes half-done and wrote five confident comments that are false) |
 | **Blocked on** | — (nothing). The `P02-complete` tag was re-pointed from `a17b7dd` to the closing commit `5225b80` and force-pushed, with the user's explicit authorisation on 2026-08-07 — `commits.md § 4.2` forbids that without it. The old commit predated 37 fix items, so the tag had been asserting a phase complete at a tree missing most of it. All 17 commits are on `origin/main` |
@@ -23,8 +24,8 @@ While an item is active, Claude marks the current step 🚧;
 completed steps flip to ✅. Resets to all ⬜ when a new item
 becomes active.
 
-1. ⬜ Verify spec (research first if non-trivial)
-2. ⬜ Verify dependencies on the roadmap DAG
+1. 🚧 Verify spec (research first if non-trivial)
+2. ✅ Verify dependencies on the roadmap DAG
 3. ⬜ Write failing tests
 4. ⬜ Implement until tests pass
 5. ⬜ Run `/audit` (read `docs/audit-allowlist.md` first)
@@ -38,14 +39,31 @@ becomes active.
 (filled in once Phase A → P01 hands over an active item)
 
 ```
-Item: <ID>
-Spec: docs/specs/<ID>.md
+Item: LWSM-1006 — Scanner implements the detection rules
+Spec: docs/specs/LWSM-1006-scanner-detection.md (+ LWSM-1006-conformance.py)
 Branch: main (no feature branch yet)
+Dependencies: LWSM-1005 ✅ shipped 2026-08-07
+Also lands: LWSM-1050 (FP01 security — bounded scanner reads)
+Split out:   LWSM-1121 (.env / docker-compose.yml / README + conflict reporting)
 Sub-findings:
-  - 📋 ...
-  - 📋 ...
-Tests: <count> passing, <count> failing
+  - ✅ Spec drafted, gate run to convergence on the four-question brief
+  - ✅ Conformance script executes every prescribed pattern — green
+  - ✅ registry.py's twelve guards swept against the spec — one gap, closed
+  - 📋 Implement src/lwsm/scanner.py test-first
+  - 📋 Widen tests/test_layering.py CORE_MODULES (+ scanner.py, + applog.py)
+  - 📋 Land the eight doc amendments in § 12 (design.md ×7, coding.md § O1)
+  - 📋 Move the conformance cases into tests/test_scanner.py, delete the script
+Tests: 178 passing, 0 failing (no scanner tests written yet)
 ```
+
+**The one decision taken this session that outlives it:** `design.md`'s
+three-level recursive walk is **not built** (user, 2026-08-08). Every launcher
+rule matches at the project root and the one deeper file is named by the
+launcher, so the walk would feed no reader. The depth bound and the eight
+excluded directory names moved onto the one-hop target, and the roadmap's
+"`node_modules` is never descended" clause is met by construction — with
+INV-20 as its evidence, because that is the one place the decision trades a
+mechanism for a claim.
 
 ## §2. Workflow rules
 
