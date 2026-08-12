@@ -812,3 +812,39 @@ The bar is deliberately high. If you're tempted to defer
 something here, ask: "Could I write a fix-pass roadmap item
 for this right now?" If yes, do that. If no — and only if no
 — file it here with the named dependency.
+
+## known-issue-036 — `spec_lint`'s required-section check has never run on any spec in this project, and reports `ok` while skipping
+
+- **Found by:** writing LWSM-1007's spec (P03b), reading `spec_lint`'s raw
+  envelope rather than only its `findings` array
+- **Class:** handed to owning phase
+- **Detail:** every `spec_lint` call in this project returns
+  `{"findings": [], "ok": true, "sections_checked": false}`. The last field is
+  the whole finding: `missing_section` runs **only** when the project's format
+  standard carries a `<!-- required-sections -->` block, and
+  `docs/standards/spec-format.md` carries none (`grep -c required-sections`
+  → `0`). So the required-section structure has never been verified on
+  `LWSM-1005`, `LWSM-1006` or `LWSM-1007`, and a clean-looking `spec_lint`
+  result is silent about the one thing it is most often run to check.
+  **This is a fourth instance of the class this project has already been bitten
+  by three times** — a report that cannot distinguish "passed" from "never ran"
+  (`actionlint`/`yamllint` sharing one skip flag; a stale `.pyc`; `os._exit`
+  ending pytest at 40 % with exit code 0). It is worse than those in one
+  respect: nothing is degraded and no tool is missing, so there is no warning
+  anywhere — only a field nobody reads.
+- **Second half, same file:** `docs/standards/spec-format.md` names the
+  **retired** skills `/cold-eyes` and `/doc-lint` throughout (16 occurrences on
+  2026-08-12), including in its own What-checks-this table, which therefore
+  attributes checks to a skill that no longer exists. `CLAUDE.md`'s skill table
+  was corrected on 2026-08-12; this file was not.
+- **Why deferred:** the fix is to add a `<!-- required-sections -->` block
+  listing the project's thirteen sections and to sweep the retired names — but
+  `spec-format.md` is a **standard**, so editing it re-arms global rule 14's
+  `review-contract` gate, and doing that mid-flight during LWSM-1007's own
+  capped gate would have interleaved two reviews of two documents. It is also
+  not urgent: the numbering is stable across all three specs, so nothing is
+  known to be wrong — only unchecked.
+- **Will be addressed in:** P03b (LWSM-1007) if the spec is split, since the
+  split writes two new specs and would benefit from the check actually running;
+  otherwise the next doc-fix pass (`DOC##`)
+- **Logged:** 2026-08-12

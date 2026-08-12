@@ -34,11 +34,22 @@ and the point is the pitfalls the skill already knows about:
 | Job | Skill |
 |-----|-------|
 | Writing a spec or plan | **`/write-spec`** |
-| Reviewing a spec, design, ADR or standard | **`/cold-eyes`** |
+| Reviewing a spec, design, ADR or standard | **`review-contract`** |
+| Deterministic doc checks alone (links, citations, counts) | **`check-doc-facts`** |
 | Applying fixes a review produced | **`/apply-fixes`** |
 | Writing or editing source code | **`/write-code`** |
 
-`/write-spec` carries the `/cold-eyes` gate itself, so a spec
+**`/cold-eyes` and `/doc-lint` no longer exist** — the documentation
+family cut over on 2026-08-12 (global `~/.claude/CLAUDE.md`):
+`review-contract` replaced `/cold-eyes`, `check-doc-facts` replaced
+`/doc-lint`, and each predecessor was **deleted** in the same commit
+that promoted its replacement. This table named the dead ones until
+2026-08-12, so a session following it would have invoked a skill that
+is not there. **`docs/standards/spec-format.md` still names both
+throughout** — see known-issue-036; that file is a standard, so
+correcting it re-arms rule 14's gate and it was not swept here.
+
+`/write-spec` carries the `review-contract` gate itself, so a spec
 written through it does not need the review invoked separately.
 `/apply-fixes` is for closing a list someone else produced —
 review findings, audit findings, a fix-pass — and it owns the
@@ -78,7 +89,7 @@ phase rather than when someone remembers:
 
 **Agents are permitted where they genuinely help and are token-
 efficient** (user, 2026-08-03). Reviews are the clearest case —
-`/cold-eyes`, `/audit` and `/code-quality-review` all depend on a
+`review-contract`, `/audit` and `/code-quality-review` all depend on a
 fresh pair of eyes that has not been reading along, so the rule-14
 gate runs its reviewers here without asking first. Broad
 "where is X used across the tree" searches are the other case.
