@@ -1061,6 +1061,293 @@ first two bullets because the leaf findings are their instances:
   Source: code-quality-review-2026-08-07.
   Resolved (2026-08-07, 6e32593): closed by LWSM-1113 rather than separately — its acceptance was exactly two of that item's nine tests. test_run_bounds_the_process_exit and test_main_stops_the_controller_when_the_loop_returns both go red on the mutation they name (run() reduced to `code = main(); return code`, and main()'s `finally: controller.stop()` removed); both left all 150 tests green before.
 
+## FP06 — Three-lane review fold-in (from the P03 close, 2026-08-12)
+
+The P03 close ran `/audit` and `/code-quality-review` once, per the standing
+2026-08-07 process decision. Static analysis was clean for the fourth close
+running — ruff, bandit (2116 lines), semgrep, gitleaks, shellcheck, all zero,
+re-run by hand inside the venv because the sweep's zero carried no evidence it
+had read anything. Every real finding came from reading, again.
+
+Three lanes over `scanner.py`, its tests and the hardening surface produced 25
+findings and **no false positives**. Every load-bearing claim was reproduced
+independently before it was written down here.
+
+This section is the nine above the bar. The remaining sixteen are routed to
+`docs/known-issues.md` with named owners rather than worked here, per the same
+2026-08-07 decision: one review per phase, fix what is above the bar, route the
+rest to the phase that owns the code.
+
+**The cross-cutting finding is the one to remember.** Two lanes, different
+reproducers, landed on the same defect: `pathlib` metadata calls sitting outside
+any `except OSError`. `Path.exists` / `is_symlink` / `is_file` re-raise `EACCES`
+and `ENAMETOOLONG` on Python 3.13 — this is not the older behaviour where
+`exists()` swallowed them — and `scan()` catches only `_BudgetExpired`. That is
+the fourth distinct non-`OSError`-shaped whole-scan crash this item has
+produced, after the `TypeError`, `KeyError` and `ValueError` the spec gate
+found. The class is now understood as structural rather than incidental: the fix
+is per-candidate containment, not a fourth patch.
+
+**The test findings are the other half, and they are the more uncomfortable
+one.** 81 mutants were applied to `scanner.py`; 47 went red, 34 did not. Three
+separate clauses the spec calls load-bearing — the execute-bit precondition, the
+dependency-block scope, `_BudgetExpired` not being an `OSError` — are all
+correct in the code today and protected by nothing. A suite of 370 green tests
+said nothing about any of them.
+
+- 📋 [LWSM-1122] **FP06: one unreadable or hostile directory can no longer destroy the whole scan.**
+  `Path.exists` / `is_symlink` / `is_file` re-raise `EACCES` and `ENAMETOOLONG` on
+  Python 3.13.14 — `pathlib` only swallows `ENOENT/ENOTDIR/EBADF/ELOOP`
+  (`_IGNORED_ERRNOS`). Four call sites sit outside any handler, and `scan()`
+  catches only `_BudgetExpired`, so the exception escapes and the caller gets no
+  `ScanResult` at all.
+  Four sites: `scanner.py:923` (`_read_alternate`, reached for every candidate),
+  `:1006` (`_match_node_package`), `:512` (`_python_framework`), `:561`
+  (`_accept_hop`).
+  Two triggers, both reproduced twice — once by the reviewing lane and once
+  independently before this bullet was written:
+    - `chmod 000` on any candidate directory. Needs no attacker: a root-owned or
+      another user's directory under a scan root does it. Measured: 20 healthy
+      projects returned **0**. Mode `0o444` (listable, not searchable) is the same.
+    - A 3000-character hop token in a hostile `start.sh` → `OSError [Errno 36]
+      File name too long` at `:561`. This one is attacker-authored: one line in a
+      file under a scan root. `MAX_SOURCE_LINE_CHARS` is 4096 and `NAME_MAX` is
+      255, so the form is trivially writable.
+  Spec § 4.3 states the opposite outright: *"Any `OSError` rejects that file with
+  a reason and continues. A permission denial on one project is not a failure of
+  the scan."*
+  **Fix at the class, not the four sites.** Per-candidate `OSError` containment in
+  `scan()` — verified by the lane to restore 20/20 projects with one reason
+  recorded (`'aaa-hostile': cannot be examined (Permission denied)`), and
+  `_BudgetExpired` is not an `OSError`, so INV-5 is untouched. Patching only the
+  two sites with reproducers would leave the same line of code twice more.
+  Acceptance: a regression test carrying **both** triggers — they reach different
+  lines — asserting the healthy projects are all returned and the bad one is
+  skipped with a reason.
+  **Layman:** A single folder the app is not allowed to open currently makes it find nothing at all. It should skip that one folder and carry on.
+  Kind: fix.
+  Lanes: core.
+  Source: code-quality-review-2026-08-12 lane-1 #1 + lane-2 F1/F2/F3 (corroborated by two independent lanes).
+
+- 📋 [LWSM-1123] **FP06: hop-target selection falls back to earlier tokens instead of abandoning the hop.**
+  Spec § 4.5 step 4: *"Take the **last** remaining token that satisfies § 4.5's
+  six constraints."* The code treats any constraint failure as terminal —
+  `_accept_hop` returns a reason and `_hop_target` (`scanner.py:592-594`) returns
+  `(None, [], reason)` immediately, never trying the preceding token.
+  Measured, with the port in the hop file in every case:
+    | `start.sh` last line | spec | code |
+    |---|---|---|
+    | `exec python3 app.py` (control) | 8123 | 8123 ✅ |
+    | `exec python3 app.py >> /var/log/app.log` | 8123 | **None** |
+    | `exec python3 app.py --cfg ../shared/conf.ini` | 8123 | **None** |
+    | `exec python3 app.py --cfg node_modules/x/c.json` | 8123 | **None** |
+  The control passing is what isolates the abort as the only difference.
+  The recorded reasons are actively misleading as well —
+  `hop target '/var/log/app.log' is outside the project` describes a hop the
+  launcher never asked for.
+  Direction of failure is **safe** (unknown, never a fabricated port), which is
+  why this is HIGH and not CRITICAL. But an absolute-path redirect on the `exec`
+  line is ordinary in real launchers, so it will show up as silent
+  under-detection.
+  INV-20's depth fixture (`exec python3 a/b/c/d.py`) is a single token and cannot
+  see this, which is how it survived seven review loops.
+  Acceptance: the three lines above each detect their port; the reason recorded
+  for a rejected token names that token, and a line with no acceptable token at
+  all still comes back *unknown* with a reason.
+  **Layman:** If a start script mentions a log file at the end of its command, the app currently gives up on finding the port instead of looking at the rest of the line.
+  Kind: fix.
+  Lanes: core.
+  Source: code-quality-review-2026-08-12 lane-1 #2.
+
+- 📋 [LWSM-1124] **FP06: the last unescaped reason string is routed through `_quoted`, closing INV-18's first clause.**
+  `scanner.py:605`:
+  ```
+  return None, [], f"{token} cannot be read ({exc.strerror or exc})"
+  ```
+  Its seven neighbours in `_accept_hop` (`:541, :545, :553, :556, :558, :560,
+  :565`) all wrap the token in `_quoted`, which escapes and then clips at
+  `MAX_REASON_CHARS = 120`. This one interpolates raw foreign bytes.
+  INV-18: *"Every reason and every `PortFinding.source` is escaped before it is
+  clipped."* This reason is neither.
+  Reached whenever a hop token passes all six constraints and `_read_lines`
+  raises an `OSError` other than `FileNotFoundError` / `NotADirectoryError` — a
+  directory, a FIFO, an oversized file, `EACCES`.
+  Measured independently twice, at **248** and **635** characters against the
+  stated 120 bound, both carrying a live `\x1b` and one a `\x07`, reaching the
+  app log and the status bar. `line.split()` does rule out a raw newline, so this
+  is control-character injection and cap breach rather than full log-record
+  forgery (LWSM-1078's shape) — but the length bound is simply absent.
+  Fix is one call: `_quoted(token)`, matching its neighbours.
+  Acceptance: a hop token carrying `\x1b` and `\x7f` in a 200-character name
+  produces a reason at or under `MAX_REASON_CHARS` containing no raw control
+  byte. Mutating `_quoted` back out must redden it.
+  **Layman:** A folder with a strange name could push invisible control characters into the app's log; this escapes them first, like every other message already does.
+  Kind: security.
+  Lanes: core.
+  Source: code-quality-review-2026-08-12 lane-1 #3 + lane-2 F4 (corroborated by two independent lanes).
+
+- 📋 [LWSM-1125] **FP06: `_BudgetExpired` not being an `OSError` becomes a tested invariant rather than a docstring.**
+  Mutation: `class _BudgetExpired(Exception)` → `class _BudgetExpired(OSError)` at
+  `scanner.py:195`. **182/182 tests stay green.**
+  Under the mutant, `_read_alternate`'s `except OSError` (`:927`) swallows the
+  budget signal, and the lane measured the result directly:
+  ```
+  timed_out: False   projects: []
+  skipped: ("'proj': start.sh cannot be read ()", "'proj': no launcher matched")
+  ```
+  A scan that ran out of budget reports itself **complete**. The caller is told
+  the project list is the whole truth when it is partial — and LWSM-1007 is about
+  to persist exactly that list, so a truncated scan would overwrite a good
+  registry.
+  The code is **correct today** — verified: `_BudgetExpired.__mro__` is
+  `(_BudgetExpired, Exception, BaseException, object)` and
+  `issubclass(_BudgetExpired, OSError)` is `False`. The defect is that nothing
+  protects it, and the docstring saying it is "deliberately not an `OSError`" is
+  the only thing standing there.
+  This is the project's own named trap in a second location: `TimeoutError`
+  subclasses `OSError`, which is how a `SIGALRM` guard once satisfied the
+  `pytest.raises(OSError)` it existed to protect.
+  Acceptance: `assert not issubclass(scanner._BudgetExpired, OSError)` as a
+  source invariant, **plus** a behavioural test — expiry mid-read asserting
+  `timed_out is True` and the candidate absent — so the guarantee is held at both
+  the structural and the observable end. The class mutation must redden it.
+  **Layman:** If a scan runs out of time it must say so. Right now it would silently claim it had finished, and no test would notice.
+  Kind: test.
+  Lanes: tests.
+  Source: code-quality-review-2026-08-12 lane-3 H1.
+
+- 📋 [LWSM-1126] **FP06: the `package.json` dependency-block scope gets the regression test it never had.**
+  Mutation: `_scan_source("package.json", [script[:MAX_SOURCE_LINE_CHARS]])` at
+  `scanner.py:1074` → the same call with `*sorted(dependencies)` appended.
+  **182/182 tests stay green.**
+  This was the spec review's single highest-value finding (loop 4), and the
+  mechanism that closed it is unlocked. Current behaviour on
+  `{"scripts":{"dev":"vite"},"dependencies":{"get-port":"^7.0.0"}}` is
+  `5173 (Vite)`; under the mutant it becomes **7**.
+  The existing test — `test_a_dependency_pair_is_kept_away_from_the_rules_by_scope_not_by_them`
+  (`tests/test_scanner.py:340`) — asserts `rule_2('"get-port": "^7.0.0"') == 7`
+  and then explains in prose that § 4.4's scoping is what keeps that string away
+  from the rules. **It asserts the hazard and never the guard.** No fixture
+  anywhere holds a real dependency name that could yield a port.
+  Acceptance: a fixture with a Vite-positive `scripts` block **and** a
+  port-shaped dependency key, asserting `5173/Vite`. Widening the scanned lines
+  to include the dependency block must redden it.
+  This also closes a gap the corpus has: no fixture currently exercises a
+  Vite-positive `package.json` at all.
+  **Layman:** A package named something like `get-port` must not be mistaken for a port setting. That protection works, but nothing would catch it being removed.
+  Kind: test.
+  Lanes: tests.
+  Source: code-quality-review-2026-08-12 lane-3 H2.
+
+- 📋 [LWSM-1127] **FP06: launcher rule 1's execute-bit precondition gets its first test.**
+  Mutation: the whole `os.access(path, os.X_OK)` block at `scanner.py:940-944`
+  deleted. **182/182 tests stay green**, and line coverage confirms `:943` is
+  **never executed** by any test in the suite.
+  Spec § 4.4 (line 495) states it normatively: *"**Rule 1 requires the execute
+  bit** (`os.access(path, os.X_OK)`)."*
+  Every fixture that plants a `start.sh` also chmods it, so the fall-through case
+  has no coverage at all. The lane verified a discriminating fixture:
+  ```
+  proj/start.sh      (NOT executable)   PORT=1111
+  proj/package.json  {"scripts":{"dev":"vite --port 2222"}}
+  current →  NODE ('npm','run','dev')  port 2222
+  mutant  →  SHELL ('./start.sh')      port 1111
+  ```
+  Acceptance: that fixture, asserting `NODE` and 2222, plus the reason recorded
+  for the skipped `start.sh`. Deleting the `os.access` guard must redden it.
+  Worth folding into the corpus rather than writing standalone — a
+  non-executable launcher beside a usable one is a real shape, and
+  `scanner_fixtures.py` has no fixture for it.
+  **Layman:** A start script that is not marked runnable should be skipped in favour of the next option. That works, but no test checks it.
+  Kind: test.
+  Lanes: tests.
+  Source: code-quality-review-2026-08-12 lane-3 H4.
+
+- 📋 [LWSM-1128] **FP06: a directory name that is not valid UTF-8 no longer produces an un-encodable project name.**
+  `_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")` at `scanner.py:206` covers C0
+  and C1 but not surrogates. A directory name that is not valid UTF-8 comes back
+  from `os.scandir` through `surrogateescape` as lone surrogates in
+  `\udc80–\udcff`, which `_display` (`:218`) passes straight through into
+  `DetectedProject.name` and on to the output at `:1259`.
+  Measured:
+  ```
+  name = 'bad\udcff\udcfename'
+  *** UnicodeEncodeError encoding to utf-8: surrogates not allowed
+  --- Logging error ---
+  ```
+  **The observable is worse than a crash.** `logging` catches its own encode
+  failure, so the record is silently dropped with a traceback on stderr — the
+  app keeps running and the evidence is gone. Anything that does not catch it
+  raises: a `json.dumps(...).encode()`, which is precisely what **LWSM-1007** is
+  about to do to persist this list, or a Qt call.
+  `_quoted` is immune because `repr` escapes surrogates, which is why every
+  reason string is fine and only the one surviving-detection path is affected.
+  This is the same call site loop 6 already fixed once ("`DetectedProject.name`
+  travelled raw and unbounded") — the fix reached for `_display`, and
+  `_display`'s character class is one range short.
+  Fix: extend to `[\x00-\x1f\x7f-\x9f\ud800-\udfff]`.
+  Acceptance: a candidate directory created with invalid UTF-8 bytes in its name
+  is listed with a name that round-trips through `.encode("utf-8")` and through
+  `json.dumps`. Reverting the character class must redden it.
+  **Layman:** A folder whose name contains broken text currently makes the app's log entry vanish without a word. The next feature would crash on it outright.
+  Kind: fix.
+  Lanes: core.
+  Source: code-quality-review-2026-08-12 lane-2 F5.
+
+- 📋 [LWSM-1129] **FP06: INV-18's `PortFinding.source` clause is tested, not just its reason clause.**
+  Mutation: `source=_display(name)` → `source=name` at `scanner.py:467`.
+  **182/182 tests stay green.**
+  INV-18 has two halves: *"Every reason **and every `PortFinding.source`** is
+  escaped before it is clipped"* (spec line 1414). The existing test —
+  `test_a_newline_in_a_directory_name_cannot_forge_a_log_record`
+  (`tests/test_scanner.py:1471`) — checks `result.skipped` and
+  `DetectedProject.name`, and never touches `PortFinding.source`.
+  Demonstrated live with a hop target whose filename holds control bytes:
+  ```
+  hop file  ev\x7fil\x1b[31m.py
+  current → source = 'ev?il?[31m.py'      (escaped, correct)
+  mutant  → source = 'ev\x7fil\x1b[31m.py'  (raw, undetected)
+  ```
+  The source string reaches the app log and the status bar, so this is the
+  LWSM-1078 shape at the one call site the sweep missed — the third time a
+  sanitiser sweep in this project has stopped one site short.
+  Acceptance: the fixture above, asserting `PortFinding.source` carries no raw
+  control byte. Removing `_display` from `:467` must redden it.
+  Cheap to combine with LWSM-1124's test, but assert them separately — they are
+  two clauses and a single test covering both would go green again the moment
+  one regressed and the other did not.
+  **Layman:** The app already cleans up strange characters in the filename it reports a port came from — but nothing was checking that half.
+  Kind: test.
+  Lanes: tests.
+  Source: code-quality-review-2026-08-12 lane-3 H3.
+
+- 📋 [LWSM-1130] **FP06: rule 3's Vite evidence test reads a comment-stripped script, as § 4.6 requires.**
+  Spec § 4.6: *"The stripper is shared by both port rules **and by rule 3's
+  evidence scan**, so a framework identified from a commented-out import cannot
+  happen either."*
+  `_imports` strips (`scanner.py:495`) and `_scan_source` strips by default
+  (`:1074`), but `_VITE_SCRIPT.search(script)` at `:1077` searches the **raw**
+  chosen script value.
+  Measured, side by side:
+    | fixture | result |
+    |---|---|
+    | `serve.py` containing `# import flask` | `port=None` ✅ |
+    | `{"scripts":{"dev":"node server.js # switch to vite later"}}` | **5173, FRAMEWORK_DEFAULT, source `Vite`** ✗ |
+  Reproduced independently. `#` genuinely is a comment in an npm script — the
+  value is handed to `sh` — so the spec's rule is the right one and the code is
+  the side that is wrong.
+  Same line also searches the **unclipped** script value while the port rules see
+  it clipped to `MAX_SOURCE_LINE_CHARS`; fix both together.
+  Acceptance: the fixture above comes back *unknown*; a genuine
+  `{"dev": "vite"}` still comes back 5173; and the existing whole-word guard
+  (`\bvite\b`, which keeps `vitest` out) still holds. That last one matters —
+  the whole-word form was forced by an executed acceptance test on 2026-08-08 and
+  must not be lost while editing this line.
+  **Layman:** A note in a project's config saying "switch to vite later" is currently read as if the project already used Vite, and it gets given the wrong port.
+  Kind: fix.
+  Lanes: core.
+  Source: code-quality-review-2026-08-12 lane-1 #5.
+
 ## FP01 — Security fold-in (from the P01 review, 2026-08-03)
 
 **Theme:** findings from the P01 `/audit` + code review + security

@@ -375,6 +375,362 @@ in the current build. Owners are named, not implied.
 - **Logged:** 2026-08-07
 
 
+### From the P03 close (`/code-quality-review`, 2026-08-12)
+
+Sixteen findings routed rather than worked, per the standing 2026-08-07
+process decision: one review per phase, fix what is above the bar, hand the
+rest to the phase that owns the code. The nine above the bar are `FP06`
+(LWSM-1122…1130). **None of these is a false positive** — every one was
+verified by the lane that raised it, and the crash-class findings were
+reproduced a second time before being written down. They are deferred on
+value, not on doubt.
+
+Ten of the sixteen are *tests that cannot fail for the thing they name*
+rather than defects. That distinction matters when reading them: the
+behaviour is correct today in every case below unless the entry says
+otherwise. What is missing is the thing that would notice it stopping.
+
+## known-issue-017 — Hop-rejection reasons do not name the candidate that produced them
+
+- **Found by:** code-quality-review during the P03 close (lane 1, #4)
+- **Class:** handed to owning phase
+- **Detail:** `scanner.py:974-975` calls `note(reason)` on `_hop_target`'s bare
+  string, while every other per-candidate note is `f"{quoted}: …"`. On a mixed
+  scan root the operator sees `hop target '../shared/conf.ini' is outside the
+  project` with no way to tell which project produced it. § 4.4's own reason
+  examples are all `<name>: …`-shaped, so the code is the side that deviates.
+- **Why deferred:** cosmetic until there is a UI that shows skip reasons to a
+  user. Today they reach the log only. LWSM-1008's first-run flow is the item
+  that puts them in front of somebody, and it should decide the format once
+  rather than have this changed twice.
+- **Will be addressed in:** LWSM-1008 (P03 — first-run flow)
+- **Logged:** 2026-08-12
+
+## known-issue-018 — A hex literal yields a fabricated port (`0x1F90` → 1)
+
+- **Found by:** code-quality-review during the P03 close (lane 1, #6)
+- **Class:** handed to owning phase
+- **Detail:** rule 2's `(?<![0-9-])\d{1,5}(?![0-9])` matches the `1` of `1F90`
+  (preceded by `x`, followed by `F`) once `0` is rejected as out of range.
+  **The code is character-identical to the spec's fenced `rule_2`**, so this is
+  a spec finding, not an implementation one — the same family as the
+  documented-and-accepted `PORT = 80.80` → 80.
+- **Why deferred:** hex is the one remaining shape where the rule invents a
+  value rather than reporting unknown, but fixing it means editing a pattern
+  the spec prescribes verbatim, which re-arms the rule-14 gate on a spec the
+  user has explicitly closed to further review loops. LWSM-1121 is already
+  scheduled to reopen § 4.6 for the `.env` / `docker-compose.yml` / `README.md`
+  sources; this rides along with that edit at no extra gate cost.
+- **Will be addressed in:** LWSM-1121 (the remaining port sources)
+- **Logged:** 2026-08-12
+
+## known-issue-019 — TOCTOU between the hop containment check and the hop read
+
+- **Found by:** code-quality-review during the P03 close (lane 2, F6 — reasoned,
+  not demonstrated; the lane says so explicitly)
+- **Class:** handed to owning phase
+- **Detail:** `scanner.py:543` resolves and containment-checks `target`, and
+  `:598` re-opens it by path. `O_NOFOLLOW` guards only the **final** component,
+  so an attacker who swaps an intermediate directory for a symlink inside that
+  window reads a file outside the project.
+- **Why deferred:** the disclosure is bounded to a single port number and a rule
+  name — `PortFinding` deliberately carries no file bytes — and the attacker
+  must already be able to write inside the scan root. `O_PATH`-anchored
+  `openat` on the candidate directory closes it, which is the same mechanism
+  LWSM-1049's trust gate needs for launching, so building it twice would be
+  waste.
+- **Will be addressed in:** LWSM-1049 (FP01 — trust gate before running a
+  discovered launcher)
+- **Logged:** 2026-08-12
+
+## known-issue-020 — A hard link reads outside the project through the `_open_source` seam
+
+- **Found by:** code-quality-review during the P03 close (lane 2, F7 —
+  demonstrated)
+- **Class:** handed to owning phase
+- **Detail:** `_open_source` / `_checked_descriptor` (`scanner.py:240-270`)
+  have no `st_nlink == 1` check. Measured: a hard-linked `start.sh` was read
+  and its port returned (`PortFinding(port=4444, …)`). For **symlinks**
+  `O_NOFOLLOW` is sufficient and was verified so — a symlinked, dangling,
+  self-looping and `/dev/zero`-pointing launcher are all refused with `ELOOP`.
+- **Why deferred, and the precedent that matters:** the sibling module
+  `applog.py::_NoFollowRotatingFileHandler` solved exactly this class with an
+  `fstat` requiring one link and our own ownership, after the same gap was
+  found there on 2026-08-06. **The difference between the two modules is not
+  written down anywhere**, which is the real defect being recorded here. It is
+  weaker than the `applog.py` case in two ways: `fs.protected_hardlinks=1` is
+  the distro default and already requires the linker to own or be able to
+  read+write the target, and the leak is one 16-bit number rather than the
+  user's whole project inventory. LWSM-1049 is where the trust posture for
+  reading foreign files is decided; this belongs in that decision, recorded
+  either way.
+- **Will be addressed in:** LWSM-1049 (FP01 — trust gate)
+- **Logged:** 2026-08-12
+
+## known-issue-021 — `_UnitLookup.properties` guarantees totality by docstring only
+
+- **Found by:** code-quality-review during the P03 close (lane 2, F8)
+- **Class:** handed to owning phase
+- **Detail:** `scanner.py:786-793` returns the adapter's dict verbatim, so the
+  `SupportsUnitLookup` Protocol's totality guarantee (`:183-192`) rests on every
+  future adapter remembering it. `props["LoadState"]` (`:855`) and
+  `props["FragmentPath"]` / `["WorkingDirectory"]` (`:864`) are the `KeyError`
+  the spec gate already paid for once. A
+  `{name: got.get(name, "") for name in UNIT_PROPERTIES}` in `_UnitLookup`
+  makes it structural.
+- **Why deferred:** the one shipping adapter is correct and the only other
+  implementations are test fakes. It becomes live the moment a second real
+  adapter exists, which is LWSM-1028's systemd launcher work.
+- **Will be addressed in:** LWSM-1028 (P04 — systemd as a launcher kind)
+- **Logged:** 2026-08-12
+
+## known-issue-022 — `systemctl` stdout is read with no size bound
+
+- **Found by:** code-quality-review during the P03 close (lane 2, F9)
+- **Class:** handed to owning phase
+- **Detail:** `scanner.py:728-735` uses `subprocess.run(capture_output=True)`
+  with no output cap.
+- **Why deferred:** reachable only by someone who can write a user unit, which
+  is a strictly higher privilege than the scan-root attacker this module is
+  hardened against — such a person can already set `ExecStart`. Named for
+  completeness so a future reader does not assume it was missed.
+- **Will be addressed in:** LWSM-1028 (P04 — systemd as a launcher kind)
+- **Logged:** 2026-08-12
+
+## known-issue-023 — Neither half of INV-5's deadline mechanism is individually constrained
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M1 — mutation)
+- **Class:** handed to owning phase
+- **Detail:** deleting the per-line check (`scanner.py:319-320`) leaves the
+  suite green; deleting the per-candidate check (`:1212-1213`) leaves it green;
+  only deleting **both** reddens it. Coverage shows `:1213` never fires — expiry
+  always happens inside `_read_lines`. Giving the hop-file read an infinite
+  deadline is also green. INV-5's own *Breaks when* names precisely this case:
+  "the deadline is checked once per scan instead of per line and per candidate,
+  and one pathological file consumes the whole budget".
+- **Why deferred:** the behaviour is correct, and lane 2 measured the worst
+  256 KB inputs it could construct at **59 ms** against a 20 s budget, so the
+  unreached arm is not currently reachable in practice either. LWSM-1039's
+  backup/restore work is the next thing to touch the budget plumbing.
+- **Will be addressed in:** LWSM-1039 (P03 — registry backup)
+- **Logged:** 2026-08-12
+
+## known-issue-024 — INV-17's `ExecStart` half has zero coverage
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M2)
+- **Class:** handed to owning phase
+- **Detail:** `grep ExecStart tests/*.py` returns nothing; no `FakeUnits`
+  fixture sets the key; `scanner.py:904` is in the coverage miss list. The
+  existing `test_exec_start_is_a_record_and_only_its_argv_field_is_scanned`
+  (`test_scanner.py:404`) calls `_exec_start_argv` and `rule_1` as pure
+  functions and never reaches `_systemd_port`. The path was verified to work
+  when driven by hand (`argv[]=… --port 8080` → 8080); a regression in it would
+  be invisible.
+- **Why deferred:** `Environment=` is the half every real project on this
+  machine uses, and it *is* covered. The `ExecStart` half becomes load-bearing
+  when systemd is a launcher kind rather than a detection source.
+- **Will be addressed in:** LWSM-1028 (P04 — systemd as a launcher kind)
+- **Logged:** 2026-08-12
+
+## known-issue-025 — `DetectedProject.path` being resolved is untested, and a symlinked scan root gives one project two identities
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M3 —
+  demonstrated)
+- **Class:** handed to owning phase
+- **Detail:** mutating `.resolve()` → `.absolute()` at `scanner.py:1232` leaves
+  the suite green. Demonstrated: `scan([symlinked_root, real_root])` returns
+  **2 projects for 1 directory**. The existing
+  `test_the_same_directory_reached_twice_is_listed_once`
+  (`test_scanner.py:1365`) passes the *same* root twice, which dedups under
+  either implementation. `scan()`'s own docstring says a symlinked scan root is
+  followed deliberately, so this is a shape that occurs rather than a
+  contrivance. This was loop 4's finding — "`path` was 'absolute' where four
+  other clauses need it *resolved*" — and the fix landed without a test.
+- **Why deferred:** the code is correct; the identity only becomes durable when
+  it is written to disk, and nothing persists it yet. LWSM-1007 is the item
+  that makes a duplicate identity a *persisted* duplicate, and it needs the
+  same fixture for its own merge rules.
+- **Will be addressed in:** LWSM-1007 (P03 — registry persistence)
+- **Logged:** 2026-08-12
+
+## known-issue-026 — INV-15's fixtures make zero calls to the matcher the invariant names
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M4 —
+  instrumented)
+- **Class:** handed to owning phase
+- **Detail:** instrumenting `re.finditer` shows **both** INV-15 fixtures
+  (`test_scanner.py:353-378`) make **0** calls to
+  `re.finditer(r"(?<![0-9-])\d{1,5}(?![0-9])", right)` — the only part of rule 2
+  with a quantifier, a lookbehind and a lookahead, and exactly where the
+  invariant's own *Breaks when* ("a single pattern with a nested quantifier")
+  would land. The 102-colon fixture runs in 4 µs against a 1 s ceiling on 40
+  characters of input: a 250,000× margin. A fixture with a long *right* side
+  reaches it — `"port = " + "0"*4000 + " 1"` → `digit_finditer=[4003]`, 116 µs.
+- **Why this is uncomfortable:** § 12 of the spec **already records this exact
+  defect once** — the earlier `"a"*4092 + "port"` fixture had no separator, so
+  `rule_2` returned before `KEY_IS_PORT` ever ran, and the fix replaced it with
+  a fixture that reaches `KEY_IS_PORT` but still not the digit scan. The same
+  green-by-construction shape survived its own correction.
+- **Why deferred:** no defect exists — lane 2 independently confirmed no nested
+  quantifier anywhere in the module, and `MAX_SOURCE_LINE_CHARS` bounds the
+  input regardless. This is a test that proves less than it claims, in a place
+  where the claim is currently true.
+- **Will be addressed in:** LWSM-1121 (the remaining port sources — the next
+  item to add a pattern to § 4.6, and the point at which the guard starts
+  mattering)
+- **Logged:** 2026-08-12
+
+## known-issue-027 — The tokenise-and-select rule is unconstrained in all three of its open steps
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M5 — three
+  mutations, all green)
+- **Class:** handed to owning phase
+- **Detail:** at `scanner.py:585-606`, all three of these leave the suite green:
+  reversing the line scan so the *first* invocation wins; reversing the token
+  scan; and deleting the `if not token.startswith("-")` option filter. The
+  last-invocation fixture (`test_scanner.py:1045`) has only one surviving
+  invocation after comment-stripping, so it tests the stripper — which *is*
+  covered, neutering it reddens — and not the ordering. The token fixtures rely
+  on non-path tokens simply not existing on disk, so forward and reverse agree.
+  § 4.5 steps 2-4 were loop 5's best find and the mechanism that replaced the
+  prose is locked by nothing.
+- **Why deferred:** LWSM-1123 (FP06) rewrites this exact function to add
+  constraint fallback, and will have to build discriminating fixtures to prove
+  the fallback works. Writing them twice is waste; writing them now against a
+  function about to change is worse.
+- **Will be addressed in:** LWSM-1123 (FP06 — hop-target fallback)
+- **Logged:** 2026-08-12
+
+## known-issue-028 — `_RULE_1_ONLY` on the `ExecStart` argv is untested
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M6 — mutation)
+- **Class:** handed to owning phase
+- **Detail:** removing `rules=_RULE_1_ONLY` at `scanner.py:904` leaves the suite
+  green. A discriminating fixture exists and was verified:
+  `argv[]=/opt/my-port:5432/bin/app serve` → `rule_1: None`, `rule_2: 5432`, so
+  the restriction is what stops a path fragment being read as a port.
+- **Why deferred:** same owner and same fixture family as known-issue-024 —
+  both need the first `ExecStart` fixture to exist, and building it once serves
+  both.
+- **Will be addressed in:** LWSM-1028 (P04 — systemd as a launcher kind)
+- **Logged:** 2026-08-12
+
+## known-issue-029 — `systemctl`'s own 2-second bound is untested
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M7 — mutation)
+- **Class:** handed to owning phase
+- **Detail:** mutating `min(SYSTEMCTL_TIMEOUT_SECONDS, remaining())` →
+  `remaining()` at `scanner.py:766-767` leaves the suite green.
+  `FakeUnits.unit_names` / `properties` accept a `timeout` argument and discard
+  it; nothing asserts the value passed. This is loop 5's "one hang consumed all
+  20 s" fix shipping without a regression test.
+- **Why deferred:** asserting it means teaching the fake to record its timeout,
+  which is the same fixture change known-issue-030 needs.
+- **Will be addressed in:** LWSM-1028 (P04 — systemd as a launcher kind)
+- **Logged:** 2026-08-12
+
+## known-issue-030 — `_UnitLookup.properties`' failure path is unexercised, and the fake that claims to test it cannot
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M8)
+- **Class:** handed to owning phase
+- **Detail:** two halves. `scanner.py:791-793` and `:850` are uncovered — no
+  fake ever raises from `properties()`, so a `systemctl` that lists units and
+  then fails on `show` (the ordinary partial-D-Bus case) is untested. And in
+  `test_a_machine_with_no_systemd_scans_normally` (`test_scanner.py:636`),
+  `Absent.properties`' `raise AssertionError("rule 0 should be disabled")` is
+  **unreachable**: `names()` returns `[]`, so `_match_systemd`'s loop never runs
+  and `properties` is never called. Setting `_disabled = False` in `_disable`
+  keeps the suite green — the "recorded once" property is carried by the
+  `_names is None` cache, not by the flag the fake claims to be testing.
+- **Why deferred:** the second half is a test asserting nothing rather than a
+  defect, and both need the same fake rework.
+- **Will be addressed in:** LWSM-1028 (P04 — systemd as a launcher kind)
+- **Logged:** 2026-08-12
+
+## known-issue-031 — Two of the three byte-cap enforcement sites never execute
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M9 — coverage)
+- **Class:** handed to owning phase
+- **Detail:** `scanner.py:295` and `:326` are in the coverage miss list;
+  deleting all three sites reddens, because the `fstat` site does all the work
+  in every existing test. **This is not a redundancy complaint** — the project's
+  position on layered guards is settled and correct, and the lane says so
+  explicitly. The finding is narrower: a typo in either of the other two
+  (`<` for `>`, a wrong constant) would never be caught, because the
+  file-grows-between-`fstat`-and-read scenario the redundancy exists *for* has
+  no fixture. A fake handle whose `read` / `readline` returns more than the
+  `fstat` reported reaches both.
+- **Why deferred:** the guards are correct and the class is understood. Note for
+  whoever takes it: per `CLAUDE.md`, mutating one of three redundant guards
+  proves nothing and mutating the *constant* is worthless when the fixture
+  derives its size from it — the fake-handle fixture above is the mutation that
+  actually discriminates.
+- **Will be addressed in:** LWSM-1121 (the remaining port sources — the next
+  item to add a reader, and so the next time the cap gets a fourth site)
+- **Logged:** 2026-08-12
+
+## known-issue-032 — Rule 3's Django-before-Flask tie-break is untested
+
+- **Found by:** code-quality-review during the P03 close (lane 3, M10 —
+  mutation)
+- **Class:** handed to owning phase
+- **Detail:** checking Flask first at `scanner.py:512-515` leaves the suite
+  green. § 4.6 states the table order **is** the precedence and names the exact
+  case — "a project with a root-level `manage.py` *and* an `import flask`" — and
+  no fixture holds both. Verified working by hand: such a project returns
+  Django 8000.
+- **Why deferred:** one fixture, but it belongs in the corpus beside the other
+  framework cases rather than as a standalone test, and LWSM-1121 is the next
+  item to touch rule 3's table.
+- **Will be addressed in:** LWSM-1121 (the remaining port sources)
+- **Logged:** 2026-08-12
+
+## known-issue-033 — Six small test weaknesses, bundled because none is worth its own entry
+
+- **Found by:** code-quality-review during the P03 close (lane 3, § 4 LOW)
+- **Class:** handed to owning phase
+- **Detail:** filed as one entry deliberately — each is a single assertion or a
+  single unreached line, and six separate entries would bury the twelve above
+  that matter. Listed so none is lost:
+  1. `test_a_script_that_execs_its_own_name_cannot_loop` (`test_scanner.py:1007`)
+     **cannot fail** — deleting `if target == launcher` (`scanner.py:559-560`)
+     stays green, because the fixture's `start.sh` declares no port and
+     re-reading it yields `None` either way. A fresh object tested for
+     stickiness.
+  2. `test_exec_start_is_a_record_and_only_its_argv_field_is_scanned`
+     (`:404`) **passes for the wrong reason** — its load-bearing assertion
+     `rule_2(record) is None` is made against `record`, not against the
+     function's return value, so `_exec_start_argv` returning the whole record
+     stays green.
+  3. Three defensive arms are never reached and stay green when removed:
+     `_bound_inside`'s `ValueError` catch (`scanner.py:816-817` — a NUL in
+     `WorkingDirectory`, the named non-`OSError` family), `commonpath`'s
+     `ValueError` catch (`:548-549`, which cannot fire with two absolute
+     paths), and the fd-close on `fstat` failure (`:267-269`).
+  4. Untested small bounds, all green when deleted: `utf-8-sig` BOM handling
+     (`:1016`), the dangling-symlink `package.json` arm (`:1006`), the "is not
+     a directory" reason (`:1229-1230`), the node script's line-cap clip
+     (`:1074`).
+  5. `test_layering.py:110` globs `SRC.glob("*.py")`, which is **non-recursive**
+     — a core module landing in `src/lwsm/<subpackage>/` is invisible to the
+     derivation test that exists to stop a module being silently missed. Adding
+     a name to `NON_CORE_MODULES` (`:42`) also silently exempts it, though that
+     is at least a visible edit.
+  6. `test_the_package_json_failure_shapes_are_not_all_value_errors` (`:771`)
+     and `test_a_writer_less_fifo_reads_as_eof_not_as_a_block` (`:748`) assert
+     **stdlib and OS behaviour**, not scanner behaviour — no mutation of
+     `scanner.py` can redden either. Both are deliberately framed as
+     kept-executable measurements, so this is informational rather than a
+     defect; the point is that they must not be counted toward INV-3 or INV-4
+     coverage, and today's invariant table implies they are.
+- **Why deferred:** item 5 is the only one with any reach, and it needs a
+  subpackage to exist before it can bite. The rest are single assertions in
+  tests whose neighbours do constrain the behaviour.
+- **Will be addressed in:** LWSM-1007 (P03 — registry persistence; the next
+  item to add source files and so the first that could add a subpackage)
+- **Logged:** 2026-08-12
+
+
 ## What does NOT belong here
 
 - Findings that *could* be fixed today but feel like work
