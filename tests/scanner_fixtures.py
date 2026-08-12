@@ -173,6 +173,52 @@ CORPUS: tuple[FixtureProject, ...] = (
         why="vitest is a test runner; `vite` is an exact key and this is not it",
     ),
     FixtureProject(
+        name="project-m-vite",
+        # The dependency pair is the point: `"get-port": "^7.0.0"` is a real npm
+        # package, and on a line of its own it partitions at `:` into a key
+        # satisfying KEY_IS_PORT through the hyphen, so rule 2 reads **7** from
+        # it. § 4.4's scope — the rules see exactly one value, the chosen
+        # `scripts` entry — is the only thing keeping it away from them, and
+        # nothing held it (LWSM-1126).
+        #
+        # **Pretty-printed deliberately.** Minified, the whole document is one
+        # line whose first `:` belongs to `"scripts"`, so rule 2 stops there and
+        # the fixture cannot see a scan that widened. The Vite-positive `dev`
+        # script is what makes the expectation 5173 rather than unknown — the
+        # corpus had no Vite-positive package.json at all.
+        files={
+            "package.json": "{\n"
+            '  "scripts": {"dev": "vite"},\n'
+            '  "dependencies": {\n'
+            '    "get-port": "^7.0.0"\n'
+            "  }\n}\n"
+        },
+        kind=LauncherKind.NODE,
+        argv=("npm", "run", "dev"),
+        port=5173,
+        rule=PortRule.FRAMEWORK_DEFAULT,
+        source="Vite",
+        why="the dependency block is out of scope, so `get-port` is not port 7",
+    ),
+    FixtureProject(
+        name="project-n-unexecutable-launcher",
+        # Rule 1 requires the execute bit (§ 4.4), and every other fixture that
+        # plants a `start.sh` also chmods it — so the fall-through had no
+        # coverage and the guard's own line never ran (LWSM-1127). Both files
+        # declare a port, and they differ, so which rule fired is visible in the
+        # result rather than merely inferable.
+        files={
+            "start.sh": "#!/bin/sh\nPORT=1111\nexec true\n",
+            "package.json": '{"scripts": {"dev": "vite --port 2222"}}\n',
+        },
+        kind=LauncherKind.NODE,
+        argv=("npm", "run", "dev"),
+        port=2222,
+        rule=PortRule.EXPLICIT,
+        source="package.json",
+        why="a start.sh without the execute bit falls through to rule 2",
+    ),
+    FixtureProject(
         name="project-l-flask-login",
         files={"serve.py": "import flask_login\n"},
         kind=LauncherKind.PYTHON,

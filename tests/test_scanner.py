@@ -1559,6 +1559,45 @@ def test_the_budget_stops_a_scan_mid_candidate(corpus_tree: Path) -> None:
     assert len(result.projects) < len(CORPUS)
 
 
+def test_the_budget_signal_is_not_an_oserror() -> None:
+    """The structural half of the guarantee its docstring claims.
+
+    `_read_alternate`, `_match_node_package` and `scan()` itself all carry
+    `except OSError` blocks that exist to keep one bad file from ending a scan.
+    An `OSError`-derived budget signal is swallowed by every one of them, so the
+    project's own named trap applies here too: `TimeoutError` subclasses
+    `OSError`, which is how a `SIGALRM` guard once satisfied the
+    `pytest.raises(OSError)` it existed to protect.
+    """
+    assert not issubclass(scanner._BudgetExpired, OSError)
+
+
+def test_a_budget_expiring_inside_a_read_still_reports_a_timeout(
+    tmp_path: Path,
+) -> None:
+    """The observable half, and the one that fails first: with a single
+    candidate the per-candidate check has already passed, so expiry can only
+    happen **inside** `_read_lines` — where a swallowed signal makes a truncated
+    scan report itself complete.
+
+    A caller told `timed_out=False` is told the project list is the whole truth
+    when it is partial, and LWSM-1007 is about to persist that list.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {"start.sh": "#!/bin/sh\n" + "# filler\n" * 200 + "PORT=8080\n"},
+        "start.sh",
+    )
+
+    result = scanner.scan(
+        [tmp_path], units=FakeUnits(), now=Clock(step=0.1), budget_seconds=1.0
+    )
+
+    assert result.timed_out is True
+    assert result.projects == ()
+
+
 def test_a_scan_within_its_budget_does_not_claim_a_timeout(corpus_tree: Path) -> None:
     """`timed_out` means *the scan deadline expired*, never *a subprocess was
     slow* — so a clean run must not set it."""
@@ -1658,6 +1697,20 @@ def test_a_display_name_is_clipped(tmp_path: Path) -> None:
     result = scan_root(tmp_path)
 
     assert len(result.projects[0].name) == scanner.MAX_DISPLAY_NAME_CHARS
+
+
+def test_a_launcher_without_the_execute_bit_records_why_it_was_skipped(
+    corpus_tree: Path,
+) -> None:
+    """The corpus fixture asserts the *fall-through* (rule 2 wins); this asserts
+    the reason, so a `start.sh` the user can see is not silently ignored.
+
+    Running it would otherwise fail at spawn time with a message about a file
+    the user never chose.
+    """
+    result = scan_root(corpus_tree, corpus_units(corpus_tree))
+
+    assert any("start.sh is not executable" in reason for reason in result.skipped)
 
 
 # --------------------------------------------------------------------------
