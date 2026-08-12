@@ -528,9 +528,10 @@ def _accept_hop(
 ) -> tuple[Path | None, str | None]:
     """§ 4.5's six constraints, on a path.
 
-    A non-`None` reason means the token *was* the target and is refused, so the
-    search stops. `(None, None)` means the token is not a path at all and the
-    previous token is tried.
+    A non-`None` reason means the token is a path and is refused; `(None, None)`
+    means it is not a path at all. Either way the previous token is tried, since
+    step 4 selects the last token that satisfies all six — the caller keeps the
+    first refusal for the case where no token is acceptable at all.
     """
     if "\x00" in token:
         # `os.path.commonpath` accepts a NUL happily, and then `Path.resolve()`
@@ -588,10 +589,22 @@ def _hop_target(
         tokens = [
             token.strip("'\"") for token in line.split() if not token.startswith("-")
         ]
+        refusal: str | None = None
         for token in reversed(tokens):
             target, reason = _accept_hop(token, root, launcher)
             if reason is not None:
-                return None, [], reason
+                # Step 4 takes the last token that satisfies the six
+                # constraints, which is not the same as *the last token*: a
+                # refused one is one token that failed, and the token before it
+                # may still be the target. `exec python3 app.py >>
+                # /var/log/app.log` is an ordinary launcher line, and
+                # abandoning at the redirect both loses the port and records a
+                # reason about a hop the launcher never asked for. The first
+                # refusal is kept for the case where no token is acceptable at
+                # all, so falling back cannot turn a refusal into silence.
+                if refusal is None:
+                    refusal = reason
+                continue
             if target is None:
                 continue
             try:
@@ -603,7 +616,7 @@ def _hop_target(
                 # A refused hop target leaves the project listed: the launcher
                 # is still runnable and only the port is unknown.
                 return None, [], f"{token} cannot be read ({exc.strerror or exc})"
-        return None, [], None
+        return None, [], refusal
     return None, [], None
 
 

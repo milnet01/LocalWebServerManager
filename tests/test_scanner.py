@@ -1063,6 +1063,66 @@ def test_the_last_invocation_wins_and_a_commented_one_is_not_it(tmp_path: Path) 
     assert project.port.port == 3131
 
 
+@pytest.mark.parametrize(
+    "invocation",
+    [
+        "exec python3 app.py",
+        "exec python3 app.py >> /var/log/app.log",
+        "exec python3 app.py --cfg ../shared/conf.ini",
+        "exec python3 app.py --cfg node_modules/x/c.json",
+    ],
+    ids=["control", "log redirect", "outside the project", "excluded directory"],
+)
+def test_a_refused_token_falls_back_to_the_one_before_it(
+    tmp_path: Path, invocation: str
+) -> None:
+    """§ 4.5 step 4 takes the **last** token that satisfies the six constraints,
+    which is not the same as *the last token* — a refused one is one token that
+    failed, not the end of the search.
+
+    **The control is what isolates the abort as the only difference**: all four
+    lines name `app.py`, and three of them ended in silent under-detection
+    because the trailing token was refused. A redirect on the `exec` line is
+    ordinary in real launchers.
+
+    INV-20's depth fixture (`exec python3 a/b/c/d.py`) is a single token and
+    cannot see this, which is how it survived seven review loops.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {"start.sh": f"#!/bin/sh\n{invocation}\n", "app.py": "PORT = 8123\n"},
+        "start.sh",
+    )
+
+    project = by_name(scan_root(tmp_path))["proj"]
+
+    assert project.port is not None, invocation
+    assert project.port.port == 8123
+
+
+def test_a_line_whose_every_token_is_refused_still_records_a_reason(
+    tmp_path: Path,
+) -> None:
+    """Falling back must not turn a refusal into silence: with no acceptable
+    token anywhere on the line the port is unknown **and** the reason names the
+    token that was refused."""
+    root = tmp_path / "root"
+    root.mkdir()
+    (tmp_path / "secret.py").write_text("PORT = 1234\n", encoding="utf-8")
+    make_project(
+        root,
+        "proj",
+        {"start.sh": "#!/bin/sh\nexec python3 ../../secret.py\n"},
+        "start.sh",
+    )
+
+    result = scan_root(root)
+
+    assert by_name(result)["proj"].port is None
+    assert any("secret.py" in reason for reason in result.skipped)
+
+
 # --------------------------------------------------------------------------
 # INV-6, INV-10, INV-11, INV-12 — what the Scanner returns
 # --------------------------------------------------------------------------
