@@ -150,6 +150,23 @@ either a phase ID (`P##`, `FP##`, `DS##`, `DOC##`, `R##`) or a
 stable per-bullet ID for ROADMAP_FORMAT v1 projects
 (`LWSM-NNNN`).
 
+**A phase ID may carry a lowercase continuation suffix — `P03b`**
+(user, 2026-08-12). It names a phase that finishes a predecessor's
+undelivered scope, and exists because this roadmap assigns
+`P04`–`P09` to named themes *in advance*, so a phase closed against
+partial scope has no free number to spill into. `P03` closed
+2026-08-12 with the scanner shipped and four planned items
+undelivered; `P03b` carries those four. Renumbering the themes
+instead would have re-labelled 28 bullets and every doc that cites
+a phase by number, and re-pointing the pushed `P03-complete` tag
+needs the force-push authorisation `commits.md § 4.2` withholds.
+
+The suffix is a continuation, **not a sub-phase**: `P03b` runs the
+full 9-step loop and earns its own `P03b-complete` tag. Only reach
+for one when a phase closes against partial scope and the next
+number is already spoken for — a phase that simply has more work
+in it stays one phase.
+
 Every implementation phase ends with `git tag -a <ID>-complete`
 on the closing commit. Tags are local until the user explicitly
 authorises a push.
