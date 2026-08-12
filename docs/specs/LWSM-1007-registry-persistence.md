@@ -220,8 +220,11 @@ exists and the user still needs to see it.
 so a loader returning a `list` produces a record unequal to the one written
 while every value looks right — INV-8's failure mode exactly.
 
-**`added` is stamped by the merge when it creates a record** (§ 4.6) and is
-never rewritten afterwards. **An absent value sorts *after* every present one**
+**`added` is stamped by the merge when it creates a record** (§ 4.6), written as
+RFC 3339 with a `Z` suffix and second precision, and never rewritten afterwards.
+**It is compared as a parsed instant, never as text** (INV-17): RFC 3339 admits
+numeric offsets and fractional seconds, so a hand-edited `+01:00` stamp sorts
+lexically against a `Z` one in the wrong direction. **An absent value sorts *after* every present one**
 in INV-11's tie-break, with file order breaking a tie between two absent ones —
 a rule that exists because every file in existence today lacks the key, so
 "earliest `added` wins" would otherwise have no meaning on exactly the files
@@ -301,8 +304,17 @@ this case, because it compares unresolved paths — which is precisely
 known-issue-025.
 
 **Neither record is deleted.** The one appearing **first in file order** owns
-the identity: it alone is merged into and polled. The second is kept, written
-back unchanged, and flagged *duplicate identity of `<first project>`*. File
+the identity: it alone is merged into. The second is kept, written back
+unchanged, and flagged *duplicate identity of `<first project>`*.
+
+**It is still polled, and that is a stated limitation rather than an
+oversight.** Excluding it from the status loop would need the excluded set to
+reach `ProjectController`, and nothing carries it: `merge()` returns
+`(records, reasons)`, no merge outcome is persisted (§ 4.2), and `rows()`
+rebuilds from records alone. The visible cost is two rows for one directory,
+both showing the same status. Suppressing the row properly is the same
+mechanism as honouring `hidden`, and § 9 defers both together rather than
+inventing a channel for one of them here. File
 order decides rather than `added`, because `added` is optional (§ 4.2) while
 position always exists, and because it is the rule `load_projects` already
 applies to exact duplicates — the second occurrence is the one refused.
@@ -378,11 +390,45 @@ them silently is the one data loss this app is capable of — the thing LWSM-103
 exists to insure against, arriving through the writer rather than through
 corruption.
 
-So: **a non-empty `reasons` list from the load makes the whole session
-read-only.** The merge still runs and still reports, the UI still shows what a
-rescan would change, and the write is refused with a reason naming the count.
-The user fixes the file, or deletes the bad rows deliberately, and the next
-start writes normally. § 8 records the alternative that was rejected.
+So: **a load that refused a whole ROW makes the session read-only.** The merge
+still runs and still reports, the UI still shows what a rescan would change, and
+the write is refused with a reason naming the count. The user fixes the file, or
+deletes the bad rows deliberately, and the next start writes normally. § 8
+records the alternative that was rejected.
+
+**Row-level, not any reason — the distinction is the whole rule.**
+`load_projects` writes to `reasons` for two different things. A **row** refusal
+(`'name' must be a non-empty string`, a relative path, `..`, a duplicate) drops
+the object, and that is the data the writer would destroy. A **field** refusal
+(`port 70000 is not an integer 1-65535`, and now an unrecognised `kind`) keeps
+the row and only drops the field — `_port_or_reason` returns a reason and the
+record is still appended. Keying the gate on `reasons` being non-empty would
+therefore let one hand-typed `"port": "3000"` disable persistence for the whole
+session, on a file with nothing at risk. The merge needs the two counted
+separately, so `load_projects` gains a row-refusal count alongside its reasons.
+
+**Three states, and only the first may write:**
+
+| At load | May write? |
+|---|---|
+| no file at all, or every row accepted | **yes** — a fresh `projects.json` is created on first run |
+| one or more rows refused | no — read-only, reported |
+| `RegistryError` raised (unparseable, wrong `schema_version`, unreadable) | no — read-only, reported |
+
+The third row is the one a `reasons`-only gate misses entirely: a raised
+`RegistryError` produces **no reasons at all**, and § 6 already sends that case
+to an empty window. Without this clause the merge would run against an empty
+`stored` list and write a fresh file over a hand-edited registry that had only a
+JSON typo or a stale `schema_version` — destroying a fully recoverable file
+through the very gate written to prevent destruction, and with LWSM-1039's
+backup not yet built to catch it.
+
+**Records are written in the order the merge returned them**, which preserves
+the loaded order with new records appended. Nothing may sort them. Two rules
+depend on file order — which of two duplicate identities owns it (§ 4.4) and
+INV-11's tie-break between two records with no `added` — and each write becomes
+the next load's file order, so a writer that sorted by name would silently flip
+both on every run.
 
 ### 4.6 Merge outcomes
 
@@ -424,8 +470,8 @@ produces a report entry; none mutates silently.
 | **changed** | detected halves differ **and the scan value is known** | detected half updated, change listed |
 | **missing** | stored, in scope for this scan (below), absent from a complete one | kept, flagged *missing*, never deleted |
 | **not re-observed** | stored known, scan unknown (§ 4.3) | stored value kept, flagged |
-| **override differs** | a user override exists for a field that moved | override stays in force, row flagged |
-| **duplicate identity** | resolves to the same directory as an earlier record (§ 4.4) | kept and written back, excluded from merge and polling, flagged |
+| **override differs** | `port_override` is set and the detected `port` moved | override stays in force, row flagged |
+| **duplicate identity** | resolves to the same directory as an earlier record (§ 4.4) | kept and written back unchanged, excluded from the merge, flagged |
 
 **A *new* record is seeded, and that is the one place a merge writes a
 user-owned field.** `name` takes `DetectedProject.name`, `added` takes `now()`,
@@ -442,9 +488,26 @@ the user is told. Requiring both sides to be known would have left that case
 matching no row at all, so a first successful detection would update the record
 and report nothing.
 
+**Only `port_override` participates in *override differs*.**
+`launcher_override` is stored but is not mapped to any detected field in this
+item, so there is nothing for it to differ *from*: `ProjectRecord.effective_port`
+already fixes the override/detected precedence for ports, and no equivalent
+exists for a launcher. Persisting it without acting on it is deliberate — see
+`hidden`, below.
+
+**`hidden` and `launcher_override` are persisted and not acted on.** They round-
+trip through the file and the merge preserves them as user-owned, and **nothing
+in this item reads either.** ADR-0005 says hidden projects are not polled and
+drop out of the list; that behaviour needs a controller change and a UI
+affordance for un-hiding, neither of which this item builds, and a hand-set
+`"hidden": true` that silently removed a row with no way to bring it back would
+be worse than one that does nothing yet. Stated because the file is
+hand-editable, so both keys are reachable today and an implementer would
+otherwise have to guess.
+
 **"In scope for this scan" is what makes *missing* mean anything.** A stored
 record is a candidate for *missing* only when its resolved path lies under one
-of the roots the scan actually walked. ADR-0005 says "absent from disk", which
+of the `roots` passed to `merge()`. ADR-0005 says "absent from disk", which
 is not what a scan observes — a scan observes absence *from its own roots*. A
 project the user added by hand outside every scan root is present on disk and
 absent from every scan, so the literal reading would flag it missing on the
@@ -494,10 +557,15 @@ through a signal; **the file write and every UI update happen on the GUI
 thread**, in the slot. Rescan is disabled while one is in flight, so two
 overlapping merges cannot both write.
 
-**Exactly one trigger writes the file: a merge that changed something.** If
-every outcome is *unchanged*, no write happens — a no-op rewrite would churn
-the file's mtime and widen the only window in which § 6's concurrent-writer
-loss can occur, for no gain. There is **no write on exit**: nothing this item
+**Exactly one trigger writes the file: the merged record set differs from the
+loaded one.** Record *content*, not report entries — three outcomes flag a row
+while leaving every field identical (*missing*, *not re-observed*, *duplicate
+identity*), and none of them writes. A no-op rewrite would churn the file's
+mtime and widen the only window in which § 6's concurrent-writer loss can
+occur, for no gain. "A merge that changed something" would have been ambiguous
+here in exactly the wrong direction: a *missing*-only merge changes the report
+and nothing else, and both readings pass a test that only exercises an
+all-*unchanged* merge. There is **no write on exit**: nothing this item
 builds mutates the registry outside a merge, so an exit hook would have nothing
 to flush. (§ 8 rejects a write-per-change alternative; that rejection is about
 a *future* editing surface, not about an exit path this item has.)
@@ -559,15 +627,21 @@ has to replace.
   survival it would contradict INV-5, and an implementer would delete the
   loser along with the user-owned half no rescan can reconstruct.
 
-- **INV-7** — A write that fails at any point leaves the previous file intact
-  and parseable.
+- **INV-7** — A write that fails **before `os.replace` completes** leaves the
+  previous file intact and parseable, and unlinks the temporary file.
   *Test:* `tests/test_registry.py::test_a_failed_write_leaves_the_old_file_intact`
   — failure injected after the temporary file is written and before
   `os.replace`.
   *Breaks when:* the disk fills, or the process dies mid-write.
+  **"At any point" would be false**, and the boundary is `os.replace` because
+  that is where the swap becomes visible. § 4.5's step 4 — the directory
+  `fsync` — runs *after* it, so a failure there leaves the new file correctly
+  in place with no temporary file left to unlink and nothing to roll back; it
+  is reported, not reversed. Reverting it would mean keeping a copy of the old
+  file, which is LWSM-1039.
 
-- **INV-8** — Anything written reloads to an equal record set, `==` on the
-  dataclass.
+- **INV-8** — Anything written reloads to an equal record **sequence** — same
+  records, `==` on the dataclass, **in the same order**.
   *Test:* `tests/test_registry.py::test_write_then_load_round_trips`, over a
   record with every field populated, including a name needing JSON escaping.
   *Breaks when:* a field is serialised in a form `load_projects` rejects — a
@@ -575,7 +649,11 @@ has to replace.
   its value — or **loaded back at the wrong type**: `argv` is
   `tuple[str, ...]` and JSON has only arrays, so a loader returning a `list`
   produces a record that is unequal to the one written while every field
-  *looks* right (§ 4.2).
+  *looks* right (§ 4.2) — **or when the writer reorders**. Order is load-bearing
+  twice over (§ 4.4's duplicate-identity winner, INV-11's tie-break between two
+  absent `added` values) and each write becomes the next load's file order, so
+  a set-equality test would pass a writer that sorted by name and flipped both
+  on every run.
 
 - **INV-9** — The written file is a regular file with mode `0600`, and a target
   that is a symlink or a non-regular file is refused rather than replaced.
@@ -583,11 +661,20 @@ has to replace.
   `::test_a_non_regular_target_is_refused` (a FIFO at the config path), and
   `::test_a_symlinked_target_is_refused_not_followed` — a symlink pointing at a
   **regular** file, which is the case a FIFO fixture cannot reach.
-  *Breaks when:* the process umask is permissive, or the implementation checks
-  with `os.stat` / `Path.is_file()` instead of `os.lstat` — both follow the
-  link, so the symlink passes as a regular file and `os.replace` then destroys
-  it (§ 4.5 records the measured run). The FIFO test stays green under that
-  bug, which is why the symlink case is named separately.
+  *Breaks when:* the file is created before its mode is set, or written through
+  a helper that never passes `0o600` — `tempfile.NamedTemporaryFile` and
+  `mkstemp` both create at `0600`, but `Path.write_text` creates at `0666 &
+  ~umask`. Also when the target check uses `os.stat` / `Path.is_file()` instead
+  of `os.lstat` — both follow the link, so a symlink passes as a regular file
+  and `os.replace` then destroys it (§ 4.5 records the measured run); the FIFO
+  test stays green under that bug, which is why the symlink case is named
+  separately.
+  **A permissive umask is NOT a breaker**, though it reads like the obvious
+  one: umask can only clear permission bits, never add them. Measured on this
+  machine — creating with an explicit `0o600` under `umask 0000`, `0077` and
+  `0777` gives modes `0600`, `0600` and `0000`. A fixture that varies the umask
+  against an explicit-mode create can therefore never fail, which is the
+  unfalsifiable-clause shape this project has been bitten by before.
 
 - **INV-10** — The merge report is bounded in both entry length and entry
   count, and a suppressed tail is always counted.
@@ -645,15 +732,36 @@ has to replace.
   path to its resolved form on the first rescan — so the invariant exists to
   make § 4.1's `- {"path"}` subtraction testable rather than decorative.
 
-- **INV-16** — A load that produced any rejection reason makes the session
-  read-only: no write is attempted, and the refusal names the count.
+- **INV-16** — A load that refused a **row**, or that raised `RegistryError`,
+  makes the session read-only: no write is attempted, and the refusal says why.
+  A load that only dropped a **field** still writes.
   *Test:* `tests/test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back`
-  — a file with one good project and one whose `name` is empty, asserting the
-  file is byte-identical after a merge that would otherwise have changed it.
+  (one good project, one with an empty `name`),
+  `::test_an_unparseable_file_is_never_written_over` (the `RegistryError`
+  path), and the discriminating case
+  `::test_a_dropped_field_does_not_block_the_write` — one good project whose
+  `port` is `"3000"`, which drops the field, keeps the row, and must **not**
+  make the session read-only.
   *Breaks when:* any hand-written row is refused by the loader. `load_projects`
   returns rejected rows only as reason *strings*, so serialising `records` back
   would delete them permanently and silently — the write turning a recoverable
-  hand-edit into data loss.
+  hand-edit into data loss. **The third test is the one that keeps the rule
+  honest**: keyed on `reasons` being non-empty rather than on a row count, a
+  single mistyped port would disable persistence for the whole session, and the
+  first two fixtures pass either way.
+
+- **INV-17** — `added` is compared as a **parsed instant**, never as a raw
+  string.
+  *Test:* `tests/test_registry.py::test_the_added_tie_break_compares_instants_not_text`
+  — two records whose `added` values denote the same moment written as
+  `2026-08-12T14:03:11Z` and `2026-08-12T15:03:11+01:00`, asserting neither
+  wins on text order.
+  *Breaks when:* two stamps use different RFC 3339 spellings. The format admits
+  numeric offsets and fractional seconds, and `"2026-08-12T15:03:11+01:00"`
+  sorts *after* `"2026-08-12T14:03:11Z"` lexically while denoting an earlier
+  instant — so a string comparison silently picks the wrong duplicate-port
+  winner. Records this item writes are always `Z`-spelled, which is exactly why
+  the bug would not show up until a user hand-edited one.
 
 ## 6. Failure modes
 
@@ -750,6 +858,14 @@ by asserting harder.
 - **Concurrent-writer safety** (a lock file, or an mtime precondition) —
   untracked, because two instances of a single-user desktop app is not a shape
   anyone has asked for. Recorded in § 6 so the omission is visible.
+- **Acting on `hidden`, and suppressing a duplicate-identity row from the
+  list** — untracked, and deferred together because they are one mechanism: a
+  channel from the merge to `ProjectController` for "do not poll or show this
+  record". This item persists both facts and reads neither (§ 4.4, § 4.6). The
+  visible cost is a hand-set `"hidden": true` doing nothing and a symlink
+  duplicate showing twice. Deferred rather than invented here because the
+  honest version also needs a way to *un*-hide, which is UI this item has no
+  surface for.
 - **known-issue-010** (contrast computed only against `window`; `state_running`
   is 4.29:1 on `alt_base`) and **known-issue-013** (the row's accessible role
   is `Border`) both *named* LWSM-1007 as their owner, describing it as "the
@@ -774,8 +890,11 @@ by asserting harder.
   through a handler that rotates at 1 MiB.
 - **Disk.** One file, plus a transient temporary file in the same directory
   that is unlinked on any failure path.
-- **New external dependencies: none.** `json`, `os`, `tempfile` and `pathlib`
-  are all already imported by `registry.py` or the standard library it uses.
+- **New external dependencies: none.** `registry.py` imports `errno`, `json`,
+  `os`, `stat`, `dataclasses`, `pathlib` and `typing` today; the writer adds
+  **`tempfile`** and the `added` stamp adds **`datetime`**. Both are standard
+  library, so `pyproject.toml` does not change.
+  *Command:* `sed -n '11,20p' src/lwsm/registry.py`.
 
 ## 11. What checks this
 
@@ -796,7 +915,10 @@ by asserting harder.
 | INV-13 | `test_registry.py::test_no_merge_value_is_interpolated_without_the_clip` |
 | INV-14 | `test_registry.py::test_the_shipped_bounds_are_pinned` (widened to the two `scanner` constants) |
 | INV-15 | `test_registry.py::test_a_merge_does_not_rewrite_the_stored_path` |
-| INV-16 | `test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back` |
+| INV-16 | `test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back`, `::test_an_unparseable_file_is_never_written_over`, `::test_a_dropped_field_does_not_block_the_write` |
+| INV-17 | `test_registry.py::test_the_added_tie_break_compares_instants_not_text` |
+| § 4.4 duplicate still polled | **nothing** — a stated limitation (§ 9), not a rule; no channel carries the excluded set to the poller |
+| § 4.6 `hidden` / `launcher_override` persisted but inert | **nothing** — deliberate; INV-8's round-trip proves they survive, and nothing reads them |
 | § 4.7 write trigger | `test_registry.py::test_an_all_unchanged_merge_does_not_write` |
 | § 4.6 scope of *missing* | `test_registry.py::test_a_project_outside_every_scan_root_is_not_missing` |
 | § 4.6 *new*-record seeding | `test_registry.py::test_a_new_record_takes_its_name_from_the_scan_and_a_stamped_added` |
@@ -807,14 +929,17 @@ by asserting harder.
 | § 6 concurrent writers | **nothing** — out of scope by § 9; last writer wins and no reader sees a half-file |
 | § 4.3's stale-port limitation | **nothing** by design — it is the accepted cost of INV-3; removing it is the deferred scanner change in § 8 |
 
-**Twenty-five rows, five of which say `nothing`** — the honest error budget
-`spec-format.md § 0` asks for. All five are limits or deliberate omissions
-rather than defects: the directory `fsync`, which no unit test can falsify
-without power loss; concurrent writers, excluded by § 9; § 4.3's stale-port
-cost, accepted as INV-3's price; § 4.3's per-field unknown table, three rows of
-which assert an *absence* of a sentinel and so have nothing to break; and
-§ 4.7's un-rendered per-row flags, which are a decision not to build rather
-than a rule. **None carries a roadmap id, because none is a gap to close.**
+**Twenty-eight rows, seven of which say `nothing`** — the honest error budget
+`spec-format.md § 0` asks for, and it grew by four across three review loops
+rather than shrinking. All seven are limits or deliberate omissions rather than
+defects: the directory `fsync`, which no unit test can falsify without power
+loss; concurrent writers, excluded by § 9; § 4.3's stale-port cost, accepted as
+INV-3's price; § 4.3's per-field unknown table, three rows of which assert an
+*absence* of a sentinel and so have nothing to break; § 4.7's un-rendered
+per-row flags; § 4.4's duplicate row still being polled; and `hidden` /
+`launcher_override` being persisted but inert. **None carries a roadmap id,
+because none is a gap to close** — the last three are § 9 deferrals with their
+cost stated, not defects.
 
 *Command, run against this file:*
 
@@ -825,9 +950,9 @@ awk '/^\| Rule \| What catches/{f=1;next} f&&/^\|---/{next} \
   docs/specs/LWSM-1007-registry-persistence.md
 ```
 
-→ `rows=25 inv=16 nothing=5`, against `grep -c '^- \*\*INV-'` → `16`. So the
-table and § 5 enumerate the same sixteen invariants, and the nine non-`INV`
-rows are the five `nothing` limits plus four § 4 rules that carry a test
+→ `rows=28 inv=17 nothing=7`, against `grep -c '^- \*\*INV-'` → `17`. So the
+table and § 5 enumerate the same seventeen invariants, and the eleven non-`INV`
+rows are the seven `nothing` limits plus four § 4 rules that carry a test
 without carrying an invariant of their own.
 
 ## 12. Cross-doc impact
@@ -851,3 +976,4 @@ without carrying an invariant of their own.
 |------|------|-------|------|------|-----|-----|---------|
 | 1 | 2026-08-12 | 3 (general-purpose, strong model), identical brief, four-question form | Q1 ×3 · Q2 ×3 · Q3 ×6 · Q4 ×0 | **17 raw across 3 lanes → 12 distinct, 12 verified, 0 dismissed, 12 fixed.** Zero wording findings. Convergence on defects was unusually high — all three lanes independently found the same three, which is what makes them worth naming. **The sharpest is a check that did not do what its own paragraph said**: § 4.5 refused a non-regular target to stop `os.replace` destroying a user's symlink, but the natural implementation of "is not a regular file" *follows* the link. Measured here on 3.13 — `link.is_file()` → `True`, `S_ISREG(os.stat)` → `True`, `S_ISREG(os.lstat)` → `False` — and `os.replace` onto it left `is_symlink()` → `False` with the real file untouched. The FIFO test named in INV-9 stays green through that bug, so the fix is `os.lstat` plus a symlink-to-**regular**-file case. **Two contradictions between sections that each read fine alone:** INV-5 "never deleted" against § 4.4 "refuses the later record" and INV-6 "never both persist" — resolved so that a duplicate identity is kept and excluded rather than dropped, since the loser holds a user-owned half no rescan can reconstruct; and § 4.3's table calling a stored-`None`/scan-`3000` row *changed* while § 4.6 required "both known", which left a first successful detection matching no outcome row. **Two fields were deleted rather than specified** — `detected_missing` and `port_last_detected` were in the § 4.2 format, in neither field set (so INV-1 would have failed on the first run), and read by nothing in § 4.3 or § 4.6. **Three claims about this project's own tooling were false or unstated:** `--fast` is `pytest -m "not integration"`, so a marker can only *exclude* — "marked so `--fast` keeps them" was backwards; `added` had no default while INV-11 tie-breaks on it and INV-12 requires today's key-less files to load; and `argv` had no fixed type, so INV-8's "equal record set" was undefined for tuple-vs-list. § 1 also promised a rename/override the item builds no surface for — narrowed to a hand-edited file. Threading and the write trigger were unspecified and are now pinned (worker thread, write only when a merge changed something). One open question resolved **clean**, so it is not in the tally: consumers read only `record.path`, `record.name` and `record.effective_port`, exactly as § 4.1 claims. INV-14 added, closing known-issue-034; known-issue-033 explicitly left open, because this item adds no subpackage and its routing premise does not fire. Loop 2 dispatched. |
 | 2 | 2026-08-12 | 3 (general-purpose, strong model), brief byte-identical to loop 1, no prior-loop findings disclosed | Q1 ×1 · Q2 ×3 · Q3 ×6 · Q4 ×0 | **10 verified, 0 dismissed, 10 fixed.** **Nothing from loop 1 resurfaced, so those twelve fixes held.** Roughly half of these are loop 1's own collateral, which is the honest reading: § 4.2's new default list omitted `kind`; § 4.6's new "roots the scan actually walked" condition could not be evaluated at all, because `ScanResult` carries only `projects`/`skipped`/`timed_out` and no merge signature existed anywhere — so the merge's signature is now written down, taking `roots` as a parameter; § 6's "scan returns nothing" sentence contradicted the `skipped` rule loop 1 had just added; and `added` gained an ordering rule without a type or a stamper. **The two genuine draft defects are the ones worth keeping:** `path` is in `DETECTED_FIELDS` while § 4.4 promises the stored path is never rewritten, so a merge built as a plain set-driven replacement — the natural reading of "replace the detected half" — would rewrite every stored path to its resolved form on the first rescan (now `DETECTED_FIELDS - {"path"}`, tested by INV-15); and **the writer would have destroyed data**, since `load_projects` returns rejected rows only as reason *strings*, so serialising `records` back over the file permanently deletes every hand-written row the loader refused. That is the one data loss this app is capable of, arriving through the feature meant to preserve state — closed by INV-16, which makes a load with any rejection read-only. Also: INV-2 forbade writing a user-owned field while § 4.6's *new* row must write `name` and `added`, so INV-2 is now scoped to existing records and seeding is specified; § 4.3's unknown rule was stated over "a detected field" but defined only for `port`, which would have kept a stale `unit` forever on a project that stopped being a systemd service; and § 4.7's per-row flags had nowhere to live, since `rows()` rebuilds every `RowView` from four record fields each 1000 ms poll — the flags are now summary-only and the per-row surface is left to LWSM-1008. Loop 3 dispatched. |
+| 3 | 2026-08-12 | 3 (general-purpose, strong model), brief byte-identical to loops 1–2 | Q1 ×2 · Q2 ×3 · Q3 ×7 · Q4 ×0 | **12 verified, 0 dismissed, 12 fixed. `--max-loops 3` binds here; the run files this and exits.** **Nothing from loops 1 or 2 resurfaced, for the second loop running** — the fixes hold; what keeps arriving is new surface, which is the finding about this document rather than about any of its sentences. **Two invariants were falsified by measurement, both mine:** INV-9's *Breaks when* named a permissive umask, which **cannot** break an explicit `0o600` create — measured here, `umask 0000 / 0077 / 0777` give modes `0600 / 0600 / 0000`, umask being able only to clear bits — so that clause was unfalsifiable and is replaced by the create-then-chmod and `Path.write_text` shapes that can actually fail; and INV-7's "fails at any point" is false because § 4.5's step 4 (the directory `fsync`) runs *after* `os.replace`, where there is nothing left to unlink and nothing to roll back. **INV-16, added last loop to prevent data loss, would itself have caused a different failure:** keyed on `reasons` being non-empty, one hand-typed `"port": "3000"` — a *field* rejection that keeps the row — would have disabled persistence for the entire session, and both of its fixtures passed either way. Now scoped to *row* refusals, with a third discriminating test. It also missed the case where the load **raised**: `RegistryError` produces no reasons at all, so a merge would have written a fresh file over a registry that had only a JSON typo. **Three things were promised that nothing could carry:** "excluded from polling" for a duplicate identity, and any effect for `hidden` and `launcher_override` — `merge()` returns `(records, reasons)`, no outcome is persisted, and `rows()` rebuilds from records, so all three are now stated as persisted-but-inert with their cost named and deferred together in § 9. Also: § 4.6 still said "roots the scan actually walked" five lines after § 4.6 fixed it to "roots requested"; the write trigger "a merge that changed something" was ambiguous for the three flag-only outcomes; file order is load-bearing twice and the write order was unspecified, so INV-8 now asserts a **sequence**; `added` needed parsed-instant comparison (INV-17), since `+01:00` sorts lexically after `Z` while denoting an earlier moment; and § 10 claimed `tempfile` was already imported when `registry.py` imports neither it nor `datetime`. **Cap diagnosis, per the skill's own instruction to say which problem this is: SIZE AND SCOPE, not an unsettled contract.** The document went 540 → 692 → 852 → 979 lines while the finding count held flat at 12 / 10 / 12, and each loop's findings clustered in a *different* region — loop 1 the writer and the outcome table, loop 2 identity and field classification, loop 3 the read-only gate and the invariant clauses. That is the "two cold reads never reached parts of it" shape, not "a contract nobody settled". **Recommended: split along the § 4 seams into a format-and-writer part and a merge part**, each re-gated from loop 1 on its own bytes. Not done here — a split changes the deliverable and is the user's call. |
