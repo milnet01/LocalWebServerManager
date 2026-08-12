@@ -1389,6 +1389,64 @@ def test_a_missing_scan_root_does_not_blank_the_result(tmp_path: Path) -> None:
     assert any("gone" in reason for reason in result.skipped)
 
 
+def _plant_unreadable_directory(root: Path) -> str:
+    """A candidate the scanner may list but may not enter.
+
+    Needs no attacker: a root-owned or another user's directory under a scan
+    root has this shape. Reaches `Path.exists` / `is_file`, which re-raise
+    `EACCES` on 3.13 — `pathlib` swallows only `ENOENT/ENOTDIR/EBADF/ELOOP`.
+    """
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions, so 0o000 plants nothing")
+    base = make_project(root, "aaa-hostile", {"serve.py": "PORT = 8000\n"})
+    base.chmod(0o000)
+    return "aaa-hostile"
+
+
+def _plant_long_hop_token(root: Path) -> str:
+    """An attacker-authored launcher whose hop token exceeds `NAME_MAX`.
+
+    One line in one file under a scan root: `MAX_SOURCE_LINE_CHARS` is 4096 and
+    `NAME_MAX` is 255. Reaches `Path.is_symlink` in `_accept_hop`, a different
+    line from the one above, which is why both triggers are carried here.
+    """
+    make_project(
+        root,
+        "aaa-hostile",
+        {"start.sh": "#!/bin/sh\nexec python3 " + "a" * 3000 + "\n"},
+        "start.sh",
+    )
+    return "aaa-hostile"
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [_plant_unreadable_directory, _plant_long_hop_token],
+    ids=["unreadable directory", "hop token longer than NAME_MAX"],
+)
+def test_one_hostile_candidate_does_not_destroy_the_whole_scan(
+    tmp_path: Path, plant: Callable[[Path], str]
+) -> None:
+    """§ 4.3: *"Any `OSError` rejects that file with a reason and continues. A
+    permission denial on one project is not a failure of the scan."*
+
+    The hostile candidate sorts **first**, so a scan that gives up on it loses
+    every project behind it — which is what shipped: `scan()` caught only
+    `_BudgetExpired`, so the caller got no `ScanResult` at all.
+    """
+    hostile = plant(tmp_path)
+    for index in range(3):
+        make_project(tmp_path, f"good-{index}", {"serve.py": "PORT = 8000\n"})
+
+    try:
+        result = scan_root(tmp_path)
+    finally:
+        (tmp_path / hostile).chmod(0o700)
+
+    assert sorted(by_name(result)) == ["good-0", "good-1", "good-2"]
+    assert any(hostile in reason for reason in result.skipped)
+
+
 def test_the_budget_stops_a_scan_mid_candidate(corpus_tree: Path) -> None:
     """The deadline is checked before each candidate **and, inside a file read,
     before each line** — a wall-clock check between files cannot interrupt work

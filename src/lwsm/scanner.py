@@ -1247,7 +1247,22 @@ def scan(
                     continue
                 seen.add(candidate)
 
-                launcher = _detect(candidate, raw_name, quoted, lookup, deadline, note)
+                try:
+                    launcher = _detect(
+                        candidate, raw_name, quoted, lookup, deadline, note
+                    )
+                except OSError as exc:
+                    # Contained per candidate, and deliberately at the class
+                    # rather than at the metadata calls that raise today:
+                    # `Path.exists` / `is_symlink` / `is_file` re-raise EACCES
+                    # and ENAMETOOLONG on 3.13 (`pathlib._abc._IGNORED_ERRNOS`
+                    # swallows only ENOENT/ENOTDIR/EBADF/ELOOP), and § 4.3
+                    # requires one unreadable project to cost that project
+                    # only. Four call sites had already been found; patching
+                    # those four would leave the fifth. `_BudgetExpired` is not
+                    # an `OSError`, so INV-5's abandonment still propagates.
+                    note(f"{quoted}: cannot be examined ({exc.strerror or exc})")
+                    continue
                 if launcher is None:
                     note(f"{quoted}: no launcher matched")
                     continue
