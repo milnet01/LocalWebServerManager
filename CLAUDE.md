@@ -354,6 +354,34 @@ bare `QMainWindow` in the same shape did receive it. So a language test must
 send `QEvent.Type.LanguageChange` by hand and say what it therefore does not
 prove — see `test_a_translator_installed_later_reaches_an_existing_row`.
 
+**Trap: `pathlib` metadata calls raise on a directory you cannot enter.**
+`Path.exists()`, `is_symlink()`, `is_file()` and `is_dir()` swallow only
+`ENOENT / ENOTDIR / EBADF / ELOOP` (`_IGNORED_ERRNOS` in
+`/usr/lib64/python3.13/pathlib/_abc.py`). **`EACCES` and `ENAMETOOLONG` are
+re-raised** — this is not the older behaviour where `exists()` returned `False`
+for anything it could not stat, and code written against that memory is wrong
+on 3.13. Found 2026-08-12: four such calls in `scanner.py` sat outside any
+handler, and one `chmod 000` directory in a scan root returned **0 of 20**
+healthy projects. **This is the fourth shape of the same class** — a
+non-`OSError`-shaped, or unguarded-`OSError`, exception escaping a per-item
+loop and taking the whole batch with it, after `{"dependencies": 5}` →
+`TypeError`, a non-total `properties()` → `KeyError`, and a NUL byte →
+`ValueError`. Three earlier fixes each closed one instance and none closed the
+class. **When a loop processes untrusted items, contain per item and prove it
+with a hostile fixture**; do not add a fifth guard to a fifth call site.
+
+**Trap: a suite can be 370-green and still not hold its own contract.** 81
+mutants against `scanner.py` on 2026-08-12: 47 red, **34 green**. Three clauses
+the spec calls load-bearing were correct in the code and protected by nothing —
+`_BudgetExpired` not subclassing `OSError` (under which a timed-out scan
+reports `timed_out=False` and claims completeness), the `package.json`
+dependency-block scope, and rule 1's execute-bit precondition, whose line never
+executed in any test. **Coverage found what reading did not**: `scanner.py:943`,
+`:295`, `:326`, `:904` and `:1213` were all in the miss list, and the last is
+the *per-candidate* half of a deadline whose per-line half does all the work.
+Before believing an invariant is held, mutate it — and check the line runs at
+all.
+
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the
 *system* Python and report the project's own declared dependencies as
