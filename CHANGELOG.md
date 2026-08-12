@@ -23,6 +23,9 @@ signaling per
 
 ### Added
 
+- **Four scanner behaviours the spec calls load-bearing now have tests that fail when they break** (LWSM-1125)
+  Each was correct in the shipping code and protected by nothing: the timeout signal not being confusable with a file error (LWSM-1125), the package.json dependency block staying out of the port rules (LWSM-1126), a start script without the run permission falling through to the next rule (LWSM-1127), and the filename a port was read from being cleaned before it is shown (LWSM-1129). Every one was watched failing against a deliberate break.
+
 - **Detect projects, their launchers and their declared ports** (LWSM-1006)
   Point the app at a folder of projects and it works out, for each
   one, how that project starts and which port it wants — reading the
@@ -96,6 +99,18 @@ signaling per
   default.
 
 ### Fixed
+
+- **A note saying "switch to vite later" is no longer read as a Vite project** (LWSM-1130)
+  Rule 3's framework evidence now reads the comment-stripped script value, as the port rules already did, so a commented-out plan cannot hand a project the wrong default port.
+
+- **A folder whose name is not valid text no longer makes its log entry vanish** (LWSM-1128)
+  The name is now cleaned before it is shown or stored, so it can be written out as text.
+
+- **A launcher whose command ends in a redirect or a config path has its port found again** (LWSM-1123)
+  `exec python3 app.py >> /var/log/app.log` is an ordinary start script; the port scan gave up at the trailing token instead of reading the rest of the line.
+
+- **One unreadable or hostile project directory no longer blanks the whole scan** (LWSM-1122)
+  A directory the app may not enter — root-owned, another user's, or `chmod 000` — made the scan return nothing at all instead of skipping that one project. Measured before the fix: 20 healthy projects came back as 0.
 
 - **The core/UI layering check now covers every module the rule names** (LWSM-1006)
   `applog.py` was covered by the rule and missing from the check, and
@@ -238,6 +253,9 @@ signaling per
   one.
 
 ### Security
+
+- **The last rejection message built from a foreign filename is escaped and length-bounded** (LWSM-1124)
+  A folder with a strange name could push invisible control characters into the app log and the status bar, and past the 120-character bound its seven sibling messages keep.
 
 - **Every file the scanner reads is read under a bound** (LWSM-1050)
   The scanner reads files inside other people's project folders, so

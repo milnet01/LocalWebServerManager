@@ -5,9 +5,10 @@
 | Field | Value |
 |-------|-------|
 | **Project phase** | **P03 OPEN** (started 2026-08-08) — LWSM-1006 Scanner is the active item and its spec is through the gate; LWSM-1007, LWSM-1039, LWSM-1008 and LWSM-1121 follow. **P02 CLOSED 2026-08-07** — vertical slice LWSM-1005 plus five fix-passes (FP02–FP05, 37 fix items). P01 stays open only for FP01's five 🚧 security items (P05/P06). Phases A–D closed 2026-08-03. **Next is P03** (LWSM-1006 Scanner, LWSM-1007 registry persistence, LWSM-1039 backup, LWSM-1008 first-run flow) |
-| **Active item ID** | **`FP06`** (LWSM-1122…1130) — nine findings from the P03 close, generated 2026-08-12. **Work these through the 9-step loop, then re-run `/close-phase` to close LWSM-1006 and P03.** The parent stays 🚧. Start with **LWSM-1122** (the whole-scan crash) — it is the only one with a live user-visible failure, and LWSM-1123 rewrites the same function that known-issue-027 is waiting on. Superseded active item: **`LWSM-1006`** — Scanner implements the detection rules. Contract: [`docs/specs/LWSM-1006-scanner-detection.md`](../docs/specs/LWSM-1006-scanner-detection.md), with [`LWSM-1006-conformance.py`](../docs/specs/LWSM-1006-conformance.py) beside it executing every pattern the spec prescribes. Scope was **narrowed the same day**: the `.env` / `docker-compose.yml` / `README.md` port sources and conflict reporting moved to **LWSM-1121**, and the item also carries **LWSM-1050**'s hardening. `FP05` remains complete (LWSM-1112…1120); its MEDIUM/LOW tail stays routed in `docs/known-issues.md` |
-| **Active step** | **3 — write failing tests** (steps 1–2 ✅). The spec is **accepted**: 7 `/cold-eyes` loops, 1 conformance pass, 1 mechanical sweep, ~120 findings verified, all fixed, 0 deferred, 0 CRITICAL in loop 7. **No further review loops** — the decision and its evidence are in the roadmap bullet's 2026-08-08 note. Next concrete action: write `tests/test_scanner.py` red-first against the spec's 20 invariants, then `src/lwsm/scanner.py` |
-| **Last update** | 2026-08-12 (**P03 close attempted and BLOCKED; `FP06` generated.** `/audit` clean for the fourth close running — ruff, bandit, semgrep, gitleaks, shellcheck all zero, and **the zero was verified by hand** because `audit_run` reported it with `artifacts: 0` on every tool, which is indistinguishable from having read nothing. Three review lanes produced **25 findings, zero false positives**: 9 → `FP06` (LWSM-1122…1130), 16 → `docs/known-issues.md` (017…033) with named owners. **The cross-cutting finding is a fourth non-`OSError` whole-scan crash** — `Path.exists`/`is_symlink` re-raise `EACCES` and `ENAMETOOLONG` on Python 3.13, four call sites are unguarded, and `scan()` catches only `_BudgetExpired`. Two lanes found it with different reproducers and both were reproduced again independently: `chmod 000` on one candidate returns **0 of 20** healthy projects, and a 3000-character hop token does the same from one attacker-written line. Three earlier loops fixed three instances of this class and none fixed the class; LWSM-1122 does it structurally. **The other half is the tests**: 81 mutants, 47 red, **34 green** — including three clauses the spec calls load-bearing (`_BudgetExpired` not being an `OSError`, the dependency-block scope, rule 1's execute bit), all correct today and protected by nothing. A timed-out scan under the first of those reports `timed_out=False`, and LWSM-1007 is about to persist that list. **Deliberate deviation:** no CHANGELOG entry was written for FP06 — nothing is fixed yet and `[Unreleased]` is public) |
+| **Active item ID** | **`FP06`** (LWSM-1122…1130) — nine findings from the P03 close, generated 2026-08-12 and **all nine shipped the same day** (1910a6c…6b592df). **Next: re-run `/close-phase`, which closes FP06 and then LWSM-1006 and P03 together.** The parent stays 🚧 until it does. known-issue-027 waits on `_hop_target`, which LWSM-1123 has now rewritten, so it is re-checkable. Superseded active item: **`LWSM-1006`** — Scanner implements the detection rules. Contract: [`docs/specs/LWSM-1006-scanner-detection.md`](../docs/specs/LWSM-1006-scanner-detection.md), with [`LWSM-1006-conformance.py`](../docs/specs/LWSM-1006-conformance.py) beside it executing every pattern the spec prescribes. Scope was **narrowed the same day**: the `.env` / `docker-compose.yml` / `README.md` port sources and conflict reporting moved to **LWSM-1121**, and the item also carries **LWSM-1050**'s hardening. `FP05` remains complete (LWSM-1112…1120); its MEDIUM/LOW tail stays routed in `docs/known-issues.md` |
+| **Active step** | **`FP06` steps 1–4 ✅ (2026-08-12)** — spec verified per bullet, no DAG dependencies, every test written red-first and every fix mutation-verified. Steps 5–6 for FP06 are the `/close-phase` re-run, which **must not generate a second review round on LWSM-1006's code** (2026-08-07 standing decision). LWSM-1006's own superseded position, unchanged, follows. **Was 3 — write failing tests** (steps 1–2 ✅). The spec is **accepted**: 7 `/cold-eyes` loops, 1 conformance pass, 1 mechanical sweep, ~120 findings verified, all fixed, 0 deferred, 0 CRITICAL in loop 7. **No further review loops** — the decision and its evidence are in the roadmap bullet's 2026-08-08 note. That item's own next action — write `tests/test_scanner.py` red-first, then `src/lwsm/scanner.py` — is done |
+| **Last update** | 2026-08-12 (**`FP06` complete — all nine bullets ✅, gate green at 386 tests, up from 370.** Six commits, one per bullet-group, each with its red test watched failing first. **Three bullets were corrected or qualified by measurement**, which is this project's standing pattern for a fold-in bullet being a reviewer's reading: (1) **LWSM-1126's prescribed mutation does not discriminate** — `dependencies` is a set of KEYS, so appending `*sorted(dependencies)` scans `get-port`, which holds no digits, and the suite stays green; the real scope breach is reading `package.json` as an ordinary source file, and the new fixture's dependency pair is pretty-printed onto its own line because rule 2 stops at a minified document's first `:`. (2) **LWSM-1124's test cannot see the constant being loosened** — measured: `MAX_REASON_CHARS = 400` leaves it green, because the assertion is expressed relative to that constant (known-issue-005's exact shape), and **scanner's copy of the bound is pinned by nothing** where registry's is pinned by `test_the_shipped_bounds_are_pinned`. That gap is open and unrouted. (3) LWSM-1122's containment is what LWSM-1125's behavioural test then proves does *not* swallow the budget signal — under `class _BudgetExpired(OSError)` the new `except OSError` catches it and the scan reports `timed_out=False`, so the two bullets interlock. **One flaky test observed once**: `test_completed_tasks_do_not_accumulate` reported `2 live tasks after 200 completed polls` on the first full gate run and has not reproduced in 12 whole-file runs plus 4 whole-suite runs; it counts live objects through `gc` and touches nothing this pass changed) |
+| **Superseded (P03 close attempt)** | 2026-08-12 (**P03 close attempted and BLOCKED; `FP06` generated.** `/audit` clean for the fourth close running — ruff, bandit, semgrep, gitleaks, shellcheck all zero, and **the zero was verified by hand** because `audit_run` reported it with `artifacts: 0` on every tool, which is indistinguishable from having read nothing. Three review lanes produced **25 findings, zero false positives**: 9 → `FP06` (LWSM-1122…1130), 16 → `docs/known-issues.md` (017…033) with named owners. **The cross-cutting finding is a fourth non-`OSError` whole-scan crash** — `Path.exists`/`is_symlink` re-raise `EACCES` and `ENAMETOOLONG` on Python 3.13, four call sites are unguarded, and `scan()` catches only `_BudgetExpired`. Two lanes found it with different reproducers and both were reproduced again independently: `chmod 000` on one candidate returns **0 of 20** healthy projects, and a 3000-character hop token does the same from one attacker-written line. Three earlier loops fixed three instances of this class and none fixed the class; LWSM-1122 does it structurally. **The other half is the tests**: 81 mutants, 47 red, **34 green** — including three clauses the spec calls load-bearing (`_BudgetExpired` not being an `OSError`, the dependency-block scope, rule 1's execute bit), all correct today and protected by nothing. A timed-out scan under the first of those reports `timed_out=False`, and LWSM-1007 is about to persist that list. **Deliberate deviation:** no CHANGELOG entry was written for FP06 — nothing is fixed yet and `[Unreleased]` is public) |
 | **Superseded (P03 open)** | 2026-08-08 (**P03 started; LWSM-1006's spec is through the gate and implementation is next.** The session's real finding is about the *gate*, not the spec: under the fifteen-dimension brief, loops 1–3 produced 75 findings of which roughly 34 would have changed what gets built — the count held flat at ~25 a loop and never converged, because six of the dimensions can never come back clean and fixing their findings is what introduced the next loop's real defects. **The brief was rewritten to four questions** — is a claim false, do two passages give different behaviour, is a required behaviour unspecified, is a test clause unfalsifiable — with everything else explicitly out of scope. Loops 4–6 then produced 28 findings, **100% build-changing, zero wording**, on a brief 7× smaller (24 KB → 3.4 KB). Global rule 14 has been rewritten around it. Two other instruments now carry work reviewers were doing badly: `LWSM-1006-conformance.py` executes every pattern the spec prescribes and has caught **five** defects including three of my own fixes on the run after I made them; and a **mechanical sweep** of `registry.py`'s twelve defensive mechanisms against the spec found the one gap reviewers had missed — a NUL byte in a hop token raises `ValueError`, not `OSError`, and escapes the scan) |
 | **Superseded (P02 close)** | 2026-08-07 (**FP05 complete and P02 closed.** All nine items shipped, every fix mutation-verified, 185 tests up from 159, full gate green. Four of the nine bullets were corrected by measurement — LWSM-1117's wait is unbounded rather than ~3.3 s, LWSM-1116 had an unreported second half, and LWSM-1115's own fix introduced the defect known-issue-005 describes. The rule-14 gate ran as one batched `/cold-eyes` over `coding.md` + `testing.md`: **converged in 2 loops**, 12 then 15 verified findings, all fixed. Loop 2's split was 11 fix collateral vs 4 draft defects, so it converged by sweep rather than a third dispatch. Two user corrections folded in: prose counts of growing sets are now banned and tested (`tests/test_docs.py`), and the `.audit_cache` history exposure is assessed and accepted as known-issue-016) |
 | **Superseded** | 2026-08-07 (**FP04's 14 bullets are all closed and green at 150 tests**, up from 125, in ten commits — one per bullet-group, each with its red test first. The 21 held commits plus these are **pushed**; GitHub Actions is healthy again and CI passed on `3ce8b18`. **The pass's own worst moment is the one to remember:** LWSM-1100's first shape put `os._exit` inside `main()`, and since tests call `main()` in-process and an earlier test abandons a probe, the pytest run ended at **40 % of the suite with exit code 0** and a report that read as green. The gate caught it, not review. That is the third time this project has been bitten by a green run that was not one) |
@@ -29,14 +30,14 @@ becomes active.
 Reset for **FP06**. LWSM-1006's own steps 1–7 are done (its 5–6 ran once and
 produced this fix-pass); its steps 8–9 wait until FP06 closes.
 
-1. ⬜ Verify spec (research first if non-trivial)
-2. ⬜ Verify dependencies on the roadmap DAG
-3. ⬜ Write failing tests
-4. ⬜ Implement until tests pass
+1. ✅ Verify spec (research first if non-trivial)
+2. ✅ Verify dependencies on the roadmap DAG
+3. ✅ Write failing tests
+4. ✅ Implement until tests pass
 5. ⬜ Run `/audit` (read `docs/audit-allowlist.md` first)
 6. ⬜ Run `/code-quality-review` (same allowlist read)
 7. ⬜ Fold actionable findings → new FP## roadmap item
-8. ⬜ Update CHANGELOG / ROADMAP / journal
+8. ✅ Update CHANGELOG / ROADMAP / journal
 9. ⬜ Commit, tag `<ID>-complete`, ask user about push
 
 ### Active item details
@@ -132,6 +133,59 @@ journal); §2 is the only part that changes.
 ## §3. Session journal
 
 Append-only. Newest at the top.
+
+### 2026-08-12 — FP06: all nine closed, and three bullets corrected by measurement
+
+**386 tests, up from 370; six commits, one per bullet-group, every test watched
+failing before its fix.** The pass's durable lesson is the same one FP05
+recorded and it recurred immediately: **a fold-in bullet is a reviewer's
+reading, and three of these nine were wrong or incomplete about their own
+mechanism.**
+
+- **LWSM-1126's prescribed mutation is inert.** It asks for `*sorted(
+dependencies)` to be appended to the scanned lines and says the result becomes
+port 7. `dependencies` is a set of **keys**, so what gets scanned is
+`get-port`, which holds no digits — the mutant ran and the suite stayed
+193-green. The scope breach that is real is reading `package.json` as an
+ordinary source file, and the fixture had to be **pretty-printed** to see it:
+minified, the document is one line whose first `:` belongs to `"scripts"`, so
+rule 2 stops there and never reaches the dependency pair. A fixture that cannot
+fail is exactly what this bullet existed to remove.
+- **LWSM-1124's test cannot see its own constant being loosened.** Measured
+after writing it: `MAX_REASON_CHARS = 400` leaves it green, because the
+assertion is expressed relative to that constant — known-issue-005's exact
+shape, one item after that issue was closed elsewhere. The docstring now says
+so rather than claiming otherwise. **`scanner`'s copy of that bound is pinned by
+nothing**, where `registry`'s is pinned by `test_the_shipped_bounds_are_pinned`;
+that gap is open and unrouted, and is the one thing this pass found and did not
+fix.
+- **Two bullets interlock and neither says so.** LWSM-1122 adds a per-candidate
+`except OSError` in `scan()`; LWSM-1125 asserts that a budget expiry inside a
+read still reports `timed_out=True`. Under `class _BudgetExpired(OSError)` it is
+**1122's new handler** that swallows the signal, so 1125's behavioural test is
+now the thing standing between the containment and a truncated scan reporting
+itself complete.
+
+**LWSM-1122 was fixed at the class, not at the four call sites the review
+named** — the fourth instance of the non-`OSError`-shaped exception escaping a
+per-item loop, after `TypeError`, `KeyError` and `ValueError`, each of which had
+been closed one call site at a time. Both of its triggers were reproduced first:
+`chmod 000` gives `EACCES` from `Path.exists`, a 3000-character hop token gives
+`ENAMETOOLONG` from `is_symlink` at a different line, and they are carried as
+two parametrised cases for that reason.
+
+**LWSM-1123's control case is what made it diagnosable.** Three of the four
+lines in its table detect nothing; the fourth is the same line without the
+trailing token, and it passes — which isolates the abort as the only difference.
+INV-20's depth fixture is a single token and could never have seen it.
+
+**One flaky test, observed once and not reproduced.**
+`test_completed_tasks_do_not_accumulate` reported `2 live tasks after 200
+completed polls` on the first full gate run, then passed in 12 whole-file runs
+and 4 whole-suite runs. It counts live objects through `gc` and touches nothing
+this pass changed. Recorded rather than dismissed: this project has been bitten
+three times by a green run that was not one, and an unexplained red is the same
+report in the other direction.
 
 ### 2026-08-08 — LWSM-1006's spec, and the review that would not converge
 

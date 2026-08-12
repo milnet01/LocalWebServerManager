@@ -1095,7 +1095,7 @@ dependency-block scope, `_BudgetExpired` not being an `OSError` — are all
 correct in the code today and protected by nothing. A suite of 370 green tests
 said nothing about any of them.
 
-- 📋 [LWSM-1122] **FP06: one unreadable or hostile directory can no longer destroy the whole scan.**
+- ✅ [LWSM-1122] **FP06: one unreadable or hostile directory can no longer destroy the whole scan.**
   `Path.exists` / `is_symlink` / `is_file` re-raise `EACCES` and `ENAMETOOLONG` on
   Python 3.13.14 — `pathlib` only swallows `ENOENT/ENOTDIR/EBADF/ELOOP`
   (`_IGNORED_ERRNOS`). Four call sites sit outside any handler, and `scan()`
@@ -1128,8 +1128,9 @@ said nothing about any of them.
   Kind: fix.
   Lanes: core.
   Source: code-quality-review-2026-08-12 lane-1 #1 + lane-2 F1/F2/F3 (corroborated by two independent lanes).
+  Resolved (2026-08-12, 1910a6c): per-candidate `except OSError` around `_detect` in `scan()`, at the class rather than the four sites. Both triggers were watched failing first — `chmod 000` gave EACCES from `Path.exists`, the 3000-character token gave ENAMETOOLONG from `is_symlink` at a different line — and both now leave the three healthy siblings detected with one reason recorded. The containment is also what LWSM-1125's behavioural test proves does NOT swallow the budget signal.
 
-- 📋 [LWSM-1123] **FP06: hop-target selection falls back to earlier tokens instead of abandoning the hop.**
+- ✅ [LWSM-1123] **FP06: hop-target selection falls back to earlier tokens instead of abandoning the hop.**
   Spec § 4.5 step 4: *"Take the **last** remaining token that satisfies § 4.5's
   six constraints."* The code treats any constraint failure as terminal —
   `_accept_hop` returns a reason and `_hop_target` (`scanner.py:592-594`) returns
@@ -1158,8 +1159,9 @@ said nothing about any of them.
   Kind: fix.
   Lanes: core.
   Source: code-quality-review-2026-08-12 lane-1 #2.
+  Resolved (2026-08-12, f4079e2): `_hop_target` keeps the first refusal and tries the preceding token. All three shapes in the bullet's table now detect 8123, the control still passes, and a line with no acceptable token still reports the refusal rather than silence. `_accept_hop`'s docstring said the search stops on a refusal and was corrected in the same commit.
 
-- 📋 [LWSM-1124] **FP06: the last unescaped reason string is routed through `_quoted`, closing INV-18's first clause.**
+- ✅ [LWSM-1124] **FP06: the last unescaped reason string is routed through `_quoted`, closing INV-18's first clause.**
   `scanner.py:605`:
   ```
   return None, [], f"{token} cannot be read ({exc.strerror or exc})"
@@ -1185,8 +1187,9 @@ said nothing about any of them.
   Kind: security.
   Lanes: core.
   Source: code-quality-review-2026-08-12 lane-1 #3 + lane-2 F4 (corroborated by two independent lanes).
+  Resolved (2026-08-12, 1127100 + 80ee5e2): one call to `_quoted`, matching its seven neighbours. The test drives the line through a directory hop target — it passes all six § 4.5 constraints and then fails § 4.3's `fstat`, which is the only arm that reaches it — and was watched failing with a live \x1b in the reason. What it does NOT prove is recorded in its docstring: the assertion is relative to `MAX_REASON_CHARS`, so raising that constant to 400 leaves it green (measured), and scanner's copy of the bound is pinned by nothing where registry's is pinned by `test_the_shipped_bounds_are_pinned`.
 
-- 📋 [LWSM-1125] **FP06: `_BudgetExpired` not being an `OSError` becomes a tested invariant rather than a docstring.**
+- ✅ [LWSM-1125] **FP06: `_BudgetExpired` not being an `OSError` becomes a tested invariant rather than a docstring.**
   Mutation: `class _BudgetExpired(Exception)` → `class _BudgetExpired(OSError)` at
   `scanner.py:195`. **182/182 tests stay green.**
   Under the mutant, `_read_alternate`'s `except OSError` (`:927`) swallows the
@@ -1215,8 +1218,9 @@ said nothing about any of them.
   Kind: test.
   Lanes: tests.
   Source: code-quality-review-2026-08-12 lane-3 H1.
+  Resolved (2026-08-12, e764f47): both halves. `test_the_budget_signal_is_not_an_oserror` is the source invariant; `test_a_budget_expiring_inside_a_read_still_reports_a_timeout` is the observable one, using a single candidate so the per-candidate check has already passed and expiry can only happen inside `_read_lines`. `class _BudgetExpired(OSError)` reddens both.
 
-- 📋 [LWSM-1126] **FP06: the `package.json` dependency-block scope gets the regression test it never had.**
+- ✅ [LWSM-1126] **FP06: the `package.json` dependency-block scope gets the regression test it never had.**
   Mutation: `_scan_source("package.json", [script[:MAX_SOURCE_LINE_CHARS]])` at
   `scanner.py:1074` → the same call with `*sorted(dependencies)` appended.
   **182/182 tests stay green.**
@@ -1238,8 +1242,9 @@ said nothing about any of them.
   Kind: test.
   Lanes: tests.
   Source: code-quality-review-2026-08-12 lane-3 H2.
+  Resolved (2026-08-12, e764f47) — and the bullet's prescribed mutation is WRONG, corrected by measurement. `dependencies` is a set of KEYS, so appending `*sorted(dependencies)` scans `get-port`, which holds no digits: the suite stays 193-green and the mutant is inert. The scope breach that is real is reading package.json as an ordinary source file, which is what the new `project-m-vite` fixture reddens for (port 7 instead of 5173). Its dependency pair is pretty-printed onto a line of its own on purpose — minified, rule 2 stops at the document's first `:` and the fixture cannot see the breach at all.
 
-- 📋 [LWSM-1127] **FP06: launcher rule 1's execute-bit precondition gets its first test.**
+- ✅ [LWSM-1127] **FP06: launcher rule 1's execute-bit precondition gets its first test.**
   Mutation: the whole `os.access(path, os.X_OK)` block at `scanner.py:940-944`
   deleted. **182/182 tests stay green**, and line coverage confirms `:943` is
   **never executed** by any test in the suite.
@@ -1262,8 +1267,9 @@ said nothing about any of them.
   Kind: test.
   Lanes: tests.
   Source: code-quality-review-2026-08-12 lane-3 H4.
+  Resolved (2026-08-12, e764f47): folded into the corpus as `project-n-unexecutable-launcher`, both files declaring a different port so which rule fired is visible in the result. The skip reason is asserted by a separate test. Deleting the `os.access` block reddens both.
 
-- 📋 [LWSM-1128] **FP06: a directory name that is not valid UTF-8 no longer produces an un-encodable project name.**
+- ✅ [LWSM-1128] **FP06: a directory name that is not valid UTF-8 no longer produces an un-encodable project name.**
   `_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")` at `scanner.py:206` covers C0
   and C1 but not surrogates. A directory name that is not valid UTF-8 comes back
   from `os.scandir` through `surrogateescape` as lone surrogates in
@@ -1293,8 +1299,9 @@ said nothing about any of them.
   Kind: fix.
   Lanes: core.
   Source: code-quality-review-2026-08-12 lane-2 F5.
+  Resolved (2026-08-12, 6b592df): `_CONTROL` extended to `\ud800-\udfff`. The test builds the candidate with raw bytes (`b"bad\xff\xfename"`) and asserts the name round-trips through `.encode("utf-8")` and `json.dumps`. Reverting the range reddens it.
 
-- 📋 [LWSM-1129] **FP06: INV-18's `PortFinding.source` clause is tested, not just its reason clause.**
+- ✅ [LWSM-1129] **FP06: INV-18's `PortFinding.source` clause is tested, not just its reason clause.**
   Mutation: `source=_display(name)` → `source=name` at `scanner.py:467`.
   **182/182 tests stay green.**
   INV-18 has two halves: *"Every reason **and every `PortFinding.source`** is
@@ -1320,8 +1327,9 @@ said nothing about any of them.
   Kind: test.
   Lanes: tests.
   Source: code-quality-review-2026-08-12 lane-3 H3.
+  Resolved (2026-08-12, 6b592df): a hop file named `ev\x7fil\x1b[31m.py` carrying a port, asserting `PortFinding.source` holds no raw control byte. Kept separate from LWSM-1124's reason test as the bullet asked. `source=_display(name)` → `source=name` reddens exactly this one.
 
-- 📋 [LWSM-1130] **FP06: rule 3's Vite evidence test reads a comment-stripped script, as § 4.6 requires.**
+- ✅ [LWSM-1130] **FP06: rule 3's Vite evidence test reads a comment-stripped script, as § 4.6 requires.**
   Spec § 4.6: *"The stripper is shared by both port rules **and by rule 3's
   evidence scan**, so a framework identified from a commented-out import cannot
   happen either."*
@@ -1347,6 +1355,7 @@ said nothing about any of them.
   Kind: fix.
   Lanes: core.
   Source: code-quality-review-2026-08-12 lane-1 #5.
+  Resolved (2026-08-12, 6b592df): the evidence test now searches `strip_comment(script[:MAX_SOURCE_LINE_CHARS])`, so it sees what the port rules see. `\bvite\b` is untouched — the whole-word form was forced by an executed acceptance test on 2026-08-08 — and `project-k-vitest` still comes back unknown. New corpus fixture `project-o-vite-in-a-comment` covers the note-about-a-migration shape.
 
 ## FP01 — Security fold-in (from the P01 review, 2026-08-03)
 
