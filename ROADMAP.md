@@ -1635,7 +1635,7 @@ path. `docs/design.md § Detection rules` is the contract.
 
 ### 🎨 Features
 
-- 🚧 [LWSM-1006] **P03: Scanner implements the detection rules.**
+- ✅ [LWSM-1006] **P03: Scanner implements the detection rules.**
   Walks each scan root's immediate subdirectories, ≤ 3 levels
   deep, skipping `node_modules` / `.git` / `.venv` / `venv` /
   `__pycache__` / `dist` / `build` / `.cache`, under a 20-second
@@ -1672,6 +1672,7 @@ path. `docs/design.md § Detection rules` is the contract.
   Two instruments now carry work the reviewers were doing badly, and both are in the repo: `docs/specs/LWSM-1006-conformance.py` executes every pattern the spec prescribes against a breaking corpus (it has caught **7** defects, three of them my own fixes on the run after I made them), and a **mechanical sweep** of `registry.py`'s twelve guards against the spec found the one gap reviewers missed. Loop 7's best lane was told to *write the module on paper*; it found four gaps the adversarial lane did not, which is the evidence for stopping review and implementing.
 
   **Not to be redone:** the recursive walk is deliberately not built (user, 2026-08-08); the extra port sources are LWSM-1121's; this item also lands LWSM-1050. **Owed with the code:** the twelve doc amendments in the spec's § 12 (`design.md` ×7, `coding.md § O1`, ADR-0003's unit-name pattern), widening `tests/test_layering.py`'s `CORE_MODULES` by `scanner.py` **and** `applog.py`, and moving the conformance cases into `tests/test_scanner.py` before deleting the script.
+  Resolved (2026-08-12, FP06 closing): `src/lwsm/scanner.py` ships with all 20 invariants covered, the detection corpus at 15 fixtures (three added by FP06: `project-m-vite`, `project-n-unexecutable-launcher`, `project-o-vite-in-a-comment`), and 386 tests green. Steps 5-6 ran ONCE, on 2026-08-12 — /audit clean, /code-quality-review 25 findings with zero false positives, 9 into FP06 and 16 routed to `docs/known-issues.md`. FP06 is closed; its nine fixes and the two findings that came out of writing them (known-issue-034, -035) are the last of it. **What ships unreviewed, said plainly:** FP06's own ~350 new lines were never read by a cold reviewer, per the 2026-08-07 one-review-per-phase rule and the user's decision at this close. **LWSM-1121 carries the split-out scope** (.env / docker-compose.yml / README port sources, conflict reporting) and is untouched.
 
 - 📋 [LWSM-1007] **P03: Registry persistence and the rescan
   merge.** Atomic writes, `schema_version` checking, and the

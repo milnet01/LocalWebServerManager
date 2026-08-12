@@ -730,6 +730,55 @@ otherwise. What is missing is the thing that would notice it stopping.
   item to add source files and so the first that could add a subpackage)
 - **Logged:** 2026-08-12
 
+## known-issue-034 — `scanner`'s copy of `MAX_REASON_CHARS` and `MAX_DISPLAY_NAME_CHARS` is pinned by nothing
+
+- **Found by:** writing LWSM-1124's test during FP06, then mutating it
+- **Class:** handed to owning phase
+- **Detail:** `registry.MAX_REASON_CHARS` is pinned at 120 by
+  `test_the_shipped_bounds_are_pinned` (`test_registry.py:490`), added when
+  known-issue-005 was closed. **`scanner.py` declares its own copy of that
+  constant and `MAX_DISPLAY_NAME_CHARS` beside it, and no test asserts either
+  value.** Every scanner assertion about a clipped string is expressed
+  *relative* to the constant — `<= scanner.MAX_REASON_CHARS + 50`
+  (`test_scanner.py:1037`), `< scanner.MAX_REASON_CHARS + 60` (`:1647`),
+  `== scanner.MAX_DISPLAY_NAME_CHARS` (`:1658`) — so raising the bound raises
+  the assertion with it. Measured 2026-08-12: setting
+  `scanner.MAX_REASON_CHARS = 400` leaves the whole suite green. That is
+  known-issue-005's exact shape, in the module written after it was closed, and
+  the fix is the same one line: assert the literal value once.
+- **Why deferred:** it is a two-line addition and nothing is wrong today, but it
+  belongs beside the *other* bound the same test would pin. LWSM-1007 adds the
+  persisted registry that gives both constants a second consumer, which is the
+  point at which one shared pin is obviously right and two copies are obviously
+  wrong.
+- **Will be addressed in:** LWSM-1007 (P03 — registry persistence)
+- **Logged:** 2026-08-12
+
+## known-issue-035 — `test_completed_tasks_do_not_accumulate` failed once and has not reproduced
+
+- **Found by:** the full `local-ci.sh` run closing FP06
+- **Class:** handed to owning phase
+- **Detail:** the gate reported
+  `AssertionError: 2 live tasks after 200 completed polls` at
+  `tests/test_controller.py:523`, then passed on every rerun — 12 whole-file
+  runs and 4 whole-suite runs, plus two clean full-gate runs. The assertion
+  counts live `_SnapshotTask` objects through `gc.get_objects()` after 200
+  completed polls and allows at most the one the controller still references.
+  Nothing FP06 changed is on that path: the pass touched `scanner.py` only, and
+  the controller does not import it. The likely cause is `QThreadPool` still
+  holding a reference to a just-finished runnable at the moment of counting,
+  which is a timing property of the pool rather than of the code under test —
+  so the test is measuring something it cannot fully control.
+- **Why deferred:** a test that fails once in ~20 runs cannot be fixed by
+  guessing at it, and the mechanism it guards (LWSM-1073's task accumulation) is
+  worth keeping. It needs a run under load to characterise, not a patch.
+  Recorded rather than dismissed because this project has been bitten three
+  times by a green run that was not one, and an unexplained red is that report
+  in the other direction.
+- **Will be addressed in:** LWSM-1011 (P04 — the next item that touches the
+  controller's polling, where the pool's lifetime behaviour is in scope anyway)
+- **Logged:** 2026-08-12
+
 
 ## What does NOT belong here
 
