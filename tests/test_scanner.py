@@ -1004,6 +1004,41 @@ def test_a_hop_target_that_is_itself_a_symlink_is_refused_with_a_reason(
     assert any("symlink" in reason for reason in result.skipped)
 
 
+def test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours(
+    tmp_path: Path,
+) -> None:
+    """INV-18: *"Every reason and every `PortFinding.source` is escaped before it
+    is clipped."* This reason was the last one interpolating a raw token, so a
+    200-character name carrying `\\x1b` reached the app log and the status bar
+    intact.
+
+    A **directory** is the trigger: it passes all six of § 4.5's constraints and
+    then fails § 4.3's `fstat`, which is the arm that reaches this line.
+
+    The name is 200 characters, so the assertion reddens for `_quoted` being
+    removed — watched failing that way. It does **not** redden for
+    `MAX_REASON_CHARS` being raised (measured: 400 stays green), because it is
+    expressed relative to that constant, which is known-issue-005's shape.
+    `scanner`'s copy of the bound is pinned by nothing, unlike `registry`'s.
+    """
+    name = "\x1b" + "a" * 198 + "\x7f"
+    base = make_project(
+        tmp_path, "proj", {"start.sh": f"#!/bin/sh\nexec python3 {name}\n"}, "start.sh"
+    )
+    (base / name).mkdir()
+
+    result = scan_root(tmp_path)
+
+    assert by_name(result)["proj"].port is None
+    reasons = [reason for reason in result.skipped if "cannot be read" in reason]
+    assert len(reasons) == 1
+    assert "\x1b" not in reasons[0]
+    assert "\x7f" not in reasons[0]
+    # 50 bounds the fixed text around the token — "cannot be read (…)" — which
+    # no input can grow.
+    assert len(reasons[0]) <= scanner.MAX_REASON_CHARS + 50
+
+
 def test_a_script_that_execs_its_own_name_cannot_loop(tmp_path: Path) -> None:
     make_project(
         tmp_path, "proj", {"start.sh": "#!/bin/sh\nexec python3 start.sh\n"}, "start.sh"

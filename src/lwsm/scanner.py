@@ -615,7 +615,9 @@ def _hop_target(
             except OSError as exc:
                 # A refused hop target leaves the project listed: the launcher
                 # is still runnable and only the port is unknown.
-                return None, [], f"{token} cannot be read ({exc.strerror or exc})"
+                return None, [], (
+                    f"{_quoted(token)} cannot be read ({exc.strerror or exc})"
+                )
         return None, [], refusal
     return None, [], None
 
