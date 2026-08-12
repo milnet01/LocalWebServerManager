@@ -298,6 +298,18 @@ of them was a genuinely dead assertion (a tail reading `xxxPORT=9999`,
 which rule 1's left boundary rejects anyway, so the discard logic it
 claimed to test could be deleted).
 
+**And a mutation *prescribed by a review bullet* can be inert — run it and read
+the output before trusting the bullet.** LWSM-1126 asked for `*sorted(
+dependencies)` to be appended to the scanned lines and stated the result becomes
+port 7. `dependencies` is a set of **keys**, so what gets scanned is `get-port`,
+which holds no digits: the mutant ran and the suite stayed green. A fold-in
+bullet is a reviewer's reading of a mechanism, not a measurement of it — four
+times across FP05 and FP06 a bullet has been wrong about its own mechanism, in
+both directions. **Also check the fixture can express the hazard at all**: the
+same item's dependency pair had to be pretty-printed onto its own line, because
+in a minified `package.json` rule 2 stops at the document's first `:` and never
+reaches it.
+
 **Trap: `ruff format` formats fenced ` ```python ` blocks inside
 Markdown**, and `local-ci.sh` runs it over `.`. A spec with code
 blocks fails the gate until they are ruff-formatted. Run
