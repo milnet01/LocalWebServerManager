@@ -173,6 +173,21 @@ CORPUS: tuple[FixtureProject, ...] = (
         why="vitest is a test runner; `vite` is an exact key and this is not it",
     ),
     FixtureProject(
+        name="project-o-vite-in-a-comment",
+        # `#` genuinely is a comment in an npm script — the value is handed to
+        # `sh` — and § 4.6 says the stripper is shared by both port rules **and
+        # by rule 3's evidence scan**. The evidence test searched the raw value,
+        # so a note about a future migration was read as a Vite project and
+        # given 5173 (LWSM-1130).
+        files={
+            "package.json": '{"scripts":'
+            ' {"dev": "node server.js # switch to vite later"}}\n'
+        },
+        kind=LauncherKind.NODE,
+        argv=("npm", "run", "dev"),
+        why="the only `vite` on the line is inside a comment, so there is no port",
+    ),
+    FixtureProject(
         name="project-m-vite",
         # The dependency pair is the point: `"get-port": "^7.0.0"` is a real npm
         # package, and on a line of its own it partitions at `:` into a key

@@ -1559,6 +1559,57 @@ def test_the_budget_stops_a_scan_mid_candidate(corpus_tree: Path) -> None:
     assert len(result.projects) < len(CORPUS)
 
 
+def test_a_directory_name_that_is_not_valid_utf8_produces_an_encodable_name(
+    tmp_path: Path,
+) -> None:
+    """`os.scandir` returns undecodable bytes as lone surrogates through
+    `surrogateescape`, and `_display`'s character class covered C0 and C1 but
+    not `\\ud800-\\udfff`.
+
+    **The observable is worse than a crash**: `logging` catches its own encode
+    failure, so the record is dropped with a traceback on stderr and the app
+    keeps running. `json.dumps(...).encode()` — which LWSM-1007 is about to do
+    to persist this list — raises instead.
+    """
+    raw = os.fsencode(tmp_path) + b"/bad\xff\xfename"
+    os.mkdir(raw)
+    with open(raw + b"/serve.py", "wb") as handle:
+        handle.write(b"PORT = 8000\n")
+
+    result = scan_root(tmp_path)
+
+    assert len(result.projects) == 1
+    name = result.projects[0].name
+    assert name.encode("utf-8")
+    assert json.dumps(name).encode("utf-8")
+
+
+def test_the_source_of_a_port_finding_is_sanitised_like_a_reason(
+    tmp_path: Path,
+) -> None:
+    """INV-18's second clause. `PortFinding.source` reaches the app log and the
+    status bar exactly as a reason does, and it is a filename out of somebody
+    else's tree.
+
+    Asserted separately from the reason clause on purpose: one test covering
+    both goes green again the moment one regresses and the other does not.
+    """
+    name = "ev\x7fil\x1b[31m.py"
+    make_project(
+        tmp_path,
+        "proj",
+        {"start.sh": f"#!/bin/sh\nexec python3 {name}\n", name: "PORT = 5151\n"},
+        "start.sh",
+    )
+
+    project = by_name(scan_root(tmp_path))["proj"]
+
+    assert project.port is not None
+    assert project.port.port == 5151
+    assert "\x1b" not in project.port.source
+    assert "\x7f" not in project.port.source
+
+
 def test_the_budget_signal_is_not_an_oserror() -> None:
     """The structural half of the guarantee its docstring claims.
 

@@ -203,7 +203,14 @@ class _BudgetExpired(Exception):
 # Turning somebody else's bytes into strings we are willing to show
 # --------------------------------------------------------------------------
 
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# Surrogates belong in this class as much as C0 and C1 do: `os.scandir` returns
+# a name that is not valid UTF-8 as lone surrogates in \udc80-\udcff through
+# `surrogateescape`, and a `str` holding one cannot be encoded back to UTF-8.
+# `logging` catches its own encode failure and drops the record with a traceback
+# on stderr — so the app keeps running and the evidence is gone — while a
+# `json.dumps(...).encode()` raises outright, which is what LWSM-1007 will do to
+# persist this list.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
 
 
 def _display(text: str) -> str:
@@ -1088,7 +1095,16 @@ def _node_package_port(script: str, dependencies: set[str]) -> PortFinding | Non
     found = _scan_source("package.json", [script[:MAX_SOURCE_LINE_CHARS]])
     if found is not None:
         return found
-    if "vite" in dependencies or _VITE_SCRIPT.search(script):
+    # The script value is stripped and clipped exactly as the port rules above
+    # see it (§ 4.6: the stripper is shared by both rules **and by rule 3's
+    # evidence scan**). `#` is a real comment in an npm script — the value is
+    # handed to `sh` — so `node server.js # switch to vite later` is a note
+    # about a future migration, not evidence of a Vite server. The dependency
+    # test stays exact-key membership and this one stays whole-word: `vitest`,
+    # among the commonest devDependencies there is, contains `vite`.
+    if "vite" in dependencies or _VITE_SCRIPT.search(
+        strip_comment(script[:MAX_SOURCE_LINE_CHARS])
+    ):
         return _framework_finding("Vite")
     return None
 
