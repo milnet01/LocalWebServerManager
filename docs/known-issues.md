@@ -558,10 +558,15 @@ otherwise. What is missing is the thing that would notice it stopping.
   contrivance. This was loop 4's finding — "`path` was 'absolute' where four
   other clauses need it *resolved*" — and the fix landed without a test.
 - **Why deferred:** the code is correct; the identity only becomes durable when
-  it is written to disk, and nothing persists it yet. LWSM-1007 is the item
-  that makes a duplicate identity a *persisted* duplicate, and it needs the
-  same fixture for its own merge rules.
-- **Will be addressed in:** LWSM-1007 (P03 — registry persistence)
+  it is written to disk, and nothing persists it yet. The item that makes a
+  duplicate identity a *persisted* duplicate needs the same fixture for its own
+  merge rules.
+- **Will be addressed in:** **LWSM-1131** (P03b — merge a rescan into the stored
+  registry), as its INV-5, with this entry's own fixture. **Re-pointed from
+  LWSM-1007 on 2026-08-12**, when that spec was split: identity here is a
+  question about what a *merge* treats as one project, and the merge went to
+  LWSM-1131 while LWSM-1007 kept the file format and the writer. The routing
+  reason above is unchanged — only the id that now owns it.
 - **Logged:** 2026-08-12
 
 ## known-issue-026 — INV-15's fixtures make zero calls to the matcher the invariant names
@@ -841,10 +846,48 @@ for this right now?" If yes, do that. If no — and only if no
   listing the project's thirteen sections and to sweep the retired names — but
   `spec-format.md` is a **standard**, so editing it re-arms global rule 14's
   `review-contract` gate, and doing that mid-flight during LWSM-1007's own
-  capped gate would have interleaved two reviews of two documents. It is also
-  not urgent: the numbering is stable across all three specs, so nothing is
-  known to be wrong — only unchecked.
-- **Will be addressed in:** P03b (LWSM-1007) if the spec is split, since the
-  split writes two new specs and would benefit from the check actually running;
-  otherwise the next doc-fix pass (`DOC##`)
+  capped gate would have interleaved two reviews of two documents.
+- **Measured 2026-08-12, and it enlarges the fix: the block cannot simply be
+  added, because the standard and the corpus disagree about the structure.**
+  The list is read **verbatim** (working example:
+  `~/.claude/standards/spec-format.md:155` — the marker, then a fenced block of
+  `## N. Heading` lines). Against that, two mismatches:
+  - § 3 lists **eleven** numbered sections (3.3 Goal … 3.13 Cross-doc impact,
+    3.1/3.2 being the title and header block), but every spec here carries
+    **thirteen** — `## 10. Resource cost`, which § 4 files as *Recommended*,
+    and `## 13. Cold-eyes loop log`, which § 3 does not mention at all. So the
+    thirteen the entry above assumed are not the eleven the standard states.
+  - `LWSM-1005`'s heading is `## 3. Scope decisions (and who made each)` where
+    `LWSM-1006` and `LWSM-1007` read `(agreed with the user)`. A verbatim block
+    written today makes `missing_section` fire on a shipped, conforming spec —
+    the exact failure `spec_lint`'s own docstring says the skip exists to
+    prevent.
+
+  The fix is therefore a § 3 renumbering, a heading correction in a shipped
+  spec, and the retired-name sweep (**24 occurrences** on 2026-08-12, not 16 —
+  recounted with `grep -c "cold-eyes\|doc-lint"`), all in a standard, all
+  behind rule 14's gate.
+- **Will be addressed in:** the next doc-fix pass (`DOC##`). **Re-routed away
+  from P03b on 2026-08-12**, when LWSM-1007's spec was split: the entry offered
+  the split as the natural moment because the split writes two fresh specs, but
+  the measurement above turns a block-insert into a third gated review of a
+  third document, mid-task.
+- **Third measurement, and it names which list is right.** The precedence
+  inverted on 2026-08-08: `~/.claude/standards/spec-format.md` is authoritative
+  and a project states only its **deltas**, in
+  `docs/standards/spec-format-overrides.md`. This project carries a **full
+  fork** instead, which predates that change — so the fork is not a local
+  convention, it is an un-extracted override file, and `/write-spec` Step 1
+  requires saying so rather than silently obeying it. Against the global § 3
+  the corpus is wrong in a second way: § 4 there reads **"appended after § 3's
+  twelve, numbered from 13 … never interleaved"**, and all three specs
+  interleave `## 10. Resource cost`, pushing *What checks this*, *Cross-doc
+  impact* and *Cold-eyes loop log* to 11/12/13 against the standard's 10/11/12.
+  `/write-spec` Step 1 settles which wins — *"a sibling numbering `What checks
+  this` differently is a sibling that is wrong, not a local convention to
+  copy"* — so **LWSM-1007 and LWSM-1131 are renumbered to the global order**
+  and `Resource cost` moves to `## 13`. They are the first two conforming specs
+  here; `LWSM-1005` and `LWSM-1006` are the ones the `DOC##` sweep renumbers.
+  This is also what a `required-sections` block would have to be written
+  against, which is why it could not simply be added.
 - **Logged:** 2026-08-12
