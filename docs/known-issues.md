@@ -238,8 +238,13 @@ in the current build. Owners are named, not implied.
   covers tokens × themes but not tokens × **surfaces**.
 - **Why deferred:** nothing renders on `alt_base` yet, so no user can see it.
   It is materially cheaper to fix while one palette exists than after seven.
-- **Will be addressed in:** LWSM-1007 (P03 — the list view that first paints
-  on `alt_base`)
+- **Will be addressed in:** P04 (LWSM-1030 — appearance and accessibility
+  foundation). **Re-routed 2026-08-12** from LWSM-1007, which was named on the
+  reading that it was "the list view that first paints on `alt_base`".
+  LWSM-1007 is registry persistence — it adds no palette and paints nothing —
+  and its spec (`docs/specs/LWSM-1007-registry-persistence.md § 9`) excludes
+  this explicitly. known-issue-011 and -012, from the same review batch and
+  about the same surface, were already routed to LWSM-1030.
 - **Logged:** 2026-08-07
 
 ## known-issue-011 — INV-20's 600 px band breaks on a realistic project name
@@ -291,7 +296,13 @@ in the current build. Owners are named, not implied.
 - **Why deferred:** the name is self-explanatory today, so the practical
   impact is small; fixing the role properly means choosing a list/listitem
   structure, which is LWSM-1007's job.
-- **Will be addressed in:** LWSM-1007 (P03 — the list view)
+- **Will be addressed in:** P04 (LWSM-1032 — accessibility pass), with
+  LWSM-1030 if the role change falls out of the appearance work first.
+  **Re-routed 2026-08-12** from LWSM-1007 for the reason recorded on
+  known-issue-010: choosing a list/listitem structure is an AT-SPI decision,
+  and LWSM-1007 is registry persistence. Its spec
+  (`docs/specs/LWSM-1007-registry-persistence.md § 9`) excludes this
+  explicitly.
 - **Logged:** 2026-08-07
 
 ## known-issue-014 — The port cell reserves the width of its shortest possible string
