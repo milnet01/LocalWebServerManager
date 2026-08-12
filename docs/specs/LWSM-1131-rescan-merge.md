@@ -235,8 +235,12 @@ contains zero projects silently stops marking its records missing. The **roots
 requested** are used rather than "the roots actually walked", because a partial
 scan does not report which it reached.
 
-The return shape mirrors `load_projects` — `(records, reasons)` — so both
-producers of a record list report their problems the same way.
+The return shape is a plain `(records, reasons)` tuple. It **used** to be
+described as mirroring `load_projects`, and no longer does: LWSM-1007 § 4.3
+replaces that loader's two-tuple with a `LoadResult` dataclass carrying a
+`rows_refused` count, which the merge has no equivalent of — nothing a merge
+produces is refused at row level. The two shapes are deliberately different, so
+an implementer should not reach for `LoadResult` here.
 
 **The merge replaces `DETECTED_FIELDS - {"path"}` and keeps the user half**,
 rather than copying field by field. The subtraction is the whole of the
@@ -368,9 +372,18 @@ builds mutates the registry outside a merge, so an exit hook would have nothing
 to flush.
 
 **The write is still subject to LWSM-1007's read-only gate.** A merge whose
-`stored` list came from a load that refused a row, or that raised
-`RegistryError`, runs and reports normally and writes nothing. The merge does
-not re-implement that check; it calls a writer that enforces it.
+`stored` list came from a load that refused a **row**, or that raised any
+`RegistryError` **other than `RegistryMissing`**, runs and reports normally and
+writes nothing. The merge does not re-implement that check; it passes the
+`LoadResult | RegistryError` it was given to `save_projects`, which enforces it.
+
+**`RegistryMissing` is the exception, and it is the first-run path this item
+actually runs on.** No file means `stored` is empty, so every scanned project is
+*new*, and the write **must** happen — that is how `projects.json` comes into
+existence at all. Reading the gate as "any `RegistryError` blocks the write"
+would make a clean machine permanently unable to persist a rescan; LWSM-1007
+§ 4.3 carries the measurement showing an absent file raises `RegistryError`
+today.
 
 Deliberately **not** a dialog: presenting a detected list for confirmation is
 LWSM-1008's job, and building a lesser version here would be the thing it then
@@ -658,7 +671,9 @@ carrying an invariant of their own.
   GUI thread (§ 4.4).
 - **Disk.** None of its own — the write is LWSM-1007's, and only when the record
   set changed.
-- **New external dependencies: none.** The `added` stamp adds **`datetime`** to
-  `registry.py`'s imports; `tempfile` arrives with LWSM-1007's writer. Both are
-  standard library, so `pyproject.toml` does not change.
+- **New external dependencies: none, and this item adds no import at all.**
+  Both `tempfile` and `datetime` arrive with LWSM-1007 — `datetime` because
+  § 4.2 there must *parse* a stored `added` to decide whether it is well-formed.
+  This item only *compares* the parsed instants (INV-9), so `pyproject.toml`
+  does not change and neither does `registry.py`'s import block.
   *Command:* `grep -nE "^(import|from) " src/lwsm/registry.py`.

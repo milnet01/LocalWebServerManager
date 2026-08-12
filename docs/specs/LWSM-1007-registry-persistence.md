@@ -188,7 +188,34 @@ declared here and consumed by LWSM-1131**, whose merge replaces
 `DETECTED_FIELDS - {"path"}` and keeps the user half. The subtraction is stated
 in that spec because it is a rule about merging; what this spec owns is that
 `path` is *classified* detected — a scan is what observes it — while being a
-field no write may rewrite (§ 4.2).
+field no write may resolve (§ 4.2).
+
+**`LauncherKind` moves from `scanner.py` to `registry.py`, and `scanner.py`
+imports it from there.** Typing `kind` needs the enum in `registry`, and
+`scanner.py` **already** imports `from lwsm.registry import DECLARED_PORT_RANGE`
+(its module-level import block) — so an implementer adding `from lwsm.scanner import
+LauncherKind` to `registry.py` closes a cycle and **the application stops
+importing at all**. Measured on this tree, both entry orders, with that import
+added and nothing else changed:
+
+```
+python3 -c "import lwsm.registry"
+  ImportError: cannot import name 'DECLARED_PORT_RANGE' from partially
+  initialized module 'lwsm.registry' (most likely due to a circular import)
+
+python3 -c "import lwsm.scanner"
+  ImportError: cannot import name 'LauncherKind' from partially initialized
+  module 'lwsm.scanner' (most likely due to a circular import)
+```
+
+Moving the enum down keeps the **existing** dependency direction (`scanner` →
+`registry`) rather than adding a second one, and costs one import line in
+`scanner.py`. The rejected alternative — storing `kind` as a `str` validated
+against a hard-coded tuple of the four values — is in § 8: it duplicates the
+enum in the module least likely to be updated when a fifth kind is added.
+`LauncherKind` is cited by name in `docs/specs/LWSM-1006-scanner-detection.md`
+and in `CLAUDE.md § Module map`; both name it as a `scanner` symbol and are
+listed in § 11.
 
 ### 4.2 The file format
 
@@ -219,43 +246,100 @@ Every key except `path` and `name` is optional on read. The default for each,
 covering all eleven — an unlisted key would be one an implementer has to invent
 a default for, which is how `kind` was missed in an earlier draft:
 
-| Key | Type | Default when absent |
-|---|---|---|
-| `port`, `port_override` | `int \| None` | `null` |
-| `unit`, `launcher_override` | `str \| None` | `null` |
-| `kind` | `LauncherKind \| None` | `null` — an unknown launcher kind |
-| `hidden`, `start_at_login` | `bool` | `false` |
-| `notes` | `str` | `""` |
-| `argv`, `actions` | `tuple[str, ...]` | `()` |
-| `added` | `str \| None`, RFC 3339 UTC | `null` |
+| Key | Type | Default when absent | Present and the wrong type |
+|---|---|---|---|
+| `port`, `port_override` | `int \| None` | `null` | field dropped, reported |
+| `unit`, `launcher_override` | `str \| None` | `null` | field dropped, reported |
+| `kind` | `LauncherKind \| None` | `null` — an unknown launcher kind | field dropped, reported |
+| `hidden`, `start_at_login` | `bool` | `false` | field dropped, reported |
+| `notes` | `str` | `""` | field dropped, reported |
+| `argv` | `tuple[str, ...]` | `()` | field dropped, reported |
+| `actions` | opaque, see below | `()` | field dropped, reported |
+| `added` | `str \| None`, RFC 3339 UTC | `null` | field dropped, reported |
+
+**The fourth column is one blanket rule, and it is stated because the file is
+hand-editable and eight of these keys had no answer.** A present value of the
+wrong type **loses the field and is reported** — exactly what `_port_or_reason`
+already does for a bad port. It is a *field* refusal, so it never makes the
+session read-only (§ 4.3, INV-6). The two required keys are the exception and
+are **row** refusals: a non-string `name` or `path` drops the whole object, as
+`load_projects` does today.
+
+**A dropped field's original text is lost on the next write, and that is
+accepted rather than defended.** The record holds the parsed value, so the
+writer emits the default and the hand-typed `"port": "3000"` is gone. The
+asymmetry with a refused *row* (§ 4.3, which refuses to write at all) is
+deliberate and rests on one distinction: **a refused field's text is by
+definition not a valid value of that field, while a refused row may be entirely
+valid apart from one typo.** The user is told at load either way. § 8 records it
+beside the carry-through alternative.
 
 **`kind` accepts only a value of `LauncherKind` — `"systemd"`, `"shell"`,
-`"node"`, `"python"`.** An unrecognised string loses the field and is reported,
-the rule `_port_or_reason` already applies to a bad port: the project still
-exists and the user still needs to see it.
+`"node"`, `"python"` — serialised as the enum's `value`, never its name.** An
+unrecognised string is the fourth column's case. The enum lives in `registry.py`
+per § 4.1.
 
-**`argv` and `actions` load back as tuples, not lists.** JSON has only arrays,
-so a loader returning a `list` produces a record unequal to the one written
-while every value looks right — INV-3's failure mode exactly. `argv`'s tuple
-form also matches `scanner.DetectedProject.argv`, so the merge compares like
-with like.
+**`argv` loads back as a tuple, not a list.** JSON has only arrays, so a loader
+returning a `list` produces a record unequal to the one written while every
+value looks right — INV-3's failure mode exactly. `argv`'s tuple form also
+matches `scanner.DetectedProject.argv`, so the merge compares like with like.
 
-**`added` is written as RFC 3339 with a `Z` suffix and second precision, and
-never rewritten once set.** This spec owns the field's type, its default and its
-spelling; **LWSM-1131 owns who stamps it and how it is compared** (its merge
-seeds it on a new record, and its INV-9 requires the comparison be made on a
-parsed instant rather than on text, because a hand-edited `+01:00` sorts
-lexically against a `Z` in the wrong direction). Stated here because the file is
-hand-editable, so a value this spec's reader must accept can arrive in any RFC
-3339 spelling: **a present value that does not parse is treated as absent and
-reported**, rather than compared.
+**`actions` is persisted opaquely and its schema is NOT defined here.**
+`docs/design.md § Custom project actions` makes an action *a label plus one of
+three kinds* — `open_file`, `open_url`, `run_command` — each with a payload, and
+attaches four security rules to them (`open_url` parsed not concatenated,
+`open_file` `commonpath`-checked and refusing the execute bit, `run_command` an
+argv validated **on load** and owned by the `Supervisor`). None of that is built
+by this item or by LWSM-1131. So the format round-trips the JSON array
+unchanged, `load_projects` type-checks only that it *is* an array, and **the
+per-action schema and design.md's load-time validation land with the item that
+builds the action surface** — which is the only place the validation has a
+failure surface to report to. A flat `tuple[str, ...]` was the earlier type here
+and could not hold a label-plus-payload at all; INV-3's round-trip would have
+passed over a shape the design forbids.
 
-**`path` is written back exactly as the user wrote it.** No writer normalises,
-resolves or rewrites the stored path string. `load_projects` refuses `..` and a
-doubled leading slash at read time, and that is the whole of the normalisation
-this format performs — resolving a path lexically is wrong when a component is a
-symlink, and rewriting the file's own text makes it unrecognisable to the person
-who hand-edits it. LWSM-1131's INV-8 tests the merge side of the same rule.
+**`added` is written by this app as RFC 3339 with a `Z` suffix and second
+precision.** That spelling governs **only values the app stamps**; a value
+already in the file is written back **verbatim**, so a hand-edited `+01:00` is
+preserved rather than rewritten. The two rules have to be separated, because
+"never rewritten once set" and "written with a `Z` suffix" cannot both hold for
+a stamp the reader is required to accept in any RFC 3339 spelling.
+**LWSM-1131 owns who stamps it and how it is compared** (its INV-9 requires a
+parsed instant rather than text). **This item parses it too** — the fourth
+column's rule needs to decide whether a present `added` is well-formed, and
+that decision is a parse, which is why § 13 lists `datetime` as arriving here
+and not with the sibling.
+
+**`path` is written back as the loader's `Path`, not as the user's raw text.**
+No writer *resolves* a path or follows a symlink, and that is the rule LWSM-1131's
+INV-8 tests the merge side of. But it is not byte-verbatim, because
+`load_projects` discards `raw_path` and stores `Path(raw_path)`
+(`load_projects` builds `Path(raw_path)`, stores that, and discards `raw_path`), and `Path` normalises on construction. Measured on
+this tree:
+
+```
+'/srv/a/'   -> '/srv/a'      # trailing slash dropped
+'/srv///a'  -> '/srv/a'      # three or more slashes collapse
+'/srv/./a'  -> '/srv/a'      # single-dot component dropped
+'//srv/a'   -> '//srv/a'     # exactly two are preserved, and are refused anyway
+```
+
+So a hand-written `/srv/a/` comes back as `/srv/a`. That is a real change to the
+user's file and is stated rather than promised against; carrying the raw string
+would mean a second field in `ProjectRecord` holding text no consumer reads.
+
+**The stored `port` is a bare `int`, and a detected port's provenance is
+deliberately not persisted.** This is the one detected field where the format
+and `DetectedProject` are not the same type: `scanner.DetectedProject.port` is
+`PortFinding | None`, and `PortFinding` carries `port`, `rule` and `source` —
+which its own docstring calls "the whole of the provenance the UI needs". The
+format defines no key for `rule` or `source`, so a merge stores
+`finding.port` and the rest is recomputed on the next scan rather than
+round-tripped. Said explicitly because the alternative — an implementer
+inventing `port_rule` and `port_source` keys, or silently dropping provenance
+and not knowing whether that was intended — is exactly the invention this
+section exists to prevent. The cost is that provenance survives a scan but not a
+restart, so a rescan is what re-establishes it; § 9 records it.
 
 **No merge outcome is persisted.** The flags LWSM-1131 produces — *new*,
 *missing*, *not re-observed*, *override differs*, *duplicate identity* — are
@@ -271,6 +355,51 @@ it would refuse every existing file to buy nothing. INV-5 locks it.
 
 ### 4.3 Writing the file
 
+**The two signatures, because the outcomes below cannot be evaluated without
+them and LWSM-1131 § 9 binds to the second:**
+
+```python
+# registry.py
+
+
+@dataclass(frozen=True)
+class LoadResult:
+    """What `load_projects` returns. Replaces the `(records, reasons)` tuple."""
+
+    records: list[ProjectRecord]
+    reasons: list[str]  # every refusal, row-level and field-level alike
+    rows_refused: int  # ROW refusals only; `reasons` is not a proxy for it
+
+
+class RegistryMissing(RegistryError):
+    """Raised when the file is absent. A subclass, so existing
+    `except RegistryError` handlers keep working unchanged."""
+
+
+def load_projects(path: Path) -> LoadResult: ...
+
+
+def save_projects(
+    path: Path,
+    records: Sequence[ProjectRecord],
+    *,
+    load: LoadResult | RegistryError,  # the load these records came from
+) -> None:
+    """Write atomically, or raise `RegistryError` naming why it refused."""
+```
+
+**`load_projects` returns a dataclass, not a widened tuple.** `rows_refused`
+cannot be derived from `reasons` — a field refusal appends a reason and keeps
+the row (§ 4.2), which is the whole of INV-6's discriminating case. A third
+tuple element would break every two-value unpacking just as visibly while
+reading worse. **This is a breaking change to one production caller,
+`__main__.build_window`, plus the loader's existing tests**; § 11 lists both.
+
+**The gate lives inside `save_projects`, not in its caller**, and `load` is how
+it gets there. This item builds no caller at all, so a gate in the caller would
+be a gate nothing implements — and LWSM-1131 § 4.4 says "the merge does not
+re-implement that check; it calls a writer that enforces it."
+
 Atomic replace, in the target's own directory so the rename cannot cross a
 filesystem:
 
@@ -279,7 +408,16 @@ filesystem:
 3. `os.replace(tmp, path)` — atomic for any concurrent reader.
 4. `os.fsync()` the **directory** descriptor, so the rename itself is durable
    rather than only the bytes.
-5. On any failure, unlink the temporary file and raise `RegistryError`.
+5. On any failure **before step 3 completes**, unlink the temporary file and
+   raise `RegistryError`.
+6. A failure at step 4 is **reported and not reversed**: the new file is
+   already in place, there is no temporary file left to unlink, and rolling
+   back would mean having kept a copy of the old one — which is LWSM-1039.
+
+Steps 5 and 6 are split because "on any failure" covered step 4 and contradicted
+INV-2: it would have an implementer unlink a path that no longer exists and
+raise `RegistryError` for a write that actually succeeded, so § 6 would tell the
+user the write failed about a durable file.
 
 Step 4 is the one usually omitted, and omitting it means a crash can leave the
 directory entry pointing at neither version. Step 1's mode matters because the
@@ -333,19 +471,38 @@ the object, and that is the data the writer would destroy. A **field** refusal
 the row and only drops the field — `_port_or_reason` returns a reason and the
 record is still appended. Keying the gate on `reasons` being non-empty would
 therefore let one hand-typed `"port": "3000"` disable persistence for the whole
-session, on a file with nothing at risk. **So `load_projects` gains a
-row-refusal count alongside its reasons**, and that count is what the gate
+session, on a file with nothing at risk. **So `LoadResult` carries
+`rows_refused` separately from `reasons`**, and that count is what the gate
 reads.
 
-**Three states, and only the first may write:**
+**Four states, and only the first two may write:**
 
 | At load | May write? |
 |---|---|
-| no file at all, or every row accepted | **yes** — a fresh `projects.json` is created on first run |
-| one or more rows refused | no — read-only, reported |
-| `RegistryError` raised (unparseable, wrong `schema_version`, unreadable) | no — read-only, reported |
+| `RegistryMissing` — the file is absent | **yes** — this is first run, and a fresh `projects.json` is created |
+| `LoadResult` with `rows_refused == 0` | **yes** — including when fields were dropped |
+| `LoadResult` with `rows_refused > 0` | no — read-only, reported |
+| any other `RegistryError` (unparseable, wrong `schema_version`, unreadable, a directory, a FIFO) | no — read-only, reported |
 
-The third row is the one a `reasons`-only gate misses entirely: a raised
+**The absent file is a `RegistryError` today, and that is why `RegistryMissing`
+exists.** `_read_bounded` opens with `os.open`, so a missing
+file raises `FileNotFoundError`; `load_projects` converts **any** `OSError` into
+`RegistryError` in its `except OSError` handler, whose own comment says so — "Any
+OSError, not just FileNotFoundError". An earlier draft of this table listed "no
+file at all" and "`RegistryError` raised" as separate states, which are the same
+state: an implementer gating on "no `RegistryError`" would ship an app that is
+**permanently read-only on a clean machine**, where `projects.json` is never
+created and the persistence this whole item exists to add never happens. § 1's
+acceptance criteria and § 6's "created with mode `0700` before the first write"
+both describe a write that could never occur. All three review lanes found it
+independently.
+
+`RegistryMissing` is a **subclass** of `RegistryError` so that every existing
+`except RegistryError` handler — `__main__.build_window` is the only one — keeps
+its current behaviour without being touched. Only the write gate discriminates,
+and INV-6 tests the discrimination.
+
+The last row is the one a `reasons`-only gate misses entirely: a raised
 `RegistryError` produces **no reasons at all**, and § 6 already sends that case
 to an empty window. Without this clause a caller would write a fresh file over a
 hand-edited registry that had only a JSON typo or a stale `schema_version` —
@@ -424,16 +581,20 @@ that stops a hand-edited newline reaching the status bar or the log.
   *Test:* `tests/test_registry.py::test_a_pre_existing_file_still_loads`.
   *Breaks when:* a new field is made required, or the version is bumped.
 
-- **INV-6** — A load that refused a **row**, or that raised `RegistryError`,
-  makes the session read-only: no write is attempted, and the refusal says why.
-  A load that only dropped a **field** still writes.
+- **INV-6** — A load that refused a **row**, or that raised any `RegistryError`
+  **other than `RegistryMissing`**, makes the session read-only: no write is
+  attempted, and the refusal says why. A load that only dropped a **field**
+  still writes, and so does `RegistryMissing`.
   *Test:* `tests/test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back`
   (one good project, one with an empty `name`),
   `::test_an_unparseable_file_is_never_written_over` (the `RegistryError` path),
-  and the discriminating case
-  `::test_a_dropped_field_does_not_block_the_write` — one good project whose
+  and **two** discriminating cases, neither of which the first two can stand in
+  for: `::test_a_dropped_field_does_not_block_the_write` — one good project whose
   `port` is `"3000"`, which drops the field, keeps the row, and must **not** make
-  the session read-only.
+  the session read-only — and
+  `::test_a_missing_file_is_first_run_and_writes` — no file at the path at all,
+  asserting `RegistryMissing` is raised, that a `projects.json` **is** created,
+  and that it round-trips.
   *Breaks when:* any hand-written row is refused by the loader. `load_projects`
   returns rejected rows only as reason *strings*, so serialising `records` back
   would delete them permanently and silently — the write turning a recoverable
@@ -442,11 +603,18 @@ that stops a hand-edited newline reaching the status bar or the log.
   single mistyped port would disable persistence for the whole session, and the
   first two fixtures pass either way.
 
-- **INV-7** — `registry.MAX_REASON_CHARS`, `scanner.MAX_REASON_CHARS` and
-  `scanner.MAX_DISPLAY_NAME_CHARS` are each asserted at their **literal**
-  shipped values in one place.
-  *Test:* `tests/test_registry.py::test_the_shipped_bounds_are_pinned`, widened
-  from the existing test of that name, which today pins `registry`'s copy only.
+- **INV-7** — `registry.MAX_REASON_CHARS`, `registry.MAX_REASONS`,
+  `scanner.MAX_REASON_CHARS` and `scanner.MAX_DISPLAY_NAME_CHARS` are each
+  asserted at their **literal** shipped values in one place, and the existing
+  product bound is kept.
+  *Test:* `tests/test_registry.py::test_the_shipped_bounds_are_pinned`. **The
+  widening is strictly additive** — the test today asserts
+  `registry.MAX_REASON_CHARS == 120`, `registry.MAX_REASONS == 100` and
+  `MAX_REASON_CHARS * MAX_REASONS < 20_000`, and all three stay. Naming only the
+  three constants this item *adds* would have had an implementer rewrite the
+  test to that list and **delete the `MAX_REASONS` assertion**, which is
+  known-issue-005's exact shape on the one constant whose own test docstring
+  records that it "was added by LWSM-1115 with **exactly this defect**".
   *Breaks when:* a bound is loosened. **Every scanner assertion about a clipped
   string is expressed *relative* to the constant** — `<= scanner.MAX_REASON_CHARS
   + 50`, `== scanner.MAX_DISPLAY_NAME_CHARS` — so raising the bound raises the
@@ -454,26 +622,40 @@ that stops a hand-edited newline reaching the status bar or the log.
   `scanner.MAX_REASON_CHARS = 400` reddened nothing. This closes
   known-issue-034.
 
-- **INV-8** — No value read from the file reaches a **writer refusal reason**
-  without passing `_quoted`.
-  *Test:* `tests/test_registry.py::test_no_writer_reason_is_interpolated_without_the_clip`,
-  mirroring the existing `test_no_file_sourced_value_is_interpolated_without_the_clip`
-  at `tests/test_registry.py:463`.
+- **INV-8** — Every refusal reason `save_projects` emits is clipped and escaped:
+  no file-sourced value reaches one at full length or with control characters
+  intact.
+  *Test:* `tests/test_registry.py::test_a_writer_refusal_reason_is_clipped_and_escaped`
+  — a **runtime** assertion, not a source grep: refuse a write whose target path
+  carries a newline and 500 characters, and assert the raised `RegistryError`'s
+  message is within `MAX_REASON_CHARS` and contains no raw newline.
   *Breaks when:* a hand-edited path containing a newline reaches the status bar
   or the log through a refused write — the defect LWSM-1078, LWSM-1102 and
-  LWSM-1114 each closed at one call site, arriving on a new one. LWSM-1131's
-  INV-10 is the same rule for the merge report, which is a different surface
-  with a different set of interpolated values.
+  LWSM-1114 each closed at one call site, arriving on a new one.
+  **A second source grep would have been untestable.** The existing
+  `test_no_file_sourced_value_is_interpolated_without_the_clip`
+  (`tests/test_registry.py`) greps the whole of `registry.__file__` for a
+  non-comment `!r}` — and `save_projects` lives in that same module, so it is
+  *already* covered by that test and a mirrored grep could never fail while the
+  old one passed. The runtime form asserts something the grep cannot: that the
+  reason a caller actually receives is bounded. LWSM-1131's INV-10 is the merge
+  report's surface and keeps the grep form, its report being built elsewhere.
 
 ## 6. Failure modes
 
 - **The config directory does not exist.** Created with mode `0700` before the
   first write; a failure to create it is a `RegistryError` with the reason, and
   the app keeps running against the in-memory list.
-- **The file is unreadable at start.** Unchanged from today: `RegistryError`,
-  empty window, reason in the status bar — and now also read-only for the
-  session (§ 4.3). LWSM-1039 adds the restore-from-backup offer; this item
-  deliberately does not.
+- **There is no file at all — first run.** `RegistryMissing`, an empty window,
+  and the session is **writable**: the directory is created `0700`, and the
+  first `save_projects` creates `projects.json`. This is the one `RegistryError`
+  subclass that does not make the session read-only (§ 4.3), and separating it
+  is what stops a clean machine being permanently unable to persist anything.
+- **The file is unreadable at start** — a directory, a FIFO, a permission
+  denial, bad UTF-8, bad JSON, or the wrong `schema_version`. Unchanged from
+  today: `RegistryError`, empty window, reason in the status bar — and now also
+  read-only for the session (§ 4.3). LWSM-1039 adds the restore-from-backup
+  offer; this item deliberately does not.
 - **The disk is full.** The temporary write fails, the temporary file is
   unlinked, the previous file is untouched (INV-2), and the user is told the
   write failed rather than being left believing it succeeded.
@@ -487,23 +669,32 @@ that stops a hand-edited newline reaching the status bar or the log.
 ## 7. Tests
 
 All of the above live in `tests/test_registry.py` beside the existing loader
-tests, which they reuse the fixtures of (`write`, `one_good`). The file holds
-**28** tests today (*command:* `grep -c "def test_" tests/test_registry.py`).
-Every new one is written red first and watched failing before the code that
-satisfies it — `testing.md § 1`, and the standing practice of this project's
-last six fix-passes.
+tests, which they reuse the fixtures of (`write`, `one_good`) — **except the
+import-cycle check, which belongs in `tests/test_layering.py`** with the other
+AST-derived structural rules. The registry file holds **28** tests today
+(*command:* `grep -c "def test_" tests/test_registry.py`). Every new one is
+written red first and watched failing before the code that satisfies it —
+`testing.md § 1`, and the standing practice of this project's last six
+fix-passes.
 
 **Most of these need a real file, because the subject is a file** — the existing
 `write(tmp_path, payload)` helper is how the loader tests already do it, and
 INV-3, INV-5 and INV-6 all use it. Two need more than a file's *contents*: INV-2
-an injected mid-write failure, INV-4 a FIFO, a symlink and a mode check. Every
-one of them uses `tmp_path` and **carries no marker**, which is what makes
-`--fast` run them: `scripts/local-ci.sh` runs `uv run pytest -q -m "not
-integration"` under `--fast`, so a marker can only ever *exclude* a test. The
-project declares exactly two markers, `gui` and `integration`
-(`pyproject.toml`), and neither test spawns a process or binds a socket, so
-`integration` would be the wrong label as well as the excluding one. Where a
-marker is warranted it goes on the test and never on the file (`CLAUDE.md`).
+an injected mid-write failure, INV-4 a FIFO, a symlink and a mode check. INV-6's
+first-run case needs the *absence* of one, which `tmp_path` gives for free.
+
+**Every one of them carries no marker, and that is what makes `--fast` run
+them.** `scripts/local-ci.sh` runs `uv run pytest -q -m "not integration"`
+under `--fast`, so a marker can only ever *exclude* a test. The project declares
+exactly two, `gui` and `integration` (`pyproject.toml`), and nothing here
+spawns a process or binds a socket. **That constraint decided where the
+import-cycle check goes**: the obvious form — import each module first in a
+fresh interpreter — spawns one, so it would be `integration`-marked and skipped
+by exactly the run a developer is most likely to be doing. An AST assertion that
+`registry.py` does not import `lwsm.scanner` is in-process, is the invariant the
+cycle actually violates, and sits beside the layering rules that are already
+enforced by parsing rather than grepping (`CLAUDE.md`). Where a marker is
+warranted it goes on the test and never on the file.
 
 **What these tests do not prove**, said plainly: none of them exercises a real
 concurrent write (the § 6 case), and INV-2's failure is injected rather than a
@@ -533,6 +724,20 @@ by asserting harder.
   premature: this item builds no caller at all, and the only one coming is
   LWSM-1131's merge. It becomes the right question when an editing surface
   exists, and then it needs a debounce nobody has specified.
+- **Store `kind` as a validated `str` instead of moving `LauncherKind` into
+  `registry.py`.** Avoids touching `scanner.py`, and rejected because it
+  duplicates the enum's four values in the module least likely to be updated
+  when a fifth is added — a silent rejection of a valid `kind` at load, in a
+  reader whose whole job is to be forgiving about fields. The move costs one
+  import line and keeps the dependency direction `scanner.py`'s existing
+  `DECLARED_PORT_RANGE` import already establishes. § 4.1 carries the measured
+  ImportError that rules out the naive third option, importing the enum upward.
+- **Preserve the original text of a field the loader dropped**, so a mistyped
+  `"port": "3000"` survives the next write. Rejected on the same scope grounds
+  as the row case above, and on a narrower one: a refused *field's* text is by
+  definition not a valid value of that field, so preserving it means carrying
+  text that can never be used for anything except being written back. § 4.2
+  states the loss instead.
 - **Ship the writer and the merge as one item** — which is what the umbrella
   spec was. Rejected by measurement, not by taste: § 3 carries the numbers.
 
@@ -554,6 +759,16 @@ by asserting harder.
   every one of these keys is reachable today and an implementer would otherwise
   have to guess. A hand-set `"hidden": true` does nothing yet; that is better
   than one that silently removes a row with no way to bring it back.
+- **The `actions` schema, and `design.md`'s load-time validation of a
+  `run_command` argv.** § 4.2 persists the array opaquely; the per-action shape,
+  the `open_url` / `open_file` / `run_command` rules and the `Supervisor`
+  ownership all land with the item that builds the action surface. Untracked —
+  no roadmap item claims it yet, and it is named here so the omission is visible
+  rather than discovered by whoever builds it.
+- **Persisting a detected port's provenance** (`PortFinding.rule` and
+  `.source`). § 4.2 stores the bare `int`; provenance is recomputed by the next
+  scan. Untracked, and cheap to add later — two optional keys, both defaulting
+  to absent, under the same `schema_version`.
 - **known-issue-010** (contrast computed only against `window`) and
   **known-issue-013** (the row's accessible role is `Border`) both *named*
   LWSM-1007 as their owner, describing it as "the list view". Neither is
@@ -569,23 +784,33 @@ by asserting harder.
 | INV-3 | `test_registry.py::test_write_then_load_round_trips` |
 | INV-4 | `test_registry.py::test_the_written_file_is_private`, `::test_a_non_regular_target_is_refused`, `::test_a_symlinked_target_is_refused_not_followed` |
 | INV-5 | `test_registry.py::test_a_pre_existing_file_still_loads` |
-| INV-6 | `test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back`, `::test_an_unparseable_file_is_never_written_over`, `::test_a_dropped_field_does_not_block_the_write` |
-| INV-7 | `test_registry.py::test_the_shipped_bounds_are_pinned` (widened to the two `scanner` constants) |
-| INV-8 | `test_registry.py::test_no_writer_reason_is_interpolated_without_the_clip` |
+| INV-6 | `test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back`, `::test_an_unparseable_file_is_never_written_over`, `::test_a_dropped_field_does_not_block_the_write`, `::test_a_missing_file_is_first_run_and_writes` |
+| INV-7 | `test_registry.py::test_the_shipped_bounds_are_pinned` (widened additively; the existing `MAX_REASONS` and product assertions stay) |
+| INV-8 | `test_registry.py::test_a_writer_refusal_reason_is_clipped_and_escaped` |
+| § 4.1 `LauncherKind` moves without closing an import cycle | `tests/test_layering.py::test_registry_does_not_import_scanner` — an AST check, not a subprocess: a fresh-interpreter import test would spawn a process, earn the `integration` marker and be skipped by `--fast`, which is the run most likely to be the only one anybody does |
 | § 4.2 `kind` rejected when not a `LauncherKind` | `test_registry.py::test_an_unrecognised_kind_loses_the_field_and_keeps_the_row` |
-| § 4.2 `added` unparseable is treated as absent | `test_registry.py::test_an_unparseable_added_is_treated_as_absent_and_reported` |
-| § 4.2 tuple round-trip for `argv` / `actions` | covered by INV-3's round-trip over a fully-populated record |
-| § 4.2 `path` written back verbatim | `test_registry.py::test_the_writer_does_not_normalise_a_stored_path` |
+| § 4.2 the wrong-type rule, over every optional key | `test_registry.py::test_a_wrong_typed_field_is_dropped_and_reported`, parametrised over all eight so a key added later without a case is visible |
+| § 4.2 a non-string `name` or `path` is a ROW refusal | `test_registry.py::test_a_wrong_typed_required_field_refuses_the_row` |
+| § 4.2 `added` verbatim on write, `Z` only when stamped | `test_registry.py::test_a_stored_added_offset_is_written_back_verbatim` |
+| § 4.2 `added` unparseable is dropped and reported | `test_registry.py::test_an_unparseable_added_is_dropped_and_reported` |
+| § 4.2 `actions` round-trips opaquely | `test_registry.py::test_an_opaque_actions_array_round_trips_unchanged` |
+| § 4.2 `argv` tuple round-trip | covered by INV-3's round-trip over a fully-populated record |
+| § 4.2 `path` is not resolved, though `Path` normalises it | `test_registry.py::test_the_writer_does_not_resolve_a_stored_path` |
 | § 4.3 the `MAX_FILE_BYTES` write bound | `test_registry.py::test_an_oversized_registry_is_refused_before_writing` |
-| § 4.3 step 4 (directory `fsync`) | **nothing** — a durability claim a unit test cannot falsify without power loss; the call site is reviewed, not tested |
+| § 4.3 the gate lives inside `save_projects` | covered by INV-6, whose fixtures call the writer directly |
+| § 4.2 a dropped field's original text is lost | **nothing** — an accepted cost, stated in § 4.2 and § 8, not a rule |
+| § 4.2 port provenance not persisted | **nothing** — deliberate (§ 9); `rule` and `source` are recomputed by the next scan |
+| § 4.3 steps 4 and 6 (directory `fsync`, and its failure reported not reversed) | **nothing** — a durability claim a unit test cannot falsify without power loss; the call site is reviewed, not tested |
 | § 6 concurrent writers | **nothing** — out of scope by § 9; last writer wins and no reader sees a half-file |
 | § 9 five fields persisted but inert | **nothing** — deliberate; INV-3's round-trip proves they survive, and nothing reads them |
 
-**Sixteen rows, three of which say `nothing`.** All three are limits or
-deliberate omissions rather than defects: the directory `fsync`, which no unit
-test can falsify without power loss; concurrent writers, excluded by § 9; and
-the five persisted-but-inert fields, a § 9 deferral with its cost stated. **None
-carries a roadmap id, because none is a gap to close.**
+**Twenty-four rows, five of which say `nothing`.** All five are limits or
+deliberate omissions rather than defects: the directory `fsync` and its
+failure path, which no unit test can falsify without power loss; concurrent
+writers, excluded by § 9; the five persisted-but-inert fields and the unpersisted
+port provenance, both § 9 deferrals with their cost stated; and the dropped
+field's lost text, accepted in § 8. **None carries a roadmap id, because none is
+a gap to close.**
 
 *Command, run against this file:*
 
@@ -596,17 +821,34 @@ awk '/^\| Rule \| What catches/{f=1;next} f&&/^\|---/{next} \
   docs/specs/LWSM-1007-registry-persistence.md
 ```
 
-→ `rows=16 inv=8 nothing=3`, against `grep -c '^- \*\*INV-'` → `8`. So the table
-and § 5 enumerate the same eight invariants, and the eight non-`INV` rows are
-the three `nothing` limits plus five § 4 rules that carry a test without
+→ `rows=24 inv=8 nothing=5`, against `grep -c '^- \*\*INV-'` → `8`. So the table
+and § 5 enumerate the same eight invariants, and the sixteen non-`INV` rows are
+the five `nothing` limits plus eleven § 4 rules that carry a test without
 carrying an invariant of their own.
 
 ## 11. Cross-doc impact
 
 - **`ROADMAP.md`** — LWSM-1007's bullet narrowed to the writer and the format;
   **LWSM-1131 added** for the merge. Both done 2026-08-12.
-- **`CLAUDE.md § Module map`** — `registry.py`'s entry gains the writer, the
-  field classification sets and the row-refusal count.
+- **`CLAUDE.md § Module map`** — `registry.py`'s entry gains `save_projects`,
+  `LoadResult`, `RegistryMissing`, the field-classification sets and
+  `LauncherKind`; `scanner.py`'s entry loses `LauncherKind` from its symbol
+  list. The entry also states `load_projects` returns "(records, rejection
+  reasons)", which `LoadResult` replaces.
+- **Two code call sites this item must update, listed because neither is
+  optional and both are outside `registry.py`:** `src/lwsm/__main__.py`'s
+  `build_window` unpacks `load_projects`' two-tuple, and `src/lwsm/scanner.py`
+  imports `LauncherKind` from itself today — after § 4.1's move it imports it
+  from `lwsm.registry`, beside the `DECLARED_PORT_RANGE` import already in that
+  module's import block.
+- **`docs/specs/LWSM-1006-scanner-detection.md`** — cites `LauncherKind` as a
+  `scanner` symbol. Its statements stay true of the enum's *values*; the owning
+  module changes, so its module attribution needs a pass. **That spec is
+  accepted and its own gate is behind it**, so the correction is filed rather
+  than made here.
+- **`docs/specs/LWSM-1131-rescan-merge.md`** — its § 4.3 says the merge's return
+  shape "mirrors `load_projects` — `(records, reasons)`", which `LoadResult`
+  makes false. Corrected in that document as collateral of this loop.
 - **`docs/known-issues.md`** — known-issue-034 closed by INV-7; known-issue-025
   **re-pointed to LWSM-1131**, since identity is compared at merge time;
   known-issue-033 stays open and keeps its routing, for the reason § 2 gives;
@@ -622,6 +864,7 @@ carrying an invariant of their own.
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
 | 0-split | 2026-08-12 | **none — no reviewer was dispatched** | — | — | — | — | **Provenance row, not a review.** This document is the format-and-writer half of *LWSM-1007 — Persist the registry, and merge a rescan without discarding user edits*, narrowed in place on 2026-08-12 after that spec reached `review-contract`'s `--max-loops 3` cap without converging. The merge half is [LWSM-1131](LWSM-1131-rescan-merge.md). The umbrella's three loops produced 34 findings, all verified, all fixed, none ever resurfacing — and its own loop-3 row diagnosed the cap as **size and scope** rather than an unsettled contract: 540 → 979 lines with the count flat at 12 / 10 / 12 and each loop clustering in a different region. The user chose the split on 2026-08-12 over accepting at the cap or running a fourth loop. **No review is inherited.** Those loops ran against a 979-line document that no longer exists; this part runs the gate from loop 1 on its own bytes, and so does LWSM-1131. Invariants renumbered from 1 with the mapping in § 3. |
+| 1 | 2026-08-12 | 3 (general-purpose, strong model), identical brief, four-question form | Q1 ×4 · Q2 ×4 · Q3 ×5 · Q4 ×1 | **14 verified, 0 dismissed, 14 fixed.** First cold read of this document on its own bytes; no review inherited from the umbrella. **Two findings would have stopped the application, and neither was reachable from the umbrella's three loops.** (1) **`kind: LauncherKind` closes an import cycle.** `scanner.py` already imports `DECLARED_PORT_RANGE` from `lwsm.registry`, so typing `kind` with the scanner's enum makes `registry` import `scanner` — measured here, **both** entry orders raise `ImportError` and nothing in the package imports at all. Fixed by moving `LauncherKind` down into `registry.py`, keeping the direction that already exists; the rejected string-validation alternative is in § 8, and § 10 checks it with an AST assertion in `test_layering.py` rather than a subprocess, which would have earned the `integration` marker and been skipped by `--fast`. (2) **First run was permanently read-only.** `_read_bounded` opens with `os.open` and `load_projects` converts *any* `OSError` to `RegistryError`, so "no file at all" and "`RegistryError` raised" were the same state listed as two rows of one table with opposite answers — a clean machine could never create `projects.json`, falsifying both § 1 acceptance criteria. **All three lanes found this independently**, and it was present verbatim in the umbrella's § 4.5, where three loops did not reach it. Fixed with a `RegistryMissing(RegistryError)` subclass and a four-state table. **Three contracts were named and never given a shape:** `load_projects`' new return (now a `LoadResult` dataclass — `rows_refused` cannot be derived from `reasons`, which is INV-6's whole discriminating case), `save_projects` itself (no signature anywhere, while LWSM-1131 § 9 binds to it), and the wrong-type behaviour of eight of eleven optional keys (now one blanket rule as a fourth table column). **Three type claims were false:** `actions` was `tuple[str, ...]` where `design.md § Custom project actions` makes an action a label plus one of three kinds with a payload — INV-3's round-trip would have passed over a shape the design forbids, so the array is now persisted opaquely with its schema deferred to the item that builds the surface; `path` was promised "written back exactly as the user wrote it" when `load_projects` discards `raw_path` and `Path` normalises on construction (measured: `/srv/a/` → `/srv/a`, `/srv///a` → `/srv/a`); and the stored `port` is a bare `int` where `DetectedProject.port` is a `PortFinding` carrying `rule` and `source`, so provenance is now explicitly not persisted rather than silently dropped. **Two of my own fixes-in-waiting were self-contradictory:** `added` could not be both "never rewritten once set" and "written with a `Z` suffix" while the reader must accept any RFC 3339 spelling (now: `Z` governs only what the app stamps, stored text is verbatim), and § 4.3 step 5's "on any failure" covered step 4, contradicting INV-2 by unlinking a file that no longer exists and reporting failure for a write that succeeded. **INV-7 was one edit from reinstating a known defect** — it enumerated three constants and said "widened from the existing test", which would have had an implementer delete that test's `registry.MAX_REASONS == 100` assertion; `MAX_REASONS` is the one constant whose own docstring records that it shipped with exactly the defect known-issue-005 describes. **INV-8's test could not have failed:** it mirrored a source grep over the whole of `registry.__file__`, and `save_projects` lives in that module, so the new test was already covered by the old one — replaced with a runtime assertion on the emitted reason. **Two open questions resolved clean and are not in the tally** (`scanner.MAX_REASON_CHARS` / `MAX_DISPLAY_NAME_CHARS` exist as named; § 7's `--fast` and marker claims hold). **4c found one of its own:** six `path:line` citations did not resolve and `drafting-rules.md` forbids line numbers outright, so all are now symbol references. **Collateral, swept once after every fix:** LWSM-1131 § 4.3's "mirrors `load_projects` — `(records, reasons)`", its § 4.4 read-only gate (which said any `RegistryError` blocks the write — false for first run, the path that item actually runs on), and its § 13 `datetime` attribution. **Honest cost: the document went 642 → 888 lines.** Five Q3 findings add where nothing stood, and two fixes carry measured evidence, but that is the growth 4a-min warns produces the next loop's findings — loop 2 should be read hardest against the new text in § 4.1, § 4.2 and § 4.3. Loop 2 dispatched. |
 
 ## 13. Resource cost
 
@@ -636,7 +879,11 @@ carrying an invariant of their own.
 - **Disk.** One file, plus a transient temporary file in the same directory that
   is unlinked on any failure path.
 - **New external dependencies: none.** `registry.py` imports `errno`, `json`,
-  `os`, `stat`, `dataclasses`, `pathlib` and `typing` today; the writer adds
-  **`tempfile`**. `datetime` arrives with LWSM-1131, which stamps `added`. Both
-  are standard library, so `pyproject.toml` does not change.
+  `os`, `stat`, `dataclasses`, `pathlib` and `typing` today; this item adds
+  **`tempfile`** for the writer and **`datetime`** for § 4.2's `added` parse.
+  `datetime` is needed **here**, not with LWSM-1131: deciding whether a present
+  `added` is well-formed is a parse, and § 4.2's fourth-column rule makes that
+  decision at load. LWSM-1131 *compares* the parsed instants and adds no import
+  of its own. `collections.abc` arrives with `save_projects`' `Sequence`. All
+  standard library, so `pyproject.toml` does not change.
   *Command:* `grep -nE "^(import|from) " src/lwsm/registry.py`.
