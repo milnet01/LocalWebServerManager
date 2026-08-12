@@ -150,14 +150,21 @@ USER_FIELDS: frozenset[str] = frozenset(
 )
 ```
 
-`path` is in the detected half because it *is* the identity and a scan is what
-observes it; nothing may rewrite it (§ 4.4). `added` is a user-owned timestamp
-because ADR-0005 makes it the duplicate-port tie-break, and a rescan must not
-be able to reorder that.
+`added` is a user-owned timestamp because ADR-0005 makes it the duplicate-port
+tie-break, and a rescan must not be able to reorder that.
 
-The merge is then "replace the detected half, keep the user half" rather than
-a field-by-field copy, and INV-1 makes a field that belongs to neither set a
-failing build. This is the same reasoning `scanner.DetectedProject`'s docstring
+The merge replaces **`DETECTED_FIELDS - {"path"}`** and keeps the user half,
+rather than copying field by field, and INV-1 makes a field belonging to
+neither set a failing build.
+
+**`path` is classified detected but is never written**, and the subtraction is
+the whole of that rule. It is in the detected half because a scan is what
+observes it, but `DetectedProject.path` is *resolved* while the stored path is
+whatever the user wrote (§ 4.4) — so a merge implemented as a plain
+set-driven replacement over `DETECTED_FIELDS` would rewrite every stored path
+to its resolved form on the first rescan, which is exactly what § 4.4 promises
+against. INV-15 tests it, because prose saying "nothing may rewrite it" is not
+a contract. This is the same reasoning `scanner.DetectedProject`'s docstring
 already gives for having no user-owned field at all: a change that would let
 scanned content reach a user-owned field has to be visible.
 
@@ -190,15 +197,38 @@ scanned content reach a user-owned field has to be visible.
 `DetectedProject.argv`; INV-8's "equal record set" is defined over that
 conversion, so a loader returning a `list` fails it.
 
-Every key except `path` and `name` is optional on read, and **every optional
-key's default is its JSON null-or-empty equivalent** — `null` for `port`,
-`port_override`, `unit` and `launcher_override`, `false` for `hidden` and
-`start_at_login`, `""` for `notes`, `[]` for `argv` and `actions`. **`added`
-defaults to absent, and absent sorts *after* every present value** in INV-11's
-tie-break, with file order breaking a tie between two absent ones. That rule
-exists because every file in existence today lacks the key, so "earliest
-`added` wins" would otherwise have no meaning on exactly the files INV-12
-requires to load.
+Every key except `path` and `name` is optional on read. The default for each,
+covering all eleven — an unlisted key would be one an implementer has to invent
+a default for, which is how `kind` was missed in an earlier draft:
+
+| Key | Type | Default when absent |
+|---|---|---|
+| `port`, `port_override` | `int \| None` | `null` |
+| `unit`, `launcher_override` | `str \| None` | `null` |
+| `kind` | `LauncherKind \| None` | `null` — an unknown launcher kind |
+| `hidden`, `start_at_login` | `bool` | `false` |
+| `notes` | `str` | `""` |
+| `argv`, `actions` | `tuple[str, ...]` | `()` |
+| `added` | `str \| None`, RFC 3339 UTC | `null` (see below) |
+
+**`kind` accepts only a value of `LauncherKind` — `"systemd"`, `"shell"`,
+`"node"`, `"python"`.** An unrecognised string loses the field and is reported,
+the rule `_port_or_reason` already applies to a bad port: the project still
+exists and the user still needs to see it.
+
+**`argv` and `actions` load back as tuples, not lists.** JSON has only arrays,
+so a loader returning a `list` produces a record unequal to the one written
+while every value looks right — INV-8's failure mode exactly.
+
+**`added` is stamped by the merge when it creates a record** (§ 4.6) and is
+never rewritten afterwards. **An absent value sorts *after* every present one**
+in INV-11's tie-break, with file order breaking a tie between two absent ones —
+a rule that exists because every file in existence today lacks the key, so
+"earliest `added` wins" would otherwise have no meaning on exactly the files
+INV-12 requires to load. **A present value that does not parse as RFC 3339 is
+treated as absent and reported**, rather than compared: the file is
+hand-editable, so `"yesterday"` is a shape that occurs, and comparing it
+lexically against a real timestamp silently produces a wrong winner.
 
 **No merge outcome is persisted.** The flags § 4.6 produces — *new*, *missing*,
 *not re-observed*, *override differs*, *duplicate identity* — are report entries
@@ -219,6 +249,22 @@ The rule this spec exists to add:
 > A detected field whose rescan value is **unknown** does not overwrite a
 > stored known value. It is the absence of an observation, not an observation
 > of absence.
+
+**`port` is the only detected field that has an unknown value at all**, and
+saying so is half the rule. The others carry no sentinel, so a completed scan's
+value for them is always an observation and always wins:
+
+| Field | Is there an "unknown"? | On a completed scan |
+|---|---|---|
+| `port` | **yes** — `DetectedProject.port is None` means *could not tell* | the rule below |
+| `kind` | no — a detected project always has a launcher kind | overwrite |
+| `argv` | no — `()` is a real value, and is what every `SYSTEMD` project has | overwrite |
+| `unit` | no — `None` is a real value, and is what every non-systemd project has | overwrite |
+
+The distinction matters most for `unit`. Treating its `None` as *unknown* would
+keep a stale unit name forever on a project that stopped being a systemd
+service — the mirror of the defect this rule exists to prevent, produced by
+applying the rule too widely rather than too narrowly.
 
 Concretely, for `port`:
 
@@ -321,20 +367,74 @@ The serialised output is bounded by the same `MAX_FILE_BYTES` the reader
 enforces; a registry that would exceed it is refused with a reason rather than
 written and then found unreadable on next start.
 
+**Nothing is written while the load that produced the records had rejections.**
+`load_projects` returns `(records, reasons)` and the rejected rows exist only as
+reason *strings* — they are not in `records`, and there is no path from a reason
+back to the JSON object it came from. So serialising `records` over the file
+**permanently deletes every row the loader refused**: a project whose `name` was
+blank, whose `path` was relative or contained `..`, or that duplicated an
+earlier path. Those are hand-written rows with a hand-written intent, and losing
+them silently is the one data loss this app is capable of — the thing LWSM-1039
+exists to insure against, arriving through the writer rather than through
+corruption.
+
+So: **a non-empty `reasons` list from the load makes the whole session
+read-only.** The merge still runs and still reports, the UI still shows what a
+rescan would change, and the write is refused with a reason naming the count.
+The user fixes the file, or deletes the bad rows deliberately, and the next
+start writes normally. § 8 records the alternative that was rejected.
+
 ### 4.6 Merge outcomes
 
-ADR-0005's four, plus the three this spec adds. Each produces a report entry;
-none mutates silently.
+The merge is one core function, and its signature is what makes the outcomes
+below evaluable:
+
+```python
+def merge(
+    stored: list[ProjectRecord],
+    scan: ScanResult,
+    roots: tuple[Path, ...],  # the roots PASSED TO scan(), not inferred
+    now: Callable[
+        [], str
+    ],  # stamps `added` on a new record; injected per testing.md § T1
+) -> tuple[list[ProjectRecord], list[str]]:
+    """Return (merged records, report entries)."""
+```
+
+**`roots` is a parameter because `ScanResult` does not carry it** — its three
+fields are `projects`, `skipped` and `timed_out`. Without it the *missing*
+outcome below cannot be evaluated at all, and an implementer would fall back to
+inferring roots from the projects returned, under which a root that legitimately
+contains zero projects silently stops marking its records missing. The **roots
+requested** are used rather than "the roots actually walked", because a partial
+scan does not report which it reached.
+
+The return shape mirrors `load_projects` — `(records, reasons)` — so both
+producers of a record list report their problems the same way.
+
+Seven outcomes: ADR-0005's four (*new*, *unchanged*, *changed*, *missing*), its
+*override differs* flag tabulated as a row of its own, and **two this spec
+adds** — *not re-observed* (§ 4.3) and *duplicate identity* (§ 4.4). Each
+produces a report entry; none mutates silently.
 
 | Outcome | Condition | Effect |
 |---|---|---|
-| **new** | scanned, not stored | added, flagged *new* |
+| **new** | scanned, not stored | added, flagged *new*; seeded per below |
 | **unchanged** | detected halves equal | nothing |
 | **changed** | detected halves differ **and the scan value is known** | detected half updated, change listed |
 | **missing** | stored, in scope for this scan (below), absent from a complete one | kept, flagged *missing*, never deleted |
 | **not re-observed** | stored known, scan unknown (§ 4.3) | stored value kept, flagged |
 | **override differs** | a user override exists for a field that moved | override stays in force, row flagged |
 | **duplicate identity** | resolves to the same directory as an earlier record (§ 4.4) | kept and written back, excluded from merge and polling, flagged |
+
+**A *new* record is seeded, and that is the one place a merge writes a
+user-owned field.** `name` takes `DetectedProject.name`, `added` takes `now()`,
+and every other user field takes its § 4.2 default. INV-2 is scoped to records
+already in the registry for exactly this reason: read as covering creation too,
+it would forbid the merge from giving a new project a name, and an implementer
+obeying it literally would add unnamed rows with no `added` — which would in
+turn leave INV-11's tie-break with nothing to compare on any record the app
+itself created.
 
 **"the scan value is known", not "both known".** A stored `None` with a scan
 reporting `3000` is a *changed* row — the port has just been discovered, and
@@ -369,9 +469,20 @@ marked *port claimed by `<other project>`*.
 
 ### 4.7 The Rescan seam
 
-`MainWindow` gains a **Rescan** button. The per-row flags render as part of the
-existing `RowView`, and the one-line summary goes to
-`MainWindow.set_status_message`, which already exists.
+`MainWindow` gains a **Rescan** button. The report is presented **only** as a
+one-line summary through `MainWindow.set_status_message`, which already exists.
+
+**Per-row flags are deliberately not rendered in this item.** `RowView` carries
+four fields — `path`, `name`, `effective_port`, `status` — and
+`ProjectController.rows()` rebuilds every one of them from the records on each
+1000 ms poll. A merge flag is not record state (§ 4.2 persists no outcome), so
+it has nowhere to live across a rebuild and would vanish within a second of
+being set. Rendering it properly means either persisting outcomes or giving the
+controller a second source of row state, and both are larger decisions than
+this item needs. The summary is durable enough to satisfy ADR-0005's
+requirement that a rescan "produce a visible answer rather than a silent
+mutation"; per-row presentation belongs with the first-run flow (LWSM-1008),
+which is already designing a surface for showing detected results.
 
 **The scan and the merge run on a `QThreadPool` worker, not on the GUI thread.**
 `scan()` is budgeted precisely because it is slow — it walks roots, opens other
@@ -404,7 +515,9 @@ has to replace.
   *Breaks when:* a field is added to the dataclass and to neither set — after
   which the merge neither refreshes nor preserves it.
 
-- **INV-2** — A merge never writes a user-owned field.
+- **INV-2** — A merge never writes a user-owned field of a record **already in
+  the registry**. Seeding a *new* record is the sole exception and is specified
+  in § 4.6.
   *Test:* `tests/test_registry.py::test_a_rescan_never_writes_a_user_field` —
   a stored record with every user field set, merged against a scan whose
   `name` differs, asserting the user half is byte-identical afterwards.
@@ -520,6 +633,28 @@ has to replace.
   known-issue-034, which routed itself here on the grounds that this item gives
   the constants a second consumer.
 
+- **INV-15** — A merge never rewrites a record's stored `path` string, even
+  when it resolves to something different.
+  *Test:* `tests/test_registry.py::test_a_merge_does_not_rewrite_the_stored_path`
+  — a record stored under a symlinked path, merged against a scan reporting its
+  resolved form, asserting the written file still carries the path the user
+  wrote.
+  *Breaks when:* the merge is implemented as a set-driven replacement over the
+  whole of `DETECTED_FIELDS`, which contains `path`. That is the natural
+  reading of § 4.1's "replace the detected half", and it rewrites every stored
+  path to its resolved form on the first rescan — so the invariant exists to
+  make § 4.1's `- {"path"}` subtraction testable rather than decorative.
+
+- **INV-16** — A load that produced any rejection reason makes the session
+  read-only: no write is attempted, and the refusal names the count.
+  *Test:* `tests/test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back`
+  — a file with one good project and one whose `name` is empty, asserting the
+  file is byte-identical after a merge that would otherwise have changed it.
+  *Breaks when:* any hand-written row is refused by the loader. `load_projects`
+  returns rejected rows only as reason *strings*, so serialising `records` back
+  would delete them permanently and silently — the write turning a recoverable
+  hand-edit into data loss.
+
 ## 6. Failure modes
 
 - **The config directory does not exist.** Created with mode `0700` before the
@@ -537,8 +672,12 @@ has to replace.
   each write atomic, so no reader ever sees a half-file, but one instance's
   edits can be lost. Not defended against — § 9.
 - **The scan returns nothing at all.** Treated as a complete scan reporting
-  every project missing *only* if `timed_out` is false; otherwise INV-4 applies.
-  A registry is never blanked by a scan.
+  every in-scope project missing *only* if `timed_out` is false **and `skipped`
+  is empty**. Either one non-empty suppresses the missing check entirely
+  (§ 4.6), which is the case that matters: a run where every root was refused
+  for permissions returns zero projects with `timed_out` false, and the
+  `timed_out` test alone would flag the whole registry missing. A registry is
+  never blanked by a scan.
 
 ## 7. Tests
 
@@ -548,9 +687,12 @@ Every one is written red first and watched failing before the code that
 satisfies it — `testing.md § 1`, and the standing practice of this project's
 last six fix-passes.
 
-Three of the fourteen need a real filesystem rather than a fake: INV-6 needs a
-symlink, INV-7 needs an injected failure, INV-9 needs a FIFO, a symlink and a
-mode check. All three use `tmp_path` and **carry no marker**, which is what
+**Most of these need a real file, because the subject is a file** — the
+existing `write(tmp_path, payload)` helper is how the loader tests already do
+it, and INV-8, INV-12 and INV-16 all use it. Three need more than a file's
+*contents*: INV-6 needs a symlink, INV-7 an injected mid-write failure, INV-9 a
+FIFO, a symlink and a mode check. Every one of them uses `tmp_path` and
+**carries no marker**, which is what
 makes `--fast` run them: `scripts/local-ci.sh` runs `uv run pytest -q -m "not
 integration"` under `--fast`, so a marker can only ever *exclude* a test. The
 project declares exactly two markers, `gui` and `integration` (`pyproject.toml`),
@@ -588,6 +730,14 @@ by asserting harder.
   rewrite what the user's own file says, and `load_projects`'s refusal of `..`
   exists precisely because normalising a path lexically is wrong when a
   component is a symlink.
+- **Carry loader-rejected rows through the write instead of refusing to write
+  (INV-16).** This is the better end state and it is rejected *here* on scope:
+  it means changing `load_projects` to return the raw JSON of every row it
+  refused, which widens the reader's contract, its return type and every one of
+  its existing tests — for a case the read-only rule already makes safe. The
+  cost of the chosen rule is real and worth stating: one bad hand-edited row
+  blocks persistence until the user fixes it. That is visible, reversible, and
+  strictly better than the alternative it replaces, which was silent deletion.
 
 ## 9. Out of scope
 
@@ -645,16 +795,26 @@ by asserting harder.
 | INV-12 | `test_registry.py::test_a_pre_existing_file_still_loads` |
 | INV-13 | `test_registry.py::test_no_merge_value_is_interpolated_without_the_clip` |
 | INV-14 | `test_registry.py::test_the_shipped_bounds_are_pinned` (widened to the two `scanner` constants) |
+| INV-15 | `test_registry.py::test_a_merge_does_not_rewrite_the_stored_path` |
+| INV-16 | `test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back` |
 | § 4.7 write trigger | `test_registry.py::test_an_all_unchanged_merge_does_not_write` |
 | § 4.6 scope of *missing* | `test_registry.py::test_a_project_outside_every_scan_root_is_not_missing` |
+| § 4.6 *new*-record seeding | `test_registry.py::test_a_new_record_takes_its_name_from_the_scan_and_a_stamped_added` |
+| § 4.2 `kind` / tuple round-trip | covered by INV-8's round-trip over a fully-populated record |
+| § 4.3 per-field unknown table | **nothing** — only `port` has an unknown sentinel, so the other three rows assert an absence; INV-3 covers the one field that can break |
+| § 4.7 per-row flags not rendered | **nothing** — a deliberate omission, not a rule; LWSM-1008 owns the surface |
 | § 4.5 step 4 (directory `fsync`) | **nothing** — a durability claim a unit test cannot falsify without power loss; the call site is reviewed, not tested |
 | § 6 concurrent writers | **nothing** — out of scope by § 9; last writer wins and no reader sees a half-file |
 | § 4.3's stale-port limitation | **nothing** by design — it is the accepted cost of INV-3; removing it is the deferred scanner change in § 8 |
 
-**Nineteen rows, three of which say `nothing`** — the honest error budget
-`spec-format.md § 0` asks for. All three are limits rather than defects: a
-durability call no unit test can falsify, a scope exclusion, and the accepted
-cost of INV-3. None carries a roadmap id, because none is a gap to close.
+**Twenty-five rows, five of which say `nothing`** — the honest error budget
+`spec-format.md § 0` asks for. All five are limits or deliberate omissions
+rather than defects: the directory `fsync`, which no unit test can falsify
+without power loss; concurrent writers, excluded by § 9; § 4.3's stale-port
+cost, accepted as INV-3's price; § 4.3's per-field unknown table, three rows of
+which assert an *absence* of a sentinel and so have nothing to break; and
+§ 4.7's un-rendered per-row flags, which are a decision not to build rather
+than a rule. **None carries a roadmap id, because none is a gap to close.**
 
 *Command, run against this file:*
 
@@ -665,10 +825,10 @@ awk '/^\| Rule \| What catches/{f=1;next} f&&/^\|---/{next} \
   docs/specs/LWSM-1007-registry-persistence.md
 ```
 
-→ `rows=19 inv=14 nothing=3`, against `grep -c '^- \*\*INV-'` → `14`. So the
-table and § 5 enumerate the same fourteen invariants, and the five non-`INV`
-rows are the three `nothing` limits plus the two § 4 rules that carry a test
-without carrying an invariant.
+→ `rows=25 inv=16 nothing=5`, against `grep -c '^- \*\*INV-'` → `16`. So the
+table and § 5 enumerate the same sixteen invariants, and the nine non-`INV`
+rows are the five `nothing` limits plus four § 4 rules that carry a test
+without carrying an invariant of their own.
 
 ## 12. Cross-doc impact
 
@@ -690,3 +850,4 @@ without carrying an invariant.
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
 | 1 | 2026-08-12 | 3 (general-purpose, strong model), identical brief, four-question form | Q1 ×3 · Q2 ×3 · Q3 ×6 · Q4 ×0 | **17 raw across 3 lanes → 12 distinct, 12 verified, 0 dismissed, 12 fixed.** Zero wording findings. Convergence on defects was unusually high — all three lanes independently found the same three, which is what makes them worth naming. **The sharpest is a check that did not do what its own paragraph said**: § 4.5 refused a non-regular target to stop `os.replace` destroying a user's symlink, but the natural implementation of "is not a regular file" *follows* the link. Measured here on 3.13 — `link.is_file()` → `True`, `S_ISREG(os.stat)` → `True`, `S_ISREG(os.lstat)` → `False` — and `os.replace` onto it left `is_symlink()` → `False` with the real file untouched. The FIFO test named in INV-9 stays green through that bug, so the fix is `os.lstat` plus a symlink-to-**regular**-file case. **Two contradictions between sections that each read fine alone:** INV-5 "never deleted" against § 4.4 "refuses the later record" and INV-6 "never both persist" — resolved so that a duplicate identity is kept and excluded rather than dropped, since the loser holds a user-owned half no rescan can reconstruct; and § 4.3's table calling a stored-`None`/scan-`3000` row *changed* while § 4.6 required "both known", which left a first successful detection matching no outcome row. **Two fields were deleted rather than specified** — `detected_missing` and `port_last_detected` were in the § 4.2 format, in neither field set (so INV-1 would have failed on the first run), and read by nothing in § 4.3 or § 4.6. **Three claims about this project's own tooling were false or unstated:** `--fast` is `pytest -m "not integration"`, so a marker can only *exclude* — "marked so `--fast` keeps them" was backwards; `added` had no default while INV-11 tie-breaks on it and INV-12 requires today's key-less files to load; and `argv` had no fixed type, so INV-8's "equal record set" was undefined for tuple-vs-list. § 1 also promised a rename/override the item builds no surface for — narrowed to a hand-edited file. Threading and the write trigger were unspecified and are now pinned (worker thread, write only when a merge changed something). One open question resolved **clean**, so it is not in the tally: consumers read only `record.path`, `record.name` and `record.effective_port`, exactly as § 4.1 claims. INV-14 added, closing known-issue-034; known-issue-033 explicitly left open, because this item adds no subpackage and its routing premise does not fire. Loop 2 dispatched. |
+| 2 | 2026-08-12 | 3 (general-purpose, strong model), brief byte-identical to loop 1, no prior-loop findings disclosed | Q1 ×1 · Q2 ×3 · Q3 ×6 · Q4 ×0 | **10 verified, 0 dismissed, 10 fixed.** **Nothing from loop 1 resurfaced, so those twelve fixes held.** Roughly half of these are loop 1's own collateral, which is the honest reading: § 4.2's new default list omitted `kind`; § 4.6's new "roots the scan actually walked" condition could not be evaluated at all, because `ScanResult` carries only `projects`/`skipped`/`timed_out` and no merge signature existed anywhere — so the merge's signature is now written down, taking `roots` as a parameter; § 6's "scan returns nothing" sentence contradicted the `skipped` rule loop 1 had just added; and `added` gained an ordering rule without a type or a stamper. **The two genuine draft defects are the ones worth keeping:** `path` is in `DETECTED_FIELDS` while § 4.4 promises the stored path is never rewritten, so a merge built as a plain set-driven replacement — the natural reading of "replace the detected half" — would rewrite every stored path to its resolved form on the first rescan (now `DETECTED_FIELDS - {"path"}`, tested by INV-15); and **the writer would have destroyed data**, since `load_projects` returns rejected rows only as reason *strings*, so serialising `records` back over the file permanently deletes every hand-written row the loader refused. That is the one data loss this app is capable of, arriving through the feature meant to preserve state — closed by INV-16, which makes a load with any rejection read-only. Also: INV-2 forbade writing a user-owned field while § 4.6's *new* row must write `name` and `added`, so INV-2 is now scoped to existing records and seeding is specified; § 4.3's unknown rule was stated over "a detected field" but defined only for `port`, which would have kept a stale `unit` forever on a project that stopped being a systemd service; and § 4.7's per-row flags had nowhere to live, since `rows()` rebuilds every `RowView` from four record fields each 1000 ms poll — the flags are now summary-only and the per-row surface is left to LWSM-1008. Loop 3 dispatched. |
