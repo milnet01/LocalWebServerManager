@@ -227,6 +227,15 @@ def merge(
     """Return (merged records, report entries)."""
 ```
 
+**`now()` must return RFC 3339 with a `Z` suffix and second precision** —
+`datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")` in production,
+matching LWSM-1007 § 4.2's stamped spelling. Pinned because `Callable[[], str]`
+admits anything: the obvious `datetime.now().isoformat()` produces a **naive**
+stamp, LWSM-1007's reader drops any `added` whose parsed `tzinfo` is `None`, and
+every record this app created would lose its timestamp on the next load —
+leaving INV-7's tie-break with nothing to compare on exactly the records the app
+made itself, which is the failure INV-1's seeding rule exists to prevent.
+
 **`roots` is a parameter because `ScanResult` does not carry it** — its three
 fields are `projects`, `skipped` and `timed_out`. Without it the *missing*
 outcome below cannot be evaluated at all, and an implementer would fall back to
@@ -303,11 +312,42 @@ project the user added by hand outside every scan root is present on disk and
 absent from every scan, so the literal reading would flag it missing on the
 first rescan and every one after.
 
-**A non-empty `ScanResult.skipped` suppresses the missing check for that scan.**
-`skipped` is a tuple of reason strings that cannot be keyed back to a project
-(it is `tuple[str, ...]`), so there is no way to tell which project a skip
-concerned. The merge reports that it could not check for missing projects,
-exactly as it does when the scan timed out.
+**Containment is resolved-against-resolved, and both sides matter.** The stored
+path is resolved (§ 4.2) and **the roots must be resolved too**, because
+`scan()`'s docstring says "a scan root that is itself a symlink is **followed**,
+deliberately". With `roots=(/home/me/projects,)` symlinked to `/srv`, every
+stored record resolves to `/srv/…`, lies under no root as written, and *missing*
+never fires for anything — the same symlink shape known-issue-025 and INV-5 are
+built on, arriving on the containment test instead of on identity. A root that
+cannot be resolved is excluded from the containment test and reported, per
+§ 4.2's per-record handler rule.
+
+**A skip suppresses the missing check only when it could have CONCEALED a
+project, and `ScanResult` gains a field so the merge can tell.** The
+distinction is the same one § 4.1 draws between an observation of absence and
+the absence of an observation, applied to roots instead of ports.
+
+`scan()` calls `note()` for two different kinds of thing. **Ordinary
+per-entry skips** — `"is not a directory"`, `"no launcher matched"`,
+`"already scanned under another root"`, `"is this application's own
+directory"` — mean the scanner *looked at* the entry and rejected it. That is
+evidence, and it must not suppress anything. **A root that could not be
+listed** (`"cannot be listed"`) means an unknown number of projects were never
+seen at all.
+
+Reading `skipped` as a blanket signal is therefore wrong, and wrong in the
+direction that silently disables a feature: `skipped` is `tuple[str, ...]`, so
+**one stray file in a scan root makes it non-empty**, and *missing* would never
+fire on any populated machine while a clean fixture passed. ADR-0005's
+*missing* flag, INV-4 and § 10's out-of-scope row would all be unreachable in
+production.
+
+So **`ScanResult` gains `unlistable_roots: tuple[Path, ...]`**, populated where
+`scan()` already notes a root it could not list, and the merge suppresses the
+missing check **only for stored records resolving under one of those roots**.
+Every other root is still checked. A per-entry skip suppresses nothing. This is
+a change to `scanner.py`, listed in § 11; the alternative — leaving the merge to
+parse reason strings — is rejected in § 8.
 
 **A timed-out scan marks nothing missing.** When `ScanResult.timed_out` is true,
 `projects` is partial by its own definition, so absence carries no information.
@@ -328,6 +368,15 @@ INV-5 requires to load.
 
 `MainWindow` gains a **Rescan** button. The report is presented **only** as a
 one-line summary through `MainWindow.set_status_message`, which already exists.
+
+**The summary is counts per outcome, in a fixed order, omitting zeros** —
+`"Rescan: 2 new, 1 changed, 1 port no longer detected, 1 missing"`, and
+`"Rescan: no changes"` when every count is zero. **The full report entries go to
+the application log**, one record each, where INV-6's bound already applies.
+Pinned because "a one-line summary" admits both `"Rescan complete"`, which
+satisfies no acceptance criterion, and `"; ".join(reasons)`, which is
+effectively unbounded — INV-6 caps the entry *list*, not a line built by joining
+it, and § 1 promises "a visible account of what the scan changed".
 
 **Per-row flags are deliberately not rendered in this item.** `RowView` carries
 four fields — `path`, `name`, `effective_port`, `status` — and
@@ -359,8 +408,15 @@ never re-enable. `run()` therefore needs a catch-all that still reports, not
 just the exception it expects. This is LWSM-1069's shape arriving on a second
 worker.
 
-**Exactly one trigger writes the file: the merged record set differs from the
-loaded one.** Record *content*, not report entries — three outcomes flag a row
+**First run writes unconditionally, and it is the exception to the trigger
+below.** When the load raised `RegistryMissing` there is no file, so "differs
+from the loaded one" is vacuous — and on a clean machine whose first scan finds
+**zero** projects both sets are empty, the difference test says no, and
+`projects.json` would never come into existence. Every subsequent run would
+repeat the whole first-run path. So: `RegistryMissing` writes, empty or not.
+
+**Otherwise exactly one trigger writes the file: the merged record set differs
+from the loaded one.** Record *content*, not report entries — three outcomes flag a row
 while leaving every field identical (*missing*, *not re-observed*, *duplicate
 identity*), and none of them writes. A no-op rewrite would churn the file's
 mtime and widen the only window in which the concurrent-writer loss LWSM-1007
@@ -371,11 +427,16 @@ an all-*unchanged* merge. There is **no write on exit**: nothing this item
 builds mutates the registry outside a merge, so an exit hook would have nothing
 to flush.
 
-**The write is still subject to LWSM-1007's read-only gate.** A merge whose
-`stored` list came from a load that refused a **row**, or that raised any
-`RegistryError` **other than `RegistryMissing`**, runs and reports normally and
-writes nothing. The merge does not re-implement that check; it passes the
-`LoadResult | RegistryError` it was given to `save_projects`, which enforces it.
+**The write is still subject to LWSM-1007's read-only gate, and the SLOT owns
+it — not `merge()`.** `merge()`'s signature takes `stored`, `scan`, `roots` and
+`now`, and returns records and reasons; it is handed no `LoadResult`, calls no
+writer, and must not, because it runs on the pool thread while every write
+happens on the GUI thread. **The `LoadResult | RegistryError` from the startup
+load is held by the window and passed to `save_projects(path, merged,
+load=…)` in the slot**, which is the only place both values are in scope. A
+merge whose `stored` came from a load that refused a **row**, or that raised any
+`RegistryError` **other than `RegistryMissing`**, still runs and still reports;
+the writer refuses. Nothing re-implements the check.
 
 **`RegistryMissing` is the exception, and it is the first-run path this item
 actually runs on.** No file means `stored` is empty, so every scanned project is
@@ -431,8 +492,13 @@ has to replace.
   (INV-4).
   *Test:* `tests/test_registry.py::test_two_paths_resolving_to_one_directory_are_one_project`,
   using known-issue-025's fixture — a symlinked root beside the real one —
-  asserting one merged project, two records in the written file, and the second
-  flagged.
+  asserting one merged project, **two records in `merge()`'s returned list**,
+  and the second flagged.
+  **It asserts on the returned records, not on a written file**, because
+  *duplicate identity* is one of the three outcomes § 4.4 says leave every field
+  identical and therefore do **not** trigger a write. A fixture reading
+  `projects.json` would be reading a file the merge was never permitted to
+  create.
   *Breaks when:* a user adds a project by a symlinked path having already added
   it by its real one. The existing duplicate check cannot catch this: it
   compares unresolved paths, so both records are distinct to it.
@@ -449,8 +515,11 @@ has to replace.
 
 - **INV-7** — Two records with the same effective port are both flagged, the
   earliest `added` wins, and the later claimant names the winner. **A record
-  with no `added` loses to any record that has one**, and two without are
-  ordered by position in the file.
+  with no `added` loses to any record that has one**, two without are ordered by
+  position in the file, and **two whose `added` values denote the SAME instant
+  are ordered by position in the file as well**. All three fall back to file
+  order for the same reason: position always exists, and § 4.2 makes it the rule
+  for a duplicate identity already.
   *Test:* `tests/test_registry.py::test_duplicate_ports_are_flagged_with_the_first_registered_winning`,
   plus `::test_a_record_without_added_loses_the_port_tie_break`.
   *Breaks when:* a user sets an override equal to another project's declared
@@ -462,8 +531,11 @@ has to replace.
   it resolves to something different.
   *Test:* `tests/test_registry.py::test_a_merge_does_not_rewrite_the_stored_path`
   — a record stored under a symlinked path, merged against a scan reporting its
-  resolved form, asserting the written file still carries the path the user
-  wrote.
+  resolved form **and a changed `port`**, asserting the returned record still
+  carries the path the user wrote and that the written file does too. **The
+  changed port is load-bearing in the fixture**: without a detected change the
+  merge is all-*unchanged*, § 4.4 forbids the write, and the assertion would
+  read a file that was never created.
   *Breaks when:* the merge is implemented as a set-driven replacement over the
   whole of `DETECTED_FIELDS`, which contains `path`. That is the natural reading
   of "replace the detected half", and it rewrites every stored path to its
@@ -474,8 +546,15 @@ has to replace.
   string.
   *Test:* `tests/test_registry.py::test_the_added_tie_break_compares_instants_not_text`
   — two records whose `added` values denote the same moment written as
-  `2026-08-12T14:03:11Z` and `2026-08-12T15:03:11+01:00`, asserting neither wins
-  on text order.
+  `2026-08-12T14:03:11Z` and `2026-08-12T15:03:11+01:00`, with the `Z` one
+  **second** in file order, asserting the **`+01:00` record wins** (file order,
+  per INV-7's equal-instant rule).
+  **The fixture only discriminates because of the ordering.** "Neither wins on
+  text order" named no observable outcome and could not be asserted: the two
+  values are an equal instant, so the winner comes from the tie-break, and
+  putting the lexically-larger `+01:00` value **first** is what makes a text
+  comparison pick the other record and go red. Placed the other way round, a
+  text comparison and the correct rule agree and the test proves nothing.
   *Breaks when:* two stamps use different RFC 3339 spellings. The format admits
   numeric offsets and fractional seconds, and `"2026-08-12T15:03:11+01:00"`
   sorts *after* `"2026-08-12T14:03:11Z"` lexically while denoting an earlier
@@ -533,9 +612,17 @@ symlink, INV-8 a record stored under one. Every one uses `tmp_path` and
 exactly two markers, `gui` and `integration` (`pyproject.toml`), and none of
 these spawns a process or binds a socket.
 
-**The Rescan seam needs a `pytest-qt` test** rather than a unit test: that the
-button is disabled while a merge is in flight, and re-enabled by the slot. It
-carries the `gui` marker, which the project's other window tests already use.
+**Four of these are `pytest-qt` tests** rather than unit tests, because their
+subject is the window: the button disabled while a merge is in flight and
+re-enabled by the slot, the worker's catch-all, the summary's shape, and the
+read-only gate blocking the write while the merge still reports. All four carry
+the `gui` marker, which the project's other window tests already use, and
+`--fast` runs them — `gui` is not `integration`.
+
+**One test crosses into `tests/test_scanner.py`**: `ScanResult.unlistable_roots`
+is a `scanner` change (§ 11), so the case asserting an unlistable root lands in
+it while an ordinary per-entry skip does not belongs with the scanner's own
+suite, not the registry's.
 
 **What these tests do not prove**, said plainly: none exercises a real
 concurrent rescan, and the worker's swallowed-exception case is tested by
@@ -562,6 +649,13 @@ scratch. Both are honest limits of a unit suite.
   scope: it widens the on-disk format LWSM-1007 has just settled, for a
   presentation LWSM-1008 is already designing. § 4.4 records what the summary
   buys instead.
+- **Have the merge parse `ScanResult.skipped`'s reason strings to tell a
+  root-level skip from a per-entry one, instead of adding
+  `unlistable_roots`.** Rejected: it makes the merge depend on the exact wording
+  of another module's messages, which nothing pins and which a translation or a
+  tidy-up would silently break — and the failure is invisible, because a merge
+  that stops recognising `"cannot be listed"` simply stops suppressing and
+  starts flagging real projects missing.
 - **Infer the scan roots from the projects returned rather than passing
   `roots`.** Rejected because it is silently wrong: a root that legitimately
   contains zero projects would stop marking its records missing, and no test
@@ -577,6 +671,14 @@ scratch. Both are honest limits of a unit suite.
   outcomes** — LWSM-1008. § 4.4 leaves the dialog to it.
 - **`.env` / `docker-compose.yml` / `README.md` port sources and conflict
   reporting** — LWSM-1121.
+- **Refusing Start for the later claimant of a duplicate port.** ADR-0005's
+  duplicate-port clause is two halves — the row is flagged *port claimed by
+  `<other project>`* **and "its Start is refused"** — and this item builds only
+  the flag. There is no Start to refuse yet: the supervisor is P05, so the
+  refusal has nowhere to live and no surface to report from. Recorded here
+  because the ADR states it as one decision, and a reader comparing the two
+  documents would otherwise find half of it silently missing rather than
+  deferred. **P05 owns it**, and INV-7's flag is the input it will act on.
 - **Acting on `hidden`, and suppressing a duplicate-identity row from the
   list** — untracked, and deferred together because they are one mechanism: a
   channel from the merge to `ProjectController` for "do not poll or show this
@@ -601,7 +703,13 @@ scratch. Both are honest limits of a unit suite.
 | INV-9 | `test_registry.py::test_the_added_tie_break_compares_instants_not_text` |
 | INV-10 | `test_registry.py::test_no_merge_value_is_interpolated_without_the_clip` |
 | § 4.3 write trigger | `test_registry.py::test_an_all_unchanged_merge_does_not_write`, `::test_a_missing_only_merge_does_not_write` |
+| § 4.4 first run writes even with zero projects | `test_registry.py::test_a_first_run_finding_nothing_still_creates_the_file` — the case where both sets are empty and the difference trigger says no |
+| § 4.4 the slot owns the gate, not `merge()` | `test_mainwindow.py::test_a_row_refusing_load_blocks_the_rescan_write` (`gui`) — asserts the merge still ran and reported |
+| § 4.3 `now()` returns a `Z`-suffixed RFC 3339 instant | `test_registry.py::test_the_production_now_stamps_a_value_the_loader_accepts` — round-trips the real callable through `load_projects`, so a naive stamp fails here rather than silently on the next start |
+| § 4.4 the summary is counts per outcome | `test_mainwindow.py::test_the_rescan_summary_names_each_outcome_count` (`gui`) |
 | § 4.3 scope of *missing* | `test_registry.py::test_a_project_outside_every_scan_root_is_not_missing` |
+| § 4.3 containment resolves BOTH sides | `test_registry.py::test_a_symlinked_scan_root_still_scopes_missing` — a root symlinked to the directory the records resolve under; unresolved-vs-resolved makes *missing* unreachable |
+| § 4.3 only an unlistable root suppresses *missing* | `test_registry.py::test_an_ordinary_per_entry_skip_does_not_suppress_missing`, `::test_an_unlistable_root_suppresses_missing_only_under_that_root` |
 | § 4.3 *new*-record seeding | `test_registry.py::test_a_new_record_takes_its_name_from_the_scan_and_a_stamped_added` |
 | § 4.3 *changed* on a first detection | `test_registry.py::test_a_first_detected_port_is_reported_as_changed` |
 | § 4.2 an unresolvable path does not abort the merge | `test_registry.py::test_an_unresolvable_path_is_reported_and_the_merge_continues` |
@@ -611,14 +719,16 @@ scratch. Both are honest limits of a unit suite.
 | § 4.2 duplicate still polled | **nothing** — a stated limitation (§ 9), not a rule; no channel carries the excluded set to the poller |
 | § 4.3 `hidden` / `launcher_override` preserved but inert | **nothing** — deliberate; LWSM-1007's INV-3 round-trip proves they survive, and nothing reads them |
 | § 4.1's stale-port limitation | **nothing** by design — it is the accepted cost of INV-2; removing it is the deferred scanner change in § 8 |
+| § 9 Start refused for a duplicate-port claimant | **nothing** — ADR-0005's other half, deferred to P05 because no Start exists to refuse; INV-7's flag is the input it will act on |
 
-**Twenty-one rows, four of which say `nothing`.** All four are limits or
+**Twenty-eight rows, five of which say `nothing`.** All five are limits or
 deliberate omissions rather than defects: § 4.1's per-field unknown table, three
 rows of which assert an *absence* of a sentinel and so have nothing to break;
 § 4.2's duplicate row still being polled; `hidden` / `launcher_override` being
-preserved but inert; and § 4.1's stale-port cost, accepted as INV-2's price.
-**None carries a roadmap id, because none is a gap to close** — the middle two
-are § 9 deferrals with their cost stated, not defects.
+preserved but inert; § 4.1's stale-port cost, accepted as INV-2's price; and the
+Start refusal, which has no Start to refuse until P05. **Only the last carries a
+roadmap owner, and it is the only one that is a gap rather than a cost** — the
+other four are § 9 deferrals with their price stated.
 
 *Command, run against this file:*
 
@@ -629,9 +739,9 @@ awk '/^\| Rule \| What catches/{f=1;next} f&&/^\|---/{next} \
   docs/specs/LWSM-1131-rescan-merge.md
 ```
 
-→ `rows=21 inv=10 nothing=4`, against `grep -c '^- \*\*INV-'` → `10`. So the
-table and § 5 enumerate the same ten invariants, and the eleven non-`INV` rows
-are the four `nothing` limits plus seven § 4 rules that carry a test without
+→ `rows=28 inv=10 nothing=5`, against `grep -c '^- \*\*INV-'` → `10`. So the
+table and § 5 enumerate the same ten invariants, and the eighteen non-`INV` rows
+are the five `nothing` limits plus thirteen § 4 rules that carry a test without
 carrying an invariant of their own.
 
 ## 11. Cross-doc impact
@@ -642,8 +752,20 @@ carrying an invariant of their own.
   recording them in the spec alone would leave the ADR contradicting the shipped
   behaviour.
 - **`ROADMAP.md`** — this bullet added 2026-08-12; LWSM-1007's narrowed.
-- **`CLAUDE.md § Module map`** — `registry.py`'s entry gains `merge()`;
-  `mainwindow.py`'s gains the Rescan button and its worker.
+- **`CLAUDE.md § Module map`** — `registry.py`'s entry gains `merge()` and its
+  `TYPE_CHECKING`-only `ScanResult` import (§ 13); `scanner.py`'s gains
+  `ScanResult.unlistable_roots`; `mainwindow.py`'s gains the Rescan button, its
+  worker, and the fact that the window holds the startup `LoadResult` for the
+  slot to pass to `save_projects`.
+- **`src/lwsm/scanner.py` — this item adds a field.** `ScanResult` gains
+  `unlistable_roots: tuple[Path, ...]`, populated where `scan()` already notes a
+  root it could not list (§ 4.3). It is the only `scanner` change here, and
+  `tests/test_scanner.py` gains a case asserting an unlistable root appears in
+  it while an ordinary per-entry skip does not.
+- **`docs/specs/LWSM-1006-scanner-detection.md`** — specifies `ScanResult`'s
+  three fields. Adding a fourth makes that enumeration incomplete. **That spec is
+  accepted with its gate behind it**, so the correction is filed rather than made
+  here; it is additive, so nothing it states becomes false.
 - **`docs/known-issues.md`** — known-issue-025 closed by INV-5, having been
   re-pointed here from LWSM-1007.
 - **`CHANGELOG.md`** — an `[Unreleased] ### Added` entry.
@@ -655,6 +777,7 @@ carrying an invariant of their own.
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
 | 0-split | 2026-08-12 | **none — no reviewer was dispatched** | — | — | — | — | **Provenance row, not a review.** This document is the merge half of *LWSM-1007 — Persist the registry, and merge a rescan without discarding user edits*, split out on 2026-08-12 after that spec reached `review-contract`'s `--max-loops 3` cap without converging. The format-and-writer half kept the LWSM-1007 id and path. The umbrella's three loops produced 34 findings, all verified, all fixed, none ever resurfacing — and its own loop-3 row diagnosed the cap as **size and scope** rather than an unsettled contract: 540 → 979 lines with the count flat at 12 / 10 / 12 and each loop clustering in a different region. The user chose the split on 2026-08-12 over accepting at the cap or running a fourth loop. **No review is inherited.** Those loops ran against a 979-line document that no longer exists; this part runs the gate from loop 1 on its own bytes, and so does LWSM-1007. Invariants renumbered from 1 with the mapping in § 3. |
+| 1 | 2026-08-13 | 3 (general-purpose, strong model), identical brief, four-question form | Q1 ×2 · Q2 ×2 · Q3 ×4 · Q4 ×2 | **10 verified, 0 dismissed, 10 fixed.** First cold read of this document ever; no review inherited from the umbrella. **The sharpest finding kills a feature silently.** § 4.3 suppressed the *missing* check whenever `ScanResult.skipped` was non-empty — but `scan()` calls `note()` for entirely ordinary things: `"is not a directory"`, `"no launcher matched"`, `"already scanned under another root"`, `"is this application's own directory"`. **One stray file in a scan root makes `skipped` non-empty**, so ADR-0005's *missing* outcome would never have fired on any populated machine while a clean fixture passed. Two lanes found it; the call sites were then read directly to confirm. `skipped` is `tuple[str, ...]` and gives the merge nothing to discriminate on, and parsing another module's message wording is rejected in § 8 — so **`ScanResult` gains `unlistable_roots`**, and only a root that could not be listed suppresses the check, and only for records under it. That is § 4.1's observation-of-absence rule applied to roots. **A second silent-disable, same shape:** containment compared a *resolved* stored path against an *unresolved* root, and `scan()`'s docstring says a symlinked root is "followed, deliberately" — so a symlinked scan root put every record out of scope and *missing* never fired. Both sides now resolve. **The gate was wired to a function that cannot reach it:** § 4.4 said the merge "passes the `LoadResult | RegistryError` it was given to `save_projects`", but § 4.3's pinned signature has no such parameter and § 4.4 itself puts the write on the GUI thread while the merge runs on the pool — so an implementer would either widen a signature the spec calls load-bearing or write from the worker. The **slot** owns it now. **Three clauses had no observable outcome (Q4 ×2 and one Q3).** INV-9's fixture used two *equal* instants and asked that "neither wins on text order", which names nothing and could not be asserted — the equal-instant tie-break is now defined (file order) and the fixture orders the values so a text comparison goes red, which it would not have done the other way round. INV-5 and INV-8 both asserted on "the written file" while § 4.4 forbids the write in exactly their scenarios — *duplicate identity* changes no field, so INV-5 reads a file that was never created; INV-8's fixture now carries a changed port to make the write fire. And the Rescan summary's *content* was unspecified, admitting both `"Rescan complete"` and an unbounded `"; ".join(reasons)` — now counts per outcome, with entries going to the log. **`now()` was typed `Callable[[], str]` and never pinned**, so the obvious `datetime.now().isoformat()` produces a naive stamp that LWSM-1007's reader drops — every record the app created would lose its `added` on the next load, leaving INV-7's tie-break with nothing to compare on exactly those records. **§ 13 claimed this item "adds no import at all"**, but `merge()` lives in `registry.py` and its signature names `ScanResult` — the cycle LWSM-1007 § 4.1 measured. Resolved by measurement rather than by argument: `registry.py` already carries `from __future__ import annotations` and `merge()` names no `scanner` symbol at runtime, so a `TYPE_CHECKING`-only import imports cleanly where a runtime one raises. **One finding came from reading ADR-0005 rather than from a lane:** its duplicate-port clause is two halves — flag the row **and** refuse its Start — and this document adopted only the flag without deferring the other, so half an ADR decision was silently missing rather than owned. Now deferred to P05 in § 9, with a `nothing` row naming it. **Collateral swept back into LWSM-1007:** its § 4.1 justified the `LauncherKind` move on the *type annotation*, which `from __future__ import annotations` makes false — the real reason is that § 4.2's loader validates against the enum at runtime. 679 → 814 lines. |
 
 ## 13. Resource cost
 
@@ -671,9 +794,22 @@ carrying an invariant of their own.
   GUI thread (§ 4.4).
 - **Disk.** None of its own — the write is LWSM-1007's, and only when the record
   set changed.
-- **New external dependencies: none, and this item adds no import at all.**
-  Both `tempfile` and `datetime` arrive with LWSM-1007 — `datetime` because
-  § 4.2 there must *parse* a stored `added` to decide whether it is well-formed.
-  This item only *compares* the parsed instants (INV-9), so `pyproject.toml`
-  does not change and neither does `registry.py`'s import block.
+- **New external dependencies: none. Two imports, both standard library, and
+  one of them must be `TYPE_CHECKING`-only.** `merge()` lives in `registry.py`
+  (§ 11) and its signature names `ScanResult`, a `scanner` symbol — so a
+  **runtime** `from lwsm.scanner import ScanResult` closes the cycle LWSM-1007
+  § 4.1 measured and the application stops importing. Measured here on this
+  tree, with nothing else changed:
+
+  ```
+  if TYPE_CHECKING: from lwsm.scanner import ScanResult   -> both modules import, exit 0
+  from lwsm.scanner import ScanResult                     -> ImportError (circular)
+  ```
+
+  The guarded form is safe because `registry.py` already carries
+  `from __future__ import annotations`, so the annotation is never evaluated,
+  and **`merge()` needs no `scanner` symbol at runtime** — it reads attributes
+  off the objects it is handed and never names a class. `datetime` is a runtime
+  import and arrives with LWSM-1007's `added` parse; this item reuses it to
+  *compare* instants (INV-9) and adds nothing. `pyproject.toml` does not change.
   *Command:* `grep -nE "^(import|from) " src/lwsm/registry.py`.

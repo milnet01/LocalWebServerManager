@@ -191,12 +191,16 @@ in that spec because it is a rule about merging; what this spec owns is that
 field no write may resolve (§ 4.2).
 
 **`LauncherKind` moves from `scanner.py` to `registry.py`, and `scanner.py`
-imports it from there.** Typing `kind` needs the enum in `registry`, and
-`scanner.py` **already** imports `from lwsm.registry import DECLARED_PORT_RANGE`
-(its module-level import block) — so an implementer adding `from lwsm.scanner import
-LauncherKind` to `registry.py` closes a cycle and **the application stops
-importing at all**. Measured on this tree, both entry orders, with that import
-added and nothing else changed:
+imports it from there.** **The reason is runtime validation, not the type
+annotation** — `registry.py` carries `from __future__ import annotations`, so
+`kind: LauncherKind | None` is never evaluated and a `TYPE_CHECKING`-only import
+would satisfy the annotation alone (measured: it imports cleanly). But § 4.2
+requires the loader to *check* a value against the enum, which needs the class
+at runtime — and `scanner.py` **already** imports `from lwsm.registry import
+DECLARED_PORT_RANGE` (its module-level import block), so an implementer adding a
+runtime `from lwsm.scanner import LauncherKind` to `registry.py` closes a cycle
+and **the application stops importing at all**. Measured on this tree, both
+entry orders, with that import added and nothing else changed:
 
 ```
 python3 -c "import lwsm.registry"
