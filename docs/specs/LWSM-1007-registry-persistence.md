@@ -1,6 +1,6 @@
 # LWSM-1007 — Persist the registry: the file format and the writer
 
-**Status:** spec draft (2026-08-12).
+**Status:** accepted (2026-08-13) — **at a 2-loop cap, not at convergence.** The user capped the gate on 2026-08-13 after measuring its yield across four loops on this pair: roughly 1 finding in 10 was a defect implementation would not have caught, and a third were the review's own collateral. § 12's rows carry the per-loop evidence.
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1007 (in-session-2026-08-03). Policy settled by
 [ADR-0005](../decisions/0005-registry-and-rescan.md); this is half of its

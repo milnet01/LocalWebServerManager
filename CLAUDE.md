@@ -55,6 +55,46 @@ written through it does not need the review invoked separately.
 review findings, audit findings, a fix-pass — and it owns the
 blast-radius sweep that catches what a fix moved elsewhere.
 
+## Review cadence — measured and capped (user, 2026-08-13)
+
+**Build first and fold the spec back afterwards; spec-first is the exception,
+not the default.** Decided after measuring `review-contract`'s yield across four
+loops on `LWSM-1007` + `LWSM-1131`: of ~42 verified findings, **roughly 1 in 10
+was a defect implementation would not have caught**, and about a third were the
+review's own collateral — loop 2 of each document landed almost entirely in text
+loop 1's fixes had added.
+
+Three rules, in force for this project:
+
+1. **Default: build it, then correct the spec to match what was built.**
+   `/write-spec` Step 8 already describes this fold-back; it is now the normal
+   path rather than the repair path. Most work needs no spec at all
+   (`spec-format.md § 1`).
+2. **Spec-first only when code creates durable artifacts** — an on-disk format,
+   a wire protocol, anything another item binds to. There, coding first means a
+   migration rather than an edit. **Cap the gate at 2 loops**, never
+   loop-to-convergence. Not 1: the best finding of the whole exercise — the
+   merge writing `None` over a stored port, because `port` is in
+   `DETECTED_FIELDS` and the replacement rule was unqualified — arrived in
+   **loop 2**.
+3. **Skepticism filter on every finding: *would the first test run have caught
+   this?*** If yes, it is not worth a fix pass — note it and let implementation
+   find it. Applied to that session's 42 findings this filter would have left
+   about 12. A circular import announces itself with a traceback; a wrong
+   on-disk format does not.
+
+**The rationale, because it is the part that generalises:** global rule 14
+assumes the spec is handed to a *different* implementer, so "a wrong contract
+makes the implementation wrong by construction". When the author and the
+implementer are the same agent, that premise is much weaker — the contract's
+errors surface while coding. What survives is the narrow class where correct
+code faithfully implements a wrong contract **and the tests pass**.
+
+**Global rule 14 still mandates loop-to-convergence and has NOT been changed** —
+the user was asked on 2026-08-13 whether to edit it or keep this local, and had
+not answered. Until then this section governs *this project* and the divergence
+is deliberate, not an oversight.
+
 ## Before pushing
 
 **Run `./scripts/local-ci.sh` before any push that touches code,
