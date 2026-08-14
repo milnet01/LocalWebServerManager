@@ -23,6 +23,17 @@ signaling per
 
 ### Added
 
+- **Start and stop actually work: the Supervisor spawns each project in its own process group and reaps the whole tree** (LWSM-1009)
+  Stopping a project now stops the helper processes its start script
+  spawned, so the port is genuinely released rather than left held by
+  something nobody can see. Launched projects are given only the
+  handful of environment variables they need — never your SSH agent,
+  API keys or cloud credentials (LWSM-1048) — and a project's start
+  script is refused outright if it points outside the project or if
+  another account on the machine can rewrite it (LWSM-1046, core
+  half). Each project's output goes to its own log file, capped at
+  5 MB with one rotation.
+
 - **Four scanner behaviours the spec calls load-bearing now have tests that fail when they break** (LWSM-1125)
   Each was correct in the shipping code and protected by nothing: the timeout signal not being confusable with a file error (LWSM-1125), the package.json dependency block staying out of the port rules (LWSM-1126), a start script without the run permission falling through to the next rule (LWSM-1127), and the filename a port was read from being cleaned before it is shown (LWSM-1129). Every one was watched failing against a deliberate break.
 

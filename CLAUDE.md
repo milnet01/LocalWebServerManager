@@ -342,9 +342,31 @@ Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
   list from `coding.md § O1`'s four-way split so a core module can
   no longer be silently missing from it.
 
+Added at P05 (LWSM-1009, which also lands LWSM-1048 and the core
+halves of LWSM-1046 and LWSM-1047). **No spec** — the first item
+built under § Review cadence's build-first default:
+
+- **`src/lwsm/supervisor.py`** — core, no Qt at all, like
+  `ports.py`; stop needs a worker thread and a plain
+  `ThreadPoolExecutor` is enough for one. `Supervisor`,
+  `ManagedProcess`, `StopOutcome`, `TrustStore`,
+  `build_child_env`, `validate_launcher`, `launcher_fingerprint`,
+  and the refusals `LauncherRefused` / `LauncherUntrusted` /
+  `PortAlreadyBound` / `AlreadyRunning`. **Stop signals the process
+  *group*, not the descendants** — a launcher that double-forks
+  leaves a server reparented to init, which `Process.children()`
+  can no longer see while `start_new_session=True` guarantees it is
+  still in the group. Every signal goes through a `psutil.Process`
+  handle **captured at spawn**, which is what lets
+  `_raise_if_pid_reused` fire at all. **Log rotation copies and
+  truncates rather than renaming**, because the child holds a
+  duplicate of our descriptor and a rename would leave it writing
+  into an unlinked inode — which is also why the log is opened
+  `O_RDWR` rather than `O_WRONLY`.
+
 Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
 `test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
-`test_layering.py`, `test_scanner.py` (+ `scanner_fixtures.py`,
+`test_layering.py`, `test_scanner.py`, `test_supervisor.py` (+ `scanner_fixtures.py`,
 the detection regression corpus every future mis-detection is
 added to), plus `conftest.py` (sets
 `QT_QPA_PLATFORM=offscreen` when unset, so a bare `pytest` cannot
@@ -461,6 +483,25 @@ executed in any test. **Coverage found what reading did not**: `scanner.py:943`,
 the *per-candidate* half of a deadline whose per-line half does all the work.
 Before believing an invariant is held, mutate it — and check the line runs at
 all.
+
+**Trap: `psutil.wait_procs` reaps a process that is your own child.**
+It calls `Process.wait()`, which for a direct child is `os.waitpid` — so
+waiting on the stop set collects the managed child's status mid-sequence,
+frees its PID for reuse, and `Popen.wait()` afterwards returns `0` instead
+of the real exit code (`Popen._try_wait` swallows the `ChildProcessError`
+and reports success). ADR-0003 forbids reaping until the sequence ends
+precisely because that PID is in use as a process-group id. `supervisor.py`
+polls `is_running() and status() != ZOMBIE` instead — a zombie is unreaped,
+which is exactly the state that keeps the PID reserved.
+
+**Trap: a "we did not reap too early" test is vacuous against a child that
+ignores SIGTERM.** Hit on 2026-08-14 while mutation-testing LWSM-1009. The
+test asserted `Popen.returncode` stayed `None` through the wait loop; with a
+launcher holding `trap '' TERM`, a premature `poll()` finds the child still
+running and reads `None` anyway, so the assertion held whether or not the rule
+did — the mutant survived. **The launcher must die *during* the window the
+property covers.** Same family as the § T9 note above: eleven of twelve
+mutants died on the first pass and the twelfth was the one that mattered.
 
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the

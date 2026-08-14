@@ -1412,6 +1412,25 @@ change** rather than code that exists.
   Source: security-review-2026-08-03.
   Priority: 1.
   Lanes: core, ui.
+  Progress 2026-08-14 (e559645, with LWSM-1009): the **core half** is in
+  `supervisor.py` and the bullet stays 🚧 for the UI half. Shipped:
+  `validate_launcher` refuses a launcher resolving outside its project and one
+  that is group- or other-writable — the second is a refusal that cannot be
+  confirmed away, because whoever else can write it changes what was vouched
+  for afterwards. `launcher_fingerprint` covers the exact argv **and** the
+  launcher's bytes, so a confirmed `npm run dev` cannot authorise
+  `npm run deploy` (same file) and a rewritten `start.sh` re-arms the gate.
+  `Supervisor.start` refuses an unconfirmed launcher with `LauncherUntrusted`,
+  carrying the resolved path, the argv and the fingerprint, so the dialog can
+  show what will actually run rather than a friendly summary.
+  **Not shipped, and named rather than implied:** the confirmation dialog
+  itself (LWSM-1010 owns the UI), and persistence — `TrustStore` is in memory,
+  so a confirmation lasts the session and re-asks on the next launch. ADR-0003
+  says "one-time per-project", which properly means one time ever and needs
+  LWSM-1007's writer. Re-asking is the safe direction to be wrong in.
+  A symlink that stays **inside** the project is deliberately allowed: the
+  ordinary `start.sh -> scripts/start.sh` arrangement, and a rule that fires on
+  the legitimate case is a rule that gets switched off.
 
 - 🚧 [LWSM-1047] **FP01: signal process objects, never bare PIDs.**
   ADR-0003 escalates to `SIGKILL` when "anything is alive **or**
@@ -1432,8 +1451,26 @@ change** rather than code that exists.
   Source: security-review-2026-08-03.
   Priority: 1.
   Lanes: core, tests.
+  Progress 2026-08-14 (e559645, with LWSM-1009): the **managed-stop half** is
+  done and the bullet stays 🚧 for the foreign path. Shipped: every signal goes
+  through a `psutil.Process` handle and never `os.killpg`; the leader's handle
+  is captured at spawn while the process is certainly alive, which is what lets
+  `_raise_if_pid_reused` fire at all — a handle built later from a scanned PID
+  has no creation time to compare. The managed child is not reaped until the
+  sequence ends, so its PID cannot be recycled while still in use as the group
+  id, and the wait loop polls rather than calling `psutil.wait_procs`, which
+  would reap it. A bound port after a stop sets `StopOutcome.port_still_bound`
+  and a warning; nothing is signalled for it.
+  **Not shipped:** the foreign-stop path — enumerating a process set this
+  manager did not spawn, and re-enumerating it after the user confirms
+  (ADR-0004). Nothing enumerates a foreign set yet, so there is no stale set to
+  re-enumerate; that arrives with the foreign-stop UI.
+  A test pins the non-reaping rule, and it took two attempts to make it able to
+  fail: with a launcher that *ignores* SIGTERM, a premature `poll()` finds the
+  child still running and reads `None` anyway, so the assertion held whether or
+  not the rule did. The launcher now exits on the signal.
 
-- 🚧 [LWSM-1048] **FP01: don't hand the whole environment to
+- ✅ [LWSM-1048] **FP01: don't hand the whole environment to
   launched projects.** ADR-0003 extends `os.environ`, so every
   scanned project's launcher — including a hostile one —
   inherits `SSH_AUTH_SOCK` (a live signing oracle), API keys and
@@ -1448,6 +1485,16 @@ change** rather than code that exists.
   Source: security-review-2026-08-03.
   Priority: 1.
   Lanes: core.
+  Resolved 2026-08-14 (e559645) with LWSM-1009.
+  `supervisor.build_child_env` is an explicit `ENV_ALLOWLIST` — ADR-0003's
+  names verbatim — plus the `LC_` prefix family, `PORT` and `LWSM_MANAGED`.
+  `os.environ` is never passed through. `PORT` is set only when there is one:
+  exporting an empty `PORT` is not the same as not exporting it, since a
+  launcher reading `${PORT:-3000}` would get the empty string rather than its
+  own default (ADR-0002 case 3). A source-invariant test asserts the list holds
+  no `SSH_AUTH_SOCK` and nothing ending `_TOKEN` / `_KEY` / `_SECRET`, so a
+  future addition reddens on the commit that makes it rather than at the next
+  security review.
 
 - 🚧 [LWSM-1049] **FP01: treat detection results as untrusted
   input.** The plausibility test ("holder's cwd is under the
@@ -1910,7 +1957,7 @@ is the contract.
 
 ### 🎨 Features
 
-- 📋 [LWSM-1009] **P05: Supervisor spawns and reaps process
+- ✅ [LWSM-1009] **P05: Supervisor spawns and reaps process
   groups.** `subprocess.Popen(start_new_session=True)` with an
   argument vector, `cwd` at the project, `PORT` in the
   environment, output merged into a per-project log file. Stop
@@ -1932,6 +1979,20 @@ is the contract.
   Source: in-session-2026-08-03.
   Priority: 1.
   Lanes: core, tests.
+  Resolved 2026-08-14 (e559645): `src/lwsm/supervisor.py`, core, no Qt
+  at all. Start is `Popen(start_new_session=True)` with an argv, `cwd` at the
+  project, merged output to a per-project file; stop signals the process
+  **group** and reaps it last. The acceptance case passes — a `start.sh`
+  spawning a Python child that binds a port leaves nothing holding the port.
+  **Two deviations from this bullet, both deliberate.** The `or the port is
+  still bound` escalation is NOT implemented: ADR-0003 replaced it, because
+  that `or` fires exactly when our child is already gone and something else
+  holds the port, so it signalled a recycled PID. A bound port after a stop
+  is reported as a warning on `StopOutcome`. And rotation copies-and-truncates
+  rather than renaming, because the child holds a duplicate of our descriptor
+  and a rename would leave it writing into an unlinked inode — which is also
+  why the log is opened `O_RDWR` (`pread` on a write-only fd is `EBADF`).
+  Twelve mechanisms mutated, twelve died.
 
 - 📋 [LWSM-1028] **P05: service-managed projects driven through
   `systemctl`.** A project owned by a systemd **user unit** gets
