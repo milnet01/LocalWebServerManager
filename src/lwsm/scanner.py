@@ -29,7 +29,15 @@ from pathlib import Path
 from typing import Protocol
 
 import lwsm
-from lwsm.registry import DECLARED_PORT_RANGE
+from lwsm.registry import DECLARED_PORT_RANGE, LauncherKind
+
+# Re-exported deliberately. `LauncherKind` moved to `registry.py` with LWSM-1007
+# because the loader has to validate against it at run time, and this module
+# already imported from there — adding the reverse import would have closed a
+# cycle that stops the package importing at all. Every consumer still spells it
+# `scanner.LauncherKind`, and `__all__` keeps ruff from calling the import
+# unused.
+__all__ = ["LauncherKind"]
 
 # 256 KB for a sibling's source, against `registry.py`'s 1 MiB for a config
 # file this app owns. Named MAX_SOURCE_* rather than reusing that constant
@@ -79,13 +87,6 @@ MAX_HOP_DEPTH = 3
 # The *declared* range, not ADR-0005's 1024-65535, which governs the override
 # the user types. A project may legitimately declare 80.
 PORT_RANGE = DECLARED_PORT_RANGE
-
-
-class LauncherKind(enum.Enum):
-    SYSTEMD = "systemd"
-    SHELL = "shell"
-    NODE = "node"
-    PYTHON = "python"
 
 
 class PortRule(enum.Enum):

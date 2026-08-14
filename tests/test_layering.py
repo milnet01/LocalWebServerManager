@@ -182,3 +182,27 @@ def test_the_exempt_module_is_the_one_that_holds_the_colours() -> None:
     # the exemption is protecting nothing and should go.
     source = (SRC / "theme.py").read_text(encoding="utf-8")
     assert COLOUR_LITERAL.search(source), "theme.py is meant to be the colour site"
+
+
+def test_registry_never_imports_the_scanner() -> None:
+    """LWSM-1007 § 4.1 — the dependency direction is `scanner` → `registry`.
+
+    `scanner.py` imports `DECLARED_PORT_RANGE` and now `LauncherKind` from
+    `registry.py`, so a runtime `from lwsm.scanner import ...` added here closes
+    a cycle and **the package stops importing at all**, on both entry orders:
+
+        python3 -c "import lwsm.registry"
+          ImportError: cannot import name 'DECLARED_PORT_RANGE' from partially
+          initialized module 'lwsm.registry'
+        python3 -c "import lwsm.scanner"
+          ImportError: cannot import name 'LauncherKind' from partially
+          initialized module 'lwsm.scanner'
+
+    An AST assertion rather than the obvious form — importing each module first
+    in a fresh interpreter. That spawns a process, so it would carry the
+    `integration` marker and be skipped by `local-ci.sh --fast`, which is the
+    run a developer is most likely to be doing. This is in-process, is the
+    invariant the cycle actually violates, and sits beside the other structural
+    rules that are enforced by parsing rather than grepping.
+    """
+    assert "lwsm.scanner" not in imported_names("registry.py")

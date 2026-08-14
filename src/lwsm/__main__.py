@@ -49,7 +49,8 @@ def build_window(
     try:
         if projects_path is None:
             projects_path = default_projects_path()
-        records, notices = load_projects(projects_path)
+        loaded = load_projects(projects_path)
+        records, notices = loaded.records, loaded.reasons
     except RegistryError as exc:
         # Not fatal: a missing projects.json is a first run, not a crash, for
         # the same reason an unwritable log does not stop startup. No other

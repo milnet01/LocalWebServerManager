@@ -6,6 +6,8 @@ every case writes its own file under tmp_path.
 
 from __future__ import annotations
 
+import dataclasses
+import errno
 import json
 import os
 import signal
@@ -14,8 +16,27 @@ from pathlib import Path
 
 import pytest
 
-from lwsm import registry
-from lwsm.registry import RegistryError, load_projects
+from lwsm import registry, scanner
+from lwsm.registry import (
+    LauncherKind,
+    ProjectRecord,
+    RegistryError,
+    RegistryMissing,
+    load_projects,
+    save_projects,
+)
+
+
+def load(path: Path) -> tuple[list[ProjectRecord], list[str]]:
+    """`load_projects`' records and reasons, for the tests written before it
+    returned a `LoadResult`.
+
+    LWSM-1007 widened the return; the third value, `rows_refused`, is what the
+    write gate reads and it has its own tests below rather than being threaded
+    through every existing one that does not care about it.
+    """
+    result = load_projects(path)
+    return result.records, result.reasons
 
 
 def write(tmp_path: Path, payload: object) -> Path:
@@ -33,7 +54,11 @@ def one_good(path: str = "/srv/project-a", name: str = "project-a") -> dict:
 
 def test_unusable_files_are_refused(tmp_path: Path) -> None:
     absent = tmp_path / "nothing" / "projects.json"
-    with pytest.raises(RegistryError, match="cannot be read"):
+    # `RegistryMissing` since LWSM-1007, and matched by name here rather than
+    # left to the base class: it is a subclass, so `pytest.raises(RegistryError)`
+    # would keep passing if the distinction were lost — and that distinction is
+    # what stops a clean machine being permanently read-only.
+    with pytest.raises(RegistryMissing, match="does not exist yet"):
         load_projects(absent)
 
     a_directory = tmp_path / "dir.json"
@@ -103,7 +128,7 @@ def test_bad_record_skipped_others_load(
     tmp_path: Path, bad: object, reason: str
 ) -> None:
     path = write(tmp_path, {"schema_version": 1, "projects": [bad, one_good()]})
-    records, reasons = load_projects(path)
+    records, reasons = load(path)
 
     assert [r.name for r in records] == ["project-a"], "the good record must survive"
     assert any(reason in r for r in reasons), reasons
@@ -119,7 +144,7 @@ def test_duplicate_path_is_skipped(tmp_path: Path) -> None:
             "projects": [one_good(name="first"), one_good(name="second")],
         },
     )
-    records, reasons = load_projects(path)
+    records, reasons = load(path)
 
     assert [r.name for r in records] == ["first"]
     assert any("already registered" in r for r in reasons), reasons
@@ -145,7 +170,7 @@ def test_port_ranges_differ_by_field(tmp_path: Path) -> None:
             ],
         },
     )
-    records, reasons = load_projects(path)
+    records, reasons = load(path)
     by_name = {r.name: r for r in records}
 
     # A project may legitimately declare 80; ADR-0005's 1024 floor is about the
@@ -178,14 +203,12 @@ def test_override_outranks_declared(tmp_path: Path) -> None:
             ],
         },
     )
-    records, _ = load_projects(path)
+    records, _ = load(path)
     assert records[0].effective_port == 5106
 
 
 def test_a_file_with_no_projects_loads_empty(tmp_path: Path) -> None:
-    records, reasons = load_projects(
-        write(tmp_path, {"schema_version": 1, "projects": []})
-    )
+    records, reasons = load(write(tmp_path, {"schema_version": 1, "projects": []}))
     assert records == []
     assert reasons == []
 
@@ -298,7 +321,7 @@ def test_a_file_at_the_size_limit_still_loads(tmp_path: Path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
     assert path.stat().st_size <= registry.MAX_FILE_BYTES
 
-    records, _ = load_projects(path)
+    records, _ = load(path)
     assert len(records) == 1
 
 
@@ -341,7 +364,7 @@ def test_a_newline_in_a_name_cannot_forge_a_log_line(tmp_path: Path) -> None:
         {"schema_version": 1, "projects": [{"name": forged, "path": "relative"}]},
     )
 
-    _, reasons = load_projects(path)
+    _, reasons = load(path)
 
     assert len(reasons) == 1
     assert "\n" not in reasons[0], reasons[0]
@@ -355,7 +378,7 @@ def test_an_enormous_name_is_clipped(tmp_path: Path) -> None:
         {"schema_version": 1, "projects": [{"name": "A" * 100_000, "path": "nope"}]},
     )
 
-    _, reasons = load_projects(path)
+    _, reasons = load(path)
 
     assert len(reasons) == 1
     # Against the constant, not a loose literal: `< 500` against a 100,000-char
@@ -413,7 +436,7 @@ def test_a_hostile_port_field_cannot_flood_the_reason(tmp_path: Path) -> None:
         },
     )
 
-    records, reasons = load_projects(path)
+    records, reasons = load(path)
 
     # A bad port loses the field, not the row.
     assert len(records) == 2
@@ -509,6 +532,14 @@ def test_the_shipped_bounds_are_pinned() -> None:
         "the worst-case reason volume is what LWSM-1115 bounded; raising "
         "either constant has to be justified against that product"
     )
+    # LWSM-1007 INV-7 adds the scanner's two, and adds them **beside** the three
+    # above rather than replacing them. Every scanner assertion about a clipped
+    # string is expressed relative to its constant — `<= MAX_REASON_CHARS + 50`,
+    # `== MAX_DISPLAY_NAME_CHARS` — so raising the bound raises the assertion
+    # with it and the suite stays green: measured 2026-08-12, setting
+    # `scanner.MAX_REASON_CHARS = 400` reddened nothing. Closes known-issue-034.
+    assert scanner.MAX_REASON_CHARS == 120
+    assert scanner.MAX_DISPLAY_NAME_CHARS == 120
 
 
 def test_the_number_of_reasons_is_bounded(dense_malformed_file: Path) -> None:
@@ -525,7 +556,7 @@ def test_the_number_of_reasons_is_bounded(dense_malformed_file: Path) -> None:
     suppression (LWSM-1079). The registry path has the same amplification, a
     worse constant, and had no suppression at all.
     """
-    records, reasons = load_projects(dense_malformed_file)
+    records, reasons = load(dense_malformed_file)
 
     assert records == []
     assert len(reasons) <= registry.MAX_REASONS + 1, (
@@ -544,7 +575,7 @@ def test_the_suppressed_reasons_are_counted_not_silently_dropped(
     reason list owes the same. Without the tail, a file with 524,271 problems
     and a file with exactly `MAX_REASONS` problems produce identical output.
     """
-    _, reasons = load_projects(dense_malformed_file)
+    _, reasons = load(dense_malformed_file)
 
     assert "more" in reasons[-1], f"no suppressed-count tail: {reasons[-1]!r}"
     # The real number, not a vague "many": 524,271 minus what was kept.
@@ -574,7 +605,7 @@ def test_a_doubled_leading_slash_is_not_a_second_identity(tmp_path: Path) -> Non
         },
     )
 
-    records, reasons = load_projects(path)
+    records, reasons = load(path)
 
     assert len(records) == 1, "both records loaded under one identity"
     assert any("//" in reason for reason in reasons), reasons
@@ -628,7 +659,7 @@ def test_a_path_with_a_parent_component_is_refused(tmp_path: Path) -> None:
         },
     )
 
-    records, reasons = load_projects(path)
+    records, reasons = load(path)
 
     assert len(records) == 1, "both records loaded under one identity"
     assert any(".." in reason for reason in reasons), reasons
@@ -645,7 +676,7 @@ def test_a_path_containing_a_nul_byte_is_refused(tmp_path: Path) -> None:
         },
     )
 
-    records, reasons = load_projects(path)
+    records, reasons = load(path)
 
     assert records == []
     assert len(reasons) == 1
@@ -658,7 +689,7 @@ def test_a_byte_order_mark_does_not_refuse_the_file(tmp_path: Path) -> None:
     payload = {"schema_version": 1, "projects": [one_good()]}
     path.write_text(json.dumps(payload), encoding="utf-8-sig")
 
-    records, reasons = load_projects(path)
+    records, reasons = load(path)
 
     assert len(records) == 1
     assert reasons == []
@@ -676,3 +707,444 @@ def test_a_missing_home_directory_is_a_registry_error(monkeypatch) -> None:
 
     with pytest.raises(RegistryError, match="home directory"):
         registry.default_projects_path()
+
+
+# --- LWSM-1007: the file format and the writer -------------------------------
+
+
+def test_every_record_field_is_classified() -> None:
+    """INV-1. Derived from the dataclass, never from a written list.
+
+    A field belonging to neither set is one LWSM-1131's merge would neither
+    refresh nor preserve — it would simply be forgotten on the first rescan,
+    silently, with the record still looking complete.
+    """
+    declared = {field.name for field in dataclasses.fields(ProjectRecord)}
+    classified = registry.DETECTED_FIELDS | registry.USER_FIELDS
+
+    assert declared == classified, (
+        "every ProjectRecord field belongs to exactly one half; "
+        f"unclassified: {sorted(declared - classified)}, "
+        f"classified but absent: {sorted(classified - declared)}"
+    )
+    assert not (registry.DETECTED_FIELDS & registry.USER_FIELDS)
+
+
+def every_field_record() -> ProjectRecord:
+    """One record with every field populated, including a name needing JSON
+    escaping — a default-valued field round-trips through a writer that never
+    emitted it at all."""
+    return ProjectRecord(
+        path=Path("/srv/project-a"),
+        name='he said "hi"\n\ttab \\ back — ünïcode',
+        port=3000,
+        port_override=8080,
+        kind=LauncherKind.NODE,
+        argv=("npm", "run", "dev"),
+        unit="project-a.service",
+        hidden=True,
+        launcher_override="./other.sh",
+        notes="a note",
+        start_at_login=True,
+        actions=('{"kind":"open_url","label":"Docs"}',),
+        added="2026-08-12T14:03:11Z",
+    )
+
+
+def test_write_then_load_round_trips(tmp_path: Path) -> None:
+    """INV-3. Equal records, in the same ORDER.
+
+    A set-equality assertion would pass a writer that sorted by name, and file
+    order is load-bearing twice over in LWSM-1131 — which of two duplicate
+    identities owns it, and its tie-break between two records with no `added`.
+    Each write becomes the next load's file order, so a sorting writer would
+    flip both on every run.
+    """
+    path = tmp_path / "projects.json"
+    # The second record sorts BEFORE the first by name and by path, so written
+    # order and sorted order genuinely differ. Measured 2026-08-14: the first
+    # version of this fixture named them "he said…" and "zzz-sorts-last", which
+    # are already in sorted order — a writer mutated to `sorted(records, ...)`
+    # passed it. A fixture that cannot express the hazard tests nothing.
+    written = [
+        every_field_record(),  # name starts "he said", path /srv/project-a
+        ProjectRecord(path=Path("/srv/aaa-written-second"), name="aaa-written-second"),
+    ]
+
+    save_projects(path, written, load=RegistryMissing("first run"))
+    result = load_projects(path)
+
+    assert result.records == written
+    assert [record.path for record in result.records] == [
+        record.path for record in written
+    ]
+    assert result.reasons == []
+    assert result.rows_refused == 0
+
+
+def test_argv_and_actions_load_back_as_tuples(tmp_path: Path) -> None:
+    """The half of INV-3 a value-by-value comparison would miss.
+
+    JSON has only arrays, so a loader returning a `list` produces a record that
+    is unequal to the one written while every field *looks* right. `actions`
+    additionally has to stay a tuple of strings or `ProjectRecord` becomes
+    unhashable — the dataclass is frozen, so its generated `__hash__` raises
+    `TypeError` the moment anything hashes a record carrying one.
+    """
+    path = tmp_path / "projects.json"
+    save_projects(path, [every_field_record()], load=RegistryMissing("first run"))
+
+    record = load_projects(path).records[0]
+
+    assert isinstance(record.argv, tuple)
+    assert isinstance(record.actions, tuple)
+    assert all(isinstance(action, str) for action in record.actions)
+    hash(record)
+
+
+def test_the_written_file_is_private(tmp_path: Path) -> None:
+    """INV-4. 0600, and created that way rather than chmodded afterwards.
+
+    A permissive umask is deliberately NOT tested as a breaker, though it reads
+    like the obvious one: umask can only clear permission bits, never add them,
+    so a fixture varying it against an explicit-mode create can never fail.
+    """
+    path = tmp_path / "projects.json"
+    save_projects(path, [every_field_record()], load=RegistryMissing("first run"))
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_ISREG(path.lstat().st_mode)
+    assert not list(tmp_path.glob(".projects-*.tmp")), "a temporary file was left"
+
+
+def test_a_non_regular_target_is_refused(tmp_path: Path) -> None:
+    """INV-4. A FIFO at the config path."""
+    path = tmp_path / "projects.json"
+    os.mkfifo(path)
+
+    with pytest.raises(RegistryError, match="not a regular file"):
+        save_projects(path, [], load=RegistryMissing("first run"))
+
+
+def test_a_symlinked_target_is_refused_not_followed(tmp_path: Path) -> None:
+    """INV-4, and the case the FIFO fixture cannot reach.
+
+    A symlink pointing at a **regular** file passes `os.stat` and
+    `Path.is_file()` — both follow the link — and `os.replace` then destroys the
+    symlink rather than writing through it. The FIFO test stays green under that
+    bug, which is why this one is named separately.
+    """
+    real = tmp_path / "real.json"
+    real.write_text("keep me", encoding="utf-8")
+    path = tmp_path / "projects.json"
+    path.symlink_to(real)
+
+    with pytest.raises(RegistryError, match="symlink"):
+        save_projects(path, [every_field_record()], load=RegistryMissing("first run"))
+
+    assert path.is_symlink(), "the deliberate indirection was destroyed"
+    assert real.read_text(encoding="utf-8") == "keep me"
+
+
+def test_a_failed_write_leaves_the_old_file_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """INV-2. The boundary is `os.replace`, injected just before it.
+
+    "At any point" would be false: § 4.3 step 4's directory fsync runs *after*
+    the replace, so a failure there leaves the new file correctly in place with
+    nothing to roll back. That case is reported, not reversed.
+    """
+    path = tmp_path / "projects.json"
+    save_projects(path, [every_field_record()], load=RegistryMissing("first run"))
+    before = path.read_bytes()
+
+    def explode(source: object, target: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(registry.os, "replace", explode)
+    with pytest.raises(RegistryError, match="could not be written"):
+        save_projects(
+            path,
+            [ProjectRecord(path=Path("/srv/new"), name="new")],
+            load=load_projects(path),
+        )
+
+    assert path.read_bytes() == before
+    assert load_projects(path).records == [every_field_record()]
+    assert not list(tmp_path.glob(".projects-*.tmp")), (
+        "the temporary file survived a failure before os.replace"
+    )
+
+
+def test_a_pre_existing_file_still_loads(tmp_path: Path) -> None:
+    """INV-5. The four fields the loader read before LWSM-1007, with defaults.
+
+    `schema_version` deliberately does not move: the reader's check is exact, so
+    bumping it would refuse every existing file to buy nothing.
+    """
+    path = write(tmp_path, {"schema_version": 1, "projects": [one_good()]})
+
+    result = load_projects(path)
+
+    assert registry.SCHEMA_VERSION == 1
+    assert result.reasons == []
+    assert result.records == [
+        ProjectRecord(path=Path("/srv/project-a"), name="project-a", port=5005)
+    ]
+    only = result.records[0]
+    assert (only.kind, only.argv, only.unit, only.actions) == (None, (), None, ())
+    assert (only.hidden, only.start_at_login, only.notes, only.added) == (
+        False,
+        False,
+        "",
+        None,
+    )
+
+
+def test_a_file_with_a_rejected_row_is_never_written_back(tmp_path: Path) -> None:
+    """INV-6. A refused row exists only as a reason STRING.
+
+    Serialising `records` back would delete it permanently and silently, turning
+    a recoverable hand-edit into data loss.
+    """
+    path = write(
+        tmp_path,
+        {"schema_version": 1, "projects": [one_good(), {"path": "/srv/b", "name": ""}]},
+    )
+    result = load_projects(path)
+    assert result.rows_refused == 1
+    before = path.read_bytes()
+
+    with pytest.raises(RegistryError, match="refused at load"):
+        save_projects(path, result.records, load=result)
+
+    assert path.read_bytes() == before
+
+
+def test_an_unparseable_file_is_never_written_over(tmp_path: Path) -> None:
+    """INV-6, and the state a `reasons`-only gate misses entirely.
+
+    A raised `RegistryError` produces no reasons at all, so such a gate would
+    write a fresh file over a hand-edited registry that had only a JSON typo —
+    destroying a fully recoverable file through the check written to prevent it.
+    """
+    path = tmp_path / "projects.json"
+    path.write_text('{"schema_version": 1, "projects": [', encoding="utf-8")
+    try:
+        load_projects(path)
+    except RegistryError as exc:
+        failure: RegistryError = exc
+    before = path.read_bytes()
+
+    with pytest.raises(RegistryError, match="could not be loaded"):
+        save_projects(path, [every_field_record()], load=failure)
+
+    assert path.read_bytes() == before
+
+
+def test_a_dropped_field_does_not_block_the_write(tmp_path: Path) -> None:
+    """INV-6's first discriminating case, and the one that keeps the rule honest.
+
+    Keyed on `reasons` being non-empty rather than on a row count, one hand-typed
+    `"port": "3000"` would disable persistence for the whole session on a file
+    with nothing at risk — and the two fixtures above pass either way.
+    """
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [{"path": "/srv/project-a", "name": "a", "port": "3000"}],
+        },
+    )
+    result = load_projects(path)
+
+    assert result.reasons, "the bad port should have been reported"
+    assert result.rows_refused == 0
+    assert result.records[0].port is None
+
+    save_projects(path, result.records, load=result)
+    assert load_projects(path).records == result.records
+
+
+def test_a_missing_file_is_first_run_and_writes(tmp_path: Path) -> None:
+    """INV-6's second discriminating case, plus § 4.3 step 0.
+
+    The path is inside a subdirectory that does not exist either. `tmp_path` is
+    always created by pytest, so a fixture placing the missing file directly in
+    it would pass against a writer that never creates its parent — which is the
+    whole of step 0.
+    """
+    directory = tmp_path / "config" / "localwebservermanager"
+    path = directory / "projects.json"
+    with pytest.raises(RegistryMissing) as caught:
+        load_projects(path)
+
+    save_projects(path, [every_field_record()], load=caught.value)
+
+    assert path.is_file()
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert load_projects(path).records == [every_field_record()]
+
+
+def test_a_writer_refusal_reason_is_clipped_and_escaped(tmp_path: Path) -> None:
+    """INV-8. A runtime assertion, not a source grep.
+
+    The bound is the quoted value plus the fixed template, not the constant
+    alone: `_quoted` clips the *value* to `MAX_REASON_CHARS` and appends an
+    ellipsis, so a single quoted value is already 121 characters before any
+    template text. The no-newline half is the absolute clause and carries the
+    actual security property.
+    """
+    # Long by nesting, not by one long component: NAME_MAX is 255 bytes, so a
+    # 500-character directory name is ENAMETOOLONG and the fixture fails before
+    # it can measure anything.
+    hostile = tmp_path / "bad\nname"
+    hostile.mkdir()
+    for _ in range(4):
+        hostile = hostile / ("x" * 200)
+        hostile.mkdir()
+    path = hostile / "projects.json"
+    os.mkfifo(path)
+
+    with pytest.raises(RegistryError) as caught:
+        save_projects(path, [], load=RegistryMissing("first run"))
+
+    message = str(caught.value)
+    assert "\n" not in message
+    assert len(message) <= len(str(path)) + 3 * registry.MAX_REASON_CHARS
+
+
+def test_a_registry_over_the_size_limit_is_refused_before_anything_is_written(
+    tmp_path: Path,
+) -> None:
+    """§ 6. Refused with a reason rather than written and then found unreadable
+    by the reader's own cap on the next start."""
+    path = tmp_path / "projects.json"
+    huge = [
+        ProjectRecord(path=Path(f"/srv/{index}"), name="x" * 2000)
+        for index in range(1000)
+    ]
+
+    with pytest.raises(RegistryError, match="over the"):
+        save_projects(path, huge, load=RegistryMissing("first run"))
+
+    assert not path.exists()
+    assert not list(tmp_path.glob(".projects-*.tmp"))
+
+
+# --- LWSM-1007 § 4.2: the blanket wrong-type rule, key by key ----------------
+
+
+@pytest.mark.parametrize(
+    ("key", "bad", "attribute", "default"),
+    [
+        ("kind", "rust", "kind", None),
+        ("kind", 7, "kind", None),
+        ("argv", "npm run dev", "argv", ()),
+        ("argv", ["npm", 3], "argv", ()),
+        ("unit", 7, "unit", None),
+        ("launcher_override", [], "launcher_override", None),
+        ("hidden", "yes", "hidden", False),
+        ("hidden", 1, "hidden", False),
+        ("start_at_login", "no", "start_at_login", False),
+        ("notes", 7, "notes", ""),
+        ("actions", {}, "actions", ()),
+        ("added", "2026-08-12", "added", None),
+        ("added", "2026-08-12T14:03:11", "added", None),
+        ("added", "yesterday", "added", None),
+        ("added", 17, "added", None),
+    ],
+)
+def test_a_wrong_typed_field_loses_the_field_and_keeps_the_row(
+    tmp_path: Path, key: str, bad: object, attribute: str, default: object
+) -> None:
+    """§ 4.2's fourth column, which is one blanket rule for every key.
+
+    The two `added` date-shaped cases are the pointed ones: both parse cleanly
+    through `fromisoformat` and denote **no instant**, and "must carry a time"
+    would not catch either, because a date-only value parses to midnight and
+    has one. A value with no offset cannot be ordered against one that has an
+    offset, and LWSM-1131's INV-7 tie-breaks on exactly that ordering.
+    """
+    entry = one_good() | {key: bad}
+    path = write(tmp_path, {"schema_version": 1, "projects": [entry]})
+
+    result = load_projects(path)
+
+    assert len(result.records) == 1, "a field refusal must never drop the row"
+    assert result.rows_refused == 0
+    assert getattr(result.records[0], attribute) == default
+    assert any(key in reason for reason in result.reasons)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("2026-08-12T14:03:11Z", True), ("2026-08-12T15:03:11+01:00", True)],
+)
+def test_an_added_stamp_carrying_an_offset_is_kept_verbatim(
+    tmp_path: Path, value: str, expected: bool
+) -> None:
+    """The value is not reformatted on the way in or out.
+
+    This app stamps new values as `Z` with second precision, but a hand-edited
+    `+01:00` already in the file is written back as it was: "never rewritten
+    once set" and "written with a Z suffix" cannot both hold for a stamp the
+    reader accepts in any RFC 3339 spelling.
+    """
+    path = write(
+        tmp_path, {"schema_version": 1, "projects": [one_good() | {"added": value}]}
+    )
+    result = load_projects(path)
+
+    assert result.records[0].added == value
+    assert result.reasons == []
+
+    save_projects(path, result.records, load=result)
+    assert json.loads(path.read_text(encoding="utf-8"))["projects"][0]["added"] == value
+
+
+def test_kind_is_serialised_as_its_value_never_its_name(tmp_path: Path) -> None:
+    """`"node"`, not `"NODE"` — and the loader accepts only the value.
+
+    A writer emitting the enum's name produces a file its own loader refuses,
+    which INV-3's round-trip would catch as an unequal record but not explain.
+    """
+    path = tmp_path / "projects.json"
+    save_projects(path, [every_field_record()], load=RegistryMissing("first run"))
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))["projects"][0]
+    assert on_disk["kind"] == "node"
+
+    refused = write(
+        tmp_path, {"schema_version": 1, "projects": [one_good() | {"kind": "NODE"}]}
+    )
+    assert load_projects(refused).records[0].kind is None
+
+
+def test_an_action_is_persisted_opaquely_with_its_keys_normalised(
+    tmp_path: Path,
+) -> None:
+    """§ 4.2: the per-action schema is NOT defined by this item.
+
+    An unknown action shape round-trips rather than being refused, because the
+    validation `design.md § Custom project actions` requires lands with the item
+    that builds the action surface — the only place it has a failure surface to
+    report to. The stated cost is that key order inside an action is normalised.
+    """
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [
+                one_good() | {"actions": [{"zzz": 1, "aaa": 2, "nested": {"b": 1}}]}
+            ],
+        },
+    )
+
+    result = load_projects(path)
+
+    assert result.reasons == []
+    assert result.records[0].actions == ('{"aaa":2,"nested":{"b":1},"zzz":1}',)
+    save_projects(path, result.records, load=result)
+    assert load_projects(path).records == result.records

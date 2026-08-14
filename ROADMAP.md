@@ -2029,6 +2029,23 @@ is the contract.
   Source: in-session-2026-08-03.
   Priority: 2.
   Lanes: ui, tests.
+  Blocked 2026-08-14, and the declared dependency list was incomplete.
+  This bullet declares LWSM-1009 only, and LWSM-1009 shipped that day — but
+  **`ProjectRecord` carries no launcher**, so Start has nothing to spawn.
+  `registry.py`'s schema v1 reads `name`, `path`, `port` and `port_override`
+  and nothing else; `argv` and `kind` are **LWSM-1007's** file-format fields
+  (`docs/specs/LWSM-1007-registry-persistence.md § 4.1`, where `argv` is a
+  member of `DETECTED_FIELDS`, and § 4.2's example record carries
+  `"argv": ["npm", "run", "dev"]`). `Supervisor.start` takes an argv because
+  there is nowhere else for one to come from.
+  So **LWSM-1010 declares LWSM-1007 as well**, and this was found by building
+  LWSM-1009 rather than by reading — the ordering that put start/stop ahead of
+  the rest of P03b was right about LWSM-1009 and wrong about what follows it.
+  The rejected shortcut, recorded so it is not re-proposed: deriving the argv
+  by running `scanner.scan()` at Start time. It scans a *root* for candidates
+  rather than one known project, the app's list comes from `projects.json`
+  which has no argv to compare against, and it is a workaround for a missing
+  field rather than the field (`coding.md § 1.2`).
 
 - 📋 [LWSM-1016] **P05: open in browser.** Opens
   `http://localhost:<bound port>` via `QDesktopServices` — the
