@@ -1,6 +1,7 @@
 # LWSM-1007 — Persist the registry: the file format and the writer
 
-**Status:** accepted (2026-08-13) — **at a 2-loop cap, not at convergence.** The user capped the gate on 2026-08-13 after measuring its yield across four loops on this pair: roughly 1 finding in 10 was a defect implementation would not have caught, and a third were the review's own collateral. § 12's rows carry the per-loop evidence.
+**Status:** **implemented (2026-08-14, 0b29662)**; accepted (2026-08-13) — **at a 2-loop cap, not at convergence.** The user capped the gate on 2026-08-13 after measuring its yield across four loops on this pair: roughly 1 finding in 10 was a defect implementation would not have caught, and a third were the review's own collateral. § 12's rows carry the per-loop evidence.
+**What implementation changed in this document: nothing.** Every section was built as written, which is the outcome the cap was betting on and is recorded here because a spec that needed no fold-back is evidence about the cadence, not an absence of evidence. Two things implementation *added* rather than corrected, both now in the code: `ensure_ascii=False` on the writer's `json.dumps` (§ 4.3 bounds the encoded bytes and did not say how they are encoded), and the temporary file's `.projects-*.tmp` name, which § 4.3 left to the implementer and which the tests assert is cleaned up.
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1007 (in-session-2026-08-03). Policy settled by
 [ADR-0005](../decisions/0005-registry-and-rescan.md); this is half of its

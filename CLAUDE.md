@@ -297,10 +297,15 @@ Added at P02 (LWSM-1005), contract in
 [`docs/specs/LWSM-1005-vertical-slice.md`](docs/specs/LWSM-1005-vertical-slice.md):
 
 - **`src/lwsm/registry.py`** — core. `ProjectRecord`,
-  `RegistryError`, `default_projects_path()`, `load_projects()`.
-  Returns `(records, rejection reasons)`: the file being unusable
-  raises, one bad *record* never does. A bad **port** loses the
-  field, not the row. **Port ranges differ by field** — declared
+  `RegistryError`, `default_projects_path()`, `load_projects()`,
+  and since LWSM-1007 also `LauncherKind`, `LoadResult`,
+  `RegistryMissing`, `DETECTED_FIELDS`, `USER_FIELDS` and
+  `save_projects()`. Returns a **`LoadResult`**, not a tuple: the file
+  being unusable raises, one bad *record* never does, and
+  `rows_refused` is carried **separately from `reasons`** because a
+  field refusal keeps the row and only a row refusal may stop a
+  write. A bad **port** loses the field, not the row. **Port ranges
+  differ by field** — declared
   `port` is 1–65535 (a project may legitimately declare 80),
   `port_override` is ADR-0005's 1024–65535. Type checks use
   `type(v) is int`, because `isinstance(True, int)` is `True` and
@@ -330,9 +335,13 @@ Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 
 - **`src/lwsm/scanner.py`** — core, no Qt at all, like `ports.py`.
   `scan()`, `DetectedProject`, `PortFinding`, `ScanResult`,
-  `LauncherKind`, `PortRule`, `Confidence`, `Deadline`, and the
+  `PortRule`, `Confidence`, `Deadline`, and the
   `SupportsUnitLookup` Protocol the systemd surface is injected
-  through. **Everything it reads belongs to somebody else**, so
+  through. **`LauncherKind` moved to `registry.py` with LWSM-1007**
+  and is re-exported from here, so `scanner.LauncherKind` still
+  resolves; the direction is `scanner` → `registry` and adding the
+  reverse import stops the package importing at all, on either entry
+  order. `tests/test_layering.py` asserts that by AST. **Everything it reads belongs to somebody else**, so
   every open goes through **one** function, `_open_source`
   (`O_RDONLY|O_NONBLOCK|O_NOFOLLOW`) — that single seam is what the
   tests patch to prove no file outside a candidate is ever touched.

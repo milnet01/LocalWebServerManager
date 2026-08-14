@@ -1721,7 +1721,7 @@ path. `docs/design.md § Detection rules` is the contract.
   **Not to be redone:** the recursive walk is deliberately not built (user, 2026-08-08); the extra port sources are LWSM-1121's; this item also lands LWSM-1050. **Owed with the code:** the twelve doc amendments in the spec's § 12 (`design.md` ×7, `coding.md § O1`, ADR-0003's unit-name pattern), widening `tests/test_layering.py`'s `CORE_MODULES` by `scanner.py` **and** `applog.py`, and moving the conformance cases into `tests/test_scanner.py` before deleting the script.
   Resolved (2026-08-12, FP06 closing): `src/lwsm/scanner.py` ships with all 20 invariants covered, the detection corpus at 15 fixtures (three added by FP06: `project-m-vite`, `project-n-unexecutable-launcher`, `project-o-vite-in-a-comment`), and 386 tests green. Steps 5-6 ran ONCE, on 2026-08-12 — /audit clean, /code-quality-review 25 findings with zero false positives, 9 into FP06 and 16 routed to `docs/known-issues.md`. FP06 is closed; its nine fixes and the two findings that came out of writing them (known-issue-034, -035) are the last of it. **What ships unreviewed, said plainly:** FP06's own ~350 new lines were never read by a cold reviewer, per the 2026-08-07 one-review-per-phase rule and the user's decision at this close. **LWSM-1121 carries the split-out scope** (.env / docker-compose.yml / README port sources, conflict reporting) and is untouched.
 
-- 📋 [LWSM-1007] **P03b: Persist the registry — the file format
+- ✅ [LWSM-1007] **P03b: Persist the registry — the file format
   and the writer.** `projects.json` becomes a file the app writes
   as well as reads: the record grows the eleven fields
   [ADR-0005](docs/decisions/0005-registry-and-rescan.md) names,
@@ -1743,6 +1743,26 @@ path. `docs/design.md § Detection rules` is the contract.
   Source: in-session-2026-08-03.
   Priority: 2.
   Lanes: core, tests.
+  Resolved 2026-08-14 (0b29662), from the spec accepted the day before at a
+  2-loop cap. `ProjectRecord` grows nine fields across `DETECTED_FIELDS` and
+  `USER_FIELDS`, `load_projects` returns a `LoadResult` carrying
+  `rows_refused` separately from `reasons`, and `save_projects` writes
+  atomically behind the read-only gate. `LauncherKind` moved to
+  `registry.py`; `scanner.py` re-exports it, so every consumer still spells it
+  `scanner.LauncherKind` and no test moved.
+  **Brought forward ahead of the rest of P03b for a reason found by building
+  rather than by reading:** LWSM-1010 declares only LWSM-1009, but the record
+  carried no launcher, so Start had nothing to spawn — `argv` and `kind` are
+  this item's schema fields. See the note on LWSM-1010.
+  **The spec's own best finding survived contact with the code**: the loader's
+  `except OSError` folded a missing file into "unreadable", which would have
+  left a clean machine permanently read-only — the write gate refusing to
+  create the very file whose absence it was reading. `RegistryMissing` is the
+  fix and a subclass, so `build_window`'s existing handler is untouched.
+  Fifteen mechanisms mutated, fifteen died — after one fixture repair:
+  `test_write_then_load_round_trips` survived `sorted(records, key=name)`
+  because its two fixture names were already in sorted order, and file order
+  is load-bearing twice over in LWSM-1131.
 
 - 📋 [LWSM-1039] **P03b: keep one backup of the registry.** Every
   write of `projects.json` keeps the previous version alongside

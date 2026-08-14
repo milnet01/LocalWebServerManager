@@ -23,6 +23,15 @@ signaling per
 
 ### Added
 
+- **The project list can now be saved, and it remembers how each project is started** (LWSM-1007)
+  `projects.json` now holds the launcher command, the launcher kind,
+  a systemd unit name, per-project notes, and flags for hiding a
+  project or starting it at login — as well as the name and port it
+  already held. Saving is atomic, so a crash or a full disk can
+  never leave a half-written list, and the app refuses to write over
+  a file it could not fully read: a typo you can still fix by hand
+  is never overwritten by a fresh one.
+
 - **Start and stop actually work: the Supervisor spawns each project in its own process group and reaps the whole tree** (LWSM-1009)
   Stopping a project now stops the helper processes its start script
   spawned, so the port is genuinely released rather than left held by
