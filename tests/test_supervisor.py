@@ -484,11 +484,19 @@ def test_stop_escalates_to_kill_when_sigterm_is_ignored(
         project,
         """
         trap '' TERM
+        echo trap-installed
         while true; do sleep 0.05; done
         """,
     )
     supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
     managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    # Waited for, never assumed: `sh` installs the trap a few milliseconds after
+    # exec, and a SIGTERM arriving first kills it outright — exit code -15, no
+    # escalation, and a test that fails only under load. Seen on a full-suite
+    # run 2026-08-14 while passing in isolation.
+    assert wait_until(
+        lambda: "trap-installed" in managed.log_path.read_text(encoding="utf-8")
+    ), "the launcher never reported installing its SIGTERM trap"
 
     outcome = supervisor.stop(project, grace=0.5)
 
@@ -518,11 +526,15 @@ def test_the_managed_child_is_not_reaped_before_the_stop_sequence_ends(
         project,
         """
         trap 'exit 7' TERM
+        echo trap-installed
         while true; do sleep 0.05; done
         """,
     )
     supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
     managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    assert wait_until(
+        lambda: "trap-installed" in managed.log_path.read_text(encoding="utf-8")
+    ), "the launcher never reported installing its SIGTERM trap"
 
     seen: list[int | None] = []
     supervisor.stop(

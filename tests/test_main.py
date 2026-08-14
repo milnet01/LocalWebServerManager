@@ -273,9 +273,17 @@ def test_main_stops_the_controller_when_the_loop_returns(
         def stop(self) -> None:
             stops.append(1)
 
+    shutdowns: list[int] = []
+
     class FakeWindow:
         def show(self) -> None:
             return None
+
+        def shutdown(self) -> None:
+            # The rescan pool is a second thread pool with the controller's
+            # hazard (LWSM-1131 § 4.4), so `main` waits for it in the same
+            # `finally` — and this double has to answer for it.
+            shutdowns.append(1)
 
     # `_path=None` matches build_window's signature since LWSM-1116: `main`
     # calls it with no argument so the path resolution happens inside its catch.
@@ -285,3 +293,4 @@ def test_main_stops_the_controller_when_the_loop_returns(
 
     assert main([]) == 0
     assert stops == [1], "main() returned without stopping the controller"
+    assert shutdowns == [1], "main() returned without waiting for the rescan pool"

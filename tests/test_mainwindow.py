@@ -6,6 +6,7 @@ which conftest.py sets when it is unset.
 
 from __future__ import annotations
 
+import dataclasses
 import socket
 from collections import Counter
 from collections.abc import Iterator
@@ -18,7 +19,13 @@ from lwsm.__main__ import build_window
 from lwsm.controller import ProjectController, ProjectStatus
 from lwsm.mainwindow import STATE_GLYPHS, MainWindow
 from lwsm.ports import PortProbe, PortSnapshot
-from lwsm.registry import ProjectRecord
+from lwsm.registry import (
+    LauncherKind,
+    LoadResult,
+    ProjectRecord,
+    RegistryError,
+    RegistryMissing,
+)
 from lwsm.theme import Theme
 
 pytestmark = pytest.mark.gui
@@ -30,6 +37,30 @@ class FakeProbe:
 
     def snapshot(self) -> PortSnapshot:
         return PortSnapshot(frozenset(self.listening))
+
+
+@dataclasses.dataclass(frozen=True)
+class FakePortFinding:
+    port: int
+
+
+@dataclasses.dataclass(frozen=True)
+class FakeDetected:
+    """`scanner.DetectedProject` as `registry.merge` sees it (its Protocol)."""
+
+    path: Path
+    name: str
+    kind: LauncherKind = LauncherKind.SHELL
+    argv: tuple[str, ...] = ("./start.sh",)
+    unit: str | None = None
+    port: FakePortFinding | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class FakeScanResult:
+    projects: tuple[FakeDetected, ...] = ()
+    timed_out: bool = False
+    unlistable_roots: tuple[Path, ...] = ()
 
 
 def record(name: str, port: int | None) -> ProjectRecord:
@@ -1256,4 +1287,226 @@ def test_the_window_carries_the_theme_palette(qtbot, built) -> None:
     assert actual == QColor(theme.text), (
         f"the window's WindowText is {actual.name()}, not the theme's "
         f"{theme.text} — to_palette() was built and never applied"
+    )
+
+
+# --- LWSM-1131 § 4.4: the Rescan seam ----------------------------------------
+
+
+def rescan_window(
+    qtbot,
+    built,
+    records,
+    tmp_path: Path,
+    scan_result,
+    load=None,
+    saves: list | None = None,
+) -> tuple[MainWindow, ProjectController]:
+    """A window with a Rescan context whose scan and writer are both fakes.
+
+    `testing.md § T1`: nothing here walks a real tree or reaches the real
+    config. The scan is a value, not a directory.
+    """
+    controller = build_controller(built, list(records), FakeProbe())
+
+    def fake_save(path, merged, *, load) -> None:
+        if saves is not None:
+            saves.append((path, list(merged), load))
+
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=lambda _roots: scan_result,
+        now=lambda: "2026-08-14T09:00:00Z",
+        save=fake_save,
+    )
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        rescan=context,
+        load=load if load is not None else RegistryMissing("first run"),
+    )
+    qtbot.addWidget(window)
+    return window, controller
+
+
+def run_rescan(qtbot, window: MainWindow) -> None:
+    """Click Rescan and wait for the worker, never sleeping for a duration."""
+    window._rescan_button.click()
+    qtbot.waitUntil(lambda: not window._rescan_in_flight, timeout=5000)
+
+
+def test_a_window_with_nothing_to_rescan_has_no_rescan_button(qtbot, built) -> None:
+    """No context, no button. An enabled control that cannot work is worse than
+    an absent one, and every pre-LWSM-1131 window is built this way."""
+    window, _ = window_for(qtbot, built, [record("a", 3000)], FakeProbe())
+    assert window._rescan_button is None
+    window.shutdown()
+
+
+def test_a_rescan_adds_a_new_project_and_says_so(qtbot, built, tmp_path) -> None:
+    project = tmp_path / "roots" / "web"
+    scan = FakeScanResult(
+        projects=(FakeDetected(project, "web", port=FakePortFinding(3000)),)
+    )
+    saves: list = []
+    window, controller = rescan_window(qtbot, built, [], tmp_path, scan, saves=saves)
+
+    run_rescan(qtbot, window)
+
+    assert [row.name for row in controller.rows()] == ["web"]
+    assert "1 new" in window.statusBar().currentMessage()
+    assert saves, "first run must write, or projects.json never comes into existence"
+    window.shutdown()
+
+
+def test_a_rescan_that_changes_nothing_says_so_and_does_not_write(
+    qtbot, built, tmp_path
+) -> None:
+    """§ 4.4's single write trigger: record CONTENT differing from the load.
+
+    A no-op rewrite churns the file's mtime and widens the only window in which
+    a concurrent writer can lose an edit, for no gain.
+    """
+    project = tmp_path / "roots" / "web"
+    stored = ProjectRecord(
+        path=project,
+        name="web",
+        port=3000,
+        kind=LauncherKind.SHELL,
+        argv=("./start.sh",),
+        added="2026-08-01T00:00:00Z",
+    )
+    scan = FakeScanResult(
+        projects=(FakeDetected(project, "web", port=FakePortFinding(3000)),)
+    )
+    saves: list = []
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [stored],
+        tmp_path,
+        scan,
+        load=LoadResult(records=[stored], reasons=[], rows_refused=0),
+        saves=saves,
+    )
+
+    run_rescan(qtbot, window)
+
+    assert window.statusBar().currentMessage() == "Rescan: no changes"
+    assert saves == [], "an all-unchanged merge must not rewrite the file"
+    window.shutdown()
+
+
+def test_a_flag_only_outcome_does_not_write(qtbot, built, tmp_path) -> None:
+    """*missing* changes the report and not one field, so it must not write."""
+    stored = ProjectRecord(path=tmp_path / "roots" / "gone", name="gone")
+    saves: list = []
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [stored],
+        tmp_path,
+        FakeScanResult(),
+        load=LoadResult(records=[stored], reasons=[], rows_refused=0),
+        saves=saves,
+    )
+
+    run_rescan(qtbot, window)
+
+    assert "1 missing" in window.statusBar().currentMessage()
+    assert saves == []
+    window.shutdown()
+
+
+def test_a_read_only_session_reports_rather_than_writing(
+    qtbot, built, tmp_path
+) -> None:
+    """The gate is LWSM-1007's and the SLOT owns it — nothing re-implements it.
+
+    A load that refused a row still merges and still reports; the writer
+    refuses, and the user is told the rescan was not saved.
+    """
+    project = tmp_path / "roots" / "web"
+
+    def refusing_save(path, merged, *, load) -> None:
+        raise RegistryError("2 row(s) were refused at load")
+
+    controller = build_controller(built, [], FakeProbe())
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=lambda _roots: FakeScanResult(projects=(FakeDetected(project, "web"),)),
+        now=lambda: "2026-08-14T09:00:00Z",
+        save=refusing_save,
+    )
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        rescan=context,
+        load=LoadResult(records=[], reasons=["bad row"], rows_refused=2),
+    )
+    qtbot.addWidget(window)
+
+    run_rescan(qtbot, window)
+
+    message = window.statusBar().currentMessage()
+    assert "not saved" in message
+    assert "refused at load" in message
+    assert [row.name for row in controller.rows()] == ["web"], (
+        "the merge still runs and is still shown; only the write is refused"
+    )
+    window.shutdown()
+
+
+def test_a_rescan_that_raises_re_enables_the_button(qtbot, built, tmp_path) -> None:
+    """PySide6 swallows an exception escaping `QRunnable.run()` and emits no
+    signal, so without the catch-all the in-flight flag stays set and Rescan
+    never comes back."""
+    controller = build_controller(built, [], FakeProbe())
+
+    def exploding_scan(_roots):
+        raise RuntimeError("the scanner fell over")
+
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=exploding_scan,
+        now=lambda: "2026-08-14T09:00:00Z",
+        save=lambda *a, **k: None,
+    )
+    window = MainWindow(controller, Theme.default(), [], rescan=context)
+    qtbot.addWidget(window)
+
+    run_rescan(qtbot, window)
+
+    assert window._rescan_button.isEnabled()
+    assert "Rescan failed" in window.statusBar().currentMessage()
+    window.shutdown()
+
+
+def test_the_summary_omits_zero_counts_and_never_renders_unchanged() -> None:
+    """`unchanged` is counted because `counts` is the merge's own tally, and is
+    the one outcome that is not news."""
+    from lwsm import registry as reg
+
+    assert mainwindow.summarise_merge(dict.fromkeys(reg.OUTCOMES, 0)) == (
+        "Rescan: no changes"
+    )
+    assert mainwindow.summarise_merge({reg.UNCHANGED: 7}) == "Rescan: no changes"
+    assert mainwindow.summarise_merge({reg.NEW: 2, reg.CHANGED: 1, reg.MISSING: 1}) == (
+        "Rescan: 2 new, 1 changed, 1 missing"
+    )
+
+
+def test_the_summary_order_is_fixed_and_not_dict_order() -> None:
+    """§ 4.4 pins the order, so a counts dict built in any order renders the
+    same line — which a `for outcome, count in counts.items()` loop would not."""
+    from lwsm import registry as reg
+
+    backwards = {reg.MISSING: 1, reg.CHANGED: 1, reg.NEW: 1}
+    assert (
+        mainwindow.summarise_merge(backwards) == "Rescan: 1 new, 1 changed, 1 missing"
     )

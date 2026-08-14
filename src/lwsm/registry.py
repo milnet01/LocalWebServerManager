@@ -16,11 +16,11 @@ import json
 import os
 import stat
 import tempfile
-from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import datetime
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeGuard
+from typing import Protocol, TypeGuard
 
 SCHEMA_VERSION = 1
 
@@ -855,3 +855,375 @@ def save_projects(
             f"{_quoted(str(path))}: written, but the directory entry could not be "
             f"made durable ({exc.strerror or exc})"
         ) from exc
+
+
+# --------------------------------------------------------------------------
+# LWSM-1131 — merging a rescan into the stored registry
+# --------------------------------------------------------------------------
+
+# The merge lives here rather than in `scanner.py` because it is about records,
+# and it reaches the scan through Protocols rather than an import: `scanner.py`
+# imports from this module, so importing it back closes a cycle under which the
+# package does not import at all. `tests/test_layering.py` asserts the direction
+# by AST. Protocols also make the fakes the contract rather than a duck-typing
+# workaround the annotation contradicts, which is `ports.SupportsSnapshot`'s
+# reasoning applied to a second seam (`testing.md § T1`).
+
+
+class DetectedPort(Protocol):
+    """`scanner.PortFinding`, narrowed to the one field a merge reads.
+
+    The rest of a finding — the rule and the source — is provenance the UI
+    shows, and LWSM-1007 § 4.2 deliberately does not persist it: the format
+    defines no key for either, so a merge stores the number and the rest is
+    recomputed on the next scan.
+    """
+
+    port: int
+
+
+class ScannedProject(Protocol):
+    """`scanner.DetectedProject`, as the merge sees it."""
+
+    path: Path  # RESOLVED, absolute; the identity (ADR-0005)
+    name: str
+    kind: LauncherKind
+    argv: tuple[str, ...]
+    unit: str | None
+    port: DetectedPort | None  # None means UNKNOWN, never a guess
+
+
+class ScanLike(Protocol):
+    """`scanner.ScanResult`, as the merge sees it."""
+
+    projects: tuple[ScannedProject, ...]
+    timed_out: bool  # the budget expired; `projects` is partial
+    unlistable_roots: tuple[Path, ...]
+
+
+NEW = "new"
+UNCHANGED = "unchanged"
+CHANGED = "changed"
+MISSING = "missing"
+NOT_REOBSERVED = "not re-observed"
+OVERRIDE_DIFFERS = "override differs"
+DUPLICATE_IDENTITY = "duplicate identity"
+DUPLICATE_PORT = "duplicate port"
+
+# `unchanged` is counted and never rendered — it is the one outcome that is not
+# news. The UI owns the wording and the order (`mainwindow.summarise_merge`),
+# because these are user-visible strings and this is a core module.
+OUTCOMES = (
+    NEW,
+    UNCHANGED,
+    CHANGED,
+    MISSING,
+    NOT_REOBSERVED,
+    OVERRIDE_DIFFERS,
+    DUPLICATE_IDENTITY,
+    DUPLICATE_PORT,
+)
+
+# An `added` that is absent sorts after every present one, and two absent ones
+# fall back to file order. Every file in existence today lacks the key, so
+# "earliest `added` wins" would otherwise have no meaning on exactly the files
+# LWSM-1007's INV-5 requires to load.
+_NO_INSTANT = datetime.max.replace(tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class MergeResult:
+    """What one merge did. Deliberately NOT a `LoadResult`.
+
+    Nothing a merge produces is refused at row level, so there is no
+    `rows_refused` equivalent and an implementer should not reach for that type.
+    `counts` is a field rather than something the caller derives, because the
+    only other way to build the summary is to match outcome words inside
+    `reasons` — which breaks silently the first time an entry is reworded.
+    """
+
+    records: list[ProjectRecord]
+    reasons: list[str]
+    counts: dict[str, int]
+
+
+def _instant(added: str | None) -> datetime:
+    """`added` as a comparable instant, never as text.
+
+    `"2026-08-12T15:03:11+01:00"` sorts *after* `"2026-08-12T14:03:11Z"`
+    lexically while denoting the **same** instant, so a string comparison picks
+    the wrong duplicate-port winner. Records this app writes are always
+    `Z`-spelled, which is exactly why the bug would not appear until someone
+    hand-edited one.
+    """
+    if added is None:
+        return _NO_INSTANT
+    try:
+        parsed = datetime.fromisoformat(added)
+    except ValueError:
+        return _NO_INSTANT
+    # The loader already drops a naive `added`, so this is defence for a record
+    # built in memory rather than loaded from a file.
+    return _NO_INSTANT if parsed.tzinfo is None else parsed
+
+
+def _resolve_or_lexical(path: Path) -> tuple[Path, str | None]:
+    """`path.resolve()`, falling back to its lexical absolute form.
+
+    Per record and inside a handler: this project has been bitten four times by
+    an exception escaping a per-item loop and taking the whole batch with it. It
+    is **not** the same call as the `pathlib`-on-3.13 trap — measured, non-strict
+    `resolve()` returns normally where `exists()` raises `PermissionError` — so
+    this is defence in depth, and no fixture here is known to make it raise.
+    """
+    try:
+        return path.resolve(), None
+    except OSError as exc:
+        return (
+            Path(os.path.abspath(path)),
+            f"{_quoted(str(path))}: could not be resolved ({exc.strerror or exc})",
+        )
+
+
+def _detected_half_applied(
+    record: ProjectRecord, found: ScannedProject
+) -> ProjectRecord:
+    """`DETECTED_FIELDS - {"path"}`, with `port` qualified by § 4.1.
+
+    The subtraction is the whole of the never-rewrite-a-path rule: `path` is a
+    detected field because a scan is what observes it, but the scan's path is
+    *resolved* while the stored one is whatever the user wrote. A merge written
+    as a set-driven replacement over the whole set — the natural reading of
+    "replace the detected half" — rewrites every stored path to its resolved
+    form on the first rescan.
+
+    The `port` qualifier is not a detail either: unqualified, this writes `None`
+    over a stored `3000` on the first unreadable launcher. `port` is the **only**
+    detected field with an unknown value at all. `unit`'s `None` is a real
+    value — it is what every non-systemd project has — and treating it as
+    unknown would keep a stale unit name forever on a project that stopped being
+    a service, which is this rule's own mirror image.
+    """
+    return replace(
+        record,
+        port=record.port if found.port is None else found.port.port,
+        kind=found.kind,
+        argv=tuple(found.argv),
+        unit=found.unit,
+    )
+
+
+def merge(
+    stored: Sequence[ProjectRecord],
+    scan: ScanLike,
+    roots: Sequence[Path],
+    now: Callable[[], str],
+) -> MergeResult:
+    """Fold a rescan into the stored registry without discarding user edits.
+
+    `roots` is a parameter because `ScanResult` does not carry it, and the
+    *missing* outcome cannot be evaluated without it: inferring roots from the
+    projects returned means a root that legitimately contains zero projects
+    silently stops marking its records missing. The roots **requested** are used
+    rather than the roots actually walked, because a partial scan does not report
+    which it reached.
+
+    `now()` must return RFC 3339 with a `Z` suffix and second precision —
+    `datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")`. Pinned because
+    `Callable[[], str]` admits anything, and the obvious
+    `datetime.now().isoformat()` produces a **naive** stamp that the loader then
+    drops on the next load: every record this app created would lose its
+    timestamp, leaving the duplicate-port tie-break with nothing to compare on
+    exactly the records the app made itself.
+    """
+    reasons: list[str] = []
+    counts = dict.fromkeys(OUTCOMES, 0)
+    suppressed = 0
+
+    def note(reason: str) -> None:
+        """`load_projects`' bound, on a second surface (INV-6)."""
+        nonlocal suppressed
+        if len(reasons) < MAX_REASONS:
+            reasons.append(reason)
+        else:
+            suppressed += 1
+
+    def flag(outcome: str, reason: str) -> None:
+        counts[outcome] += 1
+        note(reason)
+
+    resolved_roots: list[Path] = []
+    for root in roots:
+        resolved, failure = _resolve_or_lexical(Path(root))
+        if failure:
+            # Excluded from the containment test and reported, rather than
+            # silently included as its lexical form — an unresolvable root
+            # cannot answer "is this record under it?".
+            note(failure)
+            continue
+        resolved_roots.append(resolved)
+
+    # Resolved before the containment test for the same reason the roots are: a
+    # symlinked root would otherwise contain nothing, and here that lands on the
+    # permission-denied run, which is the one branch this field exists for.
+    unlistable = [_resolve_or_lexical(Path(root))[0] for root in scan.unlistable_roots]
+
+    # --- identity: first in FILE ORDER owns it ----------------------------
+    owner: dict[Path, int] = {}
+    resolved_of: list[Path] = []
+    for index, record in enumerate(stored):
+        resolved, failure = _resolve_or_lexical(record.path)
+        if failure:
+            note(failure)
+        resolved_of.append(resolved)
+        if resolved in owner:
+            # Kept and written back unchanged, never deleted: the loser holds a
+            # user-owned half — notes, an override, an `added` — that no rescan
+            # could reconstruct, and ADR-0005 makes removal a user action so an
+            # unmounted drive cannot destroy the list.
+            flag(
+                DUPLICATE_IDENTITY,
+                f"{_quoted(record.name)}: duplicate identity of "
+                f"{_quoted(stored[owner[resolved]].name)}",
+            )
+            continue
+        owner[resolved] = index
+
+    scanned = {project.path: project for project in scan.projects}
+    merged = list(stored)
+
+    # --- the records that merge -------------------------------------------
+    for resolved, index in owner.items():
+        record = stored[index]
+        found = scanned.get(resolved)
+        if found is None:
+            _note_if_missing(
+                record, resolved, scan, resolved_roots, unlistable, flag, note
+            )
+            continue
+
+        updated = _detected_half_applied(record, found)
+        merged[index] = updated
+
+        not_reobserved = record.port is not None and found.port is None
+        if updated != record:
+            flag(CHANGED, f"{_quoted(record.name)}: detected details changed")
+        if not_reobserved:
+            flag(
+                NOT_REOBSERVED,
+                f"{_quoted(record.name)}: port no longer detected, "
+                f"keeping {record.port}",
+            )
+        if not (updated != record or not_reobserved):
+            counts[UNCHANGED] += 1
+
+        # Only `port_override` participates: `launcher_override` is stored but is
+        # mapped to no detected field in this item, so there is nothing for it to
+        # differ from.
+        if record.port_override is not None and updated.port != record.port:
+            flag(
+                OVERRIDE_DIFFERS,
+                f"{_quoted(record.name)}: detected port moved to "
+                f"{updated.port}, override {record.port_override} stays in force",
+            )
+
+    # --- the projects that are new ----------------------------------------
+    for project in scan.projects:
+        if project.path in owner:
+            continue
+        # The one place a merge writes a user-owned field. Reading INV-1 as
+        # covering creation too would forbid giving a new project a name, and an
+        # implementer obeying it literally would add unnamed rows with no
+        # `added` — leaving the port tie-break nothing to compare on any record
+        # the app itself created.
+        merged.append(
+            ProjectRecord(
+                path=project.path,
+                name=project.name,
+                port=None if project.port is None else project.port.port,
+                kind=project.kind,
+                argv=tuple(project.argv),
+                unit=project.unit,
+                added=now(),
+            )
+        )
+        flag(NEW, f"{_quoted(project.name)}: new")
+
+    _flag_duplicate_ports(merged, flag)
+
+    if suppressed:
+        # Always, never conditionally quiet: a cap with no tail reads as
+        # completeness, which is `load_projects`' rule on its own surface.
+        reasons.append(f"and {suppressed} more merge notes, not shown")
+
+    return MergeResult(records=merged, reasons=reasons, counts=counts)
+
+
+def _note_if_missing(
+    record: ProjectRecord,
+    resolved: Path,
+    scan: ScanLike,
+    resolved_roots: Sequence[Path],
+    unlistable: Sequence[Path],
+    flag: Callable[[str, str], None],
+    note: Callable[[str], None],
+) -> None:
+    """*missing* means absent from a scan that could have seen it.
+
+    ADR-0005 says "absent from disk", which is not what a scan observes — a scan
+    observes absence *from its own roots*. A project the user added by hand
+    outside every scan root is present on disk and absent from every scan, so
+    the literal reading flags it missing on the first rescan and every one after.
+
+    Two conditions suppress the check, and they are the same distinction § 4.1
+    draws between an observation of absence and the absence of an observation,
+    applied to roots instead of ports: a **timed-out** scan, whose `projects` is
+    partial by definition, and a root that could not be **listed**, which hid an
+    unknown number of projects. An ordinary per-entry skip suppresses nothing —
+    the scanner looked at that entry and rejected it, which is evidence.
+    """
+    if scan.timed_out:
+        note(
+            f"{_quoted(record.name)}: the scan timed out, so it was not "
+            "checked for being missing"
+        )
+        return
+    if any(resolved.is_relative_to(root) for root in unlistable):
+        note(
+            f"{_quoted(record.name)}: its scan root could not be listed, so it "
+            "was not checked for being missing"
+        )
+        return
+    if not any(resolved.is_relative_to(root) for root in resolved_roots):
+        # Out of scope for this scan, not missing from it.
+        return
+    flag(MISSING, f"{_quoted(record.name)}: no longer found by a scan")
+
+
+def _flag_duplicate_ports(
+    records: Sequence[ProjectRecord], flag: Callable[[str, str], None]
+) -> None:
+    """ADR-0005's duplicate-port flag: earliest `added` wins, by instant.
+
+    An absent `added` loses to any record that has one, two absent ones are
+    ordered by position in the file, and two denoting the **same** instant are
+    ordered by position as well. All three fall back to file order for the same
+    reason: position always exists.
+    """
+    claimants: dict[int, list[int]] = {}
+    for index, record in enumerate(records):
+        port = record.effective_port
+        if port is not None:
+            claimants.setdefault(port, []).append(index)
+
+    for port, indexes in claimants.items():
+        if len(indexes) < 2:
+            continue
+        ordered = sorted(indexes, key=lambda i: (_instant(records[i].added), i))
+        winner = records[ordered[0]]
+        for loser in ordered[1:]:
+            flag(
+                DUPLICATE_PORT,
+                f"{_quoted(records[loser].name)}: port {port} is claimed by "
+                f"{_quoted(winner.name)}",
+            )

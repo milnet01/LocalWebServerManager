@@ -10,9 +10,22 @@ name, keyboard reachability, its state as text, and a layout that reflows.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QEvent, QRect, QRectF, Qt
+from PySide6.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QObject,
+    QRect,
+    QRectF,
+    QRunnable,
+    Qt,
+    QThreadPool,
+    Signal,
+)
 from PySide6.QtGui import (
     QAccessible,
     QAccessibleEvent,
@@ -26,12 +39,22 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from lwsm import applog, registry, scanner
 from lwsm.controller import ProjectController, ProjectStatus, RowView
+from lwsm.registry import LoadResult, MergeResult, ProjectRecord, RegistryError
 from lwsm.theme import Theme
+
+log = applog.get_logger(__name__)
+
+# How long to wait for a rescan worker at teardown. The same bounded shape
+# `controller.stop()` uses, and for the same reason: an unbounded wait turns a
+# slow scan into an app that cannot be quit.
+RESCAN_STOP_WAIT_MS = 5000
 
 # Decorative only. One of the three signals design.md § Accessibility requires,
 # and excluded from the accessible name — a screen reader announcing "black
@@ -84,6 +107,116 @@ def port_text(effective_port: int | None) -> str:
     return QCoreApplication.translate(_TR_CONTEXT, "port %1").replace(
         "%1", str(effective_port)
     )
+
+
+def utc_stamp() -> str:
+    """`added` in the one spelling LWSM-1131 § 4.3 pins.
+
+    Not `datetime.now().isoformat()`: that is **naive**, the loader drops any
+    `added` whose parsed `tzinfo` is `None`, and every record this app created
+    would lose its timestamp on the next load — leaving the duplicate-port
+    tie-break with nothing to compare on exactly the records the app made
+    itself.
+    """
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@dataclass(frozen=True)
+class RescanContext:
+    """Everything a Rescan needs that the window does not already hold.
+
+    `roots` is passed in rather than read from a settings file: settings
+    persistence is LWSM-1018, and a window that read the real config could not
+    satisfy `testing.md § T1`. `scan` and `now` are injected for the same
+    reason — the tests supply fakes rather than walking a real tree.
+    """
+
+    projects_path: Path
+    roots: tuple[Path, ...]
+    scan: Callable[[Sequence[Path]], scanner.ScanResult] = scanner.scan
+    now: Callable[[], str] = utc_stamp
+    save: Callable[..., None] = field(default=registry.save_projects)
+
+
+def summarise_merge(counts: dict[str, int]) -> str:
+    """`MergeResult.counts` as one line, in a fixed order, omitting zeroes.
+
+    Pinned because "a one-line summary" admits both `"Rescan complete"`, which
+    satisfies no acceptance criterion, and `"; ".join(reasons)`, which is
+    effectively unbounded — the report's cap bounds the entry *list*, not a line
+    built by joining it.
+
+    **`unchanged` is counted and never rendered** — it is the one outcome that
+    is not news. The duplicate-port flag is likewise not rendered here: § 4.4's
+    table has six rows and does not include it, and its entries still reach the
+    application log with every other reason.
+    """
+    parts = [
+        QCoreApplication.translate(_TR_CONTEXT, template).replace("%1", str(count))
+        for outcome, template in (
+            (registry.NEW, "%1 new"),
+            (registry.CHANGED, "%1 changed"),
+            (registry.NOT_REOBSERVED, "%1 port no longer detected"),
+            (registry.OVERRIDE_DIFFERS, "%1 override differs"),
+            (registry.DUPLICATE_IDENTITY, "%1 duplicate"),
+            (registry.MISSING, "%1 missing"),
+        )
+        if (count := counts.get(outcome, 0))
+    ]
+    if not parts:
+        return QCoreApplication.translate(_TR_CONTEXT, "Rescan: no changes")
+    return QCoreApplication.translate(_TR_CONTEXT, "Rescan: %1").replace(
+        "%1", ", ".join(parts)
+    )
+
+
+class _RescanSignals(QObject):
+    done = Signal(object)
+    failed = Signal(str)
+
+
+class _RescanTask(QRunnable):
+    """Scan and merge on a pool thread; the write and the UI happen in the slot.
+
+    `scan()` is budgeted precisely because it is slow — it walks roots, opens
+    other people's files and may shell out to `systemctl` — so running it inline
+    would freeze the window for its whole duration.
+
+    The signaller belongs to the **window**, not to this task, for the reason
+    `controller._SnapshotTask` records: owning one per task forces
+    `setAutoDelete(False)` and nothing on the Python side can then free it.
+    """
+
+    def __init__(
+        self,
+        context: RescanContext,
+        stored: list[ProjectRecord],
+        signals: _RescanSignals,
+    ) -> None:
+        super().__init__()
+        self._context = context
+        self._stored = stored
+        self.signals = signals
+
+    def run(self) -> None:
+        # Two layers, exactly as `_SnapshotTask` has: PySide6 **swallows** an
+        # exception escaping run() — verified against the pinned 6.11.1 — the
+        # process survives at exit 0 and *no signal is emitted*, so the in-flight
+        # flag would stay set and Rescan would never re-enable. The outer layer
+        # covers the case where the signaller itself is already gone.
+        try:
+            try:
+                result = self._context.scan(self._context.roots)
+                merged = registry.merge(
+                    self._stored, result, self._context.roots, self._context.now
+                )
+            except BaseException as exc:
+                log.exception("the rescan failed")
+                self.signals.failed.emit(f"{type(exc).__name__}: {exc}")
+            else:
+                self.signals.done.emit(merged)
+        except BaseException:
+            log.debug("rescan ended with no live signaller", exc_info=True)
 
 
 class ProjectRow(QFrame):
@@ -315,10 +448,20 @@ class MainWindow(QMainWindow):
         theme: Theme,
         notices: list[str],
         parent: QWidget | None = None,
+        *,
+        rescan: RescanContext | None = None,
+        load: LoadResult | RegistryError | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
         self._theme = theme
+        # Both optional so a window can still be built with nothing to rescan —
+        # which is what every pre-LWSM-1131 test does, and what a session with
+        # no scan roots configured would do. No context, no button: an enabled
+        # control that cannot work is worse than an absent one.
+        self._rescan = rescan
+        self._load = load
+        self._rescan_in_flight = False
         # QCoreApplication.translate under the file's one context, not
         # `self.tr(...)` — tr resolves under the *class*, so this string landed
         # in "MainWindow" (and Qt then walked QMainWindow, QWidget, QObject and
@@ -349,8 +492,29 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(theme.style_sheet())
 
         central = QWidget(self)
-        self._rows_layout = QVBoxLayout(central)
+        outer = QVBoxLayout(central)
+        self._rescan_button: QPushButton | None = None
+        self._rescan_pool: QThreadPool | None = None
+        self._rescan_signals: _RescanSignals | None = None
+        if self._rescan is not None:
+            self._rescan_button = QPushButton(self._rescan_label(), central)
+            # Visual order is tab order, and the button is a real QPushButton so
+            # it is focusable and carries its own accessible name from its text
+            # (`§ O8`).
+            outer.addWidget(self._rescan_button)
+            self._rescan_button.clicked.connect(self._start_rescan)
+            # A private pool, not the global instance: teardown must wait for
+            # this window's own worker and nothing else, which is
+            # `ProjectController`'s reasoning on its poll.
+            self._rescan_pool = QThreadPool(self)
+            self._rescan_pool.setMaxThreadCount(1)
+            self._rescan_signals = _RescanSignals(self)
+            self._rescan_signals.done.connect(self._on_rescan_done)
+            self._rescan_signals.failed.connect(self._on_rescan_failed)
+        self._rows_layout = QVBoxLayout()
+        outer.addLayout(self._rows_layout)
         self._rows_layout.addStretch(1)
+        outer.addStretch(1)
         self.setCentralWidget(central)
 
         self._rows: dict[Path, ProjectRow] = {}
@@ -417,6 +581,123 @@ class MainWindow(QMainWindow):
 
     def set_status_message(self, text: str) -> None:
         self.statusBar().showMessage(text)
+
+    @staticmethod
+    def _rescan_label() -> str:
+        return QCoreApplication.translate(_TR_CONTEXT, "Rescan")
+
+    def shutdown(self) -> None:
+        """Wait, bounded, for a rescan worker. Idempotent.
+
+        Called beside `controller.stop()`. Without it a pool thread finishes
+        into a window being torn down, which is the flake `testing.md § T5`
+        exists to prevent — and `~QThreadPool` joins with **no** timeout, so the
+        cost of not doing it is invisible to pytest's own number and shows up
+        only as process wall time.
+        """
+        self._rescan_in_flight = False
+        if self._rescan_pool is not None and not self._rescan_pool.waitForDone(
+            RESCAN_STOP_WAIT_MS
+        ):
+            log.warning(
+                "a rescan was still running after %d ms; abandoning it so the "
+                "app can quit",
+                RESCAN_STOP_WAIT_MS,
+            )
+
+    def _start_rescan(self) -> None:
+        """One at a time: two overlapping merges could both write."""
+        # The three are created together or not at all, so testing the pool
+        # covers the set. `assert` would be the natural narrowing here and is
+        # forbidden by `S101`: an assertion is removed under `python -O`, and
+        # this one guards a `None` dereference in a slot.
+        if (
+            self._rescan is None
+            or self._rescan_in_flight
+            or self._rescan_pool is None
+            or self._rescan_signals is None
+        ):
+            return
+        self._rescan_in_flight = True
+        if self._rescan_button is not None:
+            self._rescan_button.setEnabled(False)
+        self._rescan_pool.start(
+            _RescanTask(self._rescan, self._controller.records(), self._rescan_signals)
+        )
+
+    def _finish_rescan(self, message: str) -> None:
+        self._rescan_in_flight = False
+        if self._rescan_button is not None:
+            self._rescan_button.setEnabled(True)
+        self.set_status_message(message)
+
+    def _on_rescan_failed(self, detail: str) -> None:
+        log.warning("rescan failed: %s", detail)
+        self._finish_rescan(
+            QCoreApplication.translate(_TR_CONTEXT, "Rescan failed: %1").replace(
+                "%1", detail
+            )
+        )
+
+    def _on_rescan_done(self, merged: MergeResult) -> None:
+        """The write and every UI update, on the GUI thread.
+
+        The write gate is LWSM-1007's and it stays there: `merge()` is handed no
+        `LoadResult` and calls no writer, because it runs on the pool thread.
+        The load this window started from is the only thing that knows whether
+        the session may write, and this slot is the only place both values are
+        in scope.
+        """
+        if self._rescan is None:
+            return
+        for reason in merged.reasons:
+            # The full report goes to the log, one record each; the status bar
+            # gets the summary. INV-6's bound already applies to the entries.
+            log.info("rescan: %s", reason)
+
+        stored = self._controller.records()
+        message = summarise_merge(merged.counts)
+        if self._should_write(merged, stored):
+            try:
+                self._rescan.save(
+                    self._rescan.projects_path, merged.records, load=self._load
+                )
+            except RegistryError as exc:
+                log.warning("the rescan could not be saved: %s", exc)
+                message = (
+                    QCoreApplication.translate(_TR_CONTEXT, "%1 — not saved: %2")
+                    .replace("%1", message)
+                    .replace("%2", str(exc))
+                )
+            else:
+                # The next rescan compares against what is now on disk. Without
+                # this, a first run stays `RegistryMissing` for the life of the
+                # session and every later rescan writes unconditionally.
+                self._load = LoadResult(
+                    records=list(merged.records), reasons=[], rows_refused=0
+                )
+
+        self._controller.set_records(merged.records)
+        self._finish_rescan(message)
+
+    def _should_write(self, merged: MergeResult, stored: list[ProjectRecord]) -> bool:
+        """Exactly one trigger, plus first run.
+
+        Record **content**, not report entries: three outcomes flag a row while
+        leaving every field identical — *missing*, *not re-observed* and
+        *duplicate identity* — and none of them writes. A no-op rewrite would
+        churn the file's mtime and widen the only window in which a concurrent
+        writer can lose an edit, for no gain.
+
+        First run is the exception and is not an optimisation: with no file,
+        "differs from the loaded one" is vacuous, and on a clean machine whose
+        first scan finds **zero** projects both sets are empty, the difference
+        test says no, and `projects.json` would never come into existence at
+        all — every later run repeating the whole first-run path.
+        """
+        if isinstance(self._load, registry.RegistryMissing):
+            return True
+        return merged.records != stored
 
     def _sync_rows(self) -> None:
         views = self._controller.rows()

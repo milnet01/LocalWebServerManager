@@ -511,6 +511,18 @@ def test_completed_tasks_do_not_accumulate(qtbot, controllers) -> None:
         gc.collect()
         return sum(1 for obj in gc.get_objects() if type(obj) is kind)
 
+    # Measured as GROWTH, not as an absolute count. `gc.get_objects()` is
+    # session-global, and every other controller alive anywhere in the run holds
+    # a signaller of its own — so `signals <= 1` was really asserting "this is
+    # the only controller in the process", which is true only by accident of how
+    # many windows the rest of the suite happens to be holding. It broke on
+    # 2026-08-14 when LWSM-1131 added rescan-window tests, passing in isolation
+    # and failing in a full run, which reads exactly like a leak and is not one.
+    # The original defect was one task and one signaller **per tick**, so a delta
+    # over 200 polls still catches it by a factor of 200.
+    before_tasks = live(controller_module._SnapshotTask)
+    before_signals = live(controller_module._SnapshotSignals)
+
     polls = 200
     for _ in range(polls):
         with qtbot.waitSignal(controller.projects_changed, timeout=2000):
@@ -518,10 +530,10 @@ def test_completed_tasks_do_not_accumulate(qtbot, controllers) -> None:
     assert probe.calls == polls
 
     # At most the one still referenced by the controller — never one per tick.
-    tasks = live(controller_module._SnapshotTask)
-    signals = live(controller_module._SnapshotSignals)
-    assert tasks <= 1, f"{tasks} live tasks after {polls} completed polls"
-    assert signals <= 1, f"{signals} live signallers after {polls} completed polls"
+    tasks = live(controller_module._SnapshotTask) - before_tasks
+    signals = live(controller_module._SnapshotSignals) - before_signals
+    assert tasks <= 1, f"{tasks} more live tasks after {polls} completed polls"
+    assert signals <= 1, f"{signals} more live signallers after {polls} completed polls"
 
 
 def test_stop_does_not_wait_on_unrelated_work(qtbot, controllers) -> None:

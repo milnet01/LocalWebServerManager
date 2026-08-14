@@ -149,6 +149,18 @@ class ScanResult:
     skipped: tuple[str, ...]
     timed_out: bool  # the budget expired; `projects` is partial
 
+    # Roots `os.scandir` refused. A separate field rather than a reading of
+    # `skipped`, because those are two different kinds of thing (LWSM-1131
+    # § 4.3): a per-entry skip — "is not a directory", "no launcher matched" —
+    # means the scanner LOOKED at something and rejected it, which is evidence.
+    # A root that could not be listed means an unknown number of projects were
+    # never seen at all, and only that may suppress the merge's *missing* check.
+    #
+    # `skipped` is `tuple[str, ...]`, so one stray file in a scan root makes it
+    # non-empty: a merge reading it as a blanket signal would never flag anything
+    # missing on any populated machine, while a clean fixture passed.
+    unlistable_roots: tuple[Path, ...] = ()
+
 
 @dataclass(slots=True)
 class Deadline:
@@ -1226,6 +1238,7 @@ def scan(
     own = _own_package_directory()
     projects: list[DetectedProject] = []
     seen: set[Path] = set()
+    unlistable: list[Path] = []
     timed_out = False
 
     try:
@@ -1237,6 +1250,11 @@ def scan(
                 # A missing root is ordinary — an unmounted drive — and must not
                 # blank the result.
                 note(f"{_quoted(str(root))}: cannot be listed ({exc.strerror or exc})")
+                # Recorded as a value as well as a reason: LWSM-1131's merge has
+                # to distinguish "this root hid an unknown number of projects"
+                # from an ordinary per-entry skip, and parsing the reason string
+                # back out is the wording-dependence that spec rejects.
+                unlistable.append(Path(root))
                 continue
 
             for entry in entries:
@@ -1318,5 +1336,8 @@ def scan(
         reasons.append(f"and {suppressed} more problems, not shown")
 
     return ScanResult(
-        projects=tuple(projects), skipped=tuple(reasons), timed_out=timed_out
+        projects=tuple(projects),
+        skipped=tuple(reasons),
+        timed_out=timed_out,
+        unlistable_roots=tuple(unlistable),
     )

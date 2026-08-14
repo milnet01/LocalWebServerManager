@@ -38,36 +38,67 @@ def build_window(
     unreachable (LWSM-1116). Tests still pass a path explicitly.
     """
     from lwsm.controller import ProjectController
-    from lwsm.mainwindow import MainWindow
+    from lwsm.mainwindow import MainWindow, RescanContext
     from lwsm.ports import PortProbe
-    from lwsm.registry import RegistryError, default_projects_path, load_projects
+    from lwsm.registry import (
+        LoadResult,
+        RegistryError,
+        default_projects_path,
+        load_projects,
+    )
     from lwsm.theme import Theme
 
     log = applog.get_logger(__name__)
     notices: list[str] = []
     error: str | None = None
+    load: LoadResult | RegistryError
     try:
         if projects_path is None:
             projects_path = default_projects_path()
         loaded = load_projects(projects_path)
+        load = loaded
         records, notices = loaded.records, loaded.reasons
     except RegistryError as exc:
         # Not fatal: a missing projects.json is a first run, not a crash, for
         # the same reason an unwritable log does not stop startup. No other
         # exception is caught here — a bug must not be disguised as a first run.
-        records, error = [], str(exc)
+        records, error, load = [], str(exc), exc
         log.warning("no project list: %s", exc)
     for notice in notices:
         # The status bar gets a summary; the log gets the record.
         log.warning("project list: %s", notice)
 
     controller = ProjectController(records, PortProbe())
-    window = MainWindow(controller, Theme.default(), notices)
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        notices,
+        # The load is carried through so the writer's read-only gate can read
+        # it: a session whose registry refused a row must not have that row
+        # deleted by a rescan (LWSM-1007 § 4.3).
+        load=load,
+        rescan=RescanContext(projects_path=projects_path, roots=default_scan_roots()),
+    )
     if error is not None:
         window.set_status_message(error)
     # Still polls with zero records: INV-5's zero-record case depends on it.
     controller.start_polling()
     return window, controller
+
+
+def default_scan_roots() -> tuple[Path, ...]:
+    """`~/projects`, until the settings dialog (LWSM-1018) owns this.
+
+    A function rather than a module constant so it is not evaluated at import
+    time, which is the shape `default_projects_path` already takes and the
+    reason `build_window` resolves paths inside its own handler. A home
+    directory that cannot be resolved yields no roots rather than raising: a
+    machine with nowhere to scan should still open a window.
+    """
+    try:
+        return (Path.home() / "projects",)
+    except RuntimeError:
+        return ()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -120,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
         # pool thread outliving its controller — the race INV-16 exists to
         # prevent. Stops the timer and waits, bounded, for any outstanding probe.
         controller.stop()
+        # The rescan worker is a second pool with the same hazard, so it gets
+        # the same bounded wait rather than being left to `~QThreadPool`, which
+        # joins with no timeout at all.
+        window.shutdown()
 
 
 def run() -> int:

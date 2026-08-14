@@ -1148,3 +1148,405 @@ def test_an_action_is_persisted_opaquely_with_its_keys_normalised(
     assert result.records[0].actions == ('{"aaa":2,"nested":{"b":1},"zzz":1}',)
     save_projects(path, result.records, load=result)
     assert load_projects(path).records == result.records
+
+
+# --- LWSM-1131: the rescan merge ---------------------------------------------
+
+
+def stamp() -> str:
+    """`now()` in the spelling § 4.3 pins.
+
+    `datetime.now().isoformat()` — the obvious choice — produces a **naive**
+    stamp, which the loader drops on the next load. Every record the app created
+    would lose its timestamp, leaving the duplicate-port tie-break nothing to
+    compare on exactly the records the app made itself.
+    """
+    return "2026-08-14T09:00:00Z"
+
+
+@dataclasses.dataclass(frozen=True)
+class FakeFinding:
+    port: int
+
+
+@dataclasses.dataclass(frozen=True)
+class FakeProject:
+    path: Path
+    name: str
+    kind: LauncherKind = LauncherKind.SHELL
+    argv: tuple[str, ...] = ("./start.sh",)
+    unit: str | None = None
+    port: FakeFinding | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class FakeScan:
+    projects: tuple[FakeProject, ...] = ()
+    timed_out: bool = False
+    unlistable_roots: tuple[Path, ...] = ()
+
+
+def a_root(tmp_path: Path, name: str = "projects") -> Path:
+    root = tmp_path / name
+    root.mkdir()
+    return root
+
+
+def test_a_rescan_never_writes_a_user_field(tmp_path: Path) -> None:
+    """INV-1. `name` is the discriminating field precisely because BOTH sides
+    carry it — a fixture using `notes`, which the scanner has no equivalent of,
+    would pass against a merge that copied everything."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(
+        path=project,
+        name="My Renamed Project",
+        port_override=8080,
+        hidden=True,
+        launcher_override="./mine.sh",
+        notes="hand-written",
+        start_at_login=True,
+        actions=('{"kind":"open_url"}',),
+        added="2026-08-01T00:00:00Z",
+    )
+
+    result = registry.merge(
+        [stored], FakeScan((FakeProject(project, "web"),)), (root,), stamp
+    )
+
+    after = result.records[0]
+    for field in registry.USER_FIELDS:
+        assert getattr(after, field) == getattr(stored, field), field
+
+
+def test_unknown_does_not_erase_a_known_port(tmp_path: Path) -> None:
+    """INV-2. The rule this spec exists to add.
+
+    `port` is the only detected field with an unknown value at all. A stored
+    3000 with the scan reporting `None` is the absence of an observation, not an
+    observation of absence.
+    """
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(path=project, name="web", port=3000)
+
+    result = registry.merge(
+        [stored],
+        FakeScan((FakeProject(project, "web", port=None),)),
+        (root,),
+        stamp,
+    )
+
+    assert result.records[0].port == 3000
+    assert result.counts[registry.NOT_REOBSERVED] == 1
+    assert any("no longer detected" in reason for reason in result.reasons)
+
+
+def test_a_units_none_is_a_real_value_and_does_overwrite(tmp_path: Path) -> None:
+    """The mirror image of INV-2, and the reason the rule names `port` alone.
+
+    Treating `unit=None` as *unknown* would keep a stale unit name forever on a
+    project that stopped being a systemd service — the same defect produced by
+    applying the rule too widely rather than too narrowly.
+    """
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(
+        path=project, name="web", unit="web.service", kind=LauncherKind.SYSTEMD
+    )
+
+    result = registry.merge(
+        [stored],
+        FakeScan((FakeProject(project, "web", kind=LauncherKind.SHELL, unit=None),)),
+        (root,),
+        stamp,
+    )
+
+    assert result.records[0].unit is None
+    assert result.records[0].kind is LauncherKind.SHELL
+    assert result.counts[registry.CHANGED] == 1
+
+
+def test_a_first_detection_is_changed_not_silent(tmp_path: Path) -> None:
+    """ "the scan value is known", not "both known".
+
+    Requiring both sides to be known would leave a stored `None` meeting a
+    detected 3000 matching no row at all — the port would be updated and nothing
+    reported.
+    """
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(path=project, name="web", port=None)
+
+    result = registry.merge(
+        [stored],
+        FakeScan((FakeProject(project, "web", port=FakeFinding(3000)),)),
+        (root,),
+        stamp,
+    )
+
+    assert result.records[0].port == 3000
+    assert result.counts[registry.CHANGED] == 1
+
+
+def test_a_missing_project_is_kept_and_flagged(tmp_path: Path) -> None:
+    """INV-4. Never deleted — ADR-0005 makes removal a user action, so an
+    unmounted drive cannot destroy the list."""
+    root = a_root(tmp_path)
+    stored = ProjectRecord(path=root / "gone", name="gone", port=3000)
+
+    result = registry.merge([stored], FakeScan(()), (root,), stamp)
+
+    assert result.records == [stored]
+    assert result.counts[registry.MISSING] == 1
+
+
+def test_a_project_outside_every_scan_root_is_not_missing(tmp_path: Path) -> None:
+    """ "In scope for this scan" is what makes *missing* mean anything.
+
+    ADR-0005 says "absent from disk", which is not what a scan observes. A
+    project added by hand outside every root is present on disk and absent from
+    every scan, so the literal reading flags it on every rescan for ever.
+    """
+    root = a_root(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    stored = ProjectRecord(path=elsewhere, name="hand-added")
+
+    result = registry.merge([stored], FakeScan(()), (root,), stamp)
+
+    assert result.counts[registry.MISSING] == 0
+
+
+def test_a_timed_out_scan_marks_nothing_missing(tmp_path: Path) -> None:
+    """INV-3, first condition. `projects` is partial by definition, so absence
+    carries no information."""
+    root = a_root(tmp_path)
+    stored = ProjectRecord(path=root / "web", name="web")
+
+    result = registry.merge([stored], FakeScan((), timed_out=True), (root,), stamp)
+
+    assert result.counts[registry.MISSING] == 0
+    assert any("timed out" in reason for reason in result.reasons)
+
+
+def test_an_unlistable_root_marks_nothing_missing_under_it(tmp_path: Path) -> None:
+    """INV-3, second condition — separate from the first, and a fixture for one
+    passes under a merge that implements only the other.
+
+    Deliberately NOT named for `skipped`: an ordinary per-entry skip means the
+    scanner looked at an entry and rejected it, which is evidence and must
+    suppress nothing. `skipped` is non-empty on any populated machine, so a
+    blanket reading would make *missing* unreachable in production.
+    """
+    root = a_root(tmp_path)
+    other = a_root(tmp_path, "other")
+    under_refused = ProjectRecord(path=root / "web", name="web")
+    under_ok = ProjectRecord(path=other / "api", name="api")
+
+    result = registry.merge(
+        [under_refused, under_ok],
+        FakeScan((), unlistable_roots=(root,)),
+        (root, other),
+        stamp,
+    )
+
+    assert result.counts[registry.MISSING] == 1, "only the readable root's record"
+    assert any("could not be listed" in reason for reason in result.reasons)
+
+
+def test_an_ordinary_skip_does_not_suppress_the_missing_check(tmp_path: Path) -> None:
+    """The other half of the same distinction, asserted rather than assumed."""
+    root = a_root(tmp_path)
+    stored = ProjectRecord(path=root / "web", name="web")
+
+    result = registry.merge([stored], FakeScan(()), (root,), stamp)
+
+    assert result.counts[registry.MISSING] == 1
+
+
+def test_two_paths_resolving_to_one_directory_are_one_project(
+    tmp_path: Path,
+) -> None:
+    """INV-5, on known-issue-025's fixture: a symlinked root beside the real one.
+
+    It constrains what MERGES, not what survives. Read as a rule about survival
+    it would contradict INV-4, and an implementer would delete the loser along
+    with the user-owned half no rescan can reconstruct.
+    """
+    real = a_root(tmp_path, "real")
+    project = real / "web"
+    project.mkdir()
+    link = tmp_path / "linked"
+    link.symlink_to(real)
+
+    first = ProjectRecord(path=project, name="first", notes="keep me")
+    second = ProjectRecord(path=link / "web", name="second", notes="keep me too")
+
+    result = registry.merge(
+        [first, second],
+        FakeScan((FakeProject(project, "web", port=FakeFinding(3000)),)),
+        (real,),
+        stamp,
+    )
+
+    assert len(result.records) == 2, "neither record may be deleted (INV-4)"
+    assert result.records[0].port == 3000, "the first in file order owns the identity"
+    assert result.records[1] == second, "the loser is written back unchanged"
+    assert result.counts[registry.DUPLICATE_IDENTITY] == 1
+
+
+def test_a_merge_does_not_rewrite_the_stored_path(tmp_path: Path) -> None:
+    """INV-8. The `- {"path"}` subtraction, made testable rather than decorative.
+
+    The changed port is load-bearing: without a detected change the merge is
+    all-*unchanged*, and an assertion about a written file would read one the
+    merge was never permitted to create.
+    """
+    real = a_root(tmp_path, "real")
+    project = real / "web"
+    project.mkdir()
+    link = tmp_path / "linked"
+    link.symlink_to(real)
+    stored = ProjectRecord(path=link / "web", name="web", port=None)
+
+    result = registry.merge(
+        [stored],
+        FakeScan((FakeProject(project, "web", port=FakeFinding(3000)),)),
+        (real,),
+        stamp,
+    )
+
+    assert result.records[0].path == link / "web", "the user's spelling was rewritten"
+    assert result.records[0].port == 3000
+
+
+def test_duplicate_ports_are_flagged_with_the_first_registered_winning(
+    tmp_path: Path,
+) -> None:
+    """INV-7. Earliest `added` wins and the later claimant names the winner."""
+    root = a_root(tmp_path)
+    older = ProjectRecord(
+        path=root / "a", name="older", port=3000, added="2026-08-01T00:00:00Z"
+    )
+    newer = ProjectRecord(
+        path=root / "b", name="newer", port=3000, added="2026-08-05T00:00:00Z"
+    )
+
+    result = registry.merge(
+        [newer, older], FakeScan((), timed_out=True), (root,), stamp
+    )
+
+    assert result.counts[registry.DUPLICATE_PORT] == 1
+    assert any("claimed by 'older'" in reason for reason in result.reasons)
+
+
+def test_a_record_without_added_loses_the_port_tie_break(tmp_path: Path) -> None:
+    """INV-7's absent-`added` half — which breaks on EVERY file that exists
+    today, since none carries the key."""
+    root = a_root(tmp_path)
+    without = ProjectRecord(path=root / "a", name="without", port=3000)
+    with_stamp = ProjectRecord(
+        path=root / "b", name="with", port=3000, added="2026-08-05T00:00:00Z"
+    )
+
+    result = registry.merge(
+        [without, with_stamp], FakeScan((), timed_out=True), (root,), stamp
+    )
+
+    assert any("claimed by 'with'" in reason for reason in result.reasons)
+
+
+def test_the_added_tie_break_compares_instants_not_text(tmp_path: Path) -> None:
+    """INV-9, and the fixture only discriminates because of the ORDERING.
+
+    The two values are an equal instant, so the winner comes from the tie-break.
+    Putting the lexically-larger `+01:00` value FIRST is what makes a text
+    comparison pick the other record and go red; placed the other way round, a
+    text comparison and the correct rule agree and the test proves nothing.
+    """
+    root = a_root(tmp_path)
+    offset = ProjectRecord(
+        path=root / "a", name="offset", port=3000, added="2026-08-12T15:03:11+01:00"
+    )
+    zulu = ProjectRecord(
+        path=root / "b", name="zulu", port=3000, added="2026-08-12T14:03:11Z"
+    )
+
+    result = registry.merge(
+        [offset, zulu], FakeScan((), timed_out=True), (root,), stamp
+    )
+
+    assert any("claimed by 'offset'" in reason for reason in result.reasons), (
+        "an equal instant must fall back to file order, not to string order"
+    )
+
+
+def test_a_new_project_is_seeded_with_a_name_and_a_stamp(tmp_path: Path) -> None:
+    """The one place a merge writes a user-owned field.
+
+    INV-1 is scoped to records already in the registry for exactly this reason:
+    read as covering creation, it would forbid giving a new project a name, and
+    an implementer obeying it literally would add unnamed rows with no `added` —
+    leaving the tie-break nothing to compare on any record the app made itself.
+    """
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+
+    result = registry.merge(
+        [],
+        FakeScan((FakeProject(project, "web", port=FakeFinding(3000)),)),
+        (root,),
+        stamp,
+    )
+
+    added = result.records[0]
+    assert added.name == "web"
+    assert added.added == stamp()
+    assert added.port == 3000
+    assert added.kind is LauncherKind.SHELL
+    assert result.counts[registry.NEW] == 1
+    # The stamp must survive a round trip, which a naive one would not.
+    path = tmp_path / "projects.json"
+    save_projects(path, result.records, load=RegistryMissing("first run"))
+    assert load_projects(path).records[0].added == stamp()
+
+
+def test_the_merge_report_is_bounded(tmp_path: Path) -> None:
+    """INV-6. LWSM-1115's shape, arriving on a second surface."""
+    root = a_root(tmp_path)
+    stored = [
+        ProjectRecord(path=root / f"p{index}", name="x" * 500)
+        for index in range(registry.MAX_REASONS + 50)
+    ]
+
+    result = registry.merge(stored, FakeScan(()), (root,), stamp)
+
+    assert len(result.reasons) == registry.MAX_REASONS + 1
+    assert "not shown" in result.reasons[-1]
+    assert all(
+        len(reason) <= 3 * registry.MAX_REASON_CHARS for reason in result.reasons
+    )
+
+
+def test_no_merge_value_is_interpolated_without_the_clip(tmp_path: Path) -> None:
+    """INV-10, as a runtime assertion rather than a second source grep.
+
+    The existing grep already covers `registry.__file__`, so a mirrored one
+    could never fail while the old one passed. This asserts the property the
+    grep cannot: that a reason a caller actually receives is escaped.
+    """
+    root = a_root(tmp_path)
+    hostile = "evil\nname " + "y" * 500
+    stored = ProjectRecord(path=root / "gone", name=hostile)
+
+    result = registry.merge([stored], FakeScan(()), (root,), stamp)
+
+    assert result.reasons
+    assert all("\n" not in reason for reason in result.reasons)
+    assert all("y" * 200 not in reason for reason in result.reasons)

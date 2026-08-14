@@ -287,6 +287,31 @@ class ProjectController(QObject):
             for record in self._records
         ]
 
+    def records(self) -> list[ProjectRecord]:
+        """The records themselves, for a caller that merges rather than renders.
+
+        `rows()` is what the UI reads; this is what LWSM-1131's rescan hands to
+        `registry.merge`. Kept separate so the window still holds no state of
+        its own — it asks the controller rather than keeping a second copy that
+        could disagree (`design.md § Components`).
+        """
+        return list(self._records)
+
+    def set_records(self, records: list[ProjectRecord]) -> None:
+        """Replace the project list, keeping every status already derived.
+
+        Resetting to `UNKNOWN` across the board would blank the window for up to
+        a poll interval after a rescan that changed one row — and `UNKNOWN`
+        means *nobody looked*, which would be false of every record that was
+        already being polled (`§ O5`).
+        """
+        self._records = records
+        self._statuses = {
+            record.path: self._statuses.get(record.path, ProjectStatus.UNKNOWN)
+            for record in records
+        }
+        self.projects_changed.emit()
+
     def start_polling(self) -> None:
         # Poll immediately rather than leaving the window blank for a second.
         self.poll_once()
