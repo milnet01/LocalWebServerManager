@@ -324,7 +324,14 @@ Added at P02 (LWSM-1005), contract in
 - **`src/lwsm/theme.py`** — UI layer, and the **only** module
   allowed a colour literal; `test_layering.py` exempts it by an
   explicit allowlist and asserts it still holds the palette.
-- **`src/lwsm/mainwindow.py`** — UI layer. Rows are created once
+- **`src/lwsm/mainwindow.py`** — UI layer. Since LWSM-1131 it also
+  owns the **Rescan** seam: `RescanContext` (scan roots, the scan
+  function and the writer, all injected so `testing.md § T1` holds),
+  `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`.
+  **The write happens in the slot, never in `merge()`** — the merge
+  runs on the pool thread and is handed no `LoadResult`, so the
+  window is the only place the records and LWSM-1007's read-only
+  gate are both in scope. Rows are created once
   and **updated in place**; rebuilding would drop keyboard focus
   and re-announce every unchanged row. The state glyph is
   decorative and excluded from the accessible name, which is

@@ -1,6 +1,7 @@
 # LWSM-1131 — Merge a rescan into the stored registry without discarding user edits
 
-**Status:** accepted (2026-08-13) — **at a 2-loop cap, not at convergence.** The user capped the gate on 2026-08-13 after measuring its yield across four loops on this pair: roughly 1 finding in 10 was a defect implementation would not have caught, and a third were the review's own collateral. § 12's rows carry the per-loop evidence.
+**Status:** **implemented (2026-08-14, 6c64d9d)**; accepted (2026-08-13) — **at a 2-loop cap, not at convergence.** The user capped the gate on 2026-08-13 after measuring its yield across four loops on this pair: roughly 1 finding in 10 was a defect implementation would not have caught, and a third were the review's own collateral. § 12's rows carry the per-loop evidence.
+**Built as written, with two things implementation decided that this document left open**, both now in the code: `merge()` reaches the scan through **Protocols** declared in `registry.py` (`ScanLike`, `ScannedProject`, `DetectedPort`) rather than importing `scanner`, because § 4.3's signature names `ScanResult` and a runtime import of it closes LWSM-1007 § 4.1's cycle; and the § 4.4 summary renders that section's six outcomes and **not** the duplicate-port count, which its table does not list — those entries reach the application log with every other reason.
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1131 (split-of-LWSM-1007-2026-08-12). Policy settled by
 [ADR-0005](../decisions/0005-registry-and-rescan.md); this is half of its

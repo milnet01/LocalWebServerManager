@@ -23,6 +23,16 @@ signaling per
 
 ### Added
 
+- **A Rescan button that finds your projects and folds them into the list without losing anything you changed** (LWSM-1131)
+  Rescan looks through your projects folder, adds anything new,
+  updates what it can see, and tells you in one line what changed —
+  "Rescan: 2 new, 1 changed". Names you have typed, ports you have
+  overridden and notes you have written are never overwritten. A
+  project it can no longer find is flagged rather than deleted, and
+  a port it could not read this time keeps the value it had rather
+  than being blanked. The scan runs in the background, so the window
+  stays responsive while it works.
+
 - **The project list can now be saved, and it remembers how each project is started** (LWSM-1007)
   `projects.json` now holds the launcher command, the launcher kind,
   a systemd unit name, per-project notes, and flags for hiding a

@@ -1825,7 +1825,7 @@ path. `docs/design.md § Detection rules` is the contract.
 
 ---
 
-- 📋 [LWSM-1131] **P03b: merge a rescan into the stored registry.**
+- ✅ [LWSM-1131] **P03b: merge a rescan into the stored registry.**
   **Split out of LWSM-1007 on 2026-08-12**, which kept the file
   format and the writer. LWSM-1007's spec reached `review-contract`'s
   3-loop cap without converging on a size-and-scope diagnosis — 540
@@ -1850,6 +1850,26 @@ path. `docs/design.md § Detection rules` is the contract.
   Kind: implement.
   Lanes: core, ui, tests.
   Source: split-of-LWSM-1007-2026-08-12.
+  Resolved 2026-08-14 (6c64d9d), from the spec accepted the day before at a
+  2-loop cap. `registry.merge()` with `MergeResult`, `ScanResult.unlistable_roots`,
+  and the Rescan seam in `MainWindow` — button, `QThreadPool` worker, one-line
+  summary, and the write in the slot behind LWSM-1007's read-only gate.
+  `merge()` reaches the scan through **Protocols** (`ScanLike`,
+  `ScannedProject`, `DetectedPort`) rather than importing `scanner`: the
+  direction is `scanner` → `registry`, importing back stops the package
+  importing at all, and Protocols make the fakes the contract the way
+  `SupportsSnapshot` already does for the probe.
+  Fourteen merge mechanisms mutated, fourteen died.
+  **Two out-of-scope items from § 9 are still out of scope and are named again
+  here so neither reads as delivered**: nothing acts on `hidden`, and a
+  duplicate-identity row still shows twice — both need a channel from the merge
+  to `ProjectController`, and the honest version of `hidden` also needs a way to
+  un-hide. And the duplicate-port flag is produced but its **other half —
+  refusing Start for the later claimant — is not built**; P05 owns that, and
+  this flag is the input it will act on.
+  Deviation worth recording: the summary renders § 4.4's six outcomes and does
+  **not** render the duplicate-port count, which that table does not list. Those
+  entries still reach the application log with every other reason.
 
 ## P04 — Appearance and accessibility foundation
 
