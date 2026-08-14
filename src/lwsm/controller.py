@@ -11,14 +11,22 @@ import atexit
 import logging
 import os
 import sys
+from concurrent.futures import Future
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
 from lwsm.registry import ProjectRecord
+from lwsm.supervisor import (
+    LauncherUntrusted,
+    ManagedProcess,
+    StopOutcome,
+    SupervisorError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -155,6 +163,53 @@ class ProjectStatus(StrEnum):
     # there is no port to look at, or no successful poll has completed yet.
     # Calling either "stopped" would assert something nobody looked at (§ O5).
     UNKNOWN = "unknown"
+    # Neither of these is derived either: they are the optimistic overlay
+    # (`design.md § State management`), which exists so a button feels
+    # responsive and is discarded the moment probing disagrees.
+    STARTING = "starting"
+    STOPPING = "stopping"
+
+
+# What a Start or a Stop is heading toward. The overlay is discarded when a poll
+# reports the state it was waiting for — NOT merely when a poll returns.
+#
+# The distinction is the whole of "there is no timeout on it: a slow start keeps
+# the overlay until a poll disagrees". Clearing `starting` on the first derived
+# `stopped` would discard it on the very next tick, since a server that has not
+# finished binding reads as stopped — so a slow start would flicker straight back
+# to `stopped` and the overlay would protect nothing.
+_OVERLAY_SETTLES_ON = {
+    ProjectStatus.STARTING: ProjectStatus.RUNNING,
+    ProjectStatus.STOPPING: ProjectStatus.STOPPED,
+}
+
+
+class SupportsSupervision(Protocol):
+    """What `ProjectController` needs from a `Supervisor`.
+
+    Declared so the fakes the tests inject are the contract rather than a
+    duck-typing workaround the annotation contradicts — `ports.SupportsSnapshot`
+    for the third time.
+    """
+
+    def start(
+        self,
+        project: Path,
+        name: str,
+        argv: list[str] | tuple[str, ...],
+        port: int | None,
+    ) -> ManagedProcess: ...
+
+    def stop_async(self, project: Path) -> Future[StopOutcome]: ...
+
+    def running(self) -> dict[Path, ManagedProcess]: ...
+
+    @property
+    def trust(self) -> SupportsTrust: ...
+
+
+class SupportsTrust(Protocol):
+    def confirm(self, project: Path, fingerprint: str) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -234,18 +289,52 @@ class _SnapshotTask(QRunnable):
             log.debug("port probe ended with no live signaller", exc_info=True)
 
 
+class _ActionSignals(QObject):
+    """A stop finishing on a worker thread, delivered to the GUI thread.
+
+    `Supervisor.stop_async` returns a `concurrent.futures.Future`, whose
+    done-callback runs on the executor's thread. Emitting a Qt signal from a
+    `QObject` that lives on the GUI thread is what marshals it back — Qt queues
+    a cross-thread emission, which is the same arrangement `_SnapshotSignals`
+    uses and the reason a widget is never touched from the worker.
+    """
+
+    stopped = Signal(object, object)  # path, StopOutcome | Exception
+
+
 class ProjectController(QObject):
     projects_changed = Signal()
+    # A Start or Stop that could not even be attempted — no launcher, a bound
+    # port, a refused launcher. The window puts it in the status bar.
+    action_failed = Signal(str)
+    # A launcher that has never been confirmed (ADR-0003 § Trust). Carries the
+    # `LauncherUntrusted` refusal, which holds the resolved path, the exact argv
+    # and the fingerprint — "not security theatre only if it shows what will
+    # actually run".
+    confirmation_required = Signal(object, object)  # path, LauncherUntrusted
 
     def __init__(
         self,
         records: list[ProjectRecord],
         probe: SupportsSnapshot,
+        supervisor: SupportsSupervision | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._records = records
         self._probe = probe
+        # Optional so every pre-LWSM-1010 caller still builds: a controller with
+        # no supervisor polls and renders exactly as before, and its Start
+        # reports rather than pretending.
+        self._supervisor = supervisor
+        # The optimistic overlay. ONE project, on the controller rather than in
+        # a widget, so it cannot become the second store `design.md § State
+        # management` forbids.
+        self._overlay: tuple[Path, ProjectStatus] | None = None
+        self._action_signals = _ActionSignals(self)
+        self._action_signals.stopped.connect(self._on_stopped)
+        # Paths whose stop is the first half of a restart.
+        self._restarting: set[Path] = set()
         self._statuses: dict[Path, ProjectStatus] = {
             record.path: ProjectStatus.UNKNOWN for record in records
         }
@@ -282,10 +371,154 @@ class ProjectController(QObject):
                 path=record.path,
                 name=record.name,
                 effective_port=record.effective_port,
-                status=self._statuses[record.path],
+                status=self._status_of(record.path),
             )
             for record in self._records
         ]
+
+    def _status_of(self, path: Path) -> ProjectStatus:
+        """The derived status, unless the overlay covers this project."""
+        if self._overlay is not None and self._overlay[0] == path:
+            return self._overlay[1]
+        return self._statuses[path]
+
+    # -- the buttons -----------------------------------------------------
+
+    def start_project(self, path: Path) -> None:
+        """Spawn, and show `starting` immediately.
+
+        The overlay is set only on a spawn that actually happened: marking a
+        project `starting` and then reporting a refusal would leave the row
+        claiming a transition nothing began, which the poll could not correct
+        because `starting` is not a state probing can disagree with.
+        """
+        record = self._record(path)
+        if record is None or self._supervisor is None:
+            self.action_failed.emit(f"cannot start {path}: nothing to start it with")
+            return
+        if not record.argv:
+            # An honest refusal rather than a guess. The launcher is a detected
+            # field, so the answer is a rescan, and saying so is more use than
+            # "failed to start".
+            self.action_failed.emit(
+                f"{record.name} has no launcher recorded — run Rescan first"
+            )
+            return
+        try:
+            self._supervisor.start(
+                record.path, record.name, record.argv, record.effective_port
+            )
+        except LauncherUntrusted as refusal:
+            # Not a failure: the user has simply not been asked yet. The window
+            # shows what would run and calls back in.
+            self.confirmation_required.emit(path, refusal)
+            return
+        except SupervisorError as exc:
+            self.action_failed.emit(f"{record.name}: {exc}")
+            return
+        except OSError as exc:
+            # The log file could not be opened. Distinct from SupervisorError
+            # because it is about this machine rather than about the project.
+            self.action_failed.emit(f"{record.name}: {exc}")
+            return
+        self._set_overlay(path, ProjectStatus.STARTING)
+
+    def stop_project(self, path: Path) -> None:
+        """Signal the group, and show `stopping` immediately.
+
+        The stop itself runs on a worker: a five-second grace period on the UI
+        thread would freeze the window (ADR-0003).
+        """
+        record = self._record(path)
+        if record is None or self._supervisor is None:
+            self.action_failed.emit(f"cannot stop {path}: nothing is supervising it")
+            return
+        if path not in self._supervisor.running():
+            # A `running (foreign)` project — this manager did not spawn it, so
+            # it has no handle to signal through, and ADR-0003 forbids
+            # signalling a bare PID. The foreign-stop path is a separate item.
+            self.action_failed.emit(
+                f"{record.name} was not started by this manager, so it cannot "
+                "be stopped from here yet"
+            )
+            return
+        self._set_overlay(path, ProjectStatus.STOPPING)
+        future = self._supervisor.stop_async(path)
+        future.add_done_callback(lambda done: self._report_stop(path, done))
+
+    def restart_project(self, path: Path) -> None:
+        """Stop then start, with the same pre-flight check (ADR-0003).
+
+        Sequenced through the stop's completion rather than run back to back:
+        starting before the old process has released the port is exactly what
+        the pre-flight check would then refuse.
+        """
+        if self._supervisor is not None and path in self._supervisor.running():
+            self._restarting.add(path)
+            self.stop_project(path)
+            return
+        self.start_project(path)
+
+    def confirm_and_start(self, path: Path, fingerprint: str) -> None:
+        """The user has seen the resolved path and argv, and said yes."""
+        if self._supervisor is None:
+            return
+        self._supervisor.trust.confirm(path, fingerprint)
+        self.start_project(path)
+
+    def _report_stop(self, path: Path, done: Future[StopOutcome]) -> None:
+        """Runs on the WORKER thread. Emits, and does nothing else.
+
+        Anything raising here would be swallowed by `concurrent.futures`, which
+        logs it and moves on — so the emission is the whole body, and the work
+        happens in the slot on the GUI thread.
+        """
+        try:
+            outcome: object = done.result()
+        except BaseException as exc:
+            # As wide as the language allows, and for `_SnapshotTask.run`'s
+            # reason: an exception escaping a future's done-callback is logged
+            # by `concurrent.futures` and dropped, so the overlay would stay set
+            # and the row would read `stopping` for the life of the session.
+            outcome = exc
+        try:
+            self._action_signals.stopped.emit(path, outcome)
+        except RuntimeError:
+            # The controller was torn down while the stop was in flight; there
+            # is nobody left to tell. `_SnapshotTask.run`'s outer clause, on a
+            # second worker.
+            log.debug("a stop finished with no live signaller", exc_info=True)
+
+    def _on_stopped(self, path: Path, outcome: object) -> None:
+        if self._stopped:
+            return
+        pending_restart = path in self._restarting
+        self._restarting.discard(path)
+        if isinstance(outcome, BaseException):
+            self._clear_overlay(path)
+            self.action_failed.emit(f"could not stop {path.name}: {outcome}")
+            return
+        if isinstance(outcome, StopOutcome) and outcome.warning:
+            # A bound port after a stop is a warning and never a second signal.
+            self.action_failed.emit(outcome.warning)
+        if pending_restart:
+            # Straight into the start, which re-runs the pre-flight check.
+            self.start_project(path)
+            return
+        # The overlay is NOT cleared here: the process is gone, but the port is
+        # what the row reports, and only a poll can say it has been released.
+
+    def _record(self, path: Path) -> ProjectRecord | None:
+        return next((record for record in self._records if record.path == path), None)
+
+    def _set_overlay(self, path: Path, status: ProjectStatus) -> None:
+        self._overlay = (path, status)
+        self.projects_changed.emit()
+
+    def _clear_overlay(self, path: Path) -> None:
+        if self._overlay is not None and self._overlay[0] == path:
+            self._overlay = None
+            self.projects_changed.emit()
 
     def records(self) -> list[ProjectRecord]:
         """The records themselves, for a caller that merges rather than renders.
@@ -352,6 +585,18 @@ class ProjectController(QObject):
             self._pool = QThreadPool(self)
             self._pool.setMaxThreadCount(1)
 
+    def close_supervisor(self) -> None:
+        """Release the supervisor's descriptors and threads, if there is one.
+
+        Separate from `stop()` because it is a different subject: `stop()` is
+        about this controller's poll, and this is about children that
+        deliberately **outlive** the window (ADR-0003). Idempotent.
+        """
+        if self._supervisor is not None:
+            close = getattr(self._supervisor, "close", None)
+            if close is not None:
+                close()
+
     def poll_once(self) -> None:
         if self._stopped:
             # A stray tick after stop() would re-arm delivery into a controller
@@ -376,7 +621,36 @@ class ProjectController(QObject):
         self._statuses = {
             record.path: self._classify(record, snapshot) for record in self._records
         }
+        if self._settle_overlay():
+            # Probing always wins, so a settled overlay is a visible change even
+            # when the derived map happens to match the previous one.
+            self.projects_changed.emit()
+            return
         self._maybe_emit(previous)
+
+    def _settle_overlay(self) -> bool:
+        """Discard the overlay once a poll reports the state it was heading for.
+
+        Not "once a poll returns": a server that has not finished binding reads
+        as `stopped`, so clearing on any derived state would drop a `starting`
+        overlay on the very next tick and the button would flicker straight
+        back. There is no timeout here either — nothing may time out into a
+        wrong state (ADR-0004 § Slowness is not failure).
+
+        The overlay is also dropped when its project has left the list, which a
+        rescan can do: an overlay keyed on a path nothing renders would sit
+        there for the life of the session.
+        """
+        if self._overlay is None:
+            return False
+        path, pending = self._overlay
+        if path not in self._statuses:
+            self._overlay = None
+            return True
+        if self._statuses[path] == _OVERLAY_SETTLES_ON[pending]:
+            self._overlay = None
+            return True
+        return False
 
     def _on_probe_error(self, exc: ProbeError) -> None:
         if self._stopped:

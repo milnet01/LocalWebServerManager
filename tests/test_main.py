@@ -273,7 +273,13 @@ def test_main_stops_the_controller_when_the_loop_returns(
         def stop(self) -> None:
             stops.append(1)
 
+        def close_supervisor(self) -> None:
+            # ADR-0003 leaves the SERVERS running; what this releases is our own
+            # descriptors and the stop worker (LWSM-1010).
+            supervisor_closes.append(1)
+
     shutdowns: list[int] = []
+    supervisor_closes: list[int] = []
 
     class FakeWindow:
         def show(self) -> None:
@@ -294,3 +300,4 @@ def test_main_stops_the_controller_when_the_loop_returns(
     assert main([]) == 0
     assert stops == [1], "main() returned without stopping the controller"
     assert shutdowns == [1], "main() returned without waiting for the rescan pool"
+    assert supervisor_closes == [1], "main() returned without closing the supervisor"

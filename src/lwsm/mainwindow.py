@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -63,6 +64,12 @@ STATE_GLYPHS = {
     ProjectStatus.RUNNING: "●",
     ProjectStatus.STOPPED: "○",
     ProjectStatus.UNKNOWN: "?",
+    # The two overlay states. Distinct from each other and from the three
+    # derived ones, because `design.md § Accessibility` asks for three
+    # independent signals — word, colour and glyph — and a shared glyph would
+    # quietly reduce that to two for exactly the states that change fastest.
+    ProjectStatus.STARTING: "◌",
+    ProjectStatus.STOPPING: "◑",
 }
 
 
@@ -87,6 +94,8 @@ def state_word(status: ProjectStatus) -> str:
         ProjectStatus.RUNNING: QCoreApplication.translate(_TR_CONTEXT, "running"),
         ProjectStatus.STOPPED: QCoreApplication.translate(_TR_CONTEXT, "stopped"),
         ProjectStatus.UNKNOWN: QCoreApplication.translate(_TR_CONTEXT, "unknown"),
+        ProjectStatus.STARTING: QCoreApplication.translate(_TR_CONTEXT, "starting"),
+        ProjectStatus.STOPPING: QCoreApplication.translate(_TR_CONTEXT, "stopping"),
     }.get(status, str(status))
 
 
@@ -266,6 +275,17 @@ class ProjectRow(QFrame):
         layout.addWidget(self._state)
         layout.addWidget(self._name)
         layout.addWidget(self._port)
+        # The buttons, after the cells so the state word is still first in tab
+        # order (`design.md § Accessibility`). Created for every row and enabled
+        # by status, rather than added and removed as the status changes:
+        # rebuilding a row's controls would drop keyboard focus mid-transition,
+        # which is exactly when a keyboard user is watching it.
+        self.start_button = QPushButton(self)
+        self.stop_button = QPushButton(self)
+        self.restart_button = QPushButton(self)
+        for button in (self.start_button, self.stop_button, self.restart_button):
+            layout.addWidget(button)
+
         # Every pixel of slack goes here, after the last cell (LWSM-1074).
         # `stretch=1` on the name gave the slack to that label instead, and
         # QLabel aligns left by default — so the name's text stayed put while
@@ -364,6 +384,40 @@ class ProjectRow(QFrame):
         inset = width / 2
         painter.drawRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset))
 
+    def _apply_button_state(self, status: ProjectStatus) -> None:
+        """Labels and enablement, both derived from the one status.
+
+        **Both overlay states disable all three.** A second Stop while one is in
+        flight would signal a group whose leader may already be reaped, and a
+        Start during a stop is the race the pre-flight check exists to refuse —
+        so the disable is correctness rather than politeness.
+
+        `unknown` means nobody has looked yet, so Start is offered and Stop is
+        not: starting something that turns out to be running is refused by the
+        pre-flight check with a reason, while stopping something nobody has
+        observed has nothing to signal.
+        """
+        self.start_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Start"))
+        self.stop_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Stop"))
+        self.restart_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Restart"))
+        in_transition = status in (ProjectStatus.STARTING, ProjectStatus.STOPPING)
+        running = status is ProjectStatus.RUNNING
+        self.start_button.setEnabled(not in_transition and not running)
+        self.stop_button.setEnabled(not in_transition and running)
+        self.restart_button.setEnabled(not in_transition and running)
+        # An accessible name of its own on each, because the label alone reads
+        # as "Start" three times over in a list of three projects (`§ O8`).
+        for button, verb in (
+            (self.start_button, "Start %1"),
+            (self.stop_button, "Stop %1"),
+            (self.restart_button, "Restart %1"),
+        ):
+            button.setAccessibleName(
+                QCoreApplication.translate(_TR_CONTEXT, verb).replace(
+                    "%1", self._name.text()
+                )
+            )
+
     def retranslate(self) -> None:
         """Re-render every cell from the `RowView` already held.
 
@@ -411,6 +465,7 @@ class ProjectRow(QFrame):
         self._state.setText(state_word(row.status))
         self._name.setText(row.name)
         self._port.setText(port_text(row.effective_port))
+        self._apply_button_state(row.status)
 
         # A property, not composed CSS: the rule lives in the theme's generated
         # style sheet (LWSM-1077). Qt does not re-evaluate a style-sheet selector
@@ -451,6 +506,7 @@ class MainWindow(QMainWindow):
         *,
         rescan: RescanContext | None = None,
         load: LoadResult | RegistryError | None = None,
+        confirm: Callable[[Path, str, tuple[str, ...]], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -462,6 +518,10 @@ class MainWindow(QMainWindow):
         self._rescan = rescan
         self._load = load
         self._rescan_in_flight = False
+        # Injected so the tests never open a real modal: a `QMessageBox.exec()`
+        # in a test blocks the event loop with nothing to click it, which is a
+        # hang rather than a failure.
+        self._confirm = confirm if confirm is not None else self._confirm_dialog
         # QCoreApplication.translate under the file's one context, not
         # `self.tr(...)` — tr resolves under the *class*, so this string landed
         # in "MainWindow" (and Qt then walked QMainWindow, QWidget, QObject and
@@ -520,6 +580,8 @@ class MainWindow(QMainWindow):
         self._rows: dict[Path, ProjectRow] = {}
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
+        controller.action_failed.connect(self.set_status_message)
+        controller.confirmation_required.connect(self._ask_to_trust)
 
         if notices:
             self.set_status_message(self._notice_summary(notices))
@@ -581,6 +643,54 @@ class MainWindow(QMainWindow):
 
     def set_status_message(self, text: str) -> None:
         self.statusBar().showMessage(text)
+
+    def _confirm_dialog(
+        self, project: Path, resolved: str, argv: tuple[str, ...]
+    ) -> bool:
+        """ADR-0003 § Trust, on screen.
+
+        It shows the **resolved absolute path and the exact argv**, never a
+        friendly summary: "the confirmation is not security theatre only if it
+        shows what will actually run". `Qt.PlainText` explicitly, because the
+        thing being displayed is a path from a directory anybody could have
+        written into, and Qt's default sniffs for rich text.
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setWindowTitle(
+            QCoreApplication.translate(_TR_CONTEXT, "Run this launcher?")
+        )
+        box.setText(
+            QCoreApplication.translate(
+                _TR_CONTEXT,
+                "%1 has not been run from here before.\n\n"
+                "This will execute:\n%2\n\nwith arguments:\n%3",
+            )
+            .replace("%1", project.name)
+            .replace("%2", resolved)
+            .replace("%3", " ".join(argv))
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        # No by default: a confirmation whose default is yes is a confirmation
+        # that gets dismissed rather than read.
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def _ask_to_trust(self, project: Path, refusal: object) -> None:
+        resolved = getattr(refusal, "resolved", None)
+        argv = getattr(refusal, "argv", ())
+        fingerprint = getattr(refusal, "fingerprint", "")
+        if self._confirm(project, str(resolved or argv[0] if argv else ""), argv):
+            self._controller.confirm_and_start(project, fingerprint)
+        else:
+            self.set_status_message(
+                QCoreApplication.translate(_TR_CONTEXT, "%1 was not started").replace(
+                    "%1", project.name
+                )
+            )
 
     @staticmethod
     def _rescan_label() -> str:
@@ -705,6 +815,20 @@ class MainWindow(QMainWindow):
             existing = self._rows.get(view.path)
             if existing is None:
                 widget = ProjectRow(view, self._theme, self)
+                # Bound with a default argument rather than a closure over
+                # `view`: the loop variable is rebound on every iteration, so a
+                # plain closure would leave every row's buttons driving the last
+                # project in the list.
+                path = view.path
+                widget.start_button.clicked.connect(
+                    lambda _checked=False, p=path: self._controller.start_project(p)
+                )
+                widget.stop_button.clicked.connect(
+                    lambda _checked=False, p=path: self._controller.stop_project(p)
+                )
+                widget.restart_button.clicked.connect(
+                    lambda _checked=False, p=path: self._controller.restart_project(p)
+                )
                 self._rows[view.path] = widget
                 # Before the trailing stretch, so rows stay top-aligned.
                 self._rows_layout.insertWidget(self._rows_layout.count() - 1, widget)

@@ -392,14 +392,29 @@ def test_a_status_change_repaints_the_word_in_the_new_token(qtbot, built) -> Non
     )
 
 
-def test_the_row_exposes_only_its_three_cells(qtbot, built) -> None:
+def test_the_row_exposes_its_three_cells_and_its_three_buttons(qtbot, built) -> None:
     """The count is the assertion that would have caught this: the row exposed
     four children, and setAccessibleName("") did not remove the fourth —
-    QAccessibleDisplay falls back to QLabel::text() when the name is empty."""
+    QAccessibleDisplay falls back to QLabel::text() when the name is empty.
+
+    The three buttons joined the list with LWSM-1010 and are asserted **by
+    exact name**, not merely counted. Each carries the project's name, because
+    three rows of a bare "Start" leave a screen-reader user with three
+    identical controls and no way to tell which is which (`§ O8`). The
+    decorative glyph is still absent, which is what this test was written for.
+    """
     window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
     names = accessible_children(rows_of(window)[0])
 
-    assert names == ["running", "a", "port 5005"], names
+    assert names == [
+        "running",
+        "a",
+        "port 5005",
+        "Start a",
+        "Stop a",
+        "Restart a",
+    ], names
+    assert not any(glyph in name for name in names for glyph in STATE_GLYPHS.values())
 
 
 # --- LWSM-1076: announced once per change, not once per second ----------------

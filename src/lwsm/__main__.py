@@ -46,6 +46,7 @@ def build_window(
         default_projects_path,
         load_projects,
     )
+    from lwsm.supervisor import Supervisor
     from lwsm.theme import Theme
 
     log = applog.get_logger(__name__)
@@ -68,7 +69,12 @@ def build_window(
         # The status bar gets a summary; the log gets the record.
         log.warning("project list: %s", notice)
 
-    controller = ProjectController(records, PortProbe())
+    probe = PortProbe()
+    # One probe for both jobs: the poll classifies from it, and the supervisor's
+    # pre-flight check asks the same socket table rather than opening a second
+    # view of it that could disagree.
+    supervisor = Supervisor(probe=probe)
+    controller = ProjectController(records, probe, supervisor)
     window = MainWindow(
         controller,
         Theme.default(),
@@ -151,6 +157,9 @@ def main(argv: list[str] | None = None) -> int:
         # pool thread outliving its controller — the race INV-16 exists to
         # prevent. Stops the timer and waits, bounded, for any outstanding probe.
         controller.stop()
+        # ADR-0003: the servers themselves are LEFT RUNNING, deliberately —
+        # `close()` releases our descriptors and threads and signals nothing.
+        controller.close_supervisor()
         # The rescan worker is a second pool with the same hazard, so it gets
         # the same bounded wait rather than being left to `~QThreadPool`, which
         # joins with no timeout at all.

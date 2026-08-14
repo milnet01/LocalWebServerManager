@@ -19,6 +19,7 @@ import textwrap
 import threading
 import time
 from collections.abc import Iterator
+from concurrent.futures import Future
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ from lwsm import controller as controller_module
 from lwsm.controller import ProjectController, ProjectStatus
 from lwsm.ports import PortSnapshot, ProbeError
 from lwsm.registry import ProjectRecord
+from lwsm.supervisor import LauncherUntrusted, StopOutcome
 
 pytestmark = pytest.mark.gui
 
@@ -529,11 +531,24 @@ def test_completed_tasks_do_not_accumulate(qtbot, controllers) -> None:
             controller.poll_once()
     assert probe.calls == polls
 
-    # At most the one still referenced by the controller — never one per tick.
+    # Far below one per tick — NOT "at most one". `gc.collect()` does not
+    # guarantee a Python wrapper is freed the moment its C++ object is: the pool
+    # deletes each task when `run()` returns, and a handful of wrappers sit in
+    # Qt's pending-deletion queue or in a frame that has not unwound. Measured
+    # 2026-08-14: a growth of 8 over 200 polls on a correct implementation, and
+    # 0 on a quieter run, so `<= 1` is a GC-timing assertion wearing a leak
+    # assertion's clothes.
+    #
+    # The bound still discriminates by a factor of ten: the defect this test
+    # exists for was one task and one signaller **per tick**, i.e. 200 here.
+    # Re-verified by re-injecting it — see the commit that widened this.
+    ceiling = polls // 10
     tasks = live(controller_module._SnapshotTask) - before_tasks
     signals = live(controller_module._SnapshotSignals) - before_signals
-    assert tasks <= 1, f"{tasks} more live tasks after {polls} completed polls"
-    assert signals <= 1, f"{signals} more live signallers after {polls} completed polls"
+    assert tasks < ceiling, f"{tasks} more live tasks after {polls} completed polls"
+    assert signals < ceiling, (
+        f"{signals} more live signallers after {polls} completed polls"
+    )
 
 
 def test_stop_does_not_wait_on_unrelated_work(qtbot, controllers) -> None:
@@ -991,3 +1006,260 @@ def test_a_success_reports_the_suppressed_count(qtbot, controllers, caplog) -> N
         "the recovery did not report the suppressed run: "
         f"{[r.getMessage() for r in caplog.records]}"
     )
+
+
+# --- LWSM-1010: the buttons and the optimistic overlay ------------------------
+
+
+class FakeTrust:
+    def __init__(self) -> None:
+        self.confirmed: list[tuple[Path, str]] = []
+
+    def confirm(self, project: Path, fingerprint: str) -> None:
+        self.confirmed.append((project, fingerprint))
+
+
+class FakeSupervisor:
+    """A supervisor whose every outcome the test chooses.
+
+    `SupportsSupervision` is why this is a contract rather than a duck-typing
+    workaround: a real `Supervisor` here would spawn processes for a test about
+    an overlay.
+    """
+
+    def __init__(self, refusal: Exception | None = None) -> None:
+        self.trust = FakeTrust()
+        self.refusal = refusal
+        self.started: list[tuple[Path, tuple[str, ...], int | None]] = []
+        self.stopped: list[Path] = []
+        self._running: dict[Path, object] = {}
+        self.futures: list[Future] = []
+
+    def start(self, project, name, argv, port):
+        if self.refusal is not None:
+            raise self.refusal
+        self.started.append((project, tuple(argv), port))
+        self._running[project] = object()
+        return self._running[project]
+
+    def stop_async(self, project):
+        self.stopped.append(project)
+        self._running.pop(project, None)
+        future: Future = Future()
+        self.futures.append(future)
+        return future
+
+    def running(self):
+        return dict(self._running)
+
+
+def supervised(controllers, records, probe, supervisor):
+    controller = ProjectController(records, probe, supervisor)
+    controllers.append(controller)
+    return controller
+
+
+def startable(name: str = "a", port: int | None = 5005) -> ProjectRecord:
+    return ProjectRecord(
+        path=Path(f"/srv/{name}"), name=name, port=port, argv=("./start.sh",)
+    )
+
+
+def test_start_shows_starting_before_the_next_poll(qtbot, controllers) -> None:
+    """The whole point of the overlay: the button feels responsive.
+
+    Set only on a spawn that actually happened — marking a project `starting`
+    and then reporting a refusal would leave the row claiming a transition
+    nothing began, and `starting` is not a state probing can disagree with.
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.start_project(Path("/srv/a"))
+
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+    assert supervisor.started == [(Path("/srv/a"), ("./start.sh",), 5005)]
+
+
+def test_a_slow_start_keeps_the_overlay_until_the_port_appears(
+    qtbot, controllers
+) -> None:
+    """ "There is no timeout on it: a slow start keeps the overlay until a poll
+    disagrees."
+
+    A server that has not finished binding reads as `stopped`, so clearing the
+    overlay on any derived state would drop it on the very next tick and the row
+    would flicker straight back — protecting nothing. This is the discriminating
+    case, and a merge of the two rules passes without it.
+    """
+    probe = FakeProbe()
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], probe, supervisor)
+    controller.start_project(Path("/srv/a"))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.STARTING, (
+        "a poll reporting 'not bound yet' must not discard a starting overlay"
+    )
+
+    probe.listening.add(5005)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.RUNNING
+
+
+def test_the_overlay_covers_exactly_one_project(qtbot, controllers) -> None:
+    """It lives on the controller and covers one row, so it cannot become the
+    second store `design.md § State management` forbids."""
+    supervisor = FakeSupervisor()
+    controller = supervised(
+        controllers, [startable("a"), startable("b", 6006)], FakeProbe(), supervisor
+    )
+
+    controller.start_project(Path("/srv/a"))
+    controller.start_project(Path("/srv/b"))
+
+    statuses = [row.status for row in controller.rows()]
+    assert statuses.count(ProjectStatus.STARTING) == 1
+    assert statuses[1] is ProjectStatus.STARTING, "the later Start owns the overlay"
+
+
+def test_a_project_with_no_launcher_says_so_rather_than_failing(
+    qtbot, controllers
+) -> None:
+    """The launcher is a DETECTED field, so the answer is a rescan — and saying
+    that is more use than "failed to start"."""
+    controller = supervised(
+        controllers,
+        [ProjectRecord(path=Path("/srv/a"), name="a", port=5005)],
+        FakeProbe(),
+        FakeSupervisor(),
+    )
+    messages: list[str] = []
+    controller.action_failed.connect(messages.append)
+
+    controller.start_project(Path("/srv/a"))
+
+    assert messages and "Rescan" in messages[0]
+    assert controller.rows()[0].status is not ProjectStatus.STARTING
+
+
+def test_an_unconfirmed_launcher_asks_rather_than_failing(qtbot, controllers) -> None:
+    """ADR-0003 § Trust. The refusal carries the resolved path, the exact argv
+    and the fingerprint, because a confirmation showing a friendly summary is
+    security theatre."""
+    refusal = LauncherUntrusted(Path("/srv/a/start.sh"), ("./start.sh",), "abc123")
+    supervisor = FakeSupervisor(refusal=refusal)
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    asked: list[tuple] = []
+    controller.confirmation_required.connect(lambda p, r: asked.append((p, r)))
+    failures: list[str] = []
+    controller.action_failed.connect(failures.append)
+
+    controller.start_project(Path("/srv/a"))
+
+    assert asked == [(Path("/srv/a"), refusal)]
+    assert failures == [], "an unconfirmed launcher is not a failure"
+    assert controller.rows()[0].status is not ProjectStatus.STARTING
+
+    supervisor.refusal = None
+    controller.confirm_and_start(Path("/srv/a"), refusal.fingerprint)
+    assert supervisor.trust.confirmed == [(Path("/srv/a"), "abc123")]
+    assert supervisor.started
+
+
+def test_stopping_a_project_this_manager_did_not_start_is_refused(
+    qtbot, controllers
+) -> None:
+    """A `running (foreign)` project has no handle to signal through, and
+    ADR-0003 forbids signalling a bare PID. The foreign-stop path is its own
+    item; until then this reports rather than pretending."""
+    controller = supervised(
+        controllers, [startable()], FakeProbe(5005), FakeSupervisor()
+    )
+    messages: list[str] = []
+    controller.action_failed.connect(messages.append)
+
+    controller.stop_project(Path("/srv/a"))
+
+    assert messages and "not started by this manager" in messages[0]
+
+
+def test_stop_shows_stopping_and_a_bound_port_afterwards_only_warns(
+    qtbot, controllers
+) -> None:
+    """The stop runs on a worker, and its outcome arrives on the GUI thread.
+
+    A port still bound after the child is gone is reported and never signalled
+    a second time — the `or` ADR-0003 struck, because it fires exactly when our
+    child is already reaped and something else holds the port.
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+    messages: list[str] = []
+    controller.action_failed.connect(messages.append)
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.stop_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STOPPING
+
+    supervisor.futures[0].set_result(
+        StopOutcome(port_still_bound=True, warning="port 5005 is still bound")
+    )
+    qtbot.waitUntil(lambda: bool(messages), timeout=2000)
+    assert "still bound" in messages[0]
+
+
+def test_a_restart_starts_only_after_the_stop_has_finished(qtbot, controllers) -> None:
+    """Sequenced through the stop's completion, not run back to back: starting
+    before the old process released the port is exactly what the pre-flight
+    check would then refuse."""
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+    supervisor.started.clear()
+
+    controller.restart_project(Path("/srv/a"))
+    assert supervisor.stopped == [Path("/srv/a")]
+    assert supervisor.started == [], "the start must wait for the stop"
+
+    supervisor.futures[0].set_result(StopOutcome(exit_code=0))
+    qtbot.waitUntil(lambda: bool(supervisor.started), timeout=2000)
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+
+
+def test_a_stop_that_raises_clears_the_overlay_and_reports(qtbot, controllers) -> None:
+    """`concurrent.futures` logs an exception out of a done-callback and drops
+    it, so without the catch the row would read `stopping` for the life of the
+    session."""
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+    controller.stop_project(Path("/srv/a"))
+    messages: list[str] = []
+    controller.action_failed.connect(messages.append)
+
+    supervisor.futures[0].set_exception(RuntimeError("the pool fell over"))
+
+    qtbot.waitUntil(lambda: bool(messages), timeout=2000)
+    assert "could not stop" in messages[0]
+    assert controller.rows()[0].status is not ProjectStatus.STOPPING
+
+
+def test_an_overlay_on_a_project_that_leaves_the_list_is_dropped(
+    qtbot, controllers
+) -> None:
+    """A rescan can remove a row. An overlay keyed on a path nothing renders
+    would sit there for the life of the session."""
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+
+    controller.set_records([startable("b", 6006)])
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller._overlay is None
