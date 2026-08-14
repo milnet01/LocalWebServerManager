@@ -32,6 +32,7 @@ CORE_MODULES = [
     "ports.py",
     "registry.py",
     "scanner.py",
+    "supervisor.py",
 ]
 
 # The complement of core, named explicitly rather than derived from
