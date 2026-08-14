@@ -392,14 +392,14 @@ def test_a_status_change_repaints_the_word_in_the_new_token(qtbot, built) -> Non
     )
 
 
-def test_the_row_exposes_its_three_cells_and_its_three_buttons(qtbot, built) -> None:
+def test_the_row_exposes_its_cells_and_its_buttons(qtbot, built) -> None:
     """The count is the assertion that would have caught this: the row exposed
     four children, and setAccessibleName("") did not remove the fourth —
     QAccessibleDisplay falls back to QLabel::text() when the name is empty.
 
-    The three buttons joined the list with LWSM-1010 and are asserted **by
-    exact name**, not merely counted. Each carries the project's name, because
-    three rows of a bare "Start" leave a screen-reader user with three
+    The buttons joined the list with LWSM-1010 and LWSM-1016, and are asserted
+    **by exact name**, not merely counted. Each carries the project's name,
+    because three rows of a bare "Start" leave a screen-reader user with three
     identical controls and no way to tell which is which (`§ O8`). The
     decorative glyph is still absent, which is what this test was written for.
     """
@@ -413,6 +413,7 @@ def test_the_row_exposes_its_three_cells_and_its_three_buttons(qtbot, built) -> 
         "Start a",
         "Stop a",
         "Restart a",
+        "Open a in a browser",
     ], names
     assert not any(glyph in name for name in names for glyph in STATE_GLYPHS.values())
 
@@ -1525,3 +1526,157 @@ def test_the_summary_order_is_fixed_and_not_dict_order() -> None:
     assert (
         mainwindow.summarise_merge(backwards) == "Rescan: 1 new, 1 changed, 1 missing"
     )
+
+
+# --- LWSM-1016: open in browser ----------------------------------------------
+
+
+def opening_window(qtbot, built, records, probe, opened: list) -> MainWindow:
+    """A window whose `openUrl` is a spy — a test must never launch a browser."""
+    controller = build_controller(built, records, probe)
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        open_url=lambda url: opened.append(url) or True,
+    )
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    return window
+
+
+def test_open_is_offered_only_while_a_port_is_observed_bound(qtbot, built) -> None:
+    """Not while `starting`: there is no bound port yet, so the browser would
+    open on nothing and the user would blame the app rather than the wait."""
+    opened: list = []
+    window = opening_window(qtbot, built, [record("a", 5005)], FakeProbe(5005), opened)
+    assert rows_of(window)[0].open_button.isEnabled()
+
+    stopped = opening_window(qtbot, built, [record("b", 6006)], FakeProbe(), opened)
+    assert not rows_of(stopped)[0].open_button.isEnabled()
+
+
+def test_open_uses_the_port_that_is_bound(qtbot, built) -> None:
+    """`http://localhost:<bound port>`, built through QUrl rather than
+    concatenated — the requested and the bound port differ exactly when a
+    project ignored `PORT`."""
+    opened: list = []
+    window = opening_window(qtbot, built, [record("a", 5005)], FakeProbe(5005), opened)
+
+    rows_of(window)[0].open_button.click()
+
+    assert len(opened) == 1
+    assert opened[0].toString() == "http://localhost:5005/"
+    assert opened[0].port() == 5005
+    assert opened[0].host() == "localhost"
+
+
+def test_open_reads_the_port_at_click_time_not_at_build_time(qtbot, built) -> None:
+    """An override or a rescan can move the port. Opening a value cached when
+    the button was created is the confidently-wrong failure ADR-0003 records a
+    sibling project having shipped — it kept POSTing to the old port while the
+    server was perfectly healthy somewhere else."""
+    opened: list = []
+    controller = build_controller(built, [record("a", 5005)], FakeProbe(5005, 7007))
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        open_url=lambda url: opened.append(url) or True,
+    )
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    # `set_records` emits on its own, and no second poll is waited for on
+    # purpose: both 5005 and 7007 are bound in this fixture, so the derived
+    # status does not change and `_maybe_emit` correctly stays quiet. Waiting
+    # for a signal that must not come is how this test first failed.
+    controller.set_records([record("a", 7007)])
+    rows_of(window)[0].open_button.click()
+
+    assert opened[0].port() == 7007, "the button opened a port that had moved"
+
+
+def test_a_browser_that_will_not_open_is_reported(qtbot, built) -> None:
+    """`openUrl` returns False when the desktop has no handler. Silence here
+    looks identical to a browser that opened behind the window."""
+    controller = build_controller(built, [record("a", 5005)], FakeProbe(5005))
+    window = MainWindow(controller, Theme.default(), [], open_url=lambda _url: False)
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    rows_of(window)[0].open_button.click()
+
+    assert "Could not open a browser" in window.statusBar().currentMessage()
+
+
+def test_the_url_is_built_not_concatenated() -> None:
+    """A port substituted into a string before parsing is how
+    `http://localhost:0@evil.example/` gets made. `QUrl` refuses to produce one
+    from an integer port, which is the whole reason for the shape."""
+    url = mainwindow.project_url(8080)
+    assert url.scheme() == "http"
+    assert url.host() == "localhost"
+    assert url.userInfo() == ""
+    assert url.toString() == "http://localhost:8080/"
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        # start, stop, restart, open
+        (ProjectStatus.STOPPED, (True, False, False, False)),
+        (ProjectStatus.RUNNING, (False, True, True, True)),
+        (ProjectStatus.UNKNOWN, (True, False, False, False)),
+        (ProjectStatus.STARTING, (False, False, False, False)),
+        (ProjectStatus.STOPPING, (False, False, False, False)),
+    ],
+)
+def test_which_buttons_each_state_offers(qtbot, status, expected) -> None:
+    """Every state against every button, because the interesting ones are the
+    two overlay states and no other test reaches them.
+
+    Both overlay states disable all four: a second Stop while one is in flight
+    would signal a group whose leader may already be reaped, a Start during a
+    stop is the race the pre-flight check exists to refuse, and Open while
+    `starting` would launch a browser at a port nothing has bound yet.
+    """
+    from lwsm.controller import RowView
+    from lwsm.mainwindow import ProjectRow
+
+    row = ProjectRow(
+        RowView(path=Path("/srv/a"), name="a", effective_port=5005, status=status),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    assert (
+        row.start_button.isEnabled(),
+        row.stop_button.isEnabled(),
+        row.restart_button.isEnabled(),
+        row.open_button.isEnabled(),
+    ) == expected
+
+
+def test_each_rows_buttons_drive_that_row(qtbot, built) -> None:
+    """The bug a one-row fixture cannot see.
+
+    A lambda closing over the loop variable leaves every row's buttons driving
+    the LAST project in the list — which looks completely correct until there
+    are two rows, and then silently opens, starts and stops the wrong project.
+    """
+    opened: list = []
+    window = opening_window(
+        qtbot,
+        built,
+        [record("a", 5005), record("b", 6006)],
+        FakeProbe(5005, 6006),
+        opened,
+    )
+
+    rows_of(window)[0].open_button.click()
+
+    assert opened[0].port() == 5005, "the first row opened another row's port"

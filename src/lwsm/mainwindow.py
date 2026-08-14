@@ -24,11 +24,13 @@ from PySide6.QtCore import (
     QRunnable,
     Qt,
     QThreadPool,
+    QUrl,
     Signal,
 )
 from PySide6.QtGui import (
     QAccessible,
     QAccessibleEvent,
+    QDesktopServices,
     QPainter,
     QPaintEvent,
     QPen,
@@ -116,6 +118,34 @@ def port_text(effective_port: int | None) -> str:
     return QCoreApplication.translate(_TR_CONTEXT, "port %1").replace(
         "%1", str(effective_port)
     )
+
+
+def project_url(port: int) -> QUrl:
+    """`http://localhost:<port>/`, built rather than concatenated.
+
+    `QUrl.setPort` with an integer rather than an f-string, following the rule
+    `design.md § Custom project actions` states for user-authored URLs —
+    substituting a value into a string before parsing is how
+    `http://localhost:0@evil.example/` gets made.
+
+    **On this call site that is consistency, not a hole being closed, and the
+    mutation says so:** `port` here is an `int` validated by the registry's
+    1-65535 range, so `QUrl(f"http://localhost:{port}/")` produces the identical
+    URL and the mutant survives every test. Recorded rather than dressed up as a
+    security fix — the live version of this rule is LWSM-1121's `open_url`
+    action, where the value is user-authored text.
+
+    **The port is the one observed BOUND, not the one requested.** The two
+    differ exactly when a project ignored `PORT`, which is the case this button
+    would otherwise get wrong every time — and the status is derived from the
+    socket table, so a row reading `running` is a row whose port is bound.
+    """
+    url = QUrl()
+    url.setScheme("http")
+    url.setHost("localhost")
+    url.setPort(port)
+    url.setPath("/")
+    return url
 
 
 def utc_stamp() -> str:
@@ -283,7 +313,13 @@ class ProjectRow(QFrame):
         self.start_button = QPushButton(self)
         self.stop_button = QPushButton(self)
         self.restart_button = QPushButton(self)
-        for button in (self.start_button, self.stop_button, self.restart_button):
+        self.open_button = QPushButton(self)
+        for button in (
+            self.start_button,
+            self.stop_button,
+            self.restart_button,
+            self.open_button,
+        ):
             layout.addWidget(button)
 
         # Every pixel of slack goes here, after the last cell (LWSM-1074).
@@ -400,17 +436,34 @@ class ProjectRow(QFrame):
         self.start_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Start"))
         self.stop_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Stop"))
         self.restart_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Restart"))
+        self.open_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Open"))
         in_transition = status in (ProjectStatus.STARTING, ProjectStatus.STOPPING)
         running = status is ProjectStatus.RUNNING
+        # `not in_transition` appears once, on Start, and that is not an
+        # oversight on the other three. The overlay REPLACES the status, so
+        # `running` and `in_transition` are mutually exclusive — a guard on
+        # Stop, Restart or Open would be dead code, and a mutation removing it
+        # survived every test, which is what a redundant condition looks like
+        # from the outside. Start is the one that needs it: `not running` is
+        # true while starting, so without the guard a second click would spawn
+        # a second server (`coding.md § 1.1`).
         self.start_button.setEnabled(not in_transition and not running)
-        self.stop_button.setEnabled(not in_transition and running)
-        self.restart_button.setEnabled(not in_transition and running)
+        self.stop_button.setEnabled(running)
+        self.restart_button.setEnabled(running)
+        # Enabled whenever a port is observed bound, which today is exactly
+        # `running` — including a server this manager did not start, since
+        # ADR-0004 classifies from the socket table rather than from ownership
+        # and a foreign server is just as reachable. **Not** enabled while
+        # starting: there is no bound port yet, so the browser would open on
+        # nothing and the user would blame the app rather than the wait.
+        self.open_button.setEnabled(running)
         # An accessible name of its own on each, because the label alone reads
         # as "Start" three times over in a list of three projects (`§ O8`).
         for button, verb in (
             (self.start_button, "Start %1"),
             (self.stop_button, "Stop %1"),
             (self.restart_button, "Restart %1"),
+            (self.open_button, "Open %1 in a browser"),
         ):
             button.setAccessibleName(
                 QCoreApplication.translate(_TR_CONTEXT, verb).replace(
@@ -507,6 +560,7 @@ class MainWindow(QMainWindow):
         rescan: RescanContext | None = None,
         load: LoadResult | RegistryError | None = None,
         confirm: Callable[[Path, str, tuple[str, ...]], bool] | None = None,
+        open_url: Callable[[QUrl], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -522,6 +576,9 @@ class MainWindow(QMainWindow):
         # in a test blocks the event loop with nothing to click it, which is a
         # hang rather than a failure.
         self._confirm = confirm if confirm is not None else self._confirm_dialog
+        # Injected for the same reason as `confirm`: a test that reached
+        # `QDesktopServices.openUrl` would launch the developer's browser.
+        self._open_url = open_url if open_url is not None else QDesktopServices.openUrl
         # QCoreApplication.translate under the file's one context, not
         # `self.tr(...)` — tr resolves under the *class*, so this string landed
         # in "MainWindow" (and Qt then walked QMainWindow, QWidget, QObject and
@@ -692,6 +749,32 @@ class MainWindow(QMainWindow):
                 )
             )
 
+    def _open_project(self, path: Path) -> None:
+        """Open the running server in the desktop's browser.
+
+        The port comes from the row the controller currently reports, not from a
+        value cached when the button was created: a rescan or an override can
+        move it, and opening a stale port is the confidently-wrong failure
+        ADR-0003 records a sibling project having shipped.
+        """
+        view = next((row for row in self._controller.rows() if row.path == path), None)
+        if view is None or view.effective_port is None:
+            self.set_status_message(
+                QCoreApplication.translate(
+                    _TR_CONTEXT, "%1 has no port to open"
+                ).replace("%1", path.name)
+            )
+            return
+        if not self._open_url(project_url(view.effective_port)):
+            # openUrl returns False when the desktop has no handler. Silence
+            # here would look identical to a browser that opened behind the
+            # window.
+            self.set_status_message(
+                QCoreApplication.translate(
+                    _TR_CONTEXT, "Could not open a browser for %1"
+                ).replace("%1", path.name)
+            )
+
     @staticmethod
     def _rescan_label() -> str:
         return QCoreApplication.translate(_TR_CONTEXT, "Rescan")
@@ -828,6 +911,9 @@ class MainWindow(QMainWindow):
                 )
                 widget.restart_button.clicked.connect(
                     lambda _checked=False, p=path: self._controller.restart_project(p)
+                )
+                widget.open_button.clicked.connect(
+                    lambda _checked=False, p=path: self._open_project(p)
                 )
                 self._rows[view.path] = widget
                 # Before the trailing stretch, so rows stay top-aligned.
