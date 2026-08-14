@@ -315,7 +315,14 @@ Added at P02 (LWSM-1005), contract in
   Protocol the controller accepts so test fakes are the contract.
   One `psutil.net_connections` call per snapshot.
 - **`src/lwsm/controller.py`** — core, `QtCore` only.
-  `ProjectController`, `ProjectStatus`, `RowView`. Polls every
+  `ProjectController`, `ProjectStatus`, `RowView`. Since LWSM-1010
+  it also drives the buttons: `start_project`, `stop_project`,
+  `restart_project`, and the **optimistic overlay**. **The overlay
+  settles on the state it was heading *for*** — `starting` on
+  running, `stopping` on stopped — never on any derived state:
+  `design.md § State management` contains both readings, and only
+  this one makes "a slow start keeps the overlay" true, since a
+  server that has not finished binding reads as *stopped*. Polls every
   1000 ms **on a `QThreadPool` worker** (design.md § State
   management requires it). **`QRunnable` is not a `QObject`**, so
   the task holds a composed `_SnapshotSignals(QObject)` — a
@@ -499,6 +506,16 @@ executed in any test. **Coverage found what reading did not**: `scanner.py:943`,
 the *per-candidate* half of a deadline whose per-line half does all the work.
 Before believing an invariant is held, mutate it — and check the line runs at
 all.
+
+**Trap: a one-row fixture cannot see a per-row bug.** Hit on 2026-08-14
+mutation-testing LWSM-1016. Every window fixture in `test_mainwindow.py` built
+**one** project, so a `lambda` closing over the loop variable — which makes
+every row's buttons drive the *last* project in the list — passed the whole
+suite. Four of six mutants survived that first pass and each was a genuine gap:
+the closure, no test reaching the two overlay states at all, a mutation that
+had not applied cleanly, and one that could not be caught because the code was
+equivalent. **When a widget is created per item, at least one fixture must have
+two of them**, and the assertion must name which one it expects.
 
 **Trap: `psutil.wait_procs` reaps a process that is your own child.**
 It calls `Process.wait()`, which for a direct child is `os.waitpid` — so

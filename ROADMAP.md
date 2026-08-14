@@ -2056,7 +2056,7 @@ is the contract.
   Priority: 1.
   Lanes: core, tests.
 
-- 📋 [LWSM-1010] **P05: start / stop / restart in the UI with the
+- ✅ [LWSM-1010] **P05: start / stop / restart in the UI with the
   optimistic overlay.** Buttons wired through `ProjectController`,
   with the bounded overlay in `docs/design.md § State management`
   so the UI responds immediately and probing always wins.
@@ -2086,8 +2086,27 @@ is the contract.
   rather than one known project, the app's list comes from `projects.json`
   which has no argv to compare against, and it is a workaround for a missing
   field rather than the field (`coding.md § 1.2`).
+  Resolved 2026-08-14 (d3e5673). Start / Stop / Restart per row, wired through
+  `ProjectController` to LWSM-1009's `Supervisor`, with the bounded optimistic
+  overlay. `ProjectStatus` gains `STARTING` and `STOPPING`; neither is derived,
+  which is why `_classify` never returns one.
+  **The overlay rule is the part that is easy to get wrong.** `design.md
+  § State management` says both "discarded the moment a poll returns a derived
+  state" and "a slow start keeps the overlay until a poll disagrees", and those
+  cannot both be literal: a server that has not finished binding reads as
+  *stopped*, so clearing on any derived state drops a `starting` overlay on the
+  very next tick and the row flickers back. The overlay therefore settles on the
+  state it was heading FOR. **`design.md` was not edited** — the two sentences
+  are reconcilable and the code records which reading wins.
+  Also: the overlay is set only on a spawn that actually happened; an
+  unconfirmed launcher **asks** rather than failing (LWSM-1046's UI half, showing
+  the resolved path and exact argv, defaulting to No); a restart is sequenced
+  through the stop's completion; and a `running (foreign)` project reports that
+  it cannot be stopped from here rather than pretending.
+  Nine mechanisms mutated, nine died — after one inert mutation was caught and
+  rewritten, which is the trap `CLAUDE.md` already records twice.
 
-- 📋 [LWSM-1016] **P05: open in browser.** Opens
+- ✅ [LWSM-1016] **P05: open in browser.** Opens
   `http://localhost:<bound port>` via `QDesktopServices` — the
   port actually bound, never the requested one, since the two
   differ exactly when a project ignored `PORT`. Enabled in all
@@ -2102,6 +2121,25 @@ is the contract.
   Source: user-2026-08-03.
   Priority: 2.
   Lanes: ui.
+  Resolved 2026-08-14 (008cf8f). An Open button per row,
+  `http://localhost:<bound port>/` built through `QUrl`. **Success criterion 2
+  is now closed end to end**: a project can be started, seen to be running,
+  opened in a browser and stopped.
+  The port is read from the row the controller reports **at click time**, never
+  cached when the button was created — ADR-0003 records a sibling project that
+  shipped the other version and kept POSTing to a port the server had left.
+  Enabled exactly while a port is observed bound, which today is `running`,
+  including a server this manager did not start (ADR-0004 classifies from the
+  socket table, not from ownership). Not while `starting`: there is no bound
+  port yet.
+  **Four of six mutants survived the first pass and every one was a real gap** —
+  no test reached the overlay states, every fixture had one row so the
+  loop-variable closure bug was invisible, one mutation had not applied cleanly,
+  and `QUrl` vs an f-string is indistinguishable here because `port` is an
+  `int` validated to 1-65535. That last one is now recorded in the docstring as
+  consistency with `design.md § Custom project actions` rather than as a hole
+  being closed; the live version of that rule is LWSM-1121's user-authored
+  `open_url`.
 
 - 📋 [LWSM-1055] **P05: a per-project browser choice for Open in
   browser.**

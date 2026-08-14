@@ -23,6 +23,22 @@ signaling per
 
 ### Added
 
+- **An Open button that opens the running site in your browser** (LWSM-1016)
+  Opens the port the server is actually listening on, read at the
+  moment you click rather than remembered from earlier — so it still
+  opens the right thing after a project moves ports. Available for any
+  server that is running, including one you started yourself outside
+  the app.
+
+- **Start, Stop and Restart buttons on every project — the app can now actually run your servers** (LWSM-1010)
+  The buttons respond the instant you click them: a project shows
+  "starting" or "stopping" straight away rather than waiting up to a
+  second for the next check, and the real status takes over as soon as
+  it is known. The first time you start a project the app shows you
+  exactly what it is about to run — the full path and the exact
+  command — and asks; it asks again if that script changes. Stopping a
+  project stops the helper processes it started too.
+
 - **A Rescan button that finds your projects and folds them into the list without losing anything you changed** (LWSM-1131)
   Rescan looks through your projects folder, adds anything new,
   updates what it can see, and tells you in one line what changed —
