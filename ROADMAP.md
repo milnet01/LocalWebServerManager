@@ -1357,11 +1357,302 @@ said nothing about any of them.
   Source: code-quality-review-2026-08-12 lane-1 #5.
   Resolved (2026-08-12, 6b592df): the evidence test now searches `strip_comment(script[:MAX_SOURCE_LINE_CHARS])`, so it sees what the port rules see. `\bvite\b` is untouched — the whole-word form was forced by an executed acceptance test on 2026-08-08 — and `project-k-vitest` still comes back unknown. New corpus fixture `project-o-vite-in-a-comment` covers the note-about-a-migration shape.
 
+## FP07 — Three-lane review fold-in (from the P03b close, 2026-08-15)
+
+The P03b close ran `check-code` and `/code-quality-review` once, per the
+standing 2026-08-07 process decision. Static analysis was clean for the fifth
+close running — ruff, bandit, semgrep, gitleaks, shellcheck, actionlint and
+zizmor all zero. Every real finding came from reading, for the fifth time.
+
+Three lanes over `supervisor.py`, `registry.py` and the UI pair produced **55
+findings — 3 CRITICAL, 7 HIGH, 19 MEDIUM and the rest LOW/INFO**. This section
+is the ten above the bar. The MEDIUM and LOW tail is routed to
+`docs/known-issues.md` with named owners, per the same 2026-08-07 decision.
+
+**Two findings mean the app does not do what this roadmap and
+`.claude/workflow.md` recorded it doing on 2026-08-14.** Success criterion 2 was
+written up as closed end to end. It is closed for **shell-launcher projects
+only**: `npm run dev`, `python3 serve.py` and `node serve.mjs` are all refused
+before they spawn, and any project whose port the scanner could not pin sticks
+in `starting` forever with every button disabled. Both were reproduced against
+the shipped module before this section was written.
+
+**The cross-cutting finding is one all three lanes hit independently: a
+documented mechanism with no caller.** `rotate_if_needed` (the 5 MB per-project
+log cap), `DETECTED_FIELDS` / `USER_FIELDS` (the merge's classification spine),
+and `wait_for_abandoned_probes` are each declared, documented as delivered, and
+consulted by nothing in `src/`. No lane saw the other lanes' reports. This is
+the same class as FP06's non-`OSError` family — an instance found three times
+before the class was named — and it is named here rather than patched three
+times.
+
+**The second cross-cutting theme is LWSM-1069's shape, three more times.** An
+exception escaping a Qt slot leaves a control permanently disabled with no
+message: the raw `OSError` from `mkstemp`, the `AttributeError` from an unset
+`load`, and the unbounded overlay all end there. LWSM-1069 fixed this on the
+poll loop and nowhere else.
+
+**Why 494 green tests said nothing about any of it.** Every `start()` test in
+`test_supervisor.py` uses `("./start.sh",)` — a launcher-kind monoculture, so
+the one branch that works is the only one exercised. No fixture has a port-less
+project. No fixture fills a disk. Same family as the one-row-fixture trap
+recorded on 2026-08-14: a fixture set that cannot express the variation the code
+branches on.
+
+### 🐛 Bug fixes
+
+- 📋 [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
+  `_launcher_path` (`supervisor.py:261`) builds `(project / argv[0]).resolve()`
+  for every argv. For a PATH-resolved command that yields `<project>/npm`,
+  `.resolve()` is non-strict so it returns unchanged, `is_relative_to(project)`
+  is True, and a path is returned — after which `validate_launcher`'s `os.stat`
+  raises ENOENT and `start()` refuses with `LauncherRefused`.
+  **The function contradicts its own docstring**, which says
+  `["npm", "run", "dev"]` has no launcher file and that returning `None` there
+  "is honest rather than convenient".
+  `scanner.py` emits exactly the refused shapes: `:1086` `("npm","run",…)`,
+  `:1144` `("python3"|"node", filename)`. Only `:981` `(f"./{filename}",)`
+  survives. Reproduced against the installed module 2026-08-15:
+  `./start.sh` validates; the other three refuse with
+  `cannot read <project>/npm: [Errno 2]`.
+  The user sees a message blaming their project for a supervisor bug.
+  Fix: return `None` when `argv[0]` contains no `/` — POSIX `execvp` semantics
+  decide this, not path arithmetic. Keep the containment check for `./…` and
+  subdirectory cases.
+  Acceptance: a red test per launcher kind — `npm`, `python3`, `node` — each
+  watched failing first; the shell kind still validates; and at least one
+  `start()` fixture per kind, so the monoculture that hid this cannot return.
+  Dependencies: none.
+  **Layman:** Only projects started by a shell script actually work. Anything using npm, Python or Node refuses to start and blames your project for it.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-15 lane-1 CRITICAL.
+
+- 📋 [LWSM-1133] **FP07: the optimistic overlay is not bounded and can never settle.**
+  `_settle_overlay` (`controller.py:650`) clears the overlay only when the
+  derived status equals `_OVERLAY_SETTLES_ON[pending]`, which maps
+  `STARTING → RUNNING` and `STOPPING → STOPPED`. `_classify`
+  (`controller.py:703`) returns `UNKNOWN` whenever `record.effective_port is
+  None`, and `start_project` requires `argv` but **not** a port. So pressing
+  Start on any project whose port the scanner could not pin — a documented,
+  supported outcome, `port is None` meaning *unknown, never a guess* — sets
+  `STARTING` and nothing can ever clear it. `_clear_overlay` is called from one
+  place only, the stop-failed branch at `:498`.
+  The row then reads `starting` for the life of the session with **all four
+  buttons dead** (`mainwindow.py:450-459`).
+  Three documents promise otherwise: `design.md § State management` ("bounded so
+  it cannot become that second store"), LWSM-1010's bullet ("the bounded
+  overlay"), and ADR-0004 § Consequences ("a labelled, **expiring** layer").
+  The docstring's "There is no timeout here either" is correct and deliberate
+  per ADR-0004 § Slowness is not failure — the defect is the unreachable target
+  state, not the absence of a timer, and the fix must not add one.
+  Fix: settle on a terminal *observation* as well as the target state — a
+  project the supervisor no longer holds cannot still be `starting` — and give
+  the port-less case an explicit exit.
+  Acceptance: a red test starting a project with `port=None` and asserting the
+  overlay clears; a fixture with no port must exist, since none does today.
+  Dependencies: none.
+  **Layman:** Start a project the app could not find a port for and its row freezes on "starting" forever, with every button greyed out until you restart the app.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-15 lane-3 CRITICAL.
+
+- 📋 [LWSM-1134] **FP07: the overlay also sticks on the two failure paths that matter most.**
+  Same mechanism as LWSM-1133, reached two other ways (`controller.py:508-509`).
+  A launcher that spawns and exits without ever binding — ADR-0004's own
+  definition of `failed` — leaves the derived status at `stopped`, which never
+  equals `RUNNING`, so the row sits at `starting` permanently. The mirror case:
+  a stop that succeeds while something else still holds the port
+  (`StopOutcome.warning`, handled at `:501-503`) leaves `stopping` permanently.
+  The evidence ADR-0004 requires — "the child exited without ever binding" — is
+  available from the `Supervisor` and the controller never asks for it.
+  Recovery in both cases is restarting the app.
+  Filed separately from LWSM-1133 because the fix is a different question:
+  1133 is about an unreachable target state, this is about not consulting the
+  supervisor at all.
+  Acceptance: two red tests — a launcher that exits at once, and a stop
+  returning `warning` — each asserting the overlay clears.
+  Dependencies: LWSM-1133.
+  **Layman:** If a project fails to start, or stops while something else is still using its port, its row gets stuck the same way.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-15 lane-3 HIGH.
+
+- 📋 [LWSM-1135] **FP07: a raw `OSError` escapes `save_projects` and kills Rescan for the session.**
+  `tempfile.mkstemp` (`registry.py:819-821`) is the only syscall in the writer
+  outside a handler. Everything either side is guarded — `_prepare_config_dir`
+  (`:809`), the serialise (`:792`), `_refuse_existing_target` (`:717`), the
+  write/replace block (`:829`). Three contracts promise `RegistryError` there:
+  the function's own docstring, LWSM-1007 § 4.3 step 5, and § 6's *disk is full*
+  row ("the user is told the write failed").
+  Reproduced 2026-08-15 with the config directory at mode `0500`:
+  `PermissionError [Errno 13] … /cfg/.projects-*.tmp` escapes uncaught. ENOSPC,
+  EDQUOT and EROFS reach the same line.
+  **The consequence is not the wrong exception type.** `mainwindow.py:857`
+  catches only `RegistryError`, and `_finish_rescan` — the sole place
+  `_rescan_button.setEnabled(True)` happens (`mainwindow.py:821-824`) — sits
+  after the try block rather than in a `finally`. So on a full disk the merge is
+  silently discarded, no message reaches the user, and **Rescan is disabled for
+  the rest of the session**.
+  Fix: wrap the `mkstemp` call and raise `RegistryError`; and move
+  `_finish_rescan` into a `finally` so no future escape can repeat this.
+  Acceptance: a red test writing into an unwritable directory and asserting
+  `RegistryError`; a second asserting the Rescan button is re-enabled after it.
+  Dependencies: none.
+  **Layman:** If your disk is full when the app saves its project list, the save fails silently and the Rescan button stops working until you restart.
+  Kind: fix.
+  Lanes: core, ui, tests.
+  Source: code-quality-review-2026-08-15 lane-2 HIGH.
+
+- 📋 [LWSM-1136] **FP07: the 5 MB per-project log cap is a zombie — nothing calls it.**
+  `rotate_if_needed` (`supervisor.py:458`) has three occurrences in the tree:
+  its definition, a docstring reference at `:439`, and
+  `tests/test_supervisor.py:427`. **Zero production callers** — no timer, no
+  poll hook, nothing in `controller.py` or `__main__.py`. `MAX_LOG_BYTES`
+  (`:86`) is referenced only inside the method nobody calls.
+  So `design.md § Observability` ("capped at 5 MB with one rotation") and
+  LWSM-1009's bullet (same words) are both false in the shipped build: a chatty
+  or looping server appends to an `O_APPEND` fd with no bound until the disk
+  fills. Compounding it, a server that prints a token to stdout retains it
+  indefinitely with no rotation and no deletion.
+  Fix: call it from the controller's existing 1000 ms poll for each entry in
+  `running()`. If it is instead meant to wait for LWSM-1011's reader thread,
+  the two documents must say so rather than reading as delivered.
+  Acceptance: a red test writing past `MAX_LOG_BYTES` through a running poll
+  loop and asserting one rotation happened — a test calling `rotate_if_needed`
+  directly is what let this ship and does not close it.
+  Dependencies: none.
+  **Layman:** The app promises to cap each project's log file at 5 MB. Nothing actually does it, so a noisy server can fill your disk.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-15 lane-1 HIGH.
+
+- 📋 [LWSM-1137] **FP07: `AlreadyRunning` is a check-then-act and does not hold.**
+  `start()` checks `resolved_project in self._registry.processes` under the lock
+  (`supervisor.py:520`), then **releases it** for the port probe, trust gate,
+  log open and `Popen`, then inserts at `:543`. Two concurrent starts for one
+  project both pass the check, both spawn, and the second insert overwrites the
+  first `ManagedProcess` — leaking its log fd and losing its PID.
+  That is verbatim the hazard the exception's own docstring names (`:148`):
+  *"a double-click orphans the first child, whose PID we would then have
+  forgotten while it still holds the port."*
+  Fix: reserve the key under the lock before spawning — insert a sentinel,
+  replace on success, remove on failure.
+  Acceptance: a red test issuing two starts whose first spawn is held open,
+  asserting one `AlreadyRunning` and exactly one child.
+  Dependencies: none.
+  **Layman:** Double-clicking Start can launch two copies of a server, and the app forgets about the first one.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-15 lane-1 HIGH.
+
+- 📋 [LWSM-1138] **FP07: `stop()` is not idempotent and can close another project's descriptor.**
+  The registry entry is popped only inside `_reap` (`supervisor.py:722`), so two
+  overlapping `stop()` / `stop_async()` calls for one project both retrieve the
+  same `ManagedProcess` from `_get` (`:611`) and both reach
+  `_close_quietly(managed.log_fd)` (`:724`). The second `os.close` operates on
+  an integer the kernel is free to have reissued — to `_open_log` for another
+  project, or to the rotation backup fd. The pool has `max_workers=4` (`:402`),
+  so the overlap is reachable, and `controller.py:436`'s
+  `if path not in self._supervisor.running()` is itself a check-then-act and
+  does not close it.
+  Fix: pop the registry entry at the top of `stop()` under the lock, return an
+  empty `StopOutcome` if it was already gone, and carry `managed` locally.
+  Acceptance: a red test issuing two concurrent stops and asserting one
+  `os.close` per descriptor — assert on the descriptor, not on the outcome.
+  Dependencies: none.
+  **Layman:** Stopping a project twice at once can close a file belonging to a different project.
+  Kind: fix.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-15 lane-1 HIGH.
+
+- 📋 [LWSM-1139] **FP07: `MainWindow.shutdown()` is not the bounded teardown its caller documents.**
+  `__main__.py:163-166` states the rescan worker "gets the same bounded wait
+  rather than being left to `~QThreadPool`, which joins with no timeout at all".
+  It does not: on `waitForDone` timeout (`mainwindow.py:792`) the method logs
+  and returns, leaving `self._rescan_pool` parented to the window
+  (`mainwindow.py:626`), so its destructor runs the unbounded join anyway.
+  `ProjectController.stop()` does the other half — `setParent(None)` plus
+  `_ABANDONED.append(...)` (`controller.py:583-584`) — and the window has no
+  equivalent.
+  Second half of the same gap: `shutdown()` sets no `_stopped` flag, so a rescan
+  finishing after teardown still delivers `done`, and `_on_rescan_done` runs
+  `save()` and `set_records()` on an already-torn-down window and controller —
+  the INV-16 race `controller._stopped` exists for.
+  This matters beyond tidiness: a wrong claim about shutdown is exactly how
+  LWSM-1100's green-but-truncated suite happened.
+  Fix: reparent and abandon the pool the way `stop()` does, so
+  `exit_without_waiting_for_abandoned_probes` covers it; add a `_stopped` guard
+  to `_on_rescan_done` and `_on_rescan_failed`.
+  Acceptance: a red test whose rescan completes after `shutdown()`, asserting no
+  write occurs; and one asserting the pool is unparented on timeout.
+  Dependencies: none.
+  **Layman:** Closing the app while it is scanning can make it save over your project list on the way out, and the app can hang instead of exiting.
+  Kind: fix.
+  Lanes: ui, tests.
+  Source: code-quality-review-2026-08-15 lane-3 HIGH.
+
+### 🔒 Security
+
+- 📋 [LWSM-1140] **FP07: the trust gate covers no content for `npm`, `node` and `python3` launchers.**
+  `launcher_fingerprint` (`supervisor.py:304-325`) hashes argv bytes plus the
+  marker `b"\0nofile\0"` (`:322`) whenever `_launcher_path` returns `None` — no
+  file content at all.
+  ADR-0003 § Trust names precisely this case as the reason the gate exists:
+  *"`npm run <script>` executes the `scripts.dev` **string** from an untrusted
+  `package.json` through `/bin/sh`"*, and requires re-arming *"whenever the
+  launcher command or its content hash changes"*. Rewriting `scripts.dev` —
+  which a compromised transitive dependency's `postinstall` can do — changes
+  what runs and does **not** re-arm the confirmation.
+  The docstring at `:307` argues only the converse direction (that `npm run dev`
+  must not authorise `npm run deploy`), which is a different property and is
+  held correctly.
+  Note the ordering: this is only reachable once LWSM-1132 lets these launcher
+  kinds start at all, which is why it has never been exercised end to end.
+  Fix: for an `npm run` argv, hash the resolved `scripts.<name>` string from
+  `package.json`; for `python3 serve.py` / `node serve.mjs`, hash `argv[1]`
+  resolved inside the project — that file **is** the launcher.
+  Acceptance: a red test confirming trust for an `npm run dev`, rewriting
+  `scripts.dev`, and asserting the next start raises `LauncherUntrusted`.
+  Dependencies: LWSM-1132.
+  **Layman:** Once you approve running a project, someone can change what that project actually runs and the app will not ask you again.
+  Kind: security.
+  Lanes: core, tests.
+  Source: code-quality-review-2026-08-15 lane-1 HIGH.
+
+- 📋 [LWSM-1141] **FP07: Open-in-browser fires on a foreign server with no disclosure.**
+  `mainwindow.py:459` — `self.open_button.setEnabled(running)` — enables Open on
+  any running row, and the docstring above it (`:453-457`) argues for that:
+  *"including a server this manager did not start … a foreign server is just as
+  reachable."*
+  ADR-0004:84-86 says the opposite, in a paragraph carrying the threat model:
+  *"That is localhost phishing with this app's credibility behind it. So
+  Open-in-browser on a `running (foreign)` row carries the same disclosure the
+  Stop path does: the holder's executable path, uid, cmdline and start time,
+  shown before anything opens."* No such dialog exists.
+  **The ADR governs — user decision, 2026-08-15.** It carries the threat model;
+  LWSM-1016's bullet ("Enabled in all three running states, including `running
+  (foreign)`") does not, and is corrected rather than the ADR.
+  The full mitigation needs the seven-state model, which does not exist —
+  `_classify` produces three states (`RUNNING` / `STOPPED` / `UNKNOWN`), so
+  foreign and managed are indistinguishable today. **Scope here is therefore the
+  interim**: Open is restricted to servers this manager started, which the
+  supervisor's `running()` set already answers exactly. The disclosure dialog
+  itself is P06's, once the state exists to trigger it.
+  Acceptance: a red test asserting Open is disabled for a port held by a process
+  the supervisor did not spawn; LWSM-1016's bullet corrected in the same commit.
+  Dependencies: none. Full disclosure dialog blocked on P06's state model.
+  **Layman:** The app will happily open a web page from a server it did not start and cannot vouch for, which is exactly how a fake login page would get in front of you.
+  Kind: security.
+  Lanes: ui, docs, tests.
+  Source: code-quality-review-2026-08-15 lane-3 CRITICAL.
+
 ## FP01 — Security fold-in (from the P01 review, 2026-08-03)
 
 **Theme:** findings from the P01 `/audit` + code review + security
 pass. The static scanners were all clean (ruff, bandit, semgrep,
-gitleaks over 24 commits, trivy); everything below came from
+gitleaks over 24 commits (the count at 2026-08-03 15:37 — see LWSM-1057),
+trivy); everything below came from
 review, and most of it is **design that is still cheap to
 change** rather than code that exists.
 
@@ -1378,7 +1669,10 @@ change** rather than code that exists.
   the adoption prompt (now `docs/private/port-contract-prompt.md`,
   author-private) repeat the paths and name
   sibling projects. Two of those services carry personal data.
-  **This is in all 24 commits**, so `.gitignore` cannot fix it —
+  **This is in all 24 commits** (as of this bullet's authoring, `4ef2781`
+  2026-08-03 15:37; two more landed before the scrub an hour later, which is
+  why the resolution note below says 26 — both counts are correct at their own
+  moment, see LWSM-1057), so `.gitignore` cannot fix it —
   either rewrite history or start the public repo from one
   squashed commit. Also: change the shipped default scan root to
   something generic.
@@ -1496,7 +1790,7 @@ change** rather than code that exists.
   future addition reddens on the commit that makes it rather than at the next
   security review.
 
-- 🚧 [LWSM-1049] **FP01: treat detection results as untrusted
+- 📋 [LWSM-1049] **FP01: treat detection results as untrusted
   input.** The plausibility test ("holder's cwd is under the
   project") is forgeable with one `chdir`, and the design lets a
   forged match enable **Open in browser** — localhost phishing
@@ -1521,8 +1815,18 @@ change** rather than code that exists.
   Source: security-review-2026-08-03.
   Priority: 2.
   Lanes: core, ui.
+  Status corrected 2026-08-15 (LWSM-1058, user decision): 🚧 → 📋. The contract
+  landed 2026-08-03 and **no implementation has started** — the bullet's own body
+  says it lands with LWSM-1011, which is 📋. 🚧 means "being tackled now" in this
+  roadmap's legend, so this was claiming work nobody was doing. The contract
+  note above is what 🚧 was standing in for and it stays.
+  **One clause of this bullet turned out to be live and is now `FP07`'s**: the
+  forged-`chdir` route into Open-in-browser is real today, because
+  `mainwindow.py:459` enables Open on any running row with no disclosure — see
+  LWSM-1141, which takes the interim restriction. The rest of this bullet still
+  waits on LWSM-1011.
 
-- 🚧 [LWSM-1050] **FP01: bound the scanner's reads.** Detection
+- ✅ [LWSM-1050] **FP01: bound the scanner's reads.** Detection
   regexes run unanchored over attacker-controlled files three
   levels into any scanned repo, and the 20-second budget is a
   per-scan wall check that cannot interrupt a backtracking match.
@@ -1540,6 +1844,17 @@ change** rather than code that exists.
   Source: security-review-2026-08-03.
   Priority: 2.
   Lanes: core.
+  Resolved (2026-08-15, status corrected): **the implementation shipped with
+  LWSM-1006 on 2026-08-12 and this bullet was left at 🚧 for three days.** Found
+  while settling LWSM-1058 — the status-vocabulary question — rather than by any
+  review, which is the argument for that question being worth answering. All
+  five contract clauses verified present before the flip: the 256 KB per-file
+  cap (`scanner.py:46` `MAX_SOURCE_FILE_BYTES`), the per-line deadline
+  (`Deadline` at `:166`, `expired` at `:175`), `followlinks=False` (`:1271`),
+  non-regular files skipped via `S_ISREG` (`:279`) behind a single
+  `O_RDONLY|O_NONBLOCK|O_NOFOLLOW` open (`:269`), and the `commonpath` check on
+  the one-hop target (`:568`). The byte cap is enforced in three places on
+  purpose — see `CLAUDE.md`'s § T9 trap, which is about this item.
 
 - ✅ [LWSM-1051] **FP01: say plainly that `LWSM_MANAGED` is not
   authentication.** It is unauthenticated, forgeable, inherited
@@ -2658,7 +2973,7 @@ program actually running.
   Priority: 3.
   Lanes: tests.
 
-- 📋 [LWSM-1057] **DS01: two measurements of the pre-scrub commit count disagree.**
+- ✅ [LWSM-1057] **DS01: two measurements of the pre-scrub commit count disagree.**
   `ROADMAP.md` § FP01 intro and LWSM-1045's body say the leak was in
   "all 24 commits"; LWSM-1045's own resolution note says "all 26
   commits", and `docs/journal/P01.md` says 24. Derived this sweep:
@@ -2673,8 +2988,26 @@ program actually running.
   Source: debt-sweep-2026-08-06.
   Priority: 4.
   Lanes: docs.
+  Resolved (2026-08-15): **the sweep's first branch is the right one — both were
+  true when written, and neither figure is changed.** Measured:
+  `git rev-list --count 4ef2781^` is **24** and `git rev-list --count 9dcabc9^`
+  is **26**. `4ef2781` (2026-08-03 15:37) is the commit that authored the FP01
+  bullet saying 24; `9dcabc9` (16:36) is the scrub, whose own note says 26. Two
+  commits — `4ef2781` and `c428e7a` — landed in the intervening 59 minutes. So
+  the counts differ because the tree grew between them, not because either is
+  wrong, and the fix is a date on each rather than a rewrite. The Layman line
+  above is left as filed, and is the thing this bullet disproves: it says "the
+  real number looks like 26", which assumed a single right answer existed.
+  Both call sites now carry their moment (`ROADMAP.md` § FP01 intro and
+  LWSM-1045's body); `docs/journal/P01.md:57` is a dated past-tense record and
+  is deliberately untouched, per the same frozen-record rule FP02 applied to
+  LWSM-1026's resolution note.
+  **Worth keeping:** a sweep that refuses to adjudicate a dated finding was
+  right to refuse. Had it "corrected" 24 to 26 it would have destroyed the
+  evidence that the tree moved, which is the only thing that explains the
+  disagreement.
 
-- 📋 [LWSM-1058] **DS01: decide whether contract-landed-only items are 🚧 or 📋.**
+- ✅ [LWSM-1058] **DS01: decide whether contract-landed-only items are 🚧 or 📋.**
   LWSM-1046 … LWSM-1050 are all 🚧, which the legend defines as
   "being tackled now". What actually landed is each one's *contract*
   (ADR edits, 2026-08-03); every implementation is deferred to P05 or
@@ -2688,6 +3021,27 @@ program actually running.
   Source: debt-sweep-2026-08-06.
   Priority: 3.
   Lanes: docs.
+  Resolved (2026-08-15, user decision): **no new vocabulary — split them by what
+  is actually true, and the sweep's own premise had gone stale.** It says
+  "LWSM-1046 … LWSM-1050 are all 🚧"; by 2026-08-15 that was wrong for two of the
+  five, in opposite directions. Final state, each verified against the tree
+  before flipping rather than read off the bullet:
+    - **LWSM-1046 stays 🚧** — the core half shipped in `supervisor.py` with
+      LWSM-1009; the UI half is genuinely open. 🚧 is accurate.
+    - **LWSM-1047 stays 🚧** — same shape: every signal goes through a captured
+      handle, the foreign path is open.
+    - **LWSM-1048 was already ✅** and needed nothing.
+    - **LWSM-1049 → 📋.** Contract only; its own body says implementation lands
+      with LWSM-1011, which has not started.
+    - **LWSM-1050 → ✅.** The implementation shipped with LWSM-1006 on
+      2026-08-12 and the bullet was never flipped. All five clauses verified
+      present in `scanner.py` first.
+  **The lesson is the one worth keeping:** the sweep left this alone because it
+  is "a question about the roadmap's own vocabulary", and the answer turned out
+  to need no vocabulary at all — it needed somebody to read five bullets against
+  the code. Doing that found one item three days overdue for a ✅ and one
+  claiming work nobody was doing. A status nobody re-derives drifts in both
+  directions, not just the optimistic one.
 
 - 📋 [LWSM-1059] **DS01: `pytest-qt` and the `gui` / `integration` markers are declared but unexercised.**
   `pyproject.toml` pins `pytest-qt==4.5.0` and registers both
@@ -2721,6 +3075,20 @@ program actually running.
   Source: debt-sweep-2026-08-06.
   Priority: 2.
   Lanes: docs.
+  Progress (2026-08-15): **re-confirmed by the user and scheduled with P10
+  packaging.** All three are still undone — neither `SECURITY.md` nor
+  `CODE_OF_CONDUCT.md` exists at the repo root, and ADR-0007 still carries all
+  four unresolvable citations (`docs/decisions/0007-window-geometry-and-centering.md`
+  lines 24, 34, 99 and 116). The question was put to the user as though the
+  three lived only in a journal entry; **they do not — this bullet is exactly
+  the item DS01 filed to prevent that**, and it did its job. Recorded because
+  the near-miss is the useful part: a filed item nobody works looks identical to
+  an unfiled one from any angle except a grep, and a session that greps for the
+  *artefact* (`SECURITY.md`) rather than the *item* will re-file it. Nothing
+  was duplicated.
+  **One correction to the bullet body:** it says these are "in no roadmap
+  item", which stopped being true the moment this bullet was written. Left as
+  filed — it is a dated record of the state that justified filing.
 
 - 📋 [LWSM-1061] **DS01: `spec-format.md` has no required-sections block, so that check never runs.**
   `spec_lint` only runs its `missing_section` check when the

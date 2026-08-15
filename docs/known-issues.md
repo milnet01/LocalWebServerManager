@@ -891,3 +891,353 @@ for this right now?" If yes, do that. If no — and only if no
   This is also what a `required-sections` block would have to be written
   against, which is why it could not simply be added.
 - **Logged:** 2026-08-12
+
+## The MEDIUM/LOW tail of the 2026-08-15 P03b close
+
+Nineteen MEDIUM findings plus the LOW/INFO tail from the three-lane review at
+the `P03b` close. `FP07` (LWSM-1132 … LWSM-1141) carries the 3 CRITICAL and 7
+HIGH; scope was set by the user on 2026-08-15, per the standing 2026-08-07
+decision — one review per phase, fix what is above the bar, route the rest to
+the phase that owns the code. Owners are named, not implied.
+
+### From the supervisor lane
+
+## known-issue-037 — The launcher write-permission check tests the file, not its directory
+
+- **Found by:** code-quality-review-2026-08-15 lane-1 (MEDIUM, dim 3)
+- **Detail:** `supervisor.py:296` refuses a group- or other-writable launcher,
+  but a mode-0700 launcher inside a group-writable **directory** can be
+  `unlink`ed and replaced wholesale by another local account; the replacement is
+  owned by them, is not group/other-writable, and passes cleanly. ADR-0003's
+  stated refusal is "a file any other local account can rewrite", which this
+  does not achieve. Compounding it, the same name is resolved three separate
+  times — `os.stat` (`:290`), `os.open` in `_launcher_bytes` (`:336`), and the
+  kernel at `Popen` (`:559`) — so even a correct check is not the thing executed
+  (CWE-367).
+- **Why deferred:** the TOCTOU half needs `fexecve` or `/proc/self/fd/<n>`
+  execution, which is a supervisor redesign rather than a fix
+- **Will be addressed in:** P05 (LWSM-1046's UI half lands the trust surface)
+- **Logged:** 2026-08-15
+
+## known-issue-038 — The log-rotation backup skips `_open_log`'s three guards
+
+- **Found by:** code-quality-review-2026-08-15 lane-1 (MEDIUM, dim 3)
+- **Detail:** `supervisor.py:476` opens the rotation target with
+  `O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW` — no `O_NONBLOCK`, so a FIFO planted at
+  `<log>.1` blocks the calling thread forever (the exact failure `applog.py`
+  documents and `_open_log:446` guards), and no
+  `_require_private_regular_file`, so a hard link there is `O_TRUNC`ed and then
+  filled with the project's stdout.
+- **Why deferred:** unreachable until LWSM-1136 gives `rotate_if_needed` a
+  caller; fixing it now would be untestable through any real path
+- **Will be addressed in:** LWSM-1136 (fix both in the same pass)
+- **Logged:** 2026-08-15
+
+## known-issue-039 — The process group is enumerated once and never re-enumerated
+
+- **Found by:** code-quality-review-2026-08-15 lane-1 (MEDIUM, dim 16)
+- **Detail:** `supervisor.py:615` snapshots the group before the grace period;
+  `survivors` (`:624`) and the SIGKILL pass (`:627`) both work from it, so
+  anything the launcher forks **during** the 5 s window is never signalled and
+  `_wait_for` reports "no survivors" while the group is still populated. That
+  undercuts ADR-0003's headline property that stopping a project releases its
+  ports. Wrapper launchers that respawn on SIGTERM are the common shape.
+- **Why deferred:** needs a decision about how many re-enumeration rounds are
+  correct before it becomes a kill loop
+- **Will be addressed in:** P05
+- **Logged:** 2026-08-15
+
+## known-issue-040 — A process surviving SIGKILL is forgotten rather than retained
+
+- **Found by:** code-quality-review-2026-08-15 lane-1 (MEDIUM, dim 16)
+- **Detail:** `supervisor.py:716-724` — after `KILL_TIMEOUT_SECONDS` (2 s, a
+  plausible wait for a D-state process on slow I/O) the registry entry is
+  dropped and the log fd closed, so `running()` no longer lists it and the next
+  `start()` passes the `AlreadyRunning` check and spawns a **second** instance.
+  Only the port pre-flight might catch it, and only when `port is not None`. A
+  `log.warning` is the sole trace.
+- **Why deferred:** the fix is a `_zombies` set that `running()` and `start()`
+  both consult, which interacts with LWSM-1137's lock-scope change
+- **Will be addressed in:** P05, after LWSM-1137
+- **Logged:** 2026-08-15
+
+## known-issue-041 — `StopOutcome` cannot report that a SIGKILL failed
+
+- **Found by:** code-quality-review-2026-08-15 lane-1 (MEDIUM, dim 7)
+- **Detail:** `supervisor.py:634` discards `_wait_for`'s return value. `killed`
+  (`:647`) lists everything **signalled**, not everything that died, and
+  `StopOutcome` has no field for the difference — so a stop that left processes
+  alive reports the same shape as a clean one and the UI has nothing to render.
+  Fix is a `still_alive: tuple[int, ...]` field.
+- **Why deferred:** adding a `StopOutcome` field changes what the UI must
+  render, which is P06's state model
+- **Will be addressed in:** P06
+- **Logged:** 2026-08-15
+
+## known-issue-042 — The child environment allowlist hands over the session bus and the display
+
+- **Found by:** code-quality-review-2026-08-15 lane-1 (MEDIUM, dim 3)
+- **Detail:** `supervisor.py:65-66` passes `DISPLAY` and
+  `DBUS_SESSION_BUS_ADDRESS` to every child. The session bus reaches
+  `org.freedesktop.secrets`, so a launched project can read the user's keyring;
+  `DISPLAY` on X11 permits keyboard grabs and screen capture against every other
+  window. ADR-0003's rationale for the allowlist is that "a manager that starts
+  things on your behalf must not also be a credential broker" — dropping
+  `SSH_AUTH_SOCK` while keeping these two does not achieve that.
+- **Why deferred:** **the code matches ADR-0003 verbatim, so this is a finding
+  against the ADR, not the module.** Changing it is an ADR amendment and
+  re-arms rule 14's gate; most launchers are headless and need neither, so the
+  likely answer is a per-project opt-in on LWSM-1046's dialog
+- **Will be addressed in:** an ADR-0003 amendment, before P05 closes
+- **Logged:** 2026-08-15
+
+### From the registry lane
+
+## known-issue-043 — Unknown keys in `projects.json` are silently deleted on the next write
+
+- **Found by:** code-quality-review-2026-08-15 lane-2 (MEDIUM, dim 17)
+- **Detail:** `_serialised` (`registry.py:650-666`) emits a fixed 13-key object
+  and `load_projects` reads only named keys. LWSM-1007 § 8 rejects bumping
+  `schema_version` for additive fields ("the new fields are all optional with
+  defaults"), and `effective_port`'s docstring (`:114-120`) already names
+  `confirmed_port` as arriving with LWSM-1038. Those compose into cross-version
+  data loss: a newer build writes `confirmed_port` at `schema_version: 1`, an
+  older build loads it cleanly, `rows_refused` is 0 so the write gate permits,
+  and the first rescan deletes the field. **Neither spec nor ADR-0005 states a
+  rule for unknown keys.**
+- **Why deferred:** the fix is a schema decision (preserve unknown keys as
+  opaque, or state the loss), not an edit; it binds LWSM-1038 and LWSM-1039
+- **Will be addressed in:** LWSM-1038, or an ADR-0005 amendment before it
+- **Logged:** 2026-08-15
+
+## known-issue-044 — `DETECTED_FIELDS` and `USER_FIELDS` have no readers
+
+- **Found by:** code-quality-review-2026-08-15 lane-2 (MEDIUM, dim 2b)
+- **Detail:** grep over `src/` returns **zero** non-declaration reads of either
+  set — the declarations at `registry.py:133-134` and one docstring mention at
+  `:991`. `_detected_half_applied` hardcodes the four names
+  (`replace(record, port=…, kind=found.kind, argv=…, unit=found.unit)`) instead
+  of deriving `DETECTED_FIELDS - {"path"}`. So INV-1's stated purpose is
+  enforced by nothing: add a fifth detected field, classify it correctly, and
+  INV-1 stays green while the merge silently never refreshes it. **This is one
+  of the three instances of the cross-cutting "documented mechanism with no
+  caller" theme named in FP07's preamble.**
+- **Why deferred:** a five-line change, but it is a merge-semantics change and
+  belongs with the next item that adds a detected field
+- **Will be addressed in:** LWSM-1121 (extra port sources — the next item that
+  touches the detected set)
+- **Logged:** 2026-08-15
+
+## known-issue-045 — ADR-0005 is missing both clauses LWSM-1131 § 11 requires
+
+- **Found by:** code-quality-review-2026-08-15 lane-2 (MEDIUM, dim 2)
+- **Detail:** the ADR's *Merge outcomes* list
+  (`docs/decisions/0005-registry-and-rescan.md:49-61`) is still New / Unchanged
+  / Changed / Missing. Neither required clause has landed: no
+  unknown-is-not-changed rule, no timed-out / unlistable-root suppression.
+  LWSM-1131 § 11 states both as mandatory cross-doc impact, because "recording
+  them in the spec alone would leave the ADR contradicting the shipped
+  behaviour" — which is now the state on disk. **The ADR read alone still yields
+  the port-erasing merge that LWSM-1131 § 2 calls "the single most consequential
+  gap this spec closes".** The code is correct; only the ADR is wrong.
+- **Why deferred:** editing an ADR re-arms rule 14's gate, so it is a
+  documentation pass rather than a line edit
+- **Will be addressed in:** the next `DOC##` pass, before P05 closes
+- **Logged:** 2026-08-15
+
+## known-issue-046 — *override differs* is announced once, not on every rescan
+
+- **Found by:** code-quality-review-2026-08-15 lane-2 (MEDIUM, dim 2)
+- **Detail:** `registry.py:1123` fires the flag only when the **detected** port
+  moves. ADR-0005's Negative section promises the opposite: "Mitigated by the
+  *override differs from detected* flag, which makes it visible **on every
+  rescan**." No merge outcome is persisted (LWSM-1007 § 4.2) and the summary is
+  per-run, so a stale override is announced exactly once — in the run the user
+  is least likely to be reading — and never again. LWSM-1131 § 4.3's table
+  narrowed the condition without amending the ADR.
+- **Why deferred:** same shape as known-issue-045 — one of the two documents is
+  wrong and choosing which is a decision
+- **Will be addressed in:** the same `DOC##` pass as known-issue-045
+- **Logged:** 2026-08-15
+
+## known-issue-047 — A non-durable write is indistinguishable from a refusal
+
+- **Found by:** code-quality-review-2026-08-15 lane-2 (MEDIUM, dim 9)
+- **Detail:** `registry.py:847-857` raises `RegistryError` when the directory
+  fsync fails. LWSM-1007 § 4.3 step 6 and INV-2 both insist a step-4 failure is
+  "REPORTED and not reversed, or § 6 would tell the user a durable write
+  failed" — and `mainwindow.py:859-863` does exactly that, rendering it as
+  "%1 — not saved: %2" for a file that **was** written. Worse, `self._load` is
+  refreshed only in the `else` branch (`mainwindow.py:867-871`), so after a
+  successful-but-unsynced write a first run stays `RegistryMissing` and every
+  later rescan writes unconditionally. Fix is a `RegistryNotDurable`
+  subclass, the technique `RegistryMissing` already uses.
+- **Why deferred:** interacts with LWSM-1135's handler restructuring; do both
+  together or the second undoes the first
+- **Will be addressed in:** LWSM-1135's fix pass, if cheap there; else P05
+- **Logged:** 2026-08-15
+
+## known-issue-048 — The registry read follows symlinks the write side refuses
+
+- **Found by:** code-quality-review-2026-08-15 lane-2 (MEDIUM, dim 3)
+- **Detail:** `registry.py:382` opens with `O_RDONLY|O_NONBLOCK` and **no
+  `O_NOFOLLOW`**, while `_refuse_existing_target` (`:713-728`) refuses a
+  symlinked target on the write side and `applog._NoFollowRotatingFileHandler`
+  hardened this exact class for `app.log` (CWE-59). Separately,
+  `_prepare_config_dir` (`:669-687`) uses `probe.exists()`, which follows links,
+  so a symlinked **directory** at `~/.config/localwebservermanager` redirects the
+  whole registry with no check anywhere — the file-level `lstat` cannot see it.
+  The stakes are not cosmetic: these records become spawn cwds and launcher
+  paths.
+- **Why deferred:** the directory half needs a decision about whether a
+  symlinked config dir is legitimate (dotfile managers do this — it is the same
+  question FP02 calibrated **down** for `~/.local/state`)
+- **Will be addressed in:** P05, with the FP02 symlink precedent read first
+- **Logged:** 2026-08-15
+
+### From the UI lane
+
+## known-issue-049 — All user feedback goes to the status bar, which `design.md` rules out
+
+- **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 12)
+- **Detail:** `mainwindow.py:702` sends every message — start/stop failures,
+  "%1 has no port to open", "Could not open a browser for %1", the rescan
+  summary — to `self.statusBar().showMessage(text)`. `design.md § Accessibility`
+  rules this out by name: "Feedback appears where the action happened. A message
+  in a far-off status bar is invisible to someone whose lens is on a button." The
+  stated primary user is a magnifier user. Separately,
+  `QStatusBar::showMessage` raises no accessibility event, so a screen-reader
+  user is never told either.
+- **Why deferred:** an inline per-row message surface is a UI feature, not a fix
+- **Will be addressed in:** P04 (appearance and accessibility foundation)
+- **Logged:** 2026-08-15
+
+## known-issue-050 — A transition steals keyboard focus
+
+- **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 12)
+- **Detail:** `mainwindow.py:450-459` disables all four buttons in a row on
+  Start; Qt moves focus off a focused widget when it is disabled, so the
+  keyboard user's caret jumps elsewhere and does not come back on re-enable.
+  `design.md § Accessibility`: "The app never steals focus from what the user is
+  reading." Fix: move focus to the row frame (already `StrongFocus`) before
+  disabling.
+- **Why deferred:** P04 owns keyboard navigation
+- **Will be addressed in:** P04
+- **Logged:** 2026-08-15
+
+## known-issue-051 — Precedence bug shows an empty launcher path in the trust dialog
+
+- **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 3)
+- **Detail:** `mainwindow.py:743` —
+  `str(resolved or argv[0] if argv else "")` parses as
+  `(resolved or argv[0]) if argv else ""`, so a refusal carrying a resolved path
+  but an **empty argv** shows an empty launcher path in the dialog whose entire
+  purpose is to show what will run. The `getattr(refusal, "fingerprint", "")` on
+  the line above compounds it: an empty fingerprint passes to
+  `confirm_and_start` → `trust.confirm(path, "")`.
+- **Why deferred:** unreachable today — `start_project` refuses an empty argv
+  before any refusal can be raised — so it is latent rather than live
+- **Will be addressed in:** LWSM-1046's UI half (P05), which reworks this dialog
+- **Logged:** 2026-08-15
+
+## known-issue-052 — A newline in a scanner-derived argv forges the trust dialog's structure
+
+- **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 3)
+- **Detail:** `mainwindow.py:729` interpolates `" ".join(argv)` into a
+  multi-line formatted sentence ("This will execute:\n%2\n\nwith arguments:\n%3").
+  `PlainText` stops markup but not newlines, so an argv element containing
+  `\n\nwith arguments:\n(none)` forges the dialog's own structure. ADR-0004
+  anticipates exactly this for the sibling dialog — "renders pid / executable
+  path / create-time as separate columns — never one formatted sentence a
+  hostile process can shape". Fix: one element per line in a separate widget,
+  control characters escaped.
+- **Why deferred:** same dialog as known-issue-051; fix both together
+- **Will be addressed in:** LWSM-1046's UI half (P05)
+- **Logged:** 2026-08-15
+
+## known-issue-053 — None of the translatable strings are extractable
+
+- **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 13)
+- **Detail:** `pyside6-lupdate` resolves only **literal** arguments. In
+  `mainwindow.py:194` the context is always the variable `_TR_CONTEXT` (`:83`),
+  and in `summarise_merge` and `_apply_button_state` (`:469`) the msgid is a
+  loop variable too — so none of these strings would appear in a `.ts` file,
+  against the file's own claim that "every user-visible string in this file goes
+  through this context, so a future translator has one place to look". No `.ts`,
+  `QTranslator` or `lupdate` wiring exists yet, so nothing has caught it.
+- **Why deferred:** the first `lupdate` run is what proves any fix; that run
+  belongs with the i18n item
+- **Will be addressed in:** P09 (shell: tray, settings, session) or whichever
+  item first wires `lupdate`
+- **Logged:** 2026-08-15
+
+## known-issue-054 — An unset `load` on a window with a rescan raises `AttributeError`
+
+- **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 7)
+- **Detail:** `self._load` is typed `LoadResult | RegistryError | None` and
+  defaults to `None`, while `rescan` is an independent optional. With `rescan`
+  set and `load` unset, `registry._refuse_unwritable_load` falls through both
+  `isinstance` checks to `load.rows_refused` and raises `AttributeError`, which
+  `mainwindow.py:858`'s `except RegistryError` does not catch — so it escapes a
+  queued slot, `_finish_rescan` never runs, and Rescan is disabled for the
+  session. `build_window` always passes `load`, so this is latent.
+- **Why deferred:** LWSM-1135 moves `_finish_rescan` into a `finally`, which
+  closes the user-visible half of this; the type-level fix (make `load` required
+  when `rescan` is given) is a constructor change
+- **Will be addressed in:** LWSM-1135 closes the symptom; the signature change
+  in P05
+- **Logged:** 2026-08-15
+
+## known-issue-055 — The trust dialog is parented to the window, not the row
+
+- **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 12)
+- **Detail:** `mainwindow.py:715` — `box = QMessageBox(self)`.
+  `design.md § Accessibility`: "Confirmations are parented to what they are
+  about, so the compositor opens them over that widget … a confirmation they
+  cannot find is a confirmation they will dismiss blind", with the check
+  specified as the dialog rect overlapping the raising widget. Fix: parent to
+  `self._rows[project]`.
+- **Why deferred:** P04 owns the accessibility surface and the overlap test
+- **Will be addressed in:** P04
+- **Logged:** 2026-08-15
+
+## known-issue-056 — The LOW/INFO tail of the 2026-08-15 review
+
+- **Found by:** code-quality-review-2026-08-15, all three lanes
+- **Detail:** collected here rather than as separate entries, because none is
+  reachable as a user-visible defect and splitting them would cost more to read
+  than to fix when their owning phase arrives.
+  **Supervisor:** `:364` an uninspectable live process (hidepid, LSM) reads as
+  dead so the wait loop exits early; `:342` a single `os.read` means a short
+  read changes the digest and a launcher over 1 MiB has its tail excluded;
+  `:490` `os.write`'s return is unchecked so a partial write corrupts the
+  rotated copy; `:508` the docstring omits that `Popen` also raises `OSError`;
+  `:754` `running()` returns live `log_fd` ints and `Popen` handles to callers;
+  `:205` `TrustStore.revoke` has zero callers (not yet dead — LWSM-1046's UI
+  half is unshipped); `build_child_env` supplies no `PATH` fallback when the
+  manager's own environment lacks one, which a `.desktop` launch can.
+  **Registry:** `json.loads` accepts `NaN`/`Infinity` and `_serialised`
+  re-emits it as a bare literal (pass `allow_nan=False`); duplicate keys are
+  silently last-wins with no reason recorded on a hand-editable file; `:782-785`
+  the payload comprehension sits outside the `try`, so a malformed in-memory
+  `actions` raises `JSONDecodeError` rather than `RegistryError`; `:330`'s
+  `except (TypeError, ValueError)` is an unreachable branch; `:1131-1150`
+  iterates `scan.projects` rather than the deduped `scanned` map, safe only
+  because `scanner.py:1291` dedups; `:1069` discards a failure string the
+  identical call eight lines above reports; `:687` `mkdir` without `exist_ok`
+  makes a concurrent second instance a spurious `RegistryError`; `:763-780`
+  nothing binds `load` to `path`.
+  **UI:** `controller.py:457` `_restarting.add` precedes two early returns that
+  never discard it; `mainwindow.py:145` `setHost("localhost")` discards the
+  address family, so an IPv6-only server opens on a refused connection;
+  `:414-421` the focus-ring `QPainter` is never `end()`ed (correct by refcount,
+  fragile); `:208` separators and digits are locale-independent; no
+  `setMinimumSize` on the five buttons (LWSM-1032 owns the ≥24×24 test);
+  `controller.py:56` `wait_for_abandoned_probes` has no non-test caller;
+  `:447` `add_done_callback` runs inline on the GUI thread when the future is
+  already complete, making `stop_project` re-entrant; `mainwindow.py:851`
+  `_should_write` compares against a re-fetched list the merge never saw.
+- **Why deferred:** below the bar set by the user on 2026-08-15
+- **Will be addressed in:** each item's owning phase, when that phase touches
+  the file
+- **Logged:** 2026-08-15

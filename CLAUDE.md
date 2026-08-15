@@ -90,10 +90,27 @@ implementer are the same agent, that premise is much weaker — the contract's
 errors surface while coding. What survives is the narrow class where correct
 code faithfully implements a wrong contract **and the tests pass**.
 
-**Global rule 14 still mandates loop-to-convergence and has NOT been changed** —
-the user was asked on 2026-08-13 whether to edit it or keep this local, and had
-not answered. Until then this section governs *this project* and the divergence
-is deliberate, not an oversight.
+**Global rule 14 still mandates loop-to-convergence and has NOT been changed —
+and that is now a decision rather than an unanswered question.** Asked on
+2026-08-13, **answered 2026-08-15: keep the divergence local.** The global rule
+stands for every other project; this section governs here, and the gap is
+deliberate. Nothing further is pending — a later session should not re-open it
+as though the user had gone quiet.
+
+**One piece of evidence arrived after the decision and cuts against this
+section, so it is recorded here rather than left in a journal.** The P03b close
+(2026-08-15) found 55 defects in five items built under the build-first default,
+including three CRITICALs — one of which, `_launcher_path` refusing three of the
+four launcher kinds, meant the app did not do what the roadmap said it did for a
+full day. **That is not yet an argument for reverting**, and the reason is the
+skepticism filter in rule 3 above: *would the first test run have caught this?*
+For the launcher bug the honest answer is **yes, if a test had used any argv but
+`./start.sh`** — so it is a fixture-coverage failure, not a missing-contract
+failure, and a spec would not have caught it either. The same is true of the
+unbounded overlay: no fixture had a port-less project.
+**What to watch on the next close is the class, not the count.** If a defect
+turns up that a *contract* would have caught and a test could not have, that is
+the signal this cadence is wrong. So far none has.
 
 ## Before pushing
 
@@ -548,6 +565,32 @@ running and reads `None` anyway, so the assertion held whether or not the rule
 did — the mutant survived. **The launcher must die *during* the window the
 property covers.** Same family as the § T9 note above: eleven of twelve
 mutants died on the first pass and the twelfth was the one that mattered.
+
+**Trap: a fixture set that only exercises one branch of a four-way split.**
+Every `start()` test in `test_supervisor.py` used `("./start.sh",)`, so the one
+launcher kind that works was the only one tested — and `_launcher_path` refusing
+`npm`, `python3` and `node` outright survived 494 green tests and shipped as
+"success criterion 2 closed end to end" (found 2026-08-15, `FP07`/LWSM-1132).
+This is the **one-row-fixture trap one layer up**: there, one row could not see a
+per-row bug; here, one launcher kind could not see a per-kind bug. **When code
+branches on a closed set — launcher kinds, states, schema versions — at least
+one fixture must exist per member, and a test that names the branch must say
+which member it drives.** The same pass found no fixture with `port=None`, which
+is what hid an overlay that can never settle.
+
+**Trap: `semgrep` silently excludes test directories, and its zero has been read
+as whole-tree on five closes.** It ships a default ignore list covering
+`tests/`, so `semgrep --config p/security-audit src tests` scanned **11 files,
+all under `src/`** (measured 2026-08-15). Nothing in the output says `tests/` was
+skipped. Report semgrep's result as a statement about `src/` only, or pass an
+explicit file list. Same family as the `actionlint`/`yamllint` shared-flag bug
+and the stale `.pyc`: **a tool that analysed nothing looks exactly like a tool
+that found nothing.**
+
+**Trap: `.editorconfig`'s blanket `[*]` section is not a declared shell style**,
+so `shfmt` has no config to run against here and must be reported as skipped
+rather than run against its own tab default — which would diff every 4-space
+shell file in the project as malformed.
 
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the
