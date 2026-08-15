@@ -507,6 +507,19 @@ the *per-candidate* half of a deadline whose per-line half does all the work.
 Before believing an invariant is held, mutate it — and check the line runs at
 all.
 
+**Trap: a supervisor test that fails before its own `stop()` leaves a real
+process running on the developer's machine.** `Supervisor.close()` deliberately
+does **not** signal anything — ADR-0003 leaves servers running on manager exit —
+so a fixture that only calls `close()` is correct for the app and wrong for a
+test. Found 2026-08-14: five orphans (`/bin/sh ./start.sh`, `child.py`) survived
+from two runs where an intermediate version of a test failed mid-way, and they
+were still holding their ports **2.5 hours and ~85 test runs later**, reparented
+to pid 1 with their pytest tmpdirs already deleted. **A supervisor fixture must
+stop everything it started before closing** — `for path in sup.running():
+sup.stop(path, grace=0.5)` in a `finally`, which is what `tests/test_supervisor.py`
+now does. Verify with `pgrep -af "start\.sh|child\.py"` after a run; the count
+before and after a full suite must be equal.
+
 **Trap: a one-row fixture cannot see a per-row bug.** Hit on 2026-08-14
 mutation-testing LWSM-1016. Every window fixture in `test_mainwindow.py` built
 **one** project, so a `lambda` closing over the loop variable — which makes
