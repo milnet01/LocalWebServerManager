@@ -36,7 +36,7 @@ dev = [
     # duration, the flakiness shape this codebase is most exposed to.
     # 4.5.0 is the current release; verified against PyPI, not recalled.
     "pytest-qt==4.5.0",
-    "ruff==0.16.1",
+    "ruff==0.16.3",
 ]
 
 [project.scripts]
