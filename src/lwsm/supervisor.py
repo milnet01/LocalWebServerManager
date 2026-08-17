@@ -22,6 +22,7 @@ writer exists to hold it. Each of those is a named item, not an oversight.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import stat
@@ -247,18 +248,46 @@ def build_child_env(
 
 
 def _launcher_path(project: Path, argv: tuple[str, ...]) -> Path | None:
-    """The file `argv` runs, when that file lives inside the project.
+    """The file inside the project whose contents `argv` executes, if any.
 
-    `["./start.sh"]` has one; `["npm", "run", "dev"]` does not — `npm` is on the
-    PATH and the untrusted content is a string inside `package.json`. Returning
-    `None` for that case is honest rather than convenient, and it is why the
-    fingerprint below covers the argv as well as any file bytes.
+    Two of the four shapes `scanner.py` emits have one. `["./start.sh"]` names
+    it directly. `["python3", "serve.py"]` and `["node", "serve.mjs"]` name it
+    as the sole argument to a PATH-resolved interpreter — `execve` runs
+    `/usr/bin/python3`, but the untrusted content is the script, and that is
+    what a confirmation has to be bound to and what `validate_launcher`'s
+    refusals have to cover.
+
+    `["npm", "run", "dev"]` has none: what it executes is the `scripts.dev`
+    *string* inside `package.json`, which is not a file. `launcher_fingerprint`
+    covers that case separately.
+
+    **An `argv[0]` containing no `/` is resolved against `PATH` by `execvp` and
+    never against the working directory — POSIX decides this, not path
+    arithmetic.** Building `<project>/npm` and letting the caller's `os.stat`
+    fail on it refused three of the four launcher kinds outright, with a
+    message blaming the user's project for a supervisor bug (LWSM-1132).
     """
     if not argv:
         return None
+    if "/" in argv[0]:
+        return _contained(project, argv[0])
+    # npm's arguments are subcommands, never files — `_npm_script` below is
+    # what covers its content. Named explicitly because a *two*-element
+    # `npm run` otherwise matches the interpreter shape below on length alone,
+    # and a project holding a file called `run` would then have the trust gate
+    # vouching for a file that has nothing to do with what executes.
+    if argv[0] == "npm":
+        return None
+    # The interpreter form: one PATH-resolved command, one file it opens.
+    if len(argv) == 2:
+        return _contained(project, argv[1])
+    return None
+
+
+def _contained(project: Path, name: str) -> Path | None:
+    """`name` resolved under `project`, or `None` when it escapes or is the root."""
     try:
-        candidate = Path(argv[0])
-        resolved = (project / candidate).resolve()
+        resolved = (project / Path(name)).resolve()
         project_resolved = Path(project).resolve()
     except OSError:
         return None
@@ -314,15 +343,62 @@ def launcher_fingerprint(project: Path, argv: tuple[str, ...]) -> str:
         digest.update(argument.encode("utf-8", "surrogateescape"))
         digest.update(b"\0")
 
+    # An explicit marker per material kind rather than just skipping: without
+    # one, a launcher that was deleted between two calls fingerprints
+    # identically to `npm run dev`, which has no file at all — two different
+    # situations reading as one. A third kind needs a third marker for the same
+    # reason, so a script's bytes cannot collide with a manifest string.
     candidate = _launcher_path(project, argv)
     content = _launcher_bytes(candidate) if candidate is not None else None
-    # An explicit marker rather than just skipping: without it, a launcher that
-    # was deleted between two calls fingerprints identically to `npm run dev`,
-    # which has no file at all — two different situations reading as one.
-    digest.update(b"\0content\0" if content is not None else b"\0nofile\0")
     if content is not None:
+        digest.update(b"\0content\0")
         digest.update(content)
+        return digest.hexdigest()
+
+    script = _npm_script(project, argv)
+    if script is not None:
+        digest.update(b"\0npm-script\0")
+        digest.update(script)
+        return digest.hexdigest()
+
+    digest.update(b"\0nofile\0")
     return digest.hexdigest()
+
+
+def _npm_script(project: Path, argv: tuple[str, ...]) -> bytes | None:
+    """The `scripts.<name>` string an `npm run <name>` argv hands to `/bin/sh`.
+
+    `npm` is on the PATH and runs no file of ours, so `_launcher_path` returns
+    `None` for it — but the string it executes is untrusted content living in
+    the project, and ADR-0003 § Trust re-arms the gate *"whenever the launcher
+    command or its content hash changes"*. A compromised transitive
+    dependency's `postinstall` can rewrite `scripts.dev`, which changes what
+    runs; without this the confirmation carried straight over to whatever it
+    was rewritten to say (LWSM-1140).
+
+    Only the one chosen script, never the whole manifest: re-arming on every
+    dependency bump would fire the confirmation dialog during ordinary
+    development, and `validate_launcher` already records what happens to a rule
+    that does that.
+
+    Every failure here returns `None`, which fingerprints as `\\0nofile\\0` and
+    therefore *differs* from a confirmed one — an unreadable or unparseable
+    manifest re-arms the gate rather than passing it.
+    """
+    if len(argv) != 3 or argv[0] != "npm" or argv[1] != "run":
+        return None
+    raw = _launcher_bytes(project / "package.json")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    scripts = data.get("scripts") if isinstance(data, dict) else None
+    value = scripts.get(argv[2]) if isinstance(scripts, dict) else None
+    if not isinstance(value, str):
+        return None
+    return value.encode("utf-8", "surrogateescape")
 
 
 def _launcher_bytes(path: Path) -> bytes | None:

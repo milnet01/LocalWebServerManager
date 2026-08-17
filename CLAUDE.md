@@ -402,7 +402,13 @@ built under § Review cadence's build-first default:
   truncates rather than renaming**, because the child holds a
   duplicate of our descriptor and a rename would leave it writing
   into an unlinked inode — which is also why the log is opened
-  `O_RDWR` rather than `O_WRONLY`.
+  `O_RDWR` rather than `O_WRONLY`. **Which file an argv names is
+  decided by POSIX, not by path arithmetic**: `_launcher_path`
+  returns the script for `./start.sh`, `python3 serve.py` and
+  `node serve.mjs`, and `None` for `npm run <script>`, whose
+  untrusted content is a string inside `package.json` that
+  `launcher_fingerprint` hashes under its own marker
+  (LWSM-1132, LWSM-1140).
 
 Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
 `test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
@@ -591,6 +597,16 @@ that found nothing.**
 so `shfmt` has no config to run against here and must be reported as skipped
 rather than run against its own tab default — which would diff every 4-space
 shell file in the project as malformed.
+
+**Trap: `subprocess.Popen` resolves a bare `argv[0]` against the PASSED
+`env`'s `PATH`, not the parent's.** Verified 2026-08-17. So
+`build_child_env`'s allowlist is load-bearing for *launching*, not only for
+keeping secrets out of the child: drop `PATH` from `ENV_ALLOWLIST` and every
+`npm` / `node` / `python3` launcher stops resolving — while the shell kind,
+whose `argv[0]` is `./start.sh`, keeps working. That is the same
+one-branch-in-four blind spot LWSM-1132 shipped behind, so a change to the
+allowlist must be tested against a fixture per launcher kind and not just
+against `./start.sh`.
 
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the

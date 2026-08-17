@@ -1401,7 +1401,7 @@ branches on.
 
 ### 🐛 Bug fixes
 
-- 📋 [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
+- ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
   `_launcher_path` (`supervisor.py:261`) builds `(project / argv[0]).resolve()`
   for every argv. For a PATH-resolved command that yields `<project>/npm`,
   `.resolve()` is non-strict so it returns unchanged, `is_relative_to(project)`
@@ -1427,6 +1427,8 @@ branches on.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-15 lane-1 CRITICAL.
+  Resolved (2026-08-17): `_launcher_path` now decides by POSIX `execvp` semantics — an `argv[0]` containing no `/` is resolved against `PATH` and names no file of ours, so it returns `None` instead of building `<project>/npm`. The two interpreter shapes (`python3 <file>`, `node <file>`) resolve `argv[1]` inside the project instead, because that script *is* the launcher and must carry `validate_launcher`'s symlink-out and group-writable refusals. `npm` is excluded by name: its arguments are subcommands, never files. All four launcher kinds now start.
+  Tests: a `launcher_factory` fixture with one member per kind — the monoculture this defect hid behind — driving `start()` for shell, python3, node and npm, plus unit tests per argv shape. Ten new tests, each watched failing first. 508 green (was 494).
 
 - 📋 [LWSM-1133] **FP07: the optimistic overlay is not bounded and can never settle.**
   `_settle_overlay` (`controller.py:650`) clears the overlay only when the
@@ -1594,7 +1596,7 @@ branches on.
 
 ### 🔒 Security
 
-- 📋 [LWSM-1140] **FP07: the trust gate covers no content for `npm`, `node` and `python3` launchers.**
+- ✅ [LWSM-1140] **FP07: the trust gate covers no content for `npm`, `node` and `python3` launchers.**
   `launcher_fingerprint` (`supervisor.py:304-325`) hashes argv bytes plus the
   marker `b"\0nofile\0"` (`:322`) whenever `_launcher_path` returns `None` — no
   file content at all.
@@ -1619,6 +1621,9 @@ branches on.
   Kind: security.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-15 lane-1 HIGH.
+  Resolved (2026-08-17): `launcher_fingerprint` now hashes three materials under three distinct markers — a launcher file's bytes (`\0content\0`), the `scripts.<name>` string an `npm run <name>` argv hands to `/bin/sh` (`\0npm-script\0`), and nothing (`\0nofile\0`). Rewriting `scripts.dev` re-arms the gate; so does rewriting a `serve.py`, which LWSM-1132's `_launcher_path` change covers for free. Only the chosen script is hashed, never the whole manifest — re-arming on every dependency bump would fire the confirmation dialog during ordinary development, which is the failure `validate_launcher`'s docstring already records. Every failure path returns `None` and therefore fingerprints as `\0nofile\0`, which *differs* from a confirmed value: an unreadable or unparseable manifest re-arms the gate rather than passing it.
+  Citation correction: this bullet attributes *"`npm run <script>` executes the `scripts.dev` string from an untrusted `package.json` through `/bin/sh`"* to ADR-0003 § Trust. That sentence is not in the ADR — it is LWSM-1046's own roadmap bullet (`ROADMAP.md:1692`). The substance stands unchanged: ADR-0003 § Trust does require the gate to re-arm *"whenever the launcher command or its content hash changes"*, and that is the clause this fix satisfies.
+  Found while implementing, not by any test: diffing `_launcher_path`'s verdicts old against new over the argv population showed a *two*-element `npm run` matching the interpreter shape on length alone, so a project holding a file called `run` would have had the trust gate vouching for a file with nothing to do with what executes. `npm` is now excluded by name.
 
 - 📋 [LWSM-1141] **FP07: Open-in-browser fires on a foreign server with no disclosure.**
   `mainwindow.py:459` — `self.open_button.setEnabled(running)` — enables Open on

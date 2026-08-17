@@ -146,6 +146,13 @@ signaling per
 
 ### Fixed
 
+- ****Projects started by npm, Python or Node now actually start** (LWSM-1132)**
+  Only projects launched by a shell script worked. Anything the scanner
+  detected as `npm run dev`, `python3 serve.py` or `node serve.mjs` refused
+  to start, with a message that blamed your project for it. The app looked
+  for a file called `npm` inside your project instead of using the one
+  installed on your machine.
+
 - **A note saying "switch to vite later" is no longer read as a Vite project** (LWSM-1130)
   Rule 3's framework evidence now reads the comment-stripped script value, as the port rules already did, so a commented-out plan cannot hand a project the wrong default port.
 
@@ -299,6 +306,14 @@ signaling per
   one.
 
 ### Security
+
+- ****Approving an npm or Node project no longer approves whatever it is later changed to run** (LWSM-1140)**
+  Approving a project to run binds that approval to what it actually runs.
+  For an `npm run dev` project that is the `dev` command inside
+  `package.json`, and for a Python or Node project it is the script file.
+  Change either and the app asks you again, instead of silently reusing the
+  old approval — which matters because installing a package can rewrite
+  that command without you seeing it.
 
 - **The last rejection message built from a foreign filename is escaped and length-bounded** (LWSM-1124)
   A folder with a strange name could push invisible control characters into the app log and the status bar, and past the 120-character bound its seven sibling messages keep.
