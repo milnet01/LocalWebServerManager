@@ -1428,7 +1428,7 @@ branches on.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-15 lane-1 CRITICAL.
   Resolved (2026-08-17): `_launcher_path` now decides by POSIX `execvp` semantics — an `argv[0]` containing no `/` is resolved against `PATH` and names no file of ours, so it returns `None` instead of building `<project>/npm`. The two interpreter shapes (`python3 <file>`, `node <file>`) resolve `argv[1]` inside the project instead, because that script *is* the launcher and must carry `validate_launcher`'s symlink-out and group-writable refusals. `npm` is excluded by name: its arguments are subcommands, never files. All four launcher kinds now start.
-  Tests: a `launcher_factory` fixture with one member per kind — the monoculture this defect hid behind — driving `start()` for shell, python3, node and npm, plus unit tests per argv shape. Ten new tests, each watched failing first. 508 green (was 494).
+  Tests: a `launcher_factory` fixture with one member per kind — the monoculture this defect hid behind — driving `start()` for shell, python3, node and npm, plus unit tests per argv shape. Fourteen new test cases from nine functions; 508 green (was 494). **Twelve were watched red first (10 failed, 2 passed — the shell kind and the regression guard). The two `npm run`-length cases were NOT: they were added after the fix, from the verdict diff, and lock a defect the fix itself introduced and then removed.** Recorded rather than glossed, because "each watched failing first" is the claim this project checks.
 
 - 📋 [LWSM-1133] **FP07: the optimistic overlay is not bounded and can never settle.**
   `_settle_overlay` (`controller.py:650`) clears the overlay only when the
