@@ -230,6 +230,24 @@ reported as an explicit **SKIP**, never folded into the pass —
 between `actionlint` and `yamllint` made a missing `actionlint`
 report a clean pass (reproduced and fixed 2026-08-06).
 
+**`yamllint` runs `--strict` against `.yamllint.yml`, not `-d relaxed`**
+(2026-08-18). Two changes, and both were needed to make CI *fully*
+clean rather than merely passing. The config raises `line-length` to
+**100**, because 80 is the wrong limit for a file whose central security
+practice is pinning every action to a 40-character commit SHA — 63
+characters of a pinned `uses:` line are spoken for before the action is
+named, and `actions/checkout` fit inside 80 by a single character while
+`astral-sh/setup-uv` did not. Neither the SHA nor the trailing version
+comment can be shortened: the comment must stay trailing or dependabot
+stops rewriting it. And `--strict` makes a warning exit non-zero,
+because yamllint's default is to report one and exit 0 — which is how an
+82-character line sat in the CI annotations of runs everyone read as
+green. **Turn a warning class fatal only once its count is zero**; the
+alternative is a gate people learn to push past.
+
+`-c` and `-d` are mutually exclusive, so reverting to `-d relaxed`
+silently discards the config *and* the raised limit together.
+
 In CI, a SKIP is **fatal**: the workflow sets
 `LWSM_REQUIRE_ALL_TOOLS=1`, so the machine that is supposed to
 hold every tool cannot report green on a degraded run. Locally it

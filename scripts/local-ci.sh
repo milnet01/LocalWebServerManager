@@ -253,7 +253,18 @@ fi
 if command -v yamllint >/dev/null 2>&1; then
     check_version yamllint "$YAMLLINT_VERSION" \
         "$(yamllint --version | awk '{print $NF}')"
-    yamllint -d relaxed .github/
+    # -c, not `-d relaxed`: the two are mutually exclusive, and `-d` would
+    # silently discard .yamllint.yml along with the one rule this project
+    # overrides. The config file also lints ITSELF here, which `-d` could not
+    # express — .yamllint.yml is checked alongside .github/ below.
+    # --strict makes a WARNING exit non-zero. yamllint's default is to report
+    # one and exit 0, which is how an 82-character line sat in ci.yml's CI
+    # annotations for weeks while every run was "green" — and this is the same
+    # week four pushes went out after a red build because nobody read the
+    # notification. A warning nobody has to act on is noise, and noise is what
+    # a real finding hides in. Safe to turn on precisely because the count is
+    # zero right now; the config sets a limit these files can actually meet.
+    yamllint --strict -c .yamllint.yml .yamllint.yml .github/
 else
     # Deliberately no Python fallback: PyYAML is not a dependency, so
     # `import yaml` would crash on a clean machine — a gate that fails because

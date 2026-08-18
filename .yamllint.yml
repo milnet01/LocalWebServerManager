@@ -1,0 +1,31 @@
+# yamllint configuration, replacing the bare `-d relaxed` flag the gate used
+# until 2026-08-18. A file rather than a flag so the one rule that differs from
+# the preset is reviewable, and so the reason for it is written down next to it.
+extends: relaxed
+
+rules:
+  # 80 is the wrong limit for a file whose central security practice is pinning
+  # every action to a 40-character commit SHA.
+  #
+  # The arithmetic, because it is what makes 100 a decision rather than a
+  # round number. A pinned step is `<indent>uses: <owner>/<repo>@<40-char sha>
+  # # vX.Y.Z`. Nested under a `- name:` that indent is 8, `uses: ` is 6 and the
+  # trailing version comment is 9 — so 63 characters are spoken for before the
+  # action is named. `astral-sh/setup-uv` needs 19 of the remaining 17, which
+  # is why it measured 82 and `actions/checkout` measured exactly 80: the
+  # shorter name fit by a single character, not by design.
+  #
+  # Neither half can be shortened. The SHA is the pin (dependencies.md § 2.1),
+  # and the version comment must stay TRAILING or dependabot stops rewriting it
+  # and it goes on asserting a version the pin no longer points at — ci.yml
+  # says so at both call sites.
+  #
+  # 100 leaves room for an owner/repo of 36 characters, which covers every
+  # action this project is likely to pin. It still catches a genuinely runaway
+  # line, which is what the rule is for.
+  line-length:
+    max: 100
+    # A URL or a long quoted string with nowhere to break is not a style
+    # problem, and warning about one teaches people to ignore the warnings.
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
