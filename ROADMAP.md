@@ -24,9 +24,9 @@
 
 **Legend** (per `docs/standards/roadmap-format.md § 3.3`)
 
-- ✅ Done (shipped)
-- 🚧 In progress (being tackled now)
 - 📋 Planned (next up for this phase)
+- 🚧 In progress (being tackled now)
+- ✅ Done (shipped)
 - 💭 Considered (research phase; scope or feasibility uncertain)
 
 **Themes** (per `docs/standards/roadmap-format.md § 3.4`)
@@ -50,7 +50,7 @@ nothing ships that nobody asked for and no criterion goes
 unbuilt.
 
 | Criterion | Phase that delivers it |
-|---|---|
+| --- | --- |
 | 1 — zero-config first run finds all seven projects | P03 |
 | 2 — start / restart / stop round-trip within 2 s, reachable in a browser | P05 (LWSM-1009, 1010, 1016) |
 | 3 — truthful status across app restarts and foreign servers | P06 |
@@ -77,7 +77,8 @@ visible.
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1069] **FP03: an unexpected exception wedges the poll loop
-  permanently, and silently.** Two halves, found by two independent lanes.
+permanently, and silently.**
+  Two halves, found by two independent lanes.
   `ports.py:49` catches only `psutil.Error`, which is neither an `OSError` nor a
   `RuntimeError` (verified: both `issubclass` calls return `False`) — while
   psutil's own `_pslinux.process_inet` opens `/proc/net/tcp` unguarded and
@@ -105,7 +106,8 @@ visible.
   Resolved (2026-08-06, d0cb39b): both halves fixed. `PortProbe.snapshot()` now catches `Exception` and keeps the original as `__cause__`; `_SnapshotTask.run()` ends in `except BaseException`, logging a traceback and emitting `failed` so the guard is always cleared. Seven tests, each watched red against shipping code first — they assert a later tick still probes, not that the process survived, since it always survived. Spec corrected too: § 4.2's false whole-surface premise, § 4.3's no-escape rule, INV-4b widened to any failure, new INV-4c, § 6 failure modes. Gate green at 75 tests, LWSM_REQUIRE_ALL_TOOLS=1.
 
 - ✅ [LWSM-1073] **FP03: `stop()` returns while a queued emission is still in
-  flight.** `controller.py:122` waits with `QThreadPool.globalInstance().waitForDone()`,
+flight.**
+  `controller.py:122` waits with `QThreadPool.globalInstance().waitForDone()`,
   which waits for `run()` to *finish* — but the `emit` happens inside `run()`
   over a queued connection, so the event is already posted and is dispatched on
   the next event-loop spin. INV-16 therefore passes on its wording ("no task is
@@ -131,7 +133,8 @@ visible.
   Resolved (2026-08-06, 0b2a22f): all three. Both signals are disconnected before the wait (reproduced: one emission arrived a single spin after stop() returned; the test fails again with the disconnect removed). The controller holds a private single-thread QThreadPool (reproduced: stop() took 5.00 s waiting on one unrelated global-pool runnable). The wait is bounded at STOP_WAIT_MS = 2000 — a shutdown budget, not a watchdog, so ADR-0004's "slowness is not failure" is untouched; on expiry the pool and task are deliberately never released, since ~QThreadPool waits unbounded and collecting a running _SnapshotTask would destroy a live C++ object. Also closed a gap this exposed in LWSM-1069's fix: the emits sat outside the catch-all and `emit` on a destroyed signaller was escaping run(); it now has two layers. INV-16 rephrased over delivery rather than mechanism — its old wording was true while its purpose was violated. Gate green at 94 tests.
 
 - ✅ [LWSM-1072] **FP03: the registry read is unbounded, and two exceptions
-  escape the contract.** `registry.py:86` calls `path.read_bytes()` with no
+escape the contract.**
+  `registry.py:86` calls `path.read_bytes()` with no
   guard on type or size, so — reproduced — a **FIFO** at
   `~/.config/localwebservermanager/projects.json` blocks forever: no window, no
   error, no log line, the least debuggable failure this app can have. A 600 MB
@@ -158,7 +161,8 @@ visible.
 ### 🔒 Security
 
 - ✅ [LWSM-1078] **FP03: the registry's rejection reasons carry
-  attacker-controlled text unescaped into the status bar.** `registry.py:136,141,146`
+attacker-controlled text unescaped into the status bar.**
+  `registry.py:136,141,146`
   interpolate `raw_name` **raw and unbounded** (unlike `value!r`, which `repr`
   escapes), and that reason reaches both `log.warning` at `__main__.py:38` — where
   an embedded newline forges log lines — and `mainwindow.py:135`
@@ -210,7 +214,8 @@ visible.
 ### ♿ Accessibility
 
 - ✅ [LWSM-1070] **FP03: the only focusable widget in the app draws no focus
-  ring.** `mainwindow.py:56` sets `StrongFocus` on `ProjectRow` and nothing paints
+ring.**
+  `mainwindow.py:56` sets `StrongFocus` on `ProjectRow` and nothing paints
   a focus indicator — `QFrame` renders only its frame, and `StyledPanel` does not
   consult `State_HasFocus`. Reproduced by grabbing the widget focused and
   unfocused and comparing: **the two images are identical**. Tab moves an
@@ -230,7 +235,8 @@ visible.
   Resolved (2026-08-06, 63f62ce): `ProjectRow.paintEvent` paints the ring `QFrame` does not, in the `accent` token expanded by `Theme.focus_ring_color()` (§ O7 forbids a widget building a QColor), at a pen width derived from the text metric so it survives LWSM-1032's 200 % setting. Measured: 858 of 6734 pixels change between the focused and unfocused grabs, ring width 2 px, contrast 5.42:1 against `window` — over § T8's 3:1 indicator floor. Asserted by rendering, since focusPolicy/hasFocus/accessible name were all already correct while the images matched. Watched failing with the ring neutered. New INV-17; `tests/contrast.py` holds the WCAG arithmetic, shared with LWSM-1075. Gate green at 79 tests.
 
 - ✅ [LWSM-1071] **FP03: the decorative glyph is announced by a screen reader,
-  and a code comment says it is not.** `mainwindow.py:64` calls
+and a code comment says it is not.**
+  `mainwindow.py:64` calls
   `self._glyph.setAccessibleName("")`, and the comment above it states the glyph
   is "also hidden from the AT tree so a screen reader walking children does not
   find it either". That is **not what the call does**: `QAccessibleDisplay` falls
@@ -253,7 +259,8 @@ visible.
   Resolved (2026-08-06, 1b82a90): the glyph is painted in `ProjectRow.paintEvent` into a column reserved by widening the layout's left content margin, so it is not a widget and cannot be a child of the AT tree. Qt Widgets has no ignored flag — Qt Quick's `Accessible.ignored` has no widget equivalent — so leaving the tree means not being a widget. `Theme.state_color()` expands the token, since § O7 forbids widget code building a QColor. Reproduced first as ['●', 'running', 'a', 'port 5005']; the test now asserts childCount() and each child's name equals exactly ["running", "a", "port 5005"]. A second test guards the other direction — every AT assertion would also pass if the glyph were simply deleted, so it blanks the glyph and re-renders, the difference being the glyph. Exact-colour matching was tried and fails for '○' and '?' (antialiased strokes). New INV-19; § 4.4's accessibility-ignored claim corrected. Gate green at 92 tests.
 
 - ✅ [LWSM-1074] **FP03: the row's cells are flung to opposite ends of the
-  window.** `mainwindow.py:79` gives `stretch=1` to the **name** cell, so all
+window.**
+  `mainwindow.py:79` gives `stretch=1` to the **name** cell, so all
   slack is absorbed inside that label — and `QLabel`'s default alignment is
   `AlignLeft`, so the name's text stays at the left while the port cell is pinned
   to the right edge. Measured: at 1400 px the name text renders at x=84 and the
@@ -272,7 +279,8 @@ visible.
   Resolved (2026-08-06, 846c514): the stretch moved off the name cell to after the last cell, so slack lands outside the row's content instead of inside a left-aligned QLabel. Reproduced first at 1400 px with the port cell ending at x=1371; it now stays inside LWSM-1032's 600 px band. A second test asserts the cells keep their order without overlapping, guarding the over-correction. New INV-20. Gate green at 94 tests.
 
 - ✅ [LWSM-1075] **FP03: `state_unknown` fails the contrast floor in the default
-  palette.** `theme.py:62` sets `state_unknown="#8a6d1f"`, which against
+palette.**
+  `theme.py:62` sets `state_unknown="#8a6d1f"`, which against
   `window="#f4f4f6"` computes to **4.46:1** — below the 4.5:1 that
   `testing.md § T8` and `design.md § Accessibility` require of every text pair.
   Computed against the shipped values, not estimated. `state_running` passes at
@@ -292,7 +300,8 @@ visible.
   Resolved (2026-08-06, 6c101b4): `state_unknown` darkened #8a6d1f → #856819, 4.46:1 → 4.79:1 against `window`. The test computes the ratio and is parametrised over tokens AND themes, so LWSM-1031's palettes inherit it. Measured: text 15.63, muted_text 6.21, state_stopped 6.21, state_unknown 4.79, state_running 4.61. `tests/contrast.py` is pinned to WCAG's published values first (21:1 black-on-white, the #767676/#777777 borderline) because a miscomputed ratio passes every palette silently; it reproduced the review's own 4.46 and 4.61 before anything changed. `state_running` left alone — it clears the floor, and re-tuning a passing value was not in scope, but it has no margin either. New INV-18. Gate green at 85 tests.
 
 - ✅ [LWSM-1076] **FP03: a state change is never announced, and every row is
-  re-styled on every tick.** Two halves of one fix. Qt does **not** notify AT-SPI
+re-styled on every tick.**
+  Two halves of one fix. Qt does **not** notify AT-SPI
   when an accessible name changes, and `mainwindow.py:101` only calls
   `setAccessibleName` — so `design.md § Accessibility`'s promise that "a state
   change announces itself once" is unimplemented; it needs a
@@ -313,7 +322,8 @@ visible.
   Lanes: ui, tests.
   Resolved (2026-08-06, d57b097): both halves together. `update_from` raises a `QAccessibleEvent(NameChanged)` — Qt never notifies AT-SPI on an accessible-name change, so the promise was unimplemented — and returns early when the `RowView` is unchanged, since `_sync_rows` calls it on every row on every signal and only `QLabel::setText` short-circuits. Verified the guard is load-bearing by removing it: the never-re-announced test goes red. `QAccessible.installUpdateHandler` is not exposed in PySide6 (checked against the pinned 6.11.1) and AT-SPI is unreachable headless, so the tests count the call itself — weaker than preferred, and the strongest surface available; recorded in the spec. New INV-22. Gate green at 109 tests.
 
-- ✅ [LWSM-1081] **FP03: no user-visible string is translatable.** `grep` for
+- ✅ [LWSM-1081] **FP03: no user-visible string is translatable.**
+  `grep` for
   `.tr(` and `QCoreApplication.translate` across `src/` returns **zero** hits,
   against `coding.md § 5.2`'s "wrap user-visible strings in `tr()`". Affected:
   the window title, `port …` / `no port`, the three status words, the two
@@ -335,7 +345,8 @@ visible.
 ### 🧹 Cleanup / debt
 
 - ✅ [LWSM-1077] **FP03: the theme layer owes a generated style sheet, and the
-  widget is composing CSS instead.** Spec § 4.4 and `design.md § Tokens, not
+widget is composing CSS instead.**
+  Spec § 4.4 and `design.md § Tokens, not
   colours` both say a `Theme` expands into a `QPalette` **and** a generated style
   sheet — finbreak's two-layer split. `theme.py` implements `to_palette()` and
   nothing else, so `mainwindow.py:96-97` hand-builds `f"color: {token};"`.
@@ -371,7 +382,8 @@ visible.
   Resolved (2026-08-06, 04e8658): logged on the first failure, then only when the message text changes. Suppressed by message rather than by count — a different failure is news, and there is a test for that direction too. The suppressed count is flushed when the message changes, when a poll succeeds, and on stop(), so silence and suppression are never indistinguishable and a run's count does not die with the process. A success clears the state, so a failure recurring after a recovery is logged again. Gate green at 112 tests.
 
 - ✅ [LWSM-1080] **FP03: three type errors in `registry.py`, and a missing
-  return annotation on the seam INV-15 depends on.** `pyright` reports
+return annotation on the seam INV-15 depends on.**
+  `pyright` reports
   `registry.py:74` twice and `:76` once: `_is_int()` returns a plain `bool`, so a
   checker cannot narrow `value: object` to `int`, and both the range comparison
   and the return fail. **Correct at runtime** — the `or` short-circuits — so this
@@ -392,7 +404,8 @@ visible.
   Lanes: core, build.
   Resolved (2026-08-06, 2bba9f7): `_is_int` is now `TypeGuard[int]`, which narrows `object` at the call site and closes all three registry.py reports; `build_window` carries spec § 4.5's `-> tuple[MainWindow, ProjectController]` via a TYPE_CHECKING block, so the runtime imports stay inside the function and INV-14's no-Qt-for---version property is untouched. Also fixed one this pass introduced: LWSM-1071's glyph column unpacked `getContentsMargins()`, typed `object` in PySide6 — now `contentsMargins()` -> QMargins. pyright 5 errors → 1, the survivor being applog.py:53's `_open` override, the single pre-existing mismatch LWSM-1066 was filed on and left for it along with putting the checker in the gate. Gate green at 112 tests.
 
-- ✅ [LWSM-1082] **FP03: the low-severity tail from the P02 review.** Each
+- ✅ [LWSM-1082] **FP03: the low-severity tail from the P02 review.**
+  Each
   verified, none urgent, grouped so they are not lost. `mainwindow.py:137`
   `_sync_rows` only ever **adds** a row — nothing removes one when
   `controller.rows()` shrinks, so a removed project would linger showing its last
@@ -617,16 +630,16 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Both verified by mutation, both leaving the whole suite green:
 
   - Painting the focus ring in the **state** token instead of the accent —
-    all tests pass. INV-17's two halves never meet: one test asserts a
-    contrast property of the `accent` *token*, the other asserts only that
-    the focused and unfocused renders differ. Neither observes which colour
-    the widget paints, so a palette whose state token sits at 2:1 would ship
-    an invisible ring with INV-17 reporting green.
+  all tests pass. INV-17's two halves never meet: one test asserts a
+  contrast property of the `accent` *token*, the other asserts only that
+  the focused and unfocused renders differ. Neither observes which colour
+  the widget paints, so a palette whose state token sits at 2:1 would ship
+  an invisible ring with INV-17 reporting green.
   - Painting **every** glyph in the `stopped` token regardless of state —
-    all tests pass. § 4.4 requires "both take the matching state token's
-    colour", and colour is one of `design.md § Accessibility`'s three
-    redundant signals. INV-19 checks the glyph is *drawn*; INV-23 checks only
-    the *word*.
+  all tests pass. § 4.4 requires "both take the matching state token's
+  colour", and colour is one of `design.md § Accessibility`'s three
+  redundant signals. INV-19 checks the glyph is *drawn*; INV-23 checks only
+  the *word*.
 
   The same shape as LWSM-1077's re-polish, one level out: the assertion
   tests a token in isolation rather than the pixel it produces.
@@ -670,14 +683,14 @@ reports on code that is not on disk. Filed as LWSM-1110.
   by running:
 
   - `f" (+{len(notices) - 1} more)"` is never translated — the status bar
-    reads the same with a translator installed.
+  reads the same with a translator installed.
   - `self.tr("Local Web Server Manager")` resolves under context
-    `"MainWindow"`, not the `_TR_CONTEXT = "ProjectRow"` the file declares.
+  `"MainWindow"`, not the `_TR_CONTEXT = "ProjectRow"` the file declares.
   - A translator installed **after** the window is built never reaches an
-    existing row: there is no `LanguageChange` branch in `changeEvent`, and
-    LWSM-1076's equality guard suppresses the only path that would
-    re-render. A row built after the install renders translated; one built
-    before does not.
+  existing row: there is no `LanguageChange` branch in `changeEvent`, and
+  LWSM-1076's equality guard suppresses the only path that would
+  re-render. A row built after the install renders translated; one built
+  before does not.
 
   The third makes § 4.4's stated rationale for translating at call time
   untrue as written. No user-visible impact in P02, which has no language
@@ -697,22 +710,22 @@ reports on code that is not on disk. Filed as LWSM-1110.
   reviewed comment gets trusted.
 
   1. `"RecursionError ... is not even an Exception"` — in a code comment, a
-     test docstring, the spec and a commit message. **False:**
-     `RecursionError → RuntimeError → Exception`. The clause is still needed
-     because it is not a `ValueError`, which is all the comment should say.
-     Dangerous because a reader who believes it will "fix" `ports.py`'s
-     `except Exception` to `BaseException` and start swallowing
-     `KeyboardInterrupt`.
+  test docstring, the spec and a commit message. **False:**
+  `RecursionError → RuntimeError → Exception`. The clause is still needed
+  because it is not a `ValueError`, which is all the comment should say.
+  Dangerous because a reader who believes it will "fix" `ports.py`'s
+  `except Exception` to `BaseException` and start swallowing
+  `KeyboardInterrupt`.
   2. `_apply_text_metrics`'s docstring claims it keeps sizes fresh on a font
-     change; it leaves the glyph column stale (LWSM-1101).
+  change; it leaves the glyph column stale (LWSM-1101).
   3. `_ABANDONED`'s comment claims the objects are never released; Python
-     frees module globals at shutdown (LWSM-1100).
+  frees module globals at shutdown (LWSM-1100).
   4. § 10 claims the outstanding-task ceiling is one, not one per tick
-     (LWSM-1099).
+  (LWSM-1099).
   5. § 11 lists focus-ring contrast and state-token contrast as checked by
-     "nothing", both false since INV-17/INV-18 landed — and its closing
-     "eight `nothing` rows ... eight is this spec's honest error budget" is
-     therefore wrong by two. § 7's table *was* updated; § 11 was not.
+  "nothing", both false since INV-17/INV-18 landed — and its closing
+  "eight `nothing` rows ... eight is this spec's honest error budget" is
+  therefore wrong by two. § 7's table *was* updated; § 11 was not.
   Acceptance: each corrected in place, and § 11's count recomputed rather
   than re-asserted.
   **Layman:** Several notes in the code and the design document confidently state things that turn out not to be true — which is how the last round of bugs got believed.
@@ -725,20 +738,20 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Each verified by mutation — the named change leaves the suite green:
 
   - The `MAX_FILE_BYTES + 1` grow-race read can be replaced with a plain
-    `read()` and the post-check deleted. The mechanism § 4.1 names by name is
-    unguarded; only the `fstat` path is tested.
+  `read()` and the post-check deleted. The mechanism § 4.1 names by name is
+  unguarded; only the `fstat` path is tested.
   - `MAX_REASON_CHARS` can be set to 400. The clip test asserts `< 500`
-    against a 100,000-char input, so it detects removal and nothing between.
+  against a 100,000-char input, so it detects removal and nothing between.
   - `log.exception` in `run()` can be replaced with `pass`. The assertion
-    looks for `"RuntimeError"`, which the *wrapping* `ProbeError` message
-    supplies from a different log line — so it cannot distinguish
-    "traceback reported" from "no traceback".
+  looks for `"RuntimeError"`, which the *wrapping* `ProbeError` message
+  supplies from a different log line — so it cannot distinguish
+  "traceback reported" from "no traceback".
   - `self.update()` in `update_from` can be deleted. `grab()` repaints
-    unconditionally, so no render-based test can see a missing repaint
-    request — and § 4.4 flags this exact line as the hazard.
+  unconditionally, so no render-based test can see a missing repaint
+  request — and § 4.4 flags this exact line as the hazard.
   - `_port.setMinimumWidth` can be deleted.
   - `stop()`'s bounded-wait test patches the budget to 100 ms then asserts
-    `< 2.0` — a 20x-loose threshold that a 1.9 s `stop()` would pass.
+  `< 2.0` — a 20x-loose threshold that a 1.9 s `stop()` would pass.
   Acceptance: each assertion is tightened against the constant or the
   observable it names, and re-mutated to confirm it now goes red.
   **Layman:** Six of our checks would not notice if the thing they are meant to guard were removed.
@@ -778,32 +791,32 @@ reports on code that is not on disk. Filed as LWSM-1110.
   Each verified, grouped so none is lost.
 
   - `_quoted` clips **before** the `repr`, so the bound is ~10x the
-    constant: a 400-char astral non-printable string returns **1203**
-    characters, and a reason interpolates two of them. Contract-conformant
-    ("bounded") but not what the constant reads as.
+  constant: a 400-char astral non-printable string returns **1203**
+  characters, and a reason interpolates two of them. Contract-conformant
+  ("bounded") but not what the constant reads as.
   - `ports.snapshot()`'s comprehension sits outside the `try`, so malformed
-    psutil output raises `AttributeError`, not `ProbeError`, against § 4.2's
-    "one exception type". Mitigated by `run()`'s catch-all; costs one line.
+  psutil output raises `AttributeError`, not `ProbeError`, against § 4.2's
+  "one exception type". Mitigated by `run()`'s catch-all; costs one line.
   - Both of `snapshot()`'s filters are untested: dropping `and conn.laddr`
-    passes the **entire** suite, and dropping the `CONN_LISTEN` filter
-    passes everything except one `integration` test — so under `--fast`
-    neither is covered. One fake `net_connections` list closes both.
+  passes the **entire** suite, and dropping the `CONN_LISTEN` filter
+  passes everything except one `integration` test — so under `--fast`
+  neither is covered. One fake `net_connections` list closes both.
   - `poll_once()` after `stop()` is unguarded and re-arms delivery; a
-    `_stopped` flag closes this and LWSM-1098 together.
+  `_stopped` flag closes this and LWSM-1098 together.
   - `test_layering`'s colour detector misses named constants
-    (`Qt.GlobalColor.red` passes) and false-positives on a **trailing**
-    comment, contradicting its own comment about comments.
+  (`Qt.GlobalColor.red` passes) and false-positives on a **trailing**
+  comment, contradicting its own comment about comments.
   - `_glyph_color` is cached behind the equality guard, so a theme swap with
-    an unchanged row would leave the glyph in the old palette while the word
-    followed the new one. Unreachable in P02; LWSM-1031 is exactly when it
-    becomes reachable.
+  an unchanged row would leave the glyph in the old palette while the word
+  followed the new one. Unreachable in P02; LWSM-1031 is exactly when it
+  becomes reachable.
   - The chmod-000 registry test silently passes as root, where mode bits are
-    ignored; a `skipif` would make the reason explicit.
+  ignored; a `skipif` would make the reason explicit.
   - `test_refuses_a_device_node` reads the real `/dev/null`, the one test
-    outside `tmp_path` that `testing.md § T1` otherwise forbids.
+  outside `tmp_path` that `testing.md § T1` otherwise forbids.
   - `vulture` flags unused `context` / `disambiguation` parameters in the
-    test translator overrides; the signature is mandated by
-    `QTranslator.translate`, so an underscore prefix is the fix.
+  test translator overrides; the signature is mandated by
+  `QTranslator.translate`, so an underscore prefix is the fix.
   - `typos`: "unparseable" should be "unparsable" in the spec.
   Dependencies: none.
   **Layman:** Nine small things worth tidying, none of which breaks anything today.
@@ -1106,13 +1119,13 @@ said nothing about any of them.
   (`_accept_hop`).
   Two triggers, both reproduced twice — once by the reviewing lane and once
   independently before this bullet was written:
-    - `chmod 000` on any candidate directory. Needs no attacker: a root-owned or
-      another user's directory under a scan root does it. Measured: 20 healthy
-      projects returned **0**. Mode `0o444` (listable, not searchable) is the same.
-    - A 3000-character hop token in a hostile `start.sh` → `OSError [Errno 36]
-      File name too long` at `:561`. This one is attacker-authored: one line in a
-      file under a scan root. `MAX_SOURCE_LINE_CHARS` is 4096 and `NAME_MAX` is
-      255, so the form is trivially writable.
+  - `chmod 000` on any candidate directory. Needs no attacker: a root-owned or
+  another user's directory under a scan root does it. Measured: 20 healthy
+  projects returned **0**. Mode `0o444` (listable, not searchable) is the same.
+  - A 3000-character hop token in a hostile `start.sh` → `OSError [Errno 36]
+  File name too long` at `:561`. This one is attacker-authored: one line in a
+  file under a scan root. `MAX_SOURCE_LINE_CHARS` is 4096 and `NAME_MAX` is
+  255, so the form is trivially writable.
   Spec § 4.3 states the opposite outright: *"Any `OSError` rejects that file with
   a reason and continues. A permission denial on one project is not a failure of
   the scan."*
@@ -1136,12 +1149,12 @@ said nothing about any of them.
   `_accept_hop` returns a reason and `_hop_target` (`scanner.py:592-594`) returns
   `(None, [], reason)` immediately, never trying the preceding token.
   Measured, with the port in the hop file in every case:
-    | `start.sh` last line | spec | code |
-    |---|---|---|
-    | `exec python3 app.py` (control) | 8123 | 8123 ✅ |
-    | `exec python3 app.py >> /var/log/app.log` | 8123 | **None** |
-    | `exec python3 app.py --cfg ../shared/conf.ini` | 8123 | **None** |
-    | `exec python3 app.py --cfg node_modules/x/c.json` | 8123 | **None** |
+  | `start.sh` last line | spec | code |
+  |---|---|---|
+  | `exec python3 app.py` (control) | 8123 | 8123 ✅ |
+  | `exec python3 app.py >> /var/log/app.log` | 8123 | **None** |
+  | `exec python3 app.py --cfg ../shared/conf.ini` | 8123 | **None** |
+  | `exec python3 app.py --cfg node_modules/x/c.json` | 8123 | **None** |
   The control passing is what isolates the abort as the only difference.
   The recorded reasons are actively misleading as well —
   `hop target '/var/log/app.log' is outside the project` describes a hop the
@@ -1337,10 +1350,10 @@ said nothing about any of them.
   (`:1074`), but `_VITE_SCRIPT.search(script)` at `:1077` searches the **raw**
   chosen script value.
   Measured, side by side:
-    | fixture | result |
-    |---|---|
-    | `serve.py` containing `# import flask` | `port=None` ✅ |
-    | `{"scripts":{"dev":"node server.js # switch to vite later"}}` | **5173, FRAMEWORK_DEFAULT, source `Vite`** ✗ |
+  | fixture | result |
+  |---|---|
+  | `serve.py` containing `# import flask` | `port=None` ✅ |
+  | `{"scripts":{"dev":"node server.js # switch to vite later"}}` | **5173, FRAMEWORK_DEFAULT, source `Vite`** ✗ |
   Reproduced independently. `#` genuinely is a comment in an npm script — the
   value is handed to `sh` — so the spec's rule is the right one and the code is
   the side that is wrong.
@@ -1483,7 +1496,7 @@ branches on.
   line — "a project the supervisor no longer holds cannot still be
   starting" — is LWSM-1134's, which is next and depends on this.
 
-- 📋 [LWSM-1134] **FP07: the overlay also sticks on the two failure paths that matter most.**
+- ✅ [LWSM-1134] **FP07: the overlay also sticks on the two failure paths that matter most.**
   Same mechanism as LWSM-1133, reached two other ways (`controller.py:508-509`).
   A launcher that spawns and exits without ever binding — ADR-0004's own
   definition of `failed` — leaves the derived status at `stopped`, which never
@@ -1503,6 +1516,37 @@ branches on.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-15 lane-3 HIGH.
+  Resolved (2026-08-18): the two paths needed different evidence, and
+  the obvious fix for the first one does not work. **`running()`
+  cannot answer "did the child exit"** — its entry is removed only in
+  `_reap`, which only the stop sequence reaches, so a child that dies
+  on its own stays in the map. A new `Supervisor.exited()` answers it
+  from `_alive` (the non-reaping check the stop sequence already
+  uses); `Popen.poll()` would answer it in one line and must not be
+  used, because it reaps and frees the PID that
+  `start_new_session=True` made the process-group id, which ADR-0003
+  forbids until the sequence ends. `_settle_overlay` consults it for
+  a STARTING overlay only.
+  The stop path is keyed on `StopOutcome.port_still_bound`, **not on
+  `warning`**: a warning is also emitted when the probe itself could
+  not be read, and there the port's state is unknown rather than
+  held, so nothing terminal has been observed and the ordinary settle
+  must still apply. A test drives that case and a mutant swapping the
+  two dies on it.
+  Verdict-diffed `_settle_overlay` over the 24-case population: **1 of
+  24 moved**, exactly ADR-0004's `failed`. The slow-start case it
+  protects — `starting`, derived `stopped`, child still alive — still
+  holds the overlay.
+  **Mutation found a gap the tests did not.** Dropping the
+  `pending is STARTING` guard left all 46 tests green, and it is not
+  an equivalent mutant: mid-stop the child is already dead while its
+  port is still bound, so a STOPPING overlay would clear early and the
+  row would flicker `running` then `stopped` — the flicker the design
+  exists to prevent. A test now covers it and the mutant dies.
+  Four mutants run in total, all four now die, including the plausible
+  wrong implementation (`exited` via `Popen.poll()`), which is caught
+  by asserting `returncode is None` after asking.
+  516 tests green (was 510).
 
 - 📋 [LWSM-1135] **FP07: a raw `OSError` escapes `save_projects` and kills Rescan for the session.**
   `tempfile.mkstemp` (`registry.py:819-821`) is the only syscall in the writer
@@ -1688,7 +1732,8 @@ change** rather than code that exists.
 ### 🔒 Security
 
 - ✅ [LWSM-1045] **FP01: scrub the repo before it is ever public —
-  BLOCKS LWSM-1004.** `docs/discovery.md § Problem` publishes a
+BLOCKS LWSM-1004.**
+  `docs/discovery.md § Problem` publishes a
   working target list for the author's private local services:
   seven project names with exact ports, `file:line` references,
   which two were listening at scan time, and the absolute scan
@@ -1716,7 +1761,8 @@ change** rather than code that exists.
   Lanes: docs, build.
 
 - 🚧 [LWSM-1046] **FP01: a trust gate before running a discovered
-  launcher.** Start executes arbitrary code from any directory in
+launcher.**
+  Start executes arbitrary code from any directory in
   a scan root — a hostile repo cloned there is auto-listed and
   visually identical to a real project, and `npm run <script>`
   passes an untrusted string through `/bin/sh`, so ADR-0003's
@@ -1794,7 +1840,8 @@ change** rather than code that exists.
   not the rule did. The launcher now exits on the signal.
 
 - ✅ [LWSM-1048] **FP01: don't hand the whole environment to
-  launched projects.** ADR-0003 extends `os.environ`, so every
+launched projects.**
+  ADR-0003 extends `os.environ`, so every
   scanned project's launcher — including a hostile one —
   inherits `SSH_AUTH_SOCK` (a live signing oracle), API keys and
   cloud credentials, readable afterwards from `/proc/<pid>/environ`.
@@ -1820,7 +1867,8 @@ change** rather than code that exists.
   security review.
 
 - 📋 [LWSM-1049] **FP01: treat detection results as untrusted
-  input.** The plausibility test ("holder's cwd is under the
+input.**
+  The plausibility test ("holder's cwd is under the
   project") is forgeable with one `chdir`, and the design lets a
   forged match enable **Open in browser** — localhost phishing
   with the manager's own credibility behind it. Alongside:
@@ -1855,7 +1903,8 @@ change** rather than code that exists.
   LWSM-1141, which takes the interim restriction. The rest of this bullet still
   waits on LWSM-1011.
 
-- ✅ [LWSM-1050] **FP01: bound the scanner's reads.** Detection
+- ✅ [LWSM-1050] **FP01: bound the scanner's reads.**
+  Detection
   regexes run unanchored over attacker-controlled files three
   levels into any scanned repo, and the 20-second budget is a
   per-scan wall check that cannot interrupt a backtracking match.
@@ -1886,7 +1935,8 @@ change** rather than code that exists.
   purpose — see `CLAUDE.md`'s § T9 trap, which is about this item.
 
 - ✅ [LWSM-1051] **FP01: say plainly that `LWSM_MANAGED` is not
-  authentication.** It is unauthenticated, forgeable, inherited
+authentication.**
+  It is unauthenticated, forgeable, inherited
   by every descendant and readable from `/proc`. ADR-0006 rule 3
   reads as style advice, and the prompt is about to be pasted
   into seven codebases where the obvious next step is "if
@@ -1915,7 +1965,8 @@ harness to be known-working before any business code lands.
 ### 🧰 Dev experience
 
 - ✅ [LWSM-1001] **P01: uv + ruff + pytest + pytest-qt + CI wired
-  up.** `pyproject.toml` declaring Python ≥ 3.13, PySide6 and
+up.**
+  `pyproject.toml` declaring Python ≥ 3.13, PySide6 and
   psutil as runtime deps and pytest / pytest-qt / ruff as dev
   deps; `uv sync` resolves and writes `uv.lock`; `pytest` exits 0
   on a placeholder suite under `QT_QPA_PLATFORM=offscreen`;
@@ -1964,7 +2015,8 @@ harness to be known-working before any business code lands.
   Priority: 3.
   Lanes: build, ci.
 
-- ✅ [LWSM-1026] **P01: application log.** `app.log` at
+- ✅ [LWSM-1026] **P01: application log.**
+  `app.log` at
   `~/.local/state/localwebservermanager/`, INFO by default,
   rotating at 1 MB with 5 kept, recording every spawn, signal,
   port-probe result and config write — as specified in
@@ -1991,7 +2043,8 @@ integration pain to surface before more code lands on it.
 ### 🎨 Features
 
 - ✅ [LWSM-1005] **P02: one hand-written project renders a live
-  status dot.** A `projects.json` written by hand (no scanner
+status dot.**
+  A `projects.json` written by hand (no scanner
   yet) is loaded by `Registry`; `PortProbe` reads the socket
   table once per second; `MainWindow` shows one row with a
   green/red dot that flips within 2 seconds when a server on that
@@ -2066,7 +2119,8 @@ path. `docs/design.md § Detection rules` is the contract.
   Resolved (2026-08-12, FP06 closing): `src/lwsm/scanner.py` ships with all 20 invariants covered, the detection corpus at 15 fixtures (three added by FP06: `project-m-vite`, `project-n-unexecutable-launcher`, `project-o-vite-in-a-comment`), and 386 tests green. Steps 5-6 ran ONCE, on 2026-08-12 — /audit clean, /code-quality-review 25 findings with zero false positives, 9 into FP06 and 16 routed to `docs/known-issues.md`. FP06 is closed; its nine fixes and the two findings that came out of writing them (known-issue-034, -035) are the last of it. **What ships unreviewed, said plainly:** FP06's own ~350 new lines were never read by a cold reviewer, per the 2026-08-07 one-review-per-phase rule and the user's decision at this close. **LWSM-1121 carries the split-out scope** (.env / docker-compose.yml / README port sources, conflict reporting) and is untouched.
 
 - ✅ [LWSM-1007] **P03b: Persist the registry — the file format
-  and the writer.** `projects.json` becomes a file the app writes
+and the writer.**
+  `projects.json` becomes a file the app writes
   as well as reads: the record grows the eleven fields
   [ADR-0005](docs/decisions/0005-registry-and-rescan.md) names,
   every one classified user-owned or detected, and an atomic
@@ -2108,7 +2162,8 @@ path. `docs/design.md § Detection rules` is the contract.
   because its two fixture names were already in sorted order, and file order
   is load-bearing twice over in LWSM-1131.
 
-- 📋 [LWSM-1039] **P03b: keep one backup of the registry.** Every
+- 📋 [LWSM-1039] **P03b: keep one backup of the registry.**
+  Every
   write of `projects.json` keeps the previous version alongside
   it (`projects.json.bak`), and a file that fails to parse or
   fails its `schema_version` check offers to restore from it
@@ -2125,7 +2180,8 @@ path. `docs/design.md § Detection rules` is the contract.
   Priority: 2.
   Lanes: core, tests.
 
-- 📋 [LWSM-1008] **P03b: first-run confirmation flow.** No config
+- 📋 [LWSM-1008] **P03b: first-run confirmation flow.**
+  No config
   file present → scan → present the detected list for
   confirmation before anything is written. Acceptance: criterion
   1 demonstrated end to end on a machine with no config.
@@ -2138,7 +2194,8 @@ path. `docs/design.md § Detection rules` is the contract.
   Lanes: ui, tests.
 
 - 📋 [LWSM-1121] **P03b: Scanner reads the extra port sources and
-  reports conflicts.** Beyond the launcher and its one-hop file
+reports conflicts.**
+  Beyond the launcher and its one-hop file
   (LWSM-1006), the three remaining sources
   [`design.md § Robustness`](docs/design.md) measure 2 names: a
   `.env` / `.env.local` `PORT=`, a `docker-compose.yml` `ports:`
@@ -2226,7 +2283,8 @@ magnifier, so this is a design input, and
 ### 🖥 Platform
 
 - 📋 [LWSM-1031] **P04: theme layer — six themes plus
-  high-contrast.** Nine semantic tokens plus `is_dark`, expanded
+high-contrast.**
+  Nine semantic tokens plus `is_dark`, expanded
   into both a `QPalette` and a generated style sheet, switchable
   without a restart. The six palettes are **adopted from
   `finbreak/src/finbreak/ui/theme.py`** (midnight, graphite,
@@ -2293,7 +2351,8 @@ magnifier, so this is a design input, and
   surface at all. design.md § Accessibility now carries a check
   table, and every row of it is part of this item's acceptance.
 
-- 📋 [LWSM-1040] **P04: keyboard-first navigation.** Number keys
+- 📋 [LWSM-1040] **P04: keyboard-first navigation.**
+  Number keys
   jump to a project, Enter starts or stops the selected one, `/`
   focuses a filter box that narrows the list, Escape clears it.
   Placed in the accessibility foundation rather than treated as a
@@ -2342,7 +2401,8 @@ is the contract.
 ### 🎨 Features
 
 - ✅ [LWSM-1009] **P05: Supervisor spawns and reaps process
-  groups.** `subprocess.Popen(start_new_session=True)` with an
+groups.**
+  `subprocess.Popen(start_new_session=True)` with an
   argument vector, `cwd` at the project, `PORT` in the
   environment, output merged into a per-project log file. Stop
   signals the group with `SIGTERM`, then `SIGKILL` after 5 s if
@@ -2379,7 +2439,8 @@ is the contract.
   Twelve mechanisms mutated, twelve died.
 
 - 📋 [LWSM-1028] **P05: service-managed projects driven through
-  `systemctl`.** A project owned by a systemd **user unit** gets
+`systemctl`.**
+  A project owned by a systemd **user unit** gets
   its verbs from the service manager — `start` / `stop` /
   `restart` / `is-active`, with logs from `journalctl --user -u`
   — instead of being spawned directly. Detection makes the
@@ -2401,7 +2462,8 @@ is the contract.
   Lanes: core, tests.
 
 - ✅ [LWSM-1010] **P05: start / stop / restart in the UI with the
-  optimistic overlay.** Buttons wired through `ProjectController`,
+optimistic overlay.**
+  Buttons wired through `ProjectController`,
   with the bounded overlay in `docs/design.md § State management`
   so the UI responds immediately and probing always wins.
   Acceptance: criterion 2's full round-trip, each transition
@@ -2450,7 +2512,8 @@ is the contract.
   Nine mechanisms mutated, nine died — after one inert mutation was caught and
   rewritten, which is the trap `CLAUDE.md` already records twice.
 
-- ✅ [LWSM-1016] **P05: open in browser.** Opens
+- ✅ [LWSM-1016] **P05: open in browser.**
+  Opens
   `http://localhost:<bound port>` via `QDesktopServices` — the
   port actually bound, never the requested one, since the two
   differ exactly when a project ignored `PORT`. Enabled in all
@@ -2486,7 +2549,7 @@ is the contract.
   `open_url`.
 
 - 📋 [LWSM-1055] **P05: a per-project browser choice for Open in
-  browser.**
+browser.**
   LWSM-1016 opens the desktop default. A project the user always
   wants in a *particular* browser — a work profile, one carrying the
   right extensions, one kept apart from a personal session — means
@@ -2525,7 +2588,8 @@ is the contract.
 
 ### 🎨 Features
 
-- 📋 [LWSM-1011] **P06: the seven-state classifier.** One
+- 📋 [LWSM-1011] **P06: the seven-state classifier.**
+  One
   socket-table snapshot per tick classified against ADR-0004's
   table, including `running (wrong port)`, `port blocked`, the
   plausibility test for foreign holders, `starting` with **no
@@ -2548,7 +2612,8 @@ is the contract.
   Lanes: core, tests.
 
 - 📋 [LWSM-1038] **P06: confirmed ports — detection learns from
-  what actually happens.** The first time a project is observed
+what actually happens.**
+  The first time a project is observed
   listening — started by us, or found already running with a
   holder whose working directory is inside the project — record
   the port it **actually bound** as `confirmed_port`, and prefer
@@ -2568,7 +2633,8 @@ is the contract.
   Lanes: core, tests.
 
 - 📋 [LWSM-1034] **P06: health check — bound is not the same as
-  working.** An optional HTTP `GET` to `http://localhost:<bound
+working.**
+  An optional HTTP `GET` to `http://localhost:<bound
   port>/` per project, on a slower cadence than the status poll,
   showing the result **as words**: "running, HTTP 200",
   "running, HTTP 500", "running, no response". A port probe
@@ -2587,7 +2653,8 @@ is the contract.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1012] **P06: foreign-server adoption and guarded
-  stop.** A server started outside the app shows as running and
+stop.**
+  A server started outside the app shows as running and
   labelled; Stop enumerates the holder's descendants, names them
   in a confirmation dialog, and signals exactly that set — never
   a process group the app did not create. Acceptance: criterion 3's
@@ -2601,7 +2668,8 @@ is the contract.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1054] **P06: cover the sibling that respawns itself
-  detached.** project-e's settings page has a Restart button that
+detached.**
+  project-e's settings page has a Restart button that
   spawns a fresh copy in a **new session** and then exits 0. So the
   process this app started exits *cleanly* while the port stays
   bound by a grandchild in a process group we never created.
@@ -2636,7 +2704,8 @@ is the contract.
 
 ### 🎨 Features
 
-- 📋 [LWSM-1013] **P07: the conflict warning UI.** When the
+- 📋 [LWSM-1013] **P07: the conflict warning UI.**
+  When the
   pre-flight check built in LWSM-1009 refuses a start, the window
   says what is holding the port — naming the process, or saying
   plainly that the holder cannot be inspected — and offers to
@@ -2650,7 +2719,8 @@ is the contract.
   Priority: 2.
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1041] **P07: "what's using this port?" lookup.** A
+- 📋 [LWSM-1041] **P07: "what's using this port?" lookup.**
+  A
   search box answering the question the whole project started
   from — type a port, get the process holding it, whether or not
   it belongs to a known project, or "nothing is listening on
@@ -2666,7 +2736,8 @@ is the contract.
   Priority: 3.
   Lanes: ui, core.
 
-- 📋 [LWSM-1037] **P07: suggest a free port.** When reassigning,
+- 📋 [LWSM-1037] **P07: suggest a free port.**
+  When reassigning,
   propose a port that is actually free — checked against the live
   socket table and against every other project's effective port,
   so the suggestion cannot collide with a project that simply
@@ -2681,7 +2752,8 @@ is the contract.
   Lanes: core, ui.
 
 - 📋 [LWSM-1014] **P07: port override, validated and
-  persisted.** Assign a different port from the UI; validated at
+persisted.**
+  Assign a different port from the UI; validated at
   entry against 1024–65535; survives restart; passed as `PORT` on
   the next launch. Acceptance: criterion 4 demonstrated against a
   sibling that has adopted the contract, and honest degradation
@@ -2705,7 +2777,8 @@ is the contract.
 
 ### 🎨 Features
 
-- 📋 [LWSM-1015] **P08: live log panel.** Tails the per-project
+- 📋 [LWSM-1015] **P08: live log panel.**
+  Tails the per-project
   log file into a bounded ring (2000 lines), follows unless the
   user has scrolled up, and retains the tail after exit so a
   crash can be read after the fact. A foreign server, which has
@@ -2720,7 +2793,8 @@ is the contract.
   Priority: 2.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1036] **P08: find the error in the log.** A **jump to
+- 📋 [LWSM-1036] **P08: find the error in the log.**
+  A **jump to
   last error** action and an **errors-only** filter over the log
   panel, matching the usual markers (`Traceback`, `ERROR`,
   `CRITICAL`, `Exception`, a non-zero exit line). Scrolling a
@@ -2743,7 +2817,8 @@ is the contract.
 ### 🎨 Features
 
 - 📋 [LWSM-1017] **P09: minimal system tray — show/hide and
-  quit.** Closing the window hides to tray and leaves servers
+quit.**
+  Closing the window hides to tray and leaves servers
   running; the tray offers *Show window*, *Hide*, and the app's
   only genuine Quit. **Deliberately no per-project submenu**
   (user, 2026-08-03): a 22-pixel icon with a nested menu is a
@@ -2778,7 +2853,8 @@ is the contract.
   Priority: 2.
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1029] **P09: custom per-project actions.** A
+- 📋 [LWSM-1029] **P09: custom per-project actions.**
+  A
   user-authored `actions` list per project — `open_file`,
   `open_url`, `run_command` — rendered in the detail pane and the
   tray submenu, per `docs/design.md § Custom project actions`.
@@ -2797,7 +2873,8 @@ is the contract.
   Lanes: ui, core, tests.
 
 - 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress
-  their own tray.** The manager sets `LWSM_MANAGED=1` in every
+their own tray.**
+  The manager sets `LWSM_MANAGED=1` in every
   process it spawns, per
   [ADR-0006](docs/decisions/0006-managed-mode-signalling.md). The
   manager's half is one line; the sibling half ships in the
@@ -2813,7 +2890,8 @@ is the contract.
   Priority: 3.
   Lanes: core.
 
-- 📋 [LWSM-1042] **P09: crash-loop guard.** Any path that starts
+- 📋 [LWSM-1042] **P09: crash-loop guard.**
+  Any path that starts
   a server **automatically** — restore-last-session today, and
   anything added later — stops retrying after 3 failures inside
   60 seconds, marks the project `failed (crash loop)`, and
@@ -2830,7 +2908,8 @@ is the contract.
   Priority: 2.
   Lanes: core, tests.
 
-- 📋 [LWSM-1027] **P09: start-at-login, per project.** A
+- 📋 [LWSM-1027] **P09: start-at-login, per project.**
+  A
   per-project *start automatically* flag, plus an autostart
   `.desktop` entry for the manager itself, so the chosen projects
   come up with the session. **This is the piece that makes the
@@ -2851,7 +2930,8 @@ is the contract.
   Priority: 2.
   Lanes: ui, core, tests.
 
-- 📋 [LWSM-1018] **P09: settings dialog.** Edits scan roots, poll
+- 📋 [LWSM-1018] **P09: settings dialog.**
+  Edits scan roots, poll
   interval, slow-start threshold, log-buffer size and tray behaviour, all
   persisted to `settings.json` with its own `schema_version`.
   Dependencies: LWSM-1007.
@@ -2863,7 +2943,8 @@ is the contract.
   Lanes: ui, tests.
 
 - 📋 [LWSM-1053] **P09: decide whether an unattended start may open
-  a browser.** A sibling's launcher may open the user's browser on
+a browser.**
+  A sibling's launcher may open the user's browser on
   every start — project-e's does, unconditionally — so a managed
   start throws a browser window onto the screen nobody asked for.
   ADR-0006 forbids a sibling conditioning anything but its tray
@@ -2925,7 +3006,8 @@ is why it sits after the app works.
   Lanes: build, ci.
 
 - 📋 [LWSM-1043] **P10: decide how updates reach users —
-  research first.** The user already runs **OneUp**
+research first.**
+  The user already runs **OneUp**
   (`<scan root>/OneUp/`), an updater with a weekly
   systemd user timer, so the first question is whether this app
   should simply register with it rather than grow an update
@@ -2945,7 +3027,8 @@ is why it sits after the app works.
   Lanes: build, docs.
 
 - 📋 [LWSM-1052] **P10: a local release script, run before CI is
-  asked to build one.** `scripts/local-release.sh` builds and
+asked to build one.**
+  `scripts/local-release.sh` builds and
   smoke-tests the AppImage on this machine, so a broken release
   surfaces locally rather than inside a tagged CI run that has
   already published a tag. Same rule as `scripts/local-ci.sh` and
@@ -3055,16 +3138,16 @@ program actually running.
   "LWSM-1046 … LWSM-1050 are all 🚧"; by 2026-08-15 that was wrong for two of the
   five, in opposite directions. Final state, each verified against the tree
   before flipping rather than read off the bullet:
-    - **LWSM-1046 stays 🚧** — the core half shipped in `supervisor.py` with
-      LWSM-1009; the UI half is genuinely open. 🚧 is accurate.
-    - **LWSM-1047 stays 🚧** — same shape: every signal goes through a captured
-      handle, the foreign path is open.
-    - **LWSM-1048 was already ✅** and needed nothing.
-    - **LWSM-1049 → 📋.** Contract only; its own body says implementation lands
-      with LWSM-1011, which has not started.
-    - **LWSM-1050 → ✅.** The implementation shipped with LWSM-1006 on
-      2026-08-12 and the bullet was never flipped. All five clauses verified
-      present in `scanner.py` first.
+  - **LWSM-1046 stays 🚧** — the core half shipped in `supervisor.py` with
+  LWSM-1009; the UI half is genuinely open. 🚧 is accurate.
+  - **LWSM-1047 stays 🚧** — same shape: every signal goes through a captured
+  handle, the foreign path is open.
+  - **LWSM-1048 was already ✅** and needed nothing.
+  - **LWSM-1049 → 📋.** Contract only; its own body says implementation lands
+  with LWSM-1011, which has not started.
+  - **LWSM-1050 → ✅.** The implementation shipped with LWSM-1006 on
+  2026-08-12 and the bullet was never flipped. All five clauses verified
+  present in `scanner.py` first.
   **The lesson is the one worth keeping:** the sweep left this alone because it
   is "a question about the roadmap's own vocabulary", and the answer turned out
   to need no vocabulary at all — it needed somebody to read five bullets against
@@ -3279,7 +3362,8 @@ triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
 
 ## 💭 Considered — not scheduled
 
-- 💭 [LWSM-1023] **Support more kinds of web server.** Detection
+- 💭 [LWSM-1023] **Support more kinds of web server.**
+  Detection
   today targets the seven shapes found on this machine — shell
   launchers, npm scripts, plain Python and Node entry points. To
   be broadly useful it would also need Docker Compose services,
@@ -3298,7 +3382,8 @@ triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
   Priority: 3.
   Lanes: core.
 
-- 💭 [LWSM-1024] **macOS build.** Feasible in principle — macOS is
+- 💭 [LWSM-1024] **macOS build.**
+  Feasible in principle — macOS is
   POSIX, so process groups, signals and launcher shapes carry
   over, and PySide6 ships macOS wheels. **Blocked on one research
   question:** whether enumerating other processes' listening
@@ -3314,7 +3399,8 @@ triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
   Priority: 4.
   Lanes: build, core.
 
-- 💭 [LWSM-1025] **Windows build.** Recorded with its reasoning so
+- 💭 [LWSM-1025] **Windows build.**
+  Recorded with its reasoning so
   the question does not get re-asked from scratch. The supervisor
   rests on POSIX process groups (`os.killpg`,
   `start_new_session=True`) and `SIGTERM`; Windows has neither,
@@ -3333,7 +3419,8 @@ triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
   Lanes: build, core.
 
 - 💭 [LWSM-1044] **Startup ordering between projects — considered
-  and declined.** Recorded so it is not re-proposed as a fresh
+and declined.**
+  Recorded so it is not re-proposed as a fresh
   idea. "Start the database before the site" sounds reasonable
   and opens a rabbit hole: a dependency graph, wait-for-ready
   conditions, timeouts, cycle detection, and a failure mode for
@@ -3351,7 +3438,8 @@ triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
   Priority: 5.
   Lanes: core.
 
-- 💭 [LWSM-1020] **Unix-socket servers.** ADR-0004 probes TCP
+- 💭 [LWSM-1020] **Unix-socket servers.**
+  ADR-0004 probes TCP
   listeners only, so a project serving over a unix socket would
   be invisible. None of the seven does today; recorded as a known
   limitation rather than designed around.

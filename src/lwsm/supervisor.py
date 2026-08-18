@@ -831,6 +831,29 @@ class Supervisor:
         with self._registry.lock:
             return dict(self._registry.processes)
 
+    def exited(self, project: Path) -> bool:
+        """Whether a child we spawned is gone — asked WITHOUT reaping it.
+
+        `Popen.poll()` would answer this in one line and must not be used: it
+        reaps, which frees the PID that `start_new_session=True` made the
+        process-group id, and ADR-0003 forbids reaping until the stop sequence
+        ends for exactly that reason. `_alive` is the non-reaping form already
+        used by the stop sequence — a zombie counts as exited here while
+        remaining unreaped, which is the state that keeps the PID reserved.
+
+        False for a project this manager never started: there is nothing of
+        ours to have exited, and `running()` is the question about that.
+
+        `running()` cannot answer this. Its entry is removed in `_reap`, which
+        only the stop sequence reaches, so a child that exits on its own stays
+        in the map — which is what let a failed start sit at `starting` for the
+        life of the session (LWSM-1134).
+        """
+        managed = self._get(project)
+        if managed is None:
+            return False
+        return not _alive(managed.handle)
+
     def close(self) -> None:
         """Release our descriptors and threads, and **leave the servers running**.
 

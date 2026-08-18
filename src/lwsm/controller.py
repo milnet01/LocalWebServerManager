@@ -204,6 +204,8 @@ class SupportsSupervision(Protocol):
 
     def running(self) -> dict[Path, ManagedProcess]: ...
 
+    def exited(self, project: Path) -> bool: ...
+
     @property
     def trust(self) -> SupportsTrust: ...
 
@@ -498,9 +500,19 @@ class ProjectController(QObject):
             self._clear_overlay(path)
             self.action_failed.emit(f"could not stop {path.name}: {outcome}")
             return
-        if isinstance(outcome, StopOutcome) and outcome.warning:
-            # A bound port after a stop is a warning and never a second signal.
-            self.action_failed.emit(outcome.warning)
+        if isinstance(outcome, StopOutcome):
+            if outcome.warning:
+                # A bound port after a stop is a warning, never a second signal.
+                self.action_failed.emit(outcome.warning)
+            if outcome.port_still_bound:
+                # Terminal (LWSM-1134): our child is gone and something this
+                # manager did not start holds the port, so every poll from here
+                # reports `running` and `STOPPING`'s target is unreachable.
+                # Keyed on `port_still_bound`, NOT on `warning` — a warning is
+                # also emitted when the probe could not be read, and there the
+                # port's state is unknown rather than held, so nothing terminal
+                # has been observed and the ordinary settle must still apply.
+                self._clear_overlay(path)
         if pending_restart:
             # Straight into the start, which re-runs the pre-flight check.
             self.start_project(path)
@@ -661,6 +673,20 @@ class ProjectController(QObject):
             # port has no such gap — the honest answer, `unknown`, is already
             # available. So it settles on an observation like every other
             # case: the observation that there is nothing to observe.
+            self._overlay = None
+            return True
+        if (
+            pending is ProjectStatus.STARTING
+            and self._supervisor is not None
+            and self._supervisor.exited(path)
+        ):
+            # ADR-0004's own definition of `failed`: the child exited without
+            # ever binding (LWSM-1134). The derived status stays `stopped`,
+            # which is not `STARTING`'s target, so the overlay would sit there
+            # for the life of the session. A project the supervisor no longer
+            # holds a live child for cannot still be starting — and this is
+            # terminal evidence rather than a timer, so ADR-0004 § Slowness is
+            # not failure is untouched: a slow start still has a live child.
             self._overlay = None
             return True
         if self._statuses[path] == _OVERLAY_SETTLES_ON[pending]:

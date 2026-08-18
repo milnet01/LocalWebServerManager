@@ -1034,6 +1034,9 @@ class FakeSupervisor:
         self.stopped: list[Path] = []
         self._running: dict[Path, object] = {}
         self.futures: list[Future] = []
+        # The child spawned and then died on its own. A real `Supervisor`
+        # answers this from a non-reaping liveness check; here the test says so.
+        self.exited_projects: set[Path] = set()
 
     def start(self, project, name, argv, port):
         if self.refusal is not None:
@@ -1051,6 +1054,9 @@ class FakeSupervisor:
 
     def running(self):
         return dict(self._running)
+
+    def exited(self, project):
+        return project in self.exited_projects
 
 
 def supervised(controllers, records, probe, supervisor):
@@ -1296,6 +1302,135 @@ def test_a_stop_that_raises_clears_the_overlay_and_reports(qtbot, controllers) -
     qtbot.waitUntil(lambda: bool(messages), timeout=2000)
     assert "could not stop" in messages[0]
     assert controller.rows()[0].status is not ProjectStatus.STOPPING
+
+
+def test_a_start_that_exits_without_binding_does_not_freeze_on_starting(
+    qtbot, controllers
+) -> None:
+    """ADR-0004's own definition of `failed`: the child exited without ever
+    binding.
+
+    The derived status stays `stopped`, which never equals `RUNNING`, so before
+    LWSM-1134 the row sat at `starting` permanently and only restarting the app
+    recovered it. The evidence was available from the `Supervisor` all along and
+    the controller never asked for it.
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+
+    supervisor.exited_projects.add(Path("/srv/a"))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.rows()[0].status is ProjectStatus.STOPPED
+    assert controller._overlay is None
+
+
+def test_a_stop_whose_port_is_still_held_does_not_freeze_on_stopping(
+    qtbot, controllers
+) -> None:
+    """The mirror case: the stop succeeded, and something this manager did not
+    start holds the port.
+
+    The derived status therefore reads `running` forever, `STOPPED` is
+    unreachable, and the overlay would sit at `stopping` for the life of the
+    session.
+    """
+    probe = FakeProbe()
+    probe.listening.add(5005)
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], probe, supervisor)
+    controller.start_project(Path("/srv/a"))
+    controller.stop_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STOPPING
+    messages: list[str] = []
+    controller.action_failed.connect(messages.append)
+
+    supervisor.futures[0].set_result(
+        StopOutcome(
+            exit_code=0, port_still_bound=True, warning="port 5005 is still bound"
+        )
+    )
+
+    qtbot.waitUntil(lambda: bool(messages), timeout=2000)
+    assert controller._overlay is None
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.RUNNING, (
+        "the row falls back to what is actually observable: someone holds it"
+    )
+
+
+def test_a_stop_whose_port_check_failed_still_waits_for_a_poll(
+    qtbot, controllers
+) -> None:
+    """The discriminating case, and the reason the clear is keyed on
+    `port_still_bound` rather than on `warning`.
+
+    A warning is also emitted when the probe itself could not be read — there
+    the port's state is *unknown*, not held, so nothing terminal has been
+    observed and the ordinary settle still applies. Keying on `warning` passes
+    the case above and fails this one.
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+    controller.stop_project(Path("/srv/a"))
+    messages: list[str] = []
+    controller.action_failed.connect(messages.append)
+
+    supervisor.futures[0].set_result(
+        StopOutcome(exit_code=0, warning="could not check port 5005 after stopping: x")
+    )
+
+    qtbot.waitUntil(lambda: bool(messages), timeout=2000)
+    assert controller.rows()[0].status is ProjectStatus.STOPPING, (
+        "an unreadable probe is not evidence that anything terminal happened"
+    )
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.STOPPED
+
+
+def test_a_stopping_overlay_holds_while_the_dying_child_still_holds_the_port(
+    qtbot, controllers
+) -> None:
+    """The exited-child evidence unsticks a START, and must not touch a STOP.
+
+    Mid-sequence the child is already dead while its port is still bound, and
+    the stop has not finished. Clearing on that would drop the row to `running`
+    for a tick and then to `stopped` — the flicker `design.md § State
+    management` and ADR-0004 exist to prevent. Only the port can say a stop is
+    done, which is why `_on_stopped` defers to a poll in the first place.
+
+    Found by mutation: removing the `pending is STARTING` guard left the whole
+    suite green.
+    """
+    probe = FakeProbe()
+    probe.listening.add(5005)
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], probe, supervisor)
+    controller.start_project(Path("/srv/a"))
+    controller.stop_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STOPPING
+
+    supervisor.exited_projects.add(Path("/srv/a"))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.STOPPING, (
+        "a dead child whose port is still bound has not finished stopping"
+    )
+
+    probe.listening.discard(5005)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.STOPPED
 
 
 def test_an_overlay_on_a_project_that_leaves_the_list_is_dropped(

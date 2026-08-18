@@ -668,6 +668,55 @@ def _reap(popen: subprocess.Popen) -> None:
 LAUNCHER_KINDS = ("shell", "python", "node", "npm")
 
 
+def test_exited_reports_a_dead_child_without_reaping_it(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The evidence the controller needs to unstick a `starting` overlay
+    (LWSM-1134), and it must not be bought with a reap.
+
+    `Popen.poll()` answers the same question and frees the PID that
+    `start_new_session=True` made the process-group id — ADR-0003 forbids that
+    until the stop sequence ends. A zombie is unreaped, so the PID stays
+    reserved and `exited` still reads True.
+
+    `running()` cannot answer it: the entry is removed in `_reap`, which only
+    the stop sequence reaches, so a child that dies on its own stays in the map.
+    """
+    write_launcher(project, "exit 3\n")
+    argv = ("./start.sh",)
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+    managed = supervisor.start(project, name="demo", argv=list(argv), port=None)
+
+    deadline = time.monotonic() + 5.0
+    while supervisor.exited(project) is False and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert supervisor.exited(project) is True
+    assert managed.popen.returncode is None, "asking must not have reaped the child"
+    assert project in supervisor.running(), (
+        "a child that exits on its own is never removed from the map, which is "
+        "why running() cannot stand in for this"
+    )
+
+    assert supervisor.stop(project).exit_code == 3
+
+
+def test_a_live_child_has_not_exited_and_an_unknown_project_never_did(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The negative half. Without it the fix could return True unconditionally
+    and every `starting` overlay would clear on the first poll — which is the
+    flicker ADR-0004 § Slowness is not failure exists to prevent.
+    """
+    write_launcher(project, "sleep 30\n")
+    argv = ("./start.sh",)
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+    supervisor.start(project, name="demo", argv=list(argv), port=None)
+
+    assert supervisor.exited(project) is False
+    assert supervisor.exited(project / "never-started") is False
+
+
 @pytest.fixture
 def launcher_factory(project: Path, tmp_path: Path, monkeypatch):
     """Build a launcher of any of the four shapes `scanner.py` emits.
