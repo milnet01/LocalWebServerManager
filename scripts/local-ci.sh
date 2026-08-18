@@ -125,6 +125,15 @@ fi
 # supposed to install exact versions must prove it did, or the pin is decorative.
 check_version() {
     local tool=$1 pinned=$2 found=$3
+    # Normalise a leading `v` on BOTH sides before comparing. A tool does not
+    # get to decide whether its own version has one, and two builds of the same
+    # release disagree: actionlint installed by `go install …@v1.7.12` reports
+    # "v1.7.12" because the tag is what gets compiled in, while the release
+    # binary reports "1.7.12". That cost a red build on 2026-08-18 — the first
+    # thing this check found was a difference in spelling rather than version,
+    # which is the one kind of drift it must not report.
+    pinned=${pinned#v}
+    found=${found#v}
     if [[ $found == "$pinned" ]]; then
         printf '  %s %s (matches CI)\n' "$tool" "$found"
         return

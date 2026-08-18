@@ -208,3 +208,56 @@ def test_the_hook_exempts_docs_but_never_the_gate_s_own_inputs() -> None:
             f"{never} appears in the docs-only exemption; a change there must "
             f"always run the gate"
         )
+
+
+# --- the comparison itself ----------------------------------------------------
+
+
+def check_version_harness(pinned: str, found: str) -> int:
+    """Run `local-ci.sh`'s own `check_version` in isolation, and return how many
+    tools it recorded as drifted.
+
+    The function is extracted from the script rather than reimplemented here:
+    a copy of the comparison would pass while the real one was broken, which is
+    the whole failure mode this file exists to catch one level up.
+    """
+    import subprocess
+    import textwrap
+
+    text = LOCAL_CI.read_text()
+    start = text.index("check_version() {")
+    end = text.index("\n}\n", start) + len("\n}\n")
+    function = text[start:end]
+
+    script = textwrap.dedent("""\
+        DRIFTED=(); YELLOW=''; RESET=''
+        {function}
+        check_version toolname '{pinned}' '{found}' >/dev/null
+        printf '%s' "${{#DRIFTED[@]}}"
+    """).format(function=function, pinned=pinned, found=found)
+
+    return int(
+        subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=True
+        ).stdout
+    )
+
+
+@pytest.mark.parametrize(
+    ("pinned", "found", "drifts", "why"),
+    [
+        ("1.7.12", "1.7.12", 0, "identical"),
+        # The case that cost a red build. `go install …@v1.7.12` compiles the
+        # tag in, so that binary says "v1.7.12"; the release binary says
+        # "1.7.12". Same version, and reporting it as drift is a false alarm
+        # that makes the whole check untrustworthy.
+        ("1.7.12", "v1.7.12", 0, "a leading v is spelling, not version"),
+        ("v1.7.12", "1.7.12", 0, "and the same the other way round"),
+        ("0.11.0", "0.9.0", 1, "a real difference must still be caught"),
+        ("1.7.12", "1.7.2", 1, "and a near miss is a difference"),
+    ],
+)
+def test_a_leading_v_is_not_drift_but_a_different_number_is(
+    pinned: str, found: str, drifts: int, why: str
+) -> None:
+    assert check_version_harness(pinned, found) == drifts, why
