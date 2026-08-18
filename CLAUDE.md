@@ -608,6 +608,32 @@ one-branch-in-four blind spot LWSM-1132 shipped behind, so a change to the
 allowlist must be tested against a fixture per launcher kind and not just
 against `./start.sh`.
 
+**Trap: `QIcon.fromTheme` returns a null icon under `QT_QPA_PLATFORM=offscreen`.**
+The icon theme search paths are populated by the *platform theme plugin*, so
+under `offscreen` `QIcon.themeSearchPaths()` is `[':/icons']` and
+`themeName()` is empty — every theme lookup misses, including one whose file
+is definitely installed. Measured 2026-08-18 while shipping LWSM-1142: the
+same lookup returned a 128px SVG under the real Wayland session and null under
+`offscreen`. **`conftest.py` sets `offscreen` when unset, so any test
+asserting an icon resolves by theme name fails in the suite and in CI for a
+reason that says nothing about the icon.** Assert the file is installed where
+the theme expects it, or inject the icon; do not assert `fromTheme`.
+
+**Trap: an installer that writes into `~/.local/share/icons/hicolor` can hide
+every OTHER application's icons.** That directory is shared by every app that
+installs a per-user icon, and it normally has no `index.theme` and no
+`icon-theme.cache`. Generating a cache there does not merely speed lookup up —
+once a cache exists it is treated as authoritative for that directory, so
+anything it fails to list stops resolving. Measured 2026-08-18 (LWSM-1143):
+one `gtk-update-icon-cache -f` produced a 1,932-byte cache over a tree of 90
+icons and about seventeen of the user's pinned launchers went blank until it
+was deleted and plasmashell restarted. **The `|| true` on that line gave false
+comfort — it guards against the command *failing*, and the command succeeded;
+succeeding was the damage.** Every check passed: `desktop-file-validate`,
+`shellcheck`, the icon resolved, the entry launched. **When a step writes into
+a directory shared with other software, the verification has to ask what
+happened to the other software, not only to us.**
+
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the
 *system* Python and report the project's own declared dependencies as
