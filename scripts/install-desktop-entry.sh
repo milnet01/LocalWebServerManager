@@ -66,10 +66,28 @@ fi
 # Cache refreshes. Each is best-effort: a missing tool means the desktop
 # environment picks the entry up on its own schedule instead, which is slower
 # but not broken, and is not a reason to fail an install that succeeded.
+#
+# `gtk-update-icon-cache` is deliberately NOT run here, and this is the one
+# comment in this file worth reading before "improving" it.
+#
+# $data_home/icons/hicolor is SHARED: every application that installs a
+# per-user icon writes into it. It normally has no `index.theme` and no
+# `icon-theme.cache`, and icon lookup then reads the directory directly, which
+# works for everyone. Generating a cache there does not merely speed that up —
+# it CHANGES the lookup, because once a cache exists it is treated as
+# authoritative for that directory and anything the cache does not list stops
+# resolving. So a cache built by this installer silently governs every OTHER
+# application's icons too.
+#
+# Measured on 2026-08-18, not theorised: running it once here produced a 1,932
+# byte cache over a tree holding 90 icons, and about seventeen of the user's
+# pinned launchers went blank until the cache was deleted and plasmashell
+# restarted. Installing one application's icon must not be able to do that.
+#
+# Nothing is lost by omitting it: with no cache present the icon resolves from
+# the file, which is verified by the entry working.
 command -v update-desktop-database >/dev/null 2>&1 &&
     update-desktop-database "$apps_dir" || true
-command -v gtk-update-icon-cache >/dev/null 2>&1 &&
-    gtk-update-icon-cache -q -t -f "$data_home/icons/hicolor" || true
 command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
 
 echo "Installed:"

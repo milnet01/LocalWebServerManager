@@ -3136,6 +3136,40 @@ asked to build one.**
   Source: user-request-2026-08-18.
   Lanes: build, ui.
 
+- ✅ [LWSM-1143] **The installer built an icon cache that hid every other application's icons.**
+  `scripts/install-desktop-entry.sh` (LWSM-1142) ran
+  `gtk-update-icon-cache -q -t -f` over `$XDG_DATA_HOME/icons/hicolor`.
+  **That directory is shared** — every application installing a per-user
+  icon writes into it — and on this machine it held **90 icons** belonging
+  to other applications, with **no `index.theme`**.
+  Generating a cache there does not merely speed lookup up, it CHANGES
+  it: once `icon-theme.cache` exists it is authoritative for that
+  directory, and anything it does not list stops resolving. The cache
+  produced was **1,932 bytes over 90 icons**, so most of them vanished.
+  **Reported by the user**: about seventeen pinned launchers went blank.
+  Fixed by deleting the cache and restarting plasmashell; the launcher
+  list itself was never touched (31 entries before and after).
+  Three findings worth keeping.
+  **The blast radius was other software.** Installing one application's
+  icon must not be able to change how a different application's icon
+  resolves, and a step that writes into a shared directory can.
+  **A best-effort guard did not make it safe.** The call was already
+  `|| true` and tool-guarded, which protects against the command
+  *failing* — it succeeded, and succeeding was the damage.
+  **It was invisible to every check that ran.** `desktop-file-validate`
+  passed, `shellcheck` passed, the icon resolved, the entry launched, the
+  pin worked. The verification covered this app's icon and never asked
+  what happened to anything else in the directory it wrote to.
+  The step is removed rather than guarded: with no cache present the icon
+  resolves from the file, so nothing was gained by it. Re-running the
+  installer no longer creates one, verified, and six theme icons
+  including three belonging to other applications still resolve.
+  Dependencies: none.
+  **Layman:** Installing this app's icon made most of the icons pinned to the user's taskbar disappear. Fixed, and the step that caused it removed.
+  Kind: fix.
+  Source: user-report-2026-08-18.
+  Lanes: build.
+
 ## DS01 — Debt sweep (2026-08-06)
 
 The first debt sweep, run over the whole history because there had
