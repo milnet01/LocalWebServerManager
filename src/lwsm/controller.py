@@ -647,6 +647,22 @@ class ProjectController(QObject):
         if path not in self._statuses:
             self._overlay = None
             return True
+        record = self._record(path)
+        if record is not None and record.effective_port is None:
+            # Nothing to wait for, so the overlay ends here (LWSM-1133).
+            # `port is None` means *unknown, never a guess*, so `_classify`
+            # returns UNKNOWN and neither of the two targets above is
+            # reachable — the overlay could never settle and the row read
+            # `starting` for the life of the session with every button dead.
+            #
+            # This is NOT a timeout, which ADR-0004 § Slowness is not failure
+            # forbids: nothing is being waited out. The overlay covers the gap
+            # between the button and the port appearing, and a project with no
+            # port has no such gap — the honest answer, `unknown`, is already
+            # available. So it settles on an observation like every other
+            # case: the observation that there is nothing to observe.
+            self._overlay = None
+            return True
         if self._statuses[path] == _OVERLAY_SETTLES_ON[pending]:
             self._overlay = None
             return True

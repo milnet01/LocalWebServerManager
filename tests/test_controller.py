@@ -1110,6 +1110,55 @@ def test_a_slow_start_keeps_the_overlay_until_the_port_appears(
     assert controller.rows()[0].status is ProjectStatus.RUNNING
 
 
+def test_a_port_less_project_does_not_freeze_on_starting(qtbot, controllers) -> None:
+    """`port is None` means *unknown, never a guess*, so nothing can ever report
+    `running` for this row — `_classify` returns UNKNOWN, which is neither of
+    `_OVERLAY_SETTLES_ON`'s targets.
+
+    Before LWSM-1133 the row read `starting` for the life of the session with
+    all four buttons dead. The overlay covers the gap before a port binds; a
+    project with no port has no such gap, so the honest answer is already
+    available. Not a timeout — nothing is being waited out (ADR-0004
+    § Slowness is not failure); it settles on the observation that there is
+    nothing to observe.
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(
+        controllers, [startable(port=None)], FakeProbe(), supervisor
+    )
+    controller.start_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.rows()[0].status is ProjectStatus.UNKNOWN
+    assert controller._overlay is None
+
+
+def test_a_port_less_project_does_not_freeze_on_stopping(qtbot, controllers) -> None:
+    """The mirror, and it needs its own case.
+
+    `_on_stopped` deliberately leaves a successful stop's overlay for a poll to
+    clear, because the port is what the row reports — but there is no port here,
+    so the poll it defers to could never clear it either.
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(
+        controllers, [startable(port=None)], FakeProbe(), supervisor
+    )
+    controller.start_project(Path("/srv/a"))
+    controller.stop_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STOPPING
+    supervisor.futures[0].set_result(StopOutcome(exit_code=0))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.rows()[0].status is ProjectStatus.UNKNOWN
+    assert controller._overlay is None
+
+
 def test_the_overlay_covers_exactly_one_project(qtbot, controllers) -> None:
     """It lives on the controller and covers one row, so it cannot become the
     second store `design.md § State management` forbids."""

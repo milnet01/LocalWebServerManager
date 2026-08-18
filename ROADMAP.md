@@ -1430,7 +1430,7 @@ branches on.
   Resolved (2026-08-17): `_launcher_path` now decides by POSIX `execvp` semantics — an `argv[0]` containing no `/` is resolved against `PATH` and names no file of ours, so it returns `None` instead of building `<project>/npm`. The two interpreter shapes (`python3 <file>`, `node <file>`) resolve `argv[1]` inside the project instead, because that script *is* the launcher and must carry `validate_launcher`'s symlink-out and group-writable refusals. `npm` is excluded by name: its arguments are subcommands, never files. All four launcher kinds now start.
   Tests: a `launcher_factory` fixture with one member per kind — the monoculture this defect hid behind — driving `start()` for shell, python3, node and npm, plus unit tests per argv shape. Fourteen new test cases from nine functions; 508 green (was 494). **Twelve were watched red first (10 failed, 2 passed — the shell kind and the regression guard). The two `npm run`-length cases were NOT: they were added after the fix, from the verdict diff, and lock a defect the fix itself introduced and then removed.** Recorded rather than glossed, because "each watched failing first" is the claim this project checks.
 
-- 📋 [LWSM-1133] **FP07: the optimistic overlay is not bounded and can never settle.**
+- ✅ [LWSM-1133] **FP07: the optimistic overlay is not bounded and can never settle.**
   `_settle_overlay` (`controller.py:650`) clears the overlay only when the
   derived status equals `_OVERLAY_SETTLES_ON[pending]`, which maps
   `STARTING → RUNNING` and `STOPPING → STOPPED`. `_classify`
@@ -1458,6 +1458,30 @@ branches on.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-15 lane-3 CRITICAL.
+  Resolved (2026-08-18): `_settle_overlay` now clears the overlay
+  outright when the record's `effective_port` is None, before the
+  target comparison. That is the "explicit exit" this bullet asked
+  for, and it is not a timeout — nothing is waited out. The overlay
+  covers the gap between the button and a port appearing; a project
+  with no port has no such gap, so the honest answer (`unknown`) is
+  already available and the overlay settles on the observation that
+  there is nothing to observe. The docstring's "no timeout here
+  either" therefore still holds and no timer was added.
+  The mirror case needed its own test: `_on_stopped` deliberately
+  leaves a successful stop's overlay for a poll to clear, and that
+  poll could never clear it either, so `stopping` froze the same way.
+  Two red tests added, both driven by `startable(port=None)` — the
+  factory has always taken `port: int | None` and no test had ever
+  passed None, which is exactly why this shipped.
+  Verdict-diffed old against new over the 12-case population
+  (pending x derived x in-list x port, with port-is-None and
+  derived-UNKNOWN correctly coupled): **2 of 12 moved**, both the
+  defect. The discriminating case ADR-0004 protects — `starting` with
+  a real port reading `stopped` because the server has not finished
+  binding — still holds.
+  510 tests green (was 508). The supervisor half of this bullet's fix
+  line — "a project the supervisor no longer holds cannot still be
+  starting" — is LWSM-1134's, which is next and depends on this.
 
 - 📋 [LWSM-1134] **FP07: the overlay also sticks on the two failure paths that matter most.**
   Same mechanism as LWSM-1133, reached two other ways (`controller.py:508-509`).
