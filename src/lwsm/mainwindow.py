@@ -840,9 +840,36 @@ class MainWindow(QMainWindow):
         The load this window started from is the only thing that knows whether
         the session may write, and this slot is the only place both values are
         in scope.
+
+        `_finish_rescan` runs in a `finally`, and the body carries a catch-all
+        (LWSM-1135). It is the ONLY place `_rescan_button.setEnabled(True)`
+        happens, and this slot is delivered from the pool thread — so PySide6
+        swallows anything escaping it, emitting no signal and telling the user
+        nothing. A raw `OSError` out of `save_projects` therefore discarded the
+        merge silently AND left Rescan disabled for the rest of the session.
+        `_RescanTask.run`'s guard, one thread along, and `BaseException` for
+        its reason: reported here or nowhere.
+        """
+        message = ""
+        try:
+            message = self._apply_rescan(merged)
+        except BaseException as exc:
+            log.exception("the rescan could not be applied")
+            message = QCoreApplication.translate(
+                _TR_CONTEXT, "Rescan failed: %1"
+            ).replace("%1", f"{type(exc).__name__}: {exc}")
+        finally:
+            self._finish_rescan(message)
+
+    def _apply_rescan(self, merged: MergeResult) -> str:
+        """The write and the UI update, returning the status-bar message.
+
+        Split out of `_on_rescan_done` so that slot is nothing but the
+        always-finish guard above — a body and its own `finally` in one
+        function is where the missing re-enable hid in the first place.
         """
         if self._rescan is None:
-            return
+            return ""
         for reason in merged.reasons:
             # The full report goes to the log, one record each; the status bar
             # gets the summary. INV-6's bound already applies to the entries.
@@ -871,7 +898,7 @@ class MainWindow(QMainWindow):
                 )
 
         self._controller.set_records(merged.records)
-        self._finish_rescan(message)
+        return message
 
     def _should_write(self, merged: MergeResult, stored: list[ProjectRecord]) -> bool:
         """Exactly one trigger, plus first run.

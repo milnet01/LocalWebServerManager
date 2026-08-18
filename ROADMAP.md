@@ -1548,7 +1548,7 @@ branches on.
   by asserting `returncode is None` after asking.
   516 tests green (was 510).
 
-- 📋 [LWSM-1135] **FP07: a raw `OSError` escapes `save_projects` and kills Rescan for the session.**
+- ✅ [LWSM-1135] **FP07: a raw `OSError` escapes `save_projects` and kills Rescan for the session.**
   `tempfile.mkstemp` (`registry.py:819-821`) is the only syscall in the writer
   outside a handler. Everything either side is guarded — `_prepare_config_dir`
   (`:809`), the serialise (`:792`), `_refuse_existing_target` (`:717`), the
@@ -1573,6 +1573,31 @@ branches on.
   Kind: fix.
   Lanes: core, ui, tests.
   Source: code-quality-review-2026-08-15 lane-2 HIGH.
+  Resolved (2026-08-18): `tempfile.mkstemp` is wrapped and raises
+  `RegistryError`, matching the three contracts that promised it.
+  Reproduced first at mode 0500 exactly as the bullet describes, and
+  the test skips under root rather than passing vacuously.
+  **The bullet's UI fix is not sufficient on its own, and the mutant
+  proves it.** Moving `_finish_rescan` into a `finally` re-enables the
+  button, but the exception still escapes the slot — and this slot is
+  delivered from the pool thread, so PySide6 swallows it: no signal,
+  no message, nothing in the status bar. `finally` alone was run as a
+  mutant (M2) and the test fails on the missing report. So the fix is
+  `finally` **plus** a `BaseException` catch-all that reports through
+  the existing translated "Rescan failed: %1" string —
+  `_RescanTask.run`'s guard, one thread along, and no new UI string.
+  The body moved to `_apply_rescan()` returning the message, leaving
+  `_on_rescan_done` as nothing but the always-finish guard. That also
+  closed a second leak of the same shape: the `self._rescan is None`
+  early return skipped `_finish_rescan` entirely.
+  Five mutants run. Four die. **M3 — the `finally` removed while the
+  catch-all stays — survives, and is reported rather than hidden**:
+  it is the redundant-guard case `CLAUDE.md § Trap` names, where
+  removing one of several guards proves nothing. The whole-mechanism
+  mutant (M4, both removed) dies, which is the meaningful one. The
+  `finally` is kept as the structural backstop if the catch-all is
+  ever narrowed.
+  518 tests green (was 516).
 
 - 📋 [LWSM-1136] **FP07: the 5 MB per-project log cap is a zombie — nothing calls it.**
   `rotate_if_needed` (`supervisor.py:458`) has three occurrences in the tree:

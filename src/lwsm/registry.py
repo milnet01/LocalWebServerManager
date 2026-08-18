@@ -816,9 +816,19 @@ def save_projects(
     # mkstemp creates at 0600 and in the target's own directory, so the rename
     # cannot cross a filesystem. `Path.write_text` would create at
     # `0666 & ~umask`, which is how this file gets a mode nobody chose.
-    handle_fd, temporary_name = tempfile.mkstemp(
-        dir=directory, prefix=".projects-", suffix=".tmp"
-    )
+    try:
+        handle_fd, temporary_name = tempfile.mkstemp(
+            dir=directory, prefix=".projects-", suffix=".tmp"
+        )
+    except OSError as exc:
+        # The last syscall in this writer that was outside a handler
+        # (LWSM-1135). ENOSPC, EDQUOT, EROFS and EACCES all land here, and this
+        # function's docstring, LWSM-1007 § 4.3 step 5 and § 6's *disk is full*
+        # row all promise a `RegistryError`. Nothing has been created yet, so
+        # there is no temporary to unlink and the previous file is untouched.
+        raise RegistryError(
+            f"{_quoted(str(path))}: could not be written ({exc.strerror or exc})"
+        ) from exc
     temporary = Path(temporary_name)
     try:
         with os.fdopen(handle_fd, "wb") as handle:

@@ -1503,6 +1503,54 @@ def test_a_rescan_that_raises_re_enables_the_button(qtbot, built, tmp_path) -> N
     window.shutdown()
 
 
+def test_a_writer_that_escapes_the_slot_still_re_enables_the_button(
+    qtbot, built, tmp_path
+) -> None:
+    """`_finish_rescan` is the only place `setEnabled(True)` happens, and it sat
+    after the try block rather than in a `finally` (LWSM-1135).
+
+    So anything the slot does not catch disabled Rescan for the rest of the
+    session — which is exactly what a raw `OSError` out of `save_projects` did,
+    with PySide6 swallowing the traceback so nothing said why. The guard is on
+    the mechanism, not on that one exception: this raises something
+    `_on_rescan_done` has never claimed to handle.
+    """
+    controller = build_controller(built, [], FakeProbe())
+
+    def escaping_save(path, merged, *, load) -> None:
+        raise OSError("the disk went away")
+
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=lambda _roots: FakeScanResult(
+            projects=(FakeDetected(tmp_path / "roots" / "web", "web"),)
+        ),
+        now=lambda: "2026-08-14T09:00:00Z",
+        save=escaping_save,
+    )
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        rescan=context,
+        load=RegistryMissing("first run"),
+    )
+    qtbot.addWidget(window)
+
+    run_rescan(qtbot, window)
+
+    assert window._rescan_button.isEnabled(), (
+        "Rescan must come back however the slot ended"
+    )
+    assert not window._rescan_in_flight
+    assert "Rescan failed" in window.statusBar().currentMessage(), (
+        "Qt swallows what escapes this slot, so it is reported here or nowhere"
+    )
+    assert "the disk went away" in window.statusBar().currentMessage()
+    window.shutdown()
+
+
 def test_the_summary_omits_zero_counts_and_never_renders_unchanged() -> None:
     """`unchanged` is counted because `counts` is the merge's own tally, and is
     the one outcome that is not news."""

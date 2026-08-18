@@ -1550,3 +1550,32 @@ def test_no_merge_value_is_interpolated_without_the_clip(tmp_path: Path) -> None
     assert result.reasons
     assert all("\n" not in reason for reason in result.reasons)
     assert all("y" * 200 not in reason for reason in result.reasons)
+
+
+def test_a_writer_that_cannot_create_its_temporary_raises_registry_error(
+    tmp_path: Path,
+) -> None:
+    """`tempfile.mkstemp` was the only syscall in the writer outside a handler,
+    so a full or read-only disk escaped as a raw `OSError` (LWSM-1135).
+
+    Three contracts promise `RegistryError` here: this function's docstring,
+    LWSM-1007 § 4.3 step 5, and § 6's *disk is full* row. The consequence was
+    not the exception type — `mainwindow` catches only `RegistryError`, so the
+    merge was silently discarded AND Rescan stayed disabled for the session.
+
+    Mode `0500` is the reproducible stand-in the review used; ENOSPC, EDQUOT
+    and EROFS reach the same line.
+    """
+    directory = tmp_path / "cfg"
+    directory.mkdir(mode=0o700)
+    path = directory / "projects.json"
+    directory.chmod(0o500)
+    try:
+        if os.geteuid() == 0:
+            pytest.skip("mode bits do not deny root")
+        with pytest.raises(RegistryError, match="could not be written"):
+            save_projects(
+                path, [every_field_record()], load=RegistryMissing("first run")
+            )
+    finally:
+        directory.chmod(0o700)
