@@ -301,3 +301,54 @@ def test_main_stops_the_controller_when_the_loop_returns(
     assert stops == [1], "main() returned without stopping the controller"
     assert shutdowns == [1], "main() returned without waiting for the rescan pool"
     assert supervisor_closes == [1], "main() returned without closing the supervisor"
+
+
+# --- LWSM-1144: where to scan is configurable ---------------------------------
+
+
+def test_scan_roots_fall_back_to_projects_when_no_config_exists(tmp_path) -> None:
+    """The documented default, and the only behaviour that existed before."""
+    absent = tmp_path / "scan-roots"
+    assert entry.default_scan_roots(absent) == (Path.home() / "projects",)
+
+
+def test_scan_roots_are_read_in_order_ignoring_comments_and_blanks(tmp_path) -> None:
+    """One directory per line, so the file can explain itself to whoever edits
+    it. Order is kept because it is the order the scan walks."""
+    config = tmp_path / "scan-roots"
+    config.write_text(
+        "# where my projects live\n"
+        "\n"
+        "/srv/first\n"
+        "   /srv/second   \n"
+        "   # indented comment\n",
+        encoding="utf-8",
+    )
+    assert entry.default_scan_roots(config) == (Path("/srv/first"), Path("/srv/second"))
+
+
+def test_a_scan_root_expands_a_leading_tilde(tmp_path) -> None:
+    """`~/code` is what someone writes in a config file; `Path` alone treats it
+    as a literal directory named `~`, which exists nowhere."""
+    config = tmp_path / "scan-roots"
+    config.write_text("~/code\n", encoding="utf-8")
+    assert entry.default_scan_roots(config) == (Path.home() / "code",)
+
+
+def test_a_config_with_nothing_in_it_falls_back_rather_than_scanning_nowhere(
+    tmp_path,
+) -> None:
+    """Empty and comments-only mean "nothing was configured", not "scan
+    nowhere" — the two are indistinguishable to whoever wrote the file, and
+    silently scanning nothing is the failure this feature exists to fix."""
+    config = tmp_path / "scan-roots"
+    config.write_text("# I meant to fill this in\n\n", encoding="utf-8")
+    assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+
+
+def test_an_unreadable_config_falls_back_instead_of_raising(tmp_path) -> None:
+    """This runs before the window exists, so a config the user cannot fix
+    without a window is a worse failure than scanning the default."""
+    config = tmp_path / "scan-roots"
+    config.mkdir()  # a directory where a file is expected: read_text raises
+    assert entry.default_scan_roots(config) == (Path.home() / "projects",)

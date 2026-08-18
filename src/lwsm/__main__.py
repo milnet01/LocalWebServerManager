@@ -92,19 +92,71 @@ def build_window(
     return window, controller
 
 
-def default_scan_roots() -> tuple[Path, ...]:
-    """`~/projects`, until the settings dialog (LWSM-1018) owns this.
+SCAN_ROOTS_FILENAME = "scan-roots"
+"""The file that lists the directories to scan, beside `projects.json`."""
+
+
+def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
+    """The directories to scan, read from a config file, else `~/projects`.
 
     A function rather than a module constant so it is not evaluated at import
     time, which is the shape `default_projects_path` already takes and the
     reason `build_window` resolves paths inside its own handler. A home
     directory that cannot be resolved yields no roots rather than raising: a
     machine with nowhere to scan should still open a window.
+
+    **Why a file and not just `~/projects` (LWSM-1144).** The hardcoded default
+    is right for nobody but its author: a machine that keeps its projects
+    anywhere else scans a directory that does not exist, finds nothing, and
+    shows an empty window with no indication that the *location* is the
+    problem. That is not a missing feature — every part of the app behind it
+    works — so the cheapest thing that makes it usable is a way to say where to
+    look. The settings dialog (LWSM-1018) still owns the UI; until it exists,
+    THIS FILE IS THE SETTING.
+
+    Format is one directory per line. Blank lines and lines whose first
+    non-space character is `#` are ignored, so the file can explain itself.
+    `~` is expanded. Order is kept, because it is the order the scan walks.
+
+    A file that cannot be read is treated as absent rather than fatal: this
+    runs before the window exists, and a config the user cannot fix without a
+    window is a worse failure than scanning the default.
     """
     try:
-        return (Path.home() / "projects",)
+        fallback = (Path.home() / "projects",)
     except RuntimeError:
-        return ()
+        fallback = ()
+
+    if config is None:
+        # Imported here rather than at module scope for `build_window`'s
+        # reason: the entry point resolves paths inside the handler that can
+        # report them, and `--version` must not need any of it.
+        from lwsm.registry import RegistryError, default_projects_path
+
+        try:
+            config = default_projects_path().parent / SCAN_ROOTS_FILENAME
+        except (OSError, RuntimeError, RegistryError):
+            # `RegistryError` is the one that actually fires, and it is not an
+            # OSError: `default_projects_path` has wrapped "there is no home
+            # directory" since LWSM-1026, and a machine with no home must still
+            # open a window (INV-15) rather than dying here, before there is
+            # anything to report the failure in.
+            return fallback
+
+    try:
+        text = config.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return fallback
+
+    roots = tuple(
+        Path(line.strip()).expanduser()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    # An empty or comments-only file means "nothing was configured", not "scan
+    # nowhere" — the second is indistinguishable from the first to whoever
+    # wrote it, and silently scanning nothing is the failure this exists to fix.
+    return roots or fallback
 
 
 DESKTOP_FILE_NAME = "io.github.milnet01.LocalWebServerManager"

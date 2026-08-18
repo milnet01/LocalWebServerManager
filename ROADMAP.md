@@ -3170,6 +3170,33 @@ asked to build one.**
   Source: user-report-2026-08-18.
   Lanes: build.
 
+- ✅ [LWSM-1144] **Where to scan is read from a config file, not hardcoded to ~/projects.**
+  `default_scan_roots()` returned `(~/projects,)` and nothing could
+  change it. **That is the whole reason the app looked unfinished.**
+  Every part behind it works — the user's tree scanned to 7 projects
+  with ports and launchers on the first try, and the window renders
+  status, port and Start/Stop/Restart/Open per row — but pointed at a
+  directory that does not exist it finds nothing and shows an empty
+  window, with no indication that the LOCATION is the problem.
+  Now read from `$XDG_CONFIG_HOME/localwebservermanager/scan-roots`,
+  one directory per line, `#` comments and blank lines ignored, `~`
+  expanded, order preserved. Until LWSM-1018's settings dialog exists,
+  that file IS the setting; the dialog will write it.
+  **An empty or comments-only file falls back rather than scanning
+  nowhere**, because the two are indistinguishable to whoever wrote the
+  file and silently scanning nothing is the exact failure this fixes.
+  **A pre-existing test caught a real crash in the first version.**
+  `default_projects_path()` raises `RegistryError` — NOT `OSError` —
+  when there is no home directory, so the first handler missed it and
+  `test_starts_even_when_there_is_no_home_directory` went red. Without
+  that test a machine with no home would have died at startup, before
+  there was any window to report it in.
+  Dependencies: none.
+  **Layman:** The app was only ever looking in one folder that most people do not have, so it always came up empty. Now you can tell it where your projects actually are.
+  Kind: implement.
+  Source: user-report-2026-08-18.
+  Lanes: core, tests.
+
 ## DS01 — Debt sweep (2026-08-06)
 
 The first debt sweep, run over the whole history because there had
