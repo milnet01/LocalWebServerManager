@@ -360,6 +360,22 @@ Added at P02 (LWSM-1005), contract in
   and re-announce every unchanged row. The state glyph is
   decorative and excluded from the accessible name, which is
   built from the rendered cell strings.
+  Since P04 it also owns the **layout**: `_align_columns` (LWSM-1145)
+  and `_apply_default_geometry` (LWSM-1149), with `DEFAULT_VISIBLE_ROWS`
+  and `MIN_VISIBLE_ROWS` as **counts of rows, never pixels** (`§ O7`).
+  **Qt syncs nothing between sibling layouts** — each `ProjectRow` owns
+  its own `QHBoxLayout`, which is why every row's buttons landed at a
+  different x. One width per column, the widest cell winning, re-run
+  after every `_sync_rows` and after a language or font change; it
+  cannot be settled at construction, because rows are updated in place.
+  `natural_widths` reads the rendered text and the stored floors and
+  **never `minimumWidth()`** — `apply_column_widths` sets a FIXED width,
+  so reading it back makes the column monotonic: it grows for a
+  long-named project and never shrinks when that project leaves.
+  The row list sits in a **`QScrollArea`**, which was not in LWSM-1149's
+  filed scope and is the part that mattered most: without it the
+  window's minimum height is every row it holds, so twenty projects give
+  a window taller than the screen that cannot be shrunk.
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](docs/specs/LWSM-1006-scanner-detection.md):
@@ -633,6 +649,21 @@ succeeding was the damage.** Every check passed: `desktop-file-validate`,
 `shellcheck`, the icon resolved, the entry launched. **When a step writes into
 a directory shared with other software, the verification has to ask what
 happened to the other software, not only to us.**
+
+**Trap: a geometry test can pass against a window that never grows.** Three
+of LWSM-1149's first-draft tests survived deleting the entire
+`_apply_default_geometry` mechanism (2026-08-18): with the scroll area in
+place, Qt's own default size happened to satisfy "a short list needs no
+scrolling", "a long list does not grow the window" and "the minimum does not
+clip a column". The second is the pure vacuous form — a window that ignores
+its content passes it by never growing at all. **The fix is to pin the two
+cases against each other in ONE test** (3 rows shorter than 8, 8 equal to 48),
+so neither half can hold on its own. The third was worse than weak and was
+dropped: the columns are fixed-width, so Qt's layout minimum already forbids
+clipping one and the assertion could not fail. Same family as the § T9 note
+above and the SIGTERM-ignoring launcher — an assertion that holds whether or
+not the rule does. **Mutate the mechanism out before believing a geometry
+test, and say which mutant each test dies on.**
 
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the
