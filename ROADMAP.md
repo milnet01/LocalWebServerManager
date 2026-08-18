@@ -2418,7 +2418,7 @@ high-contrast.**
 
 ---
 
-- 📋 [LWSM-1145] **P04: the rows do not line up, because each lays itself out on its own.**
+- ✅ [LWSM-1145] **P04: the rows do not line up, because each lays itself out on its own.**
   Seen by the user on the first populated window, and correct: with 7
   projects the status, name and port are variable-width and each
   `ProjectRow` sizes itself independently, so the four buttons land at a
@@ -2432,6 +2432,7 @@ high-contrast.**
   Acceptance: a window with rows of deliberately different name and port
   widths has every Start button at the same x.
   Dependencies: none.
+  Resolved (2026-08-18): MainWindow._align_columns computes one width per column across every row — the widest cell winning — and ProjectRow.apply_column_widths adopts it. Re-run after every _sync_rows and after a language or font change, because all three change what a cell needs; NOT settled at construction, since rows are updated in place (LWSM-1131). natural_widths() is derived from the rendered text and the stored floors, never from minimumWidth(): apply_column_widths sets a fixed width, so reading it back would make the column monotonic — it would grow for a long-named project and never shrink when that project left. A mutant doing exactly that reddens test_a_column_shrinks_when_the_widest_project_leaves. Three tests, all on a THREE-row fixture with deliberately uneven names and ports (a one-row fixture cannot see this bug at all); all three redden when _align_columns is stubbed out. Verified against the user's real 7 projects offscreen: every Start button at the same x. 526 tests green, local-ci green.
   **Layman:** Every row positions its own text and buttons, so the Start button sits in a different place on every line. It should read as a table.
   Kind: fix.
   Source: user-report-2026-08-18.
@@ -2496,7 +2497,7 @@ high-contrast.**
   Scope: a first-run default size that fits the columns without
   truncation, a sensible minimum below which the columns would collide,
   spacing and grouping that separate the row list from the window
-  chrome, and Rescan moved off the full-width strip once LWSM-1145's
+  chrome, and Rescan moved off the full-width strip once LWSM-1146's
   menu bar gives it somewhere to live.
   NOT a re-theme — colour is LWSM-1031's.
   Dependencies: none.

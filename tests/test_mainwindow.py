@@ -1728,3 +1728,87 @@ def test_each_rows_buttons_drive_that_row(qtbot, built) -> None:
     rows_of(window)[0].open_button.click()
 
     assert opened[0].port() == 5005, "the first row opened another row's port"
+
+
+# --- LWSM-1145: the rows line up, because the columns are shared --------------
+
+
+def aligned_window(qtbot, built, records, probe):
+    """A shown window whose rows have deliberately different cell widths.
+
+    A one-row fixture cannot see a per-row bug — `CLAUDE.md` records that trap
+    twice over, and column alignment is undefined below two rows anyway.
+    """
+    window, controller = window_for(qtbot, built, records, probe)
+    with qtbot.waitExposed(window):
+        window.show()
+    return window, controller
+
+
+UNEVEN = [
+    record("a", 80),
+    record("a-considerably-longer-project-name", 5005),
+    record("mid", 65535),
+]
+
+
+def start_button_xs(window: MainWindow) -> list[int]:
+    from PySide6.QtCore import QPoint
+
+    return [row.start_button.mapTo(window, QPoint(0, 0)).x() for row in rows_of(window)]
+
+
+def test_every_start_button_lands_at_the_same_x(qtbot, built) -> None:
+    """LWSM-1145's acceptance criterion, stated as the user saw it.
+
+    Each `ProjectRow` is its own `QHBoxLayout` and Qt syncs nothing between
+    sibling layouts, so before the shared geometry the buttons stepped in and
+    out by the width of each project's name.
+    """
+    window, _ = aligned_window(qtbot, built, UNEVEN, FakeProbe(5005))
+
+    xs = start_button_xs(window)
+    assert len(xs) == len(UNEVEN), "the fixture must have more than one row"
+    assert len(set(xs)) == 1, f"Start buttons at differing x: {xs}"
+
+
+def test_the_columns_stay_aligned_after_an_in_place_update(qtbot, built) -> None:
+    """Rows are created once and updated in place (LWSM-1131), so the shared
+    widths have to be re-derived after an update rather than settled at
+    construction — a rescan can rename a project without replacing its row."""
+    window, controller = aligned_window(qtbot, built, UNEVEN, FakeProbe(5005))
+    row = next(r for p, r in window._rows.items() if p == Path("/srv/mid"))
+    was = row._name.width()
+
+    renamed = [
+        r
+        if r.path != Path("/srv/mid")
+        else dataclasses.replace(r, name="mid-renamed-to-something-far-longer")
+        for r in controller.records()
+    ]
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.set_records(renamed)
+    qtbot.waitUntil(lambda: row._name.width() > was, timeout=2000)
+
+    assert row is next(r for p, r in window._rows.items() if p == Path("/srv/mid")), (
+        "the row must have been updated in place, not rebuilt"
+    )
+    xs = start_button_xs(window)
+    assert len(set(xs)) == 1, f"Start buttons at differing x after update: {xs}"
+
+
+def test_a_column_shrinks_when_the_widest_project_leaves(qtbot, built) -> None:
+    """The guard against a monotonic column.
+
+    `apply_column_widths` sets a fixed width, so a natural width read back off
+    `minimumWidth()` could only ever grow — the long name would keep its column
+    reserved after the project it belonged to was gone.
+    """
+    window, controller = aligned_window(qtbot, built, UNEVEN, FakeProbe(5005))
+    wide = rows_of(window)[0]._name.width()
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.set_records([record("a", 80), record("mid", 65535)])
+    qtbot.waitUntil(lambda: rows_of(window)[0]._name.width() < wide, timeout=2000)
+
+    assert len(set(start_button_xs(window))) == 1

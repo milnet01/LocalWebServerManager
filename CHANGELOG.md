@@ -146,6 +146,9 @@ signaling per
 
 ### Fixed
 
+- **P04: the rows do not line up, because each lays itself out on its own.** (LWSM-1145)
+  Every row positions its own text and buttons, so the Start button sits in a different place on every line. It should read as a table.
+
 - ****Projects started by npm, Python or Node now actually start** (LWSM-1132)**
   Only projects launched by a shell script worked. Anything the scanner
   detected as `npm run dev`, `python3 serve.py` or `node serve.mjs` refused

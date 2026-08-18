@@ -357,8 +357,16 @@ class ProjectRow(QFrame):
         text size the users who depend on it are running.
         """
         metrics = self.fontMetrics()
-        self._state.setMinimumWidth(metrics.horizontalAdvance("stopped_"))
-        self._port.setMinimumWidth(metrics.horizontalAdvance("no port_"))
+        # Held as attributes as well as pushed into the widgets: once
+        # `apply_column_widths` has set a shared width, `minimumWidth()` reports
+        # that width rather than this floor, so re-reading it to compute the
+        # next natural width would make the column monotonic — it would grow
+        # when a long-named project appeared and never shrink when it left
+        # (LWSM-1145).
+        self._state_floor = metrics.horizontalAdvance("stopped_")
+        self._port_floor = metrics.horizontalAdvance("no port_")
+        self._state.setMinimumWidth(self._state_floor)
+        self._port.setMinimumWidth(self._port_floor)
 
         layout = self.layout()
         self._glyph_width = metrics.horizontalAdvance("●") + layout.spacing()
@@ -368,6 +376,30 @@ class ProjectRow(QFrame):
             self._base_margins.right(),
             self._base_margins.bottom(),
         )
+
+    def natural_widths(self) -> tuple[int, int, int]:
+        """What this row's three cells would each need on their own.
+
+        Derived from the text currently rendered, never from the width already
+        applied — see `_apply_text_metrics` on why reading the floor back would
+        ratchet the column.
+        """
+        return (
+            max(self._state_floor, self._state.sizeHint().width()),
+            self._name.sizeHint().width(),
+            max(self._port_floor, self._port.sizeHint().width()),
+        )
+
+    def apply_column_widths(self, widths: tuple[int, int, int]) -> None:
+        """Adopt the shared column geometry `MainWindow` computed (LWSM-1145).
+
+        Rows are created once and updated in place (LWSM-1131), so this is
+        re-applied after every update rather than settled at construction.
+        """
+        for label, width in zip(
+            (self._state, self._name, self._port), widths, strict=True
+        ):
+            label.setFixedWidth(width)
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
@@ -678,6 +710,8 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(self._window_title())
             for row in self._rows.values():
                 row.retranslate()
+            # A translated cell is a different width (LWSM-1145).
+            self._align_columns()
         elif event.type() == QEvent.Type.FontChange:
             # Same shape, same reason, and a second consequence of the style
             # sheet. QStyleSheetStyle resolves a font onto every descendant,
@@ -697,6 +731,9 @@ class MainWindow(QMainWindow):
             # `MainWindow.setFont()` works too — both raise this event here.
             for row in self._rows.values():
                 row.setFont(self.font())
+            # `setFont` delivers FontChange to the row synchronously, so every
+            # floor has already been re-derived by the time this runs.
+            self._align_columns()
 
     def set_status_message(self, text: str) -> None:
         self.statusBar().showMessage(text)
@@ -965,3 +1002,29 @@ class MainWindow(QMainWindow):
             # delete ordering all the same (LWSM-1106).
             widget.setParent(None)
             widget.deleteLater()
+
+        self._align_columns()
+
+    def _align_columns(self) -> None:
+        """One width per column across every row, the widest cell winning.
+
+        Each `ProjectRow` owns its own `QHBoxLayout` and Qt syncs nothing
+        between sibling layouts, so with seven projects the four buttons landed
+        at a different x on every row and the eye had nothing to track down
+        (LWSM-1145). Shared geometry rather than a fixed pixel width per column,
+        which breaks the moment a project has a long name or the font scales.
+
+        Called after every `_sync_rows` and after a language or font change,
+        because all three change what a cell needs.
+        """
+        rows = list(self._rows.values())
+        if not rows:
+            return
+        natural = [row.natural_widths() for row in rows]
+        widths = (
+            max(cells[0] for cells in natural),
+            max(cells[1] for cells in natural),
+            max(cells[2] for cells in natural),
+        )
+        for row in rows:
+            row.apply_column_widths(widths)
