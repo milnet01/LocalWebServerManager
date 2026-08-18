@@ -2418,6 +2418,93 @@ high-contrast.**
 
 ---
 
+- 📋 [LWSM-1145] **P04: the rows do not line up, because each lays itself out on its own.**
+  Seen by the user on the first populated window, and correct: with 7
+  projects the status, name and port are variable-width and each
+  `ProjectRow` sizes itself independently, so the four buttons land at a
+  different x on every row. The eye has nothing to track down.
+  The fix is shared column geometry — one width per column, taken from
+  the widest cell — NOT a fixed pixel width per column, which breaks the
+  moment a project has a long name or the font scales.
+  Beware the trap `CLAUDE.md` already records: rows are created once and
+  updated in place (LWSM-1131), so whatever carries the column widths
+  must survive an update rather than being computed at construction.
+  Acceptance: a window with rows of deliberately different name and port
+  widths has every Start button at the same x.
+  Dependencies: none.
+  **Layman:** Every row positions its own text and buttons, so the Start button sits in a different place on every line. It should read as a table.
+  Kind: fix.
+  Source: user-report-2026-08-18.
+  Lanes: ui.
+
+- 📋 [LWSM-1146] **P04: a menu bar, with Settings as its first real entry.**
+  The window currently has a single Rescan button and no other
+  affordance, so there is nowhere for anything to go. A menu bar is the
+  conventional place and costs little.
+  **This item owns the BAR, not the dialog** — LWSM-1018 owns the
+  settings dialog itself and is being pulled forward to sit beside it.
+  Split so the bar can land first and give every later item somewhere to
+  attach: themes (LWSM-1031), Centre on screen (LWSM-1033), logs
+  (P08), quit-to-tray (P09).
+  Keyboard access is LWSM-1040's and is not restated here, but the bar
+  must not be built in a way that forecloses it.
+  Dependencies: none.
+  **Layman:** Add a normal menu bar along the top so there is somewhere obvious to find settings, rather than the window being one button.
+  Kind: implement.
+  Source: user-request-2026-08-18.
+  Lanes: ui.
+
+- 📋 [LWSM-1147] **P04: dark is the default theme, not follow-system.**
+  LWSM-1031 ships six themes and resolves **follow-system** to midnight
+  or ledger. The user has asked for **dark by default**, which is a
+  different rule: follow-system on a light desktop opens light.
+  So the default is `midnight`, and follow-system becomes a choice the
+  user makes rather than the starting state.
+  Filed separately rather than edited into LWSM-1031 because that item
+  is already specified and cold-reviewed, and its acceptance (the § T8
+  contrast test over every theme) is unaffected by which one is default.
+  Dependencies: LWSM-1031.
+  **Layman:** The app should start dark unless you choose otherwise.
+  Kind: implement.
+  Source: user-request-2026-08-18.
+  Lanes: ui, core.
+
+- 📋 [LWSM-1148] **P04: save and reload a project-settings profile.**
+  `projects.json` already persists the registry, and LWSM-1007 made
+  that write atomic and gated. What does not exist is a way for the user
+  to **name, export and re-import** a set — to keep a known-good
+  configuration, move one between machines, or go back to one after a
+  rescan changed things.
+  Distinct from LWSM-1039 (backup), which protects against the app
+  losing data. This is the user deliberately keeping a copy.
+  The merge rules are the hard part and already exist: LWSM-1007
+  § 4.3 decides detected-versus-user fields, and an import is a merge
+  with a different source, not a file copy — importing must not silently
+  discard a `port_override` the user set here.
+  Dependencies: LWSM-1007.
+  **Layman:** Let me save my list of projects and their settings to a file, and load it back later or on another machine.
+  Kind: implement.
+  Source: user-request-2026-08-18.
+  Lanes: ui, core.
+
+- 📋 [LWSM-1149] **P04: the window opens big enough to read, and the layout is overhauled.**
+  The user's first populated window was ~790x520 for 7 rows, with the
+  Rescan button stretched across the full width and no visual hierarchy.
+  **Distinct from LWSM-1033**, which restores a REMEMBERED geometry —
+  this is what happens when there is nothing remembered, which is every
+  first run and the only impression a new user gets.
+  Scope: a first-run default size that fits the columns without
+  truncation, a sensible minimum below which the columns would collide,
+  spacing and grouping that separate the row list from the window
+  chrome, and Rescan moved off the full-width strip once LWSM-1145's
+  menu bar gives it somewhere to live.
+  NOT a re-theme — colour is LWSM-1031's.
+  Dependencies: none.
+  **Layman:** The window opens tiny and cramped. It should open at a sensible size and look like a proper application.
+  Kind: implement.
+  Source: user-request-2026-08-18.
+  Lanes: ui.
+
 ## P05 — Start, stop, restart (criterion 2)
 
 **Theme:** the buttons. [ADR-0003](docs/decisions/0003-launch-via-project-scripts.md)
