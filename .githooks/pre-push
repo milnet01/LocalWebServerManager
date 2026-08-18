@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Run the gate before a push that touches anything the gate checks.
+#
+# CLAUDE.md § Before pushing has required this since 2026-08-03 and nothing
+# enforced it, so it held exactly as often as someone remembered. On
+# 2026-08-18 five consecutive pushes went red — the first because a tool
+# version differed (see scripts/ci-tools.env), the next four because nobody
+# noticed the first.
+#
+# A DOCS-ONLY push is exempt, deliberately: the gate has nothing to say about
+# prose, and eleven seconds of pytest between a typo fix and a push is how a
+# team learns to reach for --no-verify by reflex. The exemption is decided by
+# the paths in the push, never by the commit subject.
+#
+# Escape hatches, in order of preference:
+#   git push --no-verify          one push, git's own mechanism
+#   LWSM_SKIP_PREPUSH=1 git push  same, when a wrapper eats --no-verify
+#
+# Enable with:  git config core.hooksPath .githooks
+# That is per-clone and cannot be committed, which is why tests/test_hooks.py
+# checks the file is present and executable rather than that it is active.
+set -Eeuo pipefail
+
+if [[ ${LWSM_SKIP_PREPUSH:-0} == 1 ]]; then
+    printf 'pre-push: skipped (LWSM_SKIP_PREPUSH=1)\n' >&2
+    exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+ZERO=0000000000000000000000000000000000000000
+
+# Paths a change to which cannot affect any check the gate runs. Everything
+# NOT matched here runs the gate, which is the safe direction: a new top-level
+# file is checked until someone decides it need not be.
+#
+# scripts/ is absent on purpose — it holds the gate itself and the installer,
+# both of which shellcheck reads. So is .github/, which actionlint reads.
+docs_only() {
+    local path
+    while IFS= read -r path; do
+        [[ -z $path ]] && continue
+        case $path in
+            docs/* | .claude/* | *.md | LICENSE) ;;
+            *) return 1 ;;
+        esac
+    done
+    return 0
+}
+
+# git feeds one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+changed=""
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+    # Deleting a ref pushes no content.
+    [[ $local_sha == "$ZERO" ]] && continue
+
+    if [[ $remote_sha == "$ZERO" ]]; then
+        # A branch the remote has never seen: there is no "since" to diff
+        # against, so ask which commits are not already on some remote and
+        # diff from the oldest one's parent. If that cannot be resolved we
+        # run the gate — an unknown range is not an exemption.
+        oldest=$(git rev-list "$local_sha" --not --remotes | tail -n 1)
+        if [[ -z $oldest ]]; then
+            continue
+        fi
+        base="$oldest^"
+        git rev-parse --verify --quiet "$base" >/dev/null || base=$(git hash-object -t tree /dev/null)
+    else
+        base="$remote_sha"
+    fi
+
+    changed+=$(git diff --name-only "$base" "$local_sha")$'\n'
+done
+
+if [[ -z ${changed//[$'\n' ]/} ]]; then
+    printf 'pre-push: nothing to check\n' >&2
+    exit 0
+fi
+
+if printf '%s' "$changed" | docs_only; then
+    printf 'pre-push: docs-only push, gate not required\n' >&2
+    exit 0
+fi
+
+printf 'pre-push: running ./scripts/local-ci.sh\n' >&2
+# No --fast. The point of this hook is that what runs here is what runs on
+# GitHub, and --fast drops the integration tests.
+./scripts/local-ci.sh

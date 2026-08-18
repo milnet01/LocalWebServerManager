@@ -156,6 +156,13 @@ signaling per
 
 ### Fixed
 
+- **The local gate and the GitHub run install the same tools, and a hook runs it before every push.** (LWSM-1150)
+  The gate now pins its tool versions in scripts/ci-tools.env, which the
+  workflow reads too, and reports any tool that differs as TOOL DRIFT. A
+  pre-push hook runs the gate automatically, skipping a docs-only push.
+  Local shellcheck 0.11.0 against the runner's 0.9 was why five
+  consecutive pushes went red on a green local run.
+
 - **P04: the rows do not line up, because each lays itself out on its own.** (LWSM-1145)
   Every row positions its own text and buttons, so the Start button sits in a different place on every line. It should read as a table.
 

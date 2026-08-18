@@ -119,6 +119,39 @@ tooling or CI config** (user, 2026-08-03). A **docs-only push is
 exempt** — the gate has nothing to say about prose, and making it
 mandatory there just trains people to skip it.
 
+**Since 2026-08-18 a `pre-push` hook enforces both halves of that**, so
+it is no longer a rule someone has to remember. Enable it once per
+clone — `core.hooksPath` cannot be committed:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook decides docs-only **by the paths in the push, never by the
+commit subject**, and `scripts/`, `.github/`, `src/` and `tests/` are
+never exempt — a change to the checker must run the check.
+`tests/test_ci_contract.py` asserts that, because an exemption that
+grew to cover `scripts/` would let an edit to the gate skip the gate.
+Escape with `git push --no-verify` or `LWSM_SKIP_PREPUSH=1`.
+
+**The tool VERSIONS are pinned in `scripts/ci-tools.env`, which both
+the workflow and the gate read**, and the gate reports any tool whose
+version differs from the pin as **TOOL DRIFT** — a warning locally, and
+fatal under `LWSM_REQUIRE_ALL_TOOLS=1`, where a mismatch means CI did
+not install what it promised. **Pinning the steps was never enough; a
+gate is its tools.** Found the hard way on 2026-08-18: local shellcheck
+0.11.0 passed `scripts/*.sh` while the runner's apt shipped 0.9, which
+reports SC2015 on `command -v` guards that 0.11 accepts — so five
+consecutive pushes went red against a green local run. To bump a tool,
+change the version there; the workflow interpolates it and
+`tests/test_ci_contract.py` fails if the two ever part.
+
+**`uv` is the exception to the interpolation**, because `setup-uv` takes
+its version as a `uses:` input and a `uses:` input cannot read a shell
+variable. The workflow repeats the literal and the contract test asserts
+the two are equal — the test is doing the job interpolation does for the
+other three.
+
 The script is the single source of truth for CI: `.github/workflows/ci.yml`
 prepares a machine and then calls it. **Never add a check to the
 workflow instead of the script** — that produces a check nobody can
@@ -428,7 +461,11 @@ built under § Review cadence's build-first default:
 
 Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
 `test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
-`test_layering.py`, `test_scanner.py`, `test_supervisor.py` (+ `scanner_fixtures.py`,
+`test_layering.py`, `test_scanner.py`, `test_supervisor.py`,
+`test_ci_contract.py` (the gate's own contract — that `ci.yml` adds no
+check of its own, that both sides install the versions
+`scripts/ci-tools.env` pins, and that the `pre-push` hook is present,
+executable and does not exempt the gate's own inputs) (+ `scanner_fixtures.py`,
 the detection regression corpus every future mis-detection is
 added to), plus `conftest.py` (sets
 `QT_QPA_PLATFORM=offscreen` when unset, so a bare `pytest` cannot

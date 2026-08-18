@@ -82,12 +82,22 @@ To work on it:
 git clone https://github.com/milnet01/LocalWebServerManager.git
 cd LocalWebServerManager
 uv sync                 # resolves from the committed uv.lock
+git config core.hooksPath .githooks   # run the gate before every push
 ./scripts/local-ci.sh   # lint, format, tests, entry points — the full gate
 ```
 
 `scripts/local-ci.sh` is the single source of truth for CI: the
 GitHub Actions workflow prepares a machine and then calls it, so a
 check cannot exist in CI that you are unable to run first.
+
+The tools it runs are pinned in `scripts/ci-tools.env`, which the
+workflow reads too — so both sides run the same shellcheck, yamllint,
+actionlint and uv. If yours differ the gate says so and tells you the
+run no longer predicts GitHub. Bump a version there and the workflow
+follows; `tests/test_ci_contract.py` fails if the two ever part.
+
+The `core.hooksPath` line above installs a `pre-push` hook that runs
+the gate for you. A docs-only push skips it.
 
 ## Quickstart
 

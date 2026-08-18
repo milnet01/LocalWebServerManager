@@ -83,19 +83,36 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libegl1 libgl1 libxkbcommon0 libdbus-1-3
 
-      # actionlint is pinned, not @latest: docs/standards/dependencies.md § 2.1
-      # forbids a floating reference, and a linter that silently changes
-      # version can turn a green build red with no commit explaining it.
-      # yamllint is installed rather than taken from the runner image. The image
-      # does ship it, but relying on that made the one tool the gate depends on
-      # implicitly the one whose removal from a future image would silently
-      # degrade the YAML check — and LWSM_REQUIRE_ALL_TOOLS below now turns that
-      # into a failure, so it must actually be here.
+      # Every version comes from scripts/ci-tools.env, which local-ci.sh reads
+      # too — so this job and a developer's machine cannot install different
+      # tools. That was not true until 2026-08-18: shellcheck and yamllint came
+      # from apt here and from the distro there, the runner's shellcheck was
+      # older, and it failed SC2015 on a file that was clean locally. Pinning
+      # the STEPS was never enough; a gate is its tools.
+      #
+      # shellcheck comes from the project's own release tarball rather than
+      # apt, because apt can only offer whatever the runner image pins and
+      # docs/standards/dependencies.md § 2.1 forbids a floating reference.
+      # yamllint goes through `uv tool`, which is already on the machine.
+      #
+      # tests/test_ci_contract.py asserts this step installs exactly the three
+      # versions ci-tools.env names, so an edit to one side alone fails the
+      # gate rather than reaching GitHub.
       - name: Install shellcheck, actionlint and yamllint
         run: |
-          sudo apt-get install -y --no-install-recommends shellcheck yamllint
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          set -Eeuo pipefail
+          . scripts/ci-tools.env
+          dir="shellcheck-v${SHELLCHECK_VERSION}"
+          base=https://github.com/koalaman/shellcheck/releases/download
+          curl -fsSL --retry 3 \
+            "$base/v${SHELLCHECK_VERSION}/$dir.linux.x86_64.tar.xz" \
+            | tar -xJ -C /tmp
+          sudo install -m 0755 "/tmp/$dir/shellcheck" /usr/local/bin/shellcheck
+          uv tool install "yamllint==${YAMLLINT_VERSION}"
+          actionlint=github.com/rhysd/actionlint/cmd/actionlint
+          go install "$actionlint@v${ACTIONLINT_VERSION}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # LWSM_REQUIRE_ALL_TOOLS turns a SKIP into a failure HERE only. On a
       # developer's machine a missing linter must not stop them testing

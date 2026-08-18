@@ -2059,6 +2059,54 @@ up.**
 
 ---
 
+- ✅ [LWSM-1150] **The local gate and the GitHub run install the same tools, and a hook runs it before every push.**
+  Every push on 2026-08-18 went red while `./scripts/local-ci.sh` was
+  green. The cause was not a missing check: local shellcheck was 0.11.0,
+  the runner's apt shipped 0.9, and 0.11 relaxed SC2015 for `command -v`
+  guards — so two lines in `install-desktop-entry.sh` were clean here and
+  a failure there. The steps matched perfectly. **Pinning the steps was
+  never enough; a gate is its tools.**
+
+  Four parts.
+
+  1. The two SC2015 lines are `if` blocks, which both versions accept.
+  2. `scripts/ci-tools.env` pins shellcheck, yamllint, actionlint and uv.
+     The workflow SOURCES it and interpolates each version rather than
+     restating it, and installs shellcheck from its release tarball
+     instead of apt, which can only offer what the runner image pins.
+  3. `local-ci.sh` verifies every tool it runs against that pin and
+     reports **TOOL DRIFT** — checked FIRST, before anything runs, so it
+     is a statement about the run rather than a footnote to a green one.
+     Warning locally (a developer whose distro moved ahead must still be
+     able to test their own change); fatal under `LWSM_REQUIRE_ALL_TOOLS`,
+     where a mismatch means CI did not install what it promised. The
+     final line differs too — "passed, but N tool(s) DRIFTED" is not
+     "Local CI passed.", because the second is read as "GitHub will pass".
+  4. `.githooks/pre-push` runs the gate, exempting a docs-only push by
+     the PATHS in the push and never by the commit subject.
+
+  `tests/test_ci_contract.py` (10 tests) holds the arrangement together:
+  `ci.yml` may add no check of its own, its install step must interpolate
+  the pins rather than repeat them, and the hook must exist, be
+  executable, run the unreduced gate, and never exempt `scripts/`,
+  `.github/`, `src/` or `tests/` — an exemption covering the gate's own
+  inputs would let an edit to the checker skip the check. uv is the one
+  pin asserted by equality rather than interpolation, because `setup-uv`
+  takes a `uses:` input and a `uses:` input cannot read a shell variable;
+  the test is what interpolation does for the other three.
+
+  Nine mutants run, all dead: a check step added to `ci.yml`, a hard-coded
+  version replacing an interpolation, a uv pin parted from the workflow, a
+  non-executable hook, a `--fast` hook, and `scripts/` added to the docs
+  exemption. A tenth deliberately SURVIVES — bumping a version in
+  `ci-tools.env` alone is correct, because the workflow follows it; what
+  catches that case is the drift report, verified separately in both its
+  warning and its fatal form.
+  **Layman:** The check you run on your machine before pushing now uses exactly the same tool versions GitHub does, and it runs itself automatically — so a green run at home means a green run online.
+  Kind: fix.
+  Source: user-request-2026-08-18.
+  Lanes: ci, tooling.
+
 ## P02 — Vertical slice (target: after P01 closes)
 
 **Theme:** the smallest feature that touches every layer —

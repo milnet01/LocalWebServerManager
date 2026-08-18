@@ -92,9 +92,57 @@ trap 'fail "$CURRENT_STEP"' ERR
 SKIPPED=()
 skip() { SKIPPED+=("$1"); printf '%s NOT CHECKED — this is a SKIP, not a pass\n' "$1"; }
 
+# Tools that ran at a version CI does not use. Tracked separately from SKIPPED
+# because they are a different failure: a SKIP says a check did not run, a
+# DRIFT says it ran and its answer does not predict GitHub's.
+#
+# This is the bug the whole ci-tools.env arrangement exists for. On 2026-08-18
+# every push went red on two SC2015 findings in install-desktop-entry.sh while
+# `./scripts/local-ci.sh` was green: local shellcheck was 0.11.0, the runner's
+# apt shipped 0.9, and 0.11 relaxed SC2015 for `command -v` guards. The steps
+# matched perfectly. The tools did not, and nothing looked at them.
+DRIFTED=()
+
+# The pins CI installs. `.` rather than `source` for POSIX spelling; the file
+# is plain KEY=value by design (see its header).
+if [[ -f scripts/ci-tools.env ]]; then
+    # The `source=` path is resolved from shellcheck's WORKING DIRECTORY, not
+    # from this file's directory — so it is spelled repo-root-relative, the
+    # same as the runtime path above it. The gate always invokes shellcheck
+    # from the repo root (the `cd` at the top of this file), so the two agree.
+    # shellcheck source=scripts/ci-tools.env
+    . scripts/ci-tools.env
+else
+    fail "scripts/ci-tools.env is missing — it is what makes this run and CI comparable"
+fi
+
+# Compare a tool's reported version against its pin.
+#   $1 tool name  $2 pinned version  $3 version as found
+#
+# A mismatch is a WARNING locally and fatal under LWSM_REQUIRE_ALL_TOOLS — the
+# same asymmetry as a SKIP, for the same reason. A developer whose distro moved
+# ahead should still be able to test their own change; the machine that is
+# supposed to install exact versions must prove it did, or the pin is decorative.
+check_version() {
+    local tool=$1 pinned=$2 found=$3
+    if [[ $found == "$pinned" ]]; then
+        printf '  %s %s (matches CI)\n' "$tool" "$found"
+        return
+    fi
+    DRIFTED+=("$tool $found vs CI $pinned")
+    printf '%s  %s %s — CI runs %s. This check does NOT predict GitHub.%s\n' \
+        "$YELLOW" "$tool" "$found" "$pinned" "$RESET"
+}
+
 if ! command -v uv >/dev/null 2>&1; then
     fail "uv is not installed — see https://docs.astral.sh/uv/"
 fi
+
+step "Tool versions match CI"
+# Checked FIRST, before anything is run. A drift report that arrives after the
+# suite has passed is read as a footnote to a green run; arriving before it,
+# it is a statement about everything that follows.
+check_version uv "$UV_VERSION" "$(uv --version | awk '{print $2}')"
 
 step "Sync dependencies (locked)"
 # --locked, NOT --frozen. Re-measured on uv 0.12.2, 2026-08-06:
@@ -152,7 +200,16 @@ fi
 
 step "Shell scripts (shellcheck)"
 if command -v shellcheck >/dev/null 2>&1; then
-    shellcheck scripts/*.sh
+    check_version shellcheck "$SHELLCHECK_VERSION" \
+        "$(shellcheck --version | awk '/^version:/ {print $2}')"
+    # -x so it FOLLOWS the sourced ci-tools.env rather than reporting SC1091
+    # and treating every pin as an unassigned variable. Following the source is
+    # also the stronger check: without it the three pins are opaque to it.
+    # The hook is shell this project ships and a broken one fails a push at
+    # the worst moment, so it is linted with everything else. Named
+    # explicitly rather than by glob: .githooks/ may hold a sample or a
+    # non-shell file later, and a glob would lint whatever appeared.
+    shellcheck -x scripts/*.sh .githooks/pre-push
 else
     skip "shellcheck"
 fi
@@ -173,11 +230,20 @@ step "Workflow and config YAML"
 # would otherwise reach GitHub and be reported on its dashboard rather than in
 # the build.
 if command -v actionlint >/dev/null 2>&1; then
+    # actionlint bundles a shellcheck of its own, chosen when IT was built, and
+    # runs it over every `run:` block. So SHELLCHECK_VERSION governs
+    # scripts/*.sh and this one governs the workflow's inline shell; pinning
+    # actionlint is what keeps the second reproducible, since there is no way
+    # to point it at ours.
+    check_version actionlint "$ACTIONLINT_VERSION" \
+        "$(actionlint --version | head -n 1)"
     actionlint
 else
     skip "actionlint (workflow semantics and run-block shell unchecked)"
 fi
 if command -v yamllint >/dev/null 2>&1; then
+    check_version yamllint "$YAMLLINT_VERSION" \
+        "$(yamllint --version | awk '{print $NF}')"
     yamllint -d relaxed .github/
 else
     # Deliberately no Python fallback: PyYAML is not a dependency, so
@@ -185,6 +251,28 @@ else
     # the gate is broken is worse than one that admits it did not run.
     skip "yamllint (.github/dependabot.yml unchecked)"
     printf 'install yamllint (your package manager, or: pipx install yamllint)\n'
+fi
+
+# Reported BEFORE the pass/skip line and in its own block, because the whole
+# point is that it must not read as a detail inside a green run. A drifted tool
+# does not make this run wrong; it makes it non-predictive, which is worse to
+# discover from a red push than from four lines here.
+if ((${#DRIFTED[@]})); then
+    printf '\n%sTOOL DRIFT — %d tool(s) differ from what CI installs:%s\n' \
+        "$YELLOW" "${#DRIFTED[@]}" "$RESET"
+    for drift in "${DRIFTED[@]}"; do
+        printf '  %s\n' "$drift"
+    done
+    printf 'Pins live in scripts/ci-tools.env. Install the pinned version, or\n'
+    printf 'bump the pin there and re-run — GitHub will follow it.\n'
+    if [[ ${LWSM_REQUIRE_ALL_TOOLS:-0} == 1 ]]; then
+        # On the runner this is never a warning: the install step names exact
+        # versions, so a mismatch means it did not do what it says and the pin
+        # is decorative.
+        printf '%sLWSM_REQUIRE_ALL_TOOLS=1: CI installed a version it did not promise.%s\n' \
+            "$RED" "$RESET" >&2
+        exit 1
+    fi
 fi
 
 if ((${#SKIPPED[@]})); then
@@ -201,6 +289,12 @@ if ((${#SKIPPED[@]})); then
             "$RED" "${#SKIPPED[@]}" "$RESET" >&2
         exit 1
     fi
+elif ((${#DRIFTED[@]})); then
+    # A distinct final line, not the plain green one. "Local CI passed." is
+    # what a reader takes as "GitHub will pass too", and with a drifted tool
+    # that inference is exactly what is unavailable.
+    printf '\n%sLocal CI passed, but %d tool(s) DRIFTED from CI — see above.%s\n' \
+        "$YELLOW" "${#DRIFTED[@]}" "$RESET"
 else
     printf '\n%sLocal CI passed.%s\n' "$GREEN" "$RESET"
 fi
