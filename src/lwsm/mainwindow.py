@@ -31,7 +31,9 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QAccessible,
     QAccessibleEvent,
+    QAction,
     QDesktopServices,
+    QKeySequence,
     QPainter,
     QPaintEvent,
     QPen,
@@ -601,6 +603,7 @@ class MainWindow(QMainWindow):
         load: LoadResult | RegistryError | None = None,
         confirm: Callable[[Path, str, tuple[str, ...]], bool] | None = None,
         open_url: Callable[[QUrl], bool] | None = None,
+        open_settings: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -619,6 +622,12 @@ class MainWindow(QMainWindow):
         # Injected for the same reason as `confirm`: a test that reached
         # `QDesktopServices.openUrl` would launch the developer's browser.
         self._open_url = open_url if open_url is not None else QDesktopServices.openUrl
+        # The third injected seam, and the reason LWSM-1146 could land without
+        # LWSM-1018: this item owns the BAR, not the dialog. The dialog arrives
+        # as an argument rather than as an edit to `_build_menus`.
+        self._open_settings = (
+            open_settings if open_settings is not None else self._settings_unavailable
+        )
         # QCoreApplication.translate under the file's one context, not
         # `self.tr(...)` — tr resolves under the *class*, so this string landed
         # in "MainWindow" (and Qt then walked QMainWindow, QWidget, QObject and
@@ -647,6 +656,9 @@ class MainWindow(QMainWindow):
         # Set once for the whole window; rows carry a state property the rules
         # in it select on.
         self.setStyleSheet(theme.style_sheet())
+        # Before the central widget, because `_apply_default_geometry` measures
+        # the bar as chrome the list does not get.
+        self._build_menus()
 
         central = QWidget(self)
         outer = QVBoxLayout(central)
@@ -709,6 +721,79 @@ class MainWindow(QMainWindow):
         if notices:
             self.set_status_message(self._notice_summary(notices))
 
+    def _build_menus(self) -> None:
+        """The bar every later item hangs off (LWSM-1146).
+
+        The window had one Rescan button and nowhere else to put anything, so
+        this exists to be attached to: themes (LWSM-1031), Centre on screen
+        (LWSM-1033), logs (P08), quit-to-tray (P09). It owns the bar only —
+        the settings dialog is LWSM-1018's, and reaches this through
+        `_open_settings` rather than through an edit to this method.
+
+        Every label carries an `&` mnemonic, so the bar is keyboard-reachable
+        as it stands (`§ O8` clause 2); LWSM-1040 owns keyboard access proper
+        and this must not foreclose it. A `QAction`'s accessible name comes
+        from its text, which is clause 1, and the text is the state, which is
+        clause 3. The labels are set in `_retranslate_menus` rather than here
+        so that one method is the whole answer to LanguageChange.
+        """
+        bar = self.menuBar()
+        self._file_menu = bar.addMenu("")
+        # No rescan context, no entry — the same rule the button follows, and
+        # for the same reason: an enabled control that cannot work is worse
+        # than an absent one.
+        self._rescan_action: QAction | None = None
+        if self._rescan is not None:
+            self._rescan_action = self._file_menu.addAction("")
+            self._rescan_action.triggered.connect(self._start_rescan)
+            self._file_menu.addSeparator()
+        self._quit_action = self._file_menu.addAction("")
+        # The platform's own quit sequence rather than a literal, so it is
+        # whatever the desktop already taught the user.
+        self._quit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        self._quit_action.triggered.connect(self.close)
+
+        self._settings_menu = bar.addMenu("")
+        self._settings_action = self._settings_menu.addAction("")
+        self._settings_action.triggered.connect(self._open_settings)
+        self._retranslate_menus()
+
+    def _retranslate_menus(self) -> None:
+        """`QCoreApplication.translate` under the file's one context, never
+        `self.tr(...)`, which resolves under the *class* (LWSM-1107). The `&`
+        stays inside the translated string so a translator can move the
+        mnemonic to a letter that exists in their language."""
+        self._file_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&File"))
+        if self._rescan_action is not None:
+            self._rescan_action.setText(
+                QCoreApplication.translate(_TR_CONTEXT, "&Rescan projects")
+            )
+        self._quit_action.setText(QCoreApplication.translate(_TR_CONTEXT, "&Quit"))
+        self._settings_menu.setTitle(
+            QCoreApplication.translate(_TR_CONTEXT, "&Settings")
+        )
+        self._settings_action.setText(
+            QCoreApplication.translate(_TR_CONTEXT, "&Preferences...")
+        )
+
+    def _settings_unavailable(self) -> None:
+        """The honest default until LWSM-1018 lands the dialog.
+
+        Chosen over a disabled entry: an entry that does nothing when chosen
+        is indistinguishable from a broken one, and a greyed one says nothing
+        about why. The status bar is already this window's notice channel.
+        """
+        self.set_status_message(
+            QCoreApplication.translate(_TR_CONTEXT, "Settings are not available yet.")
+        )
+
+    def _set_rescan_enabled(self, enabled: bool) -> None:
+        """The button and the menu entry are one control with two faces."""
+        if self._rescan_button is not None:
+            self._rescan_button.setEnabled(enabled)
+        if self._rescan_action is not None:
+            self._rescan_action.setEnabled(enabled)
+
     @staticmethod
     def _window_title() -> str:
         return QCoreApplication.translate(_TR_CONTEXT, "Local Web Server Manager")
@@ -742,6 +827,7 @@ class MainWindow(QMainWindow):
             # may have replaced the notice summary with a RegistryError, and
             # re-applying the summary here would silently overwrite it.
             self.setWindowTitle(self._window_title())
+            self._retranslate_menus()
             for row in self._rows.values():
                 row.retranslate()
             # A translated cell is a different width (LWSM-1145).
@@ -883,16 +969,14 @@ class MainWindow(QMainWindow):
         ):
             return
         self._rescan_in_flight = True
-        if self._rescan_button is not None:
-            self._rescan_button.setEnabled(False)
+        self._set_rescan_enabled(False)
         self._rescan_pool.start(
             _RescanTask(self._rescan, self._controller.records(), self._rescan_signals)
         )
 
     def _finish_rescan(self, message: str) -> None:
         self._rescan_in_flight = False
-        if self._rescan_button is not None:
-            self._rescan_button.setEnabled(True)
+        self._set_rescan_enabled(True)
         self.set_status_message(message)
 
     def _on_rescan_failed(self, detail: str) -> None:
@@ -913,8 +997,9 @@ class MainWindow(QMainWindow):
         in scope.
 
         `_finish_rescan` runs in a `finally`, and the body carries a catch-all
-        (LWSM-1135). It is the ONLY place `_rescan_button.setEnabled(True)`
-        happens, and this slot is delivered from the pool thread — so PySide6
+        (LWSM-1135). It is the ONLY place `_set_rescan_enabled(True)` happens
+        — which re-enables the button and the menu entry together since
+        LWSM-1146 — and this slot is delivered from the pool thread — so PySide6
         swallows anything escaping it, emitting no signal and telling the user
         nothing. A raw `OSError` out of `save_projects` therefore discarded the
         merge silently AND left Rescan disabled for the rest of the session.
@@ -1069,8 +1154,14 @@ class MainWindow(QMainWindow):
         outer = self.centralWidget().layout()
         margins = outer.contentsMargins()
         row_height = rows[0].sizeHint().height() + max(self._rows_layout.spacing(), 0)
-        # Everything that is not the list.
-        chrome = margins.top() + margins.bottom() + self.statusBar().sizeHint().height()
+        # Everything that is not the list — the menu bar included (LWSM-1146),
+        # or the window opens one bar too short and a list that fits scrolls.
+        chrome = (
+            margins.top()
+            + margins.bottom()
+            + self.menuBar().sizeHint().height()
+            + self.statusBar().sizeHint().height()
+        )
         if self._rescan_button is not None:
             chrome += self._rescan_button.sizeHint().height() + outer.spacing()
         # The scrollbar's width is reserved rather than discovered: it appears

@@ -23,6 +23,13 @@ signaling per
 
 ### Added
 
+- **A menu bar, so there is somewhere obvious to find settings.** (LWSM-1146)
+  The window was one Rescan button with nowhere to put anything
+  else. It now opens with a File menu (Rescan, Quit) and a
+  Settings menu whose Preferences entry is where the settings
+  dialog will attach. Both menus are reachable from the keyboard,
+  and both follow a language change.
+
 - **A runnable release preflight, so a release stops on this machine rather than half-way through.** (LWSM-1151)
   scripts/local-release.sh reports whether a release would stop, and
   where, without changing anything — the recipe, the version lockstep,

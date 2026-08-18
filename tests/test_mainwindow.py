@@ -1950,3 +1950,149 @@ def test_rescan_is_a_control_not_a_full_width_strip(qtbot, built, tmp_path) -> N
     )
     left = button.mapTo(window, QPoint(0, 0)).x()
     assert left > window.width() // 2, "Rescan should sit at the right of its strip"
+
+
+# --- LWSM-1146: the menu bar -------------------------------------------------
+
+
+def menu_titles(window: MainWindow) -> list[str]:
+    """Top-level menu labels, in bar order."""
+    return [action.text() for action in window.menuBar().actions()]
+
+
+def entry_texts(menu) -> list[str]:
+    return [action.text() for action in menu.actions() if not action.isSeparator()]
+
+
+def two_rows() -> list[ProjectRecord]:
+    """Two, never one. A one-row fixture has hidden a per-row bug in this file
+    twice, and a bar that is a window-level singleton is exactly the shape that
+    reads as fine against a single row."""
+    return [record("a", 5005), record("b", None)]
+
+
+def test_the_bar_offers_settings_and_carries_its_own_mnemonics(qtbot, built) -> None:
+    """LWSM-1146 owns the BAR, not the dialog.
+
+    The `&` is asserted because it is the whole of the item's "must not
+    foreclose LWSM-1040" clause: a bar built without mnemonics is unreachable
+    from the keyboard until someone adds them, which is `§ O8` clause 2
+    retrofitted, and § O8 exists to stop exactly that.
+    """
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+
+    assert menu_titles(window) == ["&File", "&Settings"]
+    assert entry_texts(window._settings_menu) == ["&Preferences..."]
+    assert all("&" in title for title in menu_titles(window))
+
+
+def test_preferences_opens_the_injected_dialog(qtbot, built) -> None:
+    """The seam LWSM-1018 attaches through, and the reason this item could land
+    without it — the same injection shape as `confirm` and `open_url`."""
+    opened: list[str] = []
+    controller = build_controller(built, two_rows(), FakeProbe(5005))
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        open_settings=lambda: opened.append("dialog"),
+    )
+    qtbot.addWidget(window)
+
+    window._settings_action.trigger()
+
+    assert opened == ["dialog"]
+
+
+def test_preferences_with_no_dialog_says_so_rather_than_doing_nothing(
+    qtbot, built
+) -> None:
+    """A menu entry that does nothing when chosen is indistinguishable from a
+    broken one, which is why the default is a message and not a silent pass or
+    a greyed entry."""
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+
+    window._settings_action.trigger()
+
+    assert window.statusBar().currentMessage() == "Settings are not available yet."
+
+
+def test_a_window_with_nothing_to_rescan_has_no_rescan_entry(qtbot, built) -> None:
+    """The same rule the button follows: no context, no control. Asserted on
+    the File menu's contents as well as on the attribute, because an entry that
+    exists but is never reached would satisfy the attribute alone."""
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe())
+
+    assert window._rescan_action is None
+    assert entry_texts(window._file_menu) == ["&Quit"]
+    window.shutdown()
+
+
+def test_rescan_from_the_menu_greys_the_button_with_it(qtbot, built, tmp_path) -> None:
+    """One control with two faces.
+
+    Written with the enable/disable in two places, the menu entry stayed live
+    while the button greyed — an offer to start a second merge over the first,
+    invisible to every test that only ever clicked the button. The assertions
+    run before the loop is spun, so the worker's completion signal has not been
+    delivered yet.
+    """
+    project = tmp_path / "roots" / "web"
+    scan = FakeScanResult(
+        projects=(FakeDetected(project, "web", port=FakePortFinding(3000)),)
+    )
+    window, controller = rescan_window(qtbot, built, [], tmp_path, scan)
+
+    window._rescan_action.trigger()
+
+    assert window._rescan_in_flight, "the menu entry never reached _start_rescan"
+    assert not window._rescan_action.isEnabled()
+    assert not window._rescan_button.isEnabled()
+
+    qtbot.waitUntil(lambda: not window._rescan_in_flight, timeout=5000)
+
+    assert window._rescan_action.isEnabled()
+    assert window._rescan_button.isEnabled()
+    assert [row.name for row in controller.rows()] == ["web"]
+    window.shutdown()
+
+
+def test_the_menu_labels_follow_a_language_change(qtbot, built) -> None:
+    """The bar is retranslated from `changeEvent` like the rows are.
+
+    The event is posted by hand, so this does NOT prove Qt delivers a
+    `LanguageChange` to this window — see
+    `test_a_translator_installed_later_reaches_an_existing_row`, which records
+    why that cannot be asserted here. What it does prove is that the labels are
+    re-derived rather than fixed at construction.
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent, QTranslator
+
+    class Shouting(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return sourceText.upper()
+
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    assert window._settings_action.text() == "&Preferences..."
+
+    translator = Shouting()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window.changeEvent(QEvent(QEvent.Type.LanguageChange))
+
+        assert window._settings_menu.title() == "&SETTINGS"
+        assert window._settings_action.text() == "&PREFERENCES..."
+        assert window._file_menu.title() == "&FILE"
+    finally:
+        app.removeTranslator(translator)
+
+
+def test_quit_from_the_menu_closes_the_window(qtbot, built) -> None:
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    window.show()
+    qtbot.waitUntil(window.isVisible, timeout=2000)
+
+    window._quit_action.trigger()
+
+    assert not window.isVisible()

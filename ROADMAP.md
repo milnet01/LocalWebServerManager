@@ -2529,7 +2529,7 @@ high-contrast.**
   Source: user-report-2026-08-18.
   Lanes: ui.
 
-- 📋 [LWSM-1146] **P04: a menu bar, with Settings as its first real entry.**
+- ✅ [LWSM-1146] **P04: a menu bar, with Settings as its first real entry.**
   The window currently has a single Rescan button and no other
   affordance, so there is nowhere for anything to go. A menu bar is the
   conventional place and costs little.
@@ -2541,6 +2541,7 @@ high-contrast.**
   Keyboard access is LWSM-1040's and is not restated here, but the bar
   must not be built in a way that forecloses it.
   Dependencies: none.
+  Resolved (2026-08-18): shipped as the bar only, as filed. `MainWindow._build_menus` adds a `&File` menu (Rescan when a scan context exists, then Quit on the platform's standard quit sequence) and a `&Settings` menu holding `&Preferences...`. The dialog stays LWSM-1018's and attaches through a new injected `open_settings` seam — the third of the same shape as `confirm` and `open_url` — so it lands without editing this method. Every label carries an `&` mnemonic, which is the item's "must not foreclose LWSM-1040" clause and `coding.md § O8` clause 2; labels are set in `_retranslate_menus`, so `LanguageChange` has one place to go. Two things the diff does not show. The bar counts as chrome in `_apply_default_geometry`: leave it out and the window opens one menu-bar height too short, so a list that fits scrolls — two LWSM-1149 geometry tests die on that mutant, verified. And Rescan became one control with two faces: written as two enable/disable sites, the menu entry stayed live while the button greyed, offering a second merge over the first. 8 tests added, each verified against a named mutant; 564 green, full gate green.
   **Layman:** Add a normal menu bar along the top so there is somewhere obvious to find settings, rather than the window being one button.
   Kind: implement.
   Source: user-request-2026-08-18.

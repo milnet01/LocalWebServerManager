@@ -451,6 +451,18 @@ Added at P02 (LWSM-1005), contract in
   filed scope and is the part that mattered most: without it the
   window's minimum height is every row it holds, so twenty projects give
   a window taller than the screen that cannot be shrunk.
+  Since LWSM-1146 it also owns the **menu bar** — `_build_menus`,
+  `_retranslate_menus` and `_set_rescan_enabled`. It owns the BAR only; the
+  settings dialog is LWSM-1018's and arrives through the injected
+  **`open_settings`** seam, the third of the same shape as `confirm` and
+  `open_url`. Every label carries an `&` mnemonic so the bar is keyboard-
+  reachable before LWSM-1040 lands, and the labels are set in
+  `_retranslate_menus` rather than at construction so `LanguageChange` has one
+  place to go. **The menu bar counts as chrome in `_apply_default_geometry`** —
+  leave it out and the window opens one bar too short, so a list that fits
+  scrolls; two LWSM-1149 geometry tests die on that mutant. Rescan is one
+  control with two faces, which is why the enable/disable is a helper and not
+  two call sites.
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](docs/specs/LWSM-1006-scanner-detection.md):
