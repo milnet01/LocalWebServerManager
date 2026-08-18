@@ -687,6 +687,22 @@ succeeding was the damage.** Every check passed: `desktop-file-validate`,
 a directory shared with other software, the verification has to ask what
 happened to the other software, not only to us.**
 
+**Trap: two runs executing the same STEPS with different TOOLS is not one
+gate.** `local-ci.sh` has said "the single source of truth for CI" since P01
+and it was true of the step list and false of everything else. On 2026-08-18
+local shellcheck 0.11.0 passed `scripts/*.sh` while the runner's apt shipped
+0.9, which reports SC2015 on `command -v` guards that 0.11 accepts — **eight
+consecutive red pushes against a green local run**, and four of those were
+pushed after the first failure because nobody read the email. Pins now live in
+`scripts/ci-tools.env`, both sides read it, and the gate reports TOOL DRIFT.
+**The second lesson is smaller and cost its own red build**: the first thing
+the new check found was `go install …@v1.7.12` reporting `v1.7.12` against a
+release binary's `1.7.12` — the same version, spelled differently. **A version
+comparison must normalise before it compares**, or its first live finding is a
+false alarm and the whole check stops being believed. And **when the gate
+itself changes, the only proof is a push** — both defects were found by GitHub,
+not by reasoning about the YAML.
+
 **Trap: a geometry test can pass against a window that never grows.** Three
 of LWSM-1149's first-draft tests survived deleting the entire
 `_apply_default_geometry` mechanism (2026-08-18): with the scroll area in
