@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"
+     role="img" aria-label="Local Web Server Manager">
+  <title>Local Web Server Manager</title>
+  <!-- The app's own palette (src/lwsm/theme.py), and deliberately flat:
+       docs/design.md § Visual language forbids gradients and bevels, and an
+       icon is not exempt from the project's own visual rules.
+       Sized for the panel first — every element is at least 8 units, so it
+       still reads at 22 px where the icon is 128 units wide. -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#2f5bd0"/>
+
+  <!-- The window being served: a title strip over a body with two rows. -->
+  <rect x="22" y="28" width="84" height="68" rx="9" fill="#ffffff"/>
+  <path d="M 22 46 V 37 A 9 9 0 0 1 31 28 H 97 A 9 9 0 0 1 106 37 V 46 Z" fill="#dce4f8"/>
+  <rect x="36" y="58" width="54" height="9" rx="4.5" fill="#c4c4cc"/>
+  <rect x="36" y="75" width="36" height="9" rx="4.5" fill="#c4c4cc"/>
+
+  <!-- The running badge, in the same green the rows use for `running`.
+       Ringed in the background colour so it reads as a badge at any size. -->
+  <circle cx="99" cy="97" r="21" fill="#2f5bd0"/>
+  <circle cx="99" cy="97" r="17.5" fill="#1a7f3c"/>
+</svg>

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Local Web Server Manager
+GenericName=Web Server Manager
+Comment=Start, stop and watch the local web servers for your own projects
+Exec=lwsm
+TryExec=lwsm
+Icon=io.github.milnet01.LocalWebServerManager
+Terminal=false
+Categories=Development;WebDevelopment;
+Keywords=web;server;localhost;port;development;
+StartupNotify=true
+StartupWMClass=io.github.milnet01.LocalWebServerManager

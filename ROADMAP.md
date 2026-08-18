@@ -3084,6 +3084,58 @@ asked to build one.**
 
 ---
 
+- ✅ [LWSM-1142] **Desktop entry and icon for a local install, ahead of the AppImage.**
+  Lands the `.desktop` entry and icon half of LWSM-1021 early, against
+  the development checkout rather than an AppImage. The two halves are
+  separable: the entry and icon are useful the moment they exist, while
+  the AppImage is blocked on LWSM-1017 and sits in P10.
+  **LWSM-1021 keeps the AppImage and is NOT closed by this** — what it
+  loses is only the obligation to author the entry and icon from
+  nothing; it re-points `Exec` and `TryExec` at the bundle and reuses
+  both files.
+  Named reverse-DNS (`io.github.milnet01.LocalWebServerManager`) so the
+  AppImage inherits the same identity and nothing has to be re-pinned.
+  The icon is the app's own flat palette — `design.md § Visual
+  language` forbids gradients and bevels, and an icon is not exempt.
+  **`QGuiApplication.setDesktopFileName` is part of the deliverable,
+  not decoration.** On Wayland the compositor matches a window to a
+  launcher by `app_id`, which Qt derives from `argv[0]` unless told
+  otherwise. Without it the pinned entry and the running window are two
+  different things in the task manager, which is what a pin is for.
+  Acceptance: `desktop-file-validate` clean; the entry starts the app
+  from the launcher; the running window associates with the pinned icon
+  rather than adding a second one.
+  Dependencies: none.
+  Resolved (2026-08-18): `packaging/` holds the icon and the entry,
+  `scripts/install-desktop-entry.sh` installs both under
+  `$XDG_DATA_HOME` with no root and no system paths touched.
+  Verified on the live session rather than by inspection: the entry
+  validates, `gio launch` on the INSTALLED file starts the app, the
+  titlebar carries the icon, and the panel shows ONE entry with the
+  running indicator — so `setDesktopFileName` did its job and the
+  window merged with the pinned launcher instead of adding a second.
+  **Two things measured that were open questions.** `QIcon.fromTheme`
+  returns null under `QT_QPA_PLATFORM=offscreen` — the theme search
+  paths are populated by the platform theme, so a test asserting the
+  icon resolves would fail in CI for a reason that says nothing about
+  the icon. Under the real session it resolves to the 128px SVG.
+  And known-issues' note that a `.desktop` launch can leave
+  `build_child_env` with no `PATH` does NOT bite here: the launched
+  process received a full `PATH` including `/usr/bin`, so npm, node
+  and python3 launchers still resolve. The gap is real but needs an
+  environment this one is not.
+  The Exec rewrite is why the install is a script: the repo entry
+  carries `Exec=lwsm`, correct once installed, and a checkout keeps
+  that script in `.venv/` which is deliberately not on `PATH` — so a
+  verbatim copy would appear in the launcher and fail to start.
+  **LWSM-1021 keeps the AppImage** and now re-points `Exec`/`TryExec`
+  at the bundle rather than authoring these two files.
+  518 tests green; local-ci green.
+  **Layman:** Gives the app a proper icon and a launcher entry, so it can be pinned to the panel and started like any other application instead of from a terminal.
+  Kind: package.
+  Source: user-request-2026-08-18.
+  Lanes: build, ui.
+
 ## DS01 — Debt sweep (2026-08-06)
 
 The first debt sweep, run over the whole history because there had

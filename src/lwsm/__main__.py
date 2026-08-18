@@ -107,6 +107,38 @@ def default_scan_roots() -> tuple[Path, ...]:
         return ()
 
 
+DESKTOP_FILE_NAME = "io.github.milnet01.LocalWebServerManager"
+"""The installed `.desktop` entry, without the extension (LWSM-1142).
+
+Not cosmetic. On Wayland the compositor matches a window to a launcher by
+`app_id`, and Qt derives that from `argv[0]` unless it is told otherwise — so
+without this the pinned entry and the running window are two different things
+in the task manager, which is the one job a pin has.
+"""
+
+
+def _identify(app: object) -> None:
+    """Name the application to the desktop, before any window exists.
+
+    Separate from `build_window` because it is about the process rather than
+    the window, and separate from module scope because it needs the
+    `QApplication` that `main` may have found already built (a test session
+    has one). Every call is idempotent.
+
+    The icon is set from the installed theme by name rather than from a bundled
+    file: the `.desktop` entry already names it, `packaging/` ships it to
+    `hicolor`, and reading it from disk here would be a second source for one
+    image. A missing theme icon yields a null `QIcon`, which Qt renders as no
+    icon rather than failing — the window still opens.
+    """
+    from PySide6.QtGui import QIcon
+
+    app.setApplicationName("Local Web Server Manager")
+    app.setApplicationVersion(__version__)
+    app.setDesktopFileName(DESKTOP_FILE_NAME)
+    app.setWindowIcon(QIcon.fromTheme(DESKTOP_FILE_NAME))
+
+
 def main(argv: list[str] | None = None) -> int:
     """Configure logging, then open the window."""
     parser = argparse.ArgumentParser(
@@ -146,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     # Qt permits one QApplication per process, and a test session already has
     # one, so reuse it rather than raising.
     app = QApplication.instance() or QApplication([])
+    _identify(app)
     # No argument: resolving the default path is itself fallible, so it happens
     # inside build_window's RegistryError catch rather than out here (LWSM-1116).
     window, controller = build_window()
