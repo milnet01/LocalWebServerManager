@@ -23,6 +23,13 @@ signaling per
 
 ### Added
 
+- **Release machinery: one place to change the version, and a check that all four files agree** (LWSM-1067)
+  The version number is written in four files by hand. There is now a
+  release recipe that bumps all four together and a check that fails the
+  build if they ever disagree — so a release cannot ship with the
+  version updated in some places and not others. Nothing user-visible
+  changes yet; this is the groundwork for the first tagged release.
+
 - **An Open button that opens the running site in your browser** (LWSM-1016)
   Opens the port the server is actually listening on, read at the
   moment you click rather than remembered from earlier — so it still

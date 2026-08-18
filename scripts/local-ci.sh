@@ -164,6 +164,13 @@ step "Sync dependencies (locked)"
 # agree, which is the property this step is actually here to guarantee.
 uv sync --extra dev --locked
 
+step "Version lockstep"
+# Four files state the version and nothing checked they agreed until LWSM-1067.
+# Run here rather than only as the release recipe's post_check: a drift
+# introduced today should fail today's push, not surface weeks later as a
+# stopped release. Same script both places, so the two cannot disagree.
+bash scripts/check-version-drift.sh
+
 step "Lint (ruff check)"
 uv run ruff check .
 

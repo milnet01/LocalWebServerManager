@@ -261,3 +261,70 @@ def test_a_leading_v_is_not_drift_but_a_different_number_is(
     pinned: str, found: str, drifts: int, why: str
 ) -> None:
     assert check_version_harness(pinned, found) == drifts, why
+
+
+# --- the release recipe and the drift check must cover the same files ---------
+
+RECIPE = REPO / ".claude/bump.json"
+DRIFT = REPO / "scripts/check-version-drift.sh"
+
+
+def recipe() -> dict:
+    import json
+
+    return json.loads(RECIPE.read_text())
+
+
+def test_every_file_the_recipe_bumps_is_a_file_the_drift_check_reads() -> None:
+    """The two halves of LWSM-1067, and neither works alone.
+
+    A file the recipe bumps but the check does not read can be left at the old
+    version silently — `post_check` is the recipe's only mechanical proof it
+    finished, and it cannot prove anything about a file it never opens. A file
+    the check reads but the recipe does not bump is the mirror: it fails every
+    release and has to be edited by hand, which is what the recipe exists to
+    stop.
+    """
+    bumped = {entry["path"] for entry in recipe()["files"]}
+    text = DRIFT.read_text()
+    # The source of truth is read directly rather than through `expect`, so it
+    # is named separately here.
+    # The label is always quoted and may contain spaces, so it is matched as a
+    # quoted run rather than as \S+ — which swallowed half of
+    # `"README current version"` and reported the path as "current".
+    read = set(re.findall(r'^expect "[^"]*" (\S+)', text, re.M))
+    read.add(recipe()["version_source"])
+
+    assert bumped == read, (
+        f"the recipe bumps {sorted(bumped)} but the drift check reads {sorted(read)}"
+    )
+
+
+def test_the_recipe_post_check_is_the_drift_script() -> None:
+    """`post_check` is the release's only mechanical proof the bump landed
+    everywhere. A recipe without one rests on a human re-reading the file
+    list — the check that passes right up until it matters."""
+    assert "check-version-drift.sh" in recipe().get("post_check", ""), (
+        "the recipe's post_check does not run the drift script"
+    )
+
+
+def test_the_gate_runs_the_drift_check_too() -> None:
+    """Not only at release time. A drift introduced today should fail today's
+    push, rather than surfacing weeks later as a stopped release."""
+    assert "check-version-drift.sh" in LOCAL_CI.read_text(), (
+        "scripts/local-ci.sh does not run the version lockstep check"
+    )
+
+
+def test_the_recipe_does_not_bump_a_historical_marker() -> None:
+    """bump-recipe.md § Notes: a CHANGELOG heading for a shipped release states
+    what happened once, and bumping it makes it false. The same argument bars
+    the bind address `0.0.0.0` in ADR-0002, which a grep for the current
+    version would otherwise have swept into the list."""
+    bumped = {entry["path"] for entry in recipe()["files"]}
+
+    assert "CHANGELOG.md" not in bumped, "the recipe would rewrite release history"
+    assert not any("decisions" in path for path in bumped), (
+        "an ADR is a dated record, not a version-bearing file"
+    )
