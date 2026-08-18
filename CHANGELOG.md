@@ -116,6 +116,16 @@ signaling per
 
 ### Changed
 
+- **The window opens at a size that fits the list, and the list scrolls** (LWSM-1149)
+  The opening size is measured from the content and clamped to the
+  screen — eight rows before the list starts scrolling, three as the
+  floor — rather than left to Qt's ~790x520 default with the rows
+  crushed against the window chrome. The row list now sits in a scroll
+  area, so twenty projects no longer force a window taller than the
+  screen that cannot be shrunk. Rescan moved off the full-width strip
+  into a right-aligned control of its own, and the margins and gaps
+  come from the text metric.
+
 - **Groundwork for translation, and stricter internal checks (LWSM-1080, LWSM-1081)**
   The words in the window can now be translated, which none of them could
   before. No translations ship yet — this is about not making that harder

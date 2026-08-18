@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QPoint
 
 from lwsm import mainwindow
 from lwsm.__main__ import build_window
@@ -1753,8 +1754,6 @@ UNEVEN = [
 
 
 def start_button_xs(window: MainWindow) -> list[int]:
-    from PySide6.QtCore import QPoint
-
     return [row.start_button.mapTo(window, QPoint(0, 0)).x() for row in rows_of(window)]
 
 
@@ -1812,3 +1811,142 @@ def test_a_column_shrinks_when_the_widest_project_leaves(qtbot, built) -> None:
     qtbot.waitUntil(lambda: rows_of(window)[0]._name.width() < wide, timeout=2000)
 
     assert len(set(start_button_xs(window))) == 1
+
+
+# --- LWSM-1149: the window opens big enough to read ---------------------------
+
+
+def many(count: int) -> list:
+    return [record(f"project-{i:02d}", 3000 + i) for i in range(count)]
+
+
+def sized_window(qtbot, built, records):
+    window, controller = window_for(qtbot, built, records, FakeProbe())
+    with qtbot.waitExposed(window):
+        window.show()
+    return window, controller
+
+
+def row_pitch(window: MainWindow) -> int:
+    """One row plus the gap under it — the unit the opening height is built in."""
+    return rows_of(window)[0].sizeHint().height() + window._rows_layout.spacing()
+
+
+def test_a_short_list_opens_with_every_row_visible(qtbot, built) -> None:
+    """The first impression a new user gets. Qt's own default was ~790x520 with
+    the list crushed against the chrome, and there is nothing remembered on a
+    first run — restoring a chosen geometry is LWSM-1033's."""
+    window, _ = sized_window(qtbot, built, many(5))
+
+    bar = window._scroll.verticalScrollBar()
+    assert bar.maximum() == 0, (
+        f"5 rows should need no scrolling, but the list overflows by "
+        f"{bar.maximum()} px at {window.width()}x{window.height()}"
+    )
+
+
+def test_the_opening_height_tracks_the_list_up_to_a_cap(qtbot, built) -> None:
+    """Both halves in one test, because either alone is vacuous.
+
+    A window that ignores its content passes 'a long list does not grow the
+    window' by never growing at all — which is how the first version of this
+    test survived deleting the whole mechanism. Pinning the short case against
+    the long one is what makes the pair mean something.
+    """
+    cap = mainwindow.DEFAULT_VISIBLE_ROWS
+    short = sized_window(qtbot, built, many(3))[0]
+    full = sized_window(qtbot, built, many(cap))[0]
+    over = sized_window(qtbot, built, many(cap + 40))[0]
+
+    assert short.height() < full.height(), (
+        f"the opening height must follow the list below the cap: "
+        f"3 rows gave {short.height()}, {cap} gave {full.height()}"
+    )
+    assert full.height() == over.height(), (
+        f"the window must stop growing at {cap} rows, not track the list: "
+        f"{full.height()} vs {over.height()}"
+    )
+    assert over._scroll.verticalScrollBar().maximum() > 0, "the rest must scroll"
+
+
+def test_the_minimum_height_still_shows_three_rows(qtbot, built) -> None:
+    """`a sensible minimum below which the columns would collide`.
+
+    The *width* floor is not asserted here and that is deliberate: the columns
+    are fixed-width, so Qt's own layout minimum already forbids a window narrow
+    enough to clip one, and an assertion about it could not fail. The height is
+    the half this code actually decides — a scroll area's minimum is nothing at
+    all, so without a floor the window shrinks to a single sliver of list.
+    """
+    window, _ = sized_window(qtbot, built, many(20))
+    pitch = row_pitch(window)
+
+    window.resize(window.minimumSize())
+    qtbot.waitUntil(lambda: window.height() == window.minimumHeight(), timeout=2000)
+
+    visible = window._scroll.viewport().height() // pitch
+    assert visible >= mainwindow.MIN_VISIBLE_ROWS, (
+        f"at its minimum height the window shows {visible} rows, fewer than "
+        f"the {mainwindow.MIN_VISIBLE_ROWS} it must stay legible at"
+    )
+
+
+def test_the_opening_size_is_not_reapplied_over_a_user_resize(qtbot, built) -> None:
+    """Applied once. It runs from `_sync_rows` because a first run has no
+    records and the rows arrive with the first scan — but a second application
+    would fight a window the user had already sized by hand."""
+    window, controller = sized_window(qtbot, built, many(4))
+    window.resize(window.width() + 200, window.height() + 150)
+    qtbot.waitUntil(lambda: window.height() > window.minimumHeight(), timeout=2000)
+    chosen = window.size()
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.set_records(many(6))
+    qtbot.wait(50)
+
+    assert window.size() == chosen, (
+        f"the window was resized out from under the user: {window.size()} was {chosen}"
+    )
+
+
+def test_the_geometry_waits_for_the_rows_a_first_run_has_not_scanned_yet(
+    qtbot, built, tmp_path
+) -> None:
+    """A first run opens with an empty registry, so there is no row to measure
+    until the scan lands."""
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [],
+        tmp_path,
+        FakeScanResult(
+            projects=(
+                FakeDetected(
+                    path=tmp_path / "found", name="found", port=FakePortFinding(5005)
+                ),
+            )
+        ),
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    assert not window._geometry_applied, "nothing to measure with no rows"
+
+    run_rescan(qtbot, window)
+
+    assert window._geometry_applied, "the first rows must set the opening size"
+    assert window.minimumHeight() > 0
+
+
+def test_rescan_is_a_control_not_a_full_width_strip(qtbot, built, tmp_path) -> None:
+    """A button stretched across the window reads as its primary purpose, and
+    rescanning is not what the user came here to do."""
+    window, _ = rescan_window(qtbot, built, many(3), tmp_path, FakeScanResult())
+    with qtbot.waitExposed(window):
+        window.show()
+
+    button = window._rescan_button
+    assert button.width() < window.width() // 2, (
+        f"Rescan is {button.width()} px wide in a {window.width()} px window"
+    )
+    left = button.mapTo(window, QPoint(0, 0)).x()
+    assert left > window.width() // 2, "Rescan should sit at the right of its strip"

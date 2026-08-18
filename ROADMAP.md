@@ -2488,7 +2488,7 @@ high-contrast.**
   Source: user-request-2026-08-18.
   Lanes: ui, core.
 
-- 📋 [LWSM-1149] **P04: the window opens big enough to read, and the layout is overhauled.**
+- ✅ [LWSM-1149] **P04: the window opens big enough to read, and the layout is overhauled.**
   The user's first populated window was ~790x520 for 7 rows, with the
   Rescan button stretched across the full width and no visual hierarchy.
   **Distinct from LWSM-1033**, which restores a REMEMBERED geometry —
@@ -2501,6 +2501,7 @@ high-contrast.**
   menu bar gives it somewhere to live.
   NOT a re-theme — colour is LWSM-1031's.
   Dependencies: none.
+  Resolved (2026-08-18): four parts. (1) The row list moved into a frameless QScrollArea. That was not in the filed scope and is the part that mattered most — without it the window's minimum height is every row it holds, so a user with twenty projects gets a window taller than the screen that cannot be shrunk, which is the opposite failure and worse. (2) MainWindow._apply_default_geometry sizes the opening window from the content and clamps it to 90 % of the available screen: height is chrome + min(rows, DEFAULT_VISIBLE_ROWS=8) row pitches, the floor is chrome + MIN_VISIBLE_ROWS=3, and the width reserves the scrollbar so a long list cannot take that room out of the last column. Counts of rows, never pixel constants (§ O7). It runs from _sync_rows, not only __init__, because a first run has no records and the rows arrive with the first scan — and it is applied ONCE, so a second scan does not resize a window the user has already sized by hand. (3) Rescan moved off the full-width strip into its own right-aligned row; the menu-bar half of that scope stays with LWSM-1146. (4) Outer margins and inter-row spacing set from the text metric. Six tests. Three of the first draft were vacuous and are recorded as such: deleting the whole geometry mechanism left them green, because Qt's default happened to satisfy them — 'a long list does not grow the window' passes trivially against a window that never grows at all. Replaced by one test pinning the short case AGAINST the long case (3 rows shorter than 8, 8 equal to 48, and the rest scrolls) plus a minimum-height test asserting three rows still fit. Both die when the mechanism is removed, as does the first-run test; the rescan and applied-once tests die on their own mutants. The WIDTH floor is deliberately not asserted: the columns are fixed-width so Qt's own layout minimum already forbids clipping one, and the assertion could not fail. 532 tests green, local-ci green. Verified offscreen against the user's real 7 projects and against 20.
   **Layman:** The window opens tiny and cramped. It should open at a sensible size and look like a proper application.
   Kind: implement.
   Source: user-request-2026-08-18.

@@ -22,6 +22,7 @@ from PySide6.QtCore import (
     QRect,
     QRectF,
     QRunnable,
+    QSize,
     Qt,
     QThreadPool,
     QUrl,
@@ -43,6 +44,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -58,6 +60,12 @@ log = applog.get_logger(__name__)
 # `controller.stop()` uses, and for the same reason: an unbounded wait turns a
 # slow scan into an app that cannot be quit.
 RESCAN_STOP_WAIT_MS = 5000
+
+# How many rows the window shows before the list starts scrolling, and the
+# fewest it stays legible at (LWSM-1149). Counts of rows, not pixels: the
+# height each implies is measured off a real row at the current text size.
+DEFAULT_VISIBLE_ROWS = 8
+MIN_VISIBLE_ROWS = 3
 
 # Decorative only. One of the three signals design.md § Accessibility requires,
 # and excluded from the accessible name — a screen reader announcing "black
@@ -642,6 +650,12 @@ class MainWindow(QMainWindow):
 
         central = QWidget(self)
         outer = QVBoxLayout(central)
+        # Margins and gaps from the text metric, never a pixel constant
+        # (`§ O7`): the window that reads as comfortable at 100 % is cramped at
+        # 200 %, which is exactly the setting LWSM-1032's control offers.
+        gap = self.fontMetrics().height()
+        outer.setContentsMargins(gap, gap, gap, gap)
+        outer.setSpacing(gap)
         self._rescan_button: QPushButton | None = None
         self._rescan_pool: QThreadPool | None = None
         self._rescan_signals: _RescanSignals | None = None
@@ -650,7 +664,14 @@ class MainWindow(QMainWindow):
             # Visual order is tab order, and the button is a real QPushButton so
             # it is focusable and carries its own accessible name from its text
             # (`§ O8`).
-            outer.addWidget(self._rescan_button)
+            # Its own strip, pushed to the right, rather than a control
+            # stretched across the whole window (LWSM-1149). A full-width
+            # button reads as the window's primary purpose, and rescanning is
+            # not what the user came here to do.
+            strip = QHBoxLayout()
+            strip.addStretch(1)
+            strip.addWidget(self._rescan_button)
+            outer.addLayout(strip)
             self._rescan_button.clicked.connect(self._start_rescan)
             # A private pool, not the global instance: teardown must wait for
             # this window's own worker and nothing else, which is
@@ -660,13 +681,26 @@ class MainWindow(QMainWindow):
             self._rescan_signals = _RescanSignals(self)
             self._rescan_signals.done.connect(self._on_rescan_done)
             self._rescan_signals.failed.connect(self._on_rescan_failed)
-        self._rows_layout = QVBoxLayout()
-        outer.addLayout(self._rows_layout)
+        # The list scrolls (LWSM-1149). Without this the window's minimum
+        # height is every row it holds, so a user with twenty projects gets a
+        # window taller than the screen that cannot be shrunk — the opposite
+        # failure to the one this item was filed for, and worse.
+        self._rows_host = QWidget()
+        self._rows_layout = QVBoxLayout(self._rows_host)
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
         self._rows_layout.addStretch(1)
-        outer.addStretch(1)
+        self._scroll = QScrollArea(central)
+        self._scroll.setWidgetResizable(True)
+        # No frame: the rows are already framed, and a box round the box is the
+        # chrome this item exists to remove.
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setWidget(self._rows_host)
+        outer.addWidget(self._scroll, 1)
         self.setCentralWidget(central)
 
         self._rows: dict[Path, ProjectRow] = {}
+        self._geometry_applied = False
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
         controller.action_failed.connect(self.set_status_message)
@@ -1004,6 +1038,65 @@ class MainWindow(QMainWindow):
             widget.deleteLater()
 
         self._align_columns()
+        self._apply_default_geometry()
+
+    def _apply_default_geometry(self) -> None:
+        """Open big enough to read (LWSM-1149).
+
+        A first run has nothing remembered — restoring a geometry the user
+        chose is LWSM-1033's — so this is the only impression a new user gets,
+        and Qt's own default was ~790x520 with the list crushed against the
+        window chrome.
+
+        Measured from the content and clamped to the screen, never set from a
+        pixel constant (`§ O7`): a size that fits this display truncates the
+        next one, and one that fits 100 % text truncates 200 %. The two counts
+        below are counts of rows, and the height they imply is measured off a
+        real row.
+
+        Applied once. It runs from `_sync_rows` rather than only from
+        `__init__` because a first run has no records yet and the rows arrive
+        with the first scan — but a second application would fight a window the
+        user had already resized.
+        """
+        if self._geometry_applied:
+            return
+        rows = list(self._rows.values())
+        if not rows:
+            return
+        self._geometry_applied = True
+
+        outer = self.centralWidget().layout()
+        margins = outer.contentsMargins()
+        row_height = rows[0].sizeHint().height() + max(self._rows_layout.spacing(), 0)
+        # Everything that is not the list.
+        chrome = margins.top() + margins.bottom() + self.statusBar().sizeHint().height()
+        if self._rescan_button is not None:
+            chrome += self._rescan_button.sizeHint().height() + outer.spacing()
+        # The scrollbar's width is reserved rather than discovered: it appears
+        # the moment the list is longer than the window, and a width that did
+        # not allow for it would take that room out of the last column.
+        width = (
+            self._rows_host.sizeHint().width()
+            + self._scroll.verticalScrollBar().sizeHint().width()
+            + margins.left()
+            + margins.right()
+        )
+
+        want = QSize(width, chrome + min(len(rows), DEFAULT_VISIBLE_ROWS) * row_height)
+        # The columns are fixed-width, so there is no narrower window in which
+        # they do not collide — the floor is the content itself, and only the
+        # height is negotiable.
+        floor = QSize(width, chrome + MIN_VISIBLE_ROWS * row_height)
+
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is not None:
+            room = screen.availableGeometry()
+            cap = QSize(int(room.width() * 0.9), int(room.height() * 0.9))
+            want = want.boundedTo(cap)
+            floor = floor.boundedTo(cap)
+        self.setMinimumSize(floor)
+        self.resize(want)
 
     def _align_columns(self) -> None:
         """One width per column across every row, the widest cell winning.
