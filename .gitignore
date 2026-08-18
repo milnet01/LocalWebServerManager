@@ -38,6 +38,13 @@ desktop.ini
 # Team-shared Claude Code config that SHOULD be in version control:
 !.claude/settings.json
 !.claude/workflow.md
+# The release recipe. cut-release reads it from the project root, and CI runs
+# tests that read it — it was ignored for one push on 2026-08-18 and three of
+# those tests failed on the runner against a green local gate, because the
+# gate reads the WORKING TREE and CI reads the COMMITTED one. Anything the
+# gate depends on has to be committed; tests/test_ci_contract.py now asserts
+# that for every path it reads.
+!.claude/bump.json
 
 # Logs / runtime
 *.log

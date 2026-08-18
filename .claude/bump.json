@@ -1,0 +1,42 @@
+{
+  "$doc": "The version-bearing files, enumerated once (releases.md § 1) rather than rediscovered under release pressure. Read by cut-release. LWSM-1067.",
+
+  "$why-not-a-grep": "docs/decisions/0002-port-contract.md contains 0.0.0.0 — a bind address, not a version. A file list built by grepping the current version finds that, and finds historical markers ('added in 0.6.29') whose whole meaning is that they must NOT be bumped. Every entry below was read before it was listed.",
+
+  "version_source": "pyproject.toml",
+  "version_pattern": "^version = \"([0-9]+\\.[0-9]+\\.[0-9]+)\"$",
+
+  "$files-note": "pattern is a LITERAL string here, not a regex — the opposite of version_pattern above, which is the asymmetry bump-recipe.md § Validating calls the whole validation problem. Each carries enough surrounding text that it could only match the version field. All four verified to match exactly once, 2026-08-18.",
+
+  "files": [
+    {
+      "path": "pyproject.toml",
+      "pattern": "version = \"{OLD}\"",
+      "replace": "version = \"{NEW}\""
+    },
+    {
+      "path": "src/lwsm/__init__.py",
+      "pattern": "__version__ = \"{OLD}\"",
+      "replace": "__version__ = \"{NEW}\""
+    },
+    {
+      "path": "README.md",
+      "pattern": "Current version: **{OLD}**",
+      "replace": "Current version: **{NEW}**"
+    },
+    {
+      "$note": "Two deliberate choices here. The '> ' blockquote prefix is part of the pattern: without it the pattern matched TWICE the moment this bullet's own resolution note quoted the line verbatim, and a roadmap is a file that quotes itself by design. And there is no trailing period: the line reads '(scaffolded 2026-08-03). See' after the triple, and that tail is NOT ours to remove, because ROADMAP.md is rendered from Ants MCP's roadmap store and a hand-edit to the preamble is silently reverted by the next roadmap_log write.",
+      "path": "ROADMAP.md",
+      "pattern": "> **Current version:** {OLD}",
+      "replace": "> **Current version:** {NEW}"
+    }
+  ],
+
+  "$no-changelog-entry": "CHANGELOG.md is deliberately absent from files[]. Its dated section is authored before the release (changelog-format.md § 4.3 step 1) and cut-release checks it at Phase 0e; bump-recipe.md § Notes forbids listing a file that a todo authors content for.",
+
+  "tag": "v{NEW}",
+
+  "$no-todos": "No AppStream metainfo, no Debian changelog, no packaged artifact yet — those arrive with P10. Archive rotation (roadmap-format.md § 3.9) is not listed either: it fires on a minor or major bump only when ROADMAP.md is over the size threshold, and it has never run here. Add it as a todo the first time it is needed rather than carrying a step nobody has exercised.",
+
+  "post_check": "bash scripts/check-version-drift.sh"
+}

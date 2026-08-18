@@ -328,3 +328,40 @@ def test_the_recipe_does_not_bump_a_historical_marker() -> None:
     assert not any("decisions" in path for path in bumped), (
         "an ADR is a dated record, not a version-bearing file"
     )
+
+
+# --- the gate reads the working tree; CI reads the committed one -------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [WORKFLOW, TOOLS_ENV, LOCAL_CI, HOOK, RECIPE, DRIFT],
+    ids=lambda p: p.name,
+)
+def test_every_file_the_gate_depends_on_is_committed(path) -> None:
+    """The third instance of one class in a day, and the cheapest to prevent.
+
+    `scripts/local-ci.sh` reads the WORKING TREE; the runner reads the
+    COMMITTED tree. A file that exists locally and is not committed makes the
+    two different runs while looking like one — the same shape as the
+    shellcheck version drift, arriving through git instead of through apt.
+
+    `.claude/bump.json` landed under `.gitignore`'s `.claude/*` rule, so three
+    tests here passed locally and failed on the runner with FileNotFoundError.
+    Nothing local could have caught that, because locally the file is right
+    there. This test is what makes the absence visible on the machine that
+    can still fix it cheaply.
+    """
+    import subprocess
+
+    rel = path.relative_to(REPO)
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", str(rel)],
+        cwd=REPO,
+        capture_output=True,
+    )
+
+    assert tracked.returncode == 0, (
+        f"{rel} is read by the gate but is not tracked by git — CI will not "
+        f"see it. Check .gitignore."
+    )
