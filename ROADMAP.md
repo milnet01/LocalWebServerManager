@@ -3248,6 +3248,7 @@ asked to build one.**
   Source: user-2026-08-03.
   Priority: 2.
   Lanes: build, ci.
+  Filename collision, resolved (2026-08-18): `scripts/local-release.sh` NOW EXISTS and does a different job — LWSM-1151 shipped it as the release PREFLIGHT (cut-release Phase 0: recipe validity, version lockstep, pattern uniqueness, tag freedom, dated changelog section, roadmap agreement, CI cost). It contains no AppImage step and cannot, because LWSM-1021 has not built one. **Do NOT create a second script and do NOT overwrite that one.** This item's work becomes: ADD an AppImage build-and-smoke-test step to the existing `scripts/local-release.sh`, for the same reason this bullet already gives — one script is the source of truth, so two cannot drift. The bullet's other premise needs correcting too: it says "the release workflow calls it", and there IS no release workflow. CI fires on push and pull_request only, with no tag trigger and no release trigger, so nothing on GitHub checks a release at all; the script is the only gate a release gets rather than a local mirror of a remote one. That strengthens this item rather than weakening it — a packaging bug has nothing downstream to catch it. Dependency on LWSM-1021 is unchanged.
 
 - 📋 [LWSM-1022] **P10: release process and user-facing docs.**
   A tagged release carrying the AppImage, a CHANGELOG section, and
@@ -3376,6 +3377,44 @@ asked to build one.**
   Kind: implement.
   Source: user-report-2026-08-18.
   Lanes: core, tests.
+
+- 📋 [LWSM-1152] **Cut 0.1.0 once P04 closes — the first tagged release.**
+  Decided with the user 2026-08-18. Nothing has ever been released: the
+  version is 0.0.0 in all four files, there is no version tag (P02/P03
+  tags are phase markers), no GitHub release, and every entry sits in
+  CHANGELOG's `[Unreleased]`.
+
+  **Why 0.1.0 and why after P04 rather than now.** As of today the app
+  installs a desktop entry, finds projects and starts/stops/restarts
+  them — a usable tool, and enough entries to make a substantial first
+  release. P04 (menu bar, themes, settings) is the difference between
+  "works" and "looks finished", and it is the next work anyway. Cutting
+  after it means the first impression is the finished-looking one.
+  Rejected: staying at 0.0.0 indefinitely (a lot of shipped work
+  invisible to anyone not reading commits), and cutting immediately
+  (the release path has never run, and a mid-P04 release would be
+  followed by another within days).
+
+  **The blocking list is already known** — `./scripts/local-release.sh
+  0.1.0` reports exactly one blocker today: no dated `## [0.1.0]`
+  section. Everything else is clear, and the recipe is proven to apply
+  (dry-bump verified, post_check green on the bumped tree).
+
+  Order when P04 closes:
+  1. Move `[Unreleased]` into a dated `## [0.1.0] — YYYY-MM-DD`
+     (`changelog-format.md § 4.3` step 1; `cut-release` refuses to
+     author it, deliberately).
+  2. `./scripts/local-release.sh 0.1.0 --dry-bump` — expect READY.
+  3. `cut-release 0.1.0`.
+
+  Dependencies: P04 (LWSM-1146, LWSM-1031, LWSM-1147, LWSM-1018,
+  LWSM-1148). NOT dependent on LWSM-1021/LWSM-1052 — an AppImage is a
+  distribution channel and 0.1.0 is a source/tag release; do not let
+  packaging block the version.
+  **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
+  Kind: release.
+  Source: user-decision-2026-08-18.
+  Lanes: release.
 
 ## DS01 — Debt sweep (2026-08-06)
 
