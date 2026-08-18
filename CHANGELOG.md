@@ -23,6 +23,13 @@ signaling per
 
 ### Added
 
+- **A runnable release preflight, so a release stops on this machine rather than half-way through.** (LWSM-1151)
+  scripts/local-release.sh reports whether a release would stop, and
+  where, without changing anything — the recipe, the version lockstep,
+  the tag, the dated changelog section, and whether the roadmap agrees
+  the cited work shipped. Nothing on GitHub checks a release, so this is
+  the only gate one gets.
+
 - **Release machinery: one place to change the version, and a check that all four files agree** (LWSM-1067)
   The version number is written in four files by hand. There is now a
   release recipe that bumps all four together and a check that fails the

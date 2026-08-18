@@ -2108,6 +2108,48 @@ up.**
   Source: user-request-2026-08-18.
   Lanes: ci, tooling.
 
+- ✅ [LWSM-1151] **A runnable release preflight, so a release stops on this machine rather than half-way through.**
+  `scripts/local-release.sh` is `cut-release`'s Phase 0 made runnable —
+  the same relationship `local-ci.sh` has to the CI gate, with one
+  difference worth stating: `local-ci.sh` MIRRORS a remote gate, and this
+  mirrors nothing. CI fires on push and pull_request only, with no tag or
+  release trigger, so **nothing on GitHub ever checks a release.** This
+  script is the only gate a release gets, not a local copy of one.
+
+  It reports and changes nothing. No bump, no commit, no tag, no publish
+  — `cut-release` still owns Phases 1-7.
+
+  Checks: the recipe exists and is in the dialect `cut-release` reads
+  (all three `bump-recipe.md § Validating` tells, plus a `post_bump`
+  fourth); OLD extracts; the four files agree (delegated to
+  `check-version-drift.sh`, so one implementation answers here, at the
+  gate, and as `post_check`); **every recipe pattern matches exactly
+  once**; the tree is clean; the tag and release are free; a DATED
+  changelog section exists and is non-empty; every roadmap ID that
+  section claims shipped is ✅; and what the release would cost in CI
+  runs.
+
+  Two design points. **A blocker and a skipped check are tracked
+  separately** and the verdict never says "ready" while anything was
+  skipped — the same split `local-ci.sh` draws, because "no blockers
+  found" and "the blocker check did not run" must not print the same
+  way. And **`--dry-bump` refuses on a dirty tree**: its revert is a
+  `git checkout`, and running it against uncommitted work destroys it.
+  That is not hypothetical — it happened twice during LWSM-1067, once
+  taking a `roadmap_log` flip with it and leaving the file saying 📋
+  while the store said ✅. Phase 0c exists to prevent exactly that, and
+  the flag now enforces it.
+
+  Every path exercised before shipping: no-target (3 skips), target with
+  no changelog section, a synthetic dated section carrying a ✅ ID (passes)
+  a 📋 ID and a nonexistent ID (both blocked) and a cross-reference in
+  continuation prose (correctly not read as a claim), the dirty-tree
+  refusal, and a clean-tree `--dry-bump` round trip.
+  **Layman:** A script you can run before releasing that says whether the release would fail, and why, without changing anything.
+  Kind: implement.
+  Source: user-request-2026-08-18.
+  Lanes: ci, tooling.
+
 ## P02 — Vertical slice (target: after P01 closes)
 
 **Theme:** the smallest feature that touches every layer —

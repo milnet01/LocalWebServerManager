@@ -261,6 +261,30 @@ divergence into a red build that does not reproduce locally.
 
 See **Before pushing** above for when the gate is mandatory.
 
+## Before releasing
+
+**Run `./scripts/local-release.sh [X.Y.Z]`** (LWSM-1151). It is
+`cut-release`'s Phase 0 made runnable, and it reports without changing
+anything.
+
+**It mirrors nothing, and that is the difference from `local-ci.sh`.**
+That script is the CI — the workflow calls it. CI here fires on `push`
+and `pull_request` only, with **no tag trigger and no release trigger**,
+so *nothing on GitHub ever checks a release*. This script is the only
+gate a release gets.
+
+Two things to know. **The verdict never reads "ready" while a check was
+skipped** — a blocker and a check that could not run are tracked
+separately, because "no blockers found" and "the blocker check did not
+run" must not print the same way. And **`--dry-bump` refuses on a dirty
+tree**: its revert is a `git checkout`, which destroys uncommitted work.
+That is the mistake LWSM-1067 made twice in one session, once taking a
+`roadmap_log` flip with it and leaving ROADMAP.md saying 📋 while the
+store said ✅.
+
+`cut-release` still owns the release itself — this performs no bump, no
+commit, no tag and no publish.
+
 ## Commit conventions
 
 Per [`docs/standards/commits.md § 1.1`](docs/standards/commits.md):
