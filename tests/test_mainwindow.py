@@ -3520,3 +3520,79 @@ def test_a_poll_during_editing_does_not_steal_the_focus_or_the_caret(
     )
     assert window._filter.cursorPosition() == caret
     assert window._filter.text() == "al"
+
+
+def test_a_confirmation_lands_over_the_list_and_blocks_the_whole_app(
+    qtbot, built, monkeypatch
+) -> None:
+    """`design.md § Accessibility`'s confirmation row, both halves.
+
+    The real `_confirm_dialog`, not the injected `confirm` seam: the seam
+    exists so tests never open a modal, and this is the one test that has to
+    look at the thing the seam stands in for. `exec()` is replaced rather than
+    called — a real one blocks the loop with nothing to click it.
+
+    **The modality half is the half that matters and the half that was wrong
+    in the document.** "Modal to the window" is Qt's `WindowModal`, which
+    blocks `MainWindow` alone and leaves the tray's per-project start/stop menu
+    live while a trust prompt waits. Asserted as `ApplicationModal` — which
+    `QMessageBox` is from construction, so this pins a property rather than
+    demanding one.
+
+    **The rect half is deliberately weaker than it looks**, and the doc says so
+    too: it is an assertion about Qt's own centring, taken headless. Under
+    Wayland placement is the compositor's (ADR-0007), so this cannot speak for
+    the target platform — it catches a dialog centred on the wrong widget, not
+    a compositor that puts it elsewhere.
+
+    Four rows, because at one row "overlaps the list" is true of any dialog
+    that overlaps anything, and the promise would read as satisfied by
+    accident.
+
+    **Mutants run, and one survived on purpose.** Setting
+    `WindowModality.WindowModal` kills this test. Replacing the parent with
+    `QMessageBox(None)` does NOT — an unparented box still lands over the list
+    under `offscreen`. That is the contract, not a hole in the test: the check
+    row forbids asserting the parent ("the *result*, never that a parent was
+    passed"), because ADR-0007 makes parentage unobservable on the target
+    platform. So the modality half is what carries this test, and the rect half
+    is a floor.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    window, _ = window_for(
+        qtbot,
+        built,
+        [record(f"p{index}", 5000 + index) for index in range(4)],
+        FakeProbe(),
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+
+    seen: dict[str, object] = {}
+
+    def capture(box: QMessageBox) -> QMessageBox.StandardButton:
+        box.show()
+        QApplication.processEvents()
+        seen["rect"] = QRect(box.mapToGlobal(QPoint(0, 0)), box.size())
+        seen["modality"] = box.windowModality()
+        box.hide()
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "exec", capture)
+
+    answered = window._confirm_dialog(
+        Path("/srv/p0"), "/srv/p0/start.sh", ("./start.sh",)
+    )
+
+    assert answered is False, "No is the default and this test answered No"
+    assert seen["modality"] == Qt.WindowModality.ApplicationModal, (
+        "a window-modal trust prompt leaves the tray's start menu live"
+    )
+    rows = rows_of(window)
+    listing = QRect(rows[0].mapToGlobal(QPoint(0, 0)), rows[0].size())
+    for row in rows[1:]:
+        listing = listing.united(QRect(row.mapToGlobal(QPoint(0, 0)), row.size()))
+    assert seen["rect"].intersects(listing), (
+        f"the confirmation at {seen['rect']} lands away from the list {listing}"
+    )
