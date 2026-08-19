@@ -107,8 +107,10 @@ Two rules the diagram encodes:
 
 ## Components
 
-- **MainWindow** — the project list (name, status dot, port,
-  uptime) plus a detail pane for the selected project, and the
+- **MainWindow** — the project list (**state word first**, then
+  name, port, uptime — § Accessibility owns that order and a
+  coloured dot never leads) plus a detail pane for the selected
+  project, and the
   **Open in browser** action, which opens
   `http://localhost:<bound port>` via `QDesktopServices` — the
   port actually bound, never the requested one, since the two
@@ -709,6 +711,13 @@ pans it. Everything below follows from that one fact:
   `ApplicationModal` from construction, measured 2026-08-19, so this
   is a property to assert rather than one to add.
 
+  **A confirmation raised from the tray shows and raises the window
+  first**, so there is a list for it to land over. § Components gives
+  the tray a per-project start/stop menu and closing the window hides
+  to tray, so this is reachable with no window on screen — where
+  "centred on the window" and the check row below are both
+  meaningless. The window comes back; the dialog is not orphaned.
+
   **The alternative was considered and declined** (user, 2026-08-19):
   an inline confirmation on the row would satisfy the original wording
   exactly, and it would stop the trust prompt being modal — a user
@@ -744,13 +753,26 @@ test asserts no text is elided at 200 %.
 
 **Never colour alone.** The commonest colour blindness is exactly
 red/green. Every state the app can display carries **at least three
-signals** — the word, a distinct glyph, and colour. *Can display* is
-the operative half: ADR-0004 defines seven derived states, and four
-of them (`running (wrong port)`, `running (foreign)`, `port blocked`,
-`failed`) arrive with P06's classifier, so each earns its glyph with
-the state rather than ahead of it. The five that exist have one
-apiece. The test is blunt: *the status list must be fully readable
-in greyscale* — compared over the state cell, which carries the
+signals** — the word, a distinct glyph, and colour — and the set it
+quantifies over is **what the row can render today**, which is not
+ADR-0004's seven. Three of the seven are implemented
+(`running (managed)`, `stopped`, plus `starting` from the overlay);
+the other four (`running (wrong port)`, `running (foreign)`,
+`port blocked`, `failed`) arrive with P06's classifier and earn their
+glyph with the state rather than ahead of it. Two more render without
+being derived states at all: `unknown`, which has its own token, and
+`stopping`, which § Tokens deliberately gives none and which
+therefore falls through to the body text colour.
+
+**So `stopping` carries two signals, not three, and that is the
+decision rather than a gap** — a colour of its own would say a
+transient overlay is a state derived from observation, which is
+exactly what § Tokens refuses. The word and the glyph still
+distinguish it, which is what the greyscale test checks. Every other
+displayable state carries all three.
+
+The test is blunt: *the status list must be fully readable in
+greyscale* — compared over the **state cell**, which carries the
 glyph and the word, so a state told apart by colour alone fails.
 
 **Focus is unmissable.** A thick, high-contrast focus ring on
@@ -808,13 +830,13 @@ so LWSM-1032 lands them alongside the four:
 
 | Promise | How it is checked |
 |---|---|
-| Readable in greyscale (never colour alone) | every state's rendered row differs from every other after a luminance-only transform |
+| Readable in greyscale (never colour alone) | every state's rendered **state cell** differs from every other after a luminance-only transform, thresholded to ink-or-no-ink. Not the whole row: button enablement differs by state, so a whole-row comparison passes without the state cell rendering anything distinct — measured 2026-08-19, and greyscale alone is not enough either, since two colours of different luminance are two different greys |
 | High-contrast pair clears 7:1 | **already covered by `testing.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `contrast-light` / `contrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
 | Focus ring meets contrast in every theme | the same contrast arithmetic, over focus-ring vs background pairs |
 | Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % and 200 % |
 | A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |
 | No animation conveys information, and reduce-motion is honoured | assert no animation object exists across a real state change — there are none to suppress, so both halves hold together, and the row fails the day one is added |
-| Confirmations appear over the list, and are modal to the window | assert the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of any list and no code change would have made it (LWSM-1032) |
+| Confirmations appear over the list, and are application-modal | assert `windowModality() == ApplicationModal`, and that the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of any list and no code change would have made it (LWSM-1032). **The rect half is an assertion about Qt's own centring, taken headless, and cannot speak for the compositor** — under Wayland placement is KWin's (ADR-0007) and degrades honestly. The modality half holds on every platform |
 | The state word is first in the row | assert the state label's x-position precedes every other cell's |
 | Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window **at 100 % text size**. Deliberately not held at 200 %: the text doubles and the row with it, which is the control doing its job — wrapping the row to preserve the number would put the state and its controls on different lines, which is the pan this budget exists to prevent |
 | Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
@@ -1127,7 +1149,8 @@ specs for the first 1–3 roadmap items.
 | 2 | 2026-08-03 | 1 (Phase D doc audit, whole A–C set) | 2 | 6 | 6 | 6 | All 21 verified and fixed. Functioned as loop 1's missing cold re-read: it found **fix collateral** (a 2-second poll left behind by loop 1's own interval change) and, more seriously, **factual errors in the project inventory** that loop 1 never checked because it trusted the brief. |
 | 3 | 2026-08-06 | 2 (general-purpose, strong model) | 4 | 7 | 10 | 6 | Re-gate of the **post-approval material** — custom actions, look and feel, accessibility, ADR-0006/0007 — which no reviewer had ever read. 27 verified and fixed, 2 dismissed. Dimensions: dim 5×7, dim 4×4, dim 7×3, dim 2×3, dim 10×3, dim 12×2, dims 1/8/9/11/15 ×1 each. Both lanes independently led with the same three: six state tokens for seven states, the two Scanner subsections misfiled under *Custom project actions*, and a palette whose values lived outside the repository. |
 | 4 | 2026-08-06 | 2 (general-purpose, strong model) | 1 | 4 | 11 | 11 | 27 verified and fixed. Dimensions: dim 5×6, dim 2×6, dim 7×4, dim 8×3, dim 12×2, dim 9×3, dim 1×2, dim 15×1. **Roughly 16 of 27 were collateral from loop 3's own fixes** — a 7:1 contrast floor promised against a test that did not carry it, a `ThemeManager` added to the component list but not the diagram, a foreign-log contradiction "resolved" in one section by reinterpreting another from a distance, and a trust posture that cited ADR-0007 while stating the opposite of it. The loop's best find was a **draft** defect neither earlier loop reached: *effective port* is the input to every launch, stop and probe path and was never defined, with four fields able to supply it and precedence stated for only one pair. Collateral outnumbering draft defects on the first split is the signal to sweep rather than dispatch again, so this loop ended with a blast-radius sweep across `ROADMAP.md`, `discovery.md`, ADR-0006 and `testing.md § T8` instead of a loop 5. |
-| 5 | 2026-08-19 | 2 (`review-lane`, cold, genre `adr`) | — | — | — | — | **Q1 3 · Q2 2 · Q3 2 — 7 verified, 7 fixed, 0 dismissed.** The severity columns are blank: this loop ran the four-question instrument that replaced the C/H/M/L scale, and the Q profile is stated here rather than by re-columning four legacy rows. Trigger: LWSM-1032 amended the confirmation-placement promise to what Wayland delivers. **Both lanes independently found the same three**, and the first is this run's own collateral — the amendment rewrote the *Confirmations* bullet and left the bullet above it still saying "errors and confirmations surface next to the row or control that caused them", so a conformer could read either an inline confirmation or a dialog. The other two were pre-existing: § Look and feel claimed `testing.md § T8` "today states one threshold for all themes" when LWSM-1031 had already landed the 7:1 floor there, which would have bought a duplicate assertion; and "every state carries a distinct glyph" is false for four of ADR-0004's seven states, which have no glyph because they have no classifier until P06. **The most consequential finding came from one lane and is about words**: the amendment said the dialog is "modal to the window", which is Qt's `WindowModal` — it blocks `MainWindow` alone and leaves the tray's per-project start/stop menu live while a trust prompt waits. Measured: a `QMessageBox` is `ApplicationModal` from construction, so what needed fixing was the sentence, not the code. Also fixed: the 600 px lens budget named no text size while the same section promises 100–200 %; the accessible-description clause outran `coding.md § O8`, which requires one only where the name is not self-explanatory; and "every promise appears in one of those two lists" was false for two of them. **One open question resolved clean and is not in the tally** — whether the narrowed check is satisfiable for a short list: measured at 1, 2, 3, 4 and 8 rows, the dialog overlaps the list every time. Collateral swept: `known-issue-011` and `known-issue-055` are resolved by this work and `known-issue-013` half-resolved; all three quoted or rested on text this loop changed. Converged in one loop (cap 3, not reached). |
+| 5 | 2026-08-19 | 2 (`review-lane`, cold, genre `adr`) | — | — | — | — | **Q1 3 · Q2 2 · Q3 2 — 7 verified, 7 fixed, 0 dismissed.** The severity columns are blank: this loop ran the four-question instrument that replaced the C/H/M/L scale, and the Q profile is stated here rather than by re-columning four legacy rows. Trigger: LWSM-1032 amended the confirmation-placement promise to what Wayland delivers. **Both lanes independently found the same three**, and the first is this run's own collateral — the amendment rewrote the *Confirmations* bullet and left the bullet above it still saying "errors and confirmations surface next to the row or control that caused them", so a conformer could read either an inline confirmation or a dialog. The other two were pre-existing: § Look and feel claimed `testing.md § T8` "today states one threshold for all themes" when LWSM-1031 had already landed the 7:1 floor there, which would have bought a duplicate assertion; and "every state carries a distinct glyph" is false for four of ADR-0004's seven states, which have no glyph because they have no classifier until P06. **The most consequential finding came from one lane and is about words**: the amendment said the dialog is "modal to the window", which is Qt's `WindowModal` — it blocks `MainWindow` alone and leaves the tray's per-project start/stop menu live while a trust prompt waits. Measured: a `QMessageBox` is `ApplicationModal` from construction, so what needed fixing was the sentence, not the code. Also fixed: the 600 px lens budget named no text size while the same section promises 100–200 %; the accessible-description clause outran `coding.md § O8`, which requires one only where the name is not self-explanatory; and "every promise appears in one of those two lists" was false for two of them. **One open question resolved clean and is not in the tally** — whether the narrowed check is satisfiable for a short list: measured at 1, 2, 3, 4 and 8 rows, the dialog overlaps the list every time. Collateral swept: `known-issue-011` and `known-issue-055` are resolved by this work and `known-issue-013` half-resolved; all three quoted or rested on text this loop changed. Did NOT converge — convergence is a loop that returns nothing and this returned seven; loop 2 is row 6. |
+| 6 | 2026-08-19 | 2 (`review-lane`, cold, genre `adr`) | — | — | — | — | **Q1 1 · Q2 4 · Q3 1 — 6 verified, 6 fixed, 0 dismissed.** Loop 2 of the same run, briefed identically off a packet rebuilt from disk. **Three of the six were loop 1's own fixes**, which is this instrument's documented pattern and landed every time in text a fix ADDED. Loop 1 rewrote the *Confirmations* prose and left the check-table row still promising a dialog "modal to the window" — the phrase the prose three paragraphs above now rejects by name — so an implementer writing the test from the row would have reached for `setWindowModal(True)` and reopened the tray hole. It left the greyscale row reading "every state's rendered ROW", where button enablement differs by state and a whole-row comparison therefore passes without the state cell rendering anything distinct — the same defect this session had already hit inside the test. And its glyph fix did not add up: *seven derived states, four arriving with P06* leaves three, not the *five* the next sentence claimed, because the five it was counting include `unknown` and `stopping`, which are not derived states. Running that down produced the loop's best result: **`stopping` carries two signals, not three** — § Tokens gives it no colour on purpose and `theme.py` falls it through to the body text — so the *at least three signals* rule quantified over a set containing a deliberate exception it never named. **Both lanes independently found the modality row, the § Components row order and the state-count muddle.** § Components had listed the row as "name, status dot, port, uptime" since Phase B, which is the layout § Accessibility rules out and the check row fails. One lane's open question became the sixth finding: every placement measurement here is headless, and under Wayland placement is KWin's, so the rect assertion is about Qt's centring and cannot speak for the compositor — the row now says so, and the modality half is what holds on every platform. Two questions resolved clean and are not counted: *Centre on screen* is LWSM-1033, filed and planned, and the 250 ms budget's fixture ambiguity is a performance note rather than a correctness one. Did not converge; loop 3 is the cap. |
 
 **Loop 1, what it caught.** Both lanes independently led with the
 same three defects, which is the strongest corroboration this
