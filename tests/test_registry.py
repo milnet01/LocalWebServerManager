@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from lwsm import registry, scanner
+from lwsm import configfile, registry, scanner
 from lwsm.registry import (
     LauncherKind,
     ProjectRecord,
@@ -270,7 +270,7 @@ def test_refuses_an_oversized_file(tmp_path: Path) -> None:
     hope."""
     path = tmp_path / "projects.json"
     with path.open("wb") as handle:
-        handle.seek(registry.MAX_FILE_BYTES + 1)
+        handle.seek(configfile.MAX_FILE_BYTES + 1)
         handle.write(b"\0")
 
     with pytest.raises(RegistryError, match="too large"):
@@ -295,7 +295,7 @@ def test_a_file_that_grows_after_the_size_check_is_refused(
     `RegistryError` too and would pass a looser assertion.
     """
     path = tmp_path / "projects.json"
-    path.write_bytes(b"x" * (registry.MAX_FILE_BYTES + 10))
+    path.write_bytes(b"x" * (configfile.MAX_FILE_BYTES + 10))
 
     real_fstat = os.fstat
 
@@ -315,11 +315,11 @@ def test_a_file_at_the_size_limit_still_loads(tmp_path: Path) -> None:
     ordinary files."""
     payload = {"schema_version": 1, "projects": [one_good()]}
     body = json.dumps(payload)
-    padding = registry.MAX_FILE_BYTES - len(body) - len('{"pad": "", ')
+    padding = configfile.MAX_FILE_BYTES - len(body) - len('{"pad": "", ')
     payload = {"pad": "x" * padding, **payload}
     path = tmp_path / "projects.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
-    assert path.stat().st_size <= registry.MAX_FILE_BYTES
+    assert path.stat().st_size <= configfile.MAX_FILE_BYTES
 
     records, _ = load(path)
     assert len(records) == 1
@@ -384,9 +384,9 @@ def test_an_enormous_name_is_clipped(tmp_path: Path) -> None:
     # Against the constant, not a loose literal: `< 500` against a 100,000-char
     # input detected removal of the clip and nothing between — `MAX_REASON_CHARS`
     # could be set to 400 and this stayed green (LWSM-1109).
-    assert len(reasons[0]) <= 2 * registry.MAX_REASON_CHARS, (
+    assert len(reasons[0]) <= 2 * configfile.MAX_REASON_CHARS, (
         f"reason is {len(reasons[0])} characters against a "
-        f"MAX_REASON_CHARS of {registry.MAX_REASON_CHARS}"
+        f"MAX_REASON_CHARS of {configfile.MAX_REASON_CHARS}"
     )
 
 
@@ -402,17 +402,17 @@ def test_the_clip_bounds_the_escaped_text_not_the_raw_text() -> None:
     """
     hostile = "\U000e0001" * 400
 
-    quoted = registry._quoted(hostile)
+    quoted = configfile.quoted(hostile)
 
     # +1 for the ellipsis the clip appends.
-    assert len(quoted) <= registry.MAX_REASON_CHARS + 1, (
+    assert len(quoted) <= configfile.MAX_REASON_CHARS + 1, (
         f"{len(quoted)} characters out of a MAX_REASON_CHARS of "
-        f"{registry.MAX_REASON_CHARS}"
+        f"{configfile.MAX_REASON_CHARS}"
     )
 
 
 def test_a_hostile_port_field_cannot_flood_the_reason(tmp_path: Path) -> None:
-    """`_quoted` reached `name` and `path` and never the port fields.
+    """`configfile.quoted` reached `name` and `path` and never the port fields.
 
     `_port_or_reason` interpolated `{value!r}`, which escapes but does not
     clip, so a 200 KB string in `port` produced a reason of **200,038**
@@ -444,9 +444,9 @@ def test_a_hostile_port_field_cannot_flood_the_reason(tmp_path: Path) -> None:
     for reason in reasons:
         # One quoted name plus one quoted value, each bounded by the constant,
         # plus the fixed template text.
-        assert len(reason) <= 3 * registry.MAX_REASON_CHARS, (
+        assert len(reason) <= 3 * configfile.MAX_REASON_CHARS, (
             f"reason is {len(reason)} characters against a MAX_REASON_CHARS "
-            f"of {registry.MAX_REASON_CHARS}"
+            f"of {configfile.MAX_REASON_CHARS}"
         )
 
 
@@ -477,9 +477,9 @@ def test_a_hostile_schema_version_cannot_flood_the_error(tmp_path: Path) -> None
     message = str(caught.value)
     # The path is interpolated too and tmp_path is not hostile input, so the
     # bound is the quoted value plus the fixed template, not the constant alone.
-    assert len(message) <= len(str(path)) + 3 * registry.MAX_REASON_CHARS, (
+    assert len(message) <= len(str(path)) + 3 * configfile.MAX_REASON_CHARS, (
         f"error is {len(message)} characters against a MAX_REASON_CHARS of "
-        f"{registry.MAX_REASON_CHARS}"
+        f"{configfile.MAX_REASON_CHARS}"
     )
 
 
@@ -513,7 +513,7 @@ def test_no_file_sourced_value_is_interpolated_without_the_clip() -> None:
 def test_the_shipped_bounds_are_pinned() -> None:
     """Every clip assertion is relative to the constant, so none pins its value.
 
-    After LWSM-1109 the assertions read `<= registry.MAX_REASON_CHARS`, which
+    After LWSM-1109 the assertions read `<= configfile.MAX_REASON_CHARS`, which
     detects *removal* of the clip and not *loosening* of it: 120 → 100000 left
     the suite green (known-issue-005). Spec § 4.1 states the number as part of
     the contract, so it gets an assertion of its own.
@@ -524,11 +524,11 @@ def test_the_shipped_bounds_are_pinned() -> None:
     (`coding.md § 1.6`). Its tests assert `<= MAX_REASONS + 1`, so 100 →
     100000 would have passed and restored the flood the cap exists to stop.
     """
-    assert registry.MAX_REASON_CHARS == 120
+    assert configfile.MAX_REASON_CHARS == 120
     assert registry.MAX_REASONS == 100
     # Not independent numbers: the pair is what bounds the total, and the
     # product is what a status bar and a log line actually have to absorb.
-    assert registry.MAX_REASON_CHARS * registry.MAX_REASONS < 20_000, (
+    assert configfile.MAX_REASON_CHARS * registry.MAX_REASONS < 20_000, (
         "the worst-case reason volume is what LWSM-1115 bounded; raising "
         "either constant has to be justified against that product"
     )
@@ -1012,7 +1012,7 @@ def test_a_writer_refusal_reason_is_clipped_and_escaped(tmp_path: Path) -> None:
 
     message = str(caught.value)
     assert "\n" not in message
-    assert len(message) <= len(str(path)) + 3 * registry.MAX_REASON_CHARS
+    assert len(message) <= len(str(path)) + 3 * configfile.MAX_REASON_CHARS
 
 
 def test_a_registry_over_the_size_limit_is_refused_before_anything_is_written(
@@ -1530,7 +1530,7 @@ def test_the_merge_report_is_bounded(tmp_path: Path) -> None:
     assert len(result.reasons) == registry.MAX_REASONS + 1
     assert "not shown" in result.reasons[-1]
     assert all(
-        len(reason) <= 3 * registry.MAX_REASON_CHARS for reason in result.reasons
+        len(reason) <= 3 * configfile.MAX_REASON_CHARS for reason in result.reasons
     )
 
 

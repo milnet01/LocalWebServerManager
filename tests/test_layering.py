@@ -28,6 +28,7 @@ SRC = Path(__file__).resolve().parent.parent / "src" / "lwsm"
 # check disagreed and the check is the one that runs (LWSM-1006 § 4.7).
 CORE_MODULES = [
     "applog.py",
+    "configfile.py",
     "controller.py",
     "ports.py",
     "registry.py",

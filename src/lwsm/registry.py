@@ -11,28 +11,23 @@ before use rather than trusted.
 from __future__ import annotations
 
 import enum
-import errno
 import json
 import os
-import stat
-import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, TypeGuard
 
+from lwsm.configfile import (
+    MAX_FILE_BYTES,
+    ConfigFileError,
+    quoted,
+    read_bounded,
+    write_json_atomically,
+)
+
 SCHEMA_VERSION = 1
-
-# A cap on the file, not on hope. Reproduced before this existed: a 600 MB
-# projects.json peaked at 1214 MB RSS. A thousand projects is roughly 200 KB, so
-# 1 MiB is generous for anything a person would hand-write.
-MAX_FILE_BYTES = 1 << 20
-
-# A rejection reason reaches both the app log and the status bar, and the name
-# in it is hand-edited text. Long enough to identify a project, short enough
-# that a hostile file cannot flood either.
-MAX_REASON_CHARS = 120
 
 # `MAX_REASON_CHARS` bounds how LONG each reason is; this bounds how MANY there
 # are, which nothing did until LWSM-1115. The cheapest malformed element is two
@@ -77,7 +72,7 @@ class LauncherKind(enum.Enum):
     PYTHON = "python"
 
 
-class RegistryError(Exception):
+class RegistryError(ConfigFileError):
     """The file itself is unusable, so nothing is returned from it.
 
     ADR-0005 forbids partially parsing a file whose version we do not know.
@@ -183,31 +178,6 @@ def default_projects_path() -> Path:
     return base / "localwebservermanager" / "projects.json"
 
 
-def _quoted(value: object) -> str:
-    """Escape and clip a hand-edited value before it reaches a log or the UI.
-
-    The file is attacker-editable, and a rejection reason travels to both
-    `log.warning` and the status bar. `repr` is what makes that safe (LWSM-1078):
-    it escapes a newline, so a name cannot forge what looks like a second log
-    record, and the clip bounds it — a 50 MB name produced a 50 MB status string.
-
-    **Escape first, then clip.** Clipping the input instead bounded the wrong
-    string: `repr` expands a non-printable astral character to a 10-character
-    `\\U000e0001` sequence, so 400 of them returned 1203 characters against a
-    constant of 120, and a reason interpolates two such values (LWSM-1111).
-    Truncating an escaped string can leave an unterminated quote, which is
-    cosmetic; it cannot reintroduce a raw newline, which is the property that
-    matters.
-
-    Takes `object`, not `str`, because the port fields carry whatever JSON
-    held and they need the same bound (LWSM-1102).
-    """
-    escaped = repr(value)
-    if len(escaped) <= MAX_REASON_CHARS:
-        return escaped
-    return f"{escaped[:MAX_REASON_CHARS]}…"
-
-
 def _is_int(value: object) -> TypeGuard[int]:
     """`type(...) is int`, not isinstance: `isinstance(True, int)` is True, so a
     hand-edited `"port": true` would otherwise be accepted as port 1.
@@ -228,7 +198,7 @@ def _port_or_reason(
     if not _is_int(value) or not low <= value <= high:
         # _quoted, not {value!r}: repr escapes but does not clip, and a 200 KB
         # string in `port` produced a 200,038-character reason (LWSM-1102).
-        return None, f"{name}: {field} {_quoted(value)} is not an integer {low}-{high}"
+        return None, f"{name}: {field} {quoted(value)} is not an integer {low}-{high}"
     return value, None
 
 
@@ -250,7 +220,7 @@ def _string_or_reason(
     if value is None:
         return None, None
     if not isinstance(value, str):
-        return None, f"{name}: {field} {_quoted(value)} is not a string"
+        return None, f"{name}: {field} {quoted(value)} is not a string"
     return value, None
 
 
@@ -259,7 +229,7 @@ def _text_or_reason(value: object, field: str, name: str) -> tuple[str, str | No
     if value is None:
         return "", None
     if not isinstance(value, str):
-        return "", f"{name}: {field} {_quoted(value)} is not a string"
+        return "", f"{name}: {field} {quoted(value)} is not a string"
     return value, None
 
 
@@ -270,7 +240,7 @@ def _bool_or_reason(value: object, field: str, name: str) -> tuple[bool, str | N
     if value is None:
         return False, None
     if type(value) is not bool:
-        return False, f"{name}: {field} {_quoted(value)} is not true or false"
+        return False, f"{name}: {field} {quoted(value)} is not true or false"
     return value, None
 
 
@@ -279,12 +249,12 @@ def _kind_or_reason(value: object, name: str) -> tuple[LauncherKind | None, str 
     if value is None:
         return None, None
     if not isinstance(value, str):
-        return None, f"{name}: kind {_quoted(value)} is not a string"
+        return None, f"{name}: kind {quoted(value)} is not a string"
     try:
         return LauncherKind(value), None
     except ValueError:
         known = ", ".join(sorted(member.value for member in LauncherKind))
-        return None, f"{name}: kind {_quoted(value)} is not one of {known}"
+        return None, f"{name}: kind {quoted(value)} is not one of {known}"
 
 
 def _argv_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str | None]:
@@ -298,7 +268,7 @@ def _argv_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str | No
     if value is None:
         return (), None
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        return (), f"{name}: argv {_quoted(value)} is not a list of strings"
+        return (), f"{name}: argv {quoted(value)} is not a list of strings"
     return tuple(value), None
 
 
@@ -321,14 +291,14 @@ def _actions_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str |
     if value is None:
         return (), None
     if not isinstance(value, list):
-        return (), f"{name}: actions {_quoted(value)} is not a list"
+        return (), f"{name}: actions {quoted(value)} is not a list"
     try:
         return tuple(
             json.dumps(element, sort_keys=True, separators=(",", ":"))
             for element in value
         ), None
     except (TypeError, ValueError):
-        return (), f"{name}: actions {_quoted(value)} could not be re-serialised"
+        return (), f"{name}: actions {quoted(value)} could not be re-serialised"
 
 
 def _added_or_reason(value: object, name: str) -> tuple[str | None, str | None]:
@@ -349,64 +319,18 @@ def _added_or_reason(value: object, name: str) -> tuple[str | None, str | None]:
     if value is None:
         return None, None
     if not isinstance(value, str):
-        return None, f"{name}: added {_quoted(value)} is not a string"
+        return None, f"{name}: added {quoted(value)} is not a string"
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError:
-        return None, f"{name}: added {_quoted(value)} is not an RFC 3339 instant"
+        return None, f"{name}: added {quoted(value)} is not an RFC 3339 instant"
     if parsed.tzinfo is None:
         return (
             None,
-            f"{name}: added {_quoted(value)} has no time-zone offset, "
+            f"{name}: added {quoted(value)} has no time-zone offset, "
             "so it denotes no instant",
         )
     return value, None
-
-
-def _read_bounded(path: Path) -> bytes:
-    """Read `path`, refusing anything that is not a regular file of sane size.
-
-    `applog.py` already solved this class for `app.log`; `registry.py` did not
-    get it. Two failures this closes, both reproduced:
-
-    - A **FIFO** at the config path made `Path.read_bytes()` block forever — no
-      window, no error, no log line. `O_NONBLOCK` makes the open return, and the
-      `fstat` then refuses it.
-    - An oversized file was read whole into memory.
-
-    Deliberately weaker than `applog._require_private_regular_file`, and not a
-    call to it: that one also demands a single link and our own ownership, which
-    is right for a log we write and wrong for a config file the user may
-    reasonably hard-link or have installed for them.
-    """
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-    try:
-        # Interrogated on the raw descriptor, before anything wraps it.
-        # `os.fdopen` on a directory raises `IsADirectoryError` *before* its
-        # `with` block is entered, so wrapping first left nothing owning the
-        # descriptor and nothing closing it: 50 calls leaked 50 (LWSM-1104).
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            raise OSError(errno.EINVAL, "not a regular file", str(path))
-        if info.st_size > MAX_FILE_BYTES:
-            raise OSError(
-                errno.EFBIG,
-                f"too large: {info.st_size} bytes, limit {MAX_FILE_BYTES}",
-                str(path),
-            )
-        handle = os.fdopen(fd, "rb")
-    except BaseException:
-        # Nothing else owns the descriptor yet, on any path out of here.
-        os.close(fd)
-        raise
-
-    with handle:
-        # One byte past the cap, so a file that grew between the fstat and the
-        # read is still refused rather than read whole.
-        raw = handle.read(MAX_FILE_BYTES + 1)
-    if len(raw) > MAX_FILE_BYTES:
-        raise OSError(errno.EFBIG, f"too large: over {MAX_FILE_BYTES} bytes", str(path))
-    return raw
 
 
 def load_projects(path: Path) -> LoadResult:
@@ -418,7 +342,7 @@ def load_projects(path: Path) -> LoadResult:
     write gate treats as writable (LWSM-1007 § 4.3).
     """
     try:
-        raw = _read_bounded(path)
+        raw = read_bounded(path)
     except FileNotFoundError as exc:
         # Ahead of the OSError clause below, which would otherwise fold first
         # run into "unreadable" and leave a clean machine permanently unable to
@@ -474,7 +398,7 @@ def load_projects(path: Path) -> LoadResult:
         # log and the status bar with no per-reason bound anywhere in its path
         # (LWSM-1114).
         raise RegistryError(
-            f"{path}: schema_version {_quoted(version)} is not {SCHEMA_VERSION}; "
+            f"{path}: schema_version {quoted(version)} is not {SCHEMA_VERSION}; "
             "refusing to guess at its contents"
         )
 
@@ -521,7 +445,7 @@ def load_projects(path: Path) -> LoadResult:
             refuse_row(f"projects[{index}]: 'name' must be a non-empty string")
             continue
 
-        name = _quoted(raw_name)
+        name = quoted(raw_name)
 
         raw_path = entry.get("path")
         if not isinstance(raw_path, str) or not raw_path:
@@ -530,12 +454,12 @@ def load_projects(path: Path) -> LoadResult:
         if "\x00" in raw_path:
             # It passes is_absolute() and would load, but every later os call on
             # it raises ValueError — and P03 passes this path as a spawn cwd.
-            refuse_row(f"{name}: path {_quoted(raw_path)} contains a NUL byte")
+            refuse_row(f"{name}: path {quoted(raw_path)} contains a NUL byte")
             continue
 
         project_path = Path(raw_path)
         if not project_path.is_absolute():
-            refuse_row(f"{name}: path {_quoted(raw_path)} is not absolute")
+            refuse_row(f"{name}: path {quoted(raw_path)} is not absolute")
             continue
         if project_path.parts[:1] == ("//",):
             # POSIX gives EXACTLY two leading slashes an implementation-defined
@@ -544,7 +468,7 @@ def load_projects(path: Path) -> LoadResult:
             # so both loaded, two records under one identity. Three or more
             # slashes collapse; two do not. Refused rather than normalised, for
             # the same reason as '..' below.
-            refuse_row(f"{name}: path {_quoted(raw_path)} must not begin with '//'")
+            refuse_row(f"{name}: path {quoted(raw_path)} must not begin with '//'")
             continue
         if ".." in project_path.parts:
             # PurePath keeps '..', so /srv/a and /srv/c/../a are unequal and both
@@ -552,12 +476,12 @@ def load_projects(path: Path) -> LoadResult:
             # malformed file. Refused rather than normalised: collapsing '..'
             # lexically is wrong when a component is a symlink, and this path
             # becomes a spawn cwd in P03.
-            refuse_row(f"{name}: path {_quoted(raw_path)} must not contain '..'")
+            refuse_row(f"{name}: path {quoted(raw_path)} must not contain '..'")
             continue
         if project_path in seen:
             # ADR-0005 makes the absolute path the identity, so two records
             # sharing one is a malformed file, not a merge question.
-            refuse_row(f"{name}: path {_quoted(raw_path)} is already registered")
+            refuse_row(f"{name}: path {quoted(raw_path)} is already registered")
             continue
         seen.add(project_path)
 
@@ -666,68 +590,6 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
     }
 
 
-def _prepare_config_dir(directory: Path) -> None:
-    """Create `directory` and every missing component of it at mode 0700.
-
-    Each component explicitly, because `mkdir(parents=True, mode=0o700)` applies
-    the mode to the **leaf only** and leaves everything it created at the umask
-    default — the defect `applog._prepare_state_dir` records having measured at
-    0o755. Unlike that function this one does **not** re-chmod a directory that
-    already exists: § 4.3 step 0 says create it if absent, and silently
-    tightening a directory the user already made is a change nobody asked for.
-    """
-    missing: list[Path] = []
-    probe = directory
-    while not probe.exists():
-        missing.append(probe)
-        if probe.parent == probe:
-            break
-        probe = probe.parent
-    for path in reversed(missing):
-        path.mkdir(mode=0o700)
-
-
-def _refuse_existing_target(path: Path) -> None:
-    """Refuse to replace a symlink or a non-regular file.
-
-    **`os.lstat`, never `os.stat` or `Path.is_file()`** — both follow the link,
-    so a symlink pointing at a regular file reports `S_ISREG` true, passes, and
-    is then destroyed by `os.replace`, which replaces the *symlink* rather than
-    its target. Measured on Python 3.13: the real file was left untouched and
-    the user's deliberate indirection became a plain file.
-
-    **The `lstat`-then-`replace` race is accepted and not closed.** Both
-    `_read_bounded` and `applog._require_private_regular_file` interrogate a
-    *descriptor*; this interrogates a *path*, and `os.replace` takes paths, so
-    there is no descriptor to hold across the swap. The only real fix is a
-    directory fd plus `renameat`, which buys nothing against an attacker who can
-    already write to a 0700 directory owned by the user. Do **not** add a retry
-    loop — there is no state to re-check into.
-
-    Deliberately narrower than `applog._require_private_regular_file`, for the
-    reason `_read_bounded` already records: a config file may reasonably be
-    hard-linked or installed for the user. A symlink is refused because
-    replacing one destroys it; a hard link is not, because replacing the path
-    leaves the other name intact.
-    """
-    try:
-        info = os.lstat(path)
-    except FileNotFoundError:
-        return
-    except OSError as exc:
-        raise RegistryError(
-            f"{_quoted(str(path))}: cannot be examined ({exc.strerror or exc})"
-        ) from exc
-    if stat.S_ISLNK(info.st_mode):
-        raise RegistryError(
-            f"{_quoted(str(path))}: is a symlink; refusing to replace it"
-        )
-    if not stat.S_ISREG(info.st_mode):
-        raise RegistryError(
-            f"{_quoted(str(path))}: is not a regular file; refusing to replace it"
-        )
-
-
 def _refuse_unwritable_load(path: Path, load: LoadResult | RegistryError) -> None:
     """The read-only gate, and it lives HERE rather than in a caller.
 
@@ -750,12 +612,12 @@ def _refuse_unwritable_load(path: Path, load: LoadResult | RegistryError) -> Non
         return
     if isinstance(load, RegistryError):
         raise RegistryError(
-            f"{_quoted(str(path))}: not writing over a registry that could not be "
-            f"loaded ({_quoted(str(load))})"
+            f"{quoted(str(path))}: not writing over a registry that could not be "
+            f"loaded ({quoted(str(load))})"
         )
     if load.rows_refused:
         raise RegistryError(
-            f"{_quoted(str(path))}: not writing; {load.rows_refused} row(s) were "
+            f"{quoted(str(path))}: not writing; {load.rows_refused} row(s) were "
             "refused at load and would be deleted by a write"
         )
 
@@ -791,80 +653,29 @@ def save_projects(
         data = text.encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise RegistryError(
-            f"{_quoted(str(path))}: cannot be serialised "
-            f"({type(exc).__name__}: {_quoted(str(exc))})"
+            f"{quoted(str(path))}: cannot be serialised "
+            f"({type(exc).__name__}: {quoted(str(exc))})"
         ) from exc
 
     if len(data) > MAX_FILE_BYTES:
         # Refused before anything is written, rather than written and then found
         # unreadable on the next start by the reader's own cap.
         raise RegistryError(
-            f"{_quoted(str(path))}: would be {len(data)} bytes, over the "
+            f"{quoted(str(path))}: would be {len(data)} bytes, over the "
             f"{MAX_FILE_BYTES} limit; not written"
         )
 
-    directory = path.parent
     try:
-        _prepare_config_dir(directory)
-    except OSError as exc:
-        raise RegistryError(
-            f"{_quoted(str(directory))}: cannot be created ({exc.strerror or exc})"
-        ) from exc
-
-    _refuse_existing_target(path)
-
-    # mkstemp creates at 0600 and in the target's own directory, so the rename
-    # cannot cross a filesystem. `Path.write_text` would create at
-    # `0666 & ~umask`, which is how this file gets a mode nobody chose.
-    try:
-        handle_fd, temporary_name = tempfile.mkstemp(
-            dir=directory, prefix=".projects-", suffix=".tmp"
-        )
-    except OSError as exc:
-        # The last syscall in this writer that was outside a handler
-        # (LWSM-1135). ENOSPC, EDQUOT, EROFS and EACCES all land here, and this
-        # function's docstring, LWSM-1007 § 4.3 step 5 and § 6's *disk is full*
-        # row all promise a `RegistryError`. Nothing has been created yet, so
-        # there is no temporary to unlink and the previous file is untouched.
-        raise RegistryError(
-            f"{_quoted(str(path))}: could not be written ({exc.strerror or exc})"
-        ) from exc
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(handle_fd, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    except BaseException as exc:
-        # Everything up to and including the replace: the previous file is
-        # untouched and the temporary is ours to remove (INV-2).
-        try:
-            temporary.unlink()
-        except OSError:
-            pass
-        if isinstance(exc, OSError):
-            raise RegistryError(
-                f"{_quoted(str(path))}: could not be written ({exc.strerror or exc})"
-            ) from exc
-        raise
-
-    # Step 4, and deliberately outside the block above: the new file is already
-    # in place, there is no temporary left to unlink, and rolling back would mean
-    # having kept a copy of the old one — which is LWSM-1039. A failure here is
-    # REPORTED and not reversed, or § 6 would tell the user a durable write
-    # failed.
-    try:
-        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    except OSError as exc:
-        raise RegistryError(
-            f"{_quoted(str(path))}: written, but the directory entry could not be "
-            f"made durable ({exc.strerror or exc})"
-        ) from exc
+        # The directory, the hostile-target refusal and the durable write, in
+        # the order that survives a failure at any step — `configfile.py` owns
+        # it now because `settings.json` needs the same sequence and a second
+        # copy of it would be a second set of the four defects it records.
+        write_json_atomically(path, data, prefix=".projects-")
+    except ConfigFileError as exc:
+        # Converted rather than propagated: this function's contract, § 6 and
+        # four tests all promise `RegistryError`, and `ConfigFileError` is its
+        # base, so an `except RegistryError` would not catch it.
+        raise RegistryError(str(exc)) from exc
 
 
 # --------------------------------------------------------------------------
@@ -991,7 +802,7 @@ def _resolve_or_lexical(path: Path) -> tuple[Path, str | None]:
     except OSError as exc:
         return (
             Path(os.path.abspath(path)),
-            f"{_quoted(str(path))}: could not be resolved ({exc.strerror or exc})",
+            f"{quoted(str(path))}: could not be resolved ({exc.strerror or exc})",
         )
 
 
@@ -1093,8 +904,8 @@ def merge(
             # unmounted drive cannot destroy the list.
             flag(
                 DUPLICATE_IDENTITY,
-                f"{_quoted(record.name)}: duplicate identity of "
-                f"{_quoted(stored[owner[resolved]].name)}",
+                f"{quoted(record.name)}: duplicate identity of "
+                f"{quoted(stored[owner[resolved]].name)}",
             )
             continue
         owner[resolved] = index
@@ -1117,11 +928,11 @@ def merge(
 
         not_reobserved = record.port is not None and found.port is None
         if updated != record:
-            flag(CHANGED, f"{_quoted(record.name)}: detected details changed")
+            flag(CHANGED, f"{quoted(record.name)}: detected details changed")
         if not_reobserved:
             flag(
                 NOT_REOBSERVED,
-                f"{_quoted(record.name)}: port no longer detected, "
+                f"{quoted(record.name)}: port no longer detected, "
                 f"keeping {record.port}",
             )
         if not (updated != record or not_reobserved):
@@ -1133,7 +944,7 @@ def merge(
         if record.port_override is not None and updated.port != record.port:
             flag(
                 OVERRIDE_DIFFERS,
-                f"{_quoted(record.name)}: detected port moved to "
+                f"{quoted(record.name)}: detected port moved to "
                 f"{updated.port}, override {record.port_override} stays in force",
             )
 
@@ -1157,7 +968,7 @@ def merge(
                 added=now(),
             )
         )
-        flag(NEW, f"{_quoted(project.name)}: new")
+        flag(NEW, f"{quoted(project.name)}: new")
 
     _flag_duplicate_ports(merged, flag)
 
@@ -1194,20 +1005,20 @@ def _note_if_missing(
     """
     if scan.timed_out:
         note(
-            f"{_quoted(record.name)}: the scan timed out, so it was not "
+            f"{quoted(record.name)}: the scan timed out, so it was not "
             "checked for being missing"
         )
         return
     if any(resolved.is_relative_to(root) for root in unlistable):
         note(
-            f"{_quoted(record.name)}: its scan root could not be listed, so it "
+            f"{quoted(record.name)}: its scan root could not be listed, so it "
             "was not checked for being missing"
         )
         return
     if not any(resolved.is_relative_to(root) for root in resolved_roots):
         # Out of scope for this scan, not missing from it.
         return
-    flag(MISSING, f"{_quoted(record.name)}: no longer found by a scan")
+    flag(MISSING, f"{quoted(record.name)}: no longer found by a scan")
 
 
 def _flag_duplicate_ports(
@@ -1234,6 +1045,6 @@ def _flag_duplicate_ports(
         for loser in ordered[1:]:
             flag(
                 DUPLICATE_PORT,
-                f"{_quoted(records[loser].name)}: port {port} is claimed by "
-                f"{_quoted(winner.name)}",
+                f"{quoted(records[loser].name)}: port {port} is claimed by "
+                f"{quoted(winner.name)}",
             )
