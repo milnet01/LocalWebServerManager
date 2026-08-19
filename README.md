@@ -7,7 +7,7 @@
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Current version: **0.0.0** — see [CHANGELOG](CHANGELOG.md) for shipped
+Nothing is released yet — see [CHANGELOG](CHANGELOG.md) for shipped
 work, [ROADMAP](ROADMAP.md) for what's coming, and
 [docs/standards/](docs/standards/) for the five shareable v1
 standards (coding · documentation · testing · commits ·
@@ -29,33 +29,56 @@ project's own start script and never edits your projects.
 
 ## Status
 
-**Pre-alpha — the design is settled and the build has started.
-There is no usable application yet.**
+**Early days, but it runs.** You can open the window today, see
+your projects with a live status light, and start, stop, restart
+and open them in a browser. There is no installer or download
+yet, so you run it from a copy of the source (see **Install**).
 
-Done: the problem and success criteria
-([discovery](docs/discovery.md)); the architecture and its seven
-decision records ([design](docs/design.md),
-[decisions](docs/decisions/)); the ten-phase build order
-([ROADMAP](ROADMAP.md)); and **P01 — build tooling**, which is the
-packaging, linting, test harness, CI and application log. The
-design document has been through four independent review passes.
+Current version: **0.0.0** — nothing has been released, so
+nothing is promised to keep working from one day to the next.
+(That exact line is what `scripts/check-version-drift.sh`
+matches on; `cut-release` rewrites it, never edit it by hand.)
 
-Not done: everything you would actually use. `src/` today holds an
-entry point and a logger. The first window with a live project row
-arrives in P02, and the Start/Stop buttons in P05.
+**What works now**
 
-**If you want to watch or contribute**, the honest place to start
-is [ROADMAP.md](ROADMAP.md) — every item has a stable ID, stated
-acceptance criteria and its dependencies, so what is real and what
-is intended are never mixed up. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+- **It finds your projects for you.** Point it at the folder your
+  projects live in and it works out which ones run a web server,
+  how each one starts, and which port each one wants.
+- **One window, one row per project.** A coloured light and the
+  word `running`, `stopped` or `unknown` — the word is always
+  there, so the colour is never the only thing telling you.
+- **Start, Stop and Restart buttons**, on every row. It runs your
+  project's own start script and never changes a single file in
+  your project.
+- **An Open button** that opens the running site in your browser.
+  It is offered only for servers this app started itself — if
+  something else is sitting on that port, the app will not send
+  you to a page it cannot vouch for.
+- **A Rescan button** that goes and looks again, folding in new
+  projects without losing anything you changed by hand.
+- **Eight colour themes**, including two high-contrast ones, and
+  it starts dark. Your choice is remembered.
+- **Built to be readable.** Text scales with your system setting,
+  the keyboard focus outline is visible, colours are checked
+  against a contrast standard, and screen readers are told when a
+  project changes state — once, not once a second.
+- **A log per project**, written to a private file and capped in
+  size so a chatty server cannot fill your disk.
 
-## Features
+**What is not there yet**
 
-Nothing has shipped yet, and this section lists shipped
-capability rather than intent — so it stays empty until P02
-delivers the first working slice. What is *planned*, in build
-order, is in the [ROADMAP](ROADMAP.md).
+- No **Settings window** — where to look for projects is a plain
+  text file for now (see **Quickstart**).
+- No **live output panel** inside the app. The logs are on disk
+  and you read them with your own tools.
+- No **system tray icon**, no **start on login**, no
+  **"what is using this port?"** help, and no **downloadable
+  package** — those are later phases.
+
+Every one of those has a stable ID and stated acceptance criteria
+in [ROADMAP.md](ROADMAP.md), so what is real and what is merely
+intended are never mixed up. If you want to contribute, start
+there and with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Requirements
 
@@ -73,17 +96,66 @@ order, is in the [ROADMAP](ROADMAP.md).
 
 ## Install
 
-There is nothing to install for end users yet — no release, no
-package, no AppImage. That is P10.
-
-To work on it:
+There is no download, package or AppImage yet — that is the last
+phase of the build. For now you run it from a copy of the source.
 
 ```bash
 git clone https://github.com/milnet01/LocalWebServerManager.git
 cd LocalWebServerManager
-uv sync                 # resolves from the committed uv.lock
+uv sync                 # installs everything it needs, exact versions
+uv run lwsm             # open the window
+```
+
+To put it in your application launcher, so you can start it like
+any other app and pin it to your panel:
+
+```bash
+./scripts/install-desktop-entry.sh
+```
+
+That writes only inside your own home folder and needs no
+password.
+
+### Quickstart
+
+1. **Tell it where your projects are.** Create the file
+   `~/.config/localwebservermanager/scan-roots` and put one
+   folder per line:
+
+   ```
+   # one directory per line; blank lines and #comments are ignored
+   ~/projects
+   ~/work/websites
+   ```
+
+   Without that file it looks in `~/projects`.
+
+2. **Run `uv run lwsm`.** The window opens and lists what it
+   found, with a status light per project.
+
+3. **Press Start on a row.** The first time you start a given
+   project, the app shows you exactly what it is about to run and
+   asks you to confirm — it will not run a script on your behalf
+   that you have not seen. Approve it once and it remembers, and
+   it asks again if that script later changes.
+
+4. **Press Open** to open the running site in your browser, and
+   **Stop** when you are done. Closing the app deliberately
+   leaves your servers running; it is a manager, not an owner.
+
+5. **Press Rescan** after you add a new project, to pick it up
+   without restarting.
+
+Your project list lives in
+`~/.config/localwebservermanager/projects.json` and the per-project
+logs in `~/.local/state/localwebservermanager/logs/`.
+
+### For contributors
+
+```bash
+uv sync --extra dev                   # dev tools too
 git config core.hooksPath .githooks   # run the gate before every push
-./scripts/local-ci.sh   # lint, format, tests, entry points — the full gate
+./scripts/local-ci.sh                 # lint, format, tests — the full gate
 ```
 
 `scripts/local-ci.sh` is the single source of truth for CI: the
@@ -99,9 +171,8 @@ follows; `tests/test_ci_contract.py` fails if the two ever part.
 The `core.hooksPath` line above installs a `pre-push` hook that runs
 the gate for you. A docs-only push skips it.
 
-## Quickstart
-
-(filled out at P02, once there is a window to open.)
+Before cutting a release, `./scripts/local-release.sh` reports
+whether one is safe to cut. It changes nothing.
 
 ## Documentation
 
@@ -122,8 +193,8 @@ the gate for you. A docs-only push skips it.
 - [docs/known-issues.md](docs/known-issues.md) — findings
   deferred because they're blocked by an unbuilt feature.
 - [docs/audit-allowlist.md](docs/audit-allowlist.md) —
-  project-specific false-positive memory for `/audit` and
-  `/code-quality-review`.
+  project-specific false-positive memory for the static-analysis
+  and code-review passes.
 - [docs/ideas.md](docs/ideas.md) — mid-flight ideas pending a
   decision on where they belong.
 - [docs/standards/](docs/standards/) — coding, documentation,
