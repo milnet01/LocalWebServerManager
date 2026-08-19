@@ -684,6 +684,41 @@ same item's dependency pair had to be pretty-printed onto its own line, because
 in a minified `package.json` rule 2 stops at the document's first `:` and never
 reaches it.
 
+**A mutation YOU write can be inert too, and a shell loop is where it happens.**
+LWSM-1155 ran seven mutants through a bash helper driving `python3` string
+replacements; **two came back green without having been applied.** One meant to
+*move* `hops += 1` and instead *deleted* it, so the counter never incremented
+and the test passed for a reason unrelated to the mutation. The other never
+applied at all — the pattern held quotes and backslashes the shell mangled
+before `python3` saw them. Both read exactly like "the mutant survived", which
+is the conclusion *"this code is untested"* — the same false confidence the
+mutation was run to remove, arrived at from the opposite side. **Assert the
+anchor matched before running the test** (`assert t.count(a) == 1`), and prefer a
+heredoc'd `python3` over shell-interpolated arguments for anything holding a
+regex. A mutant that reports green without having been applied is worse than no
+mutant, because it is counted.
+
+**Trap: a scanner fixture cannot tell you what a matcher does to files nobody
+wrote for it — the author's own sibling projects can.** `/mnt/Games/Scripts/Linux`
+holds the real population this app scans: 7 projects across all five launcher
+kinds, detected live by `scanner.scan([root], units=FakeUnits({}))` in about a
+second. **Diff the verdicts across a change** — dump `name/kind/port/source` per
+project before and after, and read every line that moved. On LWSM-1155 exactly
+one moved, and that is the evidence the change was surgical; no test count can
+say that. Then **read every hit the new matcher produces over those same files**:
+that pass found three defects no fixture had asked for, including `\bimport\b`
+matching inside `not-an-import` (a `-` is a word boundary, so a presence test
+fires on any line carrying the word beside a quoted relative path) and a
+`from ..up import x` whose stripped dots became a **root-level `up.py`** — not a
+refusal but a *different file*, read and believed.
+**`tests/scanner_fixtures.py` is the regression corpus and is a different tool**:
+it locks what we already know, and by construction contains only hazards someone
+thought of. The live tree is the only thing here that answers *what else did this
+match?* — it is also the only source for a magnitude, and it is where
+`MAX_IMPORT_HOPS = 8` came from (a real launcher's three relative imports).
+**Read-only and someone else's**, so never write to it, and expect its contents
+to drift — quote a measured number with its date, as the traps above do.
+
 **Trap: `ruff format` formats fenced ` ```python ` blocks inside
 Markdown**, and `local-ci.sh` runs it over `.`. A spec with code
 blocks fails the gate until they are ruff-formatted. Run
