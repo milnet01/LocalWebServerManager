@@ -2834,6 +2834,40 @@ magnifier, so this is a design input, and
   Kind: accessibility.
   Source: in-session-2026-08-19 (split out of LWSM-1040's close, user-approved).
 
+- 📋 [LWSM-1157] **Split docs/design.md — it is 1223 lines and its gate keeps capping.**
+  Filed by the rule-14 gate on 2026-08-19 rather than acted on, because
+  splitting a contract document is a change to what other documents cite
+  and is not a fix pass's call.
+
+  The evidence is the loop log's rows 5-7. That run reached its cap of 3
+  with every loop returning verified findings — 7, 6, 6 — and none of the
+  three converged. Two things were true at once and both are recorded in
+  row 7. Each loop found REAL pre-existing defects, including one (§
+  Tokens claiming seven state tokens where `theme.py` ships eight) that
+  three earlier loops of this same document had read past. And each
+  loop's own fixes seeded about half the next loop's findings — 3 of 6 in
+  loop 2, 3 of 6 in loop 3, a share that did not fall.
+
+  `review-contract` § At the cap names the size signal for exactly this
+  shape: two specs over 1000 lines took nine and eleven loops, and
+  splitting before loop 1 is cheap where splitting at loop 8 wastes eight.
+  At 1223 lines this document is past that mark, and the review's own
+  reading is that two cold reads never reach parts of it.
+
+  Suggested seams, in the order they look cleanest — § Accessibility (~200
+  lines, self-contained, cited by `testing.md § T8` and by every
+  accessibility item) and § Look and feel (~90 lines, the token contract).
+  Both are cited from elsewhere by section name, so a split means updating
+  those citations rather than rewriting content.
+
+  **Do not re-run the gate on the whole document first.** Row 7's verdict
+  is that a fourth loop starts against a document whose last three loops
+  were each repairing the one before; the split is what changes that,
+  not another pass.
+  **Layman:** The design document has grown too big for anyone to review in one sitting, so it should be broken into a few smaller ones.
+  Kind: doc.
+  Source: in-session-2026-08-19 (review-contract cap verdict, LWSM-1032's gate).
+
 ## P05 — Start, stop, restart (criterion 2)
 
 **Theme:** the buttons. [ADR-0003](docs/decisions/0003-launch-via-project-scripts.md)

@@ -620,14 +620,33 @@ same shape finbreak uses:
 `accent` · `accent_soft` · `attention` · `border` — and
 `is_dark`, which drives the light/dark grouping in the picker.
 
-This project **extends** that set with the seven it needs that a
-finance app does not — **one per derived state, and ADR-0004's
-list of seven is what defines the set**:
+This project **extends** that set with **eight** — one per derived
+state, which is ADR-0004's seven, **plus `state_unknown`, which is
+not one of them**: `unknown` means nobody has looked yet rather than
+a state observation produced, and it renders in every list before the
+first poll returns, so leaving it untokened would show it in body
+text. ADR-0004's list therefore defines the seven, not the set:
 `state_running` (`running (managed)`) · `state_starting`
 (`starting`) · `state_wrong_port` (`running (wrong port)`) ·
 `state_foreign` (`running (foreign)`) · `state_blocked`
 (`port blocked`) · `state_failed` (`failed`) · `state_stopped`
-(`stopped`).
+(`stopped`) · `state_unknown` (`unknown`).
+
+**The focus ring takes `accent` and gets no token of its own**, so
+every palette gets a legible ring out of the contrast it already has
+to prove for its accent — one fewer value to solve for per palette,
+and one that cannot drift from it. `Theme.focus_ring_color()`
+expands it, because `§ O7` forbids a widget building a `QColor`.
+
+**A generated style sheet costs font inheritance, and that is the
+price of theming this way.** QStyleSheetStyle resolves a font onto
+every descendant, which marks it explicitly set — so an application
+font change reaches the window and propagates no further, and the
+in-app 100-200 % control moves nothing the user reads unless the new
+font is pushed down by hand. Measured 2026-08-19 (LWSM-1032): at
+200 % the state column widened from 53 px to 103 px around text that
+stayed at 9 pt. `MainWindow.changeEvent` re-pushes to every
+descendant; anything else adopting a style sheet inherits this.
 
 `stopping` gets no token: it is the optimistic overlay's transient
 label, not a state derived from observation (ADR-0004, § State
@@ -772,8 +791,12 @@ distinguish it, which is what the greyscale test checks. Every other
 displayable state carries all three.
 
 The test is blunt: *the status list must be fully readable in
-greyscale* — compared over the **state cell**, which carries the
-glyph and the word, so a state told apart by colour alone fails.
+greyscale* — compared over the **state cell**, which for this purpose
+is the painted glyph column plus the state label, measured together
+from the row's left edge. They are not one widget: the glyph is
+painted by the row (LWSM-1071, so it stays out of the accessibility
+tree) and the word is a `QLabel`. A comparison of the label alone
+would miss the glyph, which is one of the three signals.
 
 **Focus is unmissable.** A thick, high-contrast focus ring on
 every focusable widget in every theme — the magnifier user's
@@ -836,13 +859,14 @@ so LWSM-1032 lands them alongside the four:
 | Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % and 200 % |
 | A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |
 | No animation conveys information, and reduce-motion is honoured | assert no animation object exists across a real state change — there are none to suppress, so both halves hold together, and the row fails the day one is added |
-| Confirmations appear over the list, and are application-modal | assert `windowModality() == ApplicationModal`, and that the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of any list and no code change would have made it (LWSM-1032). **The rect half is an assertion about Qt's own centring, taken headless, and cannot speak for the compositor** — under Wayland placement is KWin's (ADR-0007) and degrades honestly. The modality half holds on every platform |
+| Confirmations appear over the list, and are application-modal | assert `windowModality() == ApplicationModal`, and that the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of a list long enough for the dialog to miss them — at one row it passes, which is exactly the fixture size that would have hidden this — and no code change would have made it (LWSM-1032). **The rect half is an assertion about Qt's own centring, taken headless, and cannot speak for the compositor** — under Wayland placement is KWin's (ADR-0007) and degrades honestly. The modality half holds on every platform |
+| A confirmation raised with the window hidden shows it first | with the window hidden, drive the tray's start path and assert the window is visible before the dialog is shown. **Lands with the tray (P09)**, which is the only surface that can raise one with no window on screen; until then there is no path to drive and the row is stated rather than run |
 | The state word is first in the row | assert the state label's x-position precedes every other cell's |
 | Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window **at 100 % text size**. Deliberately not held at 200 %: the text doubles and the row with it, which is the control doing its job — wrapping the row to preserve the number would put the state and its controls on different lines, which is the pan this budget exists to prevent |
 | Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
 | Nothing important is hover-only | assert every action is reachable without a hover event |
 | Focus is never stolen | drive a poll cycle during editing; assert focus did not move |
-| System font and scaling honoured | assert no widget pins a font family or pixel size |
+| System font and scaling honoured | assert no widget pins a font family or pixel size, **and that a change to the application font reaches a row's labels and buttons** — measured by `fontMetrics()`, the metric the widget paints with, never by a width the row derives from its own font. Not-pinning is not sufficient: QStyleSheetStyle resolves a font onto every descendant, so with a style sheet installed an application font change reaches the window and stops there (§ Look and feel) |
 
 **Every promise in § What magnifier use actually demands and
 § The non-negotiables appears in one of those two lists** — those
@@ -1151,6 +1175,7 @@ specs for the first 1–3 roadmap items.
 | 4 | 2026-08-06 | 2 (general-purpose, strong model) | 1 | 4 | 11 | 11 | 27 verified and fixed. Dimensions: dim 5×6, dim 2×6, dim 7×4, dim 8×3, dim 12×2, dim 9×3, dim 1×2, dim 15×1. **Roughly 16 of 27 were collateral from loop 3's own fixes** — a 7:1 contrast floor promised against a test that did not carry it, a `ThemeManager` added to the component list but not the diagram, a foreign-log contradiction "resolved" in one section by reinterpreting another from a distance, and a trust posture that cited ADR-0007 while stating the opposite of it. The loop's best find was a **draft** defect neither earlier loop reached: *effective port* is the input to every launch, stop and probe path and was never defined, with four fields able to supply it and precedence stated for only one pair. Collateral outnumbering draft defects on the first split is the signal to sweep rather than dispatch again, so this loop ended with a blast-radius sweep across `ROADMAP.md`, `discovery.md`, ADR-0006 and `testing.md § T8` instead of a loop 5. |
 | 5 | 2026-08-19 | 2 (`review-lane`, cold, genre `adr`) | — | — | — | — | **Q1 3 · Q2 2 · Q3 2 — 7 verified, 7 fixed, 0 dismissed.** The severity columns are blank: this loop ran the four-question instrument that replaced the C/H/M/L scale, and the Q profile is stated here rather than by re-columning four legacy rows. Trigger: LWSM-1032 amended the confirmation-placement promise to what Wayland delivers. **Both lanes independently found the same three**, and the first is this run's own collateral — the amendment rewrote the *Confirmations* bullet and left the bullet above it still saying "errors and confirmations surface next to the row or control that caused them", so a conformer could read either an inline confirmation or a dialog. The other two were pre-existing: § Look and feel claimed `testing.md § T8` "today states one threshold for all themes" when LWSM-1031 had already landed the 7:1 floor there, which would have bought a duplicate assertion; and "every state carries a distinct glyph" is false for four of ADR-0004's seven states, which have no glyph because they have no classifier until P06. **The most consequential finding came from one lane and is about words**: the amendment said the dialog is "modal to the window", which is Qt's `WindowModal` — it blocks `MainWindow` alone and leaves the tray's per-project start/stop menu live while a trust prompt waits. Measured: a `QMessageBox` is `ApplicationModal` from construction, so what needed fixing was the sentence, not the code. Also fixed: the 600 px lens budget named no text size while the same section promises 100–200 %; the accessible-description clause outran `coding.md § O8`, which requires one only where the name is not self-explanatory; and "every promise appears in one of those two lists" was false for two of them. **One open question resolved clean and is not in the tally** — whether the narrowed check is satisfiable for a short list: measured at 1, 2, 3, 4 and 8 rows, the dialog overlaps the list every time. Collateral swept: `known-issue-011` and `known-issue-055` are resolved by this work and `known-issue-013` half-resolved; all three quoted or rested on text this loop changed. Did NOT converge — convergence is a loop that returns nothing and this returned seven; loop 2 is row 6. |
 | 6 | 2026-08-19 | 2 (`review-lane`, cold, genre `adr`) | — | — | — | — | **Q1 1 · Q2 4 · Q3 1 — 6 verified, 6 fixed, 0 dismissed.** Loop 2 of the same run, briefed identically off a packet rebuilt from disk. **Three of the six were loop 1's own fixes**, which is this instrument's documented pattern and landed every time in text a fix ADDED. Loop 1 rewrote the *Confirmations* prose and left the check-table row still promising a dialog "modal to the window" — the phrase the prose three paragraphs above now rejects by name — so an implementer writing the test from the row would have reached for `setWindowModal(True)` and reopened the tray hole. It left the greyscale row reading "every state's rendered ROW", where button enablement differs by state and a whole-row comparison therefore passes without the state cell rendering anything distinct — the same defect this session had already hit inside the test. And its glyph fix did not add up: *seven derived states, four arriving with P06* leaves three, not the *five* the next sentence claimed, because the five it was counting include `unknown` and `stopping`, which are not derived states. Running that down produced the loop's best result: **`stopping` carries two signals, not three** — § Tokens gives it no colour on purpose and `theme.py` falls it through to the body text — so the *at least three signals* rule quantified over a set containing a deliberate exception it never named. **Both lanes independently found the modality row, the § Components row order and the state-count muddle.** § Components had listed the row as "name, status dot, port, uptime" since Phase B, which is the layout § Accessibility rules out and the check row fails. One lane's open question became the sixth finding: every placement measurement here is headless, and under Wayland placement is KWin's, so the rect assertion is about Qt's centring and cannot speak for the compositor — the row now says so, and the modality half is what holds on every platform. Two questions resolved clean and are not counted: *Centre on screen* is LWSM-1033, filed and planned, and the 250 ms budget's fixture ambiguity is a performance note rather than a correctness one. Did not converge; loop 3 is the cap. |
+| 7 | 2026-08-19 | 2 (`review-lane`, cold, genre `adr`) | — | — | — | — | **Q1 2 · Q2 1 · Q3 3 — 6 verified, 6 fixed, 0 dismissed. CAP REACHED (3 loops for this genre); the run files its tail and exits.** Both lanes independently found two. The best is a Q1 against the CODE that three previous loops of this document had read past: § Tokens said the project extends the base set with "the seven it needs" and that "ADR-0004's list of seven is what defines the set", while `theme.py` ships **eight** — `state_unknown` has been there since LWSM-1005 and `LWSM-1005-vertical-slice.md` calls it "an **eighth** token, outside the seven" in as many words. A builder writing the palette table from § Tokens would have shipped seven per palette across eight palettes and rendered `unknown` in body text. Loop 2's own sentence about `unknown` having a token is what put the two passages next to each other. **Three of the six landed on text this run wrote** — the same share as loop 2, which is the signal in the row rather than the count. Loop 2 added *a confirmation raised from the tray shows and raises the window first* to a subsection whose own rule is that a promise cannot be added without a row beside it, and added no row. Loop 1 wrote that the old check "could not pass for the first or last row of any list", and at one row it passes — the universal was false at exactly the fixture size that hides it. And *the state cell* went undefined while the glyph is painted rather than labelled, so a builder measuring the `QLabel` alone would have missed one of the three signals. Two pre-existing Q3s: the focus ring's colour was named by no token anywhere, though `focus_ring_color()` has expanded `accent` since LWSM-1070; and *System font and scaling honoured* asked only that no widget pin a font — which today's own defect proves insufficient, since a style sheet defeats inheritance and a build can satisfy the row while a desktop font change reaches nothing. § Look and feel now records that cost. **Verdict on the cap: mixed, and the run does not recommend a fourth loop.** Each loop found real pre-existing defects, which says the document holds more; each loop's fixes also seeded about half the next loop's findings, which says the repairs are noisy. At **1149 lines** this document is a split candidate on the instrument's own size signal, and that is filed rather than done here. |
 
 **Loop 1, what it caught.** Both lanes independently led with the
 same three defects, which is the strongest corroboration this
