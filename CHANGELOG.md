@@ -220,6 +220,14 @@ signaling per
 
 ### Fixed
 
+- **The scanner finds a port that lives in a file the launcher imports** (LWSM-1155)
+  A project whose launcher keeps its port one import away — `serve.mjs`
+  importing `./lib/port.mjs` — showed as "port unknown". The scanner
+  followed a launcher that *runs* another file and not one that *imports*
+  one, and for Node and Python launchers it followed nothing at all.
+  Relative imports only, still exactly one hop, and every existing safety
+  constraint unchanged.
+
 - **A project's whole row, controls included, now fits in one magnifier view (LWSM-1032)**
   Buttons took a fixed width whatever their label said, so a row for a
   long-named project ran past the width a magnifier shows at once and

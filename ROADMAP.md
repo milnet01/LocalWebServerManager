@@ -2480,7 +2480,7 @@ path. `docs/design.md § Detection rules` is the contract.
   **not** render the duplicate-port count, which that table does not list. Those
   entries still reach the application log with every other reason.
 
-- 📋 [LWSM-1155] **P03b: The one-hop rule follows an IMPORT, not only an invocation.**
+- ✅ [LWSM-1155] **P03b: The one-hop rule follows an IMPORT, not only an invocation.**
   LWSM-1006 § 4.5 hops from a launcher to one more file, and
   `_HOP_KEYWORD` matches `exec`/`python3`/`python`/`node` — an
   INVOCATION. A launcher that is itself the program imports its
@@ -2529,6 +2529,15 @@ path. `docs/design.md § Detection rules` is the contract.
   clear that field first; the scanner still returns `port is None`
   for that project either way, which is what a test fixture should
   assert against rather than the rendered row.
+  Resolved (2026-08-20): shipped, and the filed **Scope** line was insufficient on its own — recorded because the gap is the useful part. It said to extend `_HOP_KEYWORD` to the import forms. Measured first: `_match_named_file` (launcher rules 3 and 4 — PYTHON and NODE) calls the hop **not at all**, and § 4.5 opened *"only for `kind == SHELL`"*, so for `serve.mjs` — the launcher this item was filed against — a wider keyword set is never reached. The **Acceptance** line is what settles it (*"a fixture whose LAUNCHER imports a sibling module holding the port"*), and it requires the hop wired into rules 3 and 4. Reproduced before fixing (`port=None`) and after (`port=4321 via lib/port.mjs`).
+  Three ways the import form had to differ from the invocation form, each forced by measurement: it reads EVERY import line (the invocation form reads exactly one — the last, because the rule is *the last invocation* — and the port-bearing import need not be last); it takes the first specifier that YIELDS a port rather than the first readable one (the real launcher imports `./stats.mjs`, `./lib/github.mjs`, `./lib/port.mjs` and only the third declares anything); and a MISS must not spend the budget (a real Flask launcher yields 95 specifiers whose first eight are all stdlib, and stdlib imports sit above local ones, so counting misses would exhaust the bound before the first local module and make the Python half detect nothing on any realistic file).
+  All six § 4.5 constraints still apply — the target goes through `_accept_hop` unchanged — and it is still exactly one hop.
+  **Reading every hit over the author's 7 real projects found three defects no fixture had asked for**: `\bimport\b` matches inside `not-an-import` (`-` is a word boundary), so `console.log("./not-an-import")` hopped, and the keyword now has to be in statement position; `from ..up import x` had its dots stripped into a ROOT-level `up.py`, which is not a refusal but a *different file* read and believed; and the budget defect above.
+  **Verdict diff over that population: exactly ONE moved, and it is this item's.** That is the evidence the change is surgical, and a test count cannot give it.
+  7 mutants, 7 dead. Two of the first-draft mutants were INERT and reported green (one deleted the increment instead of moving it, one never applied through shell escaping) — both re-run properly; sixth occurrence of CLAUDE.md's *a prescribed mutation can be inert* trap. One property is NOT mutation-proven and the test says so: one-hop-ness is the absence of recursion, so breaking it means ADDING code.
+  Spec folded back — § 4.5 now states both forms and why the original reasoning was true of `exec` and false of `import`; INV-10 extended to rules 3 and 4.
+  970 tests (was 957), `./scripts/local-ci.sh` green, `doc_integrity` clean.
+  Known limits, deliberate and stated in the spec: an extension-less specifier (`require("./config")`) is not resolved against `.js`/`.mjs`; two hops still comes back unknown. The bullet's own note about clearing `port_override` on that project to re-observe the symptom still applies — the override is a USER_FIELD and survives a rescan.
   **Layman:** When a project keeps its port number in a small file next to the launcher, find it there too.
   Kind: implement.
   Source: in-session-2026-08-19 (measured against Ants_Projects_Hub_Website).
