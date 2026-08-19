@@ -19,6 +19,7 @@ from PySide6.QtCore import (
     QCoreApplication,
     QEvent,
     QObject,
+    QPoint,
     QRect,
     QRectF,
     QRunnable,
@@ -304,7 +305,18 @@ class ProjectRow(QFrame):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFrameShape(QFrame.Shape.StyledPanel)
 
-        layout = QHBoxLayout(self)
+        # Two layouts, not one: the cells and controls across, and the failure
+        # message under them (LWSM-1032). A message beside the controls would
+        # be horizontal sprawl, which `design.md § Accessibility` rules out in
+        # the same breath as it asks for the message to be here at all —
+        # "vertical rhythm stays generous, horizontal sprawl does not".
+        #
+        # The outer layout keeps the widget's default margins so `_glyph_x` is
+        # unchanged; the inner one carries the glyph column and no margins of
+        # its own, or the two would add up.
+        outer = QVBoxLayout(self)
+        layout = QHBoxLayout()
+        outer.addLayout(layout)
 
         # The glyph is PAINTED, not labelled (LWSM-1071). It was a QLabel with
         # setAccessibleName(""), which does not hide anything: QAccessibleDisplay
@@ -316,8 +328,10 @@ class ProjectRow(QFrame):
         self._view: RowView | None = None
         # contentsMargins() -> QMargins, not getContentsMargins()'s tuple:
         # PySide6 types the latter as `object`, which a checker cannot unpack.
-        margins = layout.contentsMargins()
+        margins = outer.contentsMargins()
         self._glyph_x = margins.left()
+        outer.setContentsMargins(0, margins.top(), 0, margins.bottom())
+        self._cells_layout = layout
         # Kept because _apply_text_metrics re-derives the left margin from it on
         # every font change: adding the glyph column to whatever the margin
         # currently is would compound it on each call.
@@ -363,6 +377,16 @@ class ProjectRow(QFrame):
         # which forces a pan and a memory test").
         layout.addStretch(1)
 
+        # Created only when something fails, never kept hidden. A hidden
+        # QLabel is still a child of the accessibility tree — measured: it
+        # reports `invisible` but it is there, named `''` — and an unnamed
+        # child is what LWSM-1071 spent an item removing. It also must not
+        # reserve height while empty: a blank line under every row is the
+        # horizontal-sprawl problem turned vertical, on a list read one row at
+        # a time.
+        self._error: QLabel | None = None
+        self._outer_layout = outer
+
         self._apply_text_metrics()
         self.update_from(row)
 
@@ -400,7 +424,10 @@ class ProjectRow(QFrame):
         self._state.setMinimumWidth(self._state_floor)
         self._port.setMinimumWidth(self._port_floor)
 
-        layout = self.layout()
+        # The INNER layout: `self.layout()` is the vertical one that holds it
+        # and the failure line, and widening its left margin would indent the
+        # message as well as the cells.
+        layout = self._cells_layout
         self._glyph_width = metrics.horizontalAdvance("●") + layout.spacing()
         layout.setContentsMargins(
             self._base_margins.left() + self._glyph_width,
@@ -413,6 +440,44 @@ class ProjectRow(QFrame):
         # buttons exist, and again on every later font change when they do.
         if hasattr(self, "start_button"):
             self._fit_buttons()
+
+    def show_error(self, message: str) -> None:
+        """Put a failure under this row's controls.
+
+        Announced as part of the row rather than as a separate control: it is
+        not interactive, and a screen-reader user reaching it by Tab would have
+        found a stop with nothing to do.
+        """
+        if self._error is None:
+            self._error = QLabel(self)
+            # PlainText for the reason the cells are: a failure interpolates a
+            # project's own name and a launcher's own error string.
+            self._error.setTextFormat(Qt.TextFormat.PlainText)
+            self._error.setWordWrap(True)
+            self._error.setFont(self.font())
+            self._outer_layout.addWidget(self._error)
+        self._error.setText(message)
+        self._error.show()
+
+    def clear_error(self) -> None:
+        """Destroy the label rather than blanking it — see `__init__` on why an
+        empty one may not be left in the accessibility tree."""
+        if self._error is None:
+            return
+        self._outer_layout.removeWidget(self._error)
+        self._error.deleteLater()
+        self._error = None
+
+    def error_rect(self) -> QRect | None:
+        """Where the failure is on SCREEN, or None if none is shown.
+
+        In global coordinates because that is the only frame in which "next to
+        the row that raised it" can be checked — a widget can be inside the
+        right parent and painted nowhere near it.
+        """
+        if self._error is None:
+            return None
+        return QRect(self._error.mapToGlobal(QPoint(0, 0)), self._error.size())
 
     def _fit_buttons(self) -> None:
         """Each button as wide as its own label, not the style's default.
@@ -539,7 +604,16 @@ class ProjectRow(QFrame):
         glyph_painter = QPainter(self)
         glyph_painter.setPen(self._glyph_color)
         glyph_painter.drawText(
-            QRect(self._glyph_x, 0, self._glyph_width, self.height()),
+            # Centred on the STATE CELL rather than on the row, which are the
+            # same rectangle until a failure line is shown and are not
+            # afterwards — the glyph would drift down the taller row and sit
+            # beside nothing (LWSM-1032).
+            QRect(
+                self._glyph_x,
+                self._state.y(),
+                self._glyph_width,
+                self._state.height(),
+            ),
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter,
             self._glyph_text,
         )
@@ -682,6 +756,12 @@ class ProjectRow(QFrame):
             # (LWSM-1111). `retranslate()` is the shape the fix takes.
             return
         self._view = row
+        # The state has moved on, so a failure describing the old one is now a
+        # lie — and a magnifier user reading one row at a time has nothing else
+        # on screen to contradict it (LWSM-1032). Cleared here rather than on a
+        # timer: what makes the message stale is the state changing, and that
+        # is exactly what reaching this line means.
+        self.clear_error()
 
         # .get, not [...]: this runs inside a signal handler, so an unmapped
         # state would be a UI crash rather than a missing glyph — and LWSM-1011
@@ -921,7 +1001,7 @@ class MainWindow(QMainWindow):
         self.set_text_scale(text_scale, remember=False)
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
-        controller.action_failed.connect(self.set_status_message)
+        controller.action_failed.connect(self._report_failure)
         controller.confirmation_required.connect(self._ask_to_trust)
 
         if notices:
@@ -1362,6 +1442,24 @@ class MainWindow(QMainWindow):
             # `setFont` delivers FontChange to the row synchronously, so every
             # floor has already been re-derived by the time this runs.
             self._align_columns()
+
+    def _report_failure(self, path: Path, message: str) -> None:
+        """A failure goes to the row it is about, and to the status bar if
+        there is no such row (LWSM-1032).
+
+        `design.md § Accessibility`: feedback surfaces next to the row or
+        control that caused it, because a message in a far-off status bar is
+        invisible to someone whose lens is on a button.
+
+        The fallback is not politeness — a path can name a project that has
+        since been removed, and a failure nobody sees is the one failure mode
+        worse than a badly placed one.
+        """
+        row = self._rows.get(path)
+        if row is None:
+            self.set_status_message(message)
+            return
+        row.show_error(message)
 
     def set_status_message(self, text: str) -> None:
         self.statusBar().showMessage(text)

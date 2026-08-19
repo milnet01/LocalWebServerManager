@@ -14,7 +14,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -3385,3 +3385,135 @@ def test_every_interactive_widget_has_a_name_a_screen_reader_can_read(
         if interface is None or not interface.text(QAccessible.Text.Name).strip():
             unnamed.append(name)
     assert not unnamed, f"a screen reader finds these unnamed: {unnamed}"
+
+
+def test_a_failure_is_reported_on_the_row_that_raised_it(qtbot, built) -> None:
+    """`design.md § Accessibility`: "a message in a far-off status bar is
+    invisible to someone whose lens is on a button", so feedback surfaces next
+    to the row or control that caused it.
+
+    The assertion is on the RECTANGLES, not on which widget was handed the
+    text: a label that is inside the row and hidden overlaps nothing, and a
+    label placed correctly but off-screen would pass any parenthood check.
+
+    Two rows, because the interesting failure is the message landing on the
+    wrong one — which a one-row fixture cannot see (this file, twice).
+    """
+    window, controller = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    first, second = rows_of(window)
+
+    controller.action_failed.emit(second._view.path, "it would not start")
+    qtbot.wait(20)
+
+    where = second.error_rect()
+    assert where is not None, "the failure is not shown on the row at all"
+    assert where.intersects(QRect(second.mapToGlobal(QPoint(0, 0)), second.size())), (
+        f"the message at {where} does not overlap the row that raised it"
+    )
+    assert first.error_rect() is None, "the message landed on the wrong row too"
+
+
+def test_the_failure_clears_when_the_row_moves_on(qtbot, built) -> None:
+    """A stale error beside a project that has since started is a lie, and a
+    magnifier user reading one row at a time has nothing else on screen to
+    contradict it."""
+    probe = FakeProbe()
+    window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
+    with qtbot.waitExposed(window):
+        window.show()
+    row = rows_of(window)[0]
+    controller.action_failed.emit(row._view.path, "it would not start")
+    qtbot.wait(20)
+    assert row.error_rect() is not None, "precondition"
+
+    probe.listening.add(5005)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    qtbot.wait(20)
+
+    assert row.error_rect() is None, "the error outlived the state it described"
+
+
+def test_a_failure_for_no_particular_project_still_reaches_the_user(
+    qtbot, built
+) -> None:
+    """Not every failure has a row — a path that has since been removed, or a
+    message about the manager rather than a project. The status bar stays the
+    channel for those, so widening the signal cannot lose one."""
+    window, controller = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+
+    controller.action_failed.emit(Path("/srv/gone"), "nothing to start it with")
+    qtbot.wait(20)
+
+    assert "nothing to start it with" in window.statusBar().currentMessage()
+
+
+def test_the_failure_is_announced_and_leaves_nothing_unnamed_behind(
+    qtbot, built
+) -> None:
+    """Two halves of one rule, and the second is LWSM-1071 arriving from the
+    other direction.
+
+    A shown failure must reach a screen reader — it is the row's own text, so
+    it belongs in the tree. And a CLEARED one must leave nothing there: a
+    hidden QLabel is still a child, named `''`, which is the unnamed child
+    LWSM-1071 spent an item removing. That is why the label is created on
+    demand and destroyed rather than hidden, and this is the test that fails
+    if someone simplifies it back to `hide()`.
+    """
+    window, controller = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    row = rows_of(window)[0]
+    before = accessible_children(row)
+    assert "" not in before, before
+
+    controller.action_failed.emit(row._view.path, "it would not start")
+    qtbot.wait(20)
+    assert "it would not start" in accessible_children(row)
+
+    row.clear_error()
+    qtbot.wait(20)
+
+    after = accessible_children(row)
+    assert "" not in after, f"an unnamed child was left behind: {after}"
+    assert after == before
+
+
+def test_a_poll_during_editing_does_not_steal_the_focus_or_the_caret(
+    qtbot, built
+) -> None:
+    """`design.md § Accessibility`: "the app never steals focus from what the
+    user is reading".
+
+    Driven while the user is TYPING, which is the design's own wording and the
+    case that matters: the poll runs once a second and rebuilds nothing, but a
+    `_sync_rows` that touched the focus would move the caret out of the filter
+    box between two keystrokes.
+
+    `test_focus_survives_a_status_change` looks adjacent and is not this: it
+    asserts the row widget was not REBUILT, and never checks where the focus
+    went — measured 2026-08-19, it calls `setFocus()` and then asserts only
+    identity and the rendered word.
+    """
+    probe = FakeProbe(5005)
+    window, controller = window_for(qtbot, built, two_rows(), probe)
+    with qtbot.waitExposed(window):
+        window.show()
+    window._filter.setFocus()
+    qtbot.waitUntil(window._filter.hasFocus, timeout=2000)
+    qtbot.keyClicks(window._filter, "al")
+    caret = window._filter.cursorPosition()
+
+    probe.listening.clear()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    qtbot.wait(20)
+
+    assert window._filter.hasFocus(), (
+        f"the poll moved the focus to {window.focusWidget()}"
+    )
+    assert window._filter.cursorPosition() == caret
+    assert window._filter.text() == "al"

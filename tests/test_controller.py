@@ -1200,7 +1200,8 @@ def test_a_project_with_no_launcher_says_so_rather_than_failing(
         FakeSupervisor(),
     )
     messages: list[str] = []
-    controller.action_failed.connect(messages.append)
+    # (path, message) since LWSM-1032; these tests assert the message.
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
 
     controller.start_project(Path("/srv/a"))
 
@@ -1218,7 +1219,8 @@ def test_an_unconfirmed_launcher_asks_rather_than_failing(qtbot, controllers) ->
     asked: list[tuple] = []
     controller.confirmation_required.connect(lambda p, r: asked.append((p, r)))
     failures: list[str] = []
-    controller.action_failed.connect(failures.append)
+    # (path, message) since LWSM-1032; these tests assert the message.
+    controller.action_failed.connect(lambda _path, text: failures.append(text))
 
     controller.start_project(Path("/srv/a"))
 
@@ -1242,7 +1244,8 @@ def test_stopping_a_project_this_manager_did_not_start_is_refused(
         controllers, [startable()], FakeProbe(5005), FakeSupervisor()
     )
     messages: list[str] = []
-    controller.action_failed.connect(messages.append)
+    # (path, message) since LWSM-1032; these tests assert the message.
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
 
     controller.stop_project(Path("/srv/a"))
 
@@ -1262,7 +1265,8 @@ def test_stop_shows_stopping_and_a_bound_port_afterwards_only_warns(
     controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
     controller.start_project(Path("/srv/a"))
     messages: list[str] = []
-    controller.action_failed.connect(messages.append)
+    # (path, message) since LWSM-1032; these tests assert the message.
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
 
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.stop_project(Path("/srv/a"))
@@ -1302,7 +1306,8 @@ def test_a_stop_that_raises_clears_the_overlay_and_reports(qtbot, controllers) -
     controller.start_project(Path("/srv/a"))
     controller.stop_project(Path("/srv/a"))
     messages: list[str] = []
-    controller.action_failed.connect(messages.append)
+    # (path, message) since LWSM-1032; these tests assert the message.
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
 
     supervisor.futures[0].set_exception(RuntimeError("the pool fell over"))
 
@@ -1354,7 +1359,8 @@ def test_a_stop_whose_port_is_still_held_does_not_freeze_on_stopping(
     controller.stop_project(Path("/srv/a"))
     assert controller.rows()[0].status is ProjectStatus.STOPPING
     messages: list[str] = []
-    controller.action_failed.connect(messages.append)
+    # (path, message) since LWSM-1032; these tests assert the message.
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
 
     supervisor.futures[0].set_result(
         StopOutcome(
@@ -1388,7 +1394,8 @@ def test_a_stop_whose_port_check_failed_still_waits_for_a_poll(
     controller.start_project(Path("/srv/a"))
     controller.stop_project(Path("/srv/a"))
     messages: list[str] = []
-    controller.action_failed.connect(messages.append)
+    # (path, message) since LWSM-1032; these tests assert the message.
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
 
     supervisor.futures[0].set_result(
         StopOutcome(exit_code=0, warning="could not check port 5005 after stopping: x")

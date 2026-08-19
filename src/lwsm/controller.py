@@ -332,7 +332,13 @@ class ProjectController(QObject):
     projects_changed = Signal()
     # A Start or Stop that could not even be attempted — no launcher, a bound
     # port, a refused launcher. The window puts it in the status bar.
-    action_failed = Signal(str)
+    # (path, message). The PATH is what lets the window put the message beside
+    # the row that raised it rather than in a corner — `design.md
+    # § Accessibility`: "a message in a far-off status bar is invisible to
+    # someone whose lens is on a button" (LWSM-1032). Carried on the signal
+    # rather than recovered from the text, which would be string-matching a
+    # project name back out of a sentence.
+    action_failed = Signal(object, str)
     # A launcher that has never been confirmed (ADR-0003 § Trust). Carries the
     # `LauncherUntrusted` refusal, which holds the resolved path, the exact argv
     # and the fingerprint — "not security theatre only if it shows what will
@@ -434,14 +440,16 @@ class ProjectController(QObject):
         """
         record = self._record(path)
         if record is None or self._supervisor is None:
-            self.action_failed.emit(f"cannot start {path}: nothing to start it with")
+            self.action_failed.emit(
+                path, f"cannot start {path}: nothing to start it with"
+            )
             return
         if not record.argv:
             # An honest refusal rather than a guess. The launcher is a detected
             # field, so the answer is a rescan, and saying so is more use than
             # "failed to start".
             self.action_failed.emit(
-                f"{record.name} has no launcher recorded — run Rescan first"
+                path, f"{record.name} has no launcher recorded — run Rescan first"
             )
             return
         try:
@@ -454,12 +462,12 @@ class ProjectController(QObject):
             self.confirmation_required.emit(path, refusal)
             return
         except SupervisorError as exc:
-            self.action_failed.emit(f"{record.name}: {exc}")
+            self.action_failed.emit(path, f"{record.name}: {exc}")
             return
         except OSError as exc:
             # The log file could not be opened. Distinct from SupervisorError
             # because it is about this machine rather than about the project.
-            self.action_failed.emit(f"{record.name}: {exc}")
+            self.action_failed.emit(path, f"{record.name}: {exc}")
             return
         self._set_overlay(path, ProjectStatus.STARTING)
 
@@ -471,15 +479,18 @@ class ProjectController(QObject):
         """
         record = self._record(path)
         if record is None or self._supervisor is None:
-            self.action_failed.emit(f"cannot stop {path}: nothing is supervising it")
+            self.action_failed.emit(
+                path, f"cannot stop {path}: nothing is supervising it"
+            )
             return
         if path not in self._supervisor.running():
             # A `running (foreign)` project — this manager did not spawn it, so
             # it has no handle to signal through, and ADR-0003 forbids
             # signalling a bare PID. The foreign-stop path is a separate item.
             self.action_failed.emit(
+                path,
                 f"{record.name} was not started by this manager, so it cannot "
-                "be stopped from here yet"
+                "be stopped from here yet",
             )
             return
         self._set_overlay(path, ProjectStatus.STOPPING)
@@ -536,12 +547,12 @@ class ProjectController(QObject):
         self._restarting.discard(path)
         if isinstance(outcome, BaseException):
             self._clear_overlay(path)
-            self.action_failed.emit(f"could not stop {path.name}: {outcome}")
+            self.action_failed.emit(path, f"could not stop {path.name}: {outcome}")
             return
         if isinstance(outcome, StopOutcome):
             if outcome.warning:
                 # A bound port after a stop is a warning, never a second signal.
-                self.action_failed.emit(outcome.warning)
+                self.action_failed.emit(path, outcome.warning)
             if outcome.port_still_bound:
                 # Terminal (LWSM-1134): our child is gone and something this
                 # manager did not start holds the port, so every poll from here
