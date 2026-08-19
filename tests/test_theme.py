@@ -203,8 +203,8 @@ def test_each_state_takes_its_own_token_and_stopping_takes_none(
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_style_sheet_carries_every_state(theme: Theme) -> None:
-    """`design.md § Tokens, not colours` gives a Theme two outputs. Only the
-    palette existed, so widget code composed the CSS itself."""
+    """`design-look-and-feel.md § Tokens, not colours` gives a Theme two
+    outputs. Only the palette existed, so widget code composed the CSS itself."""
     sheet = theme.style_sheet()
 
     for status in ProjectStatus:

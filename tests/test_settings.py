@@ -252,7 +252,7 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
 
 def test_the_text_scale_defaults_to_a_hundred_percent(tmp_path: Path) -> None:
     """A first run must not be magnified. The control multiplies the desktop's
-    own font (`design.md § Accessibility`), so 100 % means "whatever the
+    own font (`design-accessibility.md § Accessibility`), so 100 % means "whatever the
     desktop already said" rather than a size of our choosing."""
     assert Settings().text_scale == 100
     assert settings.load(tmp_path / "absent.json").settings.text_scale == 100

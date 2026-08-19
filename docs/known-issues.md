@@ -259,7 +259,7 @@ in the current build. Owners are named, not implied.
   (`tests/test_mainwindow.py:369-381`) varies window width but uses a
   one-character name, so the variable that actually breaks it is never varied.
 - **Why deferred:** the fix is an elide-or-wrap policy on the name cell, which
-  is a layout decision P04 owns; `design.md § Accessibility` calls the
+  is a layout decision P04 owns; `design-accessibility.md § Accessibility` calls the
   spread-out shape "a pan and a memory test" and P04 is where that is settled.
 - **Will be addressed in:** P04 (LWSM-1030 — appearance and accessibility
   foundation)
@@ -311,7 +311,7 @@ in the current build. Owners are named, not implied.
   documentation defect.** `setAccessibleDescription` is still absent from
   `src/`, and that is no longer a breach of anything: `coding.md § O8`
   clause 1 requires a description only "where the name is not
-  self-explanatory", while `design.md § Accessibility` had widened it to an
+  self-explanatory", while `design-accessibility.md § Accessibility` had widened it to an
   unconditional "name and description". The design now states § O8's
   condition, so the standard and the design agree and this Detail's "O8 clause
   1's second half is unimplemented" reads against the wider claim rather than
@@ -1120,7 +1120,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 12)
 - **Detail:** `mainwindow.py:702` sends every message — start/stop failures,
   "%1 has no port to open", "Could not open a browser for %1", the rescan
-  summary — to `self.statusBar().showMessage(text)`. `design.md § Accessibility`
+  summary — to `self.statusBar().showMessage(text)`. `design-accessibility.md § Accessibility`
   rules this out by name: "Feedback appears where the action happened. A message
   in a far-off status bar is invisible to someone whose lens is on a button." The
   stated primary user is a magnifier user. Separately,
@@ -1136,7 +1136,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Detail:** `mainwindow.py:450-459` disables all four buttons in a row on
   Start; Qt moves focus off a focused widget when it is disabled, so the
   keyboard user's caret jumps elsewhere and does not come back on re-enable.
-  `design.md § Accessibility`: "The app never steals focus from what the user is
+  `design-accessibility.md § Accessibility`: "The app never steals focus from what the user is
   reading." Fix: move focus to the row frame (already `StrongFocus`) before
   disabling.
 - **Why deferred:** P04 owns keyboard navigation
@@ -1210,7 +1210,7 @@ the phase that owns the code. Owners are named, not implied.
 
 - **Found by:** code-quality-review-2026-08-15 lane-3 (MEDIUM, dim 12)
 - **Detail:** `mainwindow.py:715` — `box = QMessageBox(self)`.
-  `design.md § Accessibility`: "Confirmations are parented to what they are
+  `design-accessibility.md § Accessibility`: "Confirmations are parented to what they are
   about, so the compositor opens them over that widget … a confirmation they
   cannot find is a confirmation they will dismiss blind", with the check
   specified as the dialog rect overlapping the raising widget. Fix: parent to
@@ -1225,7 +1225,7 @@ the phase that owns the code. Owners are named, not implied.
   rows produced a rectangle identical to one parented to the window —
   overlapping the middle two rows and neither outer one. ADR-0007 says the
   application may not position its own window under Wayland, so no code change
-  could have made the promise true. `design.md § Accessibility` was amended to
+  could have made the promise true. `design-accessibility.md § Accessibility` was amended to
   what the platform delivers (over the list, application-modal) with the
   user's decision recorded beside it; `QMessageBox(self)` is now the correct
   parent and the quotation in the Detail above is of superseded text.

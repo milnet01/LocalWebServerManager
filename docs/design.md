@@ -30,6 +30,14 @@ rescans (ADR-0005).
 [Cross-cutting concerns](#cross-cutting-concerns) ·
 [ADRs](#architecture-decision-records) · [Sign-off](#sign-off)
 
+**Two sections now live in their own documents** — the theme and
+token contract in [`design-look-and-feel.md`](design-look-and-feel.md)
+and the accessibility contract in
+[`design-accessibility.md`](design-accessibility.md), split out on
+2026-08-20 (LWSM-1157) because this document had reached 1223 lines
+and its rule-14 gate was capping without converging. The two headings
+below are kept as pointers, so an older citation still lands.
+
 **Naming.** Sibling *server* projects are anonymised `project-a` …
 `project-g` throughout, because naming them alongside their ports
 publishes a target list of the author's local services (LWSM-1045).
@@ -108,7 +116,7 @@ Two rules the diagram encodes:
 ## Components
 
 - **MainWindow** — the project list (**state word first**, then
-  name, port, uptime — § Accessibility owns that order and a
+  name, port, uptime — `design-accessibility.md` § Accessibility owns that order and a
   coloured dot never leads) plus a detail pane for the selected
   project, and the
   **Open in browser** action, which opens
@@ -558,333 +566,22 @@ burden:
 
 ## Look and feel
 
-The default Qt widget style looks like a 2005 configuration
-dialog, which is not what a tool you keep open all day should
-look like. The app ships its own **theme layer**: a set of
-semantic colour tokens, one palette per theme, applied as a
-generated Qt style sheet at runtime.
-
-**Themes are switchable without a restart** — changing one
-regenerates the style sheet and reapplies it. The choice lives in
-`settings.json`.
-
-### The palettes — adopted from `finbreak`, not invented
-
-`finbreak` already solved this well and the user likes the
-result, so this project **adopts its theme system rather than
-writing a parallel one** (`docs/standards/coding.md § 1.3`, reuse
-before rewriting).
-
-**The palette values are copied into this repository, not
-referenced out of it.** `finbreak` is a separate, unversioned
-project that lives outside this tree at a path depending on the
-user's own scan root, so a design document that points at it is
-not buildable by anyone else — and this repository is public.
-LWSM-1031 lands the values as a table in this repo (one row per
-token, one column per theme); `finbreak` is cited as
-**provenance**, meaning where the values came from and who to ask
-about them, never as the source an implementer reads. Until that
-table exists the theme layer has no contract, which is why
-LWSM-1031 owns transcribing it as its first step rather than its
-last.
-
-**Eight palettes** — six aesthetic (three light, three dark) plus
-the two high-contrast ones § Accessibility requires. All
-eight are themes in every respect that matters to the code: same
-token set, same contrast test, same picker.
-
-| Theme | Kind | Character |
-|---|---|---|
-| **midnight** *(default dark)* | dark | Deep ground, warm gold accent. |
-| **graphite** | dark | Neutral grey with a cool blue accent — the "long session" theme. |
-| **emerald** | dark | Dark with a green accent. |
-| **ledger** *(default light)* | light | Warm paper ground, muted gold accent. |
-| **parchment** | light | Warmer still, softer contrast. |
-| **mint** | light | Cool light ground, green accent. |
-| **contrast-dark** | dark | Maximum-contrast text, heavy borders, thick focus ring, no decorative subtlety. |
-| **contrast-light** | light | The same, on a light ground. |
-
-Plus **Follow system**, which tracks the desktop's light/dark
-preference. It resolves to `midnight` or `ledger` normally, and to
-`contrast-dark` or `contrast-light` when the desktop reports a
-high-contrast preference — so a user who has already told their
-desktop they need contrast does not have to tell this app too.
-Dark is the default, per the user's stated preference.
-
-### Tokens, not colours
-
-A theme is **nine semantic tokens plus an `is_dark` flag**, the
-same shape finbreak uses:
-
-`window` · `base` · `alt_base` · `text` · `muted_text` ·
-`accent` · `accent_soft` · `attention` · `border` — and
-`is_dark`, which drives the light/dark grouping in the picker.
-
-This project **extends** that set with **eight** — one per derived
-state, which is ADR-0004's seven, **plus `state_unknown`, which is
-not one of them**: `unknown` means nobody has looked yet rather than
-a state observation produced, and it renders in every list before the
-first poll returns, so leaving it untokened would show it in body
-text. ADR-0004's list therefore defines the seven, not the set:
-`state_running` (`running (managed)`) · `state_starting`
-(`starting`) · `state_wrong_port` (`running (wrong port)`) ·
-`state_foreign` (`running (foreign)`) · `state_blocked`
-(`port blocked`) · `state_failed` (`failed`) · `state_stopped`
-(`stopped`) · `state_unknown` (`unknown`).
-
-**The focus ring takes `accent` and gets no token of its own**, so
-every palette gets a legible ring out of the contrast it already has
-to prove for its accent — one fewer value to solve for per palette,
-and one that cannot drift from it. `Theme.focus_ring_color()`
-expands it, because `§ O7` forbids a widget building a `QColor`.
-
-**A generated style sheet costs font inheritance, and that is the
-price of theming this way.** QStyleSheetStyle resolves a font onto
-every descendant, which marks it explicitly set — so an application
-font change reaches the window and propagates no further, and the
-in-app 100-200 % control moves nothing the user reads unless the new
-font is pushed down by hand. Measured 2026-08-19 (LWSM-1032): at
-200 % the state column widened from 53 px to 103 px around text that
-stayed at 9 pt. `MainWindow.changeEvent` re-pushes to every
-descendant; anything else adopting a style sheet inherits this.
-
-`stopping` gets no token: it is the optimistic overlay's transient
-label, not a state derived from observation (ADR-0004, § State
-management). Adding a state to ADR-0004 means adding a token here,
-which the contrast test in `docs/standards/testing.md § T8` then
-parametrises over automatically.
-
-Widgets name tokens, never colours. Adding a theme means adding a
-palette, never touching a widget, and
-`docs/standards/coding.md § O7` makes a literal colour in widget
-code a review failure. Tokens expand into a `QPalette` (so native
-widgets follow) **and** a generated style sheet (for the polish
-Qt's palette cannot express) — finbreak's two-layer split, which
-is worth copying because a stylesheet-only theme leaves stock
-dialogs looking wrong.
-
-The one deliberate divergence: finbreak stores the choice in
-`QSettings`; this project stores it in `settings.json` with
-everything else, per `docs/standards/coding.md § O6`.
+**Moved to [`docs/design-look-and-feel.md`](design-look-and-feel.md)**
+(LWSM-1157, 2026-08-20) — the theme layer, the palettes, and the
+token contract every widget colours through.
 
 ## Accessibility
 
-**The primary user is partially sighted and reads with a screen
-magnifier** (user, 2026-08-03). That is not a compliance
-checkbox on this project — it is a description of who the app is
-for, and it changes the layout, not just the settings screen.
+**Moved to [`docs/design-accessibility.md`](design-accessibility.md)**
+(LWSM-1157, 2026-08-20) — who the app is built for, what magnifier
+use demands of the layout, the non-negotiables, and the check table
+that is the acceptance surface for every accessibility item.
 
-### What magnifier use actually demands
-
-A magnifier shows a small window onto the screen, and the user
-pans it. Everything below follows from that one fact:
-
-- **Status is a word first, a colour second.** A coloured dot is
-  a small target carrying the most important information in the
-  app — the wrong way round for someone panning a lens. Each row
-  leads with the **state spelled out** ("running", "port
-  blocked"). The full rule and its test are *Never colour alone*
-  below; what magnifier use adds is that the word must come
-  **first in the row**, not merely be present somewhere in it.
-- **Related information sits together.** A project's name, state,
-  port and controls are adjacent and readable **within one lens
-  view — a 600 logical-pixel-wide window at the row's height, at
-  100 % text size**,
-  which is the budget the layout test asserts against — never name
-  on the far left and state on the far right,
-  which forces a pan and a memory test. This tempers the usual
-  "generous spacing" advice: vertical rhythm stays generous,
-  horizontal sprawl does not.
-- **Feedback appears where the action happened.** A message in a
-  far-off status bar is invisible to someone whose lens is on a
-  button. Errors surface **next to the row that raised them**, not
-  in a corner. Confirmations are the next bullet's, and land
-  differently — a dialog is placed by the compositor, not by us.
-- **Confirmations are parented to the window and centred on it**, so
-  the compositor opens them over the list the user is working in
-  rather than somewhere they have to go hunting for — a confirmation they cannot
-  find is a confirmation they will dismiss blind. Note the mechanism:
-  this is **not** `move()` on a dialog. Under Wayland an application
-  cannot position its own window, and ADR-0007's KWin path
-  deliberately skips transients so it never places a dialog. Modal
-  parenting is what the framework will honour; anything stronger
-  is a promise the platform refuses.
-
-  **And modal parenting delivers less than this bullet claimed until
-  2026-08-19.** Measured while closing LWSM-1032, against the pinned
-  PySide6 6.11.1: Qt centres a `QMessageBox` on the parent's WINDOW,
-  not on the parent widget. A box parented to the last of four rows
-  and a box parented to the window produced the identical screen
-  rectangle, overlapping the middle two rows and neither of the
-  outer two. So "over that widget" is not something this application
-  can promise for any particular row, and the bullet above now says
-  *parented to the window and centred on it*, which is what Qt
-  actually does. The check row below was narrowed to match; what is
-  testable is that the dialog lands over the project list rather than
-  in a corner of the screen, and that it is **application**-modal.
-
-  **Not "modal to the window"** — that is Qt's `WindowModal`, which
-  blocks `MainWindow` alone and leaves the tray's own per-project
-  start/stop menu (§ Components) live while a trust prompt waits,
-  which is the hole the modality exists to close. A `QMessageBox` is
-  `ApplicationModal` from construction, measured 2026-08-19, so this
-  is a property to assert rather than one to add.
-
-  **A confirmation raised from the tray shows and raises the window
-  first**, so there is a list for it to land over. § Components gives
-  the tray a per-project start/stop menu and closing the window hides
-  to tray, so this is reachable with no window on screen — where
-  "centred on the window" and the check row below are both
-  meaningless. The window comes back; the dialog is not orphaned.
-
-  **The alternative was considered and declined** (user, 2026-08-19):
-  an inline confirmation on the row would satisfy the original wording
-  exactly, and it would stop the trust prompt being modal — a user
-  could start a second project while one is waiting for an answer,
-  which is a change to ADR-0007's threat model rather than to this
-  section's layout advice.
-- **Nothing important is hover-only.** Hover states are easy to
-  miss at magnification and impossible to discover by keyboard.
-  Every affordance is visible at rest.
-
-### The non-negotiables
-
-**A high-contrast theme ships as a first-class option**, beyond
-the six aesthetic ones: maximum-contrast text, heavy borders, a
-thick focus ring, no decorative subtlety. Available in light and
-dark — `contrast-light` and `contrast-dark` in § Look and feel's
-table. This is an assistive tool, not a seventh colour scheme, and
-it is not allowed to regress: these two clear **7:1** (WCAG AAA)
-against the 4.5:1 the other six must meet, so a change that
-quietly softens them fails the build. `testing.md § T8` already
-carries that floor — it names 4.5:1 for every theme and 7:1 for
-these two — so it needs no amendment, and the row below points at
-its check rather than asking for a second one. (Until 2026-08-19
-this said T8 "today states one threshold for all themes" and that
-LWSM-1031 would land the amendment. LWSM-1031 landed it; the
-sentence was left describing the world before it.)
-
-**An in-app text-size control**, independent of the desktop's
-scaling — 100 % to 200 % — because desktop-wide scaling is a
-blunt instrument when only one window needs to be bigger. The
-layout must **reflow** at every step, never clip or truncate; the
-test asserts no text is elided at 200 %.
-
-**Never colour alone.** The commonest colour blindness is exactly
-red/green. Every state the app can display carries **at least three
-signals** — the word, a distinct glyph, and colour — and the set it
-quantifies over is **what the row can render today**, which is not
-ADR-0004's seven. Three of the seven are implemented
-(`running (managed)`, `stopped`, plus `starting` from the overlay);
-the other four (`running (wrong port)`, `running (foreign)`,
-`port blocked`, `failed`) arrive with P06's classifier and earn their
-glyph with the state rather than ahead of it. Two more render without
-being derived states at all: `unknown`, which has its own token, and
-`stopping`, which § Tokens deliberately gives none and which
-therefore falls through to the body text colour.
-
-**So `stopping` carries two signals, not three, and that is the
-decision rather than a gap** — a colour of its own would say a
-transient overlay is a state derived from observation, which is
-exactly what § Tokens refuses. The word and the glyph still
-distinguish it, which is what the greyscale test checks. Every other
-displayable state carries all three.
-
-The test is blunt: *the status list must be fully readable in
-greyscale* — compared over the **state cell**, which for this purpose
-is the painted glyph column plus the state label, measured together
-from the row's left edge. They are not one widget: the glyph is
-painted by the row (LWSM-1071, so it stays out of the accessibility
-tree) and the word is a `QLabel`. A comparison of the label alone
-would miss the glyph, which is one of the three signals.
-
-**Focus is unmissable.** A thick, high-contrast focus ring on
-every focusable widget in every theme — the magnifier user's
-"where am I?" depends on it entirely. The app never steals focus
-from what the user is reading.
-
-**Contrast.** Every text-on-background pair in **every** theme
-meets **WCAG AA** — 4.5:1 for body text, 3:1 for large text and
-for the non-text indicators that carry state. Contrast is
-arithmetic, so this is a unit test over the palettes rather than
-a matter of taste, and **a new theme cannot be added without
-passing it.** The adopted finbreak palettes are checked on
-arrival, not assumed: any pair that falls short is adjusted here
-and the divergence recorded, since the source app had its own
-reasons for its values.
-
-**Full keyboard operation.** Every action — start, stop, restart,
-open, rescan, centre on screen, custom actions — is reachable
-without a mouse, with
-a visible focus ring that meets contrast on every theme. Tab
-order follows visual order. No action is available only via
-double-click, hover, or a tray icon.
-
-**Screen readers.** Every interactive widget gets an accessible
-name, and a description (`setAccessibleName` /
-`setAccessibleDescription`) where the name is not self-explanatory —
-`coding.md § O8` clause 1 sets that condition, and this section does
-not widen it. Status reaches a screen reader as
-the same text *Never colour alone* already requires, so Orca
-announces "project-b, running, port 5005" rather than an unnamed
-icon — no separate accessibility-only string to drift. A state
-change announces itself once, not on every poll.
-
-**Respects the desktop, not our preferences.** System font family
-and size, honouring the desktop's font scaling and high-DPI
-settings rather than pinning pixel sizes — the in-app text-size
-control multiplies that, it does not replace it. No animation
-conveys information, and any decorative animation honours a
-reduce-motion preference.
-
-**Targets.** Clickable targets no smaller than 24×24 logical
-pixels at 100 %, scaling with the text-size setting rather than
-staying fixed while the text around them grows.
-
-**This is tested, not asserted** — and the list is exhaustive on
-purpose, because an accessibility claim with no test behind it is
-decoration. `docs/standards/testing.md § T8` carries **four** of
-the checks: contrast arithmetic across every theme, keyboard
-reachability of every action, accessible names on every
-interactive widget, and no elided text at 200 %.
-
-The remaining promises above need surfaces T8 does not yet have,
-so LWSM-1032 lands them alongside the four:
-
-| Promise | How it is checked |
-|---|---|
-| Readable in greyscale (never colour alone) | every state's rendered **state cell** differs from every other after a luminance-only transform, thresholded to ink-or-no-ink. Not the whole row: button enablement differs by state, so a whole-row comparison passes without the state cell rendering anything distinct — measured 2026-08-19, and greyscale alone is not enough either, since two colours of different luminance are two different greys |
-| High-contrast pair clears 7:1 | **already covered by `testing.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `contrast-light` / `contrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
-| Focus ring meets contrast in every theme | the same contrast arithmetic, over focus-ring vs background pairs |
-| Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % and 200 % |
-| A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |
-| No animation conveys information, and reduce-motion is honoured | assert no animation object exists across a real state change — there are none to suppress, so both halves hold together, and the row fails the day one is added |
-| Confirmations appear over the list, and are application-modal | assert `windowModality() == ApplicationModal`, and that the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of a list long enough for the dialog to miss them — at one row it passes, which is exactly the fixture size that would have hidden this — and no code change would have made it (LWSM-1032). **The rect half is an assertion about Qt's own centring, taken headless, and cannot speak for the compositor** — under Wayland placement is KWin's (ADR-0007) and degrades honestly. The modality half holds on every platform |
-| A confirmation raised with the window hidden shows it first | with the window hidden, drive the tray's start path and assert the window is visible before the dialog is shown. **Lands with the tray (P09)**, which is the only surface that can raise one with no window on screen; until then there is no path to drive and the row is stated rather than run |
-| The state word is first in the row | assert the state label's x-position precedes every other cell's |
-| Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window **at 100 % text size**. Deliberately not held at 200 %: the text doubles and the row with it, which is the control doing its job — wrapping the row to preserve the number would put the state and its controls on different lines, which is the pan this budget exists to prevent |
-| Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
-| Nothing important is hover-only | assert every action is reachable without a hover event |
-| Focus is never stolen | drive a poll cycle during editing; assert focus did not move |
-| System font and scaling honoured | assert no widget pins a font family or pixel size, **and that a change to the application font reaches a row's labels and buttons** — measured by `fontMetrics()`, the metric the widget paints with, never by a width the row derives from its own font. Not-pinning is not sufficient: QStyleSheetStyle resolves a font onto every descendant, so with a style sheet installed an application font change reaches the window and stops there (§ Look and feel) |
-
-**Every promise in § What magnifier use actually demands and
-§ The non-negotiables appears in one of those two lists** — those
-two subsections, not § Everything else below, whose contents are
-taste rather than promises. That is what makes the section
-trustworthy: not that the tests all exist today — LWSM-1032 lands
-the table's rows — but that a promise cannot be added here without
-a row appearing beside it. A claim with neither is decoration, and
-reviewing this section means checking that the two lists still
-cover it.
-
-### Everything else
-
-One accent colour used sparingly so it means something; no
-gradients pretending to be depth, no bevels, no icon-only buttons
-without both a tooltip and an accessible name. A manager utility
-should look like it belongs on the desktop it runs on, not like a
-web page pretending to be an app.
+**Both headings stay** so that a citation reading `design.md §
+Accessibility` — and there are many, most of them in dated ROADMAP
+records that describe what was true when they were written — still
+lands somewhere that says where the section went. A citation written
+from today on should name the file.
 
 ## Data flow
 

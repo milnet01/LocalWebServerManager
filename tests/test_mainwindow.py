@@ -124,7 +124,7 @@ def test_state_is_a_word_not_only_colour(
     row = rows_of(window)[0]
 
     # Strip colour and glyph and the state is still readable — the greyscale
-    # test design.md § Accessibility makes the blunt version of.
+    # test design-accessibility.md § Accessibility makes the blunt version of.
     assert row._state.text() == str(expected)
     assert str(expected) in row.accessibleName()
 
@@ -203,9 +203,10 @@ def test_the_glyph_is_still_painted_after_leaving_the_label(
 ) -> None:
     """Removing the glyph from the AT tree must not remove it from the screen.
 
-    `design.md § Accessibility` requires three redundant signals — word, colour
-    and glyph — and every assertion above this one would pass just as happily if
-    the glyph had simply been deleted. So this looks at the pixels.
+    `design-accessibility.md § Accessibility` requires three redundant
+    signals — word, colour and glyph — and every assertion above this one
+    would pass just as happily if the glyph had simply been deleted. So this
+    looks at the pixels.
     """
     window, _ = window_for(qtbot, built, [record("a", port)], FakeProbe(*listening))
     row = rows_of(window)[0]
@@ -455,9 +456,9 @@ def announcements(monkeypatch):
 
 
 def test_a_state_change_is_announced(qtbot, built, announcements) -> None:
-    """`design.md § Accessibility` promises "a state change announces itself
-    once". Qt does not notify AT-SPI when an accessible name changes, so
-    setAccessibleName alone left that promise unimplemented."""
+    """`design-accessibility.md § Accessibility` promises "a state change
+    announces itself once". Qt does not notify AT-SPI when an accessible name
+    changes, so setAccessibleName alone left that promise unimplemented."""
     probe = FakeProbe(5005)
     window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
     announcements.clear()
@@ -501,7 +502,7 @@ def test_an_unchanged_row_is_never_re_announced(qtbot, built, announcements) -> 
 # LWSM-1032's own acceptance: "assert name, state, port and controls all fall
 # inside a 600 px-wide window". A magnifier user pans; content that spreads to
 # the window's full width turns reading one row into a sweep and a memory test,
-# which design.md § Accessibility names as an anti-pattern outright.
+# which design-accessibility.md § Accessibility names as an anti-pattern outright.
 READABLE_BAND_PX = 600
 
 
@@ -696,7 +697,8 @@ def glyph_column_pixels(row, glyph: str = "●") -> list[int]:
 
 def test_the_painted_glyph_takes_the_matching_state_token(qtbot, built) -> None:
     """§ 4.4 requires the glyph to take "the matching state token's colour",
-    and colour is one of `design.md § Accessibility`'s three redundant signals.
+    and colour is one of `design-accessibility.md § Accessibility`'s three
+    redundant signals.
 
     Nothing checked it: INV-19 checks the glyph is *drawn* and INV-23 checks
     only the *word*, so painting every glyph in the `stopped` token regardless
@@ -2702,8 +2704,8 @@ def test_filtering_hides_rows_rather_than_rebuilding_them(qtbot, built) -> None:
     """INV-13, applied to the one control where the user is certainly typing.
 
     A filter that tore rows down and rebuilt them would drop keyboard focus on
-    every keystroke, and `design.md § Accessibility` says the app never steals
-    focus from what the user is reading.
+    every keystroke, and `design-accessibility.md § Accessibility` says the
+    app never steals focus from what the user is reading.
     """
     window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"])
     before = window._ordered_rows()
@@ -2788,7 +2790,7 @@ def double_the_application_font() -> None:
 def test_a_text_size_change_reaches_the_text_and_not_only_the_column(
     qtbot, built, app_font
 ) -> None:
-    """`§ O8` clause 4 / `design.md § Accessibility`'s 100-200 % control.
+    """`§ O8` clause 4 / `design-accessibility.md § Accessibility`'s 100-200 % control.
 
     LWSM-1119 found that the window's style sheet stops an application font
     change at the window: QStyleSheetStyle resolves a font onto every
@@ -2881,8 +2883,8 @@ def scaled_window(qtbot, built, **kwargs):
 def test_the_bar_offers_every_step_of_the_text_size_range(
     qtbot, built, app_font
 ) -> None:
-    """`design.md § Accessibility`: 100 % to 200 %, in-app and independent of
-    the desktop's own scaling.
+    """`design-accessibility.md § Accessibility`: 100 % to 200 %, in-app and
+    independent of the desktop's own scaling.
 
     The steps are asserted as a whole rather than "at least 100 and 200",
     because a control offering only the two ends is not a text-size control —
@@ -3003,7 +3005,7 @@ def test_restoring_a_stored_size_writes_nothing(qtbot, built, app_font) -> None:
     assert saved == []
 
 
-# --- LWSM-1032: design.md § Accessibility's check table -----------------------
+# --- LWSM-1032: design-accessibility.md § Accessibility's check table ------
 
 # `MIN_TARGET_PX` is imported at the top of this file, never re-stated here:
 # the source clamps its button widths to that floor, and a copy would let the
@@ -3073,7 +3075,7 @@ def test_every_clickable_target_clears_the_floor_and_grows_with_the_text(
 
 
 def test_the_state_word_comes_first_in_the_row(qtbot, built) -> None:
-    """`design.md § Accessibility`: the word must be FIRST in the row, not
+    """`design-accessibility.md § Accessibility`: the word must be FIRST in the row, not
     merely present in it. A magnifier shows a small window onto the screen, so
     what the lens lands on when it reaches the row is the whole of what the
     user gets for free.
@@ -3134,7 +3136,7 @@ def test_the_whole_row_including_its_controls_fits_one_lens_view(qtbot, built) -
 
 
 def test_nothing_important_is_discoverable_only_by_hovering(qtbot, built) -> None:
-    """`design.md § Accessibility`: hover states are easy to miss at
+    """`design-accessibility.md § Accessibility`: hover states are easy to miss at
     magnification and impossible to discover by keyboard, so every affordance
     is visible at rest.
 
@@ -3161,8 +3163,8 @@ def test_nothing_important_is_discoverable_only_by_hovering(qtbot, built) -> Non
 
 
 def test_no_animation_conveys_anything_and_none_is_created(qtbot, built) -> None:
-    """`design.md § Accessibility`: no animation conveys information, and any
-    decorative one honours reduce-motion.
+    """`design-accessibility.md § Accessibility`: no animation conveys
+    information, and any decorative one honours reduce-motion.
 
     There is no reduce-motion preference to set because there is nothing to
     suppress — so the check is that the count stays zero across a real state
@@ -3187,7 +3189,7 @@ def test_no_animation_conveys_anything_and_none_is_created(qtbot, built) -> None
 
 
 def test_no_widget_pins_a_font_family_or_a_pixel_size(qtbot, built) -> None:
-    """`design.md § Accessibility`: the desktop's font family and size are
+    """`design-accessibility.md § Accessibility`: the desktop's font family and size are
     honoured, and the in-app control multiplies them rather than replacing
     them.
 
@@ -3283,10 +3285,10 @@ def state_ink(row: ProjectRow) -> bytes:
 
 
 def test_every_state_is_readable_with_no_colour_at_all(qtbot) -> None:
-    """`design.md § Accessibility`: the commonest colour blindness is exactly
-    red/green, so every state carries three signals — the word, a distinct
-    glyph, and colour. The blunt form of that promise is this one: with the
-    colour taken away, no two states may render alike.
+    """`design-accessibility.md § Accessibility`: the commonest colour
+    blindness is exactly red/green, so every state carries three signals —
+    the word, a distinct glyph, and colour. The blunt form of that promise is
+    this one: with the colour taken away, no two states may render alike.
 
     Five rows built identically but for the status, so the word and the glyph
     are the only variables. Two states sharing both would pass every check in
@@ -3408,7 +3410,7 @@ def test_every_interactive_widget_has_a_name_a_screen_reader_can_read(
 
 
 def test_a_failure_is_reported_on_the_row_that_raised_it(qtbot, built) -> None:
-    """`design.md § Accessibility`: "a message in a far-off status bar is
+    """`design-accessibility.md § Accessibility`: "a message in a far-off status bar is
     invisible to someone whose lens is on a button", so feedback surfaces next
     to the row or control that caused it.
 
@@ -3505,8 +3507,8 @@ def test_the_failure_is_announced_and_leaves_nothing_unnamed_behind(
 def test_a_poll_during_editing_does_not_steal_the_focus_or_the_caret(
     qtbot, built
 ) -> None:
-    """`design.md § Accessibility`: "the app never steals focus from what the
-    user is reading".
+    """`design-accessibility.md § Accessibility`: "the app never steals focus
+    from what the user is reading".
 
     Driven while the user is TYPING, which is the design's own wording and the
     case that matters: the poll runs once a second and rebuilds nothing, but a
@@ -3542,7 +3544,7 @@ def test_a_poll_during_editing_does_not_steal_the_focus_or_the_caret(
 def test_a_confirmation_lands_over_the_list_and_blocks_the_whole_app(
     qtbot, built, monkeypatch
 ) -> None:
-    """`design.md § Accessibility`'s confirmation row, both halves.
+    """`design-accessibility.md § Accessibility`'s confirmation row, both halves.
 
     The real `_confirm_dialog`, not the injected `confirm` seam: the seam
     exists so tests never open a modal, and this is the one test that has to

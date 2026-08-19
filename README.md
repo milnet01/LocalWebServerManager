@@ -193,6 +193,13 @@ whether one is safe to cut. It changes nothing.
   from outside.
 - [docs/design.md](docs/design.md) — Phase B output: architecture
   diagram, components, data flow.
+- [docs/design-look-and-feel.md](docs/design-look-and-feel.md) — the
+  theme layer, the palettes, and the token contract every widget
+  colours through. Split out of the design document in 2026-08.
+- [docs/design-accessibility.md](docs/design-accessibility.md) — who
+  the app is built for, what magnifier use demands of the layout, and
+  the check table every accessibility item is accepted against. Split
+  out of the design document in 2026-08.
 - [docs/decisions/](docs/decisions/) — Architecture Decision
   Records. Why we chose X over Y.
 - [docs/glossary.md](docs/glossary.md) — domain terms used in

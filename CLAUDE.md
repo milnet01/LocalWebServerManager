@@ -932,7 +932,7 @@ not the rule does. **Mutate the mechanism out before believing a geometry
 test, and say which mutant each test dies on.**
 
 **Trap: a widget's SIZE depends on the runner's default font, so a pixel-floor
-test can pass locally and fail in CI.** `design.md § Accessibility` puts a
+test can pass locally and fail in CI.** `design-accessibility.md § Accessibility` puts a
 24x24 floor under every clickable target. Qt's style derives a button's height
 from the font, and on this machine that gave **25 px** — clearing the floor by
 one pixel — while the GitHub runner's smaller default font gave **22**. So the

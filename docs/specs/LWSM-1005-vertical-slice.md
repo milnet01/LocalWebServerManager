@@ -494,7 +494,7 @@ hold and a blank window would otherwise never update.
 
 Subsequent ticks emit `projects_changed` **only when at least one status
 differs from the previous tick**. Suppressing the no-change emission is
-what `docs/design.md § Accessibility` requires of a state change announcing
+what `docs/design-accessibility.md § Accessibility` requires of a state change announcing
 itself once rather than on every poll; it is also why the interval can stay
 at 1 s without the screen reader chattering.
 
@@ -511,14 +511,14 @@ budget in `docs/design.md § Data flow`, so 1000 + 33 ms sits inside the
 ### 4.4 The row
 
 `src/lwsm/theme.py` (UI layer) carries a frozen `Theme` of the nine base
-tokens `docs/design.md § Tokens, not colours` adopts from finbreak —
+tokens `docs/design-look-and-feel.md § Tokens, not colours` adopts from finbreak —
 `window`, `base`, `alt_base`, `text`, `muted_text`, `accent`,
 `accent_soft`, `attention`, `border` — plus `is_dark`, plus three state
 tokens: `state_running`, `state_stopped` and `state_unknown`. One default
 palette; `Theme` expands to a `QPalette` and a generated style sheet.
 
 **`state_running` is provisionally bound and will be re-pointed.** In
-`docs/design.md § Tokens, not colours` the seven state tokens are one per
+`docs/design-look-and-feel.md § Tokens, not colours` the seven state tokens are one per
 ADR-0004 derived state, so `state_running` means `running (managed)` — a
 state P02 can never observe, since there is no `Supervisor`. P02 renders
 its collapsed `running` (§3) with `state_running` because that is the token
@@ -584,12 +584,12 @@ Each row is, in visual and tab order:
 | port | `port 5005` — the word and the number — or the literal `no port` |
 
 The port cell carries the **word** `port`, not a bare number, because
-`docs/design.md § Accessibility` gives the announcement as "project-b,
+`docs/design-accessibility.md § Accessibility` gives the announcement as "project-b,
 running, port 5005" and the cell text is what a screen reader reads. A bare
 `5005` would leave a listener with an unlabelled number.
 
 **The glyph is decorative and is excluded from the accessible name.** It
-is one of the three signals `docs/design.md § Accessibility` requires, and
+is one of the three signals `docs/design-accessibility.md § Accessibility` requires, and
 it carries nothing the word does not — so a screen reader that read it
 would announce "black circle, running, project-a", which is noise wearing
 the costume of redundancy. `state_text` below means **the word alone**.
@@ -618,12 +618,12 @@ at their natural widths. Giving the *name* cell the stretch instead put every
 spare pixel inside that label, and `QLabel` aligns left by default — so the name
 stayed where it was while the port was pinned to the right edge. Measured at
 1400 px before the fix: name text at x=84, port text at x=1333.
-`docs/design.md § Accessibility` names that shape outright ("never name on the
+`docs/design-accessibility.md § Accessibility` names that shape outright ("never name on the
 far left and state on the far right, which forces a pan and a memory test"), and
 LWSM-1032's own acceptance is that every cell falls inside a 600 px-wide window
 — which the stretched-name layout failed at any width above it (LWSM-1074).
 
-The state cell is first, which `docs/design.md § Accessibility` requires
+The state cell is first, which `docs/design-accessibility.md § Accessibility` requires
 ("the state word is first in the row"). Each row is a focusable widget
 whose accessible name is built **from the rendered cell strings, in their
 visual order, glyph excluded** —
@@ -632,13 +632,13 @@ visual order, glyph excluded** —
 The order differs from the design's example sentence because the design
 separately requires the state word first in the row; the *content* is the
 same three facts. Building the name from the cells rather than from the
-model is what makes `docs/design.md § Accessibility`'s "no separate
+model is what makes `docs/design-accessibility.md § Accessibility`'s "no separate
 accessibility-only string to drift" literally true, and it is why no row
 can announce `port None`.
 
 **A changed row raises an accessibility event; `setAccessibleName` alone does
 not.** Qt does not notify AT-SPI when an accessible name changes, so
-`docs/design.md § Accessibility`'s promise that "a state change announces
+`docs/design-accessibility.md § Accessibility`'s promise that "a state change announces
 itself once" was unimplemented — the name was correct and no screen reader was
 ever told it had changed. `update_from` now raises a
 `QAccessibleEvent(self, QAccessible.Event.NameChanged)` after updating.
@@ -700,7 +700,7 @@ Nothing sets a colour literal, a font family or a pixel size: colours come
 from tokens, sizes from the text metric (`§ O7`).
 
 **The colour rules come from `Theme.style_sheet()`, not from widget code**
-(LWSM-1077). `docs/design.md § Tokens, not colours` gives a `Theme` two
+(LWSM-1077). `docs/design-look-and-feel.md § Tokens, not colours` gives a `Theme` two
 outputs — a `QPalette` **and** a generated style sheet, finbreak's two-layer
 split — and only the palette existed, so this file hand-built
 `f"color: {token};"` and called `setStyleSheet` per row per tick. INV-8b still
@@ -722,7 +722,7 @@ renders only its frame and `StyledPanel` never consults `State_HasFocus`, so
 setting `StrongFocus` alone produced a widget that took focus and showed
 nothing — the focused and unfocused renders were byte-identical and Tab moved
 an invisible caret (LWSM-1070). `coding.md § O8` clause 2 requires a visible
-focus ring, `docs/design.md § Accessibility` calls it the thing a magnifier
+focus ring, `docs/design-accessibility.md § Accessibility` calls it the thing a magnifier
 user's "where am I?" depends on entirely, and WCAG 2.4.7 requires it.
 
 `ProjectRow.paintEvent` draws it: a rectangle inset by half its pen width, in
@@ -916,7 +916,7 @@ importing `lwsm.__main__` in a test does not require a display.
   of the glyph characters `●○?` — a name built from the raw state cell
   would announce "black circle, running, …".
   *Breaks when:* the dot becomes the only state signal — the red/green
-  failure `docs/design.md § Accessibility` names as its commonest case.
+  failure `docs/design-accessibility.md § Accessibility` names as its commonest case.
 
 - **INV-7** — A real server binding an OS-assigned port flips its row to
   `running` within 2 seconds, and closing it flips the row back.
@@ -1100,7 +1100,7 @@ importing `lwsm.__main__` in a test does not require a display.
   `text(QAccessible.Text.Name)`.
   *And breaks the other way:* every AT-tree assertion here would also pass if
   the glyph were simply removed from the UI, which would silently drop one of
-  `design.md § Accessibility`'s three redundant signals. The pixel check is
+  `design-accessibility.md § Accessibility`'s three redundant signals. The pixel check is
   what stops the fix over-shooting into a regression.
   *Trap:* an exact-colour pixel match works for the filled `●` and fails for
   `○` and `?` — antialiased strokes contain no pixel equal to the pure token
@@ -1522,7 +1522,7 @@ from the rows above, not carried forward.
   - **A narrowing.** `state_running`'s provisional binding — §4.4 and §9
     carry it as a re-point LWSM-1011 performs.
   - **An addition.** `state_unknown` is an **eighth** token, outside the
-    seven that `docs/design.md § Tokens, not colours` says ADR-0004
+    seven that `docs/design-look-and-feel.md § Tokens, not colours` says ADR-0004
     "defines the set" of. It is P02-local: ADR-0004 lists states derived
     from observation and `UNKNOWN` is the absence of one, so it is not a
     candidate for that list. Whether design.md gains a sentence or

@@ -4,7 +4,7 @@
 - **Date:** 2026-08-03
 - **Deciders:** Project lead
 - **Related:** [ADR-0005](0005-registry-and-rescan.md),
-  [`docs/design.md § Look and feel`](../design.md)
+  [`docs/design-look-and-feel.md § Look and feel`](../design.md)
 
 ## Context
 

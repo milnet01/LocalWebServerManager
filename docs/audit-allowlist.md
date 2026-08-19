@@ -291,7 +291,7 @@ Do not delete revoked entries — the history is the value.
 - **Why this is a false positive:** the three `Theme` fields are read
   by nothing in `src/` today, and that is the **documented outcome of
   a reviewed decision** rather than an oversight.
-  `docs/design.md § Tokens, not colours` defines a theme as nine
+  `docs/design-look-and-feel.md § Tokens, not colours` defines a theme as nine
   semantic tokens **plus `is_dark`**, `docs/specs/LWSM-1005-vertical-slice.md`
   § 4.4 mandates their presence, and § 8 records the rejected
   alternative — shipping only the tokens P02 renders — on the grounds
