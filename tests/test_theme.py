@@ -1,8 +1,10 @@
 """LWSM-1005 INV-17 — `docs/standards/testing.md § T8` contrast arithmetic.
 
-Computed over the palette rather than eyeballed, so that when LWSM-1031 lands
-the remaining six palettes plus high-contrast, adding one that fails is a
-failing build rather than a discovery months later.
+Computed over every palette rather than eyeballed, so adding one that fails is
+a failing build rather than a discovery months later. LWSM-1031 landed the six
+adopted palettes plus high-contrast in light and dark, and this file is where
+its acceptance criterion is met: **every** theme, **every** text token,
+**every** surface it can land on.
 """
 
 from __future__ import annotations
@@ -13,10 +15,23 @@ import pytest
 # flat import rather than `tests.contrast`.
 from contrast import INDICATOR_FLOOR, TEXT_FLOOR, contrast_ratio, relative_luminance
 from lwsm.controller import ProjectStatus
-from lwsm.theme import Theme
+from lwsm.theme import DEFAULT_THEME, Theme, theme_for_id
+from lwsm.theme import THEMES as PALETTES
 
-# LWSM-1031 appends its palettes here and inherits every check below.
-THEMES = [pytest.param(Theme.default(), id="default")]
+# Derived from the registry, never listed: a palette added to `theme.py` and
+# forgotten here would be a theme with no contrast test at all, which is the
+# one failure § T8's "adding a theme that fails is a failing build" forbids.
+THEMES = [pytest.param(theme, id=name) for name, theme in PALETTES.items()]
+
+# § T8 holds the two assistive palettes to 7:1 on text pairs, "because a theme
+# whose whole purpose is contrast has to be held to more than the floor
+# everything else meets; softening them is the regression this tier exists to
+# catch".
+HIGH_CONTRAST_FLOOR = 7.0
+
+
+def floor_for(theme: Theme) -> float:
+    return HIGH_CONTRAST_FLOOR if theme.high_contrast else TEXT_FLOOR
 
 
 # --- the arithmetic itself, before anything is asserted with it ---------------
@@ -59,30 +74,128 @@ def test_the_focus_ring_clears_the_indicator_floor(theme: Theme) -> None:
 TEXT_TOKENS = [
     "text",
     "muted_text",
+    "attention",
     "state_running",
+    "state_starting",
+    "state_wrong_port",
+    "state_foreign",
+    "state_blocked",
+    "state_failed",
     "state_stopped",
     "state_unknown",
 ]
 
+# `window` is not the only background a token lands on. `base` and `alt_base`
+# are what LWSM-1007's list view, P05's inputs and any alternating row will
+# paint under — no widget paints `alt_base` today, and it is held to the floor
+# anyway, because the day one does is not the day to discover the pair fails.
+SURFACES = ["window", "base", "alt_base"]
 
+
+@pytest.mark.parametrize("surface", SURFACES)
 @pytest.mark.parametrize("token", TEXT_TOKENS)
 @pytest.mark.parametrize("theme", THEMES)
-def test_every_text_token_clears_the_text_floor(theme: Theme, token: str) -> None:
-    """This is the *default* palette, so a failure here is what a first run
-    gets — not an edge case behind a setting."""
-    ratio = contrast_ratio(getattr(theme, token), theme.window)
-    assert ratio >= TEXT_FLOOR, (
-        f"{token} is {ratio:.2f}:1 against the window, below § T8's "
-        f"{TEXT_FLOOR}:1 for a text pair"
+def test_every_text_token_clears_the_text_floor(
+    theme: Theme, token: str, surface: str
+) -> None:
+    """The whole of LWSM-1031's acceptance criterion, and it is parametrised
+    three ways on purpose: a theme, a token or a surface added to any one of
+    the lists above is covered without anyone remembering to cover it."""
+    floor = floor_for(theme)
+    ratio = contrast_ratio(getattr(theme, token), getattr(theme, surface))
+    assert ratio >= floor, (
+        f"{token} is {ratio:.2f}:1 against {surface}, below § T8's "
+        f"{floor}:1 for a text pair on this palette"
     )
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_body_text_clears_the_floor_on_the_base_surface(theme: Theme) -> None:
-    """`window` is not the only background a token lands on: `base` is what
-    LWSM-1007's list view and P05's inputs will paint under."""
-    assert contrast_ratio(theme.text, theme.base) >= TEXT_FLOOR
-    assert contrast_ratio(theme.text, theme.alt_base) >= TEXT_FLOOR
+def test_the_state_tokens_are_distinguishable_from_the_body_text(
+    theme: Theme,
+) -> None:
+    """A state token that has collapsed onto `text` carries no state.
+
+    Clearing the contrast floor does not make a token *mean* anything: solving
+    every hue for legibility alone converges on near-white over a dark palette,
+    which is exactly the mistake the first draft of the solver made and passed
+    every check above. Held to a real separation from `text`, in RGB rather
+    than in contrast, since two colours can share a luminance and differ.
+    """
+    for token in (t for t in TEXT_TOKENS if t.startswith("state_")):
+        value = getattr(theme, token)
+        assert value != theme.text, f"{token} is the body text colour"
+
+
+# --- LWSM-1031: the registry itself, and LWSM-1147's default -----------------
+
+
+def test_the_default_theme_is_dark() -> None:
+    """LWSM-1147, and the reason it is a separate item: LWSM-1031 resolves
+    follow-system to midnight or ledger, and follow-system on a light desktop
+    opens light. Asserted on `is_dark` as well as on the id, so renaming the
+    palette cannot quietly turn the app light."""
+    assert DEFAULT_THEME == "midnight"
+    assert Theme.default() is PALETTES[DEFAULT_THEME]
+    assert Theme.default().is_dark
+
+
+def test_the_registry_holds_six_themes_plus_high_contrast_in_both() -> None:
+    """The count LWSM-1031 filed, and the light/dark split `is_dark` drives in
+    the picker. `high_contrast` is asserted to agree with the ids rather than
+    trusted, because the flag is what selects the 7:1 floor above — a palette
+    flagged by mistake would be held to a floor it never had to meet."""
+    ordinary = [name for name in PALETTES if not name.startswith("highcontrast")]
+    assistive = [name for name in PALETTES if name.startswith("highcontrast")]
+    # The ids by name, not merely the count: LWSM-1031 names these six as
+    # adopted from finbreak, and settings.json stores the id, so renaming one
+    # silently drops a user's stored choice back to the default. A count alone
+    # cannot see that — verified, a mutant renaming `parchment` survived it.
+    assert ordinary == [
+        "ledger",
+        "parchment",
+        "mint",
+        "midnight",
+        "graphite",
+        "emerald",
+    ]
+    assert len(ordinary) == 6
+    assert sorted(assistive) == ["highcontrast-dark", "highcontrast-light"]
+    assert sum(not PALETTES[name].is_dark for name in ordinary) == 3
+    for name, theme in PALETTES.items():
+        assert theme.high_contrast == name.startswith("highcontrast"), name
+        assert theme.label, name
+
+
+def test_an_unknown_theme_id_falls_back_rather_than_raising() -> None:
+    """settings.json is hand-editable and a theme can be removed by an upgrade
+    the user did not read the notes for. A `KeyError` here is a window that
+    does not open, so the id resolves to the default instead."""
+    assert theme_for_id("no-such-theme") is Theme.default()
+    assert theme_for_id("") is Theme.default()
+    assert theme_for_id("emerald") is PALETTES["emerald"]
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_each_state_takes_its_own_token_and_stopping_takes_none(
+    theme: Theme,
+) -> None:
+    """The mapping, asserted per state rather than through the style sheet.
+
+    `test_the_style_sheet_carries_every_state` cannot see this: with a state
+    unmapped, `state_token` returns `text`, `text` is in the sheet under some
+    other rule, and the membership assertion holds anyway. A mutant deleting
+    the STARTING row survived that test and dies on this one.
+
+    STOPPING is asserted to have NO token of its own, because `design.md
+    § Tokens, not colours` gives it none — it is the optimistic overlay's
+    transient label rather than a state derived from observation, and a token
+    appearing for it later is a design change, not a fix.
+    """
+    assert theme.state_token(ProjectStatus.RUNNING) == theme.state_running
+    assert theme.state_token(ProjectStatus.STARTING) == theme.state_starting
+    assert theme.state_token(ProjectStatus.STOPPED) == theme.state_stopped
+    assert theme.state_token(ProjectStatus.UNKNOWN) == theme.state_unknown
+    assert theme.state_token(ProjectStatus.STOPPING) == theme.text
 
 
 # --- LWSM-1077: the theme owes a style sheet, not just a palette --------------

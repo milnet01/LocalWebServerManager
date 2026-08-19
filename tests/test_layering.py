@@ -33,6 +33,7 @@ CORE_MODULES = [
     "ports.py",
     "registry.py",
     "scanner.py",
+    "settings.py",
     "supervisor.py",
 ]
 
