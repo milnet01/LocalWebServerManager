@@ -2038,8 +2038,14 @@ def test_the_bar_offers_settings_and_carries_its_own_mnemonics(qtbot, built) -> 
 
     assert menu_titles(window) == ["&File", "&Settings"]
     # LWSM-1031 added the Theme submenu ABOVE Preferences, because it is the
-    # entry that works today.
-    assert entry_texts(window._settings_menu) == ["&Theme", "&Preferences..."]
+    # entry that works today; LWSM-1032's Text size joined it for the same
+    # reason. Asserted as the whole list rather than as membership, so an entry
+    # added without a decision about its placement lands here as a failure.
+    assert entry_texts(window._settings_menu) == [
+        "&Theme",
+        "Te&xt size",
+        "&Preferences...",
+    ]
     assert all("&" in title for title in menu_titles(window))
     assert "&" in window._theme_menu.title()
 
@@ -2740,3 +2746,258 @@ def test_the_filter_box_carries_an_accessible_name_of_its_own(qtbot, built) -> N
 
     assert window._filter.accessibleName().strip(), "the filter box is unnamed"
     assert window._filter.accessibleName() != window._filter.placeholderText()
+
+
+# --- LWSM-1032: the text size the user actually reads -------------------------
+
+
+def text_heights(row) -> dict[str, int]:
+    """What each part of the row would PAINT at, not what it was allotted.
+
+    `fontMetrics()` is the metric the widget draws with. Every earlier test of
+    this path asserted a width the row DERIVED from its own font — which grows
+    whether or not the text does, and is what let the defect below ship.
+    """
+    return {
+        "state": row._state.fontMetrics().height(),
+        "name": row._name.fontMetrics().height(),
+        "port": row._port.fontMetrics().height(),
+        "start": row.start_button.fontMetrics().height(),
+        "open": row.open_button.fontMetrics().height(),
+    }
+
+
+@pytest.fixture
+def app_font() -> Iterator[None]:
+    """Restore the application font, which is process-wide and outlives a test."""
+    app = QApplication.instance()
+    assert app is not None
+    original = app.font()
+    yield
+    app.setFont(original)
+
+
+def double_the_application_font() -> None:
+    app = QApplication.instance()
+    assert app is not None
+    font = app.font()
+    font.setPointSizeF(font.pointSizeF() * 2)
+    app.setFont(font)
+
+
+def test_a_text_size_change_reaches_the_text_and_not_only_the_column(
+    qtbot, built, app_font
+) -> None:
+    """`§ O8` clause 4 / `design.md § Accessibility`'s 100-200 % control.
+
+    LWSM-1119 found that the window's style sheet stops an application font
+    change at the window: QStyleSheetStyle resolves a font onto every
+    descendant, which marks it set, so no `FontChange` reaches a row. It fixed
+    the window-to-row hop and left the row-to-cell hop, which fails for exactly
+    the same reason — measured 2026-08-19: at 200 % the state column widened
+    from 53 px to 103 px while every label and button stayed at 9 pt.
+
+    So the assertion is on `fontMetrics()`, the metric the widget paints with.
+    Three tests already covered this path and all three read a width the row
+    derives from its OWN font, which grows either way. A control that enlarges
+    the columns and not the words is worse than no control at all for the user
+    it exists for.
+    """
+    window, _ = window_for(qtbot, built, [record("alpha", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    row = rows_of(window)[0]
+    before = text_heights(row)
+
+    double_the_application_font()
+    qtbot.wait(50)
+
+    after = text_heights(row)
+    stalled = [part for part, height in after.items() if height <= before[part]]
+    assert not stalled, (
+        f"{stalled} did not grow with the application font "
+        f"(before={before}, after={after}) — the text size control moves the "
+        "layout and not the text"
+    )
+
+
+def test_the_filter_box_grows_with_the_text_too(qtbot, built, app_font) -> None:
+    """The chrome is not exempt. The filter box is the one control a magnifier
+    user reaches for first (LWSM-1040), and it sits outside the row loop that
+    LWSM-1119's fix walked — so a fix that only re-pushes the font to rows
+    leaves the box the user is typing into at 9 pt."""
+    window, _ = window_for(qtbot, built, [record("alpha", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    before = window._filter.fontMetrics().height()
+
+    double_the_application_font()
+    qtbot.wait(50)
+
+    assert window._filter.fontMetrics().height() > before
+
+
+def test_a_row_added_after_the_change_is_born_at_the_new_size(
+    qtbot, built, app_font
+) -> None:
+    """A rescan creates rows after the change, so the list holds rows built on
+    both sides of it and they must render at the same size.
+
+    Measured 2026-08-19, and the direction is the opposite of the guess: a
+    fresh row is ALREADY correct at 33 px, because it inherits from a parent
+    whose font is explicitly set, while the row that existed at the time was
+    the stale one at 17 px. So this locks the agreement rather than the new
+    row — which is the property a user sees, a list where half the rows are
+    half the size being the visible symptom either way round."""
+    window, controller = window_for(qtbot, built, [record("alpha", 5005)], FakeProbe())
+    with qtbot.waitExposed(window):
+        window.show()
+    double_the_application_font()
+    qtbot.wait(50)
+    grown = text_heights(rows_of(window)[0])["state"]
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.set_records([record("alpha", 5005), record("beta", 5006)])
+    qtbot.wait(50)
+
+    fresh = [row for row in rows_of(window) if row._name.text() == "beta"][0]
+    assert text_heights(fresh)["state"] == grown, (
+        "a row created after the text-size change was born at the old size"
+    )
+
+
+# --- LWSM-1032: the in-app text-size control ----------------------------------
+
+
+def scaled_window(qtbot, built, **kwargs):
+    controller = build_controller(built, [record("alpha", 5005)], FakeProbe(5005))
+    window = MainWindow(controller, Theme.default(), [], **kwargs)
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    return window, controller
+
+
+def test_the_bar_offers_every_step_of_the_text_size_range(
+    qtbot, built, app_font
+) -> None:
+    """`design.md § Accessibility`: 100 % to 200 %, in-app and independent of
+    the desktop's own scaling.
+
+    The steps are asserted as a whole rather than "at least 100 and 200",
+    because a control offering only the two ends is not a text-size control —
+    the user who needs 150 % is the user this item exists for.
+    """
+    window, _ = scaled_window(qtbot, built)
+
+    labels = [action.text() for action in window._text_size_actions.values()]
+
+    assert list(window._text_size_actions) == [100, 125, 150, 175, 200]
+    assert all("%" in label for label in labels), labels
+    assert "&" in window._text_size_menu.title(), "the submenu needs a mnemonic"
+
+
+def test_choosing_a_size_enlarges_the_text_the_user_reads(
+    qtbot, built, app_font
+) -> None:
+    """Through the menu action, not through `set_text_scale`, so the wiring is
+    covered too: a picker that computes the right size and is connected to
+    nothing looks identical from inside the method."""
+    window, _ = scaled_window(qtbot, built)
+    with qtbot.waitExposed(window):
+        window.show()
+    row = rows_of(window)[0]
+    before = text_heights(row)
+
+    window._text_size_actions[200].trigger()
+    qtbot.wait(50)
+
+    after = text_heights(row)
+    assert all(after[part] > before[part] for part in before), (before, after)
+
+
+def test_the_scale_multiplies_the_desktop_font_and_does_not_compound(
+    qtbot, built, app_font
+) -> None:
+    """The one arithmetic bug this shape invites: scaling the CURRENT font each
+    time, so 150 % then 200 % lands at 300 % and returning to 100 % never gets
+    back. Every step is against the size the desktop gave us."""
+    window, _ = scaled_window(qtbot, built)
+    with qtbot.waitExposed(window):
+        window.show()
+    row = rows_of(window)[0]
+    original = text_heights(row)["state"]
+
+    window._text_size_actions[150].trigger()
+    qtbot.wait(20)
+    window._text_size_actions[200].trigger()
+    qtbot.wait(20)
+    at_200 = text_heights(row)["state"]
+    window._text_size_actions[100].trigger()
+    qtbot.wait(20)
+
+    assert text_heights(row)["state"] == original, "100 % must be where we started"
+    assert at_200 < original * 3, "the steps compounded instead of replacing"
+
+
+def test_a_stored_size_is_applied_at_construction_and_shown_as_checked(
+    qtbot, built, app_font
+) -> None:
+    """A restored scale arrives with no action triggered, so the checkmark has
+    to be set from the value — the same rule `set_theme` follows for a theme
+    restored from settings.json."""
+    plain, _ = scaled_window(qtbot, built)
+    with qtbot.waitExposed(plain):
+        plain.show()
+    at_100 = text_heights(rows_of(plain)[0])["state"]
+    plain.close()
+
+    window, _ = scaled_window(qtbot, built, text_scale=175)
+    with qtbot.waitExposed(window):
+        window.show()
+
+    assert text_heights(rows_of(window)[0])["state"] > at_100
+    assert window._text_size_actions[175].isChecked()
+    assert not window._text_size_actions[100].isChecked()
+
+
+def test_the_chosen_size_is_handed_to_the_saver(qtbot, built, app_font) -> None:
+    saved: list[int] = []
+    window, _ = scaled_window(qtbot, built, save_text_scale=saved.append)
+
+    window._text_size_actions[150].trigger()
+
+    assert saved == [150]
+
+
+def test_a_size_that_cannot_be_saved_is_reported_and_still_applied(
+    qtbot, built, app_font
+) -> None:
+    """The same rule as the theme: a settings file that cannot be written must
+    not undo a change the user can already see happen."""
+
+    def refuse(_scale: int) -> None:
+        raise SettingsError("nowhere to write")
+
+    window, _ = scaled_window(qtbot, built, save_text_scale=refuse)
+    with qtbot.waitExposed(window):
+        window.show()
+    before = text_heights(rows_of(window)[0])["state"]
+
+    window._text_size_actions[200].trigger()
+    qtbot.wait(50)
+
+    assert text_heights(rows_of(window)[0])["state"] > before
+    assert "nowhere to write" in window.statusBar().currentMessage()
+
+
+def test_restoring_a_stored_size_writes_nothing(qtbot, built, app_font) -> None:
+    """Construction applies the stored scale with `remember=False`. Without
+    that, every start rewrites settings.json to the value it just read — a
+    write on a read path, which turns an unwritable config directory into a
+    status-bar complaint on a launch where the user changed nothing."""
+    saved: list[int] = []
+
+    scaled_window(qtbot, built, text_scale=150, save_text_scale=saved.append)
+
+    assert saved == []

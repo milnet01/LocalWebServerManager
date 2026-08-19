@@ -60,6 +60,14 @@ MAX_THEME_ID_CHARS = 64
 # second one bounds what gets persisted.
 THEME_ID_CHARSET = re.compile(r"\A[A-Za-z0-9_-]+\Z")
 
+# The in-app text-size control's range (LWSM-1032), as a PERCENTAGE of the
+# desktop's own font rather than a point size of our own. `design.md §
+# Accessibility` is explicit that the control multiplies the desktop's setting
+# and does not replace it, so 100 means "whatever the desktop already said" and
+# a machine whose font is already large stays large.
+MIN_TEXT_SCALE = 100
+MAX_TEXT_SCALE = 200
+
 # The same bound `registry.MAX_REASONS` exists for, at the size this file is.
 # A settings file has a fixed, small set of fields, so anything past a handful
 # of complaints is a hostile file rather than a typo.
@@ -75,6 +83,8 @@ class Settings:
     """What the user chose. Defaults are what a first run gets."""
 
     theme: str = DEFAULT_THEME
+    # A percentage, 100-200. See MIN_TEXT_SCALE on why it is not a point size.
+    text_scale: int = MIN_TEXT_SCALE
 
 
 @dataclass(frozen=True)
@@ -119,6 +129,36 @@ def _theme_or_reason(value: object) -> tuple[str | None, str | None]:
         return None, f"theme: {quoted(value)} is not a string; using the default"
     if len(value) > MAX_THEME_ID_CHARS or not THEME_ID_CHARSET.match(value):
         return None, f"theme: {quoted(value)} is not a usable id; using the default"
+    return value, None
+
+
+def _scale_or_reason(value: object) -> tuple[int | None, str | None]:
+    """A text scale is a whole percentage inside `MIN`..`MAX` (LWSM-1032).
+
+    `type(value) is not int` rather than `isinstance`, and here the reasoning
+    DOES carry over from `registry._is_int` where `_theme_or_reason`'s did not:
+    `isinstance(True, int)` is True, `json.loads` produces a real `bool` for
+    `true`, and this file is hand-editable — so `"text_scale": true` would
+    otherwise be read as 1, fail the range check, and reach the user as a
+    complaint about a number nobody wrote.
+
+    A float is refused rather than rounded. JSON has one number type, so
+    `150.0` is what a generator emits for an integral value and rounding it
+    would be defensible — but a value this module cannot round-trip byte for
+    byte is one the next `save()` silently rewrites, and a settings file that
+    changes under a user who edited it is worse than one that says no.
+    """
+    if value is None:
+        return None, None
+    if type(value) is not int:
+        return None, (
+            f"text_scale: {quoted(value)} is not a whole percentage; using the default"
+        )
+    if not MIN_TEXT_SCALE <= value <= MAX_TEXT_SCALE:
+        return None, (
+            f"text_scale: {quoted(value)} is outside "
+            f"{MIN_TEXT_SCALE}-{MAX_TEXT_SCALE}; using the default"
+        )
     return value, None
 
 
@@ -178,6 +218,15 @@ def load(path: Path) -> LoadResult:
     if theme is not None:
         settings = replace(settings, theme=theme)
 
+    # Each field is read on its own and refused on its own: a file with one
+    # unusable value keeps every other, the shape `registry` already has where
+    # a bad port loses the field and not the row.
+    scale, reason = _scale_or_reason(document.get("text_scale"))
+    if reason is not None:
+        reasons.append(reason)
+    if scale is not None:
+        settings = replace(settings, text_scale=scale)
+
     return LoadResult(settings, reasons[:MAX_REASONS])
 
 
@@ -190,7 +239,14 @@ def save(path: Path, settings: Settings) -> None:
     unreadable field was replaced by its default, and writing the default back
     is what the user asked for by changing a setting.
     """
-    payload = {"schema_version": SCHEMA_VERSION, "theme": settings.theme}
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "theme": settings.theme,
+        # Written even at its default. A key that appears only when it
+        # differs is one the next reader has to guess about, and this file
+        # is meant to be hand-editable.
+        "text_scale": settings.text_scale,
+    }
     try:
         text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
         data = text.encode("utf-8")

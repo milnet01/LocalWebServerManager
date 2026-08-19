@@ -456,3 +456,86 @@ def test_a_refused_settings_field_is_reported_and_not_silently_defaulted(
         assert "theme" in window.statusBar().currentMessage()
     finally:
         controller.stop()
+
+
+@pytest.mark.gui
+def test_the_stored_text_size_is_the_one_the_window_opens_with(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """The theme round trip's twin (LWSM-1032), and built twice for the same
+    reason: a single build cannot show that a choice SURVIVED anything.
+
+    The application font is process-wide, so it is restored here rather than
+    left at whatever the last assertion needed.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    from lwsm.settings import default_settings_path
+    from lwsm.settings import load as load_settings
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    projects = tmp_path / "projects.json"
+    app = QApplication.instance()
+    assert app is not None
+    original = app.font()
+
+    try:
+        first, controller = build_window(projects)
+        qtbot.addWidget(first)
+        try:
+            assert first._text_scale == 100, "a first run is not magnified"
+            first._text_size_actions[150].trigger()
+        finally:
+            controller.stop()
+
+        assert load_settings(default_settings_path()).settings.text_scale == 150
+
+        second, controller = build_window(projects)
+        qtbot.addWidget(second)
+        try:
+            assert second._text_scale == 150
+            assert second._text_size_actions[150].isChecked()
+        finally:
+            controller.stop()
+    finally:
+        app.setFont(original)
+
+
+@pytest.mark.gui
+def test_saving_one_setting_does_not_reset_the_other(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """The defect that arrives the moment a second field exists.
+
+    `save_theme` built a fresh `Settings(theme=...)` and wrote it, which was
+    correct while `theme` was the only field and silently reverts every other
+    one now. It is the same shape as the merge writing `None` over a stored
+    port — the one finding of the LWSM-1007 spec gate that implementation
+    would not have produced — and it is invisible in any test that changes one
+    setting and reads that setting back.
+
+    So: change BOTH, in either order, and assert both survived.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    from lwsm.settings import default_settings_path
+    from lwsm.settings import load as load_settings
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    app = QApplication.instance()
+    assert app is not None
+    original = app.font()
+
+    try:
+        window, controller = build_window(tmp_path / "projects.json")
+        qtbot.addWidget(window)
+        try:
+            window._text_size_actions[175].trigger()
+            window._theme_actions["parchment"].trigger()
+        finally:
+            controller.stop()
+    finally:
+        app.setFont(original)
+
+    stored = load_settings(default_settings_path()).settings
+    assert (stored.theme, stored.text_scale) == ("parchment", 175)

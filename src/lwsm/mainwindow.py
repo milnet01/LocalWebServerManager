@@ -63,6 +63,7 @@ from lwsm.controller import (
     abandon_pool,
 )
 from lwsm.registry import LoadResult, MergeResult, ProjectRecord, RegistryError
+from lwsm.settings import MAX_TEXT_SCALE, MIN_TEXT_SCALE
 from lwsm.theme import THEMES, Theme, theme_for_id
 
 log = applog.get_logger(__name__)
@@ -75,6 +76,13 @@ RESCAN_STOP_WAIT_MS = 5000
 # How many rows the window shows before the list starts scrolling, and the
 # fewest it stays legible at (LWSM-1149). Counts of rows, not pixels: the
 # height each implies is measured off a real row at the current text size.
+TEXT_SIZE_STEPS = (MIN_TEXT_SCALE, 125, 150, 175, MAX_TEXT_SCALE)
+"""The steps the text-size control offers, as percentages (LWSM-1032).
+
+The two ends are `settings.MIN/MAX_TEXT_SCALE` rather than literals, so the
+menu cannot come to offer a size the settings file would refuse to store.
+"""
+
 DEFAULT_VISIBLE_ROWS = 8
 MIN_VISIBLE_ROWS = 3
 
@@ -697,6 +705,8 @@ class MainWindow(QMainWindow):
         open_url: Callable[[QUrl], bool] | None = None,
         open_settings: Callable[[], None] | None = None,
         save_theme: Callable[[str], None] | None = None,
+        text_scale: int = MIN_TEXT_SCALE,
+        save_text_scale: Callable[[int], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -737,6 +747,23 @@ class MainWindow(QMainWindow):
         # exercised the picker. `build_window` injects the real saver, the way
         # it already injects `rescan` and `load`.
         self._save_theme = save_theme
+        # The fifth seam, same shape and same reason as `save_theme`: a test
+        # that exercises the picker must not write to the developer's own
+        # settings.json. Kept separate from `save_theme` rather than widened
+        # into one `save(Settings)` because this window does not hold a
+        # `Settings` — it is given a `Theme`, which carries no id — and the
+        # merge that stops one field overwriting the other belongs where the
+        # file is read, which is `__main__`.
+        self._save_text_scale = save_text_scale
+        # The size the DESKTOP asked for, captured before we scale anything, so
+        # every later step multiplies it rather than the size now on screen —
+        # otherwise 150 % then 200 % lands at 300 % and 100 % never returns.
+        # It assumes the application font is still the desktop's when the
+        # window is built, which holds because `build_window` runs once per
+        # process and applies the stored scale through this window.
+        app = QApplication.instance()
+        self._base_point_size = app.font().pointSizeF() if app is not None else 0.0
+        self._text_scale = MIN_TEXT_SCALE
         # QCoreApplication.translate under the file's one context, not
         # `self.tr(...)` — tr resolves under the *class*, so this string landed
         # in "MainWindow" (and Qt then walked QMainWindow, QWidget, QObject and
@@ -841,6 +868,14 @@ class MainWindow(QMainWindow):
 
         self._rows: dict[Path, ProjectRow] = {}
         self._geometry_applied = False
+        # Before `_sync_rows`, and the order is load-bearing at both ends. The
+        # menu must already exist, because a scale restored from settings.json
+        # arrives with no action triggered and has to set its own checkmark.
+        # And the geometry must NOT have been applied yet: `_sync_rows` sizes
+        # the window to its rows, so scaling afterwards leaves a window
+        # measured for 100 % text holding 175 % text. `changeEvent` reaches
+        # `_align_columns` from here with no rows yet, which returns early.
+        self.set_text_scale(text_scale, remember=False)
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
         controller.action_failed.connect(self.set_status_message)
@@ -883,6 +918,7 @@ class MainWindow(QMainWindow):
 
         self._settings_menu = bar.addMenu("")
         self._build_theme_menu(self._settings_menu)
+        self._build_text_size_menu(self._settings_menu)
         self._settings_menu.addSeparator()
         self._settings_action = self._settings_menu.addAction("")
         self._settings_action.triggered.connect(self._open_settings)
@@ -942,6 +978,80 @@ class MainWindow(QMainWindow):
             self._theme_group.addAction(action)
             self._theme_actions[name] = action
 
+    def _build_text_size_menu(self, parent: QMenu) -> None:
+        """The in-app text-size control (LWSM-1032), beside the theme picker.
+
+        `design.md § Accessibility` makes this a non-negotiable rather than a
+        convenience: desktop-wide scaling is a blunt instrument when only one
+        window needs to be bigger, and the magnifier user this app is for is
+        the one who needs it. A submenu of Settings for the same reason the
+        themes are one — how big the text is, is a setting.
+
+        Five steps rather than a spin box or a slider: every step is a target a
+        keyboard reaches with one key and a magnifier does not have to aim at,
+        and a continuous control offers sizes nobody needs at the cost of one
+        nobody can hit. `TEXT_SIZE_STEPS` spans the full 100-200 % the standard
+        names — a control offering only the two ends is not a text-size
+        control.
+
+        One exclusive `QActionGroup`, so the checkmark is the stored choice
+        rather than something cleared by hand — the theme picker's rule, and
+        the reason `set_text_scale` can be called with no action triggered.
+        """
+        self._text_size_menu = parent.addMenu("")
+        self._text_size_group = QActionGroup(self)
+        self._text_size_group.setExclusive(True)
+        self._text_size_actions: dict[int, QAction] = {}
+        for percent in TEXT_SIZE_STEPS:
+            action = self._text_size_menu.addAction("")
+            action.setCheckable(True)
+            self._text_size_group.addAction(action)
+            # `percent=percent`, not a closure over the loop variable: every
+            # entry would otherwise set the last step. That exact bug shipped
+            # once in this file, on the row buttons (LWSM-1016).
+            action.triggered.connect(
+                lambda _checked=False, percent=percent: self.set_text_scale(percent)
+            )
+            self._text_size_actions[percent] = action
+
+    def set_text_scale(self, percent: int, *, remember: bool = True) -> None:
+        """Scale the application font to `percent` of the desktop's own size.
+
+        On the **APPLICATION**, like the palette and for the same reason: the
+        style sheet's QStyleSheetStyle re-resolves every descendant from the
+        application, so setting it on the window alone reaches the frame and
+        nothing inside it. `changeEvent` then pushes the new font down to every
+        descendant by hand, which is the hop the style sheet breaks.
+
+        Multiplied against `_base_point_size` rather than the current font, so
+        the steps replace each other instead of compounding.
+
+        `remember=False` is construction restoring a stored choice: there is
+        nothing new to write, and writing it would turn a read into a write on
+        every start. Persisting is last and its failure is reported rather than
+        raised — a settings file that cannot be written must not undo a change
+        the user can already see.
+        """
+        self._text_scale = percent
+        app = QApplication.instance()
+        if app is not None and self._base_point_size > 0:
+            font = app.font()
+            font.setPointSizeF(self._base_point_size * percent / 100)
+            app.setFont(font)
+        action = self._text_size_actions.get(percent)
+        if action is not None:
+            action.setChecked(True)
+        if not remember or self._save_text_scale is None:
+            return
+        try:
+            self._save_text_scale(percent)
+        except Exception as exc:
+            self.set_status_message(
+                QCoreApplication.translate(
+                    _TR_CONTEXT, "The text size could not be saved: {0}"
+                ).format(exc)
+            )
+
     def _retranslate_menus(self) -> None:
         """`QCoreApplication.translate` under the file's one context, never
         `self.tr(...)`, which resolves under the *class* (LWSM-1107). The `&`
@@ -959,6 +1069,25 @@ class MainWindow(QMainWindow):
         # The submenu's TITLE is translated; the entries inside it are theme
         # labels, which are data and are not.
         self._theme_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&Theme"))
+        # These entries ARE translated, unlike the theme labels beside them:
+        # a percentage is written differently in different locales, and the
+        # placeholder is what lets a translator move the sign to the other side
+        # of the number.
+        self._text_size_menu.setTitle(
+            QCoreApplication.translate(_TR_CONTEXT, "Te&xt size")
+        )
+        for percent, action in self._text_size_actions.items():
+            # Qt's own %1 with `str.replace`, never `str.format` — `port_text`
+            # carries the reasoning. Written here as `.format` first, and the
+            # existing hostile-translation test caught it within the hour: a
+            # translator returning some other string's text raised KeyError
+            # out of `changeEvent`, which left every window in the process
+            # half-retranslated. The rule is the file's, not that function's.
+            action.setText(
+                QCoreApplication.translate(_TR_CONTEXT, "%1 %").replace(
+                    "%1", str(percent)
+                )
+            )
         self._settings_action.setText(
             QCoreApplication.translate(_TR_CONTEXT, "&Preferences...")
         )
@@ -1168,8 +1297,25 @@ class MainWindow(QMainWindow):
             #
             # Pushing `self.font()` rather than `QApplication.font()` so
             # `MainWindow.setFont()` works too — both raise this event here.
-            for row in self._rows.values():
-                row.setFont(self.font())
+            #
+            # **Every descendant, not the rows alone** (LWSM-1032). The loop
+            # here read `self._rows.values()` until 2026-08-19, which closed the
+            # window-to-row hop and left the row-to-cell hop failing for the
+            # identical reason: the row's font reached 18 pt while every label
+            # and button inside it stayed at 9 pt, so at 200 % the state column
+            # widened from 53 px to 103 px around text that never changed size.
+            # The same gap left the filter box — the first control a magnifier
+            # user reaches (LWSM-1040) — at 9 pt, because it is not a row.
+            #
+            # It survived because three tests covering this path all assert a
+            # width the row DERIVES from its own font, which grows either way.
+            # `test_a_text_size_change_reaches_the_text_and_not_only_the_column`
+            # asserts `fontMetrics()`, the metric the widget paints with.
+            #
+            # A row created LATER needs nothing here: it inherits from a parent
+            # whose font is now explicitly set, measured at the same 33 px.
+            for widget in self.findChildren(QWidget):
+                widget.setFont(self.font())
             # `setFont` delivers FontChange to the row synchronously, so every
             # floor has already been re-derived by the time this runs.
             self._align_columns()

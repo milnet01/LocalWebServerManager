@@ -236,4 +236,85 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
     settings.save(path, Settings(theme="graphite"))
 
     document = json.loads(path.read_text(encoding="utf-8"))
-    assert document == {"schema_version": settings.SCHEMA_VERSION, "theme": "graphite"}
+    assert document == {
+        "schema_version": settings.SCHEMA_VERSION,
+        "theme": "graphite",
+        # Every field, written even at its default (LWSM-1032). A key that
+        # appears only when it differs is one a hand-editor has to guess about.
+        # This is the one place the whole document shape is asserted, so a
+        # field added without a decision about that lands here as a failure.
+        "text_scale": 100,
+    }
+
+
+# --- LWSM-1032: the text-size setting -----------------------------------------
+
+
+def test_the_text_scale_defaults_to_a_hundred_percent(tmp_path: Path) -> None:
+    """A first run must not be magnified. The control multiplies the desktop's
+    own font (`design.md § Accessibility`), so 100 % means "whatever the
+    desktop already said" rather than a size of our choosing."""
+    assert Settings().text_scale == 100
+    assert settings.load(tmp_path / "absent.json").settings.text_scale == 100
+
+
+def test_a_stored_text_scale_survives_the_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+
+    settings.save(path, Settings(theme="graphite", text_scale=175))
+
+    result = settings.load(path)
+    assert result.reasons == []
+    assert result.settings == Settings(theme="graphite", text_scale=175)
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        99,  # below the floor
+        201,  # above the ceiling
+        0,
+        -100,
+        "150",  # the shape a hand-editor most plausibly writes
+        150.0,  # JSON has one number type and a float is not an int here
+        True,  # `isinstance(True, int)` is True, and the file is hand-editable
+        None,
+        [150],
+    ],
+)
+def test_an_unusable_text_scale_falls_back_and_says_so(tmp_path: Path, stored) -> None:
+    """The whole file is still usable — `load()` never raises — but the user is
+    told which field was ignored.
+
+    `None` is in the list deliberately, and it is the one that is NOT a
+    refusal: `_theme_or_reason` treats a missing key and an explicit `null`
+    alike, and this field follows it rather than inventing a second rule.
+    """
+    path = write(
+        tmp_path / "settings.json", {"schema_version": 1, "text_scale": stored}
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.text_scale == 100
+    if stored is None:
+        assert result.reasons == [], "an absent field is not a complaint"
+    else:
+        assert len(result.reasons) == 1
+        assert "text_scale" in result.reasons[0]
+
+
+def test_a_bad_text_scale_does_not_cost_the_theme(tmp_path: Path) -> None:
+    """The two fields are independent. A file with one unusable field must keep
+    the other — the shape `registry`'s "a bad port loses the field, not the
+    row" already has, one file along."""
+    path = write(
+        tmp_path / "settings.json",
+        {"schema_version": 1, "theme": "graphite", "text_scale": 5000},
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.theme == "graphite"
+    assert result.settings.text_scale == 100
+    assert len(result.reasons) == 1

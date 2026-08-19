@@ -6,6 +6,7 @@ Both name `run()`, not `main()`. See `run()` for why the two are separate.
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -85,7 +86,11 @@ def build_window(
     # which is the same answer it already gives for the log and the project
     # list on that machine.
     settings_path: Path | None = None
+    # Both defaulted BEFORE the try, not inside the `else`: the branch that
+    # raises must still leave every setting bound, or a machine with no home
+    # directory trades a caught RegistryError for a NameError.
     theme_id = Settings().theme
+    text_scale = Settings().text_scale
     try:
         settings_path = default_settings_path()
     except RegistryError as exc:
@@ -93,22 +98,39 @@ def build_window(
     else:
         chosen = load_settings(settings_path)
         theme_id = chosen.settings.theme
+        text_scale = chosen.settings.text_scale
         for reason in chosen.reasons:
             log.warning("settings: %s", reason)
             notices.append(reason)
 
-    def save_theme(chosen_id: str) -> None:
-        """Injected rather than defaulted inside `MainWindow`, so a test that
-        exercises the picker cannot write to the developer's own config.
+    def save_field(**changes: object) -> None:
+        """Write ONE setting without dropping the others.
+
+        Read-modify-write rather than `Settings(theme=...)`, which was correct
+        while there was one field and became a data-loss bug the moment
+        LWSM-1032 added a second: saving a theme built a fresh `Settings`, so
+        every other field went back to its default on the way past. That is the
+        same shape as the merge writing `None` over a stored port, which is the
+        one defect the LWSM-1007 spec gate caught that implementation would
+        not have.
+
+        Re-reading rather than holding the loaded value, so a file edited by
+        hand while the app is open loses only the field being written.
 
         Raises rather than returning quietly when there is nowhere to write:
-        `MainWindow.set_theme` reports the failure in the status bar, and a
-        switch that silently will not be remembered is worse than one that
-        says so.
+        the window reports the failure in the status bar, and a change that
+        silently will not be remembered is worse than one that says so.
         """
         if settings_path is None:
             raise SettingsError("there is no writable configuration directory")
-        save_settings(settings_path, Settings(theme=chosen_id))
+        current = load_settings(settings_path).settings
+        save_settings(settings_path, replace(current, **changes))
+
+    def save_theme(chosen_id: str) -> None:
+        save_field(theme=chosen_id)
+
+    def save_text_scale(percent: int) -> None:
+        save_field(text_scale=percent)
 
     probe = PortProbe()
     # One probe for both jobs: the poll classifies from it, and the supervisor's
@@ -130,6 +152,8 @@ def build_window(
         load=load,
         rescan=RescanContext(projects_path=projects_path, roots=default_scan_roots()),
         save_theme=save_theme,
+        text_scale=text_scale,
+        save_text_scale=save_text_scale,
     )
     if error is not None:
         window.set_status_message(error)
