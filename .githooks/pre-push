@@ -7,10 +7,13 @@
 # version differed (see scripts/ci-tools.env), the next four because nobody
 # noticed the first.
 #
-# A DOCS-ONLY push is exempt, deliberately: the gate has nothing to say about
-# prose, and eleven seconds of pytest between a typo fix and a push is how a
-# team learns to reach for --no-verify by reflex. The exemption is decided by
+# A DOCS-ONLY push is exempt, deliberately: the gate has mostly nothing to say
+# about prose, and eleven seconds of pytest between a typo fix and a push is how
+# a team learns to reach for --no-verify by reflex. The exemption is decided by
 # the paths in the push, never by the commit subject.
+#
+# "Mostly" is load-bearing. Some markdown IS a gate input, and the exemption
+# below carves those files back out — see docs_only().
 #
 # Escape hatches, in order of preference:
 #   git push --no-verify          one push, git's own mechanism
@@ -36,11 +39,19 @@ ZERO=0000000000000000000000000000000000000000
 #
 # scripts/ is absent on purpose — it holds the gate itself and the installer,
 # both of which shellcheck reads. So is .github/, which actionlint reads.
+# The first arm carves back out the markdown the SUITE asserts against. A file
+# the gate reads is a gate input whatever its extension, which is the identical
+# argument the paragraph above makes for the gate script and the workflow — and
+# nobody had made it for prose. On 2026-08-19 a docs-only push edited CLAUDE.md,
+# skipped the gate on that basis, and GitHub found the prose count that
+# test_docs.py forbids. The list is DERIVED, not copied: the contract test runs
+# this very function against test_docs.GOVERNED, so the two cannot part.
 docs_only() {
     local path
     while IFS= read -r path; do
         [[ -z $path ]] && continue
         case $path in
+            CLAUDE.md | README.md | docs/standards/*.md) return 1 ;;
             docs/* | .claude/* | *.md | LICENSE) ;;
             *) return 1 ;;
         esac

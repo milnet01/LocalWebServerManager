@@ -192,6 +192,16 @@ signaling per
 
 ### Fixed
 
+- **The pre-push gate no longer exempts the markdown its own test suite asserts against**
+  `CLAUDE.md`, `README.md` and every file under `docs/standards/` are read
+  by `tests/test_docs.py`, so an edit to one can redden the suite — but the
+  hook classified a markdown-only push as docs-only and skipped the gate.
+  A prose count `documentation.md § 1.5` forbids therefore reached GitHub
+  and failed CI on 5f1891f. The carve-out list is imported from
+  `test_docs.GOVERNED` rather than copied, and the contract test now RUNS
+  `docs_only()` instead of scanning its case arms as strings — the
+  predecessor's every assertion held while the escape went through.
+
 - ****Quitting while a rescan is running no longer saves over your project list** (LWSM-1139)** (LWSM-1139)
   A scan that finished after you closed the window still wrote its result,
   on the way out. It is now discarded, and a scan that will not finish no

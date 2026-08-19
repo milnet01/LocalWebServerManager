@@ -132,6 +132,20 @@ commit subject**, and `scripts/`, `.github/`, `src/` and `tests/` are
 never exempt — a change to the checker must run the check.
 `tests/test_ci_contract.py` asserts that, because an exemption that
 grew to cover `scripts/` would let an edit to the gate skip the gate.
+
+**Some markdown is a gate input too, and that was missed until
+2026-08-19**: `CLAUDE.md`, `README.md` and every file under
+`docs/standards/` are asserted against by `tests/test_docs.py`, so an
+edit to one can redden the suite. They are carved out of the exemption
+and always run the gate. The cost of learning this was a red CI run on
+`5f1891f`, a markdown-only push that skipped the gate on the strength of
+its paths and was caught by GitHub instead. **The carve-out list is
+imported from `test_docs.GOVERNED`, never copied** — a standard added
+there alone would otherwise leave the contract test green while the file
+it governs pushes ungated. And the test **runs** `docs_only()` rather
+than reading it: its predecessor scanned the case arms as strings, which
+can say which patterns are present but never which arm a path lands in.
+Every assertion in it held while the escape went through.
 Escape with `git push --no-verify` or `LWSM_SKIP_PREPUSH=1`.
 
 **The tool VERSIONS are pinned in `scripts/ci-tools.env`, which both
@@ -293,8 +307,8 @@ either a phase ID (`P##`, `FP##`, `DS##`, `DOC##`, `R##`) or a
 stable per-bullet ID for ROADMAP_FORMAT v1 projects
 (`LWSM-NNNN`).
 
-**Two phases can be in flight at once, and the status header names only
-one.** Observed 2026-08-19 and recorded rather than resolved, because
+**More than one phase can be in flight at once, and the status header names
+only one.** Observed 2026-08-19 and recorded rather than resolved, because
 resolving it is `/close-phase`'s call and not a session's. `.claude/workflow.md`
 § 1 says `P03b` OPEN, which is true — LWSM-1039, LWSM-1008 and LWSM-1121 are
 still 📋. Meanwhile LWSM-1145, LWSM-1146, LWSM-1147, LWSM-1149 and LWSM-1031

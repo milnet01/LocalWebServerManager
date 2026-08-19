@@ -22,9 +22,13 @@ than one that admits it did not run).
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
+
+from test_docs import GOVERNED
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github/workflows/ci.yml"
@@ -208,6 +212,71 @@ def test_the_hook_exempts_docs_but_never_the_gate_s_own_inputs() -> None:
             f"{never} appears in the docs-only exemption; a change there must "
             f"always run the gate"
         )
+
+
+def _hook_says_docs_only(paths: list[str]) -> bool:
+    """Run the hook's OWN `docs_only()` over `paths`, and report its verdict.
+
+    Executing the function rather than scanning its text, for the reason
+    `test_layering.py` parses an AST rather than grepping. The sibling test
+    above reads the case arms as *strings*, and a string can only say which
+    patterns are present — never which arm a given path lands in. That gap is
+    what shipped on 2026-08-19: `CLAUDE.md` matched the exemption's `*.md`, the
+    push skipped the gate, and every assertion in that test still held.
+    """
+    body = re.search(r"^docs_only\(\) \{.*?^\}$", HOOK.read_text(), re.S | re.M)
+    assert body, "the hook has no docs_only() to run"
+
+    done = subprocess.run(
+        ["bash", "-c", f"{body.group(0)}\ndocs_only"],
+        input="".join(f"{path}\n" for path in paths),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode in (0, 1), (
+        f"docs_only() neither accepted nor refused: {done.returncode} {done.stderr}"
+    )
+    return done.returncode == 0
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
+def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> None:
+    """A file the gate READS is a gate input, whatever its extension.
+
+    `test_docs.py` asserts against `CLAUDE.md`, `README.md` and every standard,
+    so an edit to one of them can redden the suite — which is precisely what
+    happened on 2026-08-19. The push was markdown-only, the hook exempted it on
+    that basis, and GitHub found a prose count `documentation.md § 1.5` forbids.
+    The hook's own comment already made this argument for `scripts/` and
+    `.github/`; nobody had made it for prose.
+
+    `GOVERNED` is IMPORTED rather than restated. A copy of that list here is a
+    second place to update, and a standard added to `test_docs.py` alone would
+    leave this test green while the file it governs pushes ungated.
+    """
+    assert GOVERNED, "test_docs governs nothing, so this test proves nothing"
+
+    for path in GOVERNED:
+        relative = path.relative_to(REPO).as_posix()
+        assert not _hook_says_docs_only([relative]), (
+            f"a push touching only {relative} skips the gate, but test_docs.py "
+            f"asserts against it — so the check that would have caught the edit "
+            f"is the one the edit skips"
+        )
+
+    # The other half, deliberately in the SAME test: a `docs_only()` that
+    # exempted nothing would satisfy the loop above while silently deleting the
+    # exemption, and every push would pay the full gate. Neither half holds
+    # alone — the lesson LWSM-1149's vacuous geometry tests cost.
+    assert _hook_says_docs_only(["docs/design.md"]), (
+        "ordinary prose no longer takes the docs-only exemption"
+    )
+
+    # And a mixed push is not docs-only, however much of it is prose.
+    assert not _hook_says_docs_only(["docs/design.md", "CLAUDE.md"]), (
+        "a push carrying one governed file among many exempt ones skips the gate"
+    )
 
 
 # --- the comparison itself ----------------------------------------------------
