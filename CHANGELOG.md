@@ -162,6 +162,14 @@ signaling per
 
 ### Changed
 
+- **Split `docs/design.md` — the look-and-feel and accessibility contracts are their own documents** (LWSM-1157)
+  The design document had reached 1223 lines and its review gate kept
+  capping without settling. `docs/design-look-and-feel.md` and
+  `docs/design-accessibility.md` now hold the theme/token contract and
+  the accessibility contract; `design.md` keeps everything else and is
+  912 lines. Content moved verbatim — no rule changed. Both headings
+  stay behind as pointers so older citations still land.
+
 - **When an action fails, the message appears under the project it is about instead of in the status bar (LWSM-1032)**
   A message in the corner of the window is invisible to someone whose
   magnifier is on a button. It clears itself as soon as the project's

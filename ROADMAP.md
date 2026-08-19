@@ -2890,7 +2890,7 @@ magnifier, so this is a design input, and
   Kind: accessibility.
   Source: in-session-2026-08-19 (split out of LWSM-1040's close, user-approved).
 
-- 📋 [LWSM-1157] **Split docs/design.md — it is 1223 lines and its gate keeps capping.**
+- ✅ [LWSM-1157] **Split docs/design.md — it is 1223 lines and its gate keeps capping.**
   Filed by the rule-14 gate on 2026-08-19 rather than acted on, because
   splitting a contract document is a change to what other documents cite
   and is not a fix pass's call.
@@ -2920,6 +2920,13 @@ magnifier, so this is a design input, and
   is that a fourth loop starts against a document whose last three loops
   were each repairing the one before; the split is what changes that,
   not another pass.
+  Resolved (2026-08-20): both suggested seams taken. `docs/design-look-and-feel.md` (111 lines) and `docs/design-accessibility.md` (219 lines) are their own documents; `design.md` is 1223 -> 912 lines. Content moved verbatim — byte accounting is exact (73,554 - 5,501 - 14,490 = 53,563, plus a 798-byte stub = 54,361), so no rule changed and rule 14's No branch applies.
+  **The bullet's "§ Accessibility is self-contained" was not quite right**, and finding out is the only judgement call in the item: it cites § Tokens, not colours three times and § Tokens lives inside § Look and feel, so the two seams are mutually entangled. Split into two files anyway rather than one combined file — each is then independently reviewable, which is the point — and the four cross-references (plus two into § Components, one into § State management) became ordinary cross-document citations naming their file.
+  Both `##` headings stay in `design.md` as pointer stubs. That is what keeps the ~15 dated ROADMAP records citing `design.md § Accessibility` resolving without rewriting the store's own render.
+  42 citations updated across 8 files (LWSM-1005's spec, known-issues, audit-allowlist, ADR-0007, CLAUDE.md, three test modules). Keeping the `##` heading inside each new file means only the PATH moved, so every `§ Accessibility` citation still resolves.
+  Ten test docstrings crossed ruff's 88-char limit on the longer path and were re-wrapped; the gate caught all ten and reasoning about the diff would not have.
+  Verified: `doc_integrity` clean over all 39 docs, `./scripts/local-ci.sh` green at 957 passed with every tool matching its CI pin.
+  Not done, and noted rather than actioned: `§ Detection rules` is 292 lines and is the next-largest self-contained contract in the file. Splitting it too would put `design.md` near 600. That is outside this bullet's filed scope and is the user's call.
   **Layman:** The design document has grown too big for anyone to review in one sitting, so it should be broken into a few smaller ones.
   Kind: doc.
   Source: in-session-2026-08-19 (review-contract cap verdict, LWSM-1032's gate).
