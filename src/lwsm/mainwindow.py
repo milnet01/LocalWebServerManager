@@ -32,6 +32,7 @@ from PySide6.QtGui import (
     QAccessible,
     QAccessibleEvent,
     QAction,
+    QActionGroup,
     QDesktopServices,
     QKeySequence,
     QPainter,
@@ -44,6 +45,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -54,7 +56,7 @@ from PySide6.QtWidgets import (
 from lwsm import applog, registry, scanner
 from lwsm.controller import ProjectController, ProjectStatus, RowView
 from lwsm.registry import LoadResult, MergeResult, ProjectRecord, RegistryError
-from lwsm.theme import Theme
+from lwsm.theme import THEMES, Theme, theme_for_id
 
 log = applog.get_logger(__name__)
 
@@ -513,6 +515,22 @@ class ProjectRow(QFrame):
                 )
             )
 
+    def apply_theme(self, theme: Theme) -> None:
+        """Adopt a new palette and re-render (LWSM-1031).
+
+        The `update_from` short-circuit caches `_glyph_color`, and LWSM-1111
+        named this as the live edge the day the palette could change: a theme
+        swap with an unchanged `RowView` would leave the glyph painted in the
+        old palette while the *word* follows the new one, because the word is
+        restyled by the sheet and the glyph is painted from that cached value.
+        Going through `_rerender` is the fix that comment predicted.
+
+        The focus ring needs no separate step: `paintEvent` reads
+        `self._theme.focus_ring_color()`, and `_rerender` requests the repaint.
+        """
+        self._theme = theme
+        self._rerender()
+
     def retranslate(self) -> None:
         """Re-render every cell from the `RowView` already held.
 
@@ -523,9 +541,21 @@ class ProjectRow(QFrame):
         built afterwards rendered translated — so § 4.4's stated reason for
         translating at call time was untrue as written (LWSM-1107).
         """
+        self._rerender()
+
+    def _rerender(self) -> None:
+        """Re-run `update_from` past its own equality guard.
+
+        Shared by `retranslate` and `apply_theme` because both change how the
+        held `RowView` should be *rendered* without changing the view itself,
+        which is exactly the case the guard is wrong for. `update()` runs even
+        with no view held, so a row that has never been populated still
+        repaints its ring in the new palette.
+        """
         view, self._view = self._view, None
         if view is not None:
             self.update_from(view)
+        self.update()
 
     def update_from(self, row: RowView) -> None:
         if row == self._view:
@@ -604,6 +634,7 @@ class MainWindow(QMainWindow):
         confirm: Callable[[Path, str, tuple[str, ...]], bool] | None = None,
         open_url: Callable[[QUrl], bool] | None = None,
         open_settings: Callable[[], None] | None = None,
+        save_theme: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -628,6 +659,14 @@ class MainWindow(QMainWindow):
         self._open_settings = (
             open_settings if open_settings is not None else self._settings_unavailable
         )
+        # The fourth seam, and the one that defaults to doing NOTHING rather
+        # than to the real thing. `confirm` and `open_url` can default to the
+        # real behaviour because a test that never triggers them never reaches
+        # it; this one would write to the developer's own
+        # ~/.config/localwebservermanager/settings.json the moment a test
+        # exercised the picker. `build_window` injects the real saver, the way
+        # it already injects `rescan` and `load`.
+        self._save_theme = save_theme
         # QCoreApplication.translate under the file's one context, not
         # `self.tr(...)` — tr resolves under the *class*, so this string landed
         # in "MainWindow" (and Qt then walked QMainWindow, QWidget, QObject and
@@ -754,9 +793,65 @@ class MainWindow(QMainWindow):
         self._quit_action.triggered.connect(self.close)
 
         self._settings_menu = bar.addMenu("")
+        self._build_theme_menu(self._settings_menu)
+        self._settings_menu.addSeparator()
         self._settings_action = self._settings_menu.addAction("")
         self._settings_action.triggered.connect(self._open_settings)
         self._retranslate_menus()
+
+    def _build_theme_menu(self, parent: QMenu) -> None:
+        """The theme picker (LWSM-1031), a submenu of Settings.
+
+        A submenu rather than a third top-level menu: the bar has File and
+        Settings, and which palette is on screen is a setting. It sits ABOVE
+        Preferences because it is the entry that works today.
+
+        Grouped by `is_dark` and then `high_contrast`, with a separator between
+        — which is what those two flags are for. The assistive palettes come
+        last and together, because they are a tool rather than a taste.
+
+        One exclusive `QActionGroup`, so the checkmark is the stored choice
+        rather than something that has to be cleared by hand. Labels come from
+        the theme's own `label`, which is data and deliberately not translated
+        (finbreak's INV-13): a palette name is not a sentence.
+        """
+        self._theme_menu = parent.addMenu("")
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        self._theme_actions: dict[str, QAction] = {}
+
+        def rank(item: tuple[str, Theme]) -> tuple[int, int]:
+            """Three groups: light, dark, assistive. Not four.
+
+            The two assistive palettes are a light one and a dark one, so
+            ranking on `high_contrast` and `is_dark` independently puts a
+            separator between them — and they belong together, because what
+            they have in common (a 7:1 floor, an assistive purpose) matters
+            more here than which of them is dark.
+            """
+            _name, theme = item
+            if theme.high_contrast:
+                return (2, 0)
+            return (0, 1 if theme.is_dark else 0)
+
+        previous: tuple[int, int] | None = None
+        for name, theme in sorted(THEMES.items(), key=rank):
+            group = rank((name, theme))
+            if previous is not None and group != previous:
+                self._theme_menu.addSeparator()
+            previous = group
+            action = self._theme_menu.addAction(theme.label)
+            action.setCheckable(True)
+            action.setChecked(theme is self._theme)
+            # `name`, not the loop variable: a lambda closing over the loop
+            # variable makes every entry select the LAST theme. That exact bug
+            # shipped once here already, on the row buttons, and a one-row
+            # fixture could not see it — so the test for this has all eight.
+            action.triggered.connect(
+                lambda _checked=False, tid=name: self.set_theme(tid)
+            )
+            self._theme_group.addAction(action)
+            self._theme_actions[name] = action
 
     def _retranslate_menus(self) -> None:
         """`QCoreApplication.translate` under the file's one context, never
@@ -772,9 +867,49 @@ class MainWindow(QMainWindow):
         self._settings_menu.setTitle(
             QCoreApplication.translate(_TR_CONTEXT, "&Settings")
         )
+        # The submenu's TITLE is translated; the entries inside it are theme
+        # labels, which are data and are not.
+        self._theme_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&Theme"))
         self._settings_action.setText(
             QCoreApplication.translate(_TR_CONTEXT, "&Preferences...")
         )
+
+    def set_theme(self, theme_id: str) -> None:
+        """Swap the palette on the live window, then remember the choice.
+
+        Applied in the same three places `__init__` applies it, and for the
+        same reasons: the palette on the **APPLICATION** (a `self.setPalette`
+        themes the window frame and nothing inside it — LWSM-1118), the style
+        sheet on the window, and then every row, because a row caches its own
+        theme and its glyph colour.
+
+        Persisting is last and its failure is reported rather than raised: a
+        settings file that cannot be written must not undo a switch the user
+        can already see happen.
+        """
+        theme = theme_for_id(theme_id)
+        self._theme = theme
+        app = QApplication.instance()
+        if app is not None:
+            app.setPalette(theme.to_palette())
+        self.setStyleSheet(theme.style_sheet())
+        for row in self._rows.values():
+            row.apply_theme(theme)
+        action = self._theme_actions.get(theme_id)
+        if action is not None:
+            # The menu is not always what asked: a theme restored from
+            # settings.json arrives here with no action having been triggered.
+            action.setChecked(True)
+        if self._save_theme is None:
+            return
+        try:
+            self._save_theme(theme_id)
+        except Exception as exc:
+            self.set_status_message(
+                QCoreApplication.translate(
+                    _TR_CONTEXT, "The theme could not be saved: {0}"
+                ).format(exc)
+            )
 
     def _settings_unavailable(self) -> None:
         """The honest default until LWSM-1018 lands the dialog.

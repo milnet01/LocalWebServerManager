@@ -4,6 +4,16 @@
 does not — and a widget test that opens a real window on a developer's desktop
 is the shape `docs/standards/testing.md § T6` forbids. So set it here when it
 is unset, and leave an explicit choice alone.
+
+`XDG_CONFIG_HOME` is pinned for the same reason and is stricter — unset, not
+merely defaulted. Since LWSM-1031 `build_window` reads `settings.json`, so a
+test that calls it would otherwise pick up the DEVELOPER'S OWN theme: three
+tests in `test_mainwindow.py` call it with only `projects_path` pinned, and
+they would pass or fail depending on which palette the author last chose in
+the real app. `§ T1` calls that an injected seam's whole purpose; here the
+seam is an environment variable, so it is pinned here rather than in each
+test. A test that sets it itself still wins — `monkeypatch` is applied after
+this fixture and undone before the next.
 """
 
 from __future__ import annotations
@@ -15,6 +25,17 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config_home(tmp_path_factory, monkeypatch):
+    """Point XDG_CONFIG_HOME at a directory this test owns.
+
+    A fresh one per test, so a test that WRITES a config cannot be seen by the
+    next. Nothing is created here: the point is that the path exists nowhere
+    until something makes it, which is what a first run looks like.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
 
 
 @pytest.fixture(scope="session", autouse=True)

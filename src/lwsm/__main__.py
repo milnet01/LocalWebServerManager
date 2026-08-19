@@ -46,8 +46,11 @@ def build_window(
         default_projects_path,
         load_projects,
     )
+    from lwsm.settings import Settings, SettingsError, default_settings_path
+    from lwsm.settings import load as load_settings
+    from lwsm.settings import save as save_settings
     from lwsm.supervisor import Supervisor
-    from lwsm.theme import Theme
+    from lwsm.theme import theme_for_id
 
     log = applog.get_logger(__name__)
     notices: list[str] = []
@@ -69,6 +72,44 @@ def build_window(
         # The status bar gets a summary; the log gets the record.
         log.warning("project list: %s", notice)
 
+    # The theme, before the window, because the window is built with it.
+    #
+    # READING it needs no handler: `settings.load` returns a usable `Settings`
+    # on every path — missing, unreadable, hostile — precisely so a preference
+    # cannot cost the user a window. RESOLVING THE PATH does, and that is what
+    # the try below is for: it derives from `default_projects_path`, which
+    # raises on a machine with no home directory. LWSM-1116 is the record of
+    # what happens when such a guard sits outside its own catch — it is there
+    # and unreachable, and the app dies with a traceback and no window.
+    # Caught here, the app opens with the default theme and no persistence,
+    # which is the same answer it already gives for the log and the project
+    # list on that machine.
+    settings_path: Path | None = None
+    theme_id = Settings().theme
+    try:
+        settings_path = default_settings_path()
+    except RegistryError as exc:
+        log.warning("no settings file: %s", exc)
+    else:
+        chosen = load_settings(settings_path)
+        theme_id = chosen.settings.theme
+        for reason in chosen.reasons:
+            log.warning("settings: %s", reason)
+            notices.append(reason)
+
+    def save_theme(chosen_id: str) -> None:
+        """Injected rather than defaulted inside `MainWindow`, so a test that
+        exercises the picker cannot write to the developer's own config.
+
+        Raises rather than returning quietly when there is nowhere to write:
+        `MainWindow.set_theme` reports the failure in the status bar, and a
+        switch that silently will not be remembered is worse than one that
+        says so.
+        """
+        if settings_path is None:
+            raise SettingsError("there is no writable configuration directory")
+        save_settings(settings_path, Settings(theme=chosen_id))
+
     probe = PortProbe()
     # One probe for both jobs: the poll classifies from it, and the supervisor's
     # pre-flight check asks the same socket table rather than opening a second
@@ -77,13 +118,18 @@ def build_window(
     controller = ProjectController(records, probe, supervisor)
     window = MainWindow(
         controller,
-        Theme.default(),
+        # `theme_for_id`, not `THEMES[...]`: settings.json is hand-editable and
+        # a theme can be removed by an upgrade, so an id naming nothing must
+        # fall back rather than raise. `settings.py` deliberately does not
+        # check membership — a core module may not import the theme layer.
+        theme_for_id(theme_id),
         notices,
         # The load is carried through so the writer's read-only gate can read
         # it: a session whose registry refused a row must not have that row
         # deleted by a rescan (LWSM-1007 § 4.3).
         load=load,
         rescan=RescanContext(projects_path=projects_path, roots=default_scan_roots()),
+        save_theme=save_theme,
     )
     if error is not None:
         window.set_status_message(error)

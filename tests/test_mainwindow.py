@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint
+from PySide6.QtGui import QPalette
+from PySide6.QtWidgets import QApplication
 
 from lwsm import mainwindow
 from lwsm.__main__ import build_window
@@ -27,7 +29,8 @@ from lwsm.registry import (
     RegistryError,
     RegistryMissing,
 )
-from lwsm.theme import Theme
+from lwsm.settings import SettingsError
+from lwsm.theme import DEFAULT_THEME, THEMES, Theme
 
 pytestmark = pytest.mark.gui
 
@@ -1982,8 +1985,11 @@ def test_the_bar_offers_settings_and_carries_its_own_mnemonics(qtbot, built) -> 
     window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
 
     assert menu_titles(window) == ["&File", "&Settings"]
-    assert entry_texts(window._settings_menu) == ["&Preferences..."]
+    # LWSM-1031 added the Theme submenu ABOVE Preferences, because it is the
+    # entry that works today.
+    assert entry_texts(window._settings_menu) == ["&Theme", "&Preferences..."]
     assert all("&" in title for title in menu_titles(window))
+    assert "&" in window._theme_menu.title()
 
 
 def test_preferences_opens_the_injected_dialog(qtbot, built) -> None:
@@ -2096,3 +2102,150 @@ def test_quit_from_the_menu_closes_the_window(qtbot, built) -> None:
     window._quit_action.trigger()
 
     assert not window.isVisible()
+
+
+# --- LWSM-1031: the theme picker, and the switch it drives --------------------
+
+
+def themed_window(qtbot, built, save=None) -> MainWindow:
+    """Two rows, always. A one-row fixture has hidden a per-row bug in this
+    file twice, and a theme swap is per-row work: every row caches its own
+    `Theme` and its own glyph colour."""
+    controller = build_controller(built, two_rows(), FakeProbe(5005))
+    window = MainWindow(controller, Theme.default(), [], save_theme=save)
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    return window
+
+
+def test_the_picker_offers_every_theme_grouped_light_dark_assistive(
+    qtbot, built
+) -> None:
+    """Derived from the registry, so a palette added to `theme.py` appears
+    without anyone editing the menu — and asserted in ORDER, because the
+    grouping is the whole reason `is_dark` and `high_contrast` are on the
+    theme rather than kept in a list beside it."""
+    window = themed_window(qtbot, built)
+
+    assert [
+        action.text()
+        for action in window._theme_menu.actions()
+        if not action.isSeparator()
+    ] == [
+        THEMES[name].label
+        for name in (
+            "ledger",
+            "parchment",
+            "mint",
+            "midnight",
+            "graphite",
+            "emerald",
+            "highcontrast-light",
+            "highcontrast-dark",
+        )
+    ]
+    assert set(window._theme_actions) == set(THEMES)
+    # Two separators: light|dark and dark|assistive.
+    assert sum(a.isSeparator() for a in window._theme_menu.actions()) == 2
+
+
+def test_the_checked_entry_is_the_live_theme(qtbot, built) -> None:
+    """Exclusive, so choosing one clears the last without anyone clearing it.
+    Asserted after a switch as well as at construction: the check has to
+    follow `set_theme`, which settings.json restoring a theme also calls with
+    no action having been triggered."""
+    window = themed_window(qtbot, built)
+
+    checked = [name for name, a in window._theme_actions.items() if a.isChecked()]
+    assert checked == [DEFAULT_THEME]
+
+    window.set_theme("emerald")
+
+    checked = [name for name, a in window._theme_actions.items() if a.isChecked()]
+    assert checked == ["emerald"]
+
+
+def test_choosing_a_theme_repaints_every_row_not_just_the_last(qtbot, built) -> None:
+    """The closure test, and the reason the fixture has two rows.
+
+    `lambda: self.set_theme(name)` closing over the loop variable makes every
+    entry select the LAST theme — the exact bug that shipped on the row
+    buttons once already. With one row, or with one menu entry checked, it
+    reads as fine. Every entry is triggered and each must select ITSELF.
+    """
+    window = themed_window(qtbot, built)
+
+    for name, action in window._theme_actions.items():
+        action.trigger()
+        assert window._theme is THEMES[name], f"{name} selected something else"
+        for row in rows_of(window):
+            assert row._theme is THEMES[name], f"{name} did not reach every row"
+
+
+def test_a_swap_moves_the_glyph_colour_and_not_only_the_word(qtbot, built) -> None:
+    """LWSM-1111 named this as the live edge the day the palette could change.
+
+    `update_from` short-circuits on an unchanged `RowView` and that guard
+    caches `_glyph_color`, so a swap would restyle the state WORD through the
+    new style sheet while the painted glyph kept the old palette's colour. The
+    `RowView` is deliberately not touched between the two reads — that is the
+    condition the guard fires on.
+    """
+    window = themed_window(qtbot, built)
+    window.set_theme("ledger")
+    before = [row._glyph_color.name() for row in rows_of(window)]
+
+    window.set_theme("emerald")
+
+    after = [row._glyph_color.name() for row in rows_of(window)]
+    assert before != after
+    for row, colour in zip(rows_of(window), after, strict=True):
+        assert colour == THEMES["emerald"].state_color(row._view.status).name()
+
+
+def test_the_swap_reaches_the_application_palette_not_only_the_window(
+    qtbot, built
+) -> None:
+    """LWSM-1118: `setStyleSheet` installs QStyleSheetStyle, which re-resolves
+    every descendant's palette from the APPLICATION palette — so a
+    `self.setPalette` themes the window frame and nothing inside it. The
+    switch has to apply it where `__init__` applies it."""
+    window = themed_window(qtbot, built)
+
+    window.set_theme("highcontrast-dark")
+
+    app = QApplication.instance()
+    assert app is not None
+    expected = THEMES["highcontrast-dark"]
+    assert app.palette().color(QPalette.ColorRole.Window).name() == expected.window
+    assert expected.state_running in window.styleSheet()
+
+
+def test_the_choice_is_handed_to_the_saver(qtbot, built) -> None:
+    """The seam exists so a test cannot write to the developer's own
+    ~/.config. `build_window` injects the real one."""
+    saved: list[str] = []
+    window = themed_window(qtbot, built, save=saved.append)
+
+    window._theme_actions["mint"].trigger()
+
+    assert saved == ["mint"]
+
+
+def test_a_save_failure_is_reported_and_does_not_undo_the_switch(qtbot, built) -> None:
+    """A settings file that cannot be written must not undo a switch the user
+    can already see happen — but it must not be silent either, or the choice
+    quietly fails to survive the next start."""
+
+    def refuse(_theme_id: str) -> None:
+        raise SettingsError("read-only file system")
+
+    window = themed_window(qtbot, built, save=refuse)
+
+    window.set_theme("graphite")
+
+    assert window._theme is THEMES["graphite"]
+    for row in rows_of(window):
+        assert row._theme is THEMES["graphite"]
+    assert "read-only file system" in window.statusBar().currentMessage()

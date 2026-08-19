@@ -22,7 +22,7 @@ import pytest
 
 from lwsm import __main__ as entry
 from lwsm import __version__, applog
-from lwsm.__main__ import main
+from lwsm.__main__ import build_window, main
 
 
 @pytest.fixture(autouse=True)
@@ -352,3 +352,107 @@ def test_an_unreadable_config_falls_back_instead_of_raising(tmp_path) -> None:
     config = tmp_path / "scan-roots"
     config.mkdir()  # a directory where a file is expected: read_text raises
     assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+
+
+# --- LWSM-1031: the theme survives a restart ---------------------------------
+
+
+@pytest.mark.gui
+def test_the_stored_theme_is_the_one_the_window_opens_with(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """The whole round trip, through `build_window` rather than around it.
+
+    The picker, the palette layer and the settings file are each tested on
+    their own; this is the only test that proves they are CONNECTED. The
+    window is built twice: once to choose, once to prove the choice came back
+    — which is what "survives a restart" means and what a single build cannot
+    show.
+    """
+    from lwsm.settings import default_settings_path
+    from lwsm.theme import DEFAULT_THEME, THEMES
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    projects = tmp_path / "projects.json"
+
+    first, controller = build_window(projects)
+    qtbot.addWidget(first)
+    try:
+        assert first._theme is THEMES[DEFAULT_THEME], "a first run must be dark"
+        first._theme_actions["parchment"].trigger()
+    finally:
+        controller.stop()
+
+    assert default_settings_path().exists(), "the choice was not written anywhere"
+
+    second, controller = build_window(projects)
+    qtbot.addWidget(second)
+    try:
+        assert second._theme is THEMES["parchment"]
+    finally:
+        controller.stop()
+
+
+@pytest.mark.gui
+def test_a_stored_theme_that_no_longer_exists_opens_the_default(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """An id naming nothing must not be a window that will not open.
+
+    `settings.py` stores the id without checking membership — a core module
+    may not import the theme layer — so this is the path where `theme_for_id`
+    is the only thing standing between a removed palette and a `KeyError`
+    during construction.
+    """
+    from lwsm.theme import DEFAULT_THEME, THEMES
+
+    config = tmp_path / "config" / "localwebservermanager"
+    config.mkdir(parents=True)
+    (config / "settings.json").write_text(
+        '{"schema_version": 1, "theme": "retired-in-a-later-build"}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        assert window._theme is THEMES[DEFAULT_THEME]
+    finally:
+        controller.stop()
+
+
+@pytest.mark.gui
+def test_a_refused_settings_field_is_reported_and_not_silently_defaulted(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """`load` returning the defaults is only half the contract.
+
+    A preference that could not be read must not look the same as one that was
+    never set — `controller._flush_repeated_error`'s rule, that silence and
+    suppression must be distinguishable. So the reason travels from
+    `settings.load` to the window, and this is what proves the wire exists: a
+    mutant deleting those three lines survived every other test here.
+    """
+    config = tmp_path / "config" / "localwebservermanager"
+    config.mkdir(parents=True)
+    (config / "settings.json").write_text(
+        '{"schema_version": 1, "theme": 7}\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    # A VALID project list, deliberately. With none, `build_window` ends by
+    # calling `set_status_message(error)` for the missing registry, which
+    # overwrites the notice summary — so a test without one asserts nothing
+    # about settings and reads as a settings failure.
+    projects = tmp_path / "projects.json"
+    projects.write_text(
+        '{"schema_version": 1, "projects": [{"path": "/srv/ok", "name": "ok"}]}\n',
+        encoding="utf-8",
+    )
+
+    window, controller = build_window(projects)
+    qtbot.addWidget(window)
+    try:
+        assert "theme" in window.statusBar().currentMessage()
+    finally:
+        controller.stop()
