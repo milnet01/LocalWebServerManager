@@ -2579,7 +2579,7 @@ magnifier, so this is a design input, and
   written into testing.md § T8.
   Resolved (2026-08-19): eight palettes ship. The six are transcribed from finbreak/src/finbreak/ui/theme.py -- transcribed rather than imported, because a public repo cannot depend on a path outside it -- plus high-contrast in light and dark. Theme gained the four state tokens ADR-0004 names and this file lacked (starting, wrong_port, foreign, blocked, failed), so all seven derived states plus state_unknown have a colour on every palette; four have no ProjectStatus to bind to until LWSM-1011 and are defined anyway, because the cost of a state token is tuning it against three surfaces on eight palettes and adding the states later would mean re-opening every one. Every state token was SOLVED for, not chosen: a fixed hue per meaning, lightness walked away from the palette's surfaces until the worst of window/base/alt_base clears the floor, then stopped -- the first draft walked from the far end and returned near-white for every hue on every dark palette, legible and meaningless, which is why test_the_state_tokens_are_distinguishable_from_the_body_text exists. Four divergences from finbreak, each recorded beside its value: ledger, parchment, mint and graphite tuned muted_text against window alone and sat at 4.10-4.26 against alt_base, retuned to 4.50-4.52 with the hue kept. Acceptance met -- the § T8 test is now parametrised theme x token x surface (8 x 11 x 3) and DERIVED from the registry, so a palette added to theme.py cannot arrive without coverage, and the two assistive palettes are held to 7:1 through a high_contrast flag on the theme itself. Switchable without a restart via Settings > Theme, and the choice survives one: settings.py is new and minimal (schema_version plus the theme id) on LWSM-1018's file, which that item grows. It never raises on read -- a preference nobody can parse has an obvious right answer, unlike a project list. Membership is NOT checked there (a core module may not import theme.py, § O1); theme_for_id owns the fallback. The LWSM-1005 light placeholder is retired, since keeping it would have made 'six themes' false. 894 green, up from 856; full gate green; every theme rendered offscreen and looked at. 27 mutants across four rounds, five survivors, all closed.
 
-- 🚧 [LWSM-1032] **P04: accessibility pass — magnifier-first.**
+- ✅ [LWSM-1032] **P04: accessibility pass — magnifier-first.**
   The primary user is partially sighted and reads with a screen
   magnifier, so this is a design constraint rather than a
   compliance sweep: state spelled out as a **word** with colour
@@ -2626,6 +2626,62 @@ magnifier, so this is a design input, and
   confirmation placement. No spec: § Review cadence's build-first
   default, and the one durable artifact is an additive `settings.json`
   field on a file LWSM-1018 already grows.
+  Resolved (2026-08-19). All four `testing.md § T8` checks and every row of
+  `design.md § Accessibility`'s check table land, with one exception named
+  below rather than hidden. 956 green, gate green, 21 mutants run and 20
+  dead — the survivor is recorded in the test that survived it.
+
+  **Two rows were not merely untested.** The lens-view row was FALSE: a row's
+  controls ran to x=641 against a 600 px budget, because Fusion gives a
+  `QPushButton` an 80 px minimum whatever its label says, so four of them
+  spent 344 px on four words needing half that. `_fit_buttons` sizes each
+  from its own label; `customer-dashboard-frontend-v2` — known-issue-011's
+  own fixture — now ends at 566 px, and that issue is resolved. The
+  confirmation row was UNBUILDABLE: Qt centres a dialog on the parent's
+  window whichever widget is passed (measured; a box parented to the last of
+  four rows gives a rectangle identical to one parented to the window), and
+  ADR-0007 forbids positioning our own window, so no code change could have
+  satisfied it. The user chose to amend the design to the platform truth
+  rather than drop the trust dialog's modality; known-issue-055 is resolved
+  as a documentation defect.
+
+  **The largest defect was in the feature this item had to build.** The
+  in-app 100-200 % text-size control existed nowhere, and the day it was
+  wired up it enlarged nothing the user reads: the window's style sheet
+  makes QStyleSheetStyle resolve a font onto every descendant, so
+  LWSM-1119's window-to-row fix carried the change one hop and stopped. At
+  200 % the state column widened 53 → 103 px while every label and button
+  stayed at 9 pt. Three existing tests reported that path covered, and all
+  three assert a width the row DERIVES from its own font, which grows either
+  way. `design.md § Look and feel` now records that a generated style sheet
+  costs font inheritance.
+
+  Feedback moved out of the status bar onto the row that raised it —
+  `action_failed` carries `(path, message)` — as a second line, since the
+  same section rules out horizontal sprawl. The label is created on demand
+  and destroyed rather than hidden, because a hidden QLabel is still an
+  unnamed child of the accessibility tree.
+
+  **Rule-14 gate on `design.md`: three loops, 19 verified, 19 fixed, cap
+  reached** (rows 5-7 of its loop log). Nine of the nineteen were
+  pre-existing, including § Tokens claiming seven state tokens where
+  `theme.py` ships eight, and § Components describing the row as "name,
+  status dot, port" — the layout § Accessibility rules out. About half of
+  each loop's findings landed on the previous loop's fixes, which is why the
+  cap verdict recommends no fourth loop and LWSM-1157 files the split.
+
+  **Closed against 17 of 18 rows.** The eighteenth — a confirmation raised
+  from the tray shows the window first — was added BY the gate, because the
+  tray can raise one with no window on screen and the section's own rule
+  forbids a promise with no check. It is scoped to P09 in the table: there
+  is no tray to drive yet, so the row is stated rather than run.
+
+  **Still open and NOT part of this item:** `known-issue-013`'s `role=Border`
+  half — `ProjectRow` is a bare `QFrame`, so its AT-SPI role is decorative.
+  Its description half is resolved, having been a documentation defect: the
+  design had widened `coding.md § O8` clause 1 to require a description
+  unconditionally where the standard asks for one only when the name is not
+  self-explanatory.
 
 - ✅ [LWSM-1040] **P04: keyboard-first navigation.**
   Number keys
