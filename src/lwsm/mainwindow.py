@@ -509,6 +509,15 @@ class ProjectRow(QFrame):
             button.setFixedWidth(
                 max(metrics.horizontalAdvance(button.text()) + padding, MIN_TARGET_PX)
             )
+            # The HEIGHT needs the same floor, and CI is what proved it. The
+            # style derives a button's height from the font, so on this
+            # developer's machine they came out 25 px and cleared 24 by one
+            # pixel — while the runner, whose default font is smaller, made
+            # them **22**. That is not a test artefact: it is the promise
+            # failing on any machine with a small system font, which is a
+            # machine a magnifier user may well be on. A minimum rather than a
+            # fixed height, so it still grows with the text-size control.
+            button.setMinimumHeight(MIN_TARGET_PX)
 
     def natural_widths(self) -> tuple[int, int, int]:
         """What this row's three cells would each need on their own.
@@ -938,6 +947,9 @@ class MainWindow(QMainWindow):
         # `design.md § Accessibility` requires tab order to follow visual
         # order.
         self._filter = QLineEdit(central)
+        # Same floor as the row's buttons, for the same reason and found by the
+        # same CI run: the runner rendered this box 22 px high.
+        self._filter.setMinimumHeight(MIN_TARGET_PX)
         self._filter.textChanged.connect(self._apply_filter)
         strip = QHBoxLayout()
         strip.addWidget(self._filter)

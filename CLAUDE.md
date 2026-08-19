@@ -931,6 +931,21 @@ above and the SIGTERM-ignoring launcher — an assertion that holds whether or
 not the rule does. **Mutate the mechanism out before believing a geometry
 test, and say which mutant each test dies on.**
 
+**Trap: a widget's SIZE depends on the runner's default font, so a pixel-floor
+test can pass locally and fail in CI.** `design.md § Accessibility` puts a
+24x24 floor under every clickable target. Qt's style derives a button's height
+from the font, and on this machine that gave **25 px** — clearing the floor by
+one pixel — while the GitHub runner's smaller default font gave **22**. So the
+floor was breached for every user with a small system font, the suite could not
+see it, and CI was the only thing that could (found 2026-08-19, LWSM-1032).
+**A floor belongs in the SOURCE, not only in the assertion** —
+`setMinimumHeight(MIN_TARGET_PX)`, a minimum so it still grows with the
+text-size control. And **parametrise the test over the font** rather than
+trusting the ambient one: the 6 pt case fails on a build with no explicit floor
+whatever machine it runs on, while the ambient case passes on this one either
+way. Same family as the TOOL DRIFT note above — two machines running the same
+steps with different inputs is not one gate.
+
 **Trap: a colour solved for CONTRAST alone converges on white.** LWSM-1031
 derives each palette's state tokens by walking a fixed hue's lightness until it
 clears § T8's floor. The first draft walked from the far end of the range and

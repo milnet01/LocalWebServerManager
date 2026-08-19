@@ -3023,13 +3023,30 @@ def clickable(window: MainWindow) -> dict[str, object]:
     return found
 
 
+@pytest.mark.parametrize("base_point_size", [None, 6.0])
 def test_every_clickable_target_clears_the_floor_and_grows_with_the_text(
-    qtbot, built, app_font
+    qtbot, built, app_font, base_point_size
 ) -> None:
     """Two properties in one test on purpose: a target can clear 24x24 by being
     a fixed size, which is the failure the second half names. `§ O7` forbids
     the pixel constant that would produce it, and this is what checks the rule
-    was actually followed at every call site rather than at most of them."""
+    was actually followed at every call site rather than at most of them.
+
+    **Parametrised over the SYSTEM font, because the ambient one hid the bug.**
+    A button's height comes from the style, which derives it from the font, so
+    this machine's default produced 25 px — clearing the floor by one pixel —
+    and CI's smaller default produced 22. The floor was breached on the
+    runner and nowhere else, which means it was breached for any user with a
+    small system font and this suite could not see it. 6 pt is well under any
+    plausible desktop setting, so the parametrised case fails on a build with
+    no explicit floor whatever machine it runs on.
+    """
+    if base_point_size is not None:
+        app = QApplication.instance()
+        assert app is not None
+        font = app.font()
+        font.setPointSizeF(base_point_size)
+        app.setFont(font)
     window, _ = scaled_window(qtbot, built)
     with qtbot.waitExposed(window):
         window.show()
