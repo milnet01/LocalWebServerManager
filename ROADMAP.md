@@ -2579,7 +2579,7 @@ magnifier, so this is a design input, and
   written into testing.md § T8.
   Resolved (2026-08-19): eight palettes ship. The six are transcribed from finbreak/src/finbreak/ui/theme.py -- transcribed rather than imported, because a public repo cannot depend on a path outside it -- plus high-contrast in light and dark. Theme gained the four state tokens ADR-0004 names and this file lacked (starting, wrong_port, foreign, blocked, failed), so all seven derived states plus state_unknown have a colour on every palette; four have no ProjectStatus to bind to until LWSM-1011 and are defined anyway, because the cost of a state token is tuning it against three surfaces on eight palettes and adding the states later would mean re-opening every one. Every state token was SOLVED for, not chosen: a fixed hue per meaning, lightness walked away from the palette's surfaces until the worst of window/base/alt_base clears the floor, then stopped -- the first draft walked from the far end and returned near-white for every hue on every dark palette, legible and meaningless, which is why test_the_state_tokens_are_distinguishable_from_the_body_text exists. Four divergences from finbreak, each recorded beside its value: ledger, parchment, mint and graphite tuned muted_text against window alone and sat at 4.10-4.26 against alt_base, retuned to 4.50-4.52 with the hue kept. Acceptance met -- the § T8 test is now parametrised theme x token x surface (8 x 11 x 3) and DERIVED from the registry, so a palette added to theme.py cannot arrive without coverage, and the two assistive palettes are held to 7:1 through a high_contrast flag on the theme itself. Switchable without a restart via Settings > Theme, and the choice survives one: settings.py is new and minimal (schema_version plus the theme id) on LWSM-1018's file, which that item grows. It never raises on read -- a preference nobody can parse has an obvious right answer, unlike a project list. Membership is NOT checked there (a core module may not import theme.py, § O1); theme_for_id owns the fallback. The LWSM-1005 light placeholder is retired, since keeping it would have made 'six themes' false. 894 green, up from 856; full gate green; every theme rendered offscreen and looked at. 27 mutants across four rounds, five survivors, all closed.
 
-- 📋 [LWSM-1032] **P04: accessibility pass — magnifier-first.**
+- 🚧 [LWSM-1032] **P04: accessibility pass — magnifier-first.**
   The primary user is partially sighted and reads with a screen
   magnifier, so this is a design constraint rather than a
   compliance sweep: state spelled out as a **word** with colour
@@ -2612,6 +2612,20 @@ magnifier, so this is a design input, and
   most of the section unbuilt — thirteen of its promises had no test
   surface at all. design.md § Accessibility now carries a check
   table, and every row of it is part of this item's acceptance.
+  Started 2026-08-19, after LWSM-1040 shipped and its dependency LWSM-1031
+  landed. First move is an audit of the acceptance surface rather than
+  code: 17 checks in total — `testing.md § T8`'s four plus every row of
+  `design.md § Accessibility`'s table — and a survey of the existing
+  suite shows several already hold and are already tested (contrast
+  arithmetic across every theme with the 7:1 assistive floor, focus-ring
+  contrast, announce-once, focus never stolen). Three need the FEATURE
+  built before any check can pass: the in-app text-size control
+  (100–200 %, which does not exist — `Settings` holds `theme` alone),
+  feedback surfacing next to the control that raised it (notices go to
+  the status bar today, which is what the promise rules out), and
+  confirmation placement. No spec: § Review cadence's build-first
+  default, and the one durable artifact is an additive `settings.json`
+  field on a file LWSM-1018 already grows.
 
 - ✅ [LWSM-1040] **P04: keyboard-first navigation.**
   Number keys
@@ -2793,6 +2807,32 @@ magnifier, so this is a design input, and
   Kind: implement.
   Source: user-request-2026-08-18.
   Lanes: ui.
+
+- 📋 [LWSM-1156] **P04: Enter in the filter box jumps to the first remaining row.**
+  Split out of LWSM-1040 (2026-08-19) rather than widening it: the
+  observation was recorded on that bullet, put to the user at the close,
+  and filed here on their say-so.
+
+  After `/` and typing, the caret stays in the filter box, so reaching
+  the narrowed list needs a Tab. The app IS fully keyboard-operable
+  already — this is a keystroke saved, not a gap closed, which is why it
+  was out of LWSM-1040's filed scope.
+
+  Scope: Enter inside the filter `QLineEdit` focuses the first row still
+  visible under the current filter. **Not** Enter anywhere else —
+  `MainWindow.keyPressEvent`'s Enter already clicks the focused row's
+  enabled button, and that meaning must not change. The two live in
+  different widgets, so Qt's propagation separates them the same way it
+  already separates a digit typed into the box from a digit typed
+  anywhere else; no guard should be needed, and if one is, that is the
+  signal the design is wrong.
+
+  Edge case the test must name: an empty result set. Enter with no
+  remaining rows does nothing and must not move focus or raise.
+  Dependencies: LWSM-1040 (shipped).
+  **Layman:** After typing a filter, one press of Enter should put you on the first matching project instead of needing Tab first.
+  Kind: accessibility.
+  Source: in-session-2026-08-19 (split out of LWSM-1040's close, user-approved).
 
 ## P05 — Start, stop, restart (criterion 2)
 

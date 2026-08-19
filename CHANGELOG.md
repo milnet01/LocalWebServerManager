@@ -23,6 +23,11 @@ signaling per
 
 ### Added
 
+- **Make the text bigger from inside the app — Settings > Text size, 100 % to 200 %, remembered between runs (LWSM-1032)**
+  Five steps, applied to the desktop's own font rather than replacing
+  it, so a machine already set to large text stays large and gets
+  larger. The choice is stored beside the theme in settings.json.
+
 - **Drive the whole list from the keyboard, and filter it down to what you are looking for** (LWSM-1040)
   Press `/` to jump to the filter box and type part of a project's
   name — upper or lower case, anywhere in the name — and the list
@@ -157,6 +162,11 @@ signaling per
 
 ### Changed
 
+- **When an action fails, the message appears under the project it is about instead of in the status bar (LWSM-1032)**
+  A message in the corner of the window is invisible to someone whose
+  magnifier is on a button. It clears itself as soon as the project's
+  state moves on, so it can never contradict what the row says.
+
 - **The app now starts dark** (LWSM-1147)
   Following the desktop's own light/dark setting would open light on a
   light desktop, which is not what was asked for, so it is a choice
@@ -201,6 +211,18 @@ signaling per
   default.
 
 ### Fixed
+
+- **A project's whole row, controls included, now fits in one magnifier view (LWSM-1032)**
+  Buttons took a fixed width whatever their label said, so a row for a
+  long-named project ran past the width a magnifier shows at once and
+  reading one row meant panning across it.
+
+- **Text-size changes now enlarge the text, not just the space around it (LWSM-1032)**
+  The columns widened at 200 % while every word, button and the filter
+  box stayed at their original size — so the one setting the app offers
+  for readability did nothing readable. Three existing tests reported
+  this working, because all three measured the column rather than the
+  letters.
 
 - **The pre-push gate no longer exempts the markdown its own test suite asserts against**
   `CLAUDE.md`, `README.md` and every file under `docs/standards/` are read
