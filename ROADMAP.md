@@ -2931,6 +2931,54 @@ magnifier, so this is a design input, and
   Kind: doc.
   Source: in-session-2026-08-19 (review-contract cap verdict, LWSM-1032's gate).
 
+- 📋 [LWSM-1158] **`test_completed_tasks_do_not_accumulate` is load-flaky, and its widened ceiling is still a GC-timing assertion.**
+  Measured 2026-08-20. `tests/test_controller.py::test_completed_tasks_do_not_accumulate`
+  failed twice under load — once inside the `pre-push` hook and once in a
+  back-to-back run loop — reporting **46** and **182** live `_SnapshotTask`
+  wrappers after 200 completed polls, against a ceiling of 20. It then passed
+  8/8 in a quiet loop on the same tree, and 8/8 on the pre-split tree, so the
+  suite is roughly 13 pass / 2 fail on this machine and the trigger is machine
+  load rather than any code change.
+
+  **It is not a leak, and the 182 is the tell that it is not measuring what it
+  says.** The task emits `projects_changed` from *inside* `run()`; the pool
+  deletes the task only once `run()` RETURNS. `qtbot.waitSignal` therefore
+  returns while the task is still alive by construction, and under load the
+  pool accumulates a backlog of tasks that have signalled but not yet unwound.
+  182 of 200 is what a full backlog looks like — which is also, exactly, what
+  the one-per-tick defect the test exists for looks like. **The test cannot
+  distinguish its own defect from a slow machine**, and that is the defect in
+  the test.
+
+  The ceiling has already been widened once for this — from `<= 1` to
+  `polls // 10` on 2026-08-14, with a comment explaining that `gc.collect()`
+  does not free a wrapper the moment its C++ object goes. Widening it again is
+  the wrong fix: the gap between "a handful pending" and "one per tick" is not
+  a threshold problem, it is that the test never waits for the pool to drain.
+
+  Scope: make the measurement wait for quiescence rather than for a signal —
+  `QThreadPool.waitForDone()` on the controller's pool before `live()` is read,
+  which is the same bounded-wait `controller.stop()` already owns. Then the
+  count is taken in a state where a pending task is a genuine leak, and the
+  ceiling can go back to something that discriminates by more than a factor of
+  ten.
+
+  **Do not simply raise the ceiling.** A ceiling above 182 would pass against
+  the original one-per-tick defect at these poll counts, which is the whole
+  behaviour this test locks.
+
+  Acceptance: with the pool drained before the count, the test passes under
+  induced load (run it against a busy machine, or with the suite in a tight
+  loop) and still fails when `setAutoDelete(False)` is re-injected — both
+  verified rather than reasoned about, per the § T9 note in `CLAUDE.md`.
+
+  Priority: 2.
+  Dependencies: none.
+  **Layman:** One test sometimes fails for reasons that have nothing to do with a bug, which will eventually redden a build for no reason.
+  Kind: test.
+  Source: in-session-2026-08-20 (hit twice while pushing LWSM-1157).
+  Lanes: tests.
+
 ## P05 — Start, stop, restart (criterion 2)
 
 **Theme:** the buttons. [ADR-0003](docs/decisions/0003-launch-via-project-scripts.md)
