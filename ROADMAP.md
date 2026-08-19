@@ -2554,6 +2554,7 @@ magnifier, so this is a design input, and
   Priority: 2.
   Lanes: ui, tests.
   Progress (2026-08-19): picked as the first P04 item after FP07 closed. Chosen over LWSM-1032 despite its lower filed priority, because LWSM-1032's acceptance includes design.md § Accessibility's keyboard-reachability row and this item's own bullet says it makes that check natural rather than a retrofit — so 1040 before 1032 is the cheaper order. LWSM-1031 (the dependency) shipped 2026-08-19.
+  Open question (2026-08-19), put to the user and NOT yet answered: where the filter box lives. The proposal was a strip above the row list, mirroring how LWSM-1149 placed the Rescan button on its own right-aligned strip rather than stretching it full-width. **Whichever placement is chosen, it is chrome, and `_apply_default_geometry` must count it** — CLAUDE.md § Module map records that leaving the menu bar out of that calculation opened the window one bar too short, so a list that fits scrolled; two LWSM-1149 geometry tests die on that mutant. A fresh session should ask before building, not guess. No LWSM-1040 code exists yet; the item is 🚧 only because it was picked.
 
 - 📋 [LWSM-1033] **P04: window geometry and Centre on screen.**
   Size, position and maximised state persisted as plain integers
@@ -3511,6 +3512,7 @@ is why it sits after the app works.
   LWSM-1148). NOT dependent on LWSM-1021/LWSM-1052 — an AppImage is a
   distribution channel and 0.1.0 is a source/tag release; do not let
   packaging block the version.
+  Confirmed (2026-08-19): the user was asked directly whether to re-gate this — 69 entries sit unreleased and nothing has ever shipped — and chose to HOLD as filed. 0.1.0 stays gated on P04 closing. The reasoning was that the app is not yet keyboard- or magnifier-usable, which is P04's whole purpose, so shipping first means a first release the primary user cannot drive. **Do not re-open this as though the user had gone quiet** — the question was put and answered. What would change it is P04 closing, not the changelog growing further.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
