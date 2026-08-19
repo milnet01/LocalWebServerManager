@@ -420,9 +420,49 @@ Added at P02 (LWSM-1005), contract in
   the task holds a composed `_SnapshotSignals(QObject)` — a
   `Signal` declared on a bare `QRunnable` has no `emit`.
   `stop()` waits for the pool, and every test fixture calls it.
+- **`src/lwsm/configfile.py`** — core. `ConfigFileError`,
+  `MAX_FILE_BYTES`, `MAX_REASON_CHARS`, `quoted()`, `read_bounded()`,
+  `prepare_config_dir()`, `refuse_existing_target()` and
+  `write_json_atomically()`. **Extracted from `registry.py` by LWSM-1031,
+  which needed a second config file** — every function in it was written
+  after a measured defect (a FIFO that made the read block forever with no
+  window and no log line, a symlink destroyed by `os.replace`, a
+  `mkdir(parents=True, mode=0o700)` leaving every parent at the umask
+  default, a 600 MB file peaking at 1214 MB RSS), so a second weaker copy
+  for `settings.json` is what `coding.md § 1.3` forbids. `RegistryError`
+  subclasses `ConfigFileError` and `save_projects` **converts rather than
+  propagating**, because its contract and four tests promise the narrow
+  type and `except RegistryError` does not catch a base-class instance.
+- **`src/lwsm/settings.py`** — core, no Qt. `Settings`, `LoadResult`,
+  `SettingsError`, `default_settings_path()`, `load()`, `save()`.
+  Minimal by design: `schema_version` plus the theme id, on the file
+  **LWSM-1018 grows**. **`load()` never raises** — that is the one rule
+  separating it from `registry.py`: a project list nobody can parse is a
+  refusal the user must see, because the alternative is inventing projects
+  (ADR-0005), while a preference nobody can parse has an obvious right
+  answer. Every refusal still reports a reason, and `build_window` puts
+  those in the status bar; a mutant logging them and never showing them
+  survived every other test. It **does not check that a theme id names a
+  theme** — a core module may not import `theme.py` (`§ O1`), and
+  `theme.theme_for_id` owns the fallback.
 - **`src/lwsm/theme.py`** — UI layer, and the **only** module
   allowed a colour literal; `test_layering.py` exempts it by an
   explicit allowlist and asserts it still holds the palette.
+  Since LWSM-1031 it holds **eight palettes** — `THEMES`, `DEFAULT_THEME`
+  (`midnight`, LWSM-1147) and `theme_for_id()`. The six are **transcribed**
+  from `finbreak/src/finbreak/ui/theme.py`, never imported: a public repo
+  cannot depend on a path outside it. **Every state token was solved for,
+  not chosen** — a fixed hue per meaning, lightness walked *away* from the
+  palette's surfaces until the worst of `window`/`base`/`alt_base` clears
+  the floor, then stopped. **Walking from the far end instead returns
+  near-white for every hue on a dark palette**, which is legible and
+  carries no meaning at all; that draft passed every contrast check, which
+  is why `test_the_state_tokens_are_distinguishable_from_the_body_text`
+  exists. Four `muted_text` values diverge from finbreak, each recorded
+  beside its value: finbreak tuned them against `window` alone and
+  `alt_base` is darker. `high_contrast` is a flag **on the theme** rather
+  than a set of ids beside it, because the floor a palette is judged
+  against is a property of the palette.
 - **`src/lwsm/mainwindow.py`** — UI layer. Since LWSM-1131 it also
   owns the **Rescan** seam: `RescanContext` (scan roots, the scan
   function and the writer, all injected so `testing.md § T1` holds),
@@ -451,6 +491,19 @@ Added at P02 (LWSM-1005), contract in
   filed scope and is the part that mattered most: without it the
   window's minimum height is every row it holds, so twenty projects give
   a window taller than the screen that cannot be shrunk.
+  Since LWSM-1031 it also owns the **theme picker** — `_build_theme_menu`,
+  `set_theme` and `ProjectRow.apply_theme`. **The swap goes to the
+  APPLICATION palette, the window's style sheet and then every row**, which
+  is the same three places `__init__` applies it and for the same reasons:
+  a `self.setPalette` themes the frame and nothing inside it (LWSM-1118),
+  and a row caches its own `Theme` **and its glyph colour**. LWSM-1111
+  named that cache as the live edge the day the palette could change and
+  predicted the fix would look like `retranslate()` — it does, both going
+  through `_rerender`. **`save_theme` is the fourth injected seam and the
+  first defaulting to doing NOTHING**: `confirm` and `open_url` default to
+  the real behaviour safely because an untriggered test never reaches
+  them, while this one would write to the developer's own `settings.json`
+  the moment a test exercised the picker.
   Since LWSM-1146 it also owns the **menu bar** — `_build_menus`,
   `_retranslate_menus` and `_set_rescan_enabled`. It owns the BAR only; the
   settings dialog is LWSM-1018's and arrives through the injected
@@ -514,6 +567,7 @@ built under § Review cadence's build-first default:
   (LWSM-1132, LWSM-1140).
 
 Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
+`test_settings.py`,
 `test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
 `test_layering.py`, `test_scanner.py`, `test_supervisor.py`,
 `test_ci_contract.py` (the gate's own contract — that `ci.yml` adds no
@@ -523,7 +577,11 @@ executable and does not exempt the gate's own inputs) (+ `scanner_fixtures.py`,
 the detection regression corpus every future mis-detection is
 added to), plus `conftest.py` (sets
 `QT_QPA_PLATFORM=offscreen` when unset, so a bare `pytest` cannot
-open a real window). **Markers go on tests, not files** — marking
+open a real window, and **pins `XDG_CONFIG_HOME` to a fresh directory
+per test** — since LWSM-1031 `build_window` reads `settings.json`, and
+three `build_window` tests pin only `projects_path`, so without this they
+pass or fail depending on which palette the author last chose in the real
+app). **Markers go on tests, not files** — marking
 a whole file by its heaviest test makes `--fast` silently skip
 every light test beside it.
 
@@ -771,6 +829,19 @@ clipping one and the assertion could not fail. Same family as the § T9 note
 above and the SIGTERM-ignoring launcher — an assertion that holds whether or
 not the rule does. **Mutate the mechanism out before believing a geometry
 test, and say which mutant each test dies on.**
+
+**Trap: a colour solved for CONTRAST alone converges on white.** LWSM-1031
+derives each palette's state tokens by walking a fixed hue's lightness until it
+clears § T8's floor. The first draft walked from the far end of the range and
+stopped at the first pass, which on a dark palette is near-white for *every*
+hue — so all eight state tokens came out `#ffffff`, perfectly legible and
+carrying no state information at all. **Every contrast check passed**, because
+contrast is exactly what it was solving for. Walk *away* from the surfaces and
+stop at the first clear, so the token keeps as much of its hue as the floor
+allows; and hold the result to a second property the first cannot imply —
+`test_the_state_tokens_are_distinguishable_from_the_body_text`. Same family as
+the vacuous geometry test: an assertion that holds whether or not the rule
+does, here because the rule as stated was not the rule that was wanted.
 
 **Trap: run analysis tools inside the project venv (`uv run`, or
 `uv run --with <tool>`).** Bare `deptry` / `pip-audit` resolve the

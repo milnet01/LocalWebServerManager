@@ -76,8 +76,7 @@ visible.
 
 ### 🐛 Bug fixes
 
-- ✅ [LWSM-1069] **FP03: an unexpected exception wedges the poll loop
-permanently, and silently.**
+- ✅ [LWSM-1069] **FP03: an unexpected exception wedges the poll loop permanently, and silently.**
   Two halves, found by two independent lanes.
   `ports.py:49` catches only `psutil.Error`, which is neither an `OSError` nor a
   `RuntimeError` (verified: both `issubclass` calls return `False`) — while
@@ -105,8 +104,7 @@ permanently, and silently.**
   Lanes: core, tests.
   Resolved (2026-08-06, d0cb39b): both halves fixed. `PortProbe.snapshot()` now catches `Exception` and keeps the original as `__cause__`; `_SnapshotTask.run()` ends in `except BaseException`, logging a traceback and emitting `failed` so the guard is always cleared. Seven tests, each watched red against shipping code first — they assert a later tick still probes, not that the process survived, since it always survived. Spec corrected too: § 4.2's false whole-surface premise, § 4.3's no-escape rule, INV-4b widened to any failure, new INV-4c, § 6 failure modes. Gate green at 75 tests, LWSM_REQUIRE_ALL_TOOLS=1.
 
-- ✅ [LWSM-1073] **FP03: `stop()` returns while a queued emission is still in
-flight.**
+- ✅ [LWSM-1073] **FP03: `stop()` returns while a queued emission is still in flight.**
   `controller.py:122` waits with `QThreadPool.globalInstance().waitForDone()`,
   which waits for `run()` to *finish* — but the `emit` happens inside `run()`
   over a queued connection, so the event is already posted and is dispatched on
@@ -132,8 +130,7 @@ flight.**
   Lanes: core, tests.
   Resolved (2026-08-06, 0b2a22f): all three. Both signals are disconnected before the wait (reproduced: one emission arrived a single spin after stop() returned; the test fails again with the disconnect removed). The controller holds a private single-thread QThreadPool (reproduced: stop() took 5.00 s waiting on one unrelated global-pool runnable). The wait is bounded at STOP_WAIT_MS = 2000 — a shutdown budget, not a watchdog, so ADR-0004's "slowness is not failure" is untouched; on expiry the pool and task are deliberately never released, since ~QThreadPool waits unbounded and collecting a running _SnapshotTask would destroy a live C++ object. Also closed a gap this exposed in LWSM-1069's fix: the emits sat outside the catch-all and `emit` on a destroyed signaller was escaping run(); it now has two layers. INV-16 rephrased over delivery rather than mechanism — its old wording was true while its purpose was violated. Gate green at 94 tests.
 
-- ✅ [LWSM-1072] **FP03: the registry read is unbounded, and two exceptions
-escape the contract.**
+- ✅ [LWSM-1072] **FP03: the registry read is unbounded, and two exceptions escape the contract.**
   `registry.py:86` calls `path.read_bytes()` with no
   guard on type or size, so — reproduced — a **FIFO** at
   `~/.config/localwebservermanager/projects.json` blocks forever: no window, no
@@ -160,8 +157,7 @@ escape the contract.**
 
 ### 🔒 Security
 
-- ✅ [LWSM-1078] **FP03: the registry's rejection reasons carry
-attacker-controlled text unescaped into the status bar.**
+- ✅ [LWSM-1078] **FP03: the registry's rejection reasons carry attacker-controlled text unescaped into the status bar.**
   `registry.py:136,141,146`
   interpolate `raw_name` **raw and unbounded** (unlike `value!r`, which `repr`
   escapes), and that reason reaches both `log.warning` at `__main__.py:38` — where
@@ -213,8 +209,7 @@ attacker-controlled text unescaped into the status bar.**
 
 ### ♿ Accessibility
 
-- ✅ [LWSM-1070] **FP03: the only focusable widget in the app draws no focus
-ring.**
+- ✅ [LWSM-1070] **FP03: the only focusable widget in the app draws no focus ring.**
   `mainwindow.py:56` sets `StrongFocus` on `ProjectRow` and nothing paints
   a focus indicator — `QFrame` renders only its frame, and `StyledPanel` does not
   consult `State_HasFocus`. Reproduced by grabbing the widget focused and
@@ -234,8 +229,7 @@ ring.**
   Lanes: ui, tests.
   Resolved (2026-08-06, 63f62ce): `ProjectRow.paintEvent` paints the ring `QFrame` does not, in the `accent` token expanded by `Theme.focus_ring_color()` (§ O7 forbids a widget building a QColor), at a pen width derived from the text metric so it survives LWSM-1032's 200 % setting. Measured: 858 of 6734 pixels change between the focused and unfocused grabs, ring width 2 px, contrast 5.42:1 against `window` — over § T8's 3:1 indicator floor. Asserted by rendering, since focusPolicy/hasFocus/accessible name were all already correct while the images matched. Watched failing with the ring neutered. New INV-17; `tests/contrast.py` holds the WCAG arithmetic, shared with LWSM-1075. Gate green at 79 tests.
 
-- ✅ [LWSM-1071] **FP03: the decorative glyph is announced by a screen reader,
-and a code comment says it is not.**
+- ✅ [LWSM-1071] **FP03: the decorative glyph is announced by a screen reader, and a code comment says it is not.**
   `mainwindow.py:64` calls
   `self._glyph.setAccessibleName("")`, and the comment above it states the glyph
   is "also hidden from the AT tree so a screen reader walking children does not
@@ -258,8 +252,7 @@ and a code comment says it is not.**
   Lanes: ui, tests.
   Resolved (2026-08-06, 1b82a90): the glyph is painted in `ProjectRow.paintEvent` into a column reserved by widening the layout's left content margin, so it is not a widget and cannot be a child of the AT tree. Qt Widgets has no ignored flag — Qt Quick's `Accessible.ignored` has no widget equivalent — so leaving the tree means not being a widget. `Theme.state_color()` expands the token, since § O7 forbids widget code building a QColor. Reproduced first as ['●', 'running', 'a', 'port 5005']; the test now asserts childCount() and each child's name equals exactly ["running", "a", "port 5005"]. A second test guards the other direction — every AT assertion would also pass if the glyph were simply deleted, so it blanks the glyph and re-renders, the difference being the glyph. Exact-colour matching was tried and fails for '○' and '?' (antialiased strokes). New INV-19; § 4.4's accessibility-ignored claim corrected. Gate green at 92 tests.
 
-- ✅ [LWSM-1074] **FP03: the row's cells are flung to opposite ends of the
-window.**
+- ✅ [LWSM-1074] **FP03: the row's cells are flung to opposite ends of the window.**
   `mainwindow.py:79` gives `stretch=1` to the **name** cell, so all
   slack is absorbed inside that label — and `QLabel`'s default alignment is
   `AlignLeft`, so the name's text stays at the left while the port cell is pinned
@@ -278,8 +271,7 @@ window.**
   Lanes: ui, tests.
   Resolved (2026-08-06, 846c514): the stretch moved off the name cell to after the last cell, so slack lands outside the row's content instead of inside a left-aligned QLabel. Reproduced first at 1400 px with the port cell ending at x=1371; it now stays inside LWSM-1032's 600 px band. A second test asserts the cells keep their order without overlapping, guarding the over-correction. New INV-20. Gate green at 94 tests.
 
-- ✅ [LWSM-1075] **FP03: `state_unknown` fails the contrast floor in the default
-palette.**
+- ✅ [LWSM-1075] **FP03: `state_unknown` fails the contrast floor in the default palette.**
   `theme.py:62` sets `state_unknown="#8a6d1f"`, which against
   `window="#f4f4f6"` computes to **4.46:1** — below the 4.5:1 that
   `testing.md § T8` and `design.md § Accessibility` require of every text pair.
@@ -299,8 +291,7 @@ palette.**
   Lanes: ui, tests.
   Resolved (2026-08-06, 6c101b4): `state_unknown` darkened #8a6d1f → #856819, 4.46:1 → 4.79:1 against `window`. The test computes the ratio and is parametrised over tokens AND themes, so LWSM-1031's palettes inherit it. Measured: text 15.63, muted_text 6.21, state_stopped 6.21, state_unknown 4.79, state_running 4.61. `tests/contrast.py` is pinned to WCAG's published values first (21:1 black-on-white, the #767676/#777777 borderline) because a miscomputed ratio passes every palette silently; it reproduced the review's own 4.46 and 4.61 before anything changed. `state_running` left alone — it clears the floor, and re-tuning a passing value was not in scope, but it has no margin either. New INV-18. Gate green at 85 tests.
 
-- ✅ [LWSM-1076] **FP03: a state change is never announced, and every row is
-re-styled on every tick.**
+- ✅ [LWSM-1076] **FP03: a state change is never announced, and every row is re-styled on every tick.**
   Two halves of one fix. Qt does **not** notify AT-SPI
   when an accessible name changes, and `mainwindow.py:101` only calls
   `setAccessibleName` — so `design.md § Accessibility`'s promise that "a state
@@ -344,8 +335,7 @@ re-styled on every tick.**
 
 ### 🧹 Cleanup / debt
 
-- ✅ [LWSM-1077] **FP03: the theme layer owes a generated style sheet, and the
-widget is composing CSS instead.**
+- ✅ [LWSM-1077] **FP03: the theme layer owes a generated style sheet, and the widget is composing CSS instead.**
   Spec § 4.4 and `design.md § Tokens, not
   colours` both say a `Theme` expands into a `QPalette` **and** a generated style
   sheet — finbreak's two-layer split. `theme.py` implements `to_palette()` and
@@ -381,8 +371,7 @@ widget is composing CSS instead.**
   Lanes: core.
   Resolved (2026-08-06, 04e8658): logged on the first failure, then only when the message text changes. Suppressed by message rather than by count — a different failure is news, and there is a test for that direction too. The suppressed count is flushed when the message changes, when a poll succeeds, and on stop(), so silence and suppression are never indistinguishable and a run's count does not die with the process. A success clears the state, so a failure recurring after a recovery is logged again. Gate green at 112 tests.
 
-- ✅ [LWSM-1080] **FP03: three type errors in `registry.py`, and a missing
-return annotation on the seam INV-15 depends on.**
+- ✅ [LWSM-1080] **FP03: three type errors in `registry.py`, and a missing return annotation on the seam INV-15 depends on.**
   `pyright` reports
   `registry.py:74` twice and `:76` once: `_is_int()` returns a plain `bool`, so a
   checker cannot narrow `value: object` to `int`, and both the range comparison
@@ -1756,8 +1745,7 @@ change** rather than code that exists.
 
 ### 🔒 Security
 
-- ✅ [LWSM-1045] **FP01: scrub the repo before it is ever public —
-BLOCKS LWSM-1004.**
+- ✅ [LWSM-1045] **FP01: scrub the repo before it is ever public — BLOCKS LWSM-1004.**
   `docs/discovery.md § Problem` publishes a
   working target list for the author's private local services:
   seven project names with exact ports, `file:line` references,
@@ -1785,8 +1773,7 @@ BLOCKS LWSM-1004.**
   Priority: 1.
   Lanes: docs, build.
 
-- 🚧 [LWSM-1046] **FP01: a trust gate before running a discovered
-launcher.**
+- 🚧 [LWSM-1046] **FP01: a trust gate before running a discovered launcher.**
   Start executes arbitrary code from any directory in
   a scan root — a hostile repo cloned there is auto-listed and
   visually identical to a real project, and `npm run <script>`
@@ -1864,8 +1851,7 @@ launcher.**
   child still running and reads `None` anyway, so the assertion held whether or
   not the rule did. The launcher now exits on the signal.
 
-- ✅ [LWSM-1048] **FP01: don't hand the whole environment to
-launched projects.**
+- ✅ [LWSM-1048] **FP01: don't hand the whole environment to launched projects.**
   ADR-0003 extends `os.environ`, so every
   scanned project's launcher — including a hostile one —
   inherits `SSH_AUTH_SOCK` (a live signing oracle), API keys and
@@ -1891,8 +1877,7 @@ launched projects.**
   future addition reddens on the commit that makes it rather than at the next
   security review.
 
-- 📋 [LWSM-1049] **FP01: treat detection results as untrusted
-input.**
+- 📋 [LWSM-1049] **FP01: treat detection results as untrusted input.**
   The plausibility test ("holder's cwd is under the
   project") is forgeable with one `chdir`, and the design lets a
   forged match enable **Open in browser** — localhost phishing
@@ -1959,8 +1944,7 @@ input.**
   the one-hop target (`:568`). The byte cap is enforced in three places on
   purpose — see `CLAUDE.md`'s § T9 trap, which is about this item.
 
-- ✅ [LWSM-1051] **FP01: say plainly that `LWSM_MANAGED` is not
-authentication.**
+- ✅ [LWSM-1051] **FP01: say plainly that `LWSM_MANAGED` is not authentication.**
   It is unauthenticated, forgeable, inherited
   by every descendant and readable from `/proc`. ADR-0006 rule 3
   reads as style advice, and the prompt is about to be pasted
@@ -1989,8 +1973,7 @@ harness to be known-working before any business code lands.
 
 ### 🧰 Dev experience
 
-- ✅ [LWSM-1001] **P01: uv + ruff + pytest + pytest-qt + CI wired
-up.**
+- ✅ [LWSM-1001] **P01: uv + ruff + pytest + pytest-qt + CI wired up.**
   `pyproject.toml` declaring Python ≥ 3.13, PySide6 and
   psutil as runtime deps and pytest / pytest-qt / ruff as dev
   deps; `uv sync` resolves and writes `uv.lock`; `pytest` exits 0
@@ -2158,8 +2141,7 @@ integration pain to surface before more code lands on it.
 
 ### 🎨 Features
 
-- ✅ [LWSM-1005] **P02: one hand-written project renders a live
-status dot.**
+- ✅ [LWSM-1005] **P02: one hand-written project renders a live status dot.**
   A `projects.json` written by hand (no scanner
   yet) is loaded by `Registry`; `PortProbe` reads the socket
   table once per second; `MainWindow` shows one row with a
@@ -2234,8 +2216,7 @@ path. `docs/design.md § Detection rules` is the contract.
   **Not to be redone:** the recursive walk is deliberately not built (user, 2026-08-08); the extra port sources are LWSM-1121's; this item also lands LWSM-1050. **Owed with the code:** the twelve doc amendments in the spec's § 12 (`design.md` ×7, `coding.md § O1`, ADR-0003's unit-name pattern), widening `tests/test_layering.py`'s `CORE_MODULES` by `scanner.py` **and** `applog.py`, and moving the conformance cases into `tests/test_scanner.py` before deleting the script.
   Resolved (2026-08-12, FP06 closing): `src/lwsm/scanner.py` ships with all 20 invariants covered, the detection corpus at 15 fixtures (three added by FP06: `project-m-vite`, `project-n-unexecutable-launcher`, `project-o-vite-in-a-comment`), and 386 tests green. Steps 5-6 ran ONCE, on 2026-08-12 — /audit clean, /code-quality-review 25 findings with zero false positives, 9 into FP06 and 16 routed to `docs/known-issues.md`. FP06 is closed; its nine fixes and the two findings that came out of writing them (known-issue-034, -035) are the last of it. **What ships unreviewed, said plainly:** FP06's own ~350 new lines were never read by a cold reviewer, per the 2026-08-07 one-review-per-phase rule and the user's decision at this close. **LWSM-1121 carries the split-out scope** (.env / docker-compose.yml / README port sources, conflict reporting) and is untouched.
 
-- ✅ [LWSM-1007] **P03b: Persist the registry — the file format
-and the writer.**
+- ✅ [LWSM-1007] **P03b: Persist the registry — the file format and the writer.**
   `projects.json` becomes a file the app writes
   as well as reads: the record grows the eleven fields
   [ADR-0005](docs/decisions/0005-registry-and-rescan.md) names,
@@ -2309,8 +2290,7 @@ and the writer.**
   Priority: 2.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1121] **P03b: Scanner reads the extra port sources and
-reports conflicts.**
+- 📋 [LWSM-1121] **P03b: Scanner reads the extra port sources and reports conflicts.**
   Beyond the launcher and its one-hop file
   (LWSM-1006), the three remaining sources
   [`design.md § Robustness`](docs/design.md) measure 2 names: a
@@ -2398,8 +2378,7 @@ magnifier, so this is a design input, and
 
 ### 🖥 Platform
 
-- 📋 [LWSM-1031] **P04: theme layer — six themes plus
-high-contrast.**
+- ✅ [LWSM-1031] **P04: theme layer — six themes plus high-contrast.**
   Nine semantic tokens plus `is_dark`, expanded
   into both a `QPalette` and a generated style sheet, switchable
   without a restart. The six palettes are **adopted from
@@ -2432,6 +2411,7 @@ high-contrast.**
   including the previously missing running (foreign)). Acceptance
   gains the 7:1 floor for the two high-contrast palettes, now
   written into testing.md § T8.
+  Resolved (2026-08-19): eight palettes ship. The six are transcribed from finbreak/src/finbreak/ui/theme.py -- transcribed rather than imported, because a public repo cannot depend on a path outside it -- plus high-contrast in light and dark. Theme gained the four state tokens ADR-0004 names and this file lacked (starting, wrong_port, foreign, blocked, failed), so all seven derived states plus state_unknown have a colour on every palette; four have no ProjectStatus to bind to until LWSM-1011 and are defined anyway, because the cost of a state token is tuning it against three surfaces on eight palettes and adding the states later would mean re-opening every one. Every state token was SOLVED for, not chosen: a fixed hue per meaning, lightness walked away from the palette's surfaces until the worst of window/base/alt_base clears the floor, then stopped -- the first draft walked from the far end and returned near-white for every hue on every dark palette, legible and meaningless, which is why test_the_state_tokens_are_distinguishable_from_the_body_text exists. Four divergences from finbreak, each recorded beside its value: ledger, parchment, mint and graphite tuned muted_text against window alone and sat at 4.10-4.26 against alt_base, retuned to 4.50-4.52 with the hue kept. Acceptance met -- the § T8 test is now parametrised theme x token x surface (8 x 11 x 3) and DERIVED from the registry, so a palette added to theme.py cannot arrive without coverage, and the two assistive palettes are held to 7:1 through a high_contrast flag on the theme itself. Switchable without a restart via Settings > Theme, and the choice survives one: settings.py is new and minimal (schema_version plus the theme id) on LWSM-1018's file, which that item grows. It never raises on read -- a preference nobody can parse has an obvious right answer, unlike a project list. Membership is NOT checked there (a core module may not import theme.py, § O1); theme_for_id owns the fallback. The LWSM-1005 light placeholder is retired, since keeping it would have made 'six themes' false. 894 green, up from 856; full gate green; every theme rendered offscreen and looked at. 27 mutants across four rounds, five survivors, all closed.
 
 - 📋 [LWSM-1032] **P04: accessibility pass — magnifier-first.**
   The primary user is partially sighted and reads with a screen
@@ -2547,7 +2527,7 @@ high-contrast.**
   Source: user-request-2026-08-18.
   Lanes: ui.
 
-- 📋 [LWSM-1147] **P04: dark is the default theme, not follow-system.**
+- ✅ [LWSM-1147] **P04: dark is the default theme, not follow-system.**
   LWSM-1031 ships six themes and resolves **follow-system** to midnight
   or ledger. The user has asked for **dark by default**, which is a
   different rule: follow-system on a light desktop opens light.
@@ -2557,6 +2537,7 @@ high-contrast.**
   is already specified and cold-reviewed, and its acceptance (the § T8
   contrast test over every theme) is unaffected by which one is default.
   Dependencies: LWSM-1031.
+  Resolved (2026-08-19, with LWSM-1031): DEFAULT_THEME is 'midnight' and Theme.default() returns it. Asserted on is_dark as well as on the id, so renaming the palette cannot quietly turn the app light. A mutant setting it to 'ledger' reddens test_the_default_theme_is_dark.
   **Layman:** The app should start dark unless you choose otherwise.
   Kind: implement.
   Source: user-request-2026-08-18.
@@ -2606,8 +2587,7 @@ is the contract.
 
 ### 🎨 Features
 
-- ✅ [LWSM-1009] **P05: Supervisor spawns and reaps process
-groups.**
+- ✅ [LWSM-1009] **P05: Supervisor spawns and reaps process groups.**
   `subprocess.Popen(start_new_session=True)` with an
   argument vector, `cwd` at the project, `PORT` in the
   environment, output merged into a per-project log file. Stop
@@ -2644,8 +2624,7 @@ groups.**
   why the log is opened `O_RDWR` (`pread` on a write-only fd is `EBADF`).
   Twelve mechanisms mutated, twelve died.
 
-- 📋 [LWSM-1028] **P05: service-managed projects driven through
-`systemctl`.**
+- 📋 [LWSM-1028] **P05: service-managed projects driven through `systemctl`.**
   A project owned by a systemd **user unit** gets
   its verbs from the service manager — `start` / `stop` /
   `restart` / `is-active`, with logs from `journalctl --user -u`
@@ -2667,8 +2646,7 @@ groups.**
   Priority: 1.
   Lanes: core, tests.
 
-- ✅ [LWSM-1010] **P05: start / stop / restart in the UI with the
-optimistic overlay.**
+- ✅ [LWSM-1010] **P05: start / stop / restart in the UI with the optimistic overlay.**
   Buttons wired through `ProjectController`,
   with the bounded overlay in `docs/design.md § State management`
   so the UI responds immediately and probing always wins.
@@ -2754,8 +2732,7 @@ optimistic overlay.**
   being closed; the live version of that rule is LWSM-1121's user-authored
   `open_url`.
 
-- 📋 [LWSM-1055] **P05: a per-project browser choice for Open in
-browser.**
+- 📋 [LWSM-1055] **P05: a per-project browser choice for Open in browser.**
   LWSM-1016 opens the desktop default. A project the user always
   wants in a *particular* browser — a work profile, one carrying the
   right extensions, one kept apart from a personal session — means
@@ -2817,8 +2794,7 @@ is the contract.
   Priority: 1.
   Lanes: core, tests.
 
-- 📋 [LWSM-1038] **P06: confirmed ports — detection learns from
-what actually happens.**
+- 📋 [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
   The first time a project is observed
   listening — started by us, or found already running with a
   holder whose working directory is inside the project — record
@@ -2838,8 +2814,7 @@ what actually happens.**
   Priority: 1.
   Lanes: core, tests.
 
-- 📋 [LWSM-1034] **P06: health check — bound is not the same as
-working.**
+- 📋 [LWSM-1034] **P06: health check — bound is not the same as working.**
   An optional HTTP `GET` to `http://localhost:<bound
   port>/` per project, on a slower cadence than the status poll,
   showing the result **as words**: "running, HTTP 200",
@@ -2858,8 +2833,7 @@ working.**
   Priority: 2.
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1012] **P06: foreign-server adoption and guarded
-stop.**
+- 📋 [LWSM-1012] **P06: foreign-server adoption and guarded stop.**
   A server started outside the app shows as running and
   labelled; Stop enumerates the holder's descendants, names them
   in a confirmation dialog, and signals exactly that set — never
@@ -2873,8 +2847,7 @@ stop.**
   Priority: 2.
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1054] **P06: cover the sibling that respawns itself
-detached.**
+- 📋 [LWSM-1054] **P06: cover the sibling that respawns itself detached.**
   project-e's settings page has a Restart button that
   spawns a fresh copy in a **new session** and then exits 0. So the
   process this app started exits *cleanly* while the port stays
@@ -2957,8 +2930,7 @@ is the contract.
   Priority: 3.
   Lanes: core, ui.
 
-- 📋 [LWSM-1014] **P07: port override, validated and
-persisted.**
+- 📋 [LWSM-1014] **P07: port override, validated and persisted.**
   Assign a different port from the UI; validated at
   entry against 1024–65535; survives restart; passed as `PORT` on
   the next launch. Acceptance: criterion 4 demonstrated against a
@@ -3022,8 +2994,7 @@ persisted.**
 
 ### 🎨 Features
 
-- 📋 [LWSM-1017] **P09: minimal system tray — show/hide and
-quit.**
+- 📋 [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
   Closing the window hides to tray and leaves servers
   running; the tray offers *Show window*, *Hide*, and the app's
   only genuine Quit. **Deliberately no per-project submenu**
@@ -3078,8 +3049,7 @@ quit.**
   Priority: 2.
   Lanes: ui, core, tests.
 
-- 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress
-their own tray.**
+- 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
   The manager sets `LWSM_MANAGED=1` in every
   process it spawns, per
   [ADR-0006](docs/decisions/0006-managed-mode-signalling.md). The
@@ -3148,8 +3118,7 @@ their own tray.**
   Priority: 3.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1053] **P09: decide whether an unattended start may open
-a browser.**
+- 📋 [LWSM-1053] **P09: decide whether an unattended start may open a browser.**
   A sibling's launcher may open the user's browser on
   every start — project-e's does, unconditionally — so a managed
   start throws a browser window onto the screen nobody asked for.
@@ -3211,8 +3180,7 @@ is why it sits after the app works.
   Priority: 2.
   Lanes: build, ci.
 
-- 📋 [LWSM-1043] **P10: decide how updates reach users —
-research first.**
+- 📋 [LWSM-1043] **P10: decide how updates reach users — research first.**
   The user already runs **OneUp**
   (`<scan root>/OneUp/`), an updater with a weekly
   systemd user timer, so the first question is whether this app
@@ -3232,8 +3200,7 @@ research first.**
   Priority: 3.
   Lanes: build, docs.
 
-- 📋 [LWSM-1052] **P10: a local release script, run before CI is
-asked to build one.**
+- 📋 [LWSM-1052] **P10: a local release script, run before CI is asked to build one.**
   `scripts/local-release.sh` builds and
   smoke-tests the AppImage on this machine, so a broken release
   surfaces locally rather than inside a tagged CI run that has
@@ -3778,8 +3745,7 @@ triage; the fixed ones landed in commits 3520359, 86313a7 and b7604b5.
   Priority: 5.
   Lanes: build, core.
 
-- 💭 [LWSM-1044] **Startup ordering between projects — considered
-and declined.**
+- 💭 [LWSM-1044] **Startup ordering between projects — considered and declined.**
   Recorded so it is not re-proposed as a fresh
   idea. "Start the database before the site" sounds reasonable
   and opens a rabbit hole: a dependency graph, wait-for-ready

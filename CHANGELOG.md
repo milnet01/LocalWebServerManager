@@ -23,6 +23,16 @@ signaling per
 
 ### Added
 
+- **A settings.json beside projects.json, holding the theme choice so it survives a restart** (LWSM-1031)
+  A settings file that cannot be read never costs you a window: the
+  app falls back to the defaults and says what it ignored.
+
+- **Six colour themes plus high contrast in light and dark, switchable from Settings > Theme without a restart** (LWSM-1031)
+  The six are adopted from finbreak. Every colour is checked by
+  arithmetic against every background it can land on, and the two
+  high-contrast palettes are held to a stricter standard than the
+  rest, so adding a theme that is hard to read is a failing build.
+
 - **A menu bar, so there is somewhere obvious to find settings.** (LWSM-1146)
   The window was one Rescan button with nowhere to put anything
   else. It now opens with a File menu (Rescan, Quit) and a
@@ -136,6 +146,11 @@ signaling per
   retestable instead of permanent.
 
 ### Changed
+
+- **The app now starts dark** (LWSM-1147)
+  Following the desktop's own light/dark setting would open light on a
+  light desktop, which is not what was asked for, so it is a choice
+  rather than the starting state.
 
 - **The window opens at a size that fits the list, and the list scrolls** (LWSM-1149)
   The opening size is measured from the content and clamped to the
