@@ -89,6 +89,11 @@ MIN_VISIBLE_ROWS = 3
 # Decorative only. One of the three signals design.md § Accessibility requires,
 # and excluded from the accessible name — a screen reader announcing "black
 # circle, running" is noise wearing the costume of redundancy.
+MIN_TARGET_PX = 24
+"""`design.md § Accessibility`: no clickable target smaller than 24x24 at
+100 %. A FLOOR, not a size — everything here is derived from the text metric
+and grows with the text-size control (`§ O7`)."""
+
 STATE_GLYPHS = {
     ProjectStatus.RUNNING: "●",
     ProjectStatus.STOPPED: "○",
@@ -403,6 +408,42 @@ class ProjectRow(QFrame):
             self._base_margins.right(),
             self._base_margins.bottom(),
         )
+        # The buttons are sized from the same metric and so go stale with it.
+        # Guarded because `_apply_text_metrics` runs from `__init__` before the
+        # buttons exist, and again on every later font change when they do.
+        if hasattr(self, "start_button"):
+            self._fit_buttons()
+
+    def _fit_buttons(self) -> None:
+        """Each button as wide as its own label, not the style's default.
+
+        `design.md § Accessibility` budgets the whole row — name, state, port
+        AND controls — to one lens view of `READABLE_BAND_PX`, and Fusion's
+        `QPushButton` has a minimum width of 80 px whatever it says. Four of
+        them spent 344 px of that budget on four words needing about half,
+        which put a real sibling's row (`Ants_Projects_Hub_Website`) at 641 px
+        — outside the lens, so reading one row meant panning (LWSM-1032).
+
+        From the text metric and re-run on every render, never a pixel
+        constant (`§ O7`): the label changes with the language and its width
+        changes with the text-size control, and a width settled once would be
+        wrong after either. `MIN_TARGET_PX` is a floor rather than a size, so a
+        translation that returns an empty string cannot produce a target too
+        small to hit.
+        """
+        metrics = self.fontMetrics()
+        # Breathing room derived from the font as well, so it grows with the
+        # label rather than pinching it at 200 %.
+        padding = metrics.horizontalAdvance("MM")
+        for button in (
+            self.start_button,
+            self.stop_button,
+            self.restart_button,
+            self.open_button,
+        ):
+            button.setFixedWidth(
+                max(metrics.horizontalAdvance(button.text()) + padding, MIN_TARGET_PX)
+            )
 
     def natural_widths(self) -> tuple[int, int, int]:
         """What this row's three cells would each need on their own.
@@ -576,6 +617,8 @@ class ProjectRow(QFrame):
                     "%1", self._name.text()
                 )
             )
+        # Last, because it measures the labels this method has just set.
+        self._fit_buttons()
 
     def apply_theme(self, theme: Theme) -> None:
         """Adopt a new palette and re-render (LWSM-1031).

@@ -25,7 +25,7 @@ from lwsm.controller import (
     ProjectStatus,
     wait_for_abandoned_probes,
 )
-from lwsm.mainwindow import STATE_GLYPHS, MainWindow
+from lwsm.mainwindow import MIN_TARGET_PX, STATE_GLYPHS, MainWindow, ProjectRow
 from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.registry import (
     LauncherKind,
@@ -3001,3 +3001,387 @@ def test_restoring_a_stored_size_writes_nothing(qtbot, built, app_font) -> None:
     scaled_window(qtbot, built, text_scale=150, save_text_scale=saved.append)
 
     assert saved == []
+
+
+# --- LWSM-1032: design.md § Accessibility's check table -----------------------
+
+# `MIN_TARGET_PX` is imported at the top of this file, never re-stated here:
+# the source clamps its button widths to that floor, and a copy would let the
+# two drift while this test went on passing against whatever the source chose.
+
+
+def clickable(window: MainWindow) -> dict[str, object]:
+    """Every widget a pointer can activate, named for a readable failure."""
+    from PySide6.QtWidgets import QAbstractButton, QLineEdit
+
+    found: dict[str, object] = {}
+    for widget in window.findChildren(QAbstractButton) + window.findChildren(QLineEdit):
+        if not widget.isVisibleTo(window):
+            continue
+        label = widget.text() if hasattr(widget, "text") else ""
+        found[f"{type(widget).__name__}({label or widget.accessibleName()})"] = widget
+    return found
+
+
+def test_every_clickable_target_clears_the_floor_and_grows_with_the_text(
+    qtbot, built, app_font
+) -> None:
+    """Two properties in one test on purpose: a target can clear 24x24 by being
+    a fixed size, which is the failure the second half names. `§ O7` forbids
+    the pixel constant that would produce it, and this is what checks the rule
+    was actually followed at every call site rather than at most of them."""
+    window, _ = scaled_window(qtbot, built)
+    with qtbot.waitExposed(window):
+        window.show()
+
+    targets = clickable(window)
+    assert targets, "no clickable widget was found — the test is measuring nothing"
+    too_small = {
+        name: widget.size()
+        for name, widget in targets.items()
+        if widget.width() < MIN_TARGET_PX or widget.height() < MIN_TARGET_PX
+    }
+    assert not too_small, f"below {MIN_TARGET_PX}x{MIN_TARGET_PX} at 100 %: {too_small}"
+
+    before = {name: widget.height() for name, widget in targets.items()}
+    window._text_size_actions[200].trigger()
+    qtbot.wait(50)
+
+    stalled = {
+        name: (before[name], widget.height())
+        for name, widget in targets.items()
+        if widget.height() <= before[name]
+    }
+    assert not stalled, f"fixed at 200 % while the text around them grew: {stalled}"
+
+
+def test_the_state_word_comes_first_in_the_row(qtbot, built) -> None:
+    """`design.md § Accessibility`: the word must be FIRST in the row, not
+    merely present in it. A magnifier shows a small window onto the screen, so
+    what the lens lands on when it reaches the row is the whole of what the
+    user gets for free.
+
+    Asserted against every other cell AND every button, because the buttons
+    are what a "state on the right" layout would put in front of it.
+    """
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+
+    for row in rows_of(window):
+        state_x = row._state.geometry().left()
+        others = {
+            "name": row._name,
+            "port": row._port,
+            "start": row.start_button,
+            "stop": row.stop_button,
+            "restart": row.restart_button,
+            "open": row.open_button,
+        }
+        ahead = {
+            name: widget.geometry().left()
+            for name, widget in others.items()
+            if widget.geometry().left() <= state_x
+        }
+        assert not ahead, f"{ahead} sit at or before the state word at x={state_x}"
+
+
+def test_the_whole_row_including_its_controls_fits_one_lens_view(qtbot, built) -> None:
+    """The band is `READABLE_BAND_PX`, and the promise covers "name, state,
+    port and controls" — the controls being the half an earlier test left out,
+    and the half furthest right.
+
+    The name is a real one: `Ants_Projects_Hub_Website` is a sibling project
+    this app scans, and a budget that only holds for `a` is not a budget.
+    """
+    window, _ = window_for(
+        qtbot,
+        built,
+        [record("Ants_Projects_Hub_Website", 5005)],
+        FakeProbe(5005),
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    window.resize(1400, window.height())
+    qtbot.waitUntil(lambda: window.width() == 1400, timeout=2000)
+    row = rows_of(window)[0]
+
+    right_edge = row.open_button.geometry().right()
+    assert right_edge <= READABLE_BAND_PX, (
+        f"the row's controls end at x={right_edge}, outside the "
+        f"{READABLE_BAND_PX} px lens the user has to read it through"
+    )
+
+
+def test_nothing_important_is_discoverable_only_by_hovering(qtbot, built) -> None:
+    """`design.md § Accessibility`: hover states are easy to miss at
+    magnification and impossible to discover by keyboard, so every affordance
+    is visible at rest.
+
+    Read as: at rest, with no pointer anywhere near it, every control already
+    says what it is. An icon-only button carrying its meaning in a tooltip is
+    what this fails on.
+    """
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+
+    unnamed = [
+        name
+        for name, widget in clickable(window).items()
+        if not (getattr(widget, "text", lambda: "")() or widget.accessibleName())
+    ]
+    assert not unnamed, f"say nothing until hovered: {unnamed}"
+
+    for menu in (window._file_menu, window._settings_menu):
+        for action in menu.actions():
+            if action.isSeparator():
+                continue
+            assert action.text(), f"an unnamed entry in {menu.title()}"
+
+
+def test_no_animation_conveys_anything_and_none_is_created(qtbot, built) -> None:
+    """`design.md § Accessibility`: no animation conveys information, and any
+    decorative one honours reduce-motion.
+
+    There is no reduce-motion preference to set because there is nothing to
+    suppress — so the check is that the count stays zero across a real state
+    change, the moment an animation would be reached for. A later item that
+    adds one has to answer the preference here, which is the point: this fails
+    the day the promise stops being free.
+    """
+    from PySide6.QtCore import QAbstractAnimation
+
+    probe = FakeProbe(5005)
+    window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
+    with qtbot.waitExposed(window):
+        window.show()
+
+    probe.listening.clear()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    qtbot.wait(50)
+
+    animations = window.findChildren(QAbstractAnimation)
+    assert not animations, f"an animation was created: {animations}"
+
+
+def test_no_widget_pins_a_font_family_or_a_pixel_size(qtbot, built) -> None:
+    """`design.md § Accessibility`: the desktop's font family and size are
+    honoured, and the in-app control multiplies them rather than replacing
+    them.
+
+    A pixel size is the specific failure: it ignores the desktop's own DPI
+    scaling, and `QFont.pixelSize()` returns -1 for a point-sized font, so the
+    check is exact rather than a heuristic. The style sheet is checked too,
+    because a `font-size:` there would pin every widget at once and no
+    per-widget property would show it.
+    """
+    from PySide6.QtWidgets import QWidget
+
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    app = QApplication.instance()
+    assert app is not None
+
+    pinned = {
+        f"{type(widget).__name__}: {widget.font().family()}"
+        for widget in window.findChildren(QWidget)
+        if widget.font().pixelSize() != -1
+        or widget.font().family() != app.font().family()
+    }
+    assert not pinned, f"these pin their own font: {sorted(pinned)}"
+    assert "font-" not in window.styleSheet(), "the style sheet pins a font"
+
+
+def test_nothing_is_clipped_at_two_hundred_percent(qtbot, built, app_font) -> None:
+    """`testing.md § T8`'s fourth check, and the one that could not be written
+    until the control existed.
+
+    Every cell must be at least as wide as the text it holds. A `QLabel` does
+    not elide by default, it CLIPS — so the failure is silent, and the last
+    characters of a project's name simply are not there.
+    """
+    window, _ = window_for(
+        qtbot,
+        built,
+        [record("Ants_Projects_Hub_Website", 5005), record("b", None)],
+        FakeProbe(5005),
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+
+    window._text_size_actions[200].trigger()
+    qtbot.wait(50)
+
+    clipped = {}
+    for row in rows_of(window):
+        for name, label in (
+            ("state", row._state),
+            ("name", row._name),
+            ("port", row._port),
+        ):
+            needs = label.fontMetrics().horizontalAdvance(label.text())
+            if needs > label.width():
+                clipped[f"{row._name.text()}.{name}"] = (needs, label.width())
+        for button in (row.start_button, row.stop_button, row.open_button):
+            if button.sizeHint().width() > button.width():
+                clipped[f"{row._name.text()}.{button.text()}"] = (
+                    button.sizeHint().width(),
+                    button.width(),
+                )
+    assert not clipped, f"clipped at 200 % (needs, has): {clipped}"
+
+
+STATE_CELL_WIDTH_PX = 120
+"""A column width wide enough for every state word, applied to all five rows so
+their geometry is identical and only the rendering differs."""
+
+
+def state_ink(row: ProjectRow) -> bytes:
+    """The state cell as a colour-blind user sees it: ink, or no ink.
+
+    Greyscale ALONE is not the check, and the first draft learned it the hard
+    way. Two colours of different luminance map to two different greys, so a
+    "the images differ" assertion passes for a state told apart by colour and
+    nothing else — which is the exact promise it was written to hold. Every
+    pixel is therefore thresholded to 1 or 0, which collapses hue and
+    brightness together and leaves only the SHAPES: the word and the glyph.
+
+    (The band's width had a second, dumber version of the same fault: at
+    200 px it reached the Start button, whose enablement differs by state, so
+    the comparison was of button greying rather than of the state cell.)
+
+    Thresholded at mid-grey against the default palette, which is dark, so ink
+    is the bright half. A state token too dark to cross it against that
+    background would fail `test_theme.py`'s contrast floor first.
+    """
+    from PySide6.QtGui import QImage
+
+    image = row.grab().toImage().convertToFormat(QImage.Format.Format_Grayscale8)
+    band = image.copy(0, 0, row._state.geometry().right() + 1, image.height())
+    return bytes(1 if value > 128 else 0 for value in bytes(band.constBits()))
+
+
+def test_every_state_is_readable_with_no_colour_at_all(qtbot) -> None:
+    """`design.md § Accessibility`: the commonest colour blindness is exactly
+    red/green, so every state carries three signals — the word, a distinct
+    glyph, and colour. The blunt form of that promise is this one: with the
+    colour taken away, no two states may render alike.
+
+    Five rows built identically but for the status, so the word and the glyph
+    are the only variables. Two states sharing both would pass every check in
+    `test_theme.py` — which is arithmetic over the palette and cannot see what
+    is painted with it — and fail here.
+    """
+    from lwsm.controller import RowView
+
+    inks: dict[ProjectStatus, bytes] = {}
+    for status in ProjectStatus:
+        row = ProjectRow(
+            RowView(
+                path=Path("/srv/a"),
+                name="a",
+                effective_port=5005,
+                status=status,
+                managed=True,
+            ),
+            Theme.default(),
+        )
+        qtbot.addWidget(row)
+        # One shared column geometry, so the cell compared is the same
+        # rectangle in every image and the only variable left is the painting.
+        row.apply_column_widths((STATE_CELL_WIDTH_PX,) * 3)
+        row.resize(STATE_CELL_WIDTH_PX * 6, row.sizeHint().height())
+        inks[status] = state_ink(row)
+
+    alike = [
+        (one.name, other.name)
+        for index, one in enumerate(inks)
+        for other in list(inks)[index + 1 :]
+        if inks[one] == inks[other]
+    ]
+    assert not alike, f"indistinguishable without colour: {alike}"
+
+
+def tab_stops(window: MainWindow) -> list:
+    """Every widget Tab lands on, in the order Tab reaches them.
+
+    Walked with `nextInFocusChain` rather than by sending Tab keys: a key needs
+    an active window, which an offscreen platform will not always give, and the
+    chain is what Qt itself walks when the key arrives.
+    """
+    stops = []
+    widget = window
+    for _ in range(500):  # a cycle guard; the chain is circular by construction
+        widget = widget.nextInFocusChain()
+        if widget is window:
+            break
+        if (
+            widget.isVisible()
+            and widget.isEnabled()
+            and widget.focusPolicy() & Qt.FocusPolicy.TabFocus
+        ):
+            stops.append(widget)
+    return stops
+
+
+def test_every_action_is_reachable_by_tab_in_the_order_it_is_read(qtbot, built) -> None:
+    """`testing.md § T8`'s second check, both halves of it.
+
+    Reachability alone is not the promise — "tab order matches visual order"
+    is the half that decides whether a magnifier user can predict where the
+    focus went, and a chain that jumps the lens back and forth across the
+    window is a chain they have to hunt along.
+
+    Two rows, because a per-row ordering bug cannot appear in one.
+    """
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+
+    stops = tab_stops(window)
+    reachable = set(stops)
+    unreachable = [
+        name
+        for name, widget in clickable(window).items()
+        if widget.isEnabled() and widget not in reachable
+    ]
+    assert not unreachable, f"no Tab reaches these: {unreachable}"
+
+    positions = [
+        (widget.mapTo(window, QPoint(0, 0)).y(), widget.mapTo(window, QPoint(0, 0)).x())
+        for widget in stops
+    ]
+    walked = [
+        (widget.accessibleName() or type(widget).__name__, where)
+        for widget, where in zip(stops, positions, strict=True)
+    ]
+    assert positions == sorted(positions), (
+        f"tab order does not follow visual order: {walked}"
+    )
+
+
+def test_every_interactive_widget_has_a_name_a_screen_reader_can_read(
+    qtbot, built
+) -> None:
+    """`testing.md § T8`'s third check, asked of the ACCESSIBILITY TREE rather
+    than of `accessibleName()`.
+
+    The two are not the same question, and LWSM-1071 is the record of what the
+    difference costs: `setAccessibleName("")` left a label announced anyway,
+    because `QAccessibleDisplay` falls back to `QLabel::text()`. Read the other
+    way round — as here — a button whose `accessibleName()` is empty may still
+    announce its label perfectly well, and failing it would be a false alarm.
+    """
+    from PySide6.QtGui import QAccessible
+
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+
+    unnamed = []
+    for name, widget in clickable(window).items():
+        interface = QAccessible.queryAccessibleInterface(widget)
+        if interface is None or not interface.text(QAccessible.Text.Name).strip():
+            unnamed.append(name)
+    assert not unnamed, f"a screen reader finds these unnamed: {unnamed}"
