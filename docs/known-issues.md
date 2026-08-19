@@ -264,6 +264,15 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** P04 (LWSM-1030 — appearance and accessibility
   foundation)
 - **Logged:** 2026-08-07
+- **RESOLVED 2026-08-19 (LWSM-1032), and not by the fix predicted above.** No
+  elide-or-wrap policy was needed: the name cell is still uncapped. What was
+  eating the band was the CONTROLS — Fusion gives a `QPushButton` an 80 px
+  minimum whatever its label says, so four of them spent 344 px on four words
+  needing about half. `ProjectRow._fit_buttons` sizes each from its own label.
+  Re-measured at 1400 px with this issue's own fixture:
+  `customer-dashboard-frontend-v2` now ends — controls included — at **566 px**
+  against the 600 px band, and `Ants_Projects_Hub_Website` at 533 px. The
+  regression test uses this issue's name rather than a short one.
 
 ## known-issue-012 — INV-15's status-bar message is truncated at the window's own default size
 
@@ -298,6 +307,15 @@ in the current build. Owners are named, not implied.
   structure, which is LWSM-1007's job.
 - **Will be addressed in:** P04 (LWSM-1032 — accessibility pass), with
   LWSM-1030 if the role change falls out of the appearance work first.
+- **Half-resolved 2026-08-19 (LWSM-1032), and the resolved half was a
+  documentation defect.** `setAccessibleDescription` is still absent from
+  `src/`, and that is no longer a breach of anything: `coding.md § O8`
+  clause 1 requires a description only "where the name is not
+  self-explanatory", while `design.md § Accessibility` had widened it to an
+  unconditional "name and description". The design now states § O8's
+  condition, so the standard and the design agree and this Detail's "O8 clause
+  1's second half is unimplemented" reads against the wider claim rather than
+  the rule. **The `role=Border` half stands unchanged** and is still open.
   **Re-routed 2026-08-12** from LWSM-1007 for the reason recorded on
   known-issue-010: choosing a list/listitem structure is an AT-SPI decision,
   and LWSM-1007 is registry persistence. Its spec
@@ -1200,6 +1218,17 @@ the phase that owns the code. Owners are named, not implied.
 - **Why deferred:** P04 owns the accessibility surface and the overlap test
 - **Will be addressed in:** P04
 - **Logged:** 2026-08-15
+- **RESOLVED 2026-08-19 (LWSM-1032) — the DOCUMENT was wrong, not the code.**
+  The proposed fix (parent to `self._rows[project]`) buys nothing: measured
+  against the pinned PySide6 6.11.1, Qt centres a `QMessageBox` on the parent's
+  WINDOW whichever widget is passed, and a box parented to the last of four
+  rows produced a rectangle identical to one parented to the window —
+  overlapping the middle two rows and neither outer one. ADR-0007 says the
+  application may not position its own window under Wayland, so no code change
+  could have made the promise true. `design.md § Accessibility` was amended to
+  what the platform delivers (over the list, application-modal) with the
+  user's decision recorded beside it; `QMessageBox(self)` is now the correct
+  parent and the quotation in the Detail above is of superseded text.
 
 ## known-issue-056 — The LOW/INFO tail of the 2026-08-15 review
 

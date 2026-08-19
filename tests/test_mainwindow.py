@@ -3091,13 +3091,16 @@ def test_the_whole_row_including_its_controls_fits_one_lens_view(qtbot, built) -
     port and controls" — the controls being the half an earlier test left out,
     and the half furthest right.
 
-    The name is a real one: `Ants_Projects_Hub_Website` is a sibling project
-    this app scans, and a budget that only holds for `a` is not a budget.
+    The name is `known-issue-011`'s own: `customer-dashboard-frontend-v2` is
+    what that issue measured the band breaking on (port cell at 630 px on
+    2026-08-07), so it is the fixture that has actually failed here. A budget
+    that only holds for `a` is not a budget, and one checked against a shorter
+    name than the one on record is the same mistake one letter along.
     """
     window, _ = window_for(
         qtbot,
         built,
-        [record("Ants_Projects_Hub_Website", 5005)],
+        [record("customer-dashboard-frontend-v2", 5005)],
         FakeProbe(5005),
     )
     with qtbot.waitExposed(window):

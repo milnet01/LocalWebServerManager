@@ -667,7 +667,8 @@ pans it. Everything below follows from that one fact:
   **first in the row**, not merely be present somewhere in it.
 - **Related information sits together.** A project's name, state,
   port and controls are adjacent and readable **within one lens
-  view — a 600 logical-pixel-wide window at the row's height**,
+  view — a 600 logical-pixel-wide window at the row's height, at
+  100 % text size**,
   which is the budget the layout test asserts against — never name
   on the far left and state on the far right,
   which forces a pan and a memory test. This tempers the usual
@@ -675,11 +676,12 @@ pans it. Everything below follows from that one fact:
   horizontal sprawl does not.
 - **Feedback appears where the action happened.** A message in a
   far-off status bar is invisible to someone whose lens is on a
-  button. Errors and confirmations surface **next to the row or
-  control that caused them**, not in a corner.
-- **Confirmations are parented to what they are about**, so the
-  compositor opens them near what the user is looking at rather than
-  somewhere they have to go hunting for — a confirmation they cannot
+  button. Errors surface **next to the row that raised them**, not
+  in a corner. Confirmations are the next bullet's, and land
+  differently — a dialog is placed by the compositor, not by us.
+- **Confirmations are parented to the window and centred on it**, so
+  the compositor opens them over the list the user is working in
+  rather than somewhere they have to go hunting for — a confirmation they cannot
   find is a confirmation they will dismiss blind. Note the mechanism:
   this is **not** `move()` on a dialog. Under Wayland an application
   cannot position its own window, and ADR-0007's KWin path
@@ -694,11 +696,18 @@ pans it. Everything below follows from that one fact:
   and a box parented to the window produced the identical screen
   rectangle, overlapping the middle two rows and neither of the
   outer two. So "over that widget" is not something this application
-  can promise for any particular row, and the sentence above now says
-  *near what the user is looking at*, which is what centring on the
-  window actually gives. The check row below was narrowed to match;
-  what is testable is that the dialog is modal to the window and
-  lands over the project list rather than in a corner of the screen.
+  can promise for any particular row, and the bullet above now says
+  *parented to the window and centred on it*, which is what Qt
+  actually does. The check row below was narrowed to match; what is
+  testable is that the dialog lands over the project list rather than
+  in a corner of the screen, and that it is **application**-modal.
+
+  **Not "modal to the window"** — that is Qt's `WindowModal`, which
+  blocks `MainWindow` alone and leaves the tray's own per-project
+  start/stop menu (§ Components) live while a trust prompt waits,
+  which is the hole the modality exists to close. A `QMessageBox` is
+  `ApplicationModal` from construction, measured 2026-08-19, so this
+  is a property to assert rather than one to add.
 
   **The alternative was considered and declined** (user, 2026-08-19):
   an inline confirmation on the row would satisfy the original wording
@@ -719,9 +728,13 @@ dark — `contrast-light` and `contrast-dark` in § Look and feel's
 table. This is an assistive tool, not a seventh colour scheme, and
 it is not allowed to regress: these two clear **7:1** (WCAG AAA)
 against the 4.5:1 the other six must meet, so a change that
-quietly softens them fails the build. That stricter floor is an
-amendment to `testing.md § T8`, which today states one threshold
-for all themes; LWSM-1031 lands it with the palettes.
+quietly softens them fails the build. `testing.md § T8` already
+carries that floor — it names 4.5:1 for every theme and 7:1 for
+these two — so it needs no amendment, and the row below points at
+its check rather than asking for a second one. (Until 2026-08-19
+this said T8 "today states one threshold for all themes" and that
+LWSM-1031 would land the amendment. LWSM-1031 landed it; the
+sentence was left describing the world before it.)
 
 **An in-app text-size control**, independent of the desktop's
 scaling — 100 % to 200 % — because desktop-wide scaling is a
@@ -730,9 +743,15 @@ layout must **reflow** at every step, never clip or truncate; the
 test asserts no text is elided at 200 %.
 
 **Never colour alone.** The commonest colour blindness is exactly
-red/green. Every state carries **at least three signals** —
-the word, a distinct glyph, and colour. The test is blunt: *the
-status list must be fully readable in greyscale.*
+red/green. Every state the app can display carries **at least three
+signals** — the word, a distinct glyph, and colour. *Can display* is
+the operative half: ADR-0004 defines seven derived states, and four
+of them (`running (wrong port)`, `running (foreign)`, `port blocked`,
+`failed`) arrive with P06's classifier, so each earns its glyph with
+the state rather than ahead of it. The five that exist have one
+apiece. The test is blunt: *the status list must be fully readable
+in greyscale* — compared over the state cell, which carries the
+glyph and the word, so a state told apart by colour alone fails.
 
 **Focus is unmissable.** A thick, high-contrast focus ring on
 every focusable widget in every theme — the magnifier user's
@@ -757,8 +776,10 @@ order follows visual order. No action is available only via
 double-click, hover, or a tray icon.
 
 **Screen readers.** Every interactive widget gets an accessible
-name and description (`setAccessibleName` /
-`setAccessibleDescription`). Status reaches a screen reader as
+name, and a description (`setAccessibleName` /
+`setAccessibleDescription`) where the name is not self-explanatory —
+`coding.md § O8` clause 1 sets that condition, and this section does
+not widen it. Status reaches a screen reader as
 the same text *Never colour alone* already requires, so Orca
 announces "project-b, running, port 5005" rather than an unnamed
 icon — no separate accessibility-only string to drift. A state
@@ -788,25 +809,28 @@ so LWSM-1032 lands them alongside the four:
 | Promise | How it is checked |
 |---|---|
 | Readable in greyscale (never colour alone) | every state's rendered row differs from every other after a luminance-only transform |
-| High-contrast pair clears 7:1 | the contrast arithmetic again, with a stricter floor for `contrast-light` / `contrast-dark` |
+| High-contrast pair clears 7:1 | **already covered by `testing.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `contrast-light` / `contrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
 | Focus ring meets contrast in every theme | the same contrast arithmetic, over focus-ring vs background pairs |
 | Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % and 200 % |
 | A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |
-| Reduce-motion honoured | with the preference set, assert no animation is created |
+| No animation conveys information, and reduce-motion is honoured | assert no animation object exists across a real state change — there are none to suppress, so both halves hold together, and the row fails the day one is added |
 | Confirmations appear over the list, and are modal to the window | assert the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of any list and no code change would have made it (LWSM-1032) |
 | The state word is first in the row | assert the state label's x-position precedes every other cell's |
-| Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window |
+| Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window **at 100 % text size**. Deliberately not held at 200 %: the text doubles and the row with it, which is the control doing its job — wrapping the row to preserve the number would put the state and its controls on different lines, which is the pan this budget exists to prevent |
 | Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
 | Nothing important is hover-only | assert every action is reachable without a hover event |
 | Focus is never stolen | drive a poll cycle during editing; assert focus did not move |
 | System font and scaling honoured | assert no widget pins a font family or pixel size |
 
-**Every promise in this section appears in one of those two
-lists.** That is what makes the section trustworthy: not that the
-tests all exist today — LWSM-1032 lands the table's rows — but
-that a promise cannot be added here without a row appearing beside
-it. A claim with neither is decoration, and reviewing this section
-means checking that the two lists still cover it.
+**Every promise in § What magnifier use actually demands and
+§ The non-negotiables appears in one of those two lists** — those
+two subsections, not § Everything else below, whose contents are
+taste rather than promises. That is what makes the section
+trustworthy: not that the tests all exist today — LWSM-1032 lands
+the table's rows — but that a promise cannot be added here without
+a row appearing beside it. A claim with neither is decoration, and
+reviewing this section means checking that the two lists still
+cover it.
 
 ### Everything else
 
@@ -1103,6 +1127,7 @@ specs for the first 1–3 roadmap items.
 | 2 | 2026-08-03 | 1 (Phase D doc audit, whole A–C set) | 2 | 6 | 6 | 6 | All 21 verified and fixed. Functioned as loop 1's missing cold re-read: it found **fix collateral** (a 2-second poll left behind by loop 1's own interval change) and, more seriously, **factual errors in the project inventory** that loop 1 never checked because it trusted the brief. |
 | 3 | 2026-08-06 | 2 (general-purpose, strong model) | 4 | 7 | 10 | 6 | Re-gate of the **post-approval material** — custom actions, look and feel, accessibility, ADR-0006/0007 — which no reviewer had ever read. 27 verified and fixed, 2 dismissed. Dimensions: dim 5×7, dim 4×4, dim 7×3, dim 2×3, dim 10×3, dim 12×2, dims 1/8/9/11/15 ×1 each. Both lanes independently led with the same three: six state tokens for seven states, the two Scanner subsections misfiled under *Custom project actions*, and a palette whose values lived outside the repository. |
 | 4 | 2026-08-06 | 2 (general-purpose, strong model) | 1 | 4 | 11 | 11 | 27 verified and fixed. Dimensions: dim 5×6, dim 2×6, dim 7×4, dim 8×3, dim 12×2, dim 9×3, dim 1×2, dim 15×1. **Roughly 16 of 27 were collateral from loop 3's own fixes** — a 7:1 contrast floor promised against a test that did not carry it, a `ThemeManager` added to the component list but not the diagram, a foreign-log contradiction "resolved" in one section by reinterpreting another from a distance, and a trust posture that cited ADR-0007 while stating the opposite of it. The loop's best find was a **draft** defect neither earlier loop reached: *effective port* is the input to every launch, stop and probe path and was never defined, with four fields able to supply it and precedence stated for only one pair. Collateral outnumbering draft defects on the first split is the signal to sweep rather than dispatch again, so this loop ended with a blast-radius sweep across `ROADMAP.md`, `discovery.md`, ADR-0006 and `testing.md § T8` instead of a loop 5. |
+| 5 | 2026-08-19 | 2 (`review-lane`, cold, genre `adr`) | — | — | — | — | **Q1 3 · Q2 2 · Q3 2 — 7 verified, 7 fixed, 0 dismissed.** The severity columns are blank: this loop ran the four-question instrument that replaced the C/H/M/L scale, and the Q profile is stated here rather than by re-columning four legacy rows. Trigger: LWSM-1032 amended the confirmation-placement promise to what Wayland delivers. **Both lanes independently found the same three**, and the first is this run's own collateral — the amendment rewrote the *Confirmations* bullet and left the bullet above it still saying "errors and confirmations surface next to the row or control that caused them", so a conformer could read either an inline confirmation or a dialog. The other two were pre-existing: § Look and feel claimed `testing.md § T8` "today states one threshold for all themes" when LWSM-1031 had already landed the 7:1 floor there, which would have bought a duplicate assertion; and "every state carries a distinct glyph" is false for four of ADR-0004's seven states, which have no glyph because they have no classifier until P06. **The most consequential finding came from one lane and is about words**: the amendment said the dialog is "modal to the window", which is Qt's `WindowModal` — it blocks `MainWindow` alone and leaves the tray's per-project start/stop menu live while a trust prompt waits. Measured: a `QMessageBox` is `ApplicationModal` from construction, so what needed fixing was the sentence, not the code. Also fixed: the 600 px lens budget named no text size while the same section promises 100–200 %; the accessible-description clause outran `coding.md § O8`, which requires one only where the name is not self-explanatory; and "every promise appears in one of those two lists" was false for two of them. **One open question resolved clean and is not in the tally** — whether the narrowed check is satisfiable for a short list: measured at 1, 2, 3, 4 and 8 rows, the dialog overlaps the list every time. Collateral swept: `known-issue-011` and `known-issue-055` are resolved by this work and `known-issue-013` half-resolved; all three quoted or rested on text this loop changed. Converged in one loop (cap 3, not reached). |
 
 **Loop 1, what it caught.** Both lanes independently led with the
 same three defects, which is the strongest corroboration this
