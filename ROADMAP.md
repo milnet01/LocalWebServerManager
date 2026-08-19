@@ -2603,7 +2603,7 @@ magnifier, so this is a design input, and
   surface at all. design.md § Accessibility now carries a check
   table, and every row of it is part of this item's acceptance.
 
-- 🚧 [LWSM-1040] **P04: keyboard-first navigation.**
+- ✅ [LWSM-1040] **P04: keyboard-first navigation.**
   Number keys
   jump to a project, Enter starts or stops the selected one, `/`
   focuses a filter box that narrows the list, Escape clears it.
@@ -2660,6 +2660,15 @@ magnifier, so this is a design input, and
   first remaining row" would make the narrow-then-act flow one
   keystroke. Out of this item's filed scope; raise it as its own
   bullet rather than widening this one.
+  Resolved (2026-08-19): shipped in `d2b585d`, CI green. All four
+  filed behaviours land — `/` focuses the filter, typing narrows the
+  list, Escape clears it, 1–9 focus the Nth row still on screen, and
+  Enter starts or stops the focused project. 12 tests, 916 green, no
+  SKIPs, no tool drift; 13 mutants run and 13 dead.
+  Closed against its FILED scope, not against
+  `design.md § Accessibility`'s whole keyboard promise — LWSM-1032
+  still owns `testing.md § T8`'s four checks, this item's bullet
+  having said only that it makes them natural rather than a retrofit.
 
 - 📋 [LWSM-1033] **P04: window geometry and Centre on screen.**
   Size, position and maximised state persisted as plain integers
