@@ -23,6 +23,16 @@ signaling per
 
 ### Added
 
+- **Drive the whole list from the keyboard, and filter it down to what you are looking for** (LWSM-1040)
+  Press `/` to jump to the filter box and type part of a project's
+  name — upper or lower case, anywhere in the name — and the list
+  narrows to what matches. Escape clears it and brings everything
+  back. Number keys 1 to 9 jump straight to a project, counting the
+  ones you can actually see rather than the ones behind the filter,
+  and Enter starts the project you are on, or stops it if it is
+  already running. The filter box shares the row with Rescan rather
+  than taking a line of its own, so the list keeps its height.
+
 - **A settings.json beside projects.json, holding the theme choice so it survives a restart** (LWSM-1031)
   A settings file that cannot be read never costs you a window: the
   app falls back to the defaults and says what it ignored.

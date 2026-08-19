@@ -2519,6 +2519,16 @@ path. `docs/design.md § Detection rules` is the contract.
   existing six-constraint refusals each still fire, with their reason.
   Dependencies: LWSM-1006.
   Priority: 2.
+  Note (2026-08-19): the symptom is no longer reproducible from the
+  app alone. A `"port_override": 4321` was set by hand on that
+  project's entry in `~/.config/localwebservermanager/projects.json`
+  (backup beside it, `projects.json.bak-2026-08-19`), so it now
+  renders a port and a real state. **That is a user-side workaround
+  and not a fix** — the override is a USER_FIELD, so a rescan keeps
+  it and the detection gap stays invisible. To reproduce this item,
+  clear that field first; the scanner still returns `port is None`
+  for that project either way, which is what a test fixture should
+  assert against rather than the rendered row.
   **Layman:** When a project keeps its port number in a small file next to the launcher, find it there too.
   Kind: implement.
   Source: in-session-2026-08-19 (measured against Ants_Projects_Hub_Website).
