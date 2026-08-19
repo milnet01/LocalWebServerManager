@@ -53,6 +53,25 @@ STOP_WAIT_MS = 2000
 _ABANDONED: list[QThreadPool] = []
 
 
+def abandon_pool(pool: QThreadPool) -> None:
+    """Give up on a pool whose worker will not finish, without destroying it.
+
+    `~QThreadPool` calls `waitForDone()` with NO timeout, so simply dropping the
+    reference reintroduces exactly the hang the caller's budget just declined to
+    take. Reparenting to nothing and holding it in `_ABANDONED` defers the
+    destructor to interpreter shutdown, where
+    `exit_without_waiting_for_abandoned_probes` is the half that actually bounds
+    it.
+
+    Public because the window's rescan worker is a second pool with the same
+    hazard (LWSM-1139), and a second hand-written copy of this two-line dance is
+    what `coding.md § 1.3` forbids — one that forgot the `setParent(None)` would
+    look identical and hang on exit.
+    """
+    pool.setParent(None)
+    _ABANDONED.append(pool)
+
+
 def wait_for_abandoned_probes(timeout_ms: int = STOP_WAIT_MS) -> int:
     """Reap abandoned pools that have gone idle. Returns how many are still live.
 
@@ -226,6 +245,11 @@ class RowView:
     name: str
     effective_port: int | None
     status: ProjectStatus
+    # Whether THIS manager spawned the process holding the port. `status` cannot
+    # answer it: ADR-0004 classifies from the socket table, so a server someone
+    # else started reads `running` exactly like one of ours. Open-in-browser is
+    # gated on it (LWSM-1141).
+    managed: bool = False
 
 
 class _SnapshotSignals(QObject):
@@ -368,15 +392,29 @@ class ProjectController(QObject):
 
     def rows(self) -> list[RowView]:
         """File order, so rows do not jump between polls."""
+        managed = self._managed_paths()
         return [
             RowView(
                 path=record.path,
                 name=record.name,
                 effective_port=record.effective_port,
                 status=self._status_of(record.path),
+                managed=record.path in managed,
             )
             for record in self._records
         ]
+
+    def _managed_paths(self) -> set[Path]:
+        """The projects this manager spawned, asked once per render.
+
+        `running()` takes the supervisor's lock and copies its map, so it is
+        asked once for the whole list rather than once per row. Keyed the same
+        way `stop_project` already keys its own ownership test, so the two
+        cannot disagree about what counts as ours.
+        """
+        if self._supervisor is None:
+            return set()
+        return set(self._supervisor.running())
 
     def _status_of(self, path: Path) -> ProjectStatus:
         """The derived status, unless the overlay covers this project."""
@@ -592,8 +630,7 @@ class ProjectController(QObject):
                 "the app can quit",
                 STOP_WAIT_MS,
             )
-            self._pool.setParent(None)
-            _ABANDONED.append(self._pool)
+            abandon_pool(self._pool)
             self._pool = QThreadPool(self)
             self._pool.setMaxThreadCount(1)
 
@@ -614,6 +651,10 @@ class ProjectController(QObject):
             # A stray tick after stop() would re-arm delivery into a controller
             # the app has already torn down (LWSM-1111).
             return
+        # Before the in-flight guard, not after it: the log cap is not a probe,
+        # and a bound that lapses whenever the socket table is slow is weaker
+        # than the one design.md promises (LWSM-1136).
+        self._rotate_logs()
         if self._in_flight:
             # design.md § Data flow: "the poll skips a tick rather than
             # queueing". Queueing is how a briefly-slow socket table becomes a
@@ -621,6 +662,43 @@ class ProjectController(QObject):
             return
         self._in_flight = True
         self._pool.start(_SnapshotTask(self._probe, self._signals))
+
+    def _rotate_logs(self) -> None:
+        """Hold every managed log to `MAX_LOG_BYTES`, once a tick.
+
+        `design.md § Observability` promises each project's log is capped with
+        one rotation and `Supervisor.rotate_if_needed` implements it — but until
+        LWSM-1136 nothing outside a test called it, so a chatty or looping
+        server appended to an `O_APPEND` descriptor with no bound at all until
+        the disk filled. A method with no caller is not a cap.
+
+        The poll is where the call belongs: it is the one thing already running
+        once a second holding the running set. Cost on an ordinary tick is one
+        `fstat` per running project; the copy happens only on the tick that
+        crosses the cap, so the overshoot is bounded by one poll interval of
+        output rather than being unbounded.
+
+        Reached through `getattr` for `close_supervisor`'s reason rather than by
+        widening `SupportsSupervision`: a fake with no logs has nothing to
+        rotate, and requiring the method would rewrite every supervision fixture
+        in the suite to no purpose.
+        """
+        supervisor = self._supervisor
+        if supervisor is None:
+            return
+        rotate = getattr(supervisor, "rotate_if_needed", None)
+        if rotate is None:
+            return
+        for path in supervisor.running():
+            try:
+                rotate(path)
+            except Exception:
+                # Contained per project, and as wide as INV-4c's clause for the
+                # same reason: this runs in a timer slot on the GUI thread, so
+                # anything escaping it is swallowed by PySide6 — no crash, no
+                # dialog, and one unreadable log would silently stop every other
+                # project's being capped.
+                log.warning("could not rotate the log for %s", path, exc_info=True)
 
     def _on_snapshot(self, snapshot: PortSnapshot) -> None:
         if self._stopped:

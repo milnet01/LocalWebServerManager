@@ -23,16 +23,20 @@ import textwrap
 import threading
 import time
 from pathlib import Path
+from unittest import mock
 
 import psutil
 import pytest
 
+from lwsm import supervisor as supervisor_module
 from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.supervisor import (
     ENV_ALLOWLIST,
     MAX_LOG_BYTES,
+    AlreadyRunning,
     LauncherRefused,
     LauncherUntrusted,
+    ManagedProcess,
     PortAlreadyBound,
     Supervisor,
     _launcher_path,
@@ -892,3 +896,143 @@ def test_rewriting_an_interpreter_script_re_arms_the_trust_gate(project: Path) -
     )
 
     assert launcher_fingerprint(project, argv) != before
+
+
+# --------------------------------------------------------------------------
+# LWSM-1137 / LWSM-1138 — start and stop under concurrency
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_two_concurrent_starts_produce_one_child_and_one_refusal(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """`AlreadyRunning` was a check-then-act and did not hold.
+
+    `start()` checked membership under the lock, then RELEASED it for the port
+    pre-flight, the trust gate, the log open and the spawn. Two starts both
+    passed the check, both spawned, and the second insert overwrote the first
+    `ManagedProcess` — leaking its log descriptor and forgetting the PID that
+    still held the port. That is verbatim the hazard `AlreadyRunning`'s own
+    docstring names.
+
+    The first spawn is held open inside the trust gate, which is where the
+    window actually is; a test issuing two starts back to back would serialise
+    on the GIL and pass against the broken code.
+
+    Dies on reverting the reservation in `start()` to a bare membership test.
+    """
+    write_launcher(project, "while true; do sleep 0.05; done\n")
+    fingerprint = launcher_fingerprint(project, ("./start.sh",))
+    supervisor.trust.confirm(project, fingerprint)
+
+    entered = threading.Event()
+    proceed = threading.Event()
+    real_is_confirmed = supervisor.trust.is_confirmed
+
+    def slow_is_confirmed(project_arg: Path, fingerprint_arg: str) -> bool:
+        # Only the first caller is held: the second must be refused before it
+        # ever reaches this point, which is the property under test.
+        if not entered.is_set():
+            entered.set()
+            proceed.wait(timeout=10)
+        return real_is_confirmed(project_arg, fingerprint_arg)
+
+    supervisor.trust.is_confirmed = slow_is_confirmed  # type: ignore[method-assign]
+
+    outcomes: list[object] = []
+
+    def start_it() -> None:
+        try:
+            outcomes.append(
+                supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+            )
+        except BaseException as exc:  # the outcome IS the assertion
+            outcomes.append(exc)
+
+    first = threading.Thread(target=start_it)
+    first.start()
+    assert entered.wait(timeout=10), "the first start never reached the trust gate"
+
+    second = threading.Thread(target=start_it)
+    second.start()
+    second.join(timeout=10)
+    proceed.set()
+    first.join(timeout=10)
+
+    refusals = [item for item in outcomes if isinstance(item, AlreadyRunning)]
+    started = [item for item in outcomes if isinstance(item, ManagedProcess)]
+    assert len(refusals) == 1, f"expected exactly one AlreadyRunning, got {outcomes!r}"
+    assert len(started) == 1, f"expected exactly one child, got {outcomes!r}"
+    assert list(supervisor.running()) == [project.resolve()]
+
+
+@pytest.mark.integration
+def test_a_refused_start_does_not_lock_the_project_out(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The reservation must end when the start fails, not only when it succeeds.
+
+    A `finally` that only ran on the happy path would turn one refused start —
+    an unconfirmed launcher, a bound port — into a project that can never be
+    started again for the life of the session, which is a worse bug than the
+    race it was added to close.
+
+    Dies on moving the `starting.discard` out of the `finally`.
+    """
+    write_launcher(project, "while true; do sleep 0.05; done\n")
+
+    with pytest.raises(LauncherUntrusted):
+        supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+    assert managed.pid > 0
+    supervisor.stop(project)
+
+
+@pytest.mark.integration
+def test_two_concurrent_stops_close_the_log_descriptor_once(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The registry entry was popped only in `_reap`, at the very END of stop.
+
+    So two overlapping stops both retrieved the same `ManagedProcess` and both
+    reached `_close_quietly(managed.log_fd)`. The second `os.close` operates on
+    an integer the kernel is free to have reissued — to another project's log,
+    or to the rotation backup. The stop pool has `max_workers=4`, so the overlap
+    is reachable, and `controller.stop_project`'s `running()` check is itself a
+    check-then-act and does not close it.
+
+    Asserted on the DESCRIPTOR, not on the outcome: two `StopOutcome`s that both
+    look plausible is exactly what the broken version returned.
+
+    Dies on moving the registry pop back into `_reap`.
+    """
+    write_launcher(project, "while true; do sleep 0.05; done\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+    closed: list[int] = []
+    real_close = os.close
+
+    def counting_close(fd: int) -> None:
+        closed.append(fd)
+        real_close(fd)
+
+    with mock.patch.object(supervisor_module.os, "close", counting_close):
+        futures = [
+            supervisor.stop_async(project, grace=0.5),
+            supervisor.stop_async(project, grace=0.5),
+        ]
+        outcomes = [future.result(timeout=30) for future in futures]
+
+    assert closed.count(managed.log_fd) == 1, (
+        f"the log descriptor {managed.log_fd} was closed {closed.count(managed.log_fd)}"
+        " times; the second close lands on whatever the kernel reissued it to"
+    )
+    # One of the two owns the sequence; the other finds nothing and says so.
+    assert sum(1 for outcome in outcomes if outcome.terminated) == 1
+    assert sum(1 for outcome in outcomes if not outcome.terminated) == 1
+    assert supervisor.running() == {}

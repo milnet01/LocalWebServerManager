@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import os
 import subprocess
 import sys
 import textwrap
@@ -28,7 +29,13 @@ from lwsm import controller as controller_module
 from lwsm.controller import ProjectController, ProjectStatus
 from lwsm.ports import PortSnapshot, ProbeError
 from lwsm.registry import ProjectRecord
-from lwsm.supervisor import LauncherUntrusted, StopOutcome
+from lwsm.supervisor import (
+    MAX_LOG_BYTES,
+    LauncherUntrusted,
+    StopOutcome,
+    Supervisor,
+    launcher_fingerprint,
+)
 
 pytestmark = pytest.mark.gui
 
@@ -1447,3 +1454,101 @@ def test_an_overlay_on_a_project_that_leaves_the_list_is_dropped(
         controller.poll_once()
 
     assert controller._overlay is None
+
+
+# --- LWSM-1136: the poll is what makes the 5 MB log cap a cap ------------------
+
+
+@pytest.mark.integration
+def test_the_poll_caps_a_running_projects_log(qtbot, controllers, tmp_path) -> None:
+    """`rotate_if_needed` had exactly one caller in the whole tree, and it was a
+    test.
+
+    So `design.md § Observability`'s "capped at 5 MB with one rotation" and
+    LWSM-1009's bullet were both false in the shipped build: a chatty or looping
+    server appended to an `O_APPEND` descriptor with no bound until the disk
+    filled. A method with no production caller is not a cap, and a test that
+    calls it directly cannot tell the two apart — which is what let this ship.
+
+    So this drives the POLL, against a real `Supervisor` and a real child, and
+    the controller holds no record for the project at all: the supervisor's own
+    running set is what the cap is keyed on, and it must not depend on the row
+    happening to be in the list.
+
+    Dies on removing the `self._rotate_logs()` call from `poll_once`.
+    """
+    project = tmp_path / "chatty"
+    project.mkdir()
+    launcher = project / "start.sh"
+    launcher.write_text(
+        "#!/bin/sh\nwhile true; do sleep 0.05; done\n", encoding="utf-8"
+    )
+    launcher.chmod(0o700)
+
+    supervisor = Supervisor(probe=FakeProbe(), log_dir=tmp_path / "logs")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="chatty", argv=["./start.sh"], port=None)
+    try:
+        # Written through our own descriptor, so the child is alive and still
+        # holding its duplicate — a log grown after the start is exactly the case.
+        os.pwrite(managed.log_fd, b"x" * (MAX_LOG_BYTES + 1), 0)
+        rotated = managed.log_path.with_name(managed.log_path.name + ".1")
+        assert not rotated.exists()
+
+        controller = build(controllers, [], FakeProbe())
+        controller._supervisor = supervisor
+        controller.poll_once()
+
+        assert rotated.exists(), "a poll left the log over the cap"
+        assert managed.log_path.stat().st_size < MAX_LOG_BYTES
+    finally:
+        for path in list(supervisor.running()):
+            supervisor.stop(path, grace=0.5)
+        supervisor.close()
+
+
+def test_a_log_that_cannot_be_rotated_does_not_stop_the_poll(
+    qtbot, controllers, caplog
+) -> None:
+    """Contained per project, and as wide as INV-4c's clause.
+
+    `poll_once` runs in a timer slot on the GUI thread, so anything escaping it
+    is swallowed by PySide6 — no crash, no dialog, no status change. One
+    unreadable log would silently stop every other project being capped AND
+    take the tick's probe with it, because the rotation runs before the probe
+    is started.
+
+    Dies on narrowing the `except Exception` to `OSError`, and on removing the
+    try entirely.
+    """
+
+    class ExplodingSupervisor:
+        def __init__(self) -> None:
+            self.asked: list[Path] = []
+
+        def running(self):
+            return {Path("/srv/a"): object(), Path("/srv/b"): object()}
+
+        def exited(self, project):
+            return False
+
+        def rotate_if_needed(self, project: Path) -> bool:
+            self.asked.append(project)
+            if project == Path("/srv/a"):
+                raise ValueError("a shape no clause names")
+            return False
+
+    supervisor = ExplodingSupervisor()
+    probe = FakeProbe(5005)
+    controller = build(controllers, [record("b", 5005)], probe)
+    controller._supervisor = supervisor
+
+    with caplog.at_level(logging.WARNING):
+        with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+            controller.poll_once()
+
+    assert supervisor.asked == [Path("/srv/a"), Path("/srv/b")], (
+        "one project's failure stopped the others being capped"
+    )
+    assert probe.calls == 1, "the tick's probe never ran"
+    assert "could not rotate the log" in caplog.text

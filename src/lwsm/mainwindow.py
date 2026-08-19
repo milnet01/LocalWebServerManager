@@ -54,7 +54,12 @@ from PySide6.QtWidgets import (
 )
 
 from lwsm import applog, registry, scanner
-from lwsm.controller import ProjectController, ProjectStatus, RowView
+from lwsm.controller import (
+    ProjectController,
+    ProjectStatus,
+    RowView,
+    abandon_pool,
+)
 from lwsm.registry import LoadResult, MergeResult, ProjectRecord, RegistryError
 from lwsm.theme import THEMES, Theme, theme_for_id
 
@@ -464,7 +469,7 @@ class ProjectRow(QFrame):
         inset = width / 2
         painter.drawRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset))
 
-    def _apply_button_state(self, status: ProjectStatus) -> None:
+    def _apply_button_state(self, row: RowView) -> None:
         """Labels and enablement, both derived from the one status.
 
         **Both overlay states disable all three.** A second Stop while one is in
@@ -481,6 +486,7 @@ class ProjectRow(QFrame):
         self.stop_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Stop"))
         self.restart_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Restart"))
         self.open_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Open"))
+        status = row.status
         in_transition = status in (ProjectStatus.STARTING, ProjectStatus.STOPPING)
         running = status is ProjectStatus.RUNNING
         # `not in_transition` appears once, on Start, and that is not an
@@ -494,13 +500,21 @@ class ProjectRow(QFrame):
         self.start_button.setEnabled(not in_transition and not running)
         self.stop_button.setEnabled(running)
         self.restart_button.setEnabled(running)
-        # Enabled whenever a port is observed bound, which today is exactly
-        # `running` — including a server this manager did not start, since
-        # ADR-0004 classifies from the socket table rather than from ownership
-        # and a foreign server is just as reachable. **Not** enabled while
-        # starting: there is no bound port yet, so the browser would open on
-        # nothing and the user would blame the app rather than the wait.
-        self.open_button.setEnabled(running)
+        # Running AND ours. ADR-0004 carries the threat model and governs here
+        # (user decision, 2026-08-15): `chdir()` is free, so any local process
+        # can bind a project's port and be classified `running`, and opening a
+        # browser on it is localhost phishing with this app's credibility behind
+        # it. The ADR's full mitigation is a disclosure dialog naming the
+        # holder's path, uid, cmdline and start time — which needs the
+        # seven-state model P06 adds, since `_classify` cannot yet tell foreign
+        # from managed. Until then Open is restricted to servers this manager
+        # started, which the supervisor's own running set answers exactly
+        # (LWSM-1141).
+        #
+        # **Not** enabled while starting: there is no bound port yet, so the
+        # browser would open on nothing and the user would blame the app rather
+        # than the wait.
+        self.open_button.setEnabled(running and row.managed)
         # An accessible name of its own on each, because the label alone reads
         # as "Start" three times over in a list of three projects (`§ O8`).
         for button, verb in (
@@ -590,7 +604,7 @@ class ProjectRow(QFrame):
         self._state.setText(state_word(row.status))
         self._name.setText(row.name)
         self._port.setText(port_text(row.effective_port))
-        self._apply_button_state(row.status)
+        self._apply_button_state(row)
 
         # A property, not composed CSS: the rule lives in the theme's generated
         # style sheet (LWSM-1077). Qt does not re-evaluate a style-sheet selector
@@ -608,17 +622,25 @@ class ProjectRow(QFrame):
 
         # Built from the rendered cell strings, glyph excluded, so there is no
         # accessibility-only string that can drift from what is on screen.
-        self.setAccessibleName(
-            f"{self._state.text()}, {self._name.text()}, {self._port.text()}"
-        )
+        announced = f"{self._state.text()}, {self._name.text()}, {self._port.text()}"
+        name_changed = announced != self.accessibleName()
+        self.setAccessibleName(announced)
         # Qt does NOT notify AT-SPI when an accessible name changes, so
         # `setAccessibleName` alone left `design.md § Accessibility`'s "a state
         # change announces itself once" unimplemented — a screen reader was
-        # never told (LWSM-1076). Guarded by the equality check above, so this
-        # fires once per real change and never on an unchanged tick.
-        QAccessible.updateAccessibility(
-            QAccessibleEvent(self, QAccessible.Event.NameChanged)
-        )
+        # never told (LWSM-1076).
+        #
+        # Gated on the NAME, not only on the RowView equality check above. That
+        # check was sufficient while every field rendered as text; `managed`
+        # (LWSM-1141) renders as button enablement and nothing else, so a
+        # project leaving the supervisor's set now changes the view without
+        # changing a word of what a screen reader would read out — and an
+        # announcement of an unchanged name is the once-a-second re-announcement
+        # that check exists to prevent, arriving by a third route.
+        if name_changed:
+            QAccessible.updateAccessibility(
+                QAccessibleEvent(self, QAccessible.Event.NameChanged)
+            )
 
 
 class MainWindow(QMainWindow):
@@ -646,6 +668,14 @@ class MainWindow(QMainWindow):
         self._rescan = rescan
         self._load = load
         self._rescan_in_flight = False
+        # `ProjectController._stopped`, on the window's own worker. Set by
+        # `shutdown()` and checked in the rescan slots, because a merge that
+        # finishes after teardown would otherwise run `save()` and
+        # `set_records()` against an already-torn-down window and controller —
+        # INV-16's race, one pool along (LWSM-1139). Cutting the connections
+        # instead cannot close it: a `QMetaCallEvent` already posted is
+        # dispatched regardless of any later disconnect (LWSM-1098).
+        self._stopped = False
         # Injected so the tests never open a real modal: a `QMessageBox.exec()`
         # in a test blocks the event loop with nothing to click it, which is a
         # hang rather than a failure.
@@ -1072,23 +1102,36 @@ class MainWindow(QMainWindow):
         return QCoreApplication.translate(_TR_CONTEXT, "Rescan")
 
     def shutdown(self) -> None:
-        """Wait, bounded, for a rescan worker. Idempotent.
+        """Delivery refused, then a bounded wait for the rescan worker.
 
-        Called beside `controller.stop()`. Without it a pool thread finishes
-        into a window being torn down, which is the flake `testing.md § T5`
-        exists to prevent — and `~QThreadPool` joins with **no** timeout, so the
-        cost of not doing it is invisible to pytest's own number and shows up
-        only as process wall time.
+        Called beside `controller.stop()`, and deliberately the same shape.
+        Without it a pool thread finishes into a window being torn down, which
+        is the flake `testing.md § T5` exists to prevent — and `~QThreadPool`
+        joins with **no** timeout, so the cost of not doing it is invisible to
+        pytest's own number and shows up only as process wall time.
+
+        Two halves, and until LWSM-1139 it had neither. **The wait was not
+        bounded**: on timeout it logged the word "abandoning" and returned,
+        leaving the pool parented to the window, so `~QThreadPool` ran the
+        unbounded join anyway and `__main__`'s claim that this "gets the same
+        bounded wait" was false. `abandon_pool` is what makes it true, and it is
+        `stop()`'s own mechanism rather than a second copy of it. **And nothing
+        refused delivery**: a rescan landing after teardown still ran `save()`
+        and `set_records()`.
+
+        Idempotent: the pool is taken here, so a second call has nothing left to
+        wait for and `_start_rescan` refuses for the same reason.
         """
+        self._stopped = True
         self._rescan_in_flight = False
-        if self._rescan_pool is not None and not self._rescan_pool.waitForDone(
-            RESCAN_STOP_WAIT_MS
-        ):
-            log.warning(
-                "a rescan was still running after %d ms; abandoning it so the "
-                "app can quit",
-                RESCAN_STOP_WAIT_MS,
-            )
+        pool, self._rescan_pool = self._rescan_pool, None
+        if pool is None or pool.waitForDone(RESCAN_STOP_WAIT_MS):
+            return
+        log.warning(
+            "a rescan was still running after %d ms; abandoning it so the app can quit",
+            RESCAN_STOP_WAIT_MS,
+        )
+        abandon_pool(pool)
 
     def _start_rescan(self) -> None:
         """One at a time: two overlapping merges could both write."""
@@ -1115,6 +1158,9 @@ class MainWindow(QMainWindow):
         self.set_status_message(message)
 
     def _on_rescan_failed(self, detail: str) -> None:
+        if self._stopped:
+            # The window is being torn down; there is nobody left to tell.
+            return
         log.warning("rescan failed: %s", detail)
         self._finish_rescan(
             QCoreApplication.translate(_TR_CONTEXT, "Rescan failed: %1").replace(
@@ -1140,7 +1186,14 @@ class MainWindow(QMainWindow):
         merge silently AND left Rescan disabled for the rest of the session.
         `_RescanTask.run`'s guard, one thread along, and `BaseException` for
         its reason: reported here or nowhere.
+
+        The `_stopped` guard comes first and is not tidiness: `_apply_rescan`
+        writes `projects.json` and calls `set_records` on the controller, so a
+        merge landing after `shutdown()` saved over the user's project list on
+        the way out (LWSM-1139).
         """
+        if self._stopped:
+            return
         message = ""
         try:
             message = self._apply_rescan(merged)

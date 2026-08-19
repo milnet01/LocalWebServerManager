@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import socket
+import threading
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,7 +20,11 @@ from PySide6.QtWidgets import QApplication
 
 from lwsm import mainwindow
 from lwsm.__main__ import build_window
-from lwsm.controller import ProjectController, ProjectStatus
+from lwsm.controller import (
+    ProjectController,
+    ProjectStatus,
+    wait_for_abandoned_probes,
+)
 from lwsm.mainwindow import STATE_GLYPHS, MainWindow
 from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.registry import (
@@ -1583,9 +1588,37 @@ def test_the_summary_order_is_fixed_and_not_dict_order() -> None:
 # --- LWSM-1016: open in browser ----------------------------------------------
 
 
-def opening_window(qtbot, built, records, probe, opened: list) -> MainWindow:
-    """A window whose `openUrl` is a spy — a test must never launch a browser."""
-    controller = build_controller(built, records, probe)
+class ManagingSupervisor:
+    """A supervisor that reports a chosen set of projects as ones IT spawned.
+
+    `running()` is the whole surface `RowView.managed` reads, and since
+    LWSM-1141 that is the difference between a server this manager can vouch for
+    and one it merely observed on the socket table. A fake that always claimed
+    everything could not express the hazard at all.
+    """
+
+    def __init__(self, managed=()) -> None:
+        self._running = {Path(path): object() for path in managed}
+
+    def running(self) -> dict:
+        return dict(self._running)
+
+    def exited(self, project: Path) -> bool:
+        return False
+
+
+def opening_window(
+    qtbot, built, records, probe, opened: list, managed=None
+) -> MainWindow:
+    """A window whose `openUrl` is a spy — a test must never launch a browser.
+
+    Every record counts as managed unless the caller says otherwise: these tests
+    are about the URL and the click, and a window supervising nothing would
+    disable Open on every row and make all of them pass for the wrong reason.
+    """
+    owned = [row.path for row in records] if managed is None else managed
+    controller = ProjectController(records, probe, ManagingSupervisor(owned))
+    built.append(controller)
     window = MainWindow(
         controller,
         Theme.default(),
@@ -1630,7 +1663,14 @@ def test_open_reads_the_port_at_click_time_not_at_build_time(qtbot, built) -> No
     sibling project having shipped — it kept POSTing to the old port while the
     server was perfectly healthy somewhere else."""
     opened: list = []
-    controller = build_controller(built, [record("a", 5005)], FakeProbe(5005, 7007))
+    # Managed, so Open is offered at all (LWSM-1141) — this test is about which
+    # port the button reads, and a disabled button would pass it vacuously.
+    controller = ProjectController(
+        [record("a", 5005)],
+        FakeProbe(5005, 7007),
+        ManagingSupervisor([Path("/srv/a")]),
+    )
+    built.append(controller)
     window = MainWindow(
         controller,
         Theme.default(),
@@ -1654,7 +1694,10 @@ def test_open_reads_the_port_at_click_time_not_at_build_time(qtbot, built) -> No
 def test_a_browser_that_will_not_open_is_reported(qtbot, built) -> None:
     """`openUrl` returns False when the desktop has no handler. Silence here
     looks identical to a browser that opened behind the window."""
-    controller = build_controller(built, [record("a", 5005)], FakeProbe(5005))
+    controller = ProjectController(
+        [record("a", 5005)], FakeProbe(5005), ManagingSupervisor([Path("/srv/a")])
+    )
+    built.append(controller)
     window = MainWindow(controller, Theme.default(), [], open_url=lambda _url: False)
     qtbot.addWidget(window)
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
@@ -1700,7 +1743,16 @@ def test_which_buttons_each_state_offers(qtbot, status, expected) -> None:
     from lwsm.mainwindow import ProjectRow
 
     row = ProjectRow(
-        RowView(path=Path("/srv/a"), name="a", effective_port=5005, status=status),
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            effective_port=5005,
+            status=status,
+            # This test varies the STATE. Ownership is the other axis Open
+            # depends on since LWSM-1141 and has its own test below; pinned true
+            # here so a failure names the state that broke rather than both.
+            managed=True,
+        ),
         Theme.default(),
     )
     qtbot.addWidget(row)
@@ -2249,3 +2301,189 @@ def test_a_save_failure_is_reported_and_does_not_undo_the_switch(qtbot, built) -
     for row in rows_of(window):
         assert row._theme is THEMES["graphite"]
     assert "read-only file system" in window.statusBar().currentMessage()
+
+
+# --- LWSM-1141: Open is offered only for a server this manager started --------
+
+
+def test_open_is_refused_for_a_server_this_manager_did_not_start(qtbot, built) -> None:
+    """ADR-0004's threat model, and it governs (user decision, 2026-08-15).
+
+    `chdir()` is free, so any local process can bind a project's port and be
+    classified `running` — indistinguishably from one of ours, because ADR-0004
+    derives state from the socket table and not from ownership. Opening a
+    browser on it is localhost phishing with this app's credibility behind it.
+    The ADR's full mitigation is a disclosure dialog, which needs P06's state
+    model; restricting Open to what the supervisor actually spawned is the
+    interim the roadmap scopes.
+
+    Two rows, both `running`, differing only in ownership. A one-row fixture
+    could not tell "Open is disabled for a foreign server" from "Open is
+    disabled" — `CLAUDE.md`'s one-row-fixture trap, applied to a two-member set.
+    """
+    opened: list = []
+    window = opening_window(
+        qtbot,
+        built,
+        [record("ours", 5005), record("theirs", 6006)],
+        FakeProbe(5005, 6006),
+        opened,
+        managed=[Path("/srv/ours")],
+    )
+    ours, theirs = rows_of(window)
+
+    assert ours.open_button.isEnabled()
+    assert not theirs.open_button.isEnabled(), (
+        "Open was offered on a port held by a process this manager did not start"
+    )
+    # The row still reads `running`, and must: this restricts the ACTION, it
+    # does not make the app lie about what it observed (ADR-0004).
+    assert "running" in theirs.accessibleName()
+
+
+def test_ownership_alone_is_not_re_announced_to_a_screen_reader(
+    qtbot, announcements
+) -> None:
+    """`managed` renders as button enablement and as no text at all.
+
+    So the RowView equality check that gates the announcement stopped being
+    sufficient on its own at LWSM-1141: a project leaving the supervisor's set
+    changes the view without changing a word of what a screen reader reads out,
+    and an announcement of an unchanged name is the once-a-second
+    re-announcement that check exists to prevent — INV-22 arriving by a third
+    route.
+
+    Dies on removing the `name_changed` gate in `update_from`.
+    """
+    from lwsm.controller import RowView
+    from lwsm.mainwindow import ProjectRow
+
+    view = RowView(
+        path=Path("/srv/a"),
+        name="a",
+        effective_port=5005,
+        status=ProjectStatus.RUNNING,
+        managed=True,
+    )
+    row = ProjectRow(view, Theme.default())
+    qtbot.addWidget(row)
+    announced_before = row.accessibleName()
+    announcements.clear()
+
+    row.update_from(dataclasses.replace(view, managed=False))
+
+    assert not row.open_button.isEnabled(), "the row did not take the new view"
+    assert row.accessibleName() == announced_before
+    assert announcements == [], (
+        "a change no screen reader can hear was announced to one"
+    )
+
+
+# --- LWSM-1139: shutdown is the bounded teardown its caller documents ---------
+
+
+def blocking_rescan_window(qtbot, built, tmp_path, saves: list, release):
+    """A window whose rescan worker is held inside the scan until released.
+
+    The scan is where the worker is parked rather than the writer, so the
+    window is torn down while the merge has not yet been decided — which is
+    the state `__main__`'s `finally` actually produces.
+    """
+
+    def held_scan(_roots):
+        release.wait(timeout=10)
+        return FakeScanResult(
+            projects=(FakeDetected(tmp_path / "roots" / "web", "web"),)
+        )
+
+    def fake_save(path, merged, *, load) -> None:
+        saves.append((path, list(merged), load))
+
+    controller = build_controller(built, [], FakeProbe())
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=held_scan,
+        now=lambda: "2026-08-14T09:00:00Z",
+        save=fake_save,
+    )
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        rescan=context,
+        load=RegistryMissing("first run"),
+    )
+    qtbot.addWidget(window)
+    return window
+
+
+def test_a_rescan_landing_after_shutdown_writes_nothing(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """The half that costs the user something: `_apply_rescan` writes
+    `projects.json` and calls `set_records` on the controller, so a merge
+    arriving after teardown saved over the project list on the way out.
+
+    INV-16's race, one pool along — and it cannot be closed by disconnecting,
+    because a `QMetaCallEvent` already posted is dispatched regardless of any
+    later disconnect (LWSM-1098).
+
+    Dies on removing the `_stopped` guard from `_on_rescan_done`.
+    """
+    monkeypatch.setattr(mainwindow, "RESCAN_STOP_WAIT_MS", 50)
+    release = threading.Event()
+    saves: list = []
+    window = blocking_rescan_window(qtbot, built, tmp_path, saves, release)
+    try:
+        window._rescan_button.click()
+        qtbot.waitUntil(lambda: window._rescan_in_flight, timeout=2000)
+
+        window.shutdown()
+        release.set()
+        # The worker is off the pool the window still knows about, so wait on
+        # the delivery instead: three spins of the loop is more than the queued
+        # slot needs and does not depend on a duration (§ T4).
+        for _ in range(3):
+            qtbot.wait(50)
+
+        assert saves == [], "a rescan wrote the project list after shutdown"
+    finally:
+        release.set()
+        assert wait_for_abandoned_probes(5000) == 0
+
+
+def test_the_rescan_pool_is_unparented_when_the_wait_times_out(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """`__main__` states the rescan worker "gets the same bounded wait rather
+    than being left to `~QThreadPool`, which joins with no timeout at all".
+
+    Logging the word "abandoning" and returning does not do that: the pool stays
+    parented to the window, so its destructor runs the unbounded join anyway and
+    the claim is false. Abandoning it means `abandon_pool` — the same mechanism
+    `ProjectController.stop()` uses, so `exit_without_waiting_for_abandoned_probes`
+    covers both.
+
+    Dies on removing the `abandon_pool(pool)` call from `shutdown()`.
+    """
+    monkeypatch.setattr(mainwindow, "RESCAN_STOP_WAIT_MS", 50)
+    release = threading.Event()
+    saves: list = []
+    window = blocking_rescan_window(qtbot, built, tmp_path, saves, release)
+    pool = window._rescan_pool
+    try:
+        window._rescan_button.click()
+        qtbot.waitUntil(lambda: window._rescan_in_flight, timeout=2000)
+
+        window.shutdown()
+
+        assert pool.parent() is None, (
+            "the abandoned pool is still owned by the window, so ~QThreadPool "
+            "will join it with no timeout at destruction"
+        )
+        assert window._rescan_pool is None, "a second shutdown would wait again"
+        assert wait_for_abandoned_probes(0) == 1, "the pool was dropped, not held"
+    finally:
+        release.set()
+        assert wait_for_abandoned_probes(5000) == 0

@@ -192,6 +192,26 @@ signaling per
 
 ### Fixed
 
+- ****Quitting while a rescan is running no longer saves over your project list** (LWSM-1139)** (LWSM-1139)
+  A scan that finished after you closed the window still wrote its result,
+  on the way out. It is now discarded, and a scan that will not finish no
+  longer holds the app open indefinitely either.
+
+- ****A chatty project can no longer fill your disk** (LWSM-1136)** (LWSM-1136)
+  Each project's log was supposed to be capped at 5 MB with one rollover,
+  and nothing was actually applying the cap. It is now applied once a
+  second, per running project.
+
+- ****Double-clicking Start no longer launches two copies of a server** (LWSM-1137)** (LWSM-1137)
+  The check that says "this one is already running" was made before the
+  work that starts it, so two clicks in quick succession could both get
+  through — and the app then forgot about the first server while it was
+  still holding the port.
+
+- ****Stopping a project twice at once can no longer close another project's file** (LWSM-1138)** (LWSM-1138)
+  Two overlapping stops both released the same log file, and the second
+  release could land on a file belonging to something else entirely.
+
 - **The local gate and the GitHub run install the same tools, and a hook runs it before every push.** (LWSM-1150)
   The gate now pins its tool versions in scripts/ci-tools.env, which the
   workflow reads too, and reports any tool that differs as TOOL DRIFT. A
@@ -362,6 +382,12 @@ signaling per
   one.
 
 ### Security
+
+- ****Open in browser is offered only for servers this app started** (LWSM-1141)** (LWSM-1141)
+  Anything on your machine can sit on a project's port, and the app would
+  then show that row as running and offer to open it in your browser. It
+  cannot tell you what is actually there yet, so it no longer sends you to a
+  page it cannot vouch for. Servers the app started itself are unaffected.
 
 - ****Approving an npm or Node project no longer approves whatever it is later changed to run** (LWSM-1140)**
   Approving a project to run binds that approval to what it actually runs.

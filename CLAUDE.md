@@ -419,7 +419,15 @@ Added at P02 (LWSM-1005), contract in
   management requires it). **`QRunnable` is not a `QObject`**, so
   the task holds a composed `_SnapshotSignals(QObject)` — a
   `Signal` declared on a bare `QRunnable` has no `emit`.
-  `stop()` waits for the pool, and every test fixture calls it.
+  `stop()` waits for the pool, and every test fixture calls it. Its bounded-wait
+  escape is **`abandon_pool`**, public since LWSM-1139 because the window's
+  rescan pool needs the identical two lines and a second copy that forgot the
+  `setParent(None)` would look right and hang on exit. Since LWSM-1136 the poll
+  also calls **`_rotate_logs`** — before the in-flight guard, since a log cap
+  that lapses when the socket table is slow is not a cap — and `RowView` carries
+  **`managed`**, read once per render from `supervisor.running()`, because
+  ADR-0004 derives state from the socket table and `status` therefore cannot say
+  whose server it is.
 - **`src/lwsm/configfile.py`** — core. `ConfigFileError`,
   `MAX_FILE_BYTES`, `MAX_REASON_CHARS`, `quoted()`, `read_bounded()`,
   `prepare_config_dir()`, `refuse_existing_target()` and
@@ -516,6 +524,16 @@ Added at P02 (LWSM-1005), contract in
   scrolls; two LWSM-1149 geometry tests die on that mutant. Rescan is one
   control with two faces, which is why the enable/disable is a helper and not
   two call sites.
+  Since LWSM-1139 **`shutdown()` is `controller.stop()`'s shape, both halves**:
+  it sets `_stopped` (checked by `_on_rescan_done` and `_on_rescan_failed`, so a
+  merge landing after teardown cannot save over the project list) and it TAKES
+  the pool, waits, and hands a timed-out one to `abandon_pool`. Logging the word
+  "abandoning" and returning leaves the pool parented, so `~QThreadPool` runs
+  the unbounded join anyway — the claim in `__main__` was false for a day.
+  **`update_from`'s announcement is gated on the accessible NAME, not on
+  `RowView` equality** (LWSM-1141): `managed` is the first field that renders as
+  button enablement and as no text at all, so the view can change while nothing
+  a screen reader reads out does. Any future non-textual field inherits that.
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](docs/specs/LWSM-1006-scanner-detection.md):
@@ -564,7 +582,16 @@ built under § Review cadence's build-first default:
   `node serve.mjs`, and `None` for `npm run <script>`, whose
   untrusted content is a string inside `package.json` that
   `launcher_fingerprint` hashes under its own marker
-  (LWSM-1132, LWSM-1140).
+  (LWSM-1132, LWSM-1140). **Both halves of the registry are guarded under the
+  lock across the whole operation, not at one end of it** (LWSM-1137/1138):
+  `start()` RESERVES the key in `_Registry.starting` before it releases the lock
+  for the pre-flight, the trust gate, the log open and the spawn — a set beside
+  `processes` rather than a sentinel inside it, so `running()`, `_get` and
+  `exited()` never see a row that is not a `ManagedProcess` — and `stop()` POPS
+  the entry before it signals anything, so whoever pops owns the sequence and
+  the log descriptor is closed exactly once. The reservation's discard lives in
+  a `finally`: one that only ran on success would turn a single refused start
+  into a project that can never start again this session.
 
 Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
 `test_settings.py`,
@@ -736,6 +763,34 @@ running and reads `None` anyway, so the assertion held whether or not the rule
 did — the mutant survived. **The launcher must die *during* the window the
 property covers.** Same family as the § T9 note above: eleven of twelve
 mutants died on the first pass and the twelfth was the one that mattered.
+
+**Trap: a method with no production caller looks exactly like a working one,
+and its own unit test is what hides it.** `Supervisor.rotate_if_needed`
+implemented `design.md § Observability`'s "capped at 5 MB with one rotation"
+correctly and was called by **nothing** outside `tests/test_supervisor.py` — so
+the cap was green, documented in two places, and absent from the shipped build
+(LWSM-1136, found 2026-08-15, fixed 2026-08-19). A chatty server appended to an
+`O_APPEND` descriptor until the disk filled. **The test could not have caught
+it**, because a test that invokes the mechanism directly asserts the mechanism
+and never the wiring — and green is what you were expecting either way. **When
+a method's whole value is being CALLED from somewhere, the test must drive that
+caller**, not the method: LWSM-1136's replacement drives `poll_once` against a
+real `Supervisor` and a real child. And `find_caller` on the symbol is the
+cheapest way to ask; one caller, in a test file, is the tell. Same family as
+the `semgrep` and stale-`.pyc` notes above — a mechanism that ran nothing looks
+exactly like a mechanism that found nothing to do.
+
+**Trap: a concurrency test that issues two calls back to back proves nothing
+about a check-then-act.** Python serialises the two threads on the GIL often
+enough that the loser arrives after the winner has finished, so the broken code
+passes. **The first call has to be HELD OPEN inside the window** — which means
+knowing where the window is: for `Supervisor.start` (LWSM-1137) it is between
+the lock being released and the registry insert, so the first start is parked
+inside the trust gate by patching `trust.is_confirmed`. Assert the outcomes,
+not the timing. The same shape applies to `stop()` (LWSM-1138), where the two
+overlapping calls come free from the stop pool's own `max_workers=4` and the
+assertion belongs on the **descriptor** rather than on the `StopOutcome` — two
+plausible-looking outcomes is exactly what the broken version returned.
 
 **Trap: a fixture set that only exercises one branch of a four-way split.**
 Every `start()` test in `test_supervisor.py` used `("./start.sh",)`, so the one

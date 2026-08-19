@@ -1588,7 +1588,7 @@ branches on.
   ever narrowed.
   518 tests green (was 516).
 
-- 📋 [LWSM-1136] **FP07: the 5 MB per-project log cap is a zombie — nothing calls it.**
+- ✅ [LWSM-1136] **FP07: the 5 MB per-project log cap is a zombie — nothing calls it.**
   `rotate_if_needed` (`supervisor.py:458`) has three occurrences in the tree:
   its definition, a docstring reference at `:439`, and
   `tests/test_supervisor.py:427`. **Zero production callers** — no timer, no
@@ -1610,8 +1610,27 @@ branches on.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-15 lane-1 HIGH.
+  Resolved 2026-08-19. `ProjectController._rotate_logs`, called from `poll_once`
+  before the in-flight guard — the log cap is not a probe, and a bound that
+  lapses whenever the socket table is slow is weaker than the one design.md
+  promises. Keyed on `supervisor.running()` rather than on the record list, so a
+  project the window is not rendering is still capped. Cost on an ordinary tick
+  is one `fstat` per running project; the copy happens only on the tick that
+  crosses the cap, so the overshoot is bounded by one poll interval of output
+  instead of by the disk.
+  Reached through `getattr` for `close_supervisor`'s reason rather than by
+  widening `SupportsSupervision`: a fake with no logs has nothing to rotate.
+  Contained per project under `except Exception` — this runs in a timer slot on
+  the GUI thread, so anything escaping it is swallowed by PySide6, and one
+  unreadable log would silently stop every other project being capped AND take
+  the tick's probe with it.
+  Two tests, and the first drives the POLL against a real Supervisor and a real
+  child rather than calling `rotate_if_needed`: a test that calls it directly is
+  what let this ship, and cannot tell a wired cap from an unwired one. Mutants
+  run and dead: removing the `_rotate_logs()` call, and narrowing the catch to
+  `OSError`.
 
-- 📋 [LWSM-1137] **FP07: `AlreadyRunning` is a check-then-act and does not hold.**
+- ✅ [LWSM-1137] **FP07: `AlreadyRunning` is a check-then-act and does not hold.**
   `start()` checks `resolved_project in self._registry.processes` under the lock
   (`supervisor.py:520`), then **releases it** for the port probe, trust gate,
   log open and `Popen`, then inserts at `:543`. Two concurrent starts for one
@@ -1629,8 +1648,22 @@ branches on.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-15 lane-1 HIGH.
+  Resolved 2026-08-19. `_Registry` grows a `starting` set and `start()` RESERVES
+  the key under the lock before the port pre-flight, the trust gate, the log open
+  and the spawn — all of which run with the lock released, which is what made the
+  old membership test a check-then-act. A set beside `processes` rather than a
+  sentinel value inside it, so `running()`, `_get` and `exited()` never see a
+  row that is not a `ManagedProcess`.
+  The discard is in a `finally`, and that half has its own test: a reservation
+  that only ended on success would turn one refused start — an unconfirmed
+  launcher, a bound port — into a project that can never be started again for
+  the life of the session, which is worse than the race it closes.
+  The red test holds the first spawn open INSIDE the trust gate, which is where
+  the window actually is; two starts issued back to back serialise on the GIL and
+  pass against the broken code. Mutants run and dead: reverting to the bare
+  check, and moving the discard out of the `finally`.
 
-- 📋 [LWSM-1138] **FP07: `stop()` is not idempotent and can close another project's descriptor.**
+- ✅ [LWSM-1138] **FP07: `stop()` is not idempotent and can close another project's descriptor.**
   The registry entry is popped only inside `_reap` (`supervisor.py:722`), so two
   overlapping `stop()` / `stop_async()` calls for one project both retrieve the
   same `ManagedProcess` from `_get` (`:611`) and both reach
@@ -1649,8 +1682,21 @@ branches on.
   Kind: fix.
   Lanes: core, tests.
   Source: code-quality-review-2026-08-15 lane-1 HIGH.
+  Resolved 2026-08-19. `stop()` pops the registry entry under the lock before it
+  signals anything, returns an empty `StopOutcome` when it was already gone, and
+  carries `managed` locally; `_reap` no longer pops and only closes. Whoever pops
+  owns the sequence, so exactly one `os.close` per descriptor.
+  Checked before shipping, because popping early changes what `running()` and
+  `exited()` report DURING a stop: `exited()` is consulted only under a
+  `STARTING` overlay, a stop's overlay is `STOPPING`, and `restart_project`
+  sequences through `_on_stopped` rather than racing it — so no caller reads the
+  window differently. `close()` iterating a map a stop has already left is a
+  second double-close avoided rather than a regression.
+  Asserted on the DESCRIPTOR, not on the outcome: two plausible-looking
+  `StopOutcome`s is exactly what the broken version returned. Mutant run and
+  dead: the pop moved back into `_reap`.
 
-- 📋 [LWSM-1139] **FP07: `MainWindow.shutdown()` is not the bounded teardown its caller documents.**
+- ✅ [LWSM-1139] **FP07: `MainWindow.shutdown()` is not the bounded teardown its caller documents.**
   `__main__.py:163-166` states the rescan worker "gets the same bounded wait
   rather than being left to `~QThreadPool`, which joins with no timeout at all".
   It does not: on `waitForDone` timeout (`mainwindow.py:792`) the method logs
@@ -1675,6 +1721,25 @@ branches on.
   Kind: fix.
   Lanes: ui, tests.
   Source: code-quality-review-2026-08-15 lane-3 HIGH.
+  Resolved 2026-08-19. Both halves, and it had neither.
+  `shutdown()` now takes the pool, waits `RESCAN_STOP_WAIT_MS`, and on timeout
+  calls the new `controller.abandon_pool` — so the pool is unparented and held,
+  and `exit_without_waiting_for_abandoned_probes` covers it. Before this it
+  logged the word "abandoning" and returned, leaving the pool parented to the
+  window, so `~QThreadPool` ran the unbounded join anyway and `__main__`'s claim
+  that the rescan worker "gets the same bounded wait" was false.
+  `abandon_pool` is `ProjectController.stop()`'s own two lines lifted into one
+  public function rather than copied — a second copy that forgot the
+  `setParent(None)` would look identical and hang on exit (`coding.md § 1.3`).
+  And `shutdown()` sets `_stopped`, which `_on_rescan_done` and
+  `_on_rescan_failed` check: a merge landing after teardown ran `save()` and
+  `set_records()` against an already-torn-down window, saving over the user's
+  project list on the way out. INV-16's race, one pool along, and it cannot be
+  closed by disconnecting — a posted `QMetaCallEvent` is dispatched regardless
+  (LWSM-1098).
+  Taking the pool also makes `shutdown()` idempotent and makes a later
+  `_start_rescan` refuse. Mutants run and dead: removing the `_stopped` guard,
+  and removing the `abandon_pool` call.
 
 ### 🔒 Security
 
@@ -1707,7 +1772,7 @@ branches on.
   Citation correction: this bullet attributes *"`npm run <script>` executes the `scripts.dev` string from an untrusted `package.json` through `/bin/sh`"* to ADR-0003 § Trust. That sentence is not in the ADR — it is LWSM-1046's own roadmap bullet (`ROADMAP.md:1692`). The substance stands unchanged: ADR-0003 § Trust does require the gate to re-arm *"whenever the launcher command or its content hash changes"*, and that is the clause this fix satisfies.
   Found while implementing, not by any test: diffing `_launcher_path`'s verdicts old against new over the argv population showed a *two*-element `npm run` matching the interpreter shape on length alone, so a project holding a file called `run` would have had the trust gate vouching for a file with nothing to do with what executes. `npm` is now excluded by name.
 
-- 📋 [LWSM-1141] **FP07: Open-in-browser fires on a foreign server with no disclosure.**
+- ✅ [LWSM-1141] **FP07: Open-in-browser fires on a foreign server with no disclosure.**
   `mainwindow.py:459` — `self.open_button.setEnabled(running)` — enables Open on
   any running row, and the docstring above it (`:453-457`) argues for that:
   *"including a server this manager did not start … a foreign server is just as
@@ -1733,6 +1798,29 @@ branches on.
   Kind: security.
   Lanes: ui, docs, tests.
   Source: code-quality-review-2026-08-15 lane-3 CRITICAL.
+  Resolved 2026-08-19. Open is enabled only for a server this manager started.
+  `RowView` grows `managed`, filled from `supervisor.running()` once per render,
+  and `_apply_button_state` gates the button on `running and row.managed`.
+  ADR-0004 governs (user decision, 2026-08-15) and LWSM-1016's bullet is
+  annotated rather than the ADR corrected: `chdir()` is free, so any local
+  process can bind a project's port, be classified `running`, and have this app
+  send the user to it — localhost phishing with the app's credibility behind it.
+  SCOPE: this is the interim the bullet scoped. The ADR's full mitigation is a
+  disclosure dialog naming the holder's executable path, uid, cmdline and start
+  time, which needs a state model that can tell foreign from managed — `_classify`
+  still produces three states. Filed as LWSM-1154 under P06 so it is not lost.
+  The row still READS `running`: this restricts the action, it does not make the
+  app lie about what it observed.
+  One consequence found while shipping and fixed with it: `managed` is the first
+  `RowView` field that renders as button enablement and as no text at all, so
+  `update_from`'s view-equality gate stopped being sufficient for INV-22 — a
+  project leaving the supervisor's set changed the view without changing a word
+  a screen reader reads out. The announcement is now gated on the accessible
+  NAME having changed, with its own test.
+  Fixtures: two rows, both `running`, differing only in ownership. A one-row
+  fixture could not tell "Open is disabled for a foreign server" from "Open is
+  disabled". Mutants run and dead: ungating the button, and ungating the
+  announcement.
 
 ## FP01 — Security fold-in (from the P01 review, 2026-08-03)
 
@@ -2731,6 +2819,23 @@ is the contract.
   consistency with `design.md § Custom project actions` rather than as a hole
   being closed; the live version of that rule is LWSM-1121's user-authored
   `open_url`.
+  Corrected 2026-08-19 (LWSM-1141). **Two statements in this bullet are now
+  wrong and are superseded rather than deleted**, because the record of what
+  shipped is what makes the correction legible: "Enabled in all three running
+  states, including `running (foreign)`", and the resolution note's "Enabled
+  exactly while a port is observed bound, which today is `running`, including a
+  server this manager did not start".
+
+  Open is now enabled only for a server THIS manager started. ADR-0004:84-86
+  carries the threat model and governs (user decision, 2026-08-15): `chdir()` is
+  free, so any local process can bind a project's port, be classified `running`,
+  and have this app send the user to it — localhost phishing with the app's
+  credibility behind it. The ADR's own mitigation is a disclosure dialog, which
+  needs a state model that can tell foreign from managed; restricting Open to
+  the supervisor's running set is the interim, and LWSM-1154 carries the rest.
+
+  Everything else here still holds, including the part that mattered most: the
+  port is read from the row at CLICK time and never cached at build time.
 
 - 📋 [LWSM-1055] **P05: a per-project browser choice for Open in browser.**
   LWSM-1016 opens the desktop default. A project the user always
@@ -2874,6 +2979,32 @@ is the contract.
   Lanes: core, tests.
 
 ---
+
+- 📋 [LWSM-1154] **P06: the foreign-server disclosure dialog Open still owes.**
+  ADR-0004:84-86 requires that Open-in-browser on a `running (foreign)` row
+  "carries the same disclosure the Stop path does: the holder's executable
+  path, uid, cmdline and start time, shown before anything opens."
+
+  LWSM-1141 shipped the INTERIM: Open is restricted to servers the supervisor
+  started, which the running set answers exactly. That is safe and it is not
+  what the ADR asks for — a legitimately foreign server the user does want to
+  open is now unreachable from the app, with no explanation on the row.
+
+  Blocked on a state model that can tell foreign from managed: `_classify`
+  still returns three states (`RUNNING` / `STOPPED` / `UNKNOWN`), so there is
+  nothing to trigger the dialog on. LWSM-1011's seven-state classifier is what
+  unblocks it.
+
+  Acceptance: a red test asserting that Open on a `running (foreign)` row
+  shows the four disclosure fields BEFORE any URL is opened, and that
+  declining opens nothing; plus one asserting a managed row still opens with
+  no dialog. The `confirm` seam is the shape to reuse — it already exists for
+  ADR-0003's trust gate and is injected for exactly this reason.
+  Dependencies: LWSM-1011.
+  **Layman:** When the app can tell a server it started from one it did not, Open should come back for foreign servers — behind a dialog that first shows you exactly what is holding that port.
+  Kind: security.
+  Source: in-session-2026-08-19 (LWSM-1141 residual).
+  Lanes: ui, tests.
 
 ## P07 — Ports (criterion 4)
 

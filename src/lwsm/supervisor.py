@@ -455,6 +455,11 @@ def _alive(proc: psutil.Process) -> bool:
 @dataclass
 class _Registry:
     processes: dict[Path, ManagedProcess] = field(default_factory=dict)
+    # Projects whose start has been reserved but whose entry is not in
+    # `processes` yet. `start()` releases the lock for the port pre-flight, the
+    # trust gate, the log open and the spawn, so `processes` alone cannot answer
+    # "is one already on its way?" (LWSM-1137).
+    starting: set[Path] = field(default_factory=set)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -593,31 +598,49 @@ class Supervisor:
         if not argv:
             raise SupervisorError("cannot start a project with an empty argv")
 
+        # Reserved under the lock, not merely checked. Everything below runs
+        # with the lock released, so a bare membership test is a check-then-act
+        # (LWSM-1137): two starts both pass it, both spawn, and the second
+        # insert overwrites the first `ManagedProcess` — leaking its log
+        # descriptor and forgetting the PID that still holds the port, which is
+        # verbatim the hazard `AlreadyRunning`'s own docstring names.
         with self._registry.lock:
-            if resolved_project in self._registry.processes:
+            if (
+                resolved_project in self._registry.processes
+                or resolved_project in self._registry.starting
+            ):
                 raise AlreadyRunning(f"{name} is already running under this manager")
+            self._registry.starting.add(resolved_project)
 
-        # Step 1 of every start, and of every restart (ADR-0003).
-        if port is not None and self._probe.snapshot().is_bound(port):
-            raise PortAlreadyBound(port)
-
-        launcher = _launcher_path(resolved_project, argv)
-        if launcher is not None:
-            launcher = validate_launcher(resolved_project, launcher)
-        fingerprint = launcher_fingerprint(resolved_project, argv)
-        if not self.trust.is_confirmed(resolved_project, fingerprint):
-            raise LauncherUntrusted(launcher, argv, fingerprint)
-
-        log_path = self.log_path_for(resolved_project, name)
-        fd = self._open_log(log_path)
         try:
-            managed = self._spawn(resolved_project, name, argv, port, log_path, fd)
-        except BaseException:
-            os.close(fd)
-            raise
+            # Step 1 of every start, and of every restart (ADR-0003).
+            if port is not None and self._probe.snapshot().is_bound(port):
+                raise PortAlreadyBound(port)
 
-        with self._registry.lock:
-            self._registry.processes[resolved_project] = managed
+            launcher = _launcher_path(resolved_project, argv)
+            if launcher is not None:
+                launcher = validate_launcher(resolved_project, launcher)
+            fingerprint = launcher_fingerprint(resolved_project, argv)
+            if not self.trust.is_confirmed(resolved_project, fingerprint):
+                raise LauncherUntrusted(launcher, argv, fingerprint)
+
+            log_path = self.log_path_for(resolved_project, name)
+            fd = self._open_log(log_path)
+            try:
+                managed = self._spawn(resolved_project, name, argv, port, log_path, fd)
+            except BaseException:
+                os.close(fd)
+                raise
+
+            with self._registry.lock:
+                self._registry.processes[resolved_project] = managed
+        finally:
+            # The reservation ends when the entry lands in `processes` or when
+            # the start fails — never later. A refused start that kept it would
+            # lock the project out for the rest of the session.
+            with self._registry.lock:
+                self._registry.starting.discard(resolved_project)
+
         log.info(
             "started %s as pid %d (argv %r, port %s)", name, managed.pid, argv, port
         )
@@ -684,7 +707,16 @@ class Supervisor:
         `_on_wait` is a test seam and nothing else: it fires once per turn of
         the wait loop, which is where "did we reap too early?" is observable.
         """
-        managed = self._get(project)
+        # Popped here, under the lock, rather than at the end in `_reap`. Two
+        # overlapping stops for one project would otherwise both retrieve the
+        # same `ManagedProcess` and both reach `_close_quietly(managed.log_fd)`,
+        # and the second `os.close` operates on an integer the kernel is free to
+        # have reissued — to another project's log, or to the rotation backup
+        # (LWSM-1138). Whoever pops owns the sequence; a later caller finds
+        # nothing and returns an empty outcome, which is what makes stop()
+        # idempotent.
+        with self._registry.lock:
+            managed = self._registry.processes.pop(Path(project).resolve(), None)
         if managed is None:
             return StopOutcome()
 
@@ -787,7 +819,7 @@ class Supervisor:
             self._sleep(POLL_INTERVAL_SECONDS)
 
     def _reap(self, managed: ManagedProcess) -> int | None:
-        """Collect the child's exit status, last, and forget it."""
+        """Collect the child's exit status, last, and release its log."""
         try:
             exit_code = managed.popen.wait(timeout=KILL_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
@@ -795,8 +827,9 @@ class Supervisor:
                 "%s did not exit after SIGKILL; leaving it unreaped", managed.name
             )
             exit_code = None
-        with self._registry.lock:
-            self._registry.processes.pop(managed.project, None)
+        # No registry pop here: `stop()` took the entry before it signalled
+        # anything (LWSM-1138), so this descriptor is one nothing else can still
+        # reach and closing it cannot be done twice.
         _close_quietly(managed.log_fd)
         return exit_code
 
