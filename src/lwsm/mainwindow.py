@@ -34,6 +34,7 @@ from PySide6.QtGui import (
     QAction,
     QActionGroup,
     QDesktopServices,
+    QKeyEvent,
     QKeySequence,
     QPainter,
     QPaintEvent,
@@ -44,6 +45,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -423,6 +425,44 @@ class ProjectRow(QFrame):
         if event.type() == QEvent.Type.FontChange:
             self._apply_text_metrics()
 
+    def matches(self, needle: str) -> bool:
+        """Whether this row survives the filter (LWSM-1040).
+
+        `casefold`, not `lower`: a project name is a directory name, and the
+        case the filesystem holds is not always the case the user types.
+
+        Name only, deliberately. Filtering on the port as well would make a row
+        appear and disappear as its port is detected or lost, which is a list
+        that moves under a magnifier for reasons the user did not cause.
+        """
+        if not needle:
+            return True
+        view = self._view
+        return view is not None and needle in view.name.casefold()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Enter starts or stops this project (LWSM-1040).
+
+        It CLICKS the button rather than calling the controller, so which
+        action is legal in which state stays stated once, in
+        `_apply_button_state`. A second copy of that rule here would be free to
+        drift from the buttons this key press stands in for — and both overlay
+        states disable Start and Stop together, so Enter correctly does nothing
+        mid-transition without naming the states at all.
+
+        Start is offered before Stop because they are mutually exclusive:
+        `_apply_button_state` enables Start only when not running and not in
+        transition, and Stop only when running. The order is what happens when
+        neither is enabled, not a precedence between two live actions.
+        """
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            for button in (self.start_button, self.stop_button):
+                if button.isEnabled():
+                    button.click()
+                    event.accept()
+                    return
+        super().keyPressEvent(event)
+
     def focus_ring_width(self) -> int:
         """Derived from the text metric, never a pixel constant (`§ O7`).
 
@@ -737,6 +777,23 @@ class MainWindow(QMainWindow):
         gap = self.fontMetrics().height()
         outer.setContentsMargins(gap, gap, gap, gap)
         outer.setSpacing(gap)
+        # ONE strip carrying both controls (LWSM-1040), not one strip each.
+        # Every row of chrome is a row the list does not get, and this window
+        # is read through a magnifier — so the filter box joins the strip
+        # LWSM-1149 already built rather than taking a second one.
+        # `_apply_default_geometry` measures the strip whole for that reason.
+        #
+        # Created before the scroll area and after the menu bar, because Qt's
+        # default tab order follows construction order among siblings and
+        # `design.md § Accessibility` requires tab order to follow visual
+        # order.
+        self._filter = QLineEdit(central)
+        self._filter.textChanged.connect(self._apply_filter)
+        strip = QHBoxLayout()
+        strip.addWidget(self._filter)
+        # Between the two controls, so the filter keeps its natural width at
+        # the left and Rescan stays pinned right.
+        strip.addStretch(1)
         self._rescan_button: QPushButton | None = None
         self._rescan_pool: QThreadPool | None = None
         self._rescan_signals: _RescanSignals | None = None
@@ -745,14 +802,11 @@ class MainWindow(QMainWindow):
             # Visual order is tab order, and the button is a real QPushButton so
             # it is focusable and carries its own accessible name from its text
             # (`§ O8`).
-            # Its own strip, pushed to the right, rather than a control
-            # stretched across the whole window (LWSM-1149). A full-width
-            # button reads as the window's primary purpose, and rescanning is
-            # not what the user came here to do.
-            strip = QHBoxLayout()
-            strip.addStretch(1)
+            # Pushed to the right rather than a control stretched across the
+            # whole window (LWSM-1149). A full-width button reads as the
+            # window's primary purpose, and rescanning is not what the user
+            # came here to do.
             strip.addWidget(self._rescan_button)
-            outer.addLayout(strip)
             self._rescan_button.clicked.connect(self._start_rescan)
             # A private pool, not the global instance: teardown must wait for
             # this window's own worker and nothing else, which is
@@ -762,6 +816,11 @@ class MainWindow(QMainWindow):
             self._rescan_signals = _RescanSignals(self)
             self._rescan_signals.done.connect(self._on_rescan_done)
             self._rescan_signals.failed.connect(self._on_rescan_failed)
+        # After the branch: the strip is added whether or not it got a button,
+        # because the filter box is in it either way.
+        outer.addLayout(strip)
+        self._strip = strip
+        self._retranslate_filter()
         # The list scrolls (LWSM-1149). Without this the window's minimum
         # height is every row it holds, so a user with twenty projects gets a
         # window taller than the screen that cannot be shrunk — the opposite
@@ -959,6 +1018,100 @@ class MainWindow(QMainWindow):
         if self._rescan_action is not None:
             self._rescan_action.setEnabled(enabled)
 
+    def _retranslate_filter(self) -> None:
+        """The filter box's two user-visible strings (LWSM-1040).
+
+        Its own method, and set from here rather than at construction, for the
+        reason `_retranslate_menus` gives: `LanguageChange` needs one place to
+        go.
+
+        The accessible name is not the placeholder. A placeholder is erased by
+        the first keystroke, so a screen-reader user who returns to a box they
+        have already typed in would find it unnamed — which is the
+        `setAccessibleName("")` trap from the other direction.
+        """
+        self._filter.setPlaceholderText(
+            QCoreApplication.translate(_TR_CONTEXT, "Filter…")
+        )
+        self._filter.setAccessibleName(
+            QCoreApplication.translate(_TR_CONTEXT, "Filter projects by name")
+        )
+
+    def _ordered_rows(self) -> list[ProjectRow]:
+        """Every row in LAYOUT order — the order the user sees (LWSM-1040).
+
+        The layout is what the user is looking at, so it is the authority on
+        the order they see. `self._rows.values()` agrees with it today — both
+        are insertion order, and `_sync_rows` appends to each together — but
+        that is a coincidence of how rows are added rather than a property
+        anything states, and no test tells the two apart. Reading the layout
+        asks the question directly.
+        """
+        rows = []
+        for index in range(self._rows_layout.count()):
+            widget = self._rows_layout.itemAt(index).widget()
+            if isinstance(widget, ProjectRow):
+                rows.append(widget)
+        return rows
+
+    def _apply_filter(self) -> None:
+        """Hide the rows the filter excludes (LWSM-1040).
+
+        HIDDEN, never destroyed and rebuilt. INV-13 requires a row widget to be
+        created once, and a filter that tore rows down would drop keyboard
+        focus on every keystroke — in the one control where the user is
+        certainly typing.
+
+        Called from `_sync_rows` as well as on every keystroke, or a project
+        arriving from a rescan would appear in a list the user has narrowed.
+        """
+        needle = self._filter.text().strip().casefold()
+        for row in self._ordered_rows():
+            row.setVisible(row.matches(needle))
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """`/`, Escape and the number keys (LWSM-1040).
+
+        This runs only when no focused child took the key first, and that is
+        what makes the filter box safe rather than a special case: a QLineEdit
+        consumes every digit and `/` it is given, so typing "1" while the caret
+        is in the filter types a 1 instead of jumping to the first project. No
+        guard here says so, and adding one would be dead code.
+
+        Escape is the exception, and deliberately so — QLineEdit ignores it, so
+        it arrives here from the filter box as well as from anywhere else, and
+        clearing the filter is exactly what it should do in both.
+        """
+        key = event.key()
+        if key == Qt.Key.Key_Slash:
+            self._filter.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            # Selected, not appended to: `/` on an already-narrowed list means
+            # "filter again", and the alternative is a user typing a second
+            # term onto the end of the first and matching nothing.
+            self._filter.selectAll()
+            event.accept()
+            return
+        if key == Qt.Key.Key_Escape and self._filter.text():
+            self._filter.clear()
+            event.accept()
+            return
+        if (
+            Qt.Key.Key_1 <= key <= Qt.Key.Key_9
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+        ):
+            # `isHidden`, not `isVisible`. The question is "did the filter
+            # remove this row", and `isHidden` answers exactly that — it
+            # tracks the flag `_apply_filter` sets and nothing else. `isVisible`
+            # answers a wider one, folding in every ancestor's state, and
+            # returns False for every row while the window itself is unshown.
+            shown = [row for row in self._ordered_rows() if not row.isHidden()]
+            index = key - Qt.Key.Key_1
+            if index < len(shown):
+                shown[index].setFocus(Qt.FocusReason.ShortcutFocusReason)
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
     @staticmethod
     def _window_title() -> str:
         return QCoreApplication.translate(_TR_CONTEXT, "Local Web Server Manager")
@@ -993,6 +1146,7 @@ class MainWindow(QMainWindow):
             # re-applying the summary here would silently overwrite it.
             self.setWindowTitle(self._window_title())
             self._retranslate_menus()
+            self._retranslate_filter()
             for row in self._rows.values():
                 row.retranslate()
             # A translated cell is a different width (LWSM-1145).
@@ -1310,6 +1464,9 @@ class MainWindow(QMainWindow):
             widget.setParent(None)
             widget.deleteLater()
 
+        # Before the geometry: a row arriving under an active filter must not
+        # show up in a list the user has already narrowed.
+        self._apply_filter()
         self._align_columns()
         self._apply_default_geometry()
 
@@ -1350,8 +1507,12 @@ class MainWindow(QMainWindow):
             + self.menuBar().sizeHint().height()
             + self.statusBar().sizeHint().height()
         )
-        if self._rescan_button is not None:
-            chrome += self._rescan_button.sizeHint().height() + outer.spacing()
+        # The STRIP, not the button in it. The filter box is the taller of the
+        # two on most styles, so measuring the button would under-count the
+        # chrome by the difference and open the window that much short — the
+        # LWSM-1146 menu-bar mistake, one control along. The strip is
+        # unconditional now, so this is too.
+        chrome += self._strip.sizeHint().height() + outer.spacing()
         # The scrollbar's width is reserved rather than discovered: it appears
         # the moment the list is longer than the window, and a width that did
         # not allow for it would take that room out of the last column.

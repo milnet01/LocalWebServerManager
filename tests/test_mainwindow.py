@@ -14,7 +14,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -2487,3 +2487,256 @@ def test_the_rescan_pool_is_unparented_when_the_wait_times_out(
     finally:
         release.set()
         assert wait_for_abandoned_probes(5000) == 0
+
+
+# --- LWSM-1040: keyboard-first navigation ------------------------------------
+
+
+def keyboard_window(qtbot, built, names, listening=(), show=False):
+    """A window with one row per name, UNSHOWN unless a test asks.
+
+    Three rows wherever a test counts them, never two. A number key selecting
+    the Nth project cannot be told apart from one selecting the first or the
+    last against a two-row list — the one-row-fixture trap this file has been
+    caught by twice, one position along.
+
+    Unshown is the default on purpose rather than to save a call. Every row of
+    an unshown window reports `isVisible() is False`, so a test that shows the
+    window cannot tell `isHidden` from `isVisible` in the number-key handler
+    and a mutant swapping them survives. `setFocus` still records the window's
+    focus widget while it is hidden, which is what those tests assert on; only
+    `hasFocus`, which needs an ACTIVE window, forces a `show()`.
+    """
+    records = [record(name, 3000 + i) for i, name in enumerate(names)]
+    window, controller = window_for(qtbot, built, records, FakeProbe(*listening))
+    if show:
+        with qtbot.waitExposed(window):
+            window.show()
+    return window, controller
+
+
+def shown_names(window: MainWindow) -> list[str]:
+    """The names still on screen, in the order the user reads them."""
+    return [row._name.text() for row in window._ordered_rows() if not row.isHidden()]
+
+
+def test_slash_reaches_the_filter_from_a_focused_row(qtbot, built) -> None:
+    """Pressed on a row, not on the window: that is where focus actually is.
+
+    A row ignores the key, Qt walks it up the parent chain, and the window's
+    handler takes it. Sending it to the window directly would prove the handler
+    exists and nothing about whether a user can reach it.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"], show=True)
+    row = window._ordered_rows()[1]
+    row.setFocus()
+    qtbot.waitUntil(row.hasFocus, timeout=2000)
+
+    qtbot.keyClick(row, Qt.Key.Key_Slash)
+
+    assert window._filter.hasFocus(), (
+        "`/` on a focused row must propagate to the window and focus the filter"
+    )
+
+
+def test_the_filter_is_a_case_insensitive_substring_of_the_name(qtbot, built) -> None:
+    """Both properties in one fixture, because each hides the other's failure.
+
+    Every letter of the fixture is load-bearing, and two mutants proved it.
+
+    The names are MIXED case because real ones are — `LottoTracker`,
+    `Ants_Projects_Hub_Website`. `BeTa` is typed in a third case again, so
+    dropping `casefold()` from EITHER side leaves nothing matching: the needle
+    alone reaches `beta`, which `BetaSite` and `MyBETA` do not contain, and the
+    name alone reaches `betasite`, which `BeTa` does not.
+
+    `MyBETA` also puts the match at the END of a name, so a `startswith` that
+    called itself a substring match returns one row instead of two. An earlier
+    fixture read `alpha/beta/betamax`, and the missing-`casefold()` mutant
+    survived it twice — the second time because `eta` sits inside `BetaSite`
+    in lower case whatever the surrounding letters do.
+    """
+    window, _ = keyboard_window(qtbot, built, ["Alpha", "BetaSite", "MyBETA"])
+
+    qtbot.keyClicks(window._filter, "BeTa")
+
+    assert shown_names(window) == ["BetaSite", "MyBETA"], (
+        "expected both names containing 'beta' in any case, from either end"
+    )
+
+
+def test_escape_clears_the_filter_from_inside_the_filter(qtbot, built) -> None:
+    """From inside it, because that is the case that could fail.
+
+    Escape works here only because QLineEdit ignores it and lets it reach the
+    window. Pressing it on a row would pass against a handler the filter box
+    swallows, which is the arrangement a user typing a search never meets.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"])
+    qtbot.keyClicks(window._filter, "alp")
+    assert shown_names(window) == ["alpha"], "precondition: the list is narrowed"
+
+    qtbot.keyClick(window._filter, Qt.Key.Key_Escape)
+
+    assert window._filter.text() == "", "Escape must empty the box, not only the list"
+    assert shown_names(window) == ["alpha", "beta", "gamma"]
+
+
+def test_a_number_key_counts_the_rows_still_on_screen(qtbot, built) -> None:
+    """The two halves pinned against each other, because either alone is weak.
+
+    Unfiltered, `2` landing on `beta` is satisfied by counting the dict, the
+    layout or the controller's own order — all three agree, so the assertion
+    cannot tell them apart. Under a filter they stop agreeing: `beta` is hidden,
+    and only a count over the rows still shown puts `delta` under `2`.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma", "delta"])
+    rows = window._ordered_rows()
+
+    qtbot.keyClick(rows[0], Qt.Key.Key_2)
+    assert window.focusWidget() is rows[1], "unfiltered, 2 is the second project"
+
+    qtbot.keyClicks(window._filter, "l")
+    assert shown_names(window) == ["alpha", "delta"], "precondition: beta is hidden"
+
+    qtbot.keyClick(rows[0], Qt.Key.Key_2)
+    assert window.focusWidget() is rows[3], (
+        "filtered, 2 must be the second VISIBLE project, not the second row"
+    )
+
+
+def test_a_number_key_past_the_end_of_the_list_does_nothing(qtbot, built) -> None:
+    """Three rows, `9` pressed. The focused row must not move and nothing may
+    raise — an index off the end of the visible list is the ordinary case for a
+    user who has just filtered the list down to one."""
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"])
+    row = window._ordered_rows()[0]
+    row.setFocus()
+
+    qtbot.keyClick(row, Qt.Key.Key_9)
+
+    assert window.focusWidget() is row
+
+
+def test_a_digit_typed_into_the_filter_filters_and_does_not_jump(qtbot, built) -> None:
+    """The rule that lets the two mechanisms share one keyboard.
+
+    A QLineEdit consumes a digit, so the window's handler never sees it. No
+    guard in the handler says so, which is exactly why it needs a test: the
+    behaviour rests on Qt's propagation rather than on a line anyone wrote.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"], show=True)
+    window._filter.setFocus()
+    qtbot.waitUntil(window._filter.hasFocus, timeout=2000)
+
+    qtbot.keyClick(window._filter, Qt.Key.Key_1)
+
+    assert window._filter.text() == "1", "the digit must be typed, not swallowed"
+    assert window._filter.hasFocus(), "focus must not have jumped to a row"
+
+
+def test_enter_starts_the_focused_project_and_not_another(qtbot, built) -> None:
+    """Enter on the SECOND of three, so a handler wired to the wrong row fails.
+
+    Asserted against the controller rather than the button, because clicking
+    the right button on the wrong project is a bug this file has shipped before
+    and a button-level assertion cannot see it.
+    """
+    window, controller = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"])
+    started: list[Path] = []
+    controller.start_project = started.append
+    row = window._ordered_rows()[1]
+
+    qtbot.keyClick(row, Qt.Key.Key_Return)
+
+    assert started == [Path("/srv/beta")], f"Enter started {started}"
+
+
+def test_enter_stops_a_running_project(qtbot, built) -> None:
+    """The other half of one key, and it is not symmetrical with the first.
+
+    Enter clicks whichever of Start and Stop is enabled, so this passes only if
+    `_apply_button_state`'s running case is what the key press reads. A test of
+    the stopped case alone would leave the branch that picks Stop unexecuted.
+    """
+    window, controller = keyboard_window(
+        qtbot, built, ["alpha", "beta", "gamma"], listening=(3001,)
+    )
+    stopped: list[Path] = []
+    controller.stop_project = stopped.append
+    row = window._ordered_rows()[1]
+    assert row.stop_button.isEnabled(), "precondition: beta reads as running"
+
+    qtbot.keyClick(row, Qt.Key.Key_Return)
+
+    assert stopped == [Path("/srv/beta")], f"Enter stopped {stopped}"
+
+
+def test_enter_does_nothing_while_a_project_is_in_transition(qtbot, built) -> None:
+    """Both buttons are disabled during the overlay, and Enter must inherit
+    that rather than restate it. A second Stop while one is in flight signals a
+    group whose leader may already be reaped."""
+    window, controller = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"])
+    row = window._ordered_rows()[1]
+    row.start_button.setEnabled(False)
+    row.stop_button.setEnabled(False)
+    started: list[Path] = []
+    stopped: list[Path] = []
+    controller.start_project = started.append
+    controller.stop_project = stopped.append
+
+    qtbot.keyClick(row, Qt.Key.Key_Return)
+
+    assert started == [] and stopped == [], (
+        "Enter must not act through a disabled button"
+    )
+
+
+def test_filtering_hides_rows_rather_than_rebuilding_them(qtbot, built) -> None:
+    """INV-13, applied to the one control where the user is certainly typing.
+
+    A filter that tore rows down and rebuilt them would drop keyboard focus on
+    every keystroke, and `design.md § Accessibility` says the app never steals
+    focus from what the user is reading.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"])
+    before = window._ordered_rows()
+
+    qtbot.keyClicks(window._filter, "alp")
+    qtbot.keyClick(window._filter, Qt.Key.Key_Escape)
+
+    assert window._ordered_rows() == before, "the row widgets must be the same objects"
+
+
+def test_a_project_scanned_under_an_active_filter_stays_hidden(qtbot, built) -> None:
+    """A rescan lands rows into a list the user has already narrowed.
+
+    Without the re-apply in `_sync_rows` the new project appears regardless of
+    the filter, which is a list that grows while the user is reading it.
+    """
+    window, controller = keyboard_window(qtbot, built, ["alpha", "beta"])
+    qtbot.keyClicks(window._filter, "alp")
+    assert shown_names(window) == ["alpha"], "precondition"
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.set_records(
+            [record("alpha", 3000), record("beta", 3001), record("gamma", 3002)]
+        )
+    qtbot.wait(50)
+
+    assert shown_names(window) == ["alpha"], "the new project must respect the filter"
+
+
+def test_the_filter_box_carries_an_accessible_name_of_its_own(qtbot, built) -> None:
+    """`§ O8`: every interactive widget lands with an accessible name.
+
+    Not the placeholder, which is the trap. A placeholder is erased by the
+    first keystroke, so a box named only that way is announced correctly right
+    up until the moment it holds something worth announcing.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"])
+
+    qtbot.keyClicks(window._filter, "alp")
+
+    assert window._filter.accessibleName().strip(), "the filter box is unnamed"
+    assert window._filter.accessibleName() != window._filter.placeholderText()

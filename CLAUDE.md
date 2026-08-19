@@ -560,6 +560,26 @@ Added at P02 (LWSM-1005), contract in
   `RowView` equality** (LWSM-1141): `managed` is the first field that renders as
   button enablement and as no text at all, so the view can change while nothing
   a screen reader reads out does. Any future non-textual field inherits that.
+  Since LWSM-1040 it also owns **keyboard-first navigation** — `_filter`,
+  `_apply_filter`, `_ordered_rows`, `_retranslate_filter` and the window's
+  `keyPressEvent`, with `ProjectRow.matches` and `ProjectRow.keyPressEvent` on
+  the row. **The filter box SHARES the Rescan strip** (user decision,
+  2026-08-19) rather than taking a second one: every row of chrome is a row the
+  list does not get, and `_apply_default_geometry` therefore measures the
+  **strip**, not the button in it. The strip is now unconditional, because the
+  filter is there whether or not the window has anything to rescan.
+  **The two mechanisms share one keyboard by relying on Qt's propagation, not
+  on a guard**: a `QLineEdit` consumes every digit and `/`, so typing `1` into
+  the filter types rather than jumping, and no line in `keyPressEvent` says so.
+  Escape is the deliberate exception — `QLineEdit` ignores it, which is what
+  lets one handler clear the filter from inside the box and from anywhere else.
+  **Enter CLICKS the row's enabled button** rather than calling the controller,
+  so which action is legal in which state stays stated once in
+  `_apply_button_state`; both overlay states disable Start and Stop together,
+  so Enter does nothing mid-transition without naming a state.
+  **Filtering hides rows, never rebuilds them** (INV-13), and `_sync_rows`
+  re-applies the filter so a rescan cannot land a project into a list the user
+  has narrowed.
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](docs/specs/LWSM-1006-scanner-detection.md):

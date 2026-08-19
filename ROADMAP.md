@@ -2407,6 +2407,30 @@ path. `docs/design.md § Detection rules` is the contract.
   Source: in-session-2026-08-08 (split from LWSM-1006).
   Priority: 2.
   Lanes: core, tests.
+  Evidence (2026-08-19), from the live app rather than a fixture:
+  Ants_Projects_Hub_Website renders `? unknown` / `no port`, and the
+  trace says why. Its launcher is `serve.mjs`; the port lives in
+  `lib/port.mjs` as `export const DEFAULT_PORT = 4321`, reached only
+  by an ES `import`. LWSM-1006's one-hop rule follows an
+  `exec`/`node`/`python3` INVOCATION line, so an import is not a hop
+  and that file is never opened. Inside `serve.mjs` itself `4321`
+  appears only in a comment, which is stripped before the rules run.
+  Port therefore stays `None`, and ADR-0004 derives state from the
+  socket table, so no port means no state — the `unknown` is correct
+  behaviour on a wrong input.
+  **This project is the fixture measure 3 needs, and it argues the
+  README source is sharper than "lowest confidence" suggests.** Its
+  README carries TWO ports: `http://localhost:3000` on line 35 (a
+  `npx serve dist` preview of the PUBLISHED site) and
+  `http://127.0.0.1:4321` on line 44 (the stats server this app
+  manages). A rule taking the first `localhost:NNNN` returns 3000 —
+  confidently wrong, and worse than the honest `unknown` shipping
+  today. Neither is a conflict between SOURCES, which is what measure
+  3 resolves; both hits come from one source, and nothing in this
+  bullet says how to choose within one.
+  Also worth weighing: an ES-import hop would catch this at full
+  confidence and is not in this bullet's three sources at all. File
+  it separately rather than widening this item.
 
 ---
 
@@ -2555,6 +2579,43 @@ magnifier, so this is a design input, and
   Lanes: ui, tests.
   Progress (2026-08-19): picked as the first P04 item after FP07 closed. Chosen over LWSM-1032 despite its lower filed priority, because LWSM-1032's acceptance includes design.md § Accessibility's keyboard-reachability row and this item's own bullet says it makes that check natural rather than a retrofit — so 1040 before 1032 is the cheaper order. LWSM-1031 (the dependency) shipped 2026-08-19.
   Open question (2026-08-19), put to the user and NOT yet answered: where the filter box lives. The proposal was a strip above the row list, mirroring how LWSM-1149 placed the Rescan button on its own right-aligned strip rather than stretching it full-width. **Whichever placement is chosen, it is chrome, and `_apply_default_geometry` must count it** — CLAUDE.md § Module map records that leaving the menu bar out of that calculation opened the window one bar too short, so a list that fits scrolled; two LWSM-1149 geometry tests die on that mutant. A fresh session should ask before building, not guess. No LWSM-1040 code exists yet; the item is 🚧 only because it was picked.
+  Placement ANSWERED (user, 2026-08-19): the filter box SHARES the
+  Rescan strip — filter left, Rescan right, one strip. Chosen over
+  the proposed second strip because every row of chrome is a row the
+  list does not get, and this window is read through a magnifier.
+  The strip is unconditional now: the filter is there whether or not
+  the window has anything to rescan.
+  Progress (2026-08-19): all four behaviours shipped — `/` focuses
+  the filter, typing narrows it (case-insensitive substring of the
+  name), Escape clears it, and 1–9 focus the Nth row STILL ON SCREEN.
+  Enter starts or stops the focused project. 12 tests, 916 green,
+  no SKIPs, no tool drift.
+  **`_apply_default_geometry` measures the STRIP, not the button** —
+  the bullet's own warning, and the mutant dropping it kills
+  `test_a_short_list_opens_with_every_row_visible`.
+  Thirteen mutants run, thirteen dead — but two of them only after
+  the FIXTURE was fixed, and that is the reusable part. The
+  `casefold()`-on-the-name mutant survived `alpha/beta/betamax`, then
+  survived `Alpha/BetaSite/MyBeta` as well, because `eta` sits inside
+  `BetaSite` in lower case however the letters around it are cased.
+  It dies only against `Alpha/BetaSite/MyBETA` filtered by `BeTa`,
+  where the needle is in a third case again and the match at the end
+  of a name also kills a `startswith` masquerading as a substring
+  match. **An all-lowercase fixture cannot test case-insensitivity**;
+  real project names are `LottoTracker` and
+  `Ants_Projects_Hub_Website`, and the fixture now looks like them.
+  Same family as the one-row-fixture and one-launcher-kind traps.
+  NOT absorbed, and deliberately: LWSM-1032 still owns
+  `testing.md § T8`'s four checks. The one accessibility test added
+  here is the filter box's own accessible name, which `§ O8` requires
+  per widget as it lands.
+  Observed while building, filed nowhere yet: after `/` and a
+  narrowing, the caret is still in the filter box, so reaching the
+  list needs Tab — number keys type into the box, correctly. The app
+  IS fully keyboard-operable, but "Enter in the filter jumps to the
+  first remaining row" would make the narrow-then-act flow one
+  keystroke. Out of this item's filed scope; raise it as its own
+  bullet rather than widening this one.
 
 - 📋 [LWSM-1033] **P04: window geometry and Centre on screen.**
   Size, position and maximised state persisted as plain integers
