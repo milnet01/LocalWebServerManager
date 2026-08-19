@@ -84,6 +84,16 @@ EXCLUDED_DIR_NAMES = frozenset(
 )
 MAX_HOP_DEPTH = 3
 
+# How many relative imports of one launcher are followed (§ 4.5, LWSM-1155).
+# Measured 2026-08-20 against the project that motivated the rule: its
+# `serve.mjs` carries eight imports, of which five are bare (`node:http`,
+# `node:fs/promises`, ...) and **three** are relative — and the port is in the
+# third. So the bound has to clear 3, and this is a shade under 3x that. The
+# `Deadline` bounds the total work either way; this bounds the work ONE hostile
+# launcher can demand, which the deadline can only do by spending the whole
+# scan's budget on it and degrading every other candidate's row.
+MAX_IMPORT_HOPS = 8
+
 # The *declared* range, not ADR-0005's 1024-65535, which governs the override
 # the user types. A project may legitimately declare 80.
 PORT_RANGE = DECLARED_PORT_RANGE
@@ -585,6 +595,132 @@ def _accept_hop(
         # rejection with no reason attached to the thing that caused it.
         return None, f"hop target {_quoted(token)} is a symlink"
     return target, None
+
+
+# LWSM-1155 — the same one hop, taken along an IMPORT rather than an
+# invocation. `_HOP_KEYWORD` above matches `exec`/`python3`/`python`/`node`,
+# which is a launcher *running* another file; a launcher that IS the program
+# reaches its port by importing it, and nothing here saw that.
+#
+# Two things follow, and neither is a wider keyword set:
+#
+# - The tokenise-and-select rule above examines exactly ONE line — the last
+#   one holding the keyword, because the rule is "the last invocation". Imports
+#   are many lines and the port-bearing one need not be last, so this walks
+#   every import line instead.
+# - It takes the first specifier whose file yields a PORT, not the first that
+#   can be read. Measured 2026-08-20: the launcher that motivated this imports
+#   `./stats.mjs`, `./lib/github.mjs` and `./lib/port.mjs` in that order, and
+#   only the third declares anything. "First readable" stops at `stats.mjs`.
+#
+# **Relative specifiers only.** A bare `node:fs/promises`, or a bare package
+# name, is not a path and must not become one — or the hop walks into
+# `node_modules` on every Node project, which is also the one place § 4.5
+# constraint 3 exists to keep it out of.
+# The keyword has to be in STATEMENT position, not merely present. Measured
+# 2026-08-20 against the real population: `\bimport\b` matches inside
+# `console.log("./not-an-import")`, because `-` is a word boundary — so any
+# line carrying the word in a string, beside a relative-looking path, hopped.
+_JS_IMPORT_LINE = re.compile(
+    r"(?:^|[;{}])\s*(?:import|export)\b|\b(?:require|import)\s*\("
+)
+_JS_RELATIVE = re.compile(r"""['"](\.{1,2}/[^'"]*)['"]""")
+_PY_IMPORT_LINE = re.compile(
+    r"^\s*(?:from\s+(?P<from>\.*[\w.]*)\s+import\b|import\s+(?P<plain>[\w.]+))"
+)
+
+
+def _import_specifiers(line: str, suffix: str) -> list[str]:
+    """The in-project files `line` imports, as paths relative to the project.
+
+    Returns `[]` for a line that imports nothing, and for one that imports only
+    things outside the project — which is the common case and the safe default.
+    """
+    if suffix == ".py":
+        match = _PY_IMPORT_LINE.match(line)
+        if match is None:
+            return []
+        # `from .lib.port import X`, `from lib.port import X` and
+        # `import lib.port` all name `lib/port.py`. A Python script's own
+        # directory is on `sys.path`, so the dotless form IS the local-file
+        # form here — unlike JS, where a bare specifier is a package.
+        module = match.group("from") or match.group("plain") or ""
+        if module.startswith(".."):
+            # A parent package is outside the project by construction, so this
+            # is constraint 1's case — and `lstrip(".")` would quietly turn
+            # `from ..up import x` into a ROOT-level `up.py`, reading a file the
+            # import never named rather than refusing one it did.
+            return []
+        module = module.lstrip(".")
+        if not module:
+            # `from . import port` names the package, not a module in it.
+            return []
+        return [module.replace(".", "/") + ".py"]
+    if not _JS_IMPORT_LINE.search(line):
+        return []
+    # The specifier as written, extension included. `./lib/port` (legal under
+    # CommonJS, where the extension is optional) is NOT resolved against `.js`
+    # and `.mjs` — the same honest limit § 4.5 already takes on two hops.
+    return _JS_RELATIVE.findall(line)
+
+
+def _import_hop_port(
+    candidate: Path,
+    launcher: Path,
+    lines: Sequence[str],
+    deadline: Deadline,
+    note: Callable[[str], None],
+) -> PortFinding | None:
+    """§ 4.5's one hop, for launcher rules 3 and 4 — where the launcher is the
+    program and there is no `exec` line to read.
+
+    Every one of § 4.5's six constraints still applies, because the target
+    still goes through `_accept_hop`: in-project, not the launcher, not under an
+    excluded directory, within `MAX_HOP_DEPTH`, not a symlink, no NUL.
+
+    Still exactly ONE hop. A launcher importing a module that imports another is
+    out of scope and comes back *unknown*, which is § 4.5's existing limit for
+    `project-e` rather than a new one.
+    """
+    seen: set[Path] = set()
+    hops = 0
+    for line in lines:
+        for specifier in _import_specifiers(strip_comment(line), launcher.suffix):
+            if hops >= MAX_IMPORT_HOPS or deadline.expired():
+                # Two different budgets. `MAX_IMPORT_HOPS` bounds the files
+                # actually READ, which is the expensive half; the deadline
+                # bounds the attempts, which are one failed `open` each and
+                # would otherwise be limited only by how many import lines a
+                # hostile launcher cares to write.
+                return None
+            target, reason = _accept_hop(specifier, candidate, launcher)
+            if reason is not None:
+                note(reason)
+                continue
+            if target is None or target in seen:
+                continue
+            seen.add(target)
+            try:
+                hop_lines = _read_lines(target, deadline)
+            except (FileNotFoundError, NotADirectoryError):
+                # A specifier naming nothing in the project. The commonest shape
+                # by far on the Python side, where `import os` is spelled
+                # exactly like `import config`. **It must not count against
+                # MAX_IMPORT_HOPS**: measured 2026-08-20, a real Flask launcher
+                # yields 95 specifiers whose first eight are all stdlib, so
+                # counting the misses spends the whole budget before reaching a
+                # single in-project module. It is not worth a reason either.
+                continue
+            except OSError as exc:
+                note(f"{_quoted(specifier)} cannot be read ({exc.strerror or exc})")
+                continue
+            hops += 1
+            found = _scan_source(target.relative_to(candidate).as_posix(), hop_lines)
+            if found is not None:
+                # INV-11: `source` names the file actually read, never the
+                # launcher that pointed at it.
+                return found
+    return None
 
 
 def _hop_target(
@@ -1132,13 +1268,30 @@ def _match_named_file(
     note: Callable[[str], None],
     framework: bool,
 ) -> _Launcher | None:
-    """Launcher rules 3 and 4: the file they run is the file § 4.6 reads, so
-    there is nothing to follow."""
+    """Launcher rules 3 and 4: the file they run is the file § 4.6 reads — and
+    since LWSM-1155 also the file whose *imports* § 4.5 follows.
+
+    That second clause is the correction. The docstring here read "so there is
+    nothing to follow", and § 4.5 opened "only for `kind == SHELL`", both on the
+    reasoning that a shell launcher names another file while these two ARE the
+    file. True of `exec`, and false of `import`: measured 2026-08-20, a real
+    `serve.mjs` keeps its port in `./lib/port.mjs` one import away, and came
+    back *unknown* because no hop was attempted at all.
+
+    Order is `INV-10`'s, unchanged and extended the way `_shell_port` already
+    extends it: the launcher's own lines first, then the one hop, then — for
+    rule 3 only — the framework default, which is the weakest evidence of the
+    three and so goes last.
+    """
     for filename in alternates:
         lines = _read_alternate(candidate, filename, quoted, deadline, note)
         if lines is None:
             continue
         port = _scan_source(filename, lines)
+        if port is None:
+            port = _import_hop_port(
+                candidate, candidate / filename, lines, deadline, note
+            )
         if port is None and framework:
             port = _python_framework(candidate, lines)
         return _Launcher(kind=kind, argv=(argv0, filename), port=port)

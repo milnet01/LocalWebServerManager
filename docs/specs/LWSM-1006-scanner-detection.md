@@ -725,10 +725,59 @@ and is recorded once, not once per candidate.
 
 ### 4.5 The one-hop port-bearing file
 
-Only for `kind == SHELL`, because that is the only launcher that runs another
-file whose name it names — rules 2, 3 and 4 name the file they run, and rule
-0's equivalent hop is § 4.4 step 3, which reaches the unit's properties through
-`systemctl` rather than by opening anything.
+Two forms, and the second was added by **LWSM-1155** on 2026-08-20 — an
+amendment recording what was built, not a change of direction for work still to
+come.
+
+**The invocation form, for `kind == SHELL` only.** A shell launcher runs another
+file whose name it names, and rule 0's equivalent hop is § 4.4 step 3, which
+reaches the unit's properties through `systemctl` rather than by opening
+anything.
+
+**The import form, for `kind == PYTHON` and `kind == NODE`.** This section
+originally read *"only for `kind == SHELL`, because that is the only launcher
+that runs another file whose name it names — rules 2, 3 and 4 name the file
+they run"*, and § 4.4's own implementation note said the same in different
+words: *"the file they run is the file § 4.6 reads, so there is nothing to
+follow."* **That reasoning is true of `exec` and false of `import`.** A launcher
+that *is* the program does not name another file to run — it names one to
+*read*, and the port can sit in it. Measured 2026-08-19 against a real sibling
+whose `serve.mjs` keeps its port in `./lib/port.mjs`: the project came back
+*port unknown* because no hop was attempted at all, and widening the invocation
+form's keyword set would not have reached it, since nothing calls that form for
+a Node launcher.
+
+The import form differs from the invocation form in exactly three ways. It
+reads **every** import line rather than only the last, because "the last
+invocation" has no analogue — the port-bearing import need not be last, and
+measured 2026-08-20 the motivating launcher's is third of three. It selects the
+first specifier whose file **yields a port**, not the first that can be read,
+for the same reason. And it is bounded by `MAX_IMPORT_HOPS` files actually read,
+with the scan deadline bounding the attempts — a miss must not spend the budget,
+because a real Python launcher lists its stdlib imports above its local ones and
+counting misses would exhaust the bound before reaching the first local module.
+
+**Relative specifiers only.** ES `import`/`export … from "./x.mjs"`, dynamic
+`import("./x.mjs")` and `require("./x")` on the JavaScript side; `from .x import`,
+`from x import` and `import x` on the Python side, where a script's own directory
+is on `sys.path` and the dotless form therefore *is* the local-file form. A bare
+`node:fs/promises` or a bare package name is not a path and must not become one,
+or the hop walks into `node_modules` on every Node project — which is also what
+constraint 3 exists to prevent. `from ..x import` names a parent package, is
+outside the project by construction, and is refused rather than stripped to a
+root-relative name.
+
+The keyword must be in **statement position**, not merely present on the line:
+`\bimport\b` matches inside `not-an-import`, because `-` is a word boundary, so
+a presence test hops on any line carrying the word beside a relative-looking
+quoted path. Found 2026-08-20 by reading every hit the matcher produced over the
+author's real projects rather than by a fixture.
+
+An extension-less specifier is **not** resolved against `.js`/`.mjs`. That is the
+same honest limit this section already takes on two hops, below.
+
+Both forms share everything else in this section: the six constraints, the NUL
+guard, and exactly one hop.
 
 **Finding the target is a tokenise-and-select rule, not a search for "a
 path".** It was prose until loop 5 — the only matching mechanism in § 4 that
@@ -1288,7 +1337,12 @@ is the property the derivation exists for.
   spec gave rule 1 no pattern at all.
 
 - **INV-10** — Port rules resolve file-major: rules 1 then 2 in the launcher,
-  then rules 1 then 2 in the one-hop file, then rule 3 across both.
+  then rules 1 then 2 in the one-hop file, then rule 3 across both. **Since
+  LWSM-1155 this holds for the import form too** — a launcher's own declaration
+  outranks one in a module it imports, and the framework default stays last of
+  the three because it is the weakest evidence.
+  *Also tested:* `::test_the_launcher_outranks_its_own_imports`, the same
+  3000-vs-8080 fixture line applied to a `serve.mjs` and its import.
   *Test:* `tests/test_scanner.py::test_the_launcher_outranks_the_hop_file`,
   with `SERVER_PORT = 3000` in the launcher and `--port 8080` in the hop file,
   asserting 3000.

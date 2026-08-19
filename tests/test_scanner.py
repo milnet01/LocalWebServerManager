@@ -1795,3 +1795,339 @@ def test_every_fixture_project_is_detected_as_expected(
             fixture.source,
         )
         assert project.confidence is Confidence.DETECTED
+
+
+# --------------------------------------------------------------------------
+# LWSM-1155 — § 4.5's one hop, taken along an import
+# --------------------------------------------------------------------------
+
+
+def test_a_node_launcher_reaches_a_port_one_import_away(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """The shape of the project that motivated the item, measured 2026-08-20.
+
+    Its `serve.mjs` carries eight imports — five bare (`node:http`, ...) and
+    three relative — and the port is in the third relative one. Two things that
+    fixture pins which a one-import fixture cannot. The bare specifiers must
+    never be hopped to at all, proven on the seam rather than on the verdict:
+    a `node:fs/promises` that resolves to nothing still returns `port=None`,
+    so the verdict alone cannot tell "refused" from "read and found nothing".
+    And the winner is the first import that **yields a port**, not the first
+    that can be read — `./stats.mjs` is readable and declares nothing.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "hub",
+        {
+            "serve.mjs": (
+                'import { createServer } from "node:http";\n'
+                'import { readFile } from "node:fs/promises";\n'
+                'import { generate } from "./stats.mjs";\n'
+                'import { resolveAuth } from "./lib/github.mjs";\n'
+                'import { resolvePort } from "./lib/port.mjs";\n'
+            ),
+            "stats.mjs": "export function generate() { return 1; }\n",
+            "lib/github.mjs": "export function resolveAuth() { return null; }\n",
+            "lib/port.mjs": "export const DEFAULT_PORT = 4321;\n",
+        },
+    )
+
+    project = by_name(scan_root(root))["hub"]
+
+    assert project.port is not None
+    assert project.port.port == 4321
+    assert project.port.rule is PortRule.ASSIGNMENT
+    # INV-11: `source` names the file actually read, never the launcher that
+    # pointed at it.
+    assert project.port.source == "lib/port.mjs"
+    opened = {path.name for path in opened_paths}
+    assert "port.mjs" in opened
+    assert not {name for name in opened if name.startswith("node:")}
+    assert "http" not in opened
+    assert "promises" not in opened
+
+
+def test_a_bare_specifier_is_never_resolved_to_a_path(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """Relative specifiers only — the rule that keeps the hop out of
+    `node_modules` on every Node project.
+
+    Asserted on the seam, because `express` names no file in the fixture either
+    way: a verdict of `port=None` is what a *refused* specifier and a *missing*
+    one both produce, so only the opener separates them. The decoy carries a
+    port so that resolving it would be visible.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "bare",
+        {
+            "serve.mjs": (
+                'import express from "express";\n'
+                'import { readFile } from "node:fs/promises";\n'
+            ),
+            "express.mjs": "const PORT = 7777\n",
+            "express": "const PORT = 7777\n",
+        },
+    )
+
+    project = by_name(scan_root(root))["bare"]
+
+    assert project.port is None
+    assert "express" not in {path.name for path in opened_paths}
+    assert "express.mjs" not in {path.name for path in opened_paths}
+
+
+def test_the_word_import_inside_a_string_is_not_an_import(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """`\\bimport\\b` matches inside `not-an-import`, because `-` is a word
+    boundary — so a keyword test that only asks whether the word is *present*
+    hops on any line carrying it beside a relative-looking path.
+
+    Found 2026-08-20 by reading every hit the new matcher produced over the
+    author's real projects, not by a fixture: the first draft returned
+    `./not-an-import` here. The keyword has to be in statement position.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "decoy",
+        {
+            "serve.mjs": (
+                'console.log("./not-an-import.mjs");\n'
+                'throw new Error("failed to require ./nope.mjs");\n'
+            ),
+            "not-an-import.mjs": "const PORT = 7777\n",
+            "nope.mjs": "const PORT = 7778\n",
+        },
+    )
+
+    project = by_name(scan_root(root))["decoy"]
+
+    assert project.port is None
+    assert not {path.name for path in opened_paths} & {
+        "not-an-import.mjs",
+        "nope.mjs",
+    }
+
+
+def test_a_parent_relative_python_import_is_not_rewritten_to_the_root(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """`from ..up import x` names a PARENT package, which is outside the project
+    by construction — constraint 1's case.
+
+    The draft stripped the leading dots to build the path, which turned it into
+    a root-level `up.py`: not a refusal but a **different file**, read and
+    believed. That is worse than missing the port, and no fixture asked for it —
+    reading every hit is what showed it.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "parent",
+        {
+            "serve.py": "from ..up import thing\n",
+            "up.py": "PORT = 7777\n",
+        },
+    )
+
+    project = by_name(scan_root(root))["parent"]
+
+    assert project.port is None
+    assert "up.py" not in {path.name for path in opened_paths}
+
+
+def test_stdlib_imports_do_not_spend_the_hop_budget(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """A miss must not count against `MAX_IMPORT_HOPS`.
+
+    Measured 2026-08-20 against a real Flask launcher: it yields 95 specifiers
+    whose first eight are all stdlib, and a launcher puts its stdlib imports
+    above its local ones. So counting the misses spends the entire budget
+    before the first in-project module is reached — the cap would have made the
+    Python half detect nothing at all, on every realistic file.
+
+    `MAX_IMPORT_HOPS` is not restated here: the fixture derives its own padding
+    from the constant, so a bump cannot leave this test asserting a stale bound.
+    """
+    padding = "".join(
+        f"import nonexistent_stdlib_{i}\n" for i in range(scanner.MAX_IMPORT_HOPS + 4)
+    )
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "flasky",
+        {
+            "serve.py": padding + "from settings import PORT\n",
+            "settings.py": "PORT = 4321\n",
+        },
+    )
+
+    project = by_name(scan_root(root))["flasky"]
+
+    assert project.port is not None
+    assert project.port.port == 4321
+    assert project.port.source == "settings.py"
+    assert "settings.py" in {path.name for path in opened_paths}
+
+
+def test_the_import_hop_reads_at_most_MAX_IMPORT_HOPS_files(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """The other half of the budget: a launcher importing many *readable*
+    in-project modules stops.
+
+    Every module here exists and declares nothing, so nothing short-circuits the
+    walk — which is what makes the count the assertion. Without the bound a
+    hostile launcher decides how many of its files this scan reads.
+    """
+    modules = {f"m{i}.py": "VALUE = 1\n" for i in range(scanner.MAX_IMPORT_HOPS + 5)}
+    imports = "".join(f"import m{i}\n" for i in range(scanner.MAX_IMPORT_HOPS + 5))
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(root, "many", {"serve.py": imports, **modules})
+
+    project = by_name(scan_root(root))["many"]
+
+    assert project.port is None
+    hopped = [path.name for path in opened_paths if path.name.startswith("m")]
+    assert len(hopped) == scanner.MAX_IMPORT_HOPS
+
+
+def test_an_import_hop_is_still_exactly_one_hop(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """§ 4.5's existing limit, unchanged: a launcher importing a module that
+    imports another comes back *unknown*.
+
+    The `project-e` shape stated for the `exec` form, restated for this one —
+    it is an honest limit rather than a bug, and it is what bounds the walk to
+    the project's own first layer.
+
+    **This one is not mutation-proven, and says so rather than being counted.**
+    Every other test in this block dies on a mutant that deletes a mechanism;
+    one-hop-ness is the *absence* of recursion, so the mutation that breaks it
+    is code being ADDED. It guards a future change rather than a present
+    mechanism, which is a weaker thing and should not be read as the same.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "twohop",
+        {
+            "serve.mjs": 'import { p } from "./mid.mjs";\n',
+            "mid.mjs": 'export { p } from "./deep.mjs";\n',
+            "deep.mjs": "export const PORT = 4321;\n",
+        },
+    )
+
+    project = by_name(scan_root(root))["twohop"]
+
+    assert project.port is None
+    assert "deep.mjs" not in {path.name for path in opened_paths}
+
+
+def test_the_launcher_outranks_its_own_imports(tmp_path: Path) -> None:
+    """INV-10 extended to rules 3 and 4, and the same fixture line that made it
+    discriminate for the shell form.
+
+    Rule-major would return the imported 8080; file-major returns the
+    launcher's own 3000. The launcher is the file that actually runs.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "both",
+        {
+            "serve.mjs": (
+                'import { p } from "./lib/port.mjs";\nconst SERVER_PORT = 3000\n'
+            ),
+            "lib/port.mjs": "export const DEFAULT_PORT = 8080;\n",
+        },
+    )
+
+    project = by_name(scan_root(root))["both"]
+
+    assert project.port is not None
+    assert project.port.port == 3000
+    assert project.port.source == "serve.mjs"
+
+
+@pytest.mark.parametrize(
+    ("files", "fragment"),
+    (
+        ({"serve.mjs": 'import { p } from "../../secret.mjs";\n'}, "outside"),
+        (
+            {
+                "serve.mjs": 'import { p } from "./node_modules/pkg/p.mjs";\n',
+                "node_modules/pkg/p.mjs": "export const PORT = 4321;\n",
+            },
+            "excluded directory",
+        ),
+        (
+            {
+                "serve.mjs": 'import { p } from "./a/b/c/d.mjs";\n',
+                "a/b/c/d.mjs": "export const PORT = 4321;\n",
+            },
+            "deep",
+        ),
+        ({"serve.mjs": 'import { p } from "./serve.mjs";\n'}, "launcher itself"),
+    ),
+)
+def test_the_six_constraints_still_refuse_an_import_hop(
+    tmp_path: Path, opened_paths: list[Path], files: dict[str, str], fragment: str
+) -> None:
+    """The import form goes through `_accept_hop`, so every constraint § 4.5
+    already states applies to it unchanged — **and still says why**.
+
+    Asserting the reason rather than only `port is None` is INV-4's lesson in
+    the same shape: a refusal and a file that simply declares nothing produce
+    the same verdict, so the verdict cannot tell them apart. The NUL and
+    symlink constraints have their own fixtures below and above.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    (tmp_path / "secret.mjs").write_text("export const PORT = 9999;\n", "utf-8")
+    make_project(root, "refused", files)
+
+    result = scan_root(root)
+
+    assert by_name(result)["refused"].port is None
+    assert any(fragment in reason for reason in result.skipped), result.skipped
+    assert "secret.mjs" not in {path.name for path in opened_paths}
+
+
+def test_a_symlinked_import_target_is_refused_with_a_reason(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """Constraint 6, on the import form. Constraints 1-5 all pass for an
+    in-project symlink whose target is also in-project, and § 4.3's
+    `O_NOFOLLOW` would then refuse it unread — a rejection with no reason
+    attached to the thing that caused it.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    base = make_project(
+        root,
+        "linked",
+        {"serve.mjs": 'import { p } from "./link.mjs";\n', "real.mjs": "PORT = 4321\n"},
+    )
+    (base / "link.mjs").symlink_to(base / "real.mjs")
+
+    result = scan_root(root)
+
+    assert by_name(result)["linked"].port is None
+    assert any("symlink" in reason for reason in result.skipped), result.skipped
