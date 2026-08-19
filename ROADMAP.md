@@ -2480,6 +2480,50 @@ path. `docs/design.md § Detection rules` is the contract.
   **not** render the duplicate-port count, which that table does not list. Those
   entries still reach the application log with every other reason.
 
+- 📋 [LWSM-1155] **P03b: The one-hop rule follows an IMPORT, not only an invocation.**
+  LWSM-1006 § 4.5 hops from a launcher to one more file, and
+  `_HOP_KEYWORD` matches `exec`/`python3`/`python`/`node` — an
+  INVOCATION. A launcher that is itself the program imports its
+  config rather than invoking it, so the hop never fires and a port
+  one file away is invisible.
+  Measured 2026-08-19 against a real sibling. Ants_Projects_Hub_Website
+  renders `? unknown` / `no port` in the app: its launcher is
+  `serve.mjs`, and the port is `export const DEFAULT_PORT = 4321` in
+  `lib/port.mjs`, reached by `import { resolvePort } from "./lib/port.mjs"`.
+  Inside `serve.mjs` itself `4321` appears only in a comment, which is
+  stripped before the rules run. **The project is not at fault and needs
+  no change** — it is fully ADR-0002 compliant (`PORT` → `STATS_PORT` →
+  4321, 1024–65535, fatal on a bad value, standalone behaviour intact).
+  This is the scanner's gap.
+  Scope: extend the hop's keyword set to the import forms — ES
+  `import ... from "./x.mjs"`, `require("./x")`, Python `from .x import`
+  / `import x` — subject to § 4.5's SIX existing constraints unchanged.
+  Those constraints are what keep this safe, and none of them relax:
+  in-project, not the launcher, not under an excluded directory, within
+  MAX_HOP_DEPTH, not a symlink, no NUL. **Relative specifiers only**; a
+  bare `import { readFile } from "node:fs/promises"` or a bare package
+  name is not a path and must not become one, or the hop walks into
+  `node_modules` on every Node project.
+  Confidence: an import hop lands at ASSIGNMENT confidence like any
+  other rule-2 hit — HIGHER than LWSM-1121's README source, which is
+  the point. `DEFAULT_PORT = 4321` is the project stating its port;
+  a URL in prose is someone describing it.
+  Still ONE hop. A launcher importing a module that imports another is
+  out of scope and stays undetected — bounding the walk is what makes
+  this cheap and what stops a scan following an import graph through a
+  project it does not own.
+  Acceptance: a fixture whose launcher imports a sibling module holding
+  the port is detected with that port and an ASSIGNMENT-confidence
+  provenance; a fixture importing a bare package name is NOT hopped to,
+  proven by the `_open_source` seam never being called for it; the
+  existing six-constraint refusals each still fire, with their reason.
+  Dependencies: LWSM-1006.
+  Priority: 2.
+  **Layman:** When a project keeps its port number in a small file next to the launcher, find it there too.
+  Kind: implement.
+  Source: in-session-2026-08-19 (measured against Ants_Projects_Hub_Website).
+  Lanes: core, tests.
+
 ## P04 — Appearance and accessibility foundation
 
 **Theme:** the visual and accessible foundation, laid **before**
