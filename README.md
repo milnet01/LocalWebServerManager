@@ -59,9 +59,16 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
 - **Eight colour themes**, including two high-contrast ones, and
   it starts dark. Your choice is remembered.
 - **Built to be readable.** Text scales with your system setting,
-  the keyboard focus outline is visible, colours are checked
-  against a contrast standard, and screen readers are told when a
-  project changes state — once, not once a second.
+  and **Settings > Text size** takes it further — 100 % to 200 %,
+  on top of whatever your desktop already asked for, and
+  remembered. The keyboard focus outline is visible, colours are
+  checked against a contrast standard, and screen readers are told
+  when a project changes state — once, not once a second. When
+  something fails, the message appears under the project it is
+  about rather than in the corner of the window.
+- **Drive it from the keyboard.** `/` jumps to a filter box and
+  narrows the list as you type, Escape clears it, the number keys
+  jump to a project, and Enter starts or stops the one you are on.
 - **A log per project**, written to a private file and capped in
   size so a chatty server cannot fill your disk.
 
