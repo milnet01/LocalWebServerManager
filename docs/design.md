@@ -678,14 +678,34 @@ pans it. Everything below follows from that one fact:
   button. Errors and confirmations surface **next to the row or
   control that caused them**, not in a corner.
 - **Confirmations are parented to what they are about**, so the
-  compositor opens them over that widget rather than somewhere the
-  user has to go hunting for — a confirmation they cannot find is
-  a confirmation they will dismiss blind. Note the mechanism: this
-  is **not** `move()` on a dialog. Under Wayland an application
+  compositor opens them near what the user is looking at rather than
+  somewhere they have to go hunting for — a confirmation they cannot
+  find is a confirmation they will dismiss blind. Note the mechanism:
+  this is **not** `move()` on a dialog. Under Wayland an application
   cannot position its own window, and ADR-0007's KWin path
   deliberately skips transients so it never places a dialog. Modal
   parenting is what the framework will honour; anything stronger
   is a promise the platform refuses.
+
+  **And modal parenting delivers less than this bullet claimed until
+  2026-08-19.** Measured while closing LWSM-1032, against the pinned
+  PySide6 6.11.1: Qt centres a `QMessageBox` on the parent's WINDOW,
+  not on the parent widget. A box parented to the last of four rows
+  and a box parented to the window produced the identical screen
+  rectangle, overlapping the middle two rows and neither of the
+  outer two. So "over that widget" is not something this application
+  can promise for any particular row, and the sentence above now says
+  *near what the user is looking at*, which is what centring on the
+  window actually gives. The check row below was narrowed to match;
+  what is testable is that the dialog is modal to the window and
+  lands over the project list rather than in a corner of the screen.
+
+  **The alternative was considered and declined** (user, 2026-08-19):
+  an inline confirmation on the row would satisfy the original wording
+  exactly, and it would stop the trust prompt being modal — a user
+  could start a second project while one is waiting for an answer,
+  which is a change to ADR-0007's threat model rather than to this
+  section's layout advice.
 - **Nothing important is hover-only.** Hover states are easy to
   miss at magnification and impossible to discover by keyboard.
   Every affordance is visible at rest.
@@ -773,7 +793,7 @@ so LWSM-1032 lands them alongside the four:
 | Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % and 200 % |
 | A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |
 | Reduce-motion honoured | with the preference set, assert no animation is created |
-| Confirmations appear over what they concern | assert the dialog's screen rect overlaps the raising widget's — the *result*, never that a parent was passed (ADR-0007) |
+| Confirmations appear over the list, and are modal to the window | assert the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of any list and no code change would have made it (LWSM-1032) |
 | The state word is first in the row | assert the state label's x-position precedes every other cell's |
 | Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window |
 | Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
