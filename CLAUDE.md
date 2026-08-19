@@ -293,6 +293,18 @@ either a phase ID (`P##`, `FP##`, `DS##`, `DOC##`, `R##`) or a
 stable per-bullet ID for ROADMAP_FORMAT v1 projects
 (`LWSM-NNNN`).
 
+**Two phases can be in flight at once, and the status header names only
+one.** Observed 2026-08-19 and recorded rather than resolved, because
+resolving it is `/close-phase`'s call and not a session's. `.claude/workflow.md`
+§ 1 says `P03b` OPEN, which is true — LWSM-1039, LWSM-1008 and LWSM-1121 are
+still 📋. Meanwhile LWSM-1145, LWSM-1146, LWSM-1147, LWSM-1149 and LWSM-1031
+are all `P04:` items and all shipped, so `P04` is the live label for work with
+no item id (`P04: record the theme layer`, `P04: the README says…`) while
+`P03b:` carries the FP07 bookkeeping. **Follow the commit log's precedent for
+the prefix, not the status header** — the header names the phase whose ITEMS
+are outstanding, which is not the same question as which phase you are
+committing under. Costs one lookup per session until a close reconciles them.
+
 **A phase ID may carry a lowercase continuation suffix — `P03b`**
 (user, 2026-08-12). It names a phase that finishes a predecessor's
 undelivered scope, and exists because this roadmap assigns
