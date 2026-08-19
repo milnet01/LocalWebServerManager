@@ -812,6 +812,18 @@ otherwise. What is missing is the thing that would notice it stopping.
 - **Will be addressed in:** LWSM-1011 (P04 — the next item that touches the
   controller's polling, where the pool's lifetime behaviour is in scope anyway)
 - **Logged:** 2026-08-12
+- **Resolved:** 2026-08-20 by **LWSM-1158**, ahead of its named owner — the run
+  under load this entry asked for was finally taken (5 of 6 red under `nproc*2`
+  busy loops), and it did not show what either this entry or LWSM-1158's own
+  bullet predicted. The count was never measuring live tasks. PySide keeps a
+  Python reference to every runnable handed to `QThreadPool.start()`, inside
+  the pool itself, and purges those entries lazily: 1, 26, 54 and 163
+  survivors across otherwise identical runs, with `shiboken6.isValid`
+  reporting **0** live C++ objects every time. So this entry's guess — "the
+  pool still holding a reference to a just-finished runnable" — was right about
+  the mechanism and wrong about whose reference it is, and the conclusion "a
+  timing property of the pool rather than of the code under test" was exactly
+  correct. The test now counts only objects whose C++ side is still alive.
 
 
 ## What does NOT belong here

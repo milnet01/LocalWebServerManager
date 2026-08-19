@@ -24,6 +24,7 @@ from concurrent.futures import Future
 from pathlib import Path
 
 import pytest
+from shiboken6 import isValid
 
 from lwsm import controller as controller_module
 from lwsm.controller import ProjectController, ProjectStatus
@@ -501,8 +502,9 @@ def test_completed_tasks_do_not_accumulate(qtbot, controllers) -> None:
     the connection list grew without bound beside it.
 
     The probe toggles so every poll changes status and therefore emits
-    (INV-5), which is what makes each iteration wait for a *completed* poll
-    rather than for a sleep.
+    (INV-5), which is what makes each iteration wait for a *delivered snapshot*
+    rather than for a sleep. That is not the same as a completed poll — the
+    emission happens inside `run()` — so the pool is drained separately below.
     """
 
     class TogglingProbe:
@@ -517,8 +519,24 @@ def test_completed_tasks_do_not_accumulate(qtbot, controllers) -> None:
     controller = build(controllers, [record("a")], probe)
 
     def live(kind: type) -> int:
+        """Count objects of `kind` whose **C++** object is still alive.
+
+        `gc.get_objects()` alone answers a different question, and that is what
+        made this test load-flaky (LWSM-1158). PySide keeps a Python reference
+        to every runnable it has been handed — the referrers of a survivor are
+        a `list` and the `QThreadPool` itself — and purges those entries
+        lazily. Measured 2026-08-20 under CPU load: 1, 26, 54 and 163 surviving
+        wrappers across otherwise identical runs, with `isValid` reporting
+        **0** live C++ objects every time. So the old count tracked PySide's
+        purge cadence, not this code's behaviour, and a loaded machine looked
+        exactly like the leak the test exists for.
+
+        `isValid` asks what the test means: has the pool deleted the task, or
+        is it still alive? Under `setAutoDelete(False)` it never is, which is
+        the defect — and that is 200 here, not a handful.
+        """
         gc.collect()
-        return sum(1 for obj in gc.get_objects() if type(obj) is kind)
+        return sum(1 for obj in gc.get_objects() if type(obj) is kind and isValid(obj))
 
     # Measured as GROWTH, not as an absolute count. `gc.get_objects()` is
     # session-global, and every other controller alive anywhere in the run holds
@@ -538,22 +556,37 @@ def test_completed_tasks_do_not_accumulate(qtbot, controllers) -> None:
             controller.poll_once()
     assert probe.calls == polls
 
-    # Far below one per tick — NOT "at most one". `gc.collect()` does not
-    # guarantee a Python wrapper is freed the moment its C++ object is: the pool
-    # deletes each task when `run()` returns, and a handful of wrappers sit in
-    # Qt's pending-deletion queue or in a frame that has not unwound. Measured
-    # 2026-08-14: a growth of 8 over 200 polls on a correct implementation, and
-    # 0 on a quieter run, so `<= 1` is a GC-timing assertion wearing a leak
-    # assertion's clothes.
+    # Wait for the POOL, not for a signal. The task emits from *inside*
+    # `run()`, and the pool deletes it only once `run()` **returns**, so
+    # `waitSignal` hands control back with that task still legitimately alive.
+    # Under load the pool carries a backlog of them. `stop()` is the drain —
+    # the controller's own bounded `waitForDone`, so this asks for quiescence
+    # without reaching into the private pool — and after it a live task is a
+    # genuine survivor rather than one still doing its job.
+    controller.stop()
+
+    # Zero, not INV-12's one: that invariant bounds what is outstanding while
+    # the controller runs, and the drain above has just ended it. Nothing may
+    # survive a quiesced pool.
     #
-    # The bound still discriminates by a factor of ten: the defect this test
-    # exists for was one task and one signaller **per tick**, i.e. 200 here.
-    # Re-verified by re-injecting it — see the commit that widened this.
-    ceiling = polls // 10
+    # Deleting that drain leaves this green — measured 2026-08-20, 0 of 6
+    # mutant runs red under load and 0 of 3 quiet, at this ceiling and at
+    # `<= 1`. It is kept anyway, on the distinction the § T9 note in
+    # `CLAUDE.md` draws: a surviving mutant proves the race is hard to lose,
+    # not that there is none. Without the drain, "zero" holds only because the
+    # last task's `run()` has always returned by the time the count is taken —
+    # which is the same timing assumption this item exists to remove. The
+    # drain makes it a guarantee rather than an observation.
+    #
+    # `polls // 10` had already been widened once, from `<= 1` on 2026-08-14,
+    # to absorb exactly the wrapper-purge lag `live()` no longer counts — and
+    # widening it again to clear a backlog of 182 would have taken it past the
+    # 200 the original defect produces, i.e. past asserting anything at all.
+    ceiling = 0
     tasks = live(controller_module._SnapshotTask) - before_tasks
     signals = live(controller_module._SnapshotSignals) - before_signals
-    assert tasks < ceiling, f"{tasks} more live tasks after {polls} completed polls"
-    assert signals < ceiling, (
+    assert tasks <= ceiling, f"{tasks} more live tasks after {polls} completed polls"
+    assert signals <= ceiling, (
         f"{signals} more live signallers after {polls} completed polls"
     )
 

@@ -2940,7 +2940,7 @@ magnifier, so this is a design input, and
   Kind: doc.
   Source: in-session-2026-08-19 (review-contract cap verdict, LWSM-1032's gate).
 
-- 📋 [LWSM-1158] **`test_completed_tasks_do_not_accumulate` is load-flaky, and its widened ceiling is still a GC-timing assertion.**
+- ✅ [LWSM-1158] **`test_completed_tasks_do_not_accumulate` is load-flaky, and its widened ceiling is still a GC-timing assertion.**
   Measured 2026-08-20. `tests/test_controller.py::test_completed_tasks_do_not_accumulate`
   failed twice under load — once inside the `pre-push` hook and once in a
   back-to-back run loop — reporting **46** and **182** live `_SnapshotTask`
@@ -2983,6 +2983,45 @@ magnifier, so this is a design input, and
 
   Priority: 2.
   Dependencies: none.
+  Resolved (2026-08-20). Reproduced first, as the bullet asked: 5 of 6
+  runs red under `nproc*2` busy loops, then 12 of 12 green after the fix,
+  against 970 passing tests and a green gate.
+
+  **The bullet's Scope line was wrong about the mechanism and its
+  Acceptance line was right** — the same shape as LWSM-1155, and the
+  reason `CLAUDE.md` says to run a prescribed mutation before trusting
+  the bullet that prescribes it. Scope said to drain the pool with
+  `waitForDone()` before reading `live()`. That was done, and the test
+  still failed under load at **39** live tasks. The count was never
+  measuring live tasks at all: PySide keeps a Python reference to every
+  runnable handed to `QThreadPool.start()` — `gc.get_referrers` on a
+  survivor returns a `list` and the `QThreadPool` itself — and purges
+  those entries lazily. Measured 1, 26, 54 and 163 survivors across
+  otherwise identical runs, with `shiboken6.isValid` reporting **0** live
+  C++ objects every time. So the assertion tracked PySide's purge
+  cadence, and a loaded machine was indistinguishable from the
+  one-per-tick defect.
+
+  The fix is `live()` counting only objects whose C++ side is still
+  alive. The ceiling goes from `polls // 10` to **0** — not INV-12's one,
+  because the drain has ended the window that invariant bounds.
+
+  **The drain is kept and its mutant survives, which is recorded rather
+  than papered over.** Deleting `controller.stop()` leaves the test green
+  — 0 of 6 red under load, 0 of 3 quiet, at both ceilings. It stays on
+  the § T9 distinction: a surviving mutant proves the race is hard to
+  lose, not that there is none. Without it "zero" holds only because the
+  last `run()` has always returned by the time the count is taken, which
+  is the timing assumption this item exists to remove.
+
+  Mutation: re-injecting `setAutoDelete(False)` reports **200 more live
+  tasks after 200 completed polls** — the exact one-per-tick signature,
+  so the original LWSM-1099 defect is still caught.
+
+  Also closes **known-issue-035** ahead of its named owner LWSM-1011.
+  That entry called it "a timing property of the pool rather than of the
+  code under test", which was exactly right; it guessed the wrong side's
+  reference.
   **Layman:** One test sometimes fails for reasons that have nothing to do with a bug, which will eventually redden a build for no reason.
   Kind: test.
   Source: in-session-2026-08-20 (hit twice while pushing LWSM-1157).

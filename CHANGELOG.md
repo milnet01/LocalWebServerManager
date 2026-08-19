@@ -220,6 +220,14 @@ signaling per
 
 ### Fixed
 
+- **The task-accumulation test no longer fails on a busy machine.** (LWSM-1158)
+  It counted Python objects rather than live ones. PySide holds a
+  reference to every task handed to the thread pool and releases those
+  lazily, so a loaded machine left up to 163 of 200 behind and looked
+  exactly like the leak the test guards. It now counts only tasks whose
+  underlying C++ object is still alive, and the allowance drops from 20
+  to 0.
+
 - **The scanner finds a port that lives in a file the launcher imports** (LWSM-1155)
   A project whose launcher keeps its port one import away — `serve.mjs`
   importing `./lib/port.mjs` — showed as "port unknown". The scanner

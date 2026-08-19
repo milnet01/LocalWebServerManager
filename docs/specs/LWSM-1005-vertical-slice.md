@@ -1446,6 +1446,13 @@ growing without bound behind each retained signaller. Moving the signaller
 onto the controller is what lets `autoDelete` stay on.
 `test_completed_tasks_do_not_accumulate` now holds the claim.
 
+Amended 2026-08-20 (LWSM-1158): that test asserts a ceiling of **zero**, not
+one. It drains the pool with `controller.stop()` before counting, which ends
+the window INV-12 bounds, and it counts only objects whose **C++** side is
+still alive. `gc.get_objects()` alone also counts PySide's own reference to
+every runnable handed to `QThreadPool.start()` — held inside the pool and
+purged lazily — which is what made the test fail on a loaded machine.
+
 ## 11. What checks this
 
 | Rule | What catches a breach |
