@@ -2535,7 +2535,7 @@ magnifier, so this is a design input, and
   surface at all. design.md § Accessibility now carries a check
   table, and every row of it is part of this item's acceptance.
 
-- 📋 [LWSM-1040] **P04: keyboard-first navigation.**
+- 🚧 [LWSM-1040] **P04: keyboard-first navigation.**
   Number keys
   jump to a project, Enter starts or stops the selected one, `/`
   focuses a filter box that narrows the list, Escape clears it.
@@ -2553,6 +2553,7 @@ magnifier, so this is a design input, and
   Source: user-2026-08-03.
   Priority: 2.
   Lanes: ui, tests.
+  Progress (2026-08-19): picked as the first P04 item after FP07 closed. Chosen over LWSM-1032 despite its lower filed priority, because LWSM-1032's acceptance includes design.md § Accessibility's keyboard-reachability row and this item's own bullet says it makes that check natural rather than a retrofit — so 1040 before 1032 is the cheaper order. LWSM-1031 (the dependency) shipped 2026-08-19.
 
 - 📋 [LWSM-1033] **P04: window geometry and Centre on screen.**
   Size, position and maximised state persisted as plain integers
