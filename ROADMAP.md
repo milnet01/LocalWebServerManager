@@ -3607,6 +3607,20 @@ is the contract.
   Source: in-session-2026-08-03.
   Priority: 3.
   Lanes: ui, tests.
+  Decision (2026-08-20, user). **This is a `P04` item, not P09** — commit
+  under `P04:` / `LWSM-1018:`, despite the headline this bullet still
+  carries. The headline is left as filed rather than rewritten, because
+  `amend_headline` is refused on a store-backed project and the next
+  render would revert a hand edit; read this note as the authority.
+
+  **Tray behaviour is OUT of scope.** The filed scope names it, and there
+  is no tray to configure — the tray is P09. Build the fields that exist
+  today: scan roots, poll interval, slow-start threshold and log-buffer
+  size. Tray configuration moves to P09 alongside the tray itself.
+
+  Asked because the status header and this bullet disagreed on the phase,
+  and the answer changes both the commit prefix and the scope. Not an
+  open question any more; do not re-ask it.
 
 - 📋 [LWSM-1053] **P09: decide whether an unattended start may open a browser.**
   A sibling's launcher may open the user's browser on
