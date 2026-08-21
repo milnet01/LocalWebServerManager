@@ -4346,3 +4346,79 @@ def test_a_window_already_exposed_restores_without_waiting_for_an_expose(
     qtbot.wait(1)
 
     assert [(rect.x, rect.y) for rect in asked] == [(60, 70)]
+
+
+# --- LWSM-1156: Enter in the filter box jumps to the first remaining row ------
+#
+# `keyboard_window` and `shown_names` are LWSM-1040's, reused rather than
+# rebuilt: three rows wherever a test counts them, and `show=True` only where
+# `hasFocus` is asserted, which needs an ACTIVE window. The digit-into-the-box
+# case already has a test up there — this item adds a second reason for the
+# window and the filter to disagree about a key, not a second copy of it.
+
+
+def test_enter_in_the_filter_box_focuses_the_first_remaining_row(qtbot, built) -> None:
+    """The keystroke the item exists to save (LWSM-1156).
+
+    After `/` and typing, the caret is in the filter box and reaching the
+    narrowed list needed a Tab. The app was fully keyboard-operable without
+    this — a keystroke saved, not a gap closed, which is why it was out of
+    LWSM-1040's filed scope.
+
+    Filtered to the SECOND of three, so a handler that focuses row zero of the
+    unfiltered list rather than the first row still showing fails here. That
+    distinction is the whole behaviour, and against an unfiltered list the two
+    are the same widget.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"], show=True)
+    window._filter.setFocus()
+    qtbot.waitUntil(window._filter.hasFocus, timeout=2000)
+
+    qtbot.keyClicks(window._filter, "bet")
+    qtbot.keyClick(window._filter, Qt.Key.Key_Return)
+
+    assert shown_names(window) == ["beta"], "the filter must have narrowed first"
+    focused = [row for row in window._ordered_rows() if row.hasFocus()]
+    assert [row._name.text() for row in focused] == ["beta"]
+
+
+def test_enter_on_a_filter_matching_nothing_does_not_move_focus(qtbot, built) -> None:
+    """The edge case the bullet names by name: an empty result set.
+
+    Enter with no remaining rows does nothing and must not move focus or
+    raise. Somewhere arbitrary would be worse than leaving the caret where the
+    user is typing — a filter matching nothing is the normal state halfway
+    through a word.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"], show=True)
+    window._filter.setFocus()
+    qtbot.waitUntil(window._filter.hasFocus, timeout=2000)
+
+    qtbot.keyClicks(window._filter, "no-such-project")
+    qtbot.keyClick(window._filter, Qt.Key.Key_Return)
+
+    assert shown_names(window) == []
+    assert window._filter.hasFocus(), "the caret must stay where the user is typing"
+
+
+def test_enter_on_a_row_still_clicks_that_row_button(qtbot, built) -> None:
+    """The meaning LWSM-1156 must NOT change.
+
+    Two Enters now live in one window: this one clicks the focused row's
+    enabled button (LWSM-1040), and the filter box's jumps to the first match.
+    Qt's propagation separates them — a `QLineEdit` consumes Return and emits
+    `returnPressed`, so the key never reaches a row — and neither handler names
+    the other. This is what fails if someone ever "fixes" that with a guard.
+    """
+    window, controller = keyboard_window(
+        qtbot, built, ["alpha", "beta", "gamma"], show=True
+    )
+    row = window._ordered_rows()[1]
+    row.setFocus()
+    qtbot.waitUntil(row.hasFocus, timeout=2000)
+    started: list[str] = []
+    controller.start_project = lambda path: started.append(path.name)
+
+    qtbot.keyClick(row, Qt.Key.Key_Return)
+
+    assert started == ["beta"], "Enter on a row must still drive that row's button"

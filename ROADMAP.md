@@ -3002,7 +3002,7 @@ magnifier, so this is a design input, and
   Source: user-request-2026-08-18.
   Lanes: ui.
 
-- 📋 [LWSM-1156] **P04: Enter in the filter box jumps to the first remaining row.**
+- ✅ [LWSM-1156] **P04: Enter in the filter box jumps to the first remaining row.**
   Split out of LWSM-1040 (2026-08-19) rather than widening it: the
   observation was recorded on that bullet, put to the user at the close,
   and filed here on their say-so.
@@ -3024,6 +3024,25 @@ magnifier, so this is a design input, and
   Edge case the test must name: an empty result set. Enter with no
   remaining rows does nothing and must not move focus or raise.
   Dependencies: LWSM-1040 (shipped).
+  Resolved (2026-08-21): `returnPressed` on the filter box focuses the first
+  row still visible. **The bullet's prediction held exactly** — the two Enters
+  live in different widgets, a `QLineEdit` consumes Return and emits
+  `returnPressed` so the key never reaches a row, and no guard was needed
+  anywhere. The bullet said a guard would be the signal the design was wrong;
+  none was written.
+
+  Empty result set does nothing and does not move focus, as filed. Extracted
+  `_visible_rows` because the number-key shortcut already built the same list
+  and the `isHidden`-not-`isVisible` reasoning is load-bearing — two copies is
+  two places for it to drift, and a mutation swapping them is only caught
+  because the tests run against an unshown window.
+
+  Reused LWSM-1040's `keyboard_window` / `shown_names` helpers; the
+  digit-typed-into-the-box case already had a test up there and a second copy
+  was dropped rather than written. Filtered to the SECOND of three rows, so a
+  handler focusing row zero of the UNFILTERED list fails.
+
+  1145 tests (was 1142). 4 mutants, 4 killed. ./scripts/local-ci.sh green.
   **Layman:** After typing a filter, one press of Enter should put you on the first matching project instead of needing Tab first.
   Kind: accessibility.
   Source: in-session-2026-08-19 (split out of LWSM-1040's close, user-approved).

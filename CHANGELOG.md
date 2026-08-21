@@ -23,6 +23,11 @@ signaling per
 
 ### Added
 
+- **Enter in the filter box jumps to the first matching project** (LWSM-1156)
+  Type `/`, type part of a project's name, press Enter — you land on the
+  first project that matches, instead of having to press Tab first. Enter on
+  a project still starts or stops it, as before.
+
 - **The window reopens at the size you left it, and a Centre on screen action** (LWSM-1033)
   Size and maximised state are remembered between runs, and **View → Centre
   on screen** puts the window back in the middle. Position is remembered too

@@ -1049,6 +1049,14 @@ class MainWindow(QMainWindow):
         # same CI run: the runner rendered this box 22 px high.
         self._filter.setMinimumHeight(MIN_TARGET_PX)
         self._filter.textChanged.connect(self._apply_filter)
+        # LWSM-1156. `returnPressed` rather than a branch in the window's
+        # `keyPressEvent`: a `QLineEdit` consumes Return and emits this, so the
+        # key never reaches the window at all, and `ProjectRow`'s own Return —
+        # which clicks that row's enabled button — keeps its meaning without
+        # anything here naming it. That is Qt's propagation doing the
+        # separating, the same way it already stops a digit typed into this box
+        # from jumping to a project.
+        self._filter.returnPressed.connect(self._focus_first_match)
         strip = QHBoxLayout()
         strip.addWidget(self._filter)
         # Between the two controls, so the filter keeps its natural width at
@@ -1601,6 +1609,38 @@ class MainWindow(QMainWindow):
                 rows.append(widget)
         return rows
 
+    def _visible_rows(self) -> list[ProjectRow]:
+        """The rows the filter is currently showing, in the order they appear.
+
+        `isHidden`, not `isVisible`. The question is "did the filter remove
+        this row", and `isHidden` answers exactly that — it tracks the flag
+        `_apply_filter` sets and nothing else. `isVisible` answers a wider one,
+        folding in every ancestor's state, and returns False for every row
+        while the window itself is unshown.
+
+        Extracted by LWSM-1156, which needed the same list the number-key
+        shortcut already builds. Two copies would be two places for that
+        distinction to drift, and it is the kind that looks equivalent until a
+        test runs against an unshown window.
+        """
+        return [row for row in self._ordered_rows() if not row.isHidden()]
+
+    def _focus_first_match(self) -> None:
+        """Enter in the filter box moves to the first row still showing.
+
+        LWSM-1156, split out of LWSM-1040 rather than widening it: the app was
+        already fully keyboard-operable without this, and what it saves is the
+        Tab between typing a filter and reaching what the filter found.
+
+        **An empty result set does nothing** — no focus move, no raise. Enter
+        on a filter matching nothing has no row to go to, and moving focus
+        somewhere arbitrary would be worse than leaving the caret where the
+        user can keep typing.
+        """
+        shown = self._visible_rows()
+        if shown:
+            shown[0].setFocus(Qt.FocusReason.ShortcutFocusReason)
+
     def _apply_filter(self) -> None:
         """Hide the rows the filter excludes (LWSM-1040).
 
@@ -1646,12 +1686,7 @@ class MainWindow(QMainWindow):
             Qt.Key.Key_1 <= key <= Qt.Key.Key_9
             and event.modifiers() == Qt.KeyboardModifier.NoModifier
         ):
-            # `isHidden`, not `isVisible`. The question is "did the filter
-            # remove this row", and `isHidden` answers exactly that — it
-            # tracks the flag `_apply_filter` sets and nothing else. `isVisible`
-            # answers a wider one, folding in every ancestor's state, and
-            # returns False for every row while the window itself is unshown.
-            shown = [row for row in self._ordered_rows() if not row.isHidden()]
+            shown = self._visible_rows()
             index = key - Qt.Key.Key_1
             if index < len(shown):
                 shown[index].setFocus(Qt.FocusReason.ShortcutFocusReason)
