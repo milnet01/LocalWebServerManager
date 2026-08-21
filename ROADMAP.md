@@ -4179,6 +4179,36 @@ program actually running.
 
 ---
 
+- 📋 [LWSM-1161] **`write_json_atomically` now writes a file that is not JSON.**
+  LWSM-1018's `save_scan_roots` writes the plain-text `scan-roots`
+  file through `configfile.write_json_atomically`. Reusing it was
+  the right call and is not in question: every line in that
+  function was written after a measured defect (a FIFO that
+  blocked forever, a symlink destroyed by `os.replace`, a
+  `mkdir(parents=True)` leaving parents at the umask default, a
+  600 MB read peaking at 1214 MB RSS), so a second, weaker atomic
+  writer is exactly what `coding.md § 1.3` forbids.
+
+  What is wrong is only the NAME. It takes bytes and knows nothing
+  about JSON; three callers now use it and one of them writes text.
+  `coding.md § 1.4`'s six-month test is the argument — a reader
+  who trusts the name will not look for it in a text-file path.
+
+  Scope: rename to `write_atomically`, update the three call sites
+  (`registry.save_projects`, `settings.save`,
+  `__main__.save_scan_roots`) and the two docs that cite it by
+  name (CLAUDE.md's module map entry for `configfile.py`, and the
+  `configfile.py` docstring). Deliberately NOT done inside
+  LWSM-1018: it touches files that item had no other reason to
+  open, which is the orthogonal edit `coding.md § 1.7` rules out.
+
+  Picked up by § Standing quality passes at the next phase close,
+  which asks precisely this question — what does a name now lie
+  about.
+  **Layman:** Rename a helper whose name stopped being true, so the next reader is not misled.
+  Kind: refactor.
+  Source: in-session-2026-08-21 (noted while shipping LWSM-1018).
+
 ## FP02 — Audit + review fold-in (2026-08-06)
 
 A static-analysis pass and a two-lane cold code review over the whole 540-line

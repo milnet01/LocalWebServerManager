@@ -809,6 +809,27 @@ window is built, or — for a method you merely *call* rather than override, lik
 and `self.update()` finds the instance attribute first. Hit on 2026-08-07 while
 writing LWSM-1109's repaint test.
 
+**Trap: a Qt CONTAINER does not carry the property its children carry, and
+`QDialogButtonBox` is the case that bites.** Its own `focusPolicy()` is
+`NoFocus` while the Ok and Cancel buttons inside it are focusable, so an
+accessibility test that asks the box reports the two most important controls in
+a dialog as keyboard-unreachable. Measured 2026-08-21 on LWSM-1018's first run.
+Ask `box.button(QDialogButtonBox.StandardButton.Ok)`, not the box. The general
+form is worth more than the instance: **when asserting a property for
+accessibility, assert it on the widget that actually receives the
+interaction** — the same lesson as the `setAccessibleName("")` trap above,
+where the answer was also to read the AT tree's children rather than the
+parent.
+
+**Trap: a Qt object held only through an inlined attribute access is deleted
+mid-test.** `box = getattr(build(qtbot), "_poll")` drops the last Python
+reference to the dialog as the expression ends, PySide destroys the C++ object,
+and the next call on `box` raises `RuntimeError: Internal C++ object already
+deleted` — which reads as a bug in the code under test rather than in the test.
+`qtbot.addWidget` does **not** save you: it registers the widget for cleanup,
+not for ownership. Bind the parent to a name and keep it alive for the whole
+test. Hit 2026-08-21 on LWSM-1018.
+
 **Trap: `QCoreApplication.installTranslator` only broadcasts once the event
 loop is running**, because it is gated on `is_app_running`. With no `exec()`,
 no `LanguageChange` is posted anywhere and a translator test sees nothing
