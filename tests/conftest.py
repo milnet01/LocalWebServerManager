@@ -14,6 +14,16 @@ the real app. `§ T1` calls that an injected seam's whole purpose; here the
 seam is an environment variable, so it is pinned here rather than in each
 test. A test that sets it itself still wins — `monkeypatch` is applied after
 this fixture and undone before the next.
+
+`XDG_SESSION_TYPE` is pinned for exactly that reason, and it was the third
+variable to earn it (LWSM-1033). `placement.py` branches on it: a Wayland
+session asks KWin to place the window and cannot read its own position back,
+while every other session moves the window itself. This machine RUNS Wayland
+and the CI runner has the variable unset, so an unpinned test asserting either
+branch passes on one and fails on the other — the same two-machines-one-gate
+split `CLAUDE.md` records for shellcheck versions and for the 24x24 target
+floor. Pinned to `x11`, so the default is the branch that needs no compositor;
+a test that wants the Wayland branch sets it itself.
 """
 
 from __future__ import annotations
@@ -36,6 +46,7 @@ def _isolated_config_home(tmp_path_factory, monkeypatch):
     until something makes it, which is what a first run looks like.
     """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
 
 
 @pytest.fixture(scope="session", autouse=True)

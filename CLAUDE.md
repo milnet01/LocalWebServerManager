@@ -513,6 +513,18 @@ Added at P02 (LWSM-1005), contract in
   survived every other test. It **does not check that a theme id names a
   theme** — a core module may not import `theme.py` (`§ O1`), and
   `theme.theme_for_id` owns the fallback.
+- **`src/lwsm/placement.py`** — core, and the only module importing **no Qt
+  at all**, not even `QtCore`: the arithmetic in it is ADR-0007's security
+  boundary, and a boundary is worth testing with no display. `Rect`,
+  `clamp_to_screens`, `centre_in`, `pair_or_none`, `on_wayland`,
+  `placement_available`, `position_is_readable`, `kwin_script`,
+  `run_kwin_script`, `place_window`. Added by LWSM-1033; the technique is
+  transcribed from `OneUp/oneup/gui/placement.py`, **not** the
+  `OneUp/updater.py` lines ADR-0007 cites, which no longer resolve (DS01,
+  scheduled with P10). **Restoring a position and centring are one operation
+  with two targets**, so both go through `place_window` and the clamp cannot
+  be forgotten by either. **Setting a position and READING one are not
+  symmetric** — see the Wayland trap below, which is the item's whole shape.
 - **`src/lwsm/theme.py`** — UI layer, and the **only** module
   allowed a colour literal; `test_layering.py` exempts it by an
   explicit allowlist and asserts it still holds the palette.
@@ -531,7 +543,23 @@ Added at P02 (LWSM-1005), contract in
   `alt_base` is darker. `high_contrast` is a flag **on the theme** rather
   than a set of ids beside it, because the floor a palette is judged
   against is a property of the palette.
-- **`src/lwsm/mainwindow.py`** — UI layer. Since LWSM-1131 it also
+- **`src/lwsm/mainwindow.py`** — UI layer.
+  Since LWSM-1033 it also owns
+  **window geometry and Centre on screen** — `showEvent`/`eventFilter`,
+  `_restore_geometry`, `closeEvent`, `centre_on_screen`, `_place_at`,
+  `_screens` and the eighth and ninth injected seams (`save_geometry`, which
+  defaults to doing NOTHING for `save_theme`'s reason, and `place`, the only
+  seam defaulting to the real function because ADR-0007 requires the
+  verification to be behavioural). **What is stored is a FRAME corner and a
+  CLIENT size**, because those are what `move()` and `resize()` round-trip
+  exactly; storing `normalGeometry()`'s corner and restoring it through
+  `move()` walks the window two pixels down and right on every launch
+  (measured). `normalGeometry`, never `geometry`, or a maximised window
+  reopens filling the screen without being maximised — which the user cannot
+  undo with the maximise button. The **View** menu is a third top-level menu
+  for one action on purpose: "Centre on screen" is a verb, and every entry in
+  Settings is a choice that then stays chosen.
+  Since LWSM-1131 it also
   owns the **Rescan** seam: `RescanContext` (scan roots, the scan
   function and the writer, all injected so `testing.md § T1` holds),
   `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`.
@@ -712,7 +740,7 @@ Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
   to the wrong surviving line is worse than dropping it.
 
 Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
-`test_settings.py`, `test_settingsdialog.py`,
+`test_settings.py`, `test_settingsdialog.py`, `test_placement.py`,
 `test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
 `test_layering.py`, `test_scanner.py`, `test_supervisor.py`,
 `test_ci_contract.py` (the gate's own contract — that `ci.yml` adds no
@@ -726,7 +754,10 @@ open a real window, and **pins `XDG_CONFIG_HOME` to a fresh directory
 per test** — since LWSM-1031 `build_window` reads `settings.json`, and
 three `build_window` tests pin only `projects_path`, so without this they
 pass or fail depending on which palette the author last chose in the real
-app). **Markers go on tests, not files** — marking
+app; and since LWSM-1033 **pins `XDG_SESSION_TYPE` to `x11`**, because
+`placement.py` branches on it — this machine runs Wayland and the CI runner
+has it unset, so an unpinned test asserting either branch passes on one
+and fails on the other). **Markers go on tests, not files** — marking
 a whole file by its heaviest test makes `--fast` silently skip
 every light test beside it.
 
@@ -1017,6 +1048,65 @@ whose `argv[0]` is `./start.sh`, keeps working. That is the same
 one-branch-in-four blind spot LWSM-1132 shipped behind, so a change to the
 allowlist must be tested against a fixture per launcher kind and not just
 against `./start.sh`.
+
+**Trap: under Wayland a client can SET its window position and can never READ
+one — and the two look like one feature.** ADR-0007 treated "Wayland discards
+the position" as a *restore* problem that a KWin script closes. It is also a
+*capture* problem that nothing closes: Wayland gives a client no global
+coordinates, so Qt answers 0,0 forever. Measured 2026-08-21 — KWin reported
+the app's window at 640,480 while Qt reported 0,0, and **0,0 is a plausible
+position rather than an error**, so it was written to `settings.json` as though
+the user had put the window in the corner. This is the deeper reason
+`saveGeometry()`/`restoreGeometry()` loses position there, and why KDE's own
+apps save size and let KWin place. So a Wayland session records size and
+maximised state and **leaves the stored coordinates alone**; a position
+recorded under X11 or typed in by hand is still restored there. Position and
+size are therefore stored and passed as **separate pairs, never one
+rectangle** — joined, the unknowable half takes the knowable half with it.
+
+**Trap: three things about the KWin placement path were settled by measuring,
+and each had a plausible wrong answer that reasoning reached first.** All
+against real KWin, Plasma 6 Wayland, 2026-08-21, and all invisible to the test
+suite because the tests substitute a stand-in for the compositor that honours
+whatever it is handed whenever it is handed it. **The delay:** ADR-0007's "one
+event-loop tick after the window is shown" fails outright; 50 ms works, the
+first `Expose` alone still fails, and `Expose` **plus one tick** worked 5/5 —
+so the trigger is that condition, not a number. **The size:** KWin's geometry
+write is authoritative, so a script that preserves the current size by reading
+`c.frameGeometry.width` back pins the window at whatever KWin currently
+believes — a 700x500 window came back at its undecorated minimum of 239x216
+with the position exact, and swapping the order does not help because it is
+not a race. **The decoration:** converting a client size to a frame size in
+the app sends 0 for the margins, because the window is not decorated yet when
+placement runs; `c.clientGeometry` inside the script is where the answer is.
+**The general lesson is the one ADR-0007 already states and this proved twice
+over: for anything the compositor owns, a green suite is not evidence — run
+the app and ask KWin where the window went.** A KWin script's `print()` reaches
+`journalctl --user -u plasma-kwin_wayland`, which is how all of this was read.
+
+**Trap: `setToolTip("")` does not remove a `QAction`'s tooltip.** Qt falls
+back to the action's own **text**, so an entry meant to carry an explanation
+only when disabled reports its label the rest of the time — and a test
+asserting `toolTip() == ""` fails against correct code. Exactly the
+`setAccessibleName("")` trap above in a second costume: **an empty string is
+not an absent value in Qt.** Assert what is actually there.
+
+**Trap: a default argument bound to a module function cannot be monkeypatched.**
+`def f(which=shutil.which)` captures the function object when `f` is *defined*,
+so `monkeypatch.setattr(shutil, "which", ...)` never reaches it and the test
+silently measures the developer's real machine. Cost a cycle on LWSM-1033 and
+then nearly cost a second one in `MainWindow.__init__`, where the same shape
+decided whether a `build_window` test could keep its hands off the live
+compositor. **Default the parameter to `None` and resolve it in the body.**
+
+**Trap: `git checkout <file>` on work that is not committed yet destroys it.**
+Used to revert a hand-applied mutant mid-session on 2026-08-21, it reverted the
+file to HEAD and took every uncommitted LWSM-1033 edit in `mainwindow.py` with
+it — about an hour's work, recovered only because it was still in the session's
+context. The mutation harness itself was never at risk: it holds the original
+text in memory and writes it back in a `finally`. **Restore from a copy you
+made, never from git, while the work is uncommitted** — and the cheaper habit
+is to commit before starting a mutation run at all.
 
 **Trap: `QIcon.fromTheme` returns a null icon under `QT_QPA_PLATFORM=offscreen`.**
 The icon theme search paths are populated by the *platform theme plugin*, so

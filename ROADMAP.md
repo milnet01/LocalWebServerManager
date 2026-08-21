@@ -2816,7 +2816,7 @@ magnifier, so this is a design input, and
   still owns `testing.md § T8`'s four checks, this item's bullet
   having said only that it makes them natural rather than a retrofit.
 
-- 📋 [LWSM-1033] **P04: window geometry and Centre on screen.**
+- ✅ [LWSM-1033] **P04: window geometry and Centre on screen.**
   Size, position and maximised state persisted as plain integers
   in `settings.json` and restored on launch — **including
   position under Wayland**, via the same one-shot KWin script
@@ -2836,6 +2836,36 @@ magnifier, so this is a design input, and
   Source: user-2026-08-03.
   Priority: 2.
   Lanes: ui, tests.
+  Resolved (2026-08-21): shipped, with ONE deliberate reduction the user
+  approved. Size, maximised state, position restore and Centre on screen all
+  work; **capturing** the position under Wayland does not, and cannot — a
+  client there is never told where it is, so Qt answers 0,0 forever. Measured
+  against real KWin: the compositor reported the window at 640,480 while Qt
+  reported 0,0, and 0,0 is a plausible position rather than an error. A
+  Wayland session therefore records size and maximised state and leaves the
+  stored coordinates alone, which is what KDE's own apps do; a position
+  recorded under X11 or typed into the file by hand is still restored there.
+  Closing that gap needs the app to own a D-Bus service for a KWin script to
+  call back into — put to the user and declined in favour of the honest limit.
+
+  New core module `placement.py` (no Qt at all), `settings.py` grows x/y/
+  width/height/maximized, `mainwindow.py` gains showEvent/eventFilter/
+  _restore_geometry/closeEvent/centre_on_screen and a View menu.
+  1142 tests (was 1041), 20 mutants, 20 killed, ./scripts/local-ci.sh green.
+
+  **Three of ADR-0007's mechanisms were wrong and only running the app found
+  them** — the suite was green against every one, because its Wayland tests
+  substitute a stand-in for the compositor. The one-tick delay after `show` is
+  too early (Expose + one tick, 5/5); KWin's geometry write is authoritative so
+  the script must carry the size (a 700x500 window came back at 239x216); and
+  the decoration must be added inside the script from `c.clientGeometry`,
+  because the window is not decorated yet when placement runs. ADR-0007 is
+  amended with all four measurements — no gate, per § Review cadence, since the
+  build was the review.
+
+  **This is the class § Review cadence says to watch for, and it is NOT one.**
+  A contract would not have caught any of it: ADR-0007 *was* the contract and
+  stated the wrong mechanism confidently. What caught it was running the thing.
 
 ---
 

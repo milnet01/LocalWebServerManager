@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     # `--version` and `--help` need no Qt and therefore no display (INV-14).
     from lwsm.controller import ProjectController
     from lwsm.mainwindow import MainWindow
+    from lwsm.placement import Rect
 
 
 def build_window(
@@ -42,6 +43,7 @@ def build_window(
     from lwsm.configfile import ConfigFileError
     from lwsm.controller import ProjectController
     from lwsm.mainwindow import MainWindow, RescanContext
+    from lwsm.placement import pair_or_none
     from lwsm.ports import PortProbe
     from lwsm.registry import (
         LoadResult,
@@ -95,6 +97,7 @@ def build_window(
     text_scale = Settings().text_scale
     poll_interval_ms = Settings().poll_interval_ms
     log_max_mib = Settings().log_max_mib
+    stored = Settings()
     try:
         settings_path = default_settings_path()
     except RegistryError as exc:
@@ -105,6 +108,7 @@ def build_window(
         text_scale = chosen.settings.text_scale
         poll_interval_ms = chosen.settings.poll_interval_ms
         log_max_mib = chosen.settings.log_max_mib
+        stored = chosen.settings
         for reason in chosen.reasons:
             log.warning("settings: %s", reason)
             notices.append(reason)
@@ -137,6 +141,38 @@ def build_window(
 
     def save_text_scale(percent: int) -> None:
         save_field(text_scale=percent)
+
+    def save_geometry(rect: Rect | None, maximized: bool, position_known: bool) -> None:
+        """Remember where the window was (LWSM-1033, ADR-0007).
+
+        The values go through `save_field` like every other setting, so a
+        geometry write cannot drop the theme the same way a theme write once
+        dropped everything else — and this is the most frequent writer in the
+        app, since it fires on every close.
+
+        `rect is None` means the window had no valid normal geometry to store
+        — it was never shown. The stored values are left alone rather than
+        cleared: a run that opened no window has learnt nothing about where the
+        user wants it.
+
+        `position_known` is false under Wayland, where the client is never told
+        where it is. There the size and the maximised flag are written and the
+        stored coordinates are **left untouched** — which is why this is a
+        read-modify-write and not a whole-document rewrite. A position
+        recorded under X11, or typed into the file by hand, therefore survives
+        a Wayland session and is still restored by it.
+        """
+        if rect is None:
+            save_field(maximized=maximized)
+            return
+        changes: dict[str, object] = {
+            "width": rect.width,
+            "height": rect.height,
+            "maximized": maximized,
+        }
+        if position_known:
+            changes |= {"x": rect.x, "y": rect.y}
+        save_field(**changes)
 
     def open_settings() -> None:
         """Preferences (LWSM-1018), applied without a restart.
@@ -209,6 +245,10 @@ def build_window(
         text_scale=text_scale,
         save_text_scale=save_text_scale,
         open_settings=open_settings,
+        position=pair_or_none(stored.x, stored.y),
+        size=pair_or_none(stored.width, stored.height),
+        maximized=stored.maximized,
+        save_geometry=save_geometry,
     )
     # The stored choices, applied once at startup. `Supervisor` and
     # `ProjectController` default to the same values `settings.py` does, so a

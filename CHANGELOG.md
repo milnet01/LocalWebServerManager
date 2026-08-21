@@ -23,6 +23,15 @@ signaling per
 
 ### Added
 
+- **The window reopens at the size you left it, and a Centre on screen action** (LWSM-1033)
+  Size and maximised state are remembered between runs, and **View → Centre
+  on screen** puts the window back in the middle. Position is remembered too
+  on X11. Under Wayland the desktop never tells an application where its own
+  window is, so a position cannot be recorded there — the size still is, and
+  a position already in the file is still restored. The values are plain
+  numbers in `settings.json`, so a window you cannot reach can be fixed by
+  editing the file.
+
 - **Save and reload a project-settings profile** (LWSM-1148)
   File → Export profile writes your project list and your settings to a
   file you name; Import profile reads one back. An import is a merge, not

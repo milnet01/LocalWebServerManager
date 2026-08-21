@@ -721,3 +721,163 @@ def test_cancelling_the_dialog_changes_nothing(qtbot, tmp_path, monkeypatch) -> 
         assert window.scan_roots() != (Path("/never"),)
     finally:
         controller.stop()
+
+
+@pytest.mark.gui
+def test_the_window_reopens_where_it_was_closed(qtbot, tmp_path, monkeypatch) -> None:
+    """LWSM-1033's round trip, through `build_window` rather than around it.
+
+    The clamp, the placement, the `Settings` fields and `closeEvent` are each
+    tested on their own; this is the only test that proves they are CONNECTED
+    — that `build_window` reads the five values out of `settings.json`, hands
+    them to the window, and wires the saver that puts them back. Built twice,
+    for the same reason the theme round trip is: "survives a restart" is not
+    something one build can show.
+
+    Driven off Wayland, so the window really moves and the assertion is on
+    where it ENDED UP (ADR-0007). The Wayland branch cannot move a window
+    without a compositor, and `test_mainwindow.py` covers what it asks for.
+    """
+    from lwsm.settings import default_settings_path
+    from lwsm.settings import load as load_settings
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    projects = tmp_path / "projects.json"
+
+    first, controller = build_window(projects)
+    qtbot.addWidget(first)
+    try:
+        with qtbot.waitExposed(first):
+            first.show()
+        first.resize(660, 460)
+        first.move(90, 130)
+        qtbot.wait(1)
+        first.close()
+    finally:
+        controller.stop()
+
+    stored = load_settings(default_settings_path()).settings
+    assert (stored.x, stored.y) == (90, 130), "the position was not written"
+    assert (stored.width, stored.height) == (660, 460)
+    assert stored.maximized is False
+
+    second, controller = build_window(projects)
+    qtbot.addWidget(second)
+    try:
+        with qtbot.waitExposed(second):
+            second.show()
+        qtbot.wait(1)
+        assert (second.pos().x(), second.pos().y()) == (90, 130)
+        assert (second.width(), second.height()) == (660, 460)
+    finally:
+        controller.stop()
+
+
+@pytest.mark.gui
+def test_remembering_the_geometry_does_not_forget_the_theme(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """`save_field` read-modify-writes for exactly this reason.
+
+    Writing geometry with a fresh `Settings` would put the theme back to its
+    default on the way past — the data-loss shape LWSM-1032 found the first
+    time and the one the merge writing `None` over a stored port is a cousin
+    of. Five new fields written on every close is the most frequent writer in
+    the app, so it is the one most likely to do it.
+    """
+    from lwsm.settings import default_settings_path
+    from lwsm.settings import load as load_settings
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    projects = tmp_path / "projects.json"
+
+    window, controller = build_window(projects)
+    qtbot.addWidget(window)
+    try:
+        window._theme_actions["parchment"].trigger()
+        with qtbot.waitExposed(window):
+            window.show()
+        window.resize(640, 480)
+        qtbot.wait(1)
+        window.close()
+    finally:
+        controller.stop()
+
+    stored = load_settings(default_settings_path()).settings
+    assert stored.theme == "parchment"
+    assert (stored.width, stored.height) == (640, 480)
+
+
+@pytest.mark.gui
+def test_a_wayland_session_does_not_overwrite_a_stored_position(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """The saver's Wayland half, end to end through `build_window`.
+
+    A Wayland client is never told where it is, so Qt answers 0,0 — and 0,0 is
+    a real position, which would be written as though the user had put the
+    window in the corner. `save_geometry` therefore writes the size and the
+    maximised flag and leaves the coordinates exactly as they were, which only
+    works because `save_field` is a read-modify-write.
+
+    The position under test was recorded by some earlier X11 session, or typed
+    into the file by hand. It has to survive a Wayland run, because a position
+    that Wayland silently overwrites is one the file can never usefully hold —
+    and ADR-0007's whole KWin path exists to restore it.
+
+    `place_window` is replaced, or this test would ask the developer's own
+    compositor to move a window (`§ T6`). Found by a mutation that survived the
+    suite on 2026-08-21 — this half was asserted in a comment and by nothing
+    else.
+    """
+    import json
+
+    from lwsm import mainwindow as mw
+    from lwsm.settings import default_settings_path
+    from lwsm.settings import load as load_settings
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setattr(mw.placement, "place_window", lambda *a, **k: None)
+
+    config = tmp_path / "config" / "localwebservermanager"
+    config.mkdir(parents=True)
+    (config / "settings.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "theme": "midnight",
+                "text_scale": 100,
+                "poll_interval_ms": 1000,
+                "log_max_mib": 5,
+                "x": 305,
+                "y": 255,
+                "width": 700,
+                "height": 500,
+                "maximized": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        with qtbot.waitExposed(window):
+            window.show()
+        # Wait for the RESTORE before resizing. It is deferred to a tick after
+        # the first expose, so a resize issued before it lands is undone by it
+        # — and the test then measures the stored size rather than the chosen
+        # one, which looks exactly like a saver that does not work.
+        qtbot.wait(1)
+        assert (window.width(), window.height()) == (700, 500)
+        window.resize(820, 600)
+        qtbot.wait(1)
+        window.close()
+    finally:
+        controller.stop()
+
+    stored = load_settings(default_settings_path()).settings
+    assert (stored.x, stored.y) == (305, 255), "Wayland must not overwrite a position"
+    assert (stored.width, stored.height) == (820, 600), "the size IS knowable there"

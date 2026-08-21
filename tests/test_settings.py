@@ -250,6 +250,16 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
         # catch someone quietly copying them in.
         "poll_interval_ms": 1000,
         "log_max_mib": 5,
+        # LWSM-1033's five, and the decision this assertion demands is
+        # ADR-0007: plain integers and a boolean, never a `saveGeometry()`
+        # blob, so a user who cannot reach the window can fix it by editing
+        # the file. `null` until the window has been closed once — there is no
+        # position a window has never been at, and 0 is a real coordinate.
+        "x": None,
+        "y": None,
+        "width": None,
+        "height": None,
+        "maximized": False,
     }
 
 
@@ -336,6 +346,15 @@ def test_a_bad_text_scale_does_not_cost_the_theme(tmp_path: Path) -> None:
 BOUNDED = [
     ("poll_interval_ms", settings.MIN_POLL_INTERVAL_MS, settings.MAX_POLL_INTERVAL_MS),
     ("log_max_mib", settings.MIN_LOG_MAX_MIB, settings.MAX_LOG_MAX_MIB),
+    # LWSM-1033's four. Two bounds, not one: a coordinate may be negative,
+    # because a second monitor to the left of the primary one is at a negative
+    # x, and a size may not. Listed here rather than given tests of their own
+    # for the reason the comment above gives — a helper reading the wrong
+    # bound for one field passes every test written for another.
+    ("x", settings.MIN_WINDOW_COORD, settings.MAX_WINDOW_COORD),
+    ("y", settings.MIN_WINDOW_COORD, settings.MAX_WINDOW_COORD),
+    ("width", settings.MIN_WINDOW_PX, settings.MAX_WINDOW_PX),
+    ("height", settings.MIN_WINDOW_PX, settings.MAX_WINDOW_PX),
 ]
 
 
@@ -444,3 +463,52 @@ def test_a_bad_field_keeps_every_other_field(
                 f"a bad {field} lost {name}"
             )
     assert len(result.reasons) == 1, result.reasons
+
+
+# --- LWSM-1033: `maximized`, the file's one boolean ---------------------------
+
+
+@pytest.mark.parametrize("stored", [1, 0, "true", "yes", 1.0, None, [], {}], ids=str)
+def test_a_maximised_flag_that_is_not_a_boolean_is_refused(
+    tmp_path: Path, stored: object
+) -> None:
+    """`1` is the case that matters, and it is the mirror of the bool-as-int
+    check the numbers make.
+
+    A hand-editor writing `1` for "yes" is entirely plausible — this file is
+    meant to be edited — and accepting it would mean `0` and `1` round-tripping
+    back out as `false` and `true`. A settings file that changes under a user
+    who edited it is the objection `_bounded_int_or_reason` already makes about
+    rounding a float, applied to the other type.
+
+    `None` is in the list and is the one value that is NOT a complaint: an
+    absent key is a first run, not a refusal, which is why the assertion below
+    is about the value rather than about the reason.
+    """
+    path = write(
+        tmp_path / "settings.json",
+        {"schema_version": settings.SCHEMA_VERSION, "maximized": stored},
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.maximized is False
+    if stored is not None:
+        assert any("maximized" in reason for reason in result.reasons), (
+            f"maximized={stored!r} was defaulted with no reason saying why"
+        )
+    else:
+        assert result.reasons == []
+
+
+@pytest.mark.parametrize("stored", [True, False], ids=str)
+def test_a_real_boolean_survives_the_round_trip(tmp_path: Path, stored: bool) -> None:
+    """Both values, because a check that only ever sees `True` cannot tell a
+    working flag from one hardcoded to the value it was given."""
+    path = tmp_path / "settings.json"
+
+    settings.save(path, replace(Settings(), maximized=stored))
+    result = settings.load(path)
+
+    assert result.settings.maximized is stored
+    assert result.reasons == []

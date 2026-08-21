@@ -7,7 +7,9 @@ which conftest.py sets when it is unset.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
+import re
 import socket
 import threading
 from collections import Counter
@@ -16,10 +18,10 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QPalette
+from PySide6.QtGui import QPalette, QShowEvent
 from PySide6.QtWidgets import QApplication
 
-from lwsm import mainwindow, registry, scanner
+from lwsm import mainwindow, placement, registry, scanner
 from lwsm.__main__ import build_window
 from lwsm.controller import (
     ProjectController,
@@ -27,6 +29,7 @@ from lwsm.controller import (
     wait_for_abandoned_probes,
 )
 from lwsm.mainwindow import MIN_TARGET_PX, STATE_GLYPHS, MainWindow, ProjectRow
+from lwsm.placement import Rect
 from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.registry import (
     LauncherKind,
@@ -2039,7 +2042,11 @@ def test_the_bar_offers_settings_and_carries_its_own_mnemonics(qtbot, built) -> 
     """
     window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
 
-    assert menu_titles(window) == ["&File", "&Settings"]
+    # LWSM-1033's View menu sits between them. A third top-level menu for one
+    # action was the decision this whole-list assertion demands: "Centre on
+    # screen" is a verb, and every entry in Settings is a choice that then
+    # stays chosen.
+    assert menu_titles(window) == ["&File", "&View", "&Settings"]
     # LWSM-1031 added the Theme submenu ABOVE Preferences, because it is the
     # entry that works today; LWSM-1032's Text size joined it for the same
     # reason. Asserted as the whole list rather than as membership, so an entry
@@ -3858,3 +3865,484 @@ def test_the_profile_entries_retranslate(qtbot, built, tmp_path) -> None:
 
     assert window._export_action.text() == "&Export profile..."
     assert window._import_action.text() == "&Import profile..."
+
+
+# --- LWSM-1033: window geometry and Centre on screen (ADR-0007) --------------
+#
+# ADR-0007 is explicit that the verification here is BEHAVIOURAL: these assert
+# where the window ENDS UP, never that `move()` or `dbus-send` was called. A
+# test asserting the call is exactly the test that passes while OneUp's window
+# opens in the wrong place, which is the failure the ADR exists to avoid.
+#
+# The Wayland branch cannot have a real compositor in the suite, so `fake_kwin`
+# stands in for KWin: it reads the script the real `run_kwin_script` wrote,
+# parses the coordinates out of it, and applies them. Everything up to the
+# D-Bus call is this project's own code — the clamp, the script, the temporary
+# file — so what is faked is the compositor, not the mechanism.
+
+
+def geometry_window(qtbot, built, records, **kwargs) -> MainWindow:
+    """A window built with LWSM-1033's seams and actually shown.
+
+    Shown, because `_restore_geometry` runs off the first `showEvent` and a
+    window that is never shown restores nothing. `waitExposed` is what makes
+    the deferred single-shot actually fire.
+
+    **And polled, in that order, because the real app does both.** Without the
+    poll no rows ever arrive, so `_apply_default_geometry` returns early and
+    every test here silently measures `_restore_geometry` alone — which is
+    what a mutation of the remembered-size preference proved on 2026-08-21 by
+    surviving the whole suite. A fixture that cannot reach half the mechanism
+    reads exactly like a mechanism that is untested.
+    """
+    controller = build_controller(built, records, FakeProbe(5005))
+    window = MainWindow(controller, Theme.default(), [], **kwargs)
+    qtbot.addWidget(window)
+    with qtbot.waitExposed(window):
+        window.show()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    qtbot.wait(1)
+    return window
+
+
+def wayland_place(applied: list[Rect]):
+    """`place_window` with a stand-in for KWin, driven as a Wayland session."""
+
+    def fake_kwin(argv: list[str], **_kwargs: object) -> None:
+        for arg in argv:
+            if arg.startswith("string:") and arg.endswith(".js"):
+                script = Path(arg[len("string:") :]).read_text()
+                found = dict(re.findall(r"([xy]): (-?\d+),", script))
+                applied.append(Rect(int(found["x"]), int(found["y"]), 0, 0))
+
+    return functools.partial(
+        placement.place_window,
+        environ={"XDG_SESSION_TYPE": "wayland"},
+        which=lambda _name: "/usr/bin/dbus-send",
+        run=fake_kwin,
+    )
+
+
+def test_the_window_reopens_at_the_remembered_position_off_wayland(
+    qtbot, built
+) -> None:
+    """The behaviour the user named, on the branch where `move()` is honoured.
+
+    Asserted on `pos()` rather than `geometry()`: `pos()` is the frame's corner
+    and is what `move` sets, and the two differ by the decoration. Storing one
+    and restoring through the other is what walks the window across the desktop
+    a few pixels per launch.
+    """
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(137, 219),
+        size=(640, 480),
+        place=functools.partial(
+            placement.place_window, environ={"XDG_SESSION_TYPE": "x11"}
+        ),
+    )
+
+    assert (window.pos().x(), window.pos().y()) == (137, 219)
+    assert (window.width(), window.height()) == (640, 480)
+
+
+def test_the_window_reopens_at_the_remembered_position_on_wayland(qtbot, built) -> None:
+    """The same behaviour on the branch `move()` cannot serve.
+
+    What this proves is that the coordinates KWin is handed are the remembered
+    ones — through the real clamp, the real script and the real temporary
+    file. It cannot prove KWin honours them; nothing in a test suite can, and
+    ADR-0007 accepts that. It DOES prove the Wayland branch does not quietly
+    fall through to `move()`, which is the defect that looks like working code.
+    """
+    # Chosen to fit the offscreen platform's 800x800 screen as it stands, so
+    # the clamp is not what this test measures — an unfitting rectangle passes
+    # through `clamp_to_screens` and arrives somewhere else entirely, which
+    # reads as the Wayland branch being wrong. It has its own test above.
+    asked: list[Rect] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(100, 200),
+        size=(640, 480),
+        place=wayland_place(asked),
+    )
+
+    assert [(rect.x, rect.y) for rect in asked] == [(100, 200)]
+    # The size is Qt's on every platform, so it lands whichever branch ran.
+    assert (window.width(), window.height()) == (640, 480)
+
+
+def test_a_remembered_size_survives_an_empty_project_list(qtbot, built) -> None:
+    """`_apply_default_geometry` returns early when there are no rows, so
+    without a second application in `_restore_geometry` a user with nothing
+    detected gets Qt's default size however they left the window.
+
+    The empty list is the whole point of this test rather than an incidental
+    fixture choice — every other test here has two rows, so this is the only
+    one in which `_apply_default_geometry` cannot run at all.
+    """
+    window = geometry_window(qtbot, built, [], position=(50, 60), size=(700, 500))
+
+    assert rows_of(window) == [], "the early-return branch is what this drives"
+    assert (window.width(), window.height()) == (700, 500)
+
+
+def test_a_remembered_size_beats_the_measured_default(qtbot, built) -> None:
+    """LWSM-1149 sizes a first run from its content; LWSM-1033 must not undo
+    the user's own choice on every later run. Pinned against the default in one
+    test so neither half can hold on its own — a window that ignored BOTH
+    would pass either assertion alone."""
+    chosen = geometry_window(qtbot, built, two_rows(), position=(0, 0), size=(705, 505))
+    measured = geometry_window(qtbot, built, two_rows())
+
+    # Two rows, so `_apply_default_geometry` actually runs — it is the half of
+    # the mechanism this test exists for, and it returns early with none.
+    assert len(rows_of(chosen)) == 2
+    assert (chosen.width(), chosen.height()) == (705, 505)
+    assert (measured.width(), measured.height()) != (705, 505)
+
+
+def test_a_maximised_window_reopens_maximised_and_is_not_placed(qtbot, built) -> None:
+    """Its position is the screen's, so asking for the stored coordinates would
+    un-maximise it to honour them."""
+    asked: list[Rect] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(300, 400),
+        size=(640, 480),
+        maximized=True,
+        place=wayland_place(asked),
+    )
+
+    assert window.isMaximized()
+    assert asked == []
+
+
+def test_a_position_from_an_unplugged_monitor_lands_on_a_screen(qtbot, built) -> None:
+    """The clamp, observed on the window rather than on the arithmetic — a
+    `place_window` wired up without `clamp_to_screens` would put the window
+    where the user could not reach it."""
+    room = QApplication.primaryScreen().availableGeometry()
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(room.x() + room.width() + 4000, 0),
+        size=(640, 480),
+        place=functools.partial(
+            placement.place_window, environ={"XDG_SESSION_TYPE": "x11"}
+        ),
+    )
+
+    assert window.pos().x() + window.width() <= room.x() + room.width()
+
+
+def test_nothing_remembered_leaves_the_window_where_it_was_put(qtbot, built) -> None:
+    """A first run. `_restore_geometry` must not place a window at (0, 0)
+    because that is what an unset coordinate defaults to — which is why
+    `Settings` stores `None` rather than `0`."""
+    asked: list[Rect] = []
+    window = geometry_window(qtbot, built, two_rows(), place=wayland_place(asked))
+
+    assert asked == []
+    assert not window.isMaximized()
+
+
+def test_closing_remembers_the_frame_corner_and_the_client_size(qtbot, built) -> None:
+    """The round trip, asserted as a round trip: what `closeEvent` stores is
+    exactly what `move` and `resize` were given, so a window reopened from it
+    lands where it was rather than a decoration's width away."""
+    stored: list[tuple[Rect | None, bool, bool]] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        save_geometry=lambda rect, maximized, known: stored.append(
+            (rect, maximized, known)
+        ),
+    )
+    window.resize(720, 540)
+    window.move(111, 222)
+    qtbot.wait(1)
+
+    window.close()
+
+    assert stored == [(Rect(111, 222, 720, 540), False, True)]
+
+
+def test_closing_a_maximised_window_remembers_the_flag_and_the_normal_size(
+    qtbot, built
+) -> None:
+    """`normalGeometry`, never `geometry`: storing a maximised window's own
+    geometry gives a window that fills the display next run WITHOUT being
+    maximised, which the user cannot undo with the maximise button."""
+    stored: list[tuple[Rect | None, bool, bool]] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        save_geometry=lambda rect, maximized, known: stored.append(
+            (rect, maximized, known)
+        ),
+    )
+    window.resize(720, 540)
+    window.move(111, 222)
+    qtbot.wait(1)
+    window.showMaximized()
+    qtbot.wait(1)
+
+    window.close()
+
+    ((rect, maximized, _known),) = stored
+    assert maximized
+    assert rect is not None
+    assert (rect.width, rect.height) == (720, 540)
+
+
+def test_a_window_with_no_saver_closes_without_complaint(qtbot, built) -> None:
+    """The seam defaults to doing nothing for `save_theme`'s reason: closing is
+    something a test does by accident, and it must not write into the
+    developer's own settings.json."""
+    window = geometry_window(qtbot, built, two_rows())
+
+    window.close()
+
+    assert window._save_geometry is None
+
+
+def test_a_refused_save_is_logged_rather_than_stopping_the_close(qtbot, built) -> None:
+    """A window that will not close because its geometry could not be written
+    is worse than a window that forgets where it was."""
+
+    def refuse(_rect: Rect | None, _maximized: bool, _known: bool) -> None:
+        raise SettingsError("there is no writable configuration directory")
+
+    window = geometry_window(qtbot, built, two_rows(), save_geometry=refuse)
+
+    assert window.close()
+
+
+def test_centre_on_screen_puts_the_window_in_the_middle(qtbot, built) -> None:
+    """The action, observed as a position rather than as a call. Same code path
+    as the restore, with the target computed differently — which is ADR-0007's
+    observation and the reason there is one `place_window`."""
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(0, 0),
+        size=(640, 480),
+        place=functools.partial(
+            placement.place_window, environ={"XDG_SESSION_TYPE": "x11"}
+        ),
+    )
+    room = QApplication.primaryScreen().availableGeometry()
+
+    window._centre_action.trigger()
+    qtbot.wait(1)
+
+    frame = window.frameGeometry()
+    assert abs(frame.center().x() - room.center().x()) <= 2
+    assert abs(frame.center().y() - room.center().y()) <= 2
+
+
+def test_centre_on_screen_is_disabled_and_says_why_where_it_cannot_work(
+    qtbot, built, monkeypatch
+) -> None:
+    """ADR-0007's honest degradation: under a Wayland session with no
+    `dbus-send` the compositor owns placement and we cannot ask it, so the
+    action explains itself rather than being offered and doing nothing."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setattr(mainwindow.placement.shutil, "which", lambda _name: None)
+
+    window = geometry_window(qtbot, built, two_rows())
+
+    assert not window._centre_action.isEnabled()
+    assert "does not let an application place its own window" in (
+        window._centre_action.toolTip()
+    )
+
+
+def test_centre_on_screen_carries_a_mnemonic_and_is_retranslated(qtbot, built) -> None:
+    """`§ O8` clause 2 — every action reachable from the keyboard — and the
+    label set in `_retranslate_menus` rather than at construction, so
+    LanguageChange has one place to go."""
+    window = geometry_window(qtbot, built, two_rows())
+
+    assert window._centre_action.text() == "&Centre on screen"
+    window._centre_action.setText("")
+    window._view_menu.setTitle("")
+    window.changeEvent(QEvent(QEvent.Type.LanguageChange))
+
+    assert window._centre_action.text() == "&Centre on screen"
+    assert window._view_menu.title() == "&View"
+
+
+def test_an_enabled_centre_action_explains_nothing_extra(qtbot, built) -> None:
+    """The whole point of the disabled one is that it explains itself, so the
+    enabled one must not also carry an explanation.
+
+    Asserted as "the tooltip is the label" and not as "there is no tooltip",
+    because there is no such state: `setToolTip("")` leaves a `QAction`
+    falling back to its own text, the same way `setAccessibleName("")` leaves
+    a widget in the accessibility tree. Writing the assertion the other way
+    round would fail against correct code.
+    """
+    window = geometry_window(qtbot, built, two_rows())
+
+    assert window._centre_action.isEnabled()
+    assert window._centre_action.toolTip() == "Centre on screen"
+
+
+def test_centre_reports_when_the_desktop_refuses(qtbot, built) -> None:
+    """`place_window` returning `None` is what the user is told about, rather
+    than an action that appears to have worked."""
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        place=lambda *_args, **_kwargs: None,
+    )
+
+    window.centre_on_screen()
+
+    assert "would not let the window be moved" in window.statusBar().currentMessage()
+
+
+def test_rows_arriving_after_the_restore_do_not_undo_the_remembered_size(
+    qtbot, built
+) -> None:
+    """The ordering in which `_apply_default_geometry` runs LAST, which is the
+    only one where its preference for the remembered size decides anything.
+
+    `_sync_rows` runs inside `__init__`, so a window built with records already
+    knows about them and sizes itself before it is ever shown — and
+    `_restore_geometry`, which fires off the first `showEvent`, then has the
+    last word whatever `_apply_default_geometry` decided. Built with NOTHING,
+    the order reverses: the restore happens first and the measured size lands
+    afterwards, on top of the size the user chose.
+
+    Found by a mutation that survived the whole suite on 2026-08-21 — every
+    other test here reaches this method through the ordering in which its
+    result is immediately overwritten, so the branch ran and could not be
+    observed. A first run with an empty or unreadable `projects.json` is the
+    live case, and a rescan that finds the user's first project is the other.
+    """
+    controller = build_controller(built, [], FakeProbe(5005))
+    window = MainWindow(
+        controller, Theme.default(), [], position=(0, 0), size=(705, 505)
+    )
+    qtbot.addWidget(window)
+    with qtbot.waitExposed(window):
+        window.show()
+    qtbot.wait(1)
+    assert rows_of(window) == [], "the restore must happen before any row exists"
+
+    controller.set_records(two_rows())
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    qtbot.wait(1)
+
+    assert len(rows_of(window)) == 2, "the rows must arrive AFTER the restore"
+    assert (window.width(), window.height()) == (705, 505)
+
+
+def test_a_wayland_session_stores_the_size_and_leaves_the_position_alone(
+    qtbot, built, monkeypatch
+) -> None:
+    """The finding that shaped the whole item, asserted at the seam.
+
+    Under Wayland a client is never told where it is, so Qt answers 0,0 —
+    which is a real position, not an error, and would be written as though the
+    user had put the window in the corner. Measured against real KWin on
+    2026-08-21: the compositor reported this app's window at 640,480 while Qt
+    reported 0,0, and 0,0 is what reached `settings.json`.
+
+    Asserted as the FLAG rather than as the absence of coordinates, because
+    the window cannot know what is already stored — leaving the existing
+    position untouched is `build_window`'s half, and it has its own test. The
+    size is stored either way: it is the half Wayland can answer.
+    """
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    stored: list[tuple[Rect | None, bool, bool]] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        save_geometry=lambda rect, maximized, known: stored.append(
+            (rect, maximized, known)
+        ),
+    )
+    window.resize(660, 470)
+    qtbot.wait(1)
+
+    window.close()
+
+    ((rect, _maximized, position_known),) = stored
+    assert not position_known, "a Wayland session cannot know where it is"
+    assert rect is not None
+    assert (rect.width, rect.height) == (660, 470), "the size is still knowable"
+
+
+def test_a_position_in_the_file_is_still_restored_under_wayland(qtbot, built) -> None:
+    """Placement and reading are different problems, and only one of them is
+    refused.
+
+    So a position recorded under X11, or typed into the hand-editable file, is
+    honoured on a Wayland session even though that session could never have
+    written it. Losing that would make the stored coordinates useless to the
+    very users ADR-0007's KWin path was built for.
+    """
+    asked: list[Rect] = []
+    geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(100, 200),
+        size=(640, 480),
+        place=wayland_place(asked),
+    )
+
+    assert [(rect.x, rect.y) for rect in asked] == [(100, 200)]
+
+
+def test_a_window_already_exposed_restores_without_waiting_for_an_expose(
+    qtbot, built
+) -> None:
+    """The fallback branch in `showEvent`, which no ordinary show reaches.
+
+    A window is not exposed while its own `showEvent` is still running, so the
+    event filter is what fires in practice. The branch exists because a
+    platform that had already presented the surface would otherwise wait for
+    an Expose that is never coming again — and the symptom would be a position
+    that is silently never restored, which is the whole failure mode ADR-0007
+    is about.
+
+    Driven by re-arming the guard on a window that IS exposed, because there
+    is no way to ask Qt to deliver the events in the other order. Found by a
+    mutation that survived the suite on 2026-08-21.
+    """
+    asked: list[Rect] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(60, 70),
+        size=(640, 480),
+        place=wayland_place(asked),
+    )
+    assert window.windowHandle().isExposed(), "the fixture must leave it exposed"
+    asked.clear()
+
+    window._geometry_restored = False
+    window.showEvent(QShowEvent())
+    qtbot.wait(1)
+
+    assert [(rect.x, rect.y) for rect in asked] == [(60, 70)]

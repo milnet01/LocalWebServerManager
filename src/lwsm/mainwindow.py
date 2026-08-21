@@ -10,6 +10,7 @@ name, keyboard reachability, its state as text, and a layout that reflows.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -26,6 +27,7 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     QThreadPool,
+    QTimer,
     QUrl,
     Signal,
 )
@@ -34,12 +36,14 @@ from PySide6.QtGui import (
     QAccessibleEvent,
     QAction,
     QActionGroup,
+    QCloseEvent,
     QDesktopServices,
     QKeyEvent,
     QKeySequence,
     QPainter,
     QPaintEvent,
     QPen,
+    QShowEvent,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -57,13 +61,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lwsm import applog, registry, scanner
+from lwsm import applog, placement, registry, scanner
+from lwsm.configfile import ConfigFileError
 from lwsm.controller import (
     ProjectController,
     ProjectStatus,
     RowView,
     abandon_pool,
 )
+from lwsm.placement import Rect, centre_in
 from lwsm.registry import LoadResult, MergeResult, ProjectRecord, RegistryError
 from lwsm.settings import MAX_TEXT_SCALE, MIN_TEXT_SCALE
 from lwsm.theme import THEMES, Theme, theme_for_id
@@ -73,6 +79,12 @@ log = applog.get_logger(__name__)
 # How long to wait for a rescan worker at teardown. The same bounded shape
 # `controller.stop()` uses, and for the same reason: an unbounded wait turns a
 # slow scan into an app that cannot be quit.
+# `place_window`'s signature is keyword-heavy on purpose, and a test
+# substitutes it with a `functools.partial` of itself, so the alias says what
+# comes BACK — the rectangle actually asked for, or `None` where placement is
+# unavailable — and leaves the arguments to the function's own definition.
+PlaceWindow = Callable[..., "Rect | None"]
+
 RESCAN_STOP_WAIT_MS = 5000
 
 # How many rows the window shows before the list starts scrolling, and the
@@ -870,6 +882,11 @@ class MainWindow(QMainWindow):
         save_text_scale: Callable[[int], None] | None = None,
         choose_profile_to_save: Callable[[], str | None] | None = None,
         choose_profile_to_open: Callable[[], str | None] | None = None,
+        position: tuple[int, int] | None = None,
+        size: tuple[int, int] | None = None,
+        maximized: bool = False,
+        save_geometry: Callable[[Rect | None, bool, bool], None] | None = None,
+        place: PlaceWindow | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -930,6 +947,39 @@ class MainWindow(QMainWindow):
             if choose_profile_to_save is not None
             else self._pick_profile_to_save
         )
+        # LWSM-1033 / ADR-0007. Position and size arrive SEPARATELY, because
+        # they are separately knowable: a Wayland session can record a size and
+        # cannot record a position at all (`placement.position_is_readable`
+        # carries the measurement). Joined into one rectangle, a Wayland
+        # session would forget the size it does know. `maximized` is separate
+        # again, because a maximised window still has a normal size to come
+        # back to.
+        self._remembered_pos = position
+        self._remembered_size = size
+        self._remembered_maximized = maximized
+        self._geometry_restored = False
+        # The eighth seam, and it defaults to doing nothing for `save_theme`'s
+        # reason rather than `confirm`'s: this one fires on every close, so a
+        # test that closed a window would write that window's geometry into the
+        # developer's own settings.json — and unlike the theme picker, closing
+        # is something a test does by accident.
+        self._save_geometry = save_geometry
+        # The ninth, and the only one defaulting to the REAL function while
+        # still being injected. ADR-0007 requires the verification to be
+        # behavioural — the window ends up at the coordinates, never that a
+        # call was made — so a test must run the real arithmetic and the real
+        # script generation. What it substitutes is one argument further down:
+        # `functools.partial(place_window, environ=..., run=...)` drives the
+        # Wayland branch with a stand-in for KWin and leaves everything this
+        # project wrote in the path.
+        #
+        # `None` rather than `placement.place_window` as the default, for the
+        # reason `placement_available` carries: a default argument is bound
+        # when the function is DEFINED, so a `monkeypatch.setattr` on the
+        # module never reaches one. That cost a cycle once in `placement.py`
+        # already, and here it decides whether a `build_window` test can keep
+        # its hands off the real compositor at all.
+        self._place = placement.place_window if place is None else place
         self._choose_profile_to_open = (
             choose_profile_to_open
             if choose_profile_to_open is not None
@@ -1114,6 +1164,20 @@ class MainWindow(QMainWindow):
         self._quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         self._quit_action.triggered.connect(self.close)
 
+        # A third top-level menu for one action, rather than folding it into
+        # Settings. "Centre on screen" is something you DO, and every entry in
+        # Settings is something you CHOOSE and that then stays chosen; a menu
+        # whose title promises preferences should not contain a verb. It is
+        # also where P08's log viewer goes.
+        self._view_menu = bar.addMenu("")
+        self._centre_action = self._view_menu.addAction("")
+        self._centre_action.triggered.connect(self.centre_on_screen)
+        # Disabled here rather than left to fail on trigger: under a Wayland
+        # session with no `dbus-send` the compositor owns placement and we
+        # cannot ask it, so the honest answer is an action that says why
+        # (ADR-0007). The tooltip is set in `_retranslate_menus` with the label.
+        self._centre_action.setEnabled(placement.placement_available())
+
         self._settings_menu = bar.addMenu("")
         self._build_theme_menu(self._settings_menu)
         self._build_text_size_menu(self._settings_menu)
@@ -1269,6 +1333,29 @@ class MainWindow(QMainWindow):
                 QCoreApplication.translate(_TR_CONTEXT, "&Import profile...")
             )
         self._quit_action.setText(QCoreApplication.translate(_TR_CONTEXT, "&Quit"))
+        self._view_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&View"))
+        self._centre_action.setText(
+            QCoreApplication.translate(_TR_CONTEXT, "&Centre on screen")
+        )
+        # Only the disabled case gets an explanation — the whole point of it is
+        # that the action says why rather than appearing to work.
+        #
+        # **`setToolTip("")` does not remove a tooltip**, in the same way
+        # `setAccessibleName("")` does not hide a widget from the
+        # accessibility tree: a `QAction` with an empty tooltip falls back to
+        # its own TEXT, so the enabled entry reports "Centre on screen" here
+        # whatever is set. Measured 2026-08-21. So the enabled branch is
+        # written as the label rather than as an empty string, because that is
+        # what it actually is, and the test asserts the same thing.
+        self._centre_action.setToolTip(
+            self._centre_action.text().replace("&", "")
+            if self._centre_action.isEnabled()
+            else QCoreApplication.translate(
+                _TR_CONTEXT,
+                "This desktop does not let an application place its own "
+                "window, and KDE's window manager could not be reached.",
+            )
+        )
         self._settings_menu.setTitle(
             QCoreApplication.translate(_TR_CONTEXT, "&Settings")
         )
@@ -1976,13 +2063,261 @@ class MainWindow(QMainWindow):
         self._align_columns()
         self._apply_default_geometry()
 
-    def _apply_default_geometry(self) -> None:
-        """Open big enough to read (LWSM-1149).
+    def _screen_area(self) -> Rect | None:
+        """The usable area of the screen this window is on, panels excluded."""
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return None
+        room = screen.availableGeometry()
+        return Rect(room.x(), room.y(), room.width(), room.height())
 
-        A first run has nothing remembered — restoring a geometry the user
-        chose is LWSM-1033's — so this is the only impression a new user gets,
-        and Qt's own default was ~790x520 with the list crushed against the
-        window chrome.
+    def _screens(self) -> list[Rect]:
+        """Every attached screen's usable area, for `clamp_to_screens`.
+
+        `availableGeometry`, not `geometry`, so a remembered position is
+        clamped to the area a window can actually occupy rather than to the
+        raw display — restoring one under the panel is not much better than
+        restoring it off-screen.
+        """
+        return [
+            Rect(room.x(), room.y(), room.width(), room.height())
+            for room in (
+                screen.availableGeometry() for screen in QApplication.screens()
+            )
+        ]
+
+    def _place_at(self, target: Rect) -> Rect | None:
+        """Ask for `target` — a frame corner and a CLIENT size; `None` if the
+        ask could not be made.
+
+        The size is the client's throughout this window, because `resize()` is
+        what consumes it and it has to round-trip exactly through
+        `closeEvent`. KWin needs a frame size instead, and the conversion is
+        `kwin_script`'s: the decoration is not known here at the moment
+        placement runs, and it is known there.
+
+        The state directory is resolved here and its failure is caught here,
+        because `default_state_dir` raises on a machine with no home directory
+        — the LWSM-1116 shape. A window that cannot be positioned is a
+        nuisance; one that raises out of `showEvent` is not a window.
+        """
+        try:
+            state_dir = applog.default_state_dir()
+        except OSError as exc:
+            log.warning("cannot place the window: no state directory (%s)", exc)
+            return None
+        return self._place(
+            target,
+            screens=self._screens(),
+            pid=os.getpid(),
+            move=self.move,
+            state_dir=state_dir,
+        )
+
+    def centre_on_screen(self) -> None:
+        """Put the window back in the middle of its screen (LWSM-1033).
+
+        The same operation as restoring a remembered position, with the target
+        computed differently — which is ADR-0007's observation and the reason
+        both go through `place_window`.
+
+        Sized from `frameGeometry`, not `geometry`: the title bar and border
+        are part of what has to fit, and centring the client area leaves a
+        window sitting low by the height of its own decoration.
+        """
+        area = self._screen_area()
+        if area is None:
+            return
+        # Centred on the FRAME extents, because the title bar and border are
+        # part of what has to fit — but sent as the CLIENT size, which is the
+        # unit `place_window` takes and the decoration KWin adds back.
+        frame = self.frameGeometry()
+        spot = centre_in(area, frame.width(), frame.height())
+        target = Rect(spot.x, spot.y, self.width(), self.height())
+        if self._place_at(target) is None:
+            self.set_status_message(
+                QCoreApplication.translate(
+                    _TR_CONTEXT, "This desktop would not let the window be moved."
+                )
+            )
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Arm the restore: first EXPOSE, then one event-loop tick.
+
+        Deferred rather than done in `__init__`, because KWin can only move a
+        window it already knows about and on Wayland the surface is not
+        committed while `showEvent` is still running (ADR-0007). The cost is a
+        brief jump from wherever the compositor first put it, which is the
+        price of the compositor owning placement — a window that arrives in
+        the right place a frame late beats one that never arrives there.
+
+        **ADR-0007 says one tick after the SHOW, and that is measurably too
+        early.** Against real KWin on this machine's Plasma 6 Wayland session
+        (2026-08-21), a window shown with a remembered position at 305,255
+        opened at 1570,793 — the script ran, matched our PID and set
+        `frameGeometry`, and the compositor ignored it, which is exactly the
+        silent shape the ADR exists to avoid. Measured: a 0 ms delay after
+        `show` fails; 50, 150 and 400 ms all work; the first `Expose` ALONE
+        still fails; `Expose` plus one tick worked 5 times out of 5. So the
+        trigger is a condition rather than a chosen number — the surface has
+        been presented, and the compositor has had one turn of our loop to
+        finish with it.
+
+        **No test in this suite can see that.** The Wayland tests substitute a
+        stand-in for KWin, which honours whatever it is handed whenever it is
+        handed it, so they were green against the version that did not work.
+        Only running the app under the real compositor found it.
+        """
+        super().showEvent(event)
+        if self._geometry_restored:
+            return
+        self._geometry_restored = True
+        handle = self.windowHandle()
+        # Already exposed, or no handle to watch: there is no Expose still to
+        # come, so waiting for one would mean never restoring at all.
+        if handle is None or handle.isExposed():
+            QTimer.singleShot(0, self._restore_geometry)
+            return
+        handle.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """The other half of `showEvent`: the window's first presentation.
+
+        Watching the `QWindow` rather than this widget, because `Expose` is
+        delivered to the handle and never to the `QMainWindow`. The filter is
+        removed as soon as it fires, so a window the user hides and reshows is
+        not re-placed under them.
+        """
+        if (
+            event.type() == QEvent.Type.Expose
+            and watched is self.windowHandle()
+            and self.windowHandle().isExposed()
+        ):
+            watched.removeEventFilter(self)
+            QTimer.singleShot(0, self._restore_geometry)
+        return super().eventFilter(watched, event)
+
+    def _restore_geometry(self) -> None:
+        """Position first, then size — and neither if there is nothing stored.
+
+        **The order is load-bearing and was measured, not chosen.** KWin's
+        API takes a whole rectangle, so the script preserves the window's
+        CURRENT size by reading `c.frameGeometry.width` as it runs. Resize
+        first and the two race: Qt asks the compositor for 700x500, the script
+        runs before that has been applied, reads the size KWin still believes
+        in, and writes it straight back — cancelling the resize. Measured
+        against real KWin on 2026-08-21: resize-then-place gave the right
+        position at 239x216, the window's undecorated minimum, while the
+        remembered size was 700x500.
+
+        Placing first has no matching hazard, because a later resize keeps the
+        top-left corner it was given. So the position is asked for while the
+        size is still whatever it was, and the size lands afterwards as the
+        last word — which is the division ADR-0007 already describes, since
+        `resize()` is honoured on every platform and only placement is refused.
+
+        The size is applied here as well as in `_apply_default_geometry`,
+        which is not a duplicate: that method returns early when there are no
+        rows, and a user whose project list is empty still closed the window
+        at a size they chose.
+
+        A maximised window is restored maximised and not placed. Its position
+        is the screen's, so asking KWin for the stored coordinates would
+        un-maximise it to honour them — but its normal size is still applied
+        first, so that un-maximising later gives back the window they had.
+        """
+        if self._remembered_size is not None:
+            self.resize(*self._remembered_size)
+        if self._remembered_maximized:
+            self.showMaximized()
+            return
+        if self._remembered_pos is None:
+            return
+        # The size sent is the one just applied where there is one, and the
+        # window's own otherwise — KWin needs a whole rectangle either way, and
+        # a session that remembered a position without a size still deserves
+        # the position.
+        width, height = self._remembered_size or (self.width(), self.height())
+        self._place_at(Rect(*self._remembered_pos, width, height))
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Remember where the window was, then let it close.
+
+        `normalGeometry`, never `geometry`: a maximised window's geometry is
+        the screen's, and storing that as the normal size gives a window that
+        fills the display on the next run without being maximised — which the
+        user cannot undo with the maximise button, because it is not maximised.
+
+        **The position stored is the FRAME's corner and the size stored is the
+        CLIENT's**, because those are what `move()` and `resize()` consume, and
+        a value that does not round-trip through the call that restores it
+        drifts by the size of the decoration on every launch. Measured on this
+        machine: `move(137, 219)` leaves `geometry()` reporting `(139, 221)`,
+        so storing `normalGeometry()`'s corner and restoring it with `move`
+        walks the window two pixels down and right each time it is opened.
+
+        `normalGeometry` has no frame counterpart, so the decoration offset is
+        measured live off this window and added. While the window is not
+        maximised the two agree exactly and the offset is what makes them; it
+        is only an estimate for the maximised case, where the frame is the
+        screen's and the normal frame no longer exists to be measured.
+
+        **Under Wayland the position is not stored at all**, and that is the
+        one thing this method cannot work around. A client there is never told
+        where it is: measured 2026-08-21, KWin reported this window at 640,480
+        while Qt reported 0,0 — and 0,0 is a real position, so it would be
+        written as though it were true and reopen the window in the corner.
+        The size is recorded normally, and the stored position is left exactly
+        as it was rather than overwritten with a fiction.
+        """
+        normal = self.normalGeometry()
+        offset = self.pos() - self.geometry().topLeft()
+        remembered = (
+            Rect(
+                normal.x() + offset.x(),
+                normal.y() + offset.y(),
+                normal.width(),
+                normal.height(),
+            )
+            if normal.isValid()
+            else None
+        )
+        if self._save_geometry is not None:
+            try:
+                self._save_geometry(
+                    remembered,
+                    self.isMaximized(),
+                    placement.position_is_readable(),
+                )
+            except (ConfigFileError, OSError) as exc:
+                # Logged, not shown: the window is going away, so a status bar
+                # message has nobody left to read it.
+                log.warning("could not remember the window geometry: %s", exc)
+        super().closeEvent(event)
+
+    def _apply_default_geometry(self) -> None:
+        """Open big enough to read (LWSM-1149), or at the remembered size.
+
+        A first run has nothing remembered, so this is the only impression a
+        new user gets, and Qt's own default was ~790x520 with the list crushed
+        against the window chrome. Where LWSM-1033 DID remember a size, that
+        size wins over the measured one and only the minimum is computed here
+        — a floor still has to be applied, or a remembered size from a
+        narrower font clips a column.
+
+        **That preference decides something only when this runs AFTER
+        `_restore_geometry`**, which is the reverse of the usual order:
+        `_sync_rows` runs inside `__init__`, so a window built with records
+        already sizes itself before it is ever shown. The order flips when the
+        rows arrive later — an empty or unreadable `projects.json`, or a
+        rescan finding the user's first project — and there the measured size
+        would otherwise land on top of the one the user chose. A mutation
+        proved this branch unobserved on 2026-08-21;
+        `test_rows_arriving_after_the_restore_do_not_undo_the_remembered_size`
+        is what reaches it.
+
+        The remembered POSITION is not applied here. It is `_restore_geometry`'s,
+        which runs off the first show rather than off the first scan.
 
         Measured from the content and clamped to the screen, never set from a
         pixel constant (`§ O7`): a size that fits this display truncates the
@@ -2029,7 +2364,13 @@ class MainWindow(QMainWindow):
             + margins.right()
         )
 
-        want = QSize(width, chrome + min(len(rows), DEFAULT_VISIBLE_ROWS) * row_height)
+        want = (
+            QSize(*self._remembered_size)
+            if self._remembered_size is not None
+            else QSize(
+                width, chrome + min(len(rows), DEFAULT_VISIBLE_ROWS) * row_height
+            )
+        )
         # The columns are fixed-width, so there is no narrower window in which
         # they do not collide — the floor is the content itself, and only the
         # height is negotiable.

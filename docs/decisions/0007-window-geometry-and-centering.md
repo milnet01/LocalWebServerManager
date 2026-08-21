@@ -156,3 +156,76 @@ setting `XDG_SESSION_TYPE` and asserts the resulting geometry.
   keeps the dependency list at PySide6 + psutil. It is an
   argument vector, never a shell string
   (`docs/standards/coding.md § O4`).
+
+## Amendment (2026-08-21, LWSM-1033) — what the compositor said
+
+This ADR was written from reasoning about Wayland and from reading a
+sibling app. Implementing it produced four measurements against the
+real KWin on this machine's Plasma 6 Wayland session, and three of
+them contradict the decision above. **The decision stands; these are
+its corrections.** No `review-contract` gate: the code exists, and
+per `CLAUDE.md § Review cadence` an amendment recording what was
+actually built does not re-arm one.
+
+**1. "Deferred by one event-loop tick after the window is shown" is
+too early.** A window shown with a remembered position of 305,255
+opened at 1570,793 — the script ran, matched our PID and set
+`frameGeometry`, and the compositor ignored it. Measured: a 0 ms
+delay after `show` fails; 50, 150 and 400 ms all work; the first
+`Expose` **alone** still fails; `Expose` plus one tick worked 5 times
+out of 5. The trigger is now that condition rather than a chosen
+number — the surface has been presented, and the compositor has had
+one turn of our loop to finish with it.
+
+**2. KWin's geometry write is authoritative, so the script must carry
+the size too.** The first implementation preserved the window's
+current size by reading `c.frameGeometry.width` back, reasoning from
+this ADR's own division of labour — `resize()` is honoured under
+Wayland, so only the position needed sending. A 700x500 window then
+came back at 239x216, its undecorated minimum: once the script has
+told KWin the window is that size, the client's own later `resize` is
+configured straight back to it. Order does not help; it is not a
+race.
+
+**3. The decoration must be added inside the script, not by the
+caller.** Converting a client size to a frame size in the app sends 0
+for the margins, because the window is not decorated yet at the
+moment placement runs — leaving a 472-pixel client area that the next
+close stores and shrinks again on every launch. `c.clientGeometry` is
+where the answer is (measured: frame 700x500, client 700x472), so the
+script computes the difference itself and falls back to sending the
+size unconverted on a KWin too old to expose it.
+
+**4. The position cannot be READ under Wayland at all, and this is
+the one place the decision changes.** This ADR says the position
+component is discarded on *restore*, and treats the KWin path as
+closing that. Restoring works — measured exact, across three
+consecutive launches, with no drift. **Capturing does not.** Wayland
+gives a client no global coordinates, so Qt answers 0,0 forever:
+measured, KWin reported the window at 640,480 while Qt reported 0,0,
+and 0,0 is a plausible position rather than an error, so it would be
+written to `settings.json` as though the user had put the window in
+the corner.
+
+So a Wayland session **records size and maximised state and leaves
+the stored coordinates alone**. That is what KDE's own applications
+do, and it is the deeper reason
+`saveGeometry()`/`restoreGeometry()` loses position there — the
+sibling app's bug this ADR set out to avoid is half a platform limit
+and not only an unused mechanism. A position recorded under X11, or
+typed into the hand-editable file, is still restored on Wayland,
+because placement and reading are different problems and only one of
+them is refused.
+
+**Consequence for the "Positive" list above.** *"The window actually
+reopens where it was left"* holds under X11 and holds under Wayland
+only for a position something else recorded. Closing that gap needs
+the app to own a D-Bus service for a KWin script to call back into,
+which was put to the user on 2026-08-21 and declined in favour of the
+honest limit; if it is ever wanted, that is the shape.
+
+**One citation note.** The four `OneUp/updater.py` line references
+above no longer resolve — that file is 21 lines now and the working
+code is at `OneUp/oneup/gui/placement.py`. Already filed as roadmap
+debt (DS01, scheduled with P10) and left for it rather than fixed
+here.

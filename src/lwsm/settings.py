@@ -99,6 +99,23 @@ DEFAULT_LOG_MAX_MIB = 5
 MIN_LOG_MAX_MIB = 1
 MAX_LOG_MAX_MIB = 1024
 
+# ADR-0007 stores the window's geometry as plain integers rather than a
+# `saveGeometry()` blob, so that a user can fix a window they cannot reach by
+# editing the file. That makes these bounds a security boundary as well as a
+# sanity one: every value here is interpolated into a script KWin executes
+# (`placement.kwin_script`), and `settings.json` is hand-editable by design.
+#
+# The range is the 16-bit one X11 window coordinates have always had. A screen
+# further out than that does not exist, and a value outside it is a typo or a
+# probe rather than a monitor.
+MIN_WINDOW_COORD = -32768
+MAX_WINDOW_COORD = 32767
+# A window of zero width cannot be clicked back into existence, so 1 is the
+# floor rather than 0. Qt's own minimum size is what actually decides how small
+# the window gets; this only decides what is worth reading off disk.
+MIN_WINDOW_PX = 1
+MAX_WINDOW_PX = 32767
+
 # The same bound `registry.MAX_REASONS` exists for, at the size this file is.
 # A settings file has a fixed, small set of fields, so anything past a handful
 # of complaints is a hostile file rather than a typo.
@@ -120,6 +137,21 @@ class Settings:
     poll_interval_ms: int = DEFAULT_POLL_INTERVAL_MS
     # Mebibytes, 1-1024. See DEFAULT_LOG_MAX_MIB on why the unit is not bytes.
     log_max_mib: int = DEFAULT_LOG_MAX_MIB
+    # The window's geometry (LWSM-1033, ADR-0007). `None` is the only honest
+    # default: every other field here has a value a first run should get, and
+    # there is no position a window has never been at. A default of 0 would be
+    # a real coordinate, so the window would open in the top-left corner on a
+    # clean machine and the code could not tell that from a user who put it
+    # there. The four are read and written independently, so a file with three
+    # of them is a file with three of them — `_remembered_rect` decides what an
+    # incomplete set means, because that is a question about windows.
+    x: int | None = None
+    y: int | None = None
+    width: int | None = None
+    height: int | None = None
+    # Not `None`: a window either is maximised or is not, and a first run's
+    # answer is "not".
+    maximized: bool = False
 
 
 @dataclass(frozen=True)
@@ -203,6 +235,24 @@ def _bounded_int_or_reason(
     return value, None
 
 
+def _bool_or_reason(field: str, value: object) -> tuple[bool | None, str | None]:
+    """A real `true` or `false`, or the reason it was ignored.
+
+    `type(value) is not bool` where `_bounded_int_or_reason` needs the same
+    check for the opposite reason: there a `bool` must not pass as an `int`,
+    here an `int` must not pass as a `bool`. `1` is the value a hand-editor is
+    most likely to write for "yes", and accepting it would mean `0` and `1`
+    round-tripping as `false` and `true` — a file this module rewrites into
+    something the user did not type, which is the objection the float case in
+    `_bounded_int_or_reason` already makes.
+    """
+    if value is None:
+        return None, None
+    if type(value) is not bool:
+        return None, f"{field}: {quoted(value)} is not true or false; using the default"
+    return value, None
+
+
 def load(path: Path) -> LoadResult:
     """Read `path`, or return the defaults and say why.
 
@@ -271,6 +321,13 @@ def load(path: Path) -> LoadResult:
             "number of milliseconds",
         ),
         ("log_max_mib", MIN_LOG_MAX_MIB, MAX_LOG_MAX_MIB, "number of mebibytes"),
+        # Geometry (ADR-0007). Coordinates may be negative — a second monitor
+        # to the left of the primary one is at a negative x, and refusing that
+        # would strand the window of anyone whose desk is arranged that way.
+        ("x", MIN_WINDOW_COORD, MAX_WINDOW_COORD, "coordinate"),
+        ("y", MIN_WINDOW_COORD, MAX_WINDOW_COORD, "coordinate"),
+        ("width", MIN_WINDOW_PX, MAX_WINDOW_PX, "number of pixels"),
+        ("height", MIN_WINDOW_PX, MAX_WINDOW_PX, "number of pixels"),
     ):
         number, reason = _bounded_int_or_reason(
             field, document.get(field), low, high, noun
@@ -279,6 +336,12 @@ def load(path: Path) -> LoadResult:
             reasons.append(reason)
         if number is not None:
             settings = replace(settings, **{field: number})
+
+    maximized, reason = _bool_or_reason("maximized", document.get("maximized"))
+    if reason is not None:
+        reasons.append(reason)
+    if maximized is not None:
+        settings = replace(settings, maximized=maximized)
 
     return LoadResult(settings, reasons[:MAX_REASONS])
 
@@ -301,6 +364,14 @@ def save(path: Path, settings: Settings) -> None:
         "text_scale": settings.text_scale,
         "poll_interval_ms": settings.poll_interval_ms,
         "log_max_mib": settings.log_max_mib,
+        # Written as `null` until the window has been closed once. The key
+        # being present is what tells a reader of the file that geometry is
+        # something this app stores, which an absent key does not.
+        "x": settings.x,
+        "y": settings.y,
+        "width": settings.width,
+        "height": settings.height,
+        "maximized": settings.maximized,
     }
     try:
         text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"

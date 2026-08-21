@@ -30,6 +30,7 @@ CORE_MODULES = [
     "applog.py",
     "configfile.py",
     "controller.py",
+    "placement.py",
     "ports.py",
     "registry.py",
     "scanner.py",
