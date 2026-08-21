@@ -1554,6 +1554,13 @@ module states the correct rule in almost the same words.
 
   ADR-0004 requires managed identity to be "the recorded child PID plus its
   `create_time`". This is neither.
+  Verification status (2026-08-21): **NOT independently confirmed.** This
+  rests on the review lane's quotation and reasoning, which cite real
+  file:line evidence, but the session that filed it did not itself trace
+  `managed` through to an Open-in-browser click. The section intro's "every
+  finding verified" overstates this bullet. **Confirm the mechanism before
+  fixing** — start by checking what `supervisor.running()` actually returns
+  against a project whose port is held by something else.
   **Layman:** The button that opens a project in your browser is supposed to be off unless this app started the server. It can be on for a server the app did not start.
   Kind: security.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
@@ -1574,6 +1581,14 @@ module states the correct rule in almost the same words.
   bound, reporting "still bound by something this manager did not start" —
   false, it is the child this manager started three seconds earlier — and the
   controller discards the new STARTING overlay.
+  Verification status (2026-08-21): **NOT independently confirmed.** The
+  session that filed it did not drive a real Stop against a SIGTERM-ignoring
+  child and then click Start inside the grace window. The lane's reading of
+  the code is quoted and plausible, and the missing counterpart to
+  LWSM-1137's `starting` set is real, but the UI timing half — that the
+  overlay clears and Start re-enables before `stop()` returns — was not
+  observed. **Reproduce first**; `tests/test_supervisor.py` already has a
+  `trap '' TERM` launcher to build on.
   **Layman:** Press Stop on a stubborn server and the Start button comes back before the stop has finished; pressing it starts a second copy, and the app then reports your own new server as a stranger's.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
@@ -1593,6 +1608,15 @@ module states the correct rule in almost the same words.
   project's log, the `.1` backup, or an atomic-write temp file.
   `_rotate_logs`' `except Exception` hides the benign EBADF variant and
   cannot see this one.
+  Verification status (2026-08-21): **NOT independently confirmed, and this
+  is the one most likely to be wrong.** The lane's reasoning is intricate —
+  it needs `rotate_if_needed` to hold `managed.log_fd` past the lock, a
+  concurrent `_reap` to close it, AND the kernel to reissue that exact
+  integer before the `pread`/`ftruncate`. Each step is quoted from real code,
+  but the window was never measured and may be too narrow to hit in practice.
+  **Decide whether it is real before writing a fix**; if it is only
+  theoretical, closing the fd inside the lock is still the cheaper answer
+  than proving the race cannot happen.
   **Layman:** A rare timing collision between rotating a log and stopping a server could blank a different file the app owns.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
@@ -1712,6 +1736,11 @@ module states the correct rule in almost the same words.
   `clear_error()` destroys a message nothing has invalidated. The user this
   hurts is the one switching to a high-contrast theme in order to read it,
   which is the user the theme exists for.
+  Verification status (2026-08-21): **NOT independently confirmed.** The
+  `_rerender` → `update_from` → `clear_error()` path is quoted from real
+  code and reads correctly, but the session that filed it did not show an
+  error on a row and then switch theme to watch it vanish. **One qtbot test
+  settles it** — and that test is worth writing whichever way it comes out.
   **Layman:** If a project fails to start and you switch to the high-contrast theme to read the message, the message disappears.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-3 (window).
@@ -1766,6 +1795,11 @@ module states the correct rule in almost the same words.
 
   Same shape as the `settings.json` finding above and wants the same answer:
   the reader must say whether it fell back, and the writer must refuse.
+  Verification status (2026-08-21): **NOT independently confirmed.** Filed
+  from the lane's reading. It is the same shape as LWSM-1163, which WAS
+  reproduced, so the mechanism is credible — but the specific claim that
+  `_leading_comment_block` falls back on the same input was not tested.
+  Reproduce alongside LWSM-1163's fix; they want one answer.
   **Layman:** If the app cannot read your list of folders to scan, opening Preferences and clicking OK replaces your list with the fallback.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-2 (settings).
@@ -1781,6 +1815,12 @@ module states the correct rule in almost the same words.
   the scan finds nothing there and reports no problem, and the dialog now
   shows a path the user did not choose. A directory name containing a newline
   is worse — one configured root becomes two nonexistent ones.
+  Verification status (2026-08-21): **NOT independently confirmed** — a
+  one-line round-trip check would settle it and was not run. Note this is
+  the lowest-value bullet in FP08: a trailing space in a directory name is
+  rare, and the fix (strip on the way IN, at the chooser) may be worth less
+  than the test that pins it. Decide whether it is worth doing at all before
+  doing it.
   **Layman:** A folder whose name starts or ends with a space silently stops being scanned after you save it.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-2 (settings).
@@ -1809,6 +1849,12 @@ module states the correct rule in almost the same words.
   5. `exited()` says the registry entry "is removed in `_reap`". LWSM-1138
      moved the pop to `stop()`; anyone fixing the self-exit finding above by
      following this comment looks in the wrong function.
+  Verification status (2026-08-21): **items 3 and 4 were confirmed
+  directly** — `Rect("0); evil(); //", 0, 1, 1)` was constructed successfully
+  in a live interpreter, and `_remembered_rect` was grepped and appears
+  nowhere but its own comment. **Items 1, 2 and 5 rest on reading both sides
+  of the contradiction** and were not otherwise checked; they are docstring
+  corrections, so the cost of being wrong is a re-read rather than a bad fix.
   **Layman:** Five comments explain how something works and are now out of date, which would mislead the next person who reads them.
   Kind: doc-fix.
   Source: close-phase-2026-08-21 lanes 1 and 4.
