@@ -43,6 +43,7 @@ from lwsm.applog import (
     get_logger,
 )
 from lwsm.ports import ProbeError, SupportsSnapshot
+from lwsm.settings import DEFAULT_LOG_MAX_MIB
 
 log = get_logger(__name__)
 
@@ -84,7 +85,10 @@ KILL_TIMEOUT_SECONDS = 2.0
 POLL_INTERVAL_SECONDS = 0.02
 
 # `docs/design.md § Observability`: 5 MB with one rotation.
-MAX_LOG_BYTES = 5 * 1024 * 1024
+# The DEFAULT cap, aliased from `settings.py` so the settings file's default
+# and this one cannot drift (LWSM-1018). The cap actually enforced is
+# `Supervisor.max_log_bytes`, which starts here and follows the user's choice.
+MAX_LOG_BYTES = DEFAULT_LOG_MAX_MIB * 1024 * 1024
 ROTATION_SUFFIX = ".1"
 _COPY_CHUNK_BYTES = 1 << 20
 
@@ -476,6 +480,11 @@ class Supervisor:
     ) -> None:
         self._probe = probe
         self._log_dir = Path(log_dir) if log_dir is not None else None
+        # Public and mutable, like `trust` beside it: the settings dialog
+        # changes it while servers are running, and `rotate_if_needed` reads it
+        # once per poll, so a new cap applies on the next tick with no restart
+        # (LWSM-1018).
+        self.max_log_bytes = MAX_LOG_BYTES
         self.trust = trust if trust is not None else TrustStore()
         self._clock = clock or time.monotonic
         self._sleep = sleep or time.sleep
@@ -537,7 +546,7 @@ class Supervisor:
         return fd
 
     def rotate_if_needed(self, project: Path) -> bool:
-        """One rotation at `MAX_LOG_BYTES`, keeping the inode.
+        """One rotation at `max_log_bytes`, keeping the inode.
 
         Copy-then-truncate rather than rename, because the child holds a
         *duplicate* of this descriptor: renaming the file would leave it writing
@@ -549,7 +558,7 @@ class Supervisor:
         if managed is None:
             return False
         size = os.fstat(managed.log_fd).st_size
-        if size <= MAX_LOG_BYTES:
+        if size <= self.max_log_bytes:
             return False
 
         backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)

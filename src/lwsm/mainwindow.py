@@ -11,7 +11,7 @@ name, keyboard reachability, its state as text, and a layout that reflows.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -1265,7 +1265,12 @@ class MainWindow(QMainWindow):
             )
 
     def _settings_unavailable(self) -> None:
-        """The honest default until LWSM-1018 lands the dialog.
+        """What Preferences does when no opener was injected.
+
+        LWSM-1018 landed the dialog, so the real application never reaches
+        this — `build_window` always passes `open_settings`. It remains the
+        default because a window built without one still has the menu entry,
+        which is every `MainWindow` test that does not care about settings.
 
         Chosen over a disabled entry: an entry that does nothing when chosen
         is indistinguishable from a broken one, and a greyed one says nothing
@@ -1274,6 +1279,30 @@ class MainWindow(QMainWindow):
         self.set_status_message(
             QCoreApplication.translate(_TR_CONTEXT, "Settings are not available yet.")
         )
+
+    def scan_roots(self) -> tuple[Path, ...]:
+        """The folders a Rescan walks, or none when there is nothing to rescan.
+
+        An accessor naming the contract rather than exposure of `_rescan`:
+        what the settings dialog needs is the list of folders, not the window's
+        rescan plumbing (LWSM-1018).
+        """
+        return self._rescan.roots if self._rescan is not None else ()
+
+    def set_scan_roots(self, roots: Sequence[Path]) -> None:
+        """Point future rescans at a new list, without rebuilding the window.
+
+        `RescanContext` is frozen, so this REPLACES it rather than mutating it
+        — which is also what keeps the injected `scan`, `now` and `save` seams a
+        test supplied.
+
+        A window with no context stays without one. No roots is not the same as
+        no way to rescan, and inventing a context here would put an enabled
+        Rescan control in front of a window built deliberately without one —
+        the rule `_build_menus` already follows.
+        """
+        if self._rescan is not None:
+            self._rescan = replace(self._rescan, roots=tuple(roots))
 
     def _set_rescan_enabled(self, enabled: bool) -> None:
         """The button and the menu entry are one control with two faces."""

@@ -3653,7 +3653,7 @@ is the contract.
   Priority: 2.
   Lanes: ui, core, tests.
 
-- 📋 [LWSM-1018] **P09: settings dialog.**
+- ✅ [LWSM-1018] **P09: settings dialog.**
   Edits scan roots, poll
   interval, slow-start threshold, log-buffer size and tray behaviour, all
   persisted to `settings.json` with its own `schema_version`.
@@ -3678,6 +3678,37 @@ is the contract.
   Asked because the status header and this bullet disagreed on the phase,
   and the answer changes both the commit prefix and the scope. Not an
   open question any more; do not re-ask it.
+  Resolved (2026-08-21). Shipped as THREE fields, not the four
+  filed, and both absences were settled with the user rather than
+  dropped quietly.
+
+  Scan roots stay in the `scan-roots` file (LWSM-1144); the dialog
+  edits that file in place. Copying them into settings.json would
+  have bought a migration and a second owner for no user-visible
+  gain, and LWSM-1144's own docstring already said this item owned
+  the UI while that file was the setting.
+
+  There is no slow-start threshold, and there cannot be one:
+  ADR-0004 § Slowness is not failure deleted the 15-second
+  `starting` deadline on 2026-08-03, on the measured evidence of a
+  healthy project that takes about 40 seconds to bind. A setting
+  for it would re-introduce the defect that ADR reversed.
+
+  Poll interval and log cap live in settings.json and both apply
+  WITHOUT a restart — QTimer.setInterval is honoured on a live
+  timer, and rotate_if_needed re-reads Supervisor.max_log_bytes
+  each poll. settings.py owns both defaults; controller and
+  supervisor alias them, so the file's default and the code's
+  default cannot drift.
+
+  New module src/lwsm/settingsdialog.py, wired through the
+  open_settings seam LWSM-1146 left for it, so mainwindow needed
+  only two accessors. 1013 tests (was 971), local-ci.sh green.
+
+  Ten mutants run, nine killed. The survivor was worth more than
+  the kills: a redundant bottom-up sort in _remove_roots, inert
+  because the row is looked up fresh on each pass. Removed, and
+  the real stale-index defect shape is killed by the same test.
 
 - 📋 [LWSM-1053] **P09: decide whether an unattended start may open a browser.**
   A sibling's launcher may open the user's browser on

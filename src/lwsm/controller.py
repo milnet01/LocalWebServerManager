@@ -21,6 +21,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
 from lwsm.registry import ProjectRecord
+from lwsm.settings import DEFAULT_POLL_INTERVAL_MS
 from lwsm.supervisor import (
     LauncherUntrusted,
     ManagedProcess,
@@ -30,7 +31,11 @@ from lwsm.supervisor import (
 
 log = logging.getLogger(__name__)
 
-POLL_INTERVAL_MS = 1000
+# An alias, not a second constant: `settings.py` owns the value so the file's
+# default and the code's default cannot drift (LWSM-1018). The name stays
+# because two test modules import it, and because "the interval a controller
+# polls at" is what a reader of this module is looking for.
+POLL_INTERVAL_MS = DEFAULT_POLL_INTERVAL_MS
 
 # How long stop() will wait for an outstanding probe before giving up on it.
 # Measured probe time on this machine is 33.4 ms mean over 10 calls, so this is
@@ -605,6 +610,17 @@ class ProjectController(QObject):
             for record in records
         }
         self.projects_changed.emit()
+
+    def set_poll_interval_ms(self, interval_ms: int) -> None:
+        """Change the poll cadence, taking effect without a restart (LWSM-1018).
+
+        `QTimer.setInterval` is honoured on a running timer, so there is no
+        stop/start dance and no lost tick. It is deliberately NOT clamped here:
+        `settings._bounded_int_or_reason` refuses a value outside the range
+        before it is ever stored, and a second, silent clamp at the point of
+        use would turn a rejected setting into one that appears to work.
+        """
+        self._timer.setInterval(interval_ms)
 
     def start_polling(self) -> None:
         # Poll immediately rather than leaving the window blank for a second.

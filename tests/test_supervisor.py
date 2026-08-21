@@ -1036,3 +1036,37 @@ def test_two_concurrent_stops_close_the_log_descriptor_once(
     assert sum(1 for outcome in outcomes if outcome.terminated) == 1
     assert sum(1 for outcome in outcomes if not outcome.terminated) == 1
     assert supervisor.running() == {}
+
+
+# --- LWSM-1018: the log cap is a setting ---------------------------------------
+
+
+def test_a_lowered_log_cap_rotates_a_file_the_default_would_have_kept(
+    supervisor, project
+) -> None:
+    """The cap actually enforced is the instance's, not the module constant.
+
+    The size written here is far BELOW `MAX_LOG_BYTES` and above the lowered
+    cap, which is the whole point: against a `rotate_if_needed` still reading
+    the module constant this file is comfortably under the limit and nothing
+    rotates. A test that lowered the cap and then wrote `MAX_LOG_BYTES + 1`
+    bytes would pass either way and prove nothing.
+
+    Dies on reverting `self.max_log_bytes` to `MAX_LOG_BYTES` in
+    `rotate_if_needed`.
+    """
+    lowered = 4096
+    assert lowered < MAX_LOG_BYTES, "the point of this test is a cap below the default"
+
+    write_launcher(project, "sleep 30\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+    supervisor.max_log_bytes = lowered
+    os.pwrite(managed.log_fd, b"x" * (lowered + 1), 0)
+
+    assert supervisor.rotate_if_needed(project) is True
+    rotated = managed.log_path.with_name(managed.log_path.name + ".1")
+    assert rotated.exists(), "the lowered cap was ignored"
+    assert managed.log_path.stat().st_size <= lowered
+    supervisor.stop(project)

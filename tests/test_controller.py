@@ -1592,3 +1592,31 @@ def test_a_log_that_cannot_be_rotated_does_not_stop_the_poll(
     )
     assert probe.calls == 1, "the tick's probe never ran"
     assert "could not rotate the log" in caplog.text
+
+
+# --- LWSM-1018: the poll cadence is a setting ----------------------------------
+
+
+def test_the_poll_interval_changes_without_stopping_the_timer(controllers) -> None:
+    """A new cadence applies to a running poll loop, with no restart.
+
+    The second assertion is the one with teeth. `QTimer.setInterval` is honoured
+    on a live timer, so the correct implementation is one line — but a
+    stop/setInterval/start version looks equally plausible and silently stops
+    polling for good if the restart is ever dropped. Asserting only the interval
+    would pass against that.
+
+    Dies on replacing the body with `pass`, and on a stop-without-restart.
+    """
+    from lwsm.controller import POLL_INTERVAL_MS
+
+    controller = build(controllers, [], FakeProbe())
+    controller.start_polling()
+
+    assert controller._timer.interval() == POLL_INTERVAL_MS
+    assert controller._timer.isActive()
+
+    controller.set_poll_interval_ms(5000)
+
+    assert controller._timer.interval() == 5000
+    assert controller._timer.isActive(), "changing the cadence stopped the poll loop"

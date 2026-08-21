@@ -539,3 +539,185 @@ def test_saving_one_setting_does_not_reset_the_other(
 
     stored = load_settings(default_settings_path()).settings
     assert (stored.theme, stored.text_scale) == ("parchment", 175)
+
+
+# --- LWSM-1018: the scan-roots file the dialog edits ---------------------------
+
+
+def test_written_roots_are_read_back_in_order(tmp_path) -> None:
+    """The writer and the reader agree, including on order.
+
+    Order is the walk order, so a writer that sorted would silently change
+    which of two overlapping roots claims a project.
+    """
+    from lwsm.__main__ import default_scan_roots, save_scan_roots
+
+    config = tmp_path / "scan-roots"
+    roots = (Path("/srv/z-last"), Path("/srv/a-first"))
+
+    save_scan_roots(roots, config)
+
+    assert default_scan_roots(config) == roots
+
+
+def test_the_users_own_header_survives_a_save(tmp_path) -> None:
+    """LWSM-1144 put comments in this file so it can explain itself.
+
+    A dialog that erased them the first time it saved would take that away
+    without asking. Dies on dropping `_leading_comment_block`.
+    """
+    from lwsm.__main__ import default_scan_roots, save_scan_roots
+
+    config = tmp_path / "scan-roots"
+    config.write_text(
+        "# my machine keeps projects in two places\n\n/srv/one\n",
+        encoding="utf-8",
+    )
+
+    save_scan_roots((Path("/srv/two"),), config)
+
+    text = config.read_text(encoding="utf-8")
+    assert "# my machine keeps projects in two places" in text
+    assert default_scan_roots(config) == (Path("/srv/two"),)
+
+
+def test_a_comment_between_roots_is_not_kept_and_that_is_the_contract(
+    tmp_path,
+) -> None:
+    """The stated loss, pinned so it stays a decision rather than a surprise.
+
+    Keeping an interleaved comment would mean deciding which surviving
+    directory it belonged to, and one silently re-attached to the wrong line is
+    worse than one that is gone. If this test is ever changed, the docstring on
+    `save_scan_roots` has to change with it.
+    """
+    from lwsm.__main__ import save_scan_roots
+
+    config = tmp_path / "scan-roots"
+    config.write_text("/srv/one\n# about the next one\n/srv/two\n", encoding="utf-8")
+
+    save_scan_roots((Path("/srv/one"), Path("/srv/two")), config)
+
+    assert "# about the next one" not in config.read_text(encoding="utf-8")
+
+
+def test_a_file_we_create_explains_itself(tmp_path) -> None:
+    """A config file with no header is one the next reader has to guess at."""
+    from lwsm.__main__ import default_scan_roots, save_scan_roots
+
+    config = tmp_path / "scan-roots"
+
+    save_scan_roots((Path("/srv/one"),), config)
+
+    text = config.read_text(encoding="utf-8")
+    assert text.startswith("#")
+    assert default_scan_roots(config) == (Path("/srv/one"),)
+
+
+# --- LWSM-1018: the dialog reaches the running app ----------------------------
+
+
+@pytest.mark.gui
+def test_stored_numbers_are_applied_at_startup(qtbot, tmp_path, monkeypatch) -> None:
+    """A setting nothing reads is a setting that does not exist.
+
+    LWSM-1136 is this project's record of what that looks like: a log cap that
+    was implemented, unit-tested and green, and called by nothing outside its
+    own test. So this drives `build_window` — the real caller — rather than
+    asserting that the setters work.
+
+    Dies on removing either apply line from `build_window`.
+    """
+    config = tmp_path / "config" / "localwebservermanager"
+    config.mkdir(parents=True)
+    (config / "settings.json").write_text(
+        '{"schema_version": 1, "poll_interval_ms": 4000, "log_max_mib": 32}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        assert controller._timer.interval() == 4000
+        assert controller._supervisor.max_log_bytes == 32 * 1024 * 1024
+    finally:
+        controller.stop()
+
+
+@pytest.mark.gui
+def test_accepting_the_dialog_applies_and_persists_every_field(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """The whole seam, end to end, without a modal that would hang the run.
+
+    `exec` and `values` are patched because a real `exec()` blocks the event
+    loop with nothing to click it. What is NOT patched is everything this test
+    is about: reading the current values, applying them to the live controller
+    and supervisor, and writing both files.
+
+    Dies on dropping `open_settings=` from the `MainWindow` call, on either
+    apply line, and on either save.
+    """
+    from lwsm.__main__ import default_scan_roots
+    from lwsm.settings import default_settings_path
+    from lwsm.settings import load as load_settings
+    from lwsm.settingsdialog import SettingsDialog
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    chosen_root = tmp_path / "elsewhere"
+    chosen_root.mkdir()
+
+    monkeypatch.setattr(
+        SettingsDialog, "exec", lambda self: SettingsDialog.DialogCode.Accepted
+    )
+    monkeypatch.setattr(
+        SettingsDialog, "values", lambda self: ((chosen_root,), 3000, 32)
+    )
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window._open_settings()
+
+        # Applied to what is running now.
+        assert controller._timer.interval() == 3000
+        assert controller._supervisor.max_log_bytes == 32 * 1024 * 1024
+        assert window.scan_roots() == (chosen_root,)
+
+        # And remembered, in the two files that own them.
+        stored = load_settings(default_settings_path()).settings
+        assert stored.poll_interval_ms == 3000
+        assert stored.log_max_mib == 32
+        assert default_scan_roots() == (chosen_root,)
+    finally:
+        controller.stop()
+
+
+@pytest.mark.gui
+def test_cancelling_the_dialog_changes_nothing(qtbot, tmp_path, monkeypatch) -> None:
+    """Reject must not apply, and must not write.
+
+    Dies on dropping the `!= Accepted` early return.
+    """
+    from lwsm.settingsdialog import SettingsDialog
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(
+        SettingsDialog, "exec", lambda self: SettingsDialog.DialogCode.Rejected
+    )
+    monkeypatch.setattr(
+        SettingsDialog, "values", lambda self: ((Path("/never"),), 9999, 999)
+    )
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        before = controller._timer.interval()
+
+        window._open_settings()
+
+        assert controller._timer.interval() == before
+        assert window.scan_roots() != (Path("/never"),)
+    finally:
+        controller.stop()

@@ -6,6 +6,7 @@ Both name `run()`, not `main()`. See `run()` for why the two are separate.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -38,6 +39,7 @@ def build_window(
     so the app died with a traceback and no window — the guard was there and
     unreachable (LWSM-1116). Tests still pass a path explicitly.
     """
+    from lwsm.configfile import ConfigFileError
     from lwsm.controller import ProjectController
     from lwsm.mainwindow import MainWindow, RescanContext
     from lwsm.ports import PortProbe
@@ -91,6 +93,8 @@ def build_window(
     # directory trades a caught RegistryError for a NameError.
     theme_id = Settings().theme
     text_scale = Settings().text_scale
+    poll_interval_ms = Settings().poll_interval_ms
+    log_max_mib = Settings().log_max_mib
     try:
         settings_path = default_settings_path()
     except RegistryError as exc:
@@ -99,6 +103,8 @@ def build_window(
         chosen = load_settings(settings_path)
         theme_id = chosen.settings.theme
         text_scale = chosen.settings.text_scale
+        poll_interval_ms = chosen.settings.poll_interval_ms
+        log_max_mib = chosen.settings.log_max_mib
         for reason in chosen.reasons:
             log.warning("settings: %s", reason)
             notices.append(reason)
@@ -132,6 +138,54 @@ def build_window(
     def save_text_scale(percent: int) -> None:
         save_field(text_scale=percent)
 
+    def open_settings() -> None:
+        """Preferences (LWSM-1018), applied without a restart.
+
+        Built here rather than in `MainWindow` because this is the only scope
+        where BOTH config files and BOTH live objects are in reach: the window
+        holds neither the controller's timer nor the supervisor's log cap, and
+        scan roots are not in `settings.json` at all. That is what the
+        `open_settings` seam was left for (LWSM-1146).
+
+        `window` is read before it is assigned below, which is deliberate and
+        safe: this runs on a menu trigger, long after `build_window` returned.
+        """
+        from lwsm.settingsdialog import SettingsDialog
+
+        current = (
+            Settings()
+            if settings_path is None
+            else load_settings(settings_path).settings
+        )
+        dialog = SettingsDialog(
+            roots=window.scan_roots(),
+            poll_interval_ms=current.poll_interval_ms,
+            log_max_mib=current.log_max_mib,
+            parent=window,
+        )
+        if dialog.exec() != SettingsDialog.DialogCode.Accepted:
+            return
+        roots, poll_ms, log_mib = dialog.values()
+
+        # Applied BEFORE the save, and applied even if the save then fails. A
+        # setting the user can watch working is worth more than one that only
+        # reached a file they cannot see, and the failure is reported either
+        # way. Both take effect on the next tick: the timer honours a new
+        # interval while running, and `rotate_if_needed` re-reads the cap.
+        controller.set_poll_interval_ms(poll_ms)
+        supervisor.max_log_bytes = log_mib * 1024 * 1024
+        window.set_scan_roots(roots)
+
+        try:
+            save_field(poll_interval_ms=poll_ms, log_max_mib=log_mib)
+            save_scan_roots(roots)
+        except (ConfigFileError, OSError, RuntimeError) as exc:
+            # One handler for both files rather than two, because the user's
+            # question is the same either way: was this remembered? Which file
+            # refused is in the message, since `ConfigFileError` carries the
+            # path.
+            window.set_status_message(f"Settings could not be saved: {exc}")
+
     probe = PortProbe()
     # One probe for both jobs: the poll classifies from it, and the supervisor's
     # pre-flight check asks the same socket table rather than opening a second
@@ -154,7 +208,14 @@ def build_window(
         save_theme=save_theme,
         text_scale=text_scale,
         save_text_scale=save_text_scale,
+        open_settings=open_settings,
     )
+    # The stored choices, applied once at startup. `Supervisor` and
+    # `ProjectController` default to the same values `settings.py` does, so a
+    # first run with no file is already correct and this only moves anything
+    # when the user has chosen something.
+    controller.set_poll_interval_ms(poll_interval_ms)
+    supervisor.max_log_bytes = log_max_mib * 1024 * 1024
     if error is not None:
         window.set_status_message(error)
     # Still polls with zero records: INV-5's zero-record case depends on it.
@@ -164,6 +225,82 @@ def build_window(
 
 SCAN_ROOTS_FILENAME = "scan-roots"
 """The file that lists the directories to scan, beside `projects.json`."""
+
+
+SCAN_ROOTS_HEADER = (
+    "# Directories to scan for projects, one per line.\n"
+    "# Blank lines and lines starting with # are ignored.\n"
+)
+"""What a file this app wrote says about itself, when the user wrote nothing."""
+
+
+def scan_roots_path(config: Path | None = None) -> Path:
+    """The one expression for where the scan-roots file lives.
+
+    Extracted so the reader below and `save_scan_roots` cannot end up pointing
+    at different files — the rule `settings.default_settings_path` follows for
+    the same reason, and the failure it prevents is a dialog that appears to
+    save and a scan that keeps using the old list.
+
+    Raises whatever `default_projects_path` raises; both callers handle it,
+    differently, which is why it is not caught here.
+    """
+    if config is not None:
+        return config
+    # Imported here rather than at module scope for `build_window`'s reason:
+    # `--version` must not need any of it.
+    from lwsm.registry import default_projects_path
+
+    return default_projects_path().parent / SCAN_ROOTS_FILENAME
+
+
+def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
+    """Write the scan-roots file, keeping what the user wrote at the top.
+
+    **Only the LEADING comment block survives** — every comment and blank line
+    before the first directory. Comments interleaved between directories are
+    not kept, and that is a stated loss rather than an oversight: keeping one
+    would mean deciding which surviving directory it belonged to, and a comment
+    silently re-attached to the wrong line is worse than one that is gone.
+    LWSM-1144 put comments in this file so it "can explain itself", and a
+    header is what that means in practice.
+
+    Atomic, through the same writer `projects.json` and `settings.json` use, so
+    a third config file cannot grow a third and subtly different write path.
+    (`write_json_atomically` takes bytes; only its name is about JSON.)
+
+    Raises `ConfigFileError` — or whatever `scan_roots_path` raises — when there
+    is nowhere to write, for `save_field`'s reason: a change that silently will
+    not be remembered is worse than one that says so.
+    """
+    from lwsm.configfile import write_json_atomically
+
+    path = scan_roots_path(config)
+    body = "".join(f"{root}\n" for root in roots)
+    data = (_leading_comment_block(path) + body).encode("utf-8")
+    write_json_atomically(path, data, prefix=".scan-roots-")
+
+
+def _leading_comment_block(path: Path) -> str:
+    """The file's own header, or ours if it has none we can read.
+
+    Read through `read_bounded` rather than `Path.read_text`: this runs against
+    a path the user controls, and that helper is where the FIFO-blocks-forever
+    and the read-600 MB-into-memory cases are already closed.
+    """
+    from lwsm.configfile import ConfigFileError, read_bounded
+
+    try:
+        text = read_bounded(path).decode("utf-8")
+    except (OSError, UnicodeDecodeError, ConfigFileError):
+        return SCAN_ROOTS_HEADER
+
+    kept: list[str] = []
+    for line in text.splitlines():
+        if line.strip() and not line.lstrip().startswith("#"):
+            break
+        kept.append(line)
+    return "".join(f"{line}\n" for line in kept) or SCAN_ROOTS_HEADER
 
 
 def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
@@ -181,8 +318,10 @@ def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
     shows an empty window with no indication that the *location* is the
     problem. That is not a missing feature — every part of the app behind it
     works — so the cheapest thing that makes it usable is a way to say where to
-    look. The settings dialog (LWSM-1018) still owns the UI; until it exists,
-    THIS FILE IS THE SETTING.
+    look. **This file is still the setting now that the dialog exists**
+    (LWSM-1018): the dialog edits it through `save_scan_roots` rather than
+    copying the roots into `settings.json`, so there is one owner and no
+    migration. Settled with the user 2026-08-21.
 
     Format is one directory per line. Blank lines and lines whose first
     non-space character is `#` are ignored, so the file can explain itself.
@@ -201,10 +340,10 @@ def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
         # Imported here rather than at module scope for `build_window`'s
         # reason: the entry point resolves paths inside the handler that can
         # report them, and `--version` must not need any of it.
-        from lwsm.registry import RegistryError, default_projects_path
+        from lwsm.registry import RegistryError
 
         try:
-            config = default_projects_path().parent / SCAN_ROOTS_FILENAME
+            config = scan_roots_path()
         except (OSError, RuntimeError, RegistryError):
             # `RegistryError` is the one that actually fires, and it is not an
             # OSError: `default_projects_path` has wrapped "there is no home

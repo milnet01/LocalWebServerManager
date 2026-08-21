@@ -658,8 +658,33 @@ built under § Review cadence's build-first default:
   a `finally`: one that only ran on success would turn a single refused start
   into a project that can never start again this session.
 
+Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
+
+- **`src/lwsm/settingsdialog.py`** — UI layer. `SettingsDialog`,
+  `keyboard_focus_order`. **It edits three fields, not the four the bullet
+  filed**, and both absences were settled with the user (2026-08-21) rather
+  than dropped: *scan roots* stay in the `scan-roots` file (LWSM-1144) and the
+  dialog edits that file in place, because copying them into `settings.json`
+  buys a migration and a second owner for no user-visible gain; and there is no
+  *slow-start threshold* to configure, because ADR-0004 § Slowness is not
+  failure deleted the 15-second `starting` deadline on measured evidence, so a
+  setting for it would re-introduce the defect that ADR reversed.
+  **The dialog owns no I/O** — it is handed values and returns values, and
+  `build_window` is the only scope where both config files and both live
+  objects are in reach, which is what the `open_settings` seam was left for
+  (LWSM-1146). `choose_directory` is the sixth injected seam, for `confirm`'s
+  reason: a real `QFileDialog` in a test hangs the run.
+  **Both numbers apply without a restart** — `QTimer.setInterval` is honoured
+  on a live timer, and `rotate_if_needed` re-reads `Supervisor.max_log_bytes`
+  each poll. `settings.py` owns both defaults and `controller.POLL_INTERVAL_MS`
+  / `supervisor.MAX_LOG_BYTES` are aliases of them, so the file's default and
+  the code's default cannot drift.
+  **A saved scan-roots file keeps the user's LEADING comment block and loses
+  interleaved ones** — a stated loss, pinned by a test: re-attaching a comment
+  to the wrong surviving line is worse than dropping it.
+
 Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
-`test_settings.py`,
+`test_settings.py`, `test_settingsdialog.py`,
 `test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
 `test_layering.py`, `test_scanner.py`, `test_supervisor.py`,
 `test_ci_contract.py` (the gate's own contract — that `ci.yml` adds no

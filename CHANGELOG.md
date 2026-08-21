@@ -23,6 +23,12 @@ signaling per
 
 ### Added
 
+- **A Preferences dialog for the folders to scan, how often to check, and how much log to keep** (LWSM-1018)
+  Reachable from Settings → Preferences. All three take effect
+  immediately — no restart. The folder list is still the
+  `scan-roots` file you could already edit by hand, and saving
+  keeps any comments you wrote at the top of it.
+
 - **Make the text bigger from inside the app — Settings > Text size, 100 % to 200 %, remembered between runs (LWSM-1032)**
   Five steps, applied to the desktop's own font rather than replacing
   it, so a machine already set to large text stays large and gets

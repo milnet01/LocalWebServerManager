@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -244,6 +245,11 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
         # This is the one place the whole document shape is asserted, so a
         # field added without a decision about that lands here as a failure.
         "text_scale": 100,
+        # LWSM-1018's two. Scan roots are deliberately NOT here: they stay in
+        # the `scan-roots` file (LWSM-1144), and this assertion is what would
+        # catch someone quietly copying them in.
+        "poll_interval_ms": 1000,
+        "log_max_mib": 5,
     }
 
 
@@ -318,3 +324,123 @@ def test_a_bad_text_scale_does_not_cost_the_theme(tmp_path: Path) -> None:
     assert result.settings.theme == "graphite"
     assert result.settings.text_scale == 100
     assert len(result.reasons) == 1
+
+
+# --- LWSM-1018's two numbers --------------------------------------------------
+#
+# Parametrised over BOTH fields rather than written once for one of them. The
+# code branches on a closed set of bounded integers, and CLAUDE.md's
+# one-row-fixture trap is explicit that a closed set needs a fixture per member:
+# a helper that read the wrong bound for one field would otherwise pass.
+
+BOUNDED = [
+    ("poll_interval_ms", settings.MIN_POLL_INTERVAL_MS, settings.MAX_POLL_INTERVAL_MS),
+    ("log_max_mib", settings.MIN_LOG_MAX_MIB, settings.MAX_LOG_MAX_MIB),
+]
+
+
+@pytest.mark.parametrize(("field", "low", "high"), BOUNDED)
+def test_a_bounded_number_survives_a_round_trip(
+    tmp_path: Path, field: str, low: int, high: int
+) -> None:
+    """Saved, re-read, and the same value comes back with no complaint."""
+    path = tmp_path / "settings.json"
+    chosen = high - 1
+
+    settings.save(path, replace(Settings(), **{field: chosen}))
+    result = settings.load(path)
+
+    assert getattr(result.settings, field) == chosen
+    assert result.reasons == []
+
+
+@pytest.mark.parametrize(("field", "low", "high"), BOUNDED)
+@pytest.mark.parametrize("offset", [-1, 1], ids=["below", "above"])
+def test_a_number_outside_its_range_is_refused_with_a_reason(
+    tmp_path: Path, field: str, low: int, high: int, offset: int
+) -> None:
+    """Both ends, because a one-sided bound is a bound nobody checked.
+
+    Dies on widening either comparison in `_bounded_int_or_reason` to `<`/`>`.
+    """
+    out_of_range = low - 1 if offset < 0 else high + 1
+    path = write(
+        tmp_path / "settings.json",
+        {
+            "schema_version": settings.SCHEMA_VERSION,
+            field: out_of_range,
+        },
+    )
+
+    result = settings.load(path)
+
+    assert getattr(result.settings, field) == getattr(Settings(), field)
+    assert any(field in reason and "outside" in reason for reason in result.reasons), (
+        f"{field}={out_of_range} was defaulted with no reason saying why"
+    )
+
+
+@pytest.mark.parametrize(("field", "low", "high"), BOUNDED)
+@pytest.mark.parametrize("value", [True, 1.5, "1000", None, [], {}], ids=str)
+def test_a_number_that_is_not_a_whole_number_is_refused(
+    tmp_path: Path, field: str, low: int, high: int, value: object
+) -> None:
+    """`True` and `1.5` are the two that matter, and both are live cases.
+
+    `isinstance(True, int)` is True and `json.loads` produces a real `bool`, so
+    without the `type(...) is int` check `true` reads as 1 — inside no range
+    here, but the complaint the user would get names a number nobody wrote. A
+    float is refused rather than rounded, because a value `save()` cannot
+    round-trip is one it would silently rewrite under a user who hand-edited it.
+
+    `None` is the exception and is asserted as such: a missing key and an
+    explicit `null` both mean "not set", so neither earns a reason.
+    """
+    path = write(
+        tmp_path / "settings.json",
+        {
+            "schema_version": settings.SCHEMA_VERSION,
+            field: value,
+        },
+    )
+
+    result = settings.load(path)
+
+    assert getattr(result.settings, field) == getattr(Settings(), field)
+    if value is None:
+        assert result.reasons == [], "an explicit null is not a refusal"
+    else:
+        assert any(field in reason for reason in result.reasons)
+
+
+@pytest.mark.parametrize(("field", "low", "high"), BOUNDED)
+def test_a_bad_field_keeps_every_other_field(
+    tmp_path: Path, field: str, low: int, high: int
+) -> None:
+    """One unusable value must not drag the rest back to their defaults.
+
+    This is `registry`'s rule — a bad port loses the field, not the row —
+    applied to the settings file. Dies on any `return LoadResult(Settings(), ...)`
+    added to the per-field loop.
+    """
+    document: dict[str, object] = {
+        "schema_version": settings.SCHEMA_VERSION,
+        "theme": "graphite",
+        "text_scale": 150,
+        field: "not a number",
+    }
+    for name, name_low, _ in BOUNDED:
+        if name != field:
+            document[name] = name_low
+    path = write(tmp_path / "settings.json", document)
+
+    result = settings.load(path)
+
+    assert result.settings.theme == "graphite", "a bad number lost the theme"
+    assert result.settings.text_scale == 150, "a bad number lost the text scale"
+    for name, name_low, _ in BOUNDED:
+        if name != field:
+            assert getattr(result.settings, name) == name_low, (
+                f"a bad {field} lost {name}"
+            )
+    assert len(result.reasons) == 1, result.reasons

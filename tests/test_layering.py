@@ -42,7 +42,13 @@ CORE_MODULES = [
 # only the two UI modules, so anything deriving from it pulled in
 # `__main__.py`, which imports QtWidgets **by design** — and would redden
 # `test_core_never_imports_qtwidgets` on the day the derivation landed.
-NON_CORE_MODULES = {"mainwindow.py", "theme.py", "__main__.py", "__init__.py"}
+NON_CORE_MODULES = {
+    "mainwindow.py",
+    "settingsdialog.py",
+    "theme.py",
+    "__main__.py",
+    "__init__.py",
+}
 
 # theme.py is the token DEFINITION site, so the palette's values necessarily
 # live there. § O7's rule is about widget code, and this allowlist is explicit

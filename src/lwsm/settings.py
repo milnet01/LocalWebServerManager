@@ -3,11 +3,17 @@
 Core module — may import QtCore, never QtWidgets (`docs/standards/coding.md
 § O1`). No Qt at all, like `ports.py` and `scanner.py`.
 
-**LWSM-1031 opens this file; LWSM-1018 grows it.** That item owns the settings
-dialog and names scan roots, poll interval, slow-start threshold, log-buffer
-size and tray behaviour as its fields. This one adds the single field the theme
-layer needs and the `schema_version` LWSM-1018's contract already promises, so
-what lands later is a field per row rather than a file format.
+**LWSM-1031 opened this file; LWSM-1018 grew it**, and the growth was a field
+per row rather than a file format, which is what that split was for.
+
+**Two of LWSM-1018's four filed fields are not here, and neither is missing.**
+*Scan roots* live in the `scan-roots` file beside this one (LWSM-1144) and stay
+there — the dialog edits that file, so there is one owner rather than a copy
+and a migration. And there is no *slow-start threshold* to store: ADR-0004
+§ Slowness is not failure deleted the 15-second `starting` deadline on
+2026-08-03, on the measured evidence of a healthy project that takes about 40
+seconds to bind, so a setting for it would re-introduce the defect that ADR
+reversed. Both settled with the user on 2026-08-21.
 
 **A bad settings file must never cost the user a window.** That is the one rule
 that separates this module from `registry.py`: a project list nobody can parse
@@ -68,6 +74,31 @@ THEME_ID_CHARSET = re.compile(r"\A[A-Za-z0-9_-]+\Z")
 MIN_TEXT_SCALE = 100
 MAX_TEXT_SCALE = 200
 
+# How often the controller re-reads the socket table (LWSM-1018). This module
+# owns the value and `controller.POLL_INTERVAL_MS` is an alias for it, rather
+# than the other way round: `controller` imports QtCore and this one may not
+# import `controller` back (`coding.md § O1`), so the settings file's default
+# and the code's default can only be ONE constant if it lives here.
+#
+# The floor is not a taste. Measured probe time is 33.4 ms mean over 10 calls
+# (`controller.STOP_WAIT_MS` records the measurement), so 250 ms leaves about
+# 7x headroom; below that the app spends its time asking the kernel who holds
+# which port. The ceiling is a minute, past which the display is stale enough
+# that a user would read it as broken rather than as slow.
+DEFAULT_POLL_INTERVAL_MS = 1000
+MIN_POLL_INTERVAL_MS = 250
+MAX_POLL_INTERVAL_MS = 60_000
+
+# The cap each managed server's log is held to, in MEBIBYTES rather than bytes
+# (LWSM-1018). The unit is the whole reason this field is not
+# `supervisor.MAX_LOG_BYTES` spelled out: the dialog edits whole units, and a
+# byte count a spinbox cannot express is one the next `save()` would silently
+# round — which is the defect `_bounded_int_or_reason` refuses floats over.
+# A user who writes 5 gets 5 back.
+DEFAULT_LOG_MAX_MIB = 5
+MIN_LOG_MAX_MIB = 1
+MAX_LOG_MAX_MIB = 1024
+
 # The same bound `registry.MAX_REASONS` exists for, at the size this file is.
 # A settings file has a fixed, small set of fields, so anything past a handful
 # of complaints is a hostile file rather than a typo.
@@ -85,6 +116,10 @@ class Settings:
     theme: str = DEFAULT_THEME
     # A percentage, 100-200. See MIN_TEXT_SCALE on why it is not a point size.
     text_scale: int = MIN_TEXT_SCALE
+    # Milliseconds between polls, 250-60000. See MIN_POLL_INTERVAL_MS.
+    poll_interval_ms: int = DEFAULT_POLL_INTERVAL_MS
+    # Mebibytes, 1-1024. See DEFAULT_LOG_MAX_MIB on why the unit is not bytes.
+    log_max_mib: int = DEFAULT_LOG_MAX_MIB
 
 
 @dataclass(frozen=True)
@@ -132,8 +167,15 @@ def _theme_or_reason(value: object) -> tuple[str | None, str | None]:
     return value, None
 
 
-def _scale_or_reason(value: object) -> tuple[int | None, str | None]:
-    """A text scale is a whole percentage inside `MIN`..`MAX` (LWSM-1032).
+def _bounded_int_or_reason(
+    field: str, value: object, low: int, high: int, noun: str
+) -> tuple[int | None, str | None]:
+    """A whole `noun` inside `low`..`high`, or the reason it was ignored.
+
+    One helper for every bounded integer rather than one per field. LWSM-1032
+    wrote the first; LWSM-1018 brought the third and fourth, which is
+    `coding.md § 1.3`'s Rule of Three. `field` and `noun` are parameters
+    because they were the only things that differed between the copies.
 
     `type(value) is not int` rather than `isinstance`, and here the reasoning
     DOES carry over from `registry._is_int` where `_theme_or_reason`'s did not:
@@ -152,12 +194,11 @@ def _scale_or_reason(value: object) -> tuple[int | None, str | None]:
         return None, None
     if type(value) is not int:
         return None, (
-            f"text_scale: {quoted(value)} is not a whole percentage; using the default"
+            f"{field}: {quoted(value)} is not a whole {noun}; using the default"
         )
-    if not MIN_TEXT_SCALE <= value <= MAX_TEXT_SCALE:
+    if not low <= value <= high:
         return None, (
-            f"text_scale: {quoted(value)} is outside "
-            f"{MIN_TEXT_SCALE}-{MAX_TEXT_SCALE}; using the default"
+            f"{field}: {quoted(value)} is outside {low}-{high}; using the default"
         )
     return value, None
 
@@ -221,11 +262,23 @@ def load(path: Path) -> LoadResult:
     # Each field is read on its own and refused on its own: a file with one
     # unusable value keeps every other, the shape `registry` already has where
     # a bad port loses the field and not the row.
-    scale, reason = _scale_or_reason(document.get("text_scale"))
-    if reason is not None:
-        reasons.append(reason)
-    if scale is not None:
-        settings = replace(settings, text_scale=scale)
+    for field, low, high, noun in (
+        ("text_scale", MIN_TEXT_SCALE, MAX_TEXT_SCALE, "percentage"),
+        (
+            "poll_interval_ms",
+            MIN_POLL_INTERVAL_MS,
+            MAX_POLL_INTERVAL_MS,
+            "number of milliseconds",
+        ),
+        ("log_max_mib", MIN_LOG_MAX_MIB, MAX_LOG_MAX_MIB, "number of mebibytes"),
+    ):
+        number, reason = _bounded_int_or_reason(
+            field, document.get(field), low, high, noun
+        )
+        if reason is not None:
+            reasons.append(reason)
+        if number is not None:
+            settings = replace(settings, **{field: number})
 
     return LoadResult(settings, reasons[:MAX_REASONS])
 
@@ -246,6 +299,8 @@ def save(path: Path, settings: Settings) -> None:
         # differs is one the next reader has to guess about, and this file
         # is meant to be hand-editable.
         "text_scale": settings.text_scale,
+        "poll_interval_ms": settings.poll_interval_ms,
+        "log_max_mib": settings.log_max_mib,
     }
     try:
         text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
