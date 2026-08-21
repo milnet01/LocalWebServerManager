@@ -342,6 +342,44 @@ Do not delete revoked entries — the history is the value.
 - **Logged:** 2026-08-06
 - **Confirmed by phase:** FP04
 
+## allowlist-009 — bandit:B404/B603 — this app launches processes for a living
+
+- **Status:** active
+- **Tool / rule:** `bandit` — `B404` (`blacklist`, "consider possible
+  security implications associated with the subprocess module") and `B603`
+  (`subprocess_without_shell_equals_true`).
+- **Location:** `src/lwsm/placement.py` (B404 only),
+  `src/lwsm/scanner.py` (B404 + B603 at the `subprocess.run` in
+  `_systemd_units`), `src/lwsm/supervisor.py` (B404 + B603 at the
+  `subprocess.Popen` in `start`). Measured 2026-08-21: 5 findings, all
+  LOW severity / HIGH confidence, and **0 at medium or above**.
+- **Why this is a false positive:** launching other projects' servers is
+  what this application IS (ADR-0003), and reaching KWin through
+  `dbus-send` is how a window is placed under Wayland (ADR-0007). B404
+  fires on the *import* and is a blanket advisory with no defect behind
+  it. B603 asks whether the call could reach a shell, and
+  `coding.md § O4` already forbids that: **verified 2026-08-21 that
+  `shell=True` appears nowhere in `src/`**, every call takes an argument
+  vector, and the two flagged sites already carry `# noqa: S603` with
+  their reasons — bandit re-reports them because it does not read
+  `ruff`'s suppressions. Re-verify if a `shell=True` ever appears, if a
+  call starts taking a string, or if any of these rises above LOW.
+- **A note for whoever reads this next, because the absence is
+  misleading:** `placement.py` draws B404 and **not** B603, and that is
+  an artefact rather than a difference in kind. Its `subprocess.run` is
+  reached through an injected seam (`runner = subprocess.run if run is
+  None else run`, so a test can stand in for KWin), and bandit cannot
+  see through the indirection. Inlining that call would make B603 appear
+  there too, and it would be equally false.
+- **Suppression applied:** none. `bandit` is an audit tool here and is
+  not in `scripts/local-ci.sh`, so nothing is gated on it and an inline
+  `# nosec` would buy only silence — the existing `# noqa: S603`
+  comments already carry the reasoning at the call sites where it
+  matters. Recorded here so the class is not re-triaged at every close.
+- **Logged:** 2026-08-21
+- **Confirmed by phase:** P04
+
+
 ## What does NOT belong here
 
 - **Findings that are real but blocked by a missing feature.**

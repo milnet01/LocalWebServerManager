@@ -1401,6 +1401,439 @@ project. No fixture fills a disk. Same family as the one-row-fixture trap
 recorded on 2026-08-14: a fixture set that cannot express the variation the code
 branches on.
 
+## FP08 — Four-lane review fold-in (from the P04 close, 2026-08-21)
+
+Four cold lanes over the code shipped since the P03b close: placement and window
+geometry, settings and config I/O, the window's UI surface, and the supervisor's
+concurrency. Every finding below was verified against the code before filing —
+three by reproduction — and the ones that did not survive checking were dropped
+rather than filed.
+
+The static-analysis half came back clean: ruff, gitleaks (244 commits), semgrep
+on `src/`, and bandit at 0 medium and 0 high. Its only findings were the
+B404/B603 subprocess pair, now recorded as allowlist-009.
+
+Two things about this batch are worth keeping. **Six of the findings are in code
+written the same day**, which is the argument for a cold read that no amount of
+care by the author replaces. And **the two most severe are both in places a
+docstring said were safe** — `settings.py` claimed three times that a refusal
+here cannot lose data, and `supervisor.py`'s trust gate claimed a symlink out of
+the project is refused outright. Neither was true, and in both cases the sibling
+module states the correct rule in almost the same words.
+
+- 📋 [LWSM-1162] **FP08: a launcher symlinked out of its project is not refused, and its fingerprint carries no content.**
+  ADR-0003 § Trust says a launcher that is a symlink pointing outside its
+  project "is refused outright". It is not. `_launcher_path` calls
+  `_contained`, which resolves the symlink and returns `None` for exactly the
+  escaping case — so `validate_launcher` is never called and its
+  "a symlink leaving the project" refusal is unreachable from `start()`.
+
+  **Reproduced 2026-08-21.** An escaping symlink produces a fingerprint
+  IDENTICAL to a launcher that does not exist at all (both fall through to
+  `digest.update(b"\0nofile\0")`, hashing argv only), and rewriting the
+  symlink target's CONTENT does not change the fingerprint. So the trust gate
+  never re-arms: the user confirms `./start.sh` once and the target can be
+  replaced with anything afterwards.
+
+  Compounding it, `_ask_to_trust` renders `str(resolved or argv[0])`, so the
+  confirmation dialog shows `./start.sh` while `execvp` runs the symlink
+  target — which is the "security theatre" ADR-0003 names.
+
+  Fix: refuse the escaping symlink at `start()` as the ADR requires, and make
+  the dialog show what will actually run.
+  **Layman:** A project can point its start script at a file somewhere else on the disk; the app shows you the harmless-looking name, runs the other file, and never asks again even if that file is rewritten.
+  Kind: security.
+  Source: close-phase-2026-08-21 lane-4 (supervisor).
+  Lanes: security, supervisor.
+
+- 📋 [LWSM-1163] **FP08: one JSON typo plus one window close destroys every stored setting.**
+  `settings.load()` is total by design — a syntax error, a non-object root, a
+  wrong `schema_version` or a transient read error all return `Settings()`
+  plus a reason. `save_field` reads that back and writes it out with no gate,
+  so a whole-document refusal is written back as defaults.
+
+  **Reproduced 2026-08-21**: a trailing comma in `settings.json` holding
+  theme=parchment, text_scale=150, poll=2500, log=42 became midnight/100/
+  1000/5 after one `save_field` — and the malformed text the user could have
+  fixed is gone with it.
+
+  Three passages say this cannot happen (`settings.LoadResult`'s docstring,
+  `save_field`'s, and `settings.save`'s). All three are wrong, and
+  `registry.py` states the counter-argument in almost the same words it
+  needed here: "a raised `RegistryError` produces no reasons at all, so such
+  a gate would write a fresh file over a hand-edited registry that had only a
+  JSON typo or a stale `schema_version` — destroying a fully recoverable
+  file". `settings.load` cannot raise, so EVERY whole-file refusal is that
+  state.
+
+  `save_geometry` fires on every close, which makes this the normal case
+  rather than a corner. Fix: `load()` reports whether the DOCUMENT was
+  refused, and `save_field` refuses to write when it was — the analogue of
+  `rows_refused`.
+  **Layman:** If you hand-edit the settings file and make a small mistake, closing the window quietly wipes your theme, text size and everything else you had chosen.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-2 (settings).
+  Lanes: settings, data-loss.
+
+- 📋 [LWSM-1164] **FP08: `settings.load()` raises RecursionError, so a hostile file kills the app at startup.**
+  `load()`'s docstring says "Never raises.", the module docstring says "A bad
+  settings file must never cost the user a window", and `build_window`'s
+  comment says reading it needs no handler. All three are false for one input
+  class this project has already met next door.
+
+  **Reproduced 2026-08-21**: `"[" * 20000 + "]" * 20000` (40 KB, well inside
+  `MAX_FILE_BYTES`) makes `load()` raise `RecursionError`, which is not a
+  `ValueError` and so escapes the `except (UnicodeDecodeError, ValueError)`.
+  `registry.py:369` already catches `(ValueError, RecursionError)` with a
+  comment explaining exactly why, and `tests/test_scanner.py` pins the shape.
+
+  It propagates out of `build_window` (whose `try` catches only
+  `RegistryError`) and out of `main()` — LWSM-1116's shape exactly: a guard
+  that exists next door and is missing here. The same escape reaches
+  `save_field` from inside `closeEvent`, where only `(ConfigFileError,
+  OSError)` is caught.
+  **Layman:** A specially-crafted settings file stops the app opening at all — every launch, until someone deletes the file by hand.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-2 (settings).
+  Lanes: settings.
+
+- 📋 [LWSM-1165] **FP08: a child that exits on its own is never removed from the registry.**
+  **Verified 2026-08-21**: only two lines touch `_registry.processes` — the
+  insert in `start()` and the pop in `stop()` (plus `close()`). Nothing
+  removes an entry for a child that exited by itself, and `exited()`'s own
+  docstring states the premise and stops there.
+
+  So after a launcher dies on its own — a missing dependency, a bad
+  `scripts.dev`, an ordinary crash — the port is free, `_classify` returns
+  STOPPED, the UI disables Stop and enables Start, and every Start from then
+  on raises `AlreadyRunning`. Stop and Restart are both disabled, so there is
+  no route back. The log descriptor is never closed either.
+
+  LWSM-1134 fixed the overlay symptom and left the entry.
+  **Layman:** If a project's server crashes on startup, the app refuses to start it again for the rest of the session and the Stop button is greyed out — there is no way back except restarting the app.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-4 (supervisor).
+  Lanes: supervisor.
+
+- 📋 [LWSM-1166] **FP08: a refused registry write is reported once and then never retried.**
+  `_should_write` compares the merge against `self._controller.records()` —
+  the in-memory set — while `_apply_merge` calls `set_records(merged.records)`
+  UNCONDITIONALLY and refreshes `self._load` only on the success branch. So
+  the two diverge the moment a write is refused.
+
+  **Verified 2026-08-21** at `mainwindow.py:2004` and `:2026`. With one bad
+  row in `projects.json` the save raises every time: rescan 1 reports "not
+  saved", and rescan 2 finds `merged.records == stored`, returns False, and
+  attempts no save and shows no refusal — status reads "no changes". The app
+  looks healthy while nothing is persisted, and the projects are gone on the
+  next start. Any transient failure (read-only mount, ENOSPC) has the same
+  shape: the retry the user makes is silently a no-op.
+
+  The docstring calls the test "differs from the loaded one", which is what
+  it should be comparing against.
+  **Layman:** If saving the project list fails, the app tells you once and then reports "no changes" forever while quietly saving nothing.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-3 (window).
+  Lanes: window, data-loss.
+
+- 📋 [LWSM-1167] **FP08: `RowView.managed` does not mean what Open-in-browser's gate needs it to mean.**
+  The comment says `managed` is "whether THIS manager spawned the process
+  holding the port". It is computed as `set(self._supervisor.running())` —
+  the registry keys — which says only that we have an ENTRY for that project,
+  not who holds the port, and (per the self-exit finding above) not even that
+  our child is alive.
+
+  `mainwindow.py:730` gates Open on it: `self.open_button.setEnabled(running
+  and row.managed)`. Two states ADR-0004 names by row give `managed=True`
+  over a holder we did not spawn — `running (wrong port)`, where our child is
+  alive on another port while a stranger holds the registered one; and the
+  crashed-child case, where the stale entry persists and something else binds
+  the port. Both open a browser at a stranger's port with this app's
+  credibility behind it, which `mainwindow.py:717` says is the exact thing
+  the gate exists to prevent.
+
+  ADR-0004 requires managed identity to be "the recorded child PID plus its
+  `create_time`". This is neither.
+  **Layman:** The button that opens a project in your browser is supposed to be off unless this app started the server. It can be on for a server the app did not start.
+  Kind: security.
+  Source: close-phase-2026-08-21 lane-4 (supervisor).
+  Lanes: security, controller.
+
+- 📋 [LWSM-1168] **FP08: `stop()` releases exclusivity at its first line, so a second child can be spawned mid-stop.**
+  `stop()` pops the entry under the lock and then holds nothing for the whole
+  grace/kill/reap window — the symmetric counterpart of the `starting` set
+  LWSM-1137 added to `start()` is missing. Meanwhile `controller.py:797`
+  clears the STOPPING overlay on the first derived STOPPED and
+  `mainwindow.py:713` re-enables Start.
+
+  So against a child that ignores SIGTERM: Stop is clicked, ~1 s later the
+  overlay clears and Start re-enables while `stop()` is still inside its 5 s
+  grace loop. Start finds the project in neither `processes` nor `starting`,
+  passes the pre-flight and spawns a SECOND child. The old sequence then
+  SIGKILLs the old group and `_port_after_stop` sees the new child's port
+  bound, reporting "still bound by something this manager did not start" —
+  false, it is the child this manager started three seconds earlier — and the
+  controller discards the new STARTING overlay.
+  **Layman:** Press Stop on a stubborn server and the Start button comes back before the stop has finished; pressing it starts a second copy, and the app then reports your own new server as a stranger's.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-4 (supervisor).
+  Lanes: supervisor.
+
+- 📋 [LWSM-1169] **FP08: log rotation holds a descriptor outside the lock that a concurrent stop may have closed.**
+  `_reap`'s comment claims the log descriptor "is one nothing else can still
+  reach". `rotate_if_needed` takes the `ManagedProcess` under the lock and
+  then releases it for the whole body, using `managed.log_fd` for `fstat`,
+  `pread` and `ftruncate` — on the GUI thread, every poll tick, while
+  `stop_async` runs `_reap` on a worker.
+
+  This is LWSM-1138's hazard — "an integer the kernel is free to have
+  reissued" — reached from rotation rather than from a double close, and
+  popping the entry earlier does not close it. If the fd is reissued between
+  the two, the GUI thread truncates whatever now holds that number: another
+  project's log, the `.1` backup, or an atomic-write temp file.
+  `_rotate_logs`' `except Exception` hides the benign EBADF variant and
+  cannot see this one.
+  **Layman:** A rare timing collision between rotating a log and stopping a server could blank a different file the app owns.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-4 (supervisor).
+  Lanes: supervisor.
+
+- 📋 [LWSM-1170] **FP08: `dbus-send`'s exit status is discarded, so placement fails silently off KWin.**
+  `run_kwin_script` calls `runner(call, capture_output=True, timeout=...)`
+  with no `check=True` and never reads `returncode` — **verified 2026-08-21,
+  zero occurrences of either in the module**. A failed `loadScript` is
+  indistinguishable from a successful one, so `run_kwin_script` returns True,
+  `place_window` returns the rectangle rather than `None`, and
+  `centre_on_screen` skips its status message.
+
+  On GNOME or wlroots — where `XDG_SESSION_TYPE=wayland` and `dbus-send` is
+  installed, so `placement_available()` says yes — the call fails with
+  `ServiceUnknown: org.kde.KWin`, the window does not move, and nothing is
+  reported. ADR-0007 requires the opposite in as many words: placement
+  "degrades honestly ... rather than being offered and doing nothing".
+
+  Fix: check the `loadScript` returncode.
+  **Layman:** On a non-KDE Linux desktop the "Centre on screen" menu item looks available, does nothing when clicked, and says nothing about why.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-1 (placement).
+  Lanes: placement.
+
+- 📋 [LWSM-1171] **FP08: the KWin script's directory is created with the mkdir form this project measured as wrong.**
+  `placement.py` uses `state_dir.mkdir(parents=True, exist_ok=True,
+  mode=0o700)` — the exact form `applog.py:70` and `configfile.py:121` both
+  document as measured-wrong: the mode applies to the LEAF only, so every
+  intermediate lands at the umask default (measured 0o755 on 2026-08-06).
+  `exist_ok=True` also means an existing 0755 directory is used as-is, where
+  `_prepare_state_dir` would re-chmod it.
+
+  This is also a Rule-of-Three failure: `configfile.prepare_config_dir` and
+  `applog._prepare_state_dir` both exist to do this correctly, and
+  `supervisor.py` already calls the latter for this same tree. A weaker third
+  copy is what `coding.md § 1.3` forbids.
+
+  Not an open door on its own — `mkstemp` still creates the script at 0600
+  with an unguessable name — but the window between writing it and KWin
+  reading it is then guarded only by the file mode, in a directory another
+  local account may be able to unlink from, for content the compositor
+  executes.
+  **Layman:** A directory the app creates for a file the desktop then executes may be left readable by other accounts on the machine.
+  Kind: security.
+  Source: close-phase-2026-08-21 lane-1 (placement).
+  Lanes: placement, security.
+
+- 📋 [LWSM-1172] **FP08: the remembered window size is applied without the clamp ADR-0007 requires.**
+  `_restore_geometry` calls `self.resize(*self._remembered_size)` and
+  discards the clamped rectangle `place_window` returns; on X11 the `move`
+  seam only moves. ADR-0007 requires a restored geometry to be "validated
+  against the current screens" — naming "sized larger than the current
+  display" explicitly.
+
+  So `"width": 3800, "height": 2100` recorded on a 4K monitor opens
+  uncapped on a 1920x1080 laptop. Note the inconsistency this creates: when
+  the project list is empty at construction, `_apply_default_geometry` runs
+  AFTER the restore and does bound the same stored size via
+  `want.boundedTo(cap)` — so the identical file gives a capped window on one
+  path and an uncapped one on the other.
+  **Layman:** A window size remembered from a big monitor opens off the edge of a smaller screen.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-1 (placement).
+  Lanes: placement, window.
+
+- 📋 [LWSM-1173] **FP08: `default_scan_roots` reads a user-controlled file with the unhardened reader.**
+  `__main__.py:396` uses `config.read_text(encoding="utf-8")` on the
+  `scan-roots` path. Twelve lines above, `_leading_comment_block` reads the
+  SAME file through `read_bounded`, and its docstring says why: "this runs
+  against a path the user controls, and that helper is where the
+  FIFO-blocks-forever and the read-600 MB-into-memory cases are already
+  closed." Two readers of one path, one hardened and one not — **verified
+  2026-08-21**.
+
+  `default_scan_roots()` runs inside `build_window` before any window exists,
+  so a FIFO there blocks with no window, no error and no log line, and the
+  `except (OSError, UnicodeDecodeError)` never fires because nothing is
+  raised.
+  **Layman:** A booby-trapped scan-roots file can make the app hang on startup with no window and nothing in the log.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-2 (settings).
+  Lanes: settings.
+
+- 📋 [LWSM-1174] **FP08: a long project name pushes every row's buttons out of reach, unrecoverably.**
+  Nothing bounds a project `name` on the way in — the registry validators
+  impose no length limit and a scanned directory name is legal to 255 bytes —
+  and `ProjectRow._name` has no elide or word-wrap, so `natural_widths()`
+  returns the full text advance. `_align_columns` then applies that as a
+  FIXED width to EVERY row.
+
+  **Verified 2026-08-21**: the scroll area sets
+  `ScrollBarAlwaysOff` horizontally, `apply_column_widths` uses
+  `setFixedWidth`, and `_apply_default_geometry` runs once and is capped at
+  90% of the screen — so the window minimum does not protect the content and
+  the window is never resized again. The controls are then off-screen for all
+  projects, unreachable by mouse, and the filter does not help because
+  `_align_columns` iterates every row including hidden ones and is not re-run
+  on a filter keystroke.
+
+  Also reachable through an imported profile, since `name` is in
+  `USER_FIELDS` and is restored verbatim.
+  **Layman:** One project with a very long folder name can push the Start and Stop buttons off the edge of the window for every project, with no scrollbar and no way to get them back.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-3 (window).
+  Lanes: window.
+
+- 📋 [LWSM-1175] **FP08: changing the theme or the language deletes a row's visible failure message.**
+  `update_from` calls `clear_error()` on the grounds that "the state has
+  moved on, so a failure describing the old one is now a lie". That reason is
+  false on two paths: `_rerender` — shared by `retranslate` and
+  `apply_theme` — deliberately nulls `_view` so the equality guard cannot
+  fire, precisely because both change how the view is RENDERED without
+  changing the view.
+
+  So `set_theme` → `apply_theme` → `_rerender` → `update_from` →
+  `clear_error()` destroys a message nothing has invalidated. The user this
+  hurts is the one switching to a high-contrast theme in order to read it,
+  which is the user the theme exists for.
+  **Layman:** If a project fails to start and you switch to the high-contrast theme to read the message, the message disappears.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-3 (window).
+  Lanes: window, accessibility.
+
+- 📋 [LWSM-1176] **FP08: two translated strings use `str.format`, the one construct this file forbids by name.**
+  **Verified 2026-08-21**: exactly two `.format(` calls exist in
+  `mainwindow.py`, at `:1322` and `:1430`, and both are on
+  `QCoreApplication.translate` results — the text-size and theme save-failure
+  messages.
+
+  The file states the rule against this three times, once as "The rule is the
+  file's, not that function's", and records that it was written as `.format`
+  first and caught within the hour: a translator returning some other
+  string's text raises `KeyError` out of the handler, leaving every window in
+  the process half-retranslated (LWSM-1082).
+
+  Both sites are inside `except` blocks written to prevent a crash, so a
+  hostile or merely mismatched translation turns a handled save failure into
+  an exception out of a `QAction.triggered` slot. Fix: `%1` plus
+  `str.replace` at both.
+  **Layman:** A translation mistake in two error messages could crash the app instead of showing the message.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-3 (window).
+  Lanes: window, i18n.
+
+- 📋 [LWSM-1177] **FP08: the Rescan button's label is never retranslated.**
+  **Verified 2026-08-21**: `setText` is never called on `_rescan_button` —
+  the only uses are its construction and `setEnabled`. `_retranslate_menus`
+  covers `_rescan_action` and stops there.
+
+  `_set_rescan_enabled`'s docstring calls the button and the menu entry "one
+  control with two faces", and `changeEvent`'s LanguageChange branch claims
+  the shape of a generated `retranslateUi`. Both are false for the most
+  prominent control in the window, and its accessible name comes from that
+  text, so a screen reader gets the stale string too.
+  **Layman:** After switching language, the Rescan button stays in the old language while its menu entry changes.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-3 (window).
+  Lanes: window, i18n.
+
+- 📋 [LWSM-1178] **FP08: a scan-roots file that failed to read is written back as if it were the user's list.**
+  `default_scan_roots` returns `fallback` on `OSError` / `UnicodeDecodeError`
+  and records nothing to say the value is a fallback rather than the user's
+  list. `save_scan_roots` then writes whatever the dialog holds.
+
+  So: six roots, one containing a non-UTF-8 byte (or a momentary read
+  failure); the dialog shows one folder; the user clicks OK; the other five
+  are gone — and `_leading_comment_block` fell back too, so the user's header
+  goes with them. The docstring's stated loss covers only interleaved
+  comments; this case is stated nowhere.
+
+  Same shape as the `settings.json` finding above and wants the same answer:
+  the reader must say whether it fell back, and the writer must refuse.
+  **Layman:** If the app cannot read your list of folders to scan, opening Preferences and clicking OK replaces your list with the fallback.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-2 (settings).
+  Lanes: settings.
+
+- 📋 [LWSM-1179] **FP08: a scan root with surrounding whitespace or a newline does not survive the round trip.**
+  `save_scan_roots` writes one root per line verbatim; `default_scan_roots`
+  reads each back through `Path(line.strip())`. `SettingsDialog._add_root`
+  deliberately stores the chooser's text unmodified.
+
+  So `/home/user/my projects ` (trailing space, legal on Linux) is written
+  verbatim and read back as `/home/user/my projects`, which does not exist:
+  the scan finds nothing there and reports no problem, and the dialog now
+  shows a path the user did not choose. A directory name containing a newline
+  is worse — one configured root becomes two nonexistent ones.
+  **Layman:** A folder whose name starts or ends with a space silently stops being scanned after you save it.
+  Kind: fix.
+  Source: close-phase-2026-08-21 lane-2 (settings).
+  Lanes: settings.
+
+- 📋 [LWSM-1180] **FP08: five docstrings describe mechanisms the code no longer has.**
+  All five verified 2026-08-21, and four are in code written the same day —
+  which is the point: prose ages against its own edit within hours.
+
+  1. `_restore_geometry` explains its resize-then-place order by a race with
+     a script that reads `c.frameGeometry.width` back. The shipped script is
+     handed the size instead, so that race cannot happen; the genuinely
+     load-bearing constraint (KWin's write is authoritative, so the script
+     must carry the size) is stated only in `placement.py`.
+  2. `clamp_to_screens` claims "what reaches the KWin script is a rectangle
+     inside a real screen". The decoration is added AFTER the clamp, inside
+     the script, so the frame can exceed the clamped rectangle.
+  3. `Rect`'s docstring calls it "a type that can only hold integers" and
+     half the injection guarantee. A frozen dataclass validates nothing —
+     `Rect("0); evil(); //", 0, 1, 1)` constructs fine (verified). The real
+     guard is `settings._bounded_int_or_reason` plus the `int()` calls in the
+     template, and this claim would invite deleting the latter as redundant.
+  4. `settings.py`'s geometry comment routes the reader to
+     `_remembered_rect`, which exists nowhere in the tree — the decision is
+     split between `placement.pair_or_none` and `_restore_geometry`.
+  5. `exited()` says the registry entry "is removed in `_reap`". LWSM-1138
+     moved the pop to `stop()`; anyone fixing the self-exit finding above by
+     following this comment looks in the wrong function.
+  **Layman:** Five comments explain how something works and are now out of date, which would mislead the next person who reads them.
+  Kind: doc-fix.
+  Source: close-phase-2026-08-21 lanes 1 and 4.
+  Lanes: docs.
+
+- 📋 [LWSM-1181] **FP08: check whether an untrusted project name can distort the trust dialog.**
+  Raised by the window lane from OUTSIDE its assigned slice and passed on
+  rather than dropped, so it is filed to be checked rather than as a
+  confirmed defect.
+
+  `_confirm_dialog` builds the trust prompt with three chained `.replace`
+  calls, the first substituting `project.name` — a directory name from
+  someone else's tree — into a template that still contains `%2` and `%3`. A
+  name containing `%2`, `%3` or a newline therefore reaches a later
+  substitution as part of the template.
+
+  This matters more than the usual escaping question because it is the one
+  dialog whose entire purpose is telling the user what is about to run, and
+  the launcher-symlink finding above already shows that dialog naming the
+  wrong file. Verify, then fix or dismiss with a reason.
+  **Layman:** Check whether a project with an unusual folder name can make the "do you want to run this?" box say something misleading.
+  Kind: investigate.
+  Source: close-phase-2026-08-21 lane-3 (window), outside its assigned slice.
+  Lanes: security, window.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
