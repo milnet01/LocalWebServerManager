@@ -220,6 +220,9 @@ signaling per
 
 ### Fixed
 
+- **The pre-push hook gated the working tree, not the commits being pushed.** (LWSM-1160)
+  The check before a push tested the files as they sit on disk, which is not what GitHub receives.
+
 - **The pre-push hook ran the gate in a developer's environment, not the runner's.** (LWSM-1159)
   The check that runs before you push now refuses a push when one of its tools is missing or the wrong version, instead of just warning — which is what GitHub does, so the two now agree.
 

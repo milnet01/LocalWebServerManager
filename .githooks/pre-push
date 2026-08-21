@@ -61,6 +61,7 @@ docs_only() {
 
 # git feeds one line per ref: <local ref> <local sha> <remote ref> <remote sha>
 changed=""
+tips=()
 while read -r _local_ref local_sha _remote_ref remote_sha; do
     # Deleting a ref pushes no content.
     [[ $local_sha == "$ZERO" ]] && continue
@@ -81,6 +82,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     fi
 
     changed+=$(git diff --name-only "$base" "$local_sha")$'\n'
+    tips+=("$local_sha")
 done
 
 if [[ -z ${changed//[$'\n' ]/} ]]; then
@@ -93,7 +95,6 @@ if printf '%s' "$changed" | docs_only; then
     exit 0
 fi
 
-printf 'pre-push: running ./scripts/local-ci.sh\n' >&2
 # No --fast, and the runner's environment rather than a developer's. The point
 # of this hook is that what runs here is what runs on GitHub. --fast drops the
 # integration tests; and without LWSM_REQUIRE_ALL_TOOLS a check that did not
@@ -104,4 +105,39 @@ printf 'pre-push: running ./scripts/local-ci.sh\n' >&2
 # Running the gate BY HAND stays lenient, deliberately — a missing linter must
 # not stop someone testing their own change. It is standing in for CI that
 # makes a degraded run worth refusing, and that is only true here.
-LWSM_REQUIRE_ALL_TOOLS=1 ./scripts/local-ci.sh
+#
+# And the gate runs against the COMMITS BEING PUSHED, never against this
+# working tree. Those are the same tree only when the tree is clean, and
+# nothing here makes it clean: an uncommitted fix turns this run green for
+# commits that will go red on GitHub, and unrelated scratch work turns it red
+# for commits that were fine. Neither announces itself — the gate prints an
+# ordinary verdict either way, about a tree nobody is pushing. The range was
+# already on stdin and already decides docs_only above; this is the same range
+# deciding the rest. CLAUDE.md § Before pushing names the property; this
+# project's docs/standards/commits.md has no section on the local run at all,
+# so do not go looking for one there.
+#
+# A detached worktree rather than a stash. `git stash` exits 0 having stashed
+# nothing when there is nothing to stash, so a hook cannot tell a clean tree
+# from a failed one; it also mutates the tree mid-hook, and the `pop` then has
+# to survive a gate that may have just exited non-zero. Measured 2026-08-21:
+# the checkout and `uv sync` cost 5.2s against the gate's own runtime.
+WORKTREE=""
+cleanup() {
+    [[ -n $WORKTREE ]] && git worktree remove --force "$WORKTREE" 2>/dev/null
+    # Not `rm -rf` as a fallback: WORKTREE is a mktemp path and git empties it,
+    # so anything left is a git failure worth seeing rather than hiding.
+    return 0
+}
+trap cleanup EXIT
+
+for tip in "${tips[@]}"; do
+    printf 'pre-push: running ./scripts/local-ci.sh against %s\n' "${tip:0:12}" >&2
+    WORKTREE=$(mktemp -d)
+    git worktree add --detach --quiet "$WORKTREE" "$tip"
+    # The subshell keeps the cd local, so cleanup above still runs from the
+    # repo root where `git worktree remove` has to be invoked.
+    ( cd "$WORKTREE" && LWSM_REQUIRE_ALL_TOOLS=1 ./scripts/local-ci.sh )
+    cleanup
+    WORKTREE=""
+done

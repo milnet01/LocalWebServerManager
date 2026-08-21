@@ -2250,6 +2250,34 @@ harness to be known-working before any business code lands.
   Kind: fix.
   Source: user-request-2026-08-21.
 
+- ✅ [LWSM-1160] **The pre-push hook gated the working tree, not the commits being pushed.**
+  The hook already read the pushed range from stdin and used it to decide
+  the docs-only exemption. It then ran `./scripts/local-ci.sh` from the
+  repo root, which tests the working tree.
+
+  Those are the same tree only when the tree is clean. An uncommitted fix
+  turned the run green for commits that would go red on GitHub. Unrelated
+  scratch work turned it red for commits that were fine. Neither
+  announced itself.
+
+  Fixed by checking each pushed tip out into a detached worktree and
+  running the gate there. Not a stash: `git stash` exits 0 having stashed
+  nothing when there is nothing to stash, so the hook could not tell a
+  clean tree from a failed one, and the `pop` would have to survive a
+  gate that just exited non-zero.
+
+  Measured 2026-08-21: the checkout plus `uv sync --locked` costs 5.2s,
+  against the gate's own runtime. Verified both directions on this tree —
+  an uncommitted ruff error now exits 0 where the old hook exited 1, and
+  a committed one still exits 1. The working tree is untouched and no
+  worktree is left behind.
+
+  Reported by a session reviewing this hook. Also filed globally as
+  CFG-0182, because all nine pre-push hooks on this machine have it.
+  **Layman:** The check before a push tested the files as they sit on disk, which is not what GitHub receives.
+  Kind: fix.
+  Source: localwebservermanager-session-2026-08-21.
+
 ## P02 — Vertical slice (target: after P01 closes)
 
 **Theme:** the smallest feature that touches every layer —

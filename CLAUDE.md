@@ -127,6 +127,12 @@ clone — `core.hooksPath` cannot be committed:
 git config core.hooksPath .githooks
 ```
 
+**The hook gates the commits being pushed, not your working tree**
+(LWSM-1160). It checks each pushed tip out into a detached worktree and
+runs the gate there, so uncommitted work neither hides a failure nor
+invents one. Your tree is not touched, and the extra checkout costs
+about five seconds.
+
 The hook decides docs-only **by the paths in the push, never by the
 commit subject**, and `scripts/`, `.github/`, `src/` and `tests/` are
 never exempt — a change to the checker must run the check.
