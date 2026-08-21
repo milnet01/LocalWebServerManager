@@ -1579,3 +1579,307 @@ def test_a_writer_that_cannot_create_its_temporary_raises_registry_error(
             )
     finally:
         directory.chmod(0o700)
+
+
+# --- LWSM-1148: exporting a profile, and merging one back in -----------------
+
+
+def clean_load(records: list[ProjectRecord] | None = None) -> registry.LoadResult:
+    """A `LoadResult` that permits a write: no reasons, no refused rows."""
+    return registry.LoadResult(records=records or [], reasons=[], rows_refused=0)
+
+
+def test_a_profile_round_trips_through_the_registry_loader(tmp_path: Path) -> None:
+    """A profile IS a `projects.json`, and this is the whole claim.
+
+    It is what let this item ship with no new on-disk format, no second parser
+    and no migration. If it ever stops holding, the format question the build
+    skipped comes back — so this asserts the equality directly rather than
+    asserting that `export_profile` wrote *something*.
+    """
+    profile = tmp_path / "saved.json"
+    records = [every_field_record(), ProjectRecord(path=Path("/srv/b"), name="b")]
+
+    registry.export_profile(profile, records, load=clean_load(records))
+
+    reloaded = load_projects(profile)
+    assert reloaded.records == records
+    assert reloaded.reasons == []
+    assert reloaded.rows_refused == 0
+
+
+def test_an_export_is_refused_when_a_row_was_refused_at_load(tmp_path: Path) -> None:
+    """The gate, and it is NOT `save_projects`' gate.
+
+    A profile exists to be a known-good configuration. Exporting the survivors
+    of a load that dropped a row writes a file that looks complete and is not,
+    and the user finds out when they restore it onto another machine.
+    """
+    profile = tmp_path / "saved.json"
+    records = [every_field_record()]
+    refused = registry.LoadResult(
+        records=records, reasons=["'name' must be a non-empty string"], rows_refused=1
+    )
+
+    with pytest.raises(RegistryError) as caught:
+        registry.export_profile(profile, records, load=refused)
+
+    assert "1 row(s)" in str(caught.value)
+    assert "incomplete" in str(caught.value)
+    assert not profile.exists()
+
+
+def test_a_dropped_field_does_not_block_an_export(tmp_path: Path) -> None:
+    """The discriminating case, and the reason the gate reads `rows_refused`.
+
+    A field refusal keeps the row, so nothing is missing from the profile — and
+    keying the gate on `reasons` instead would make one hand-typed
+    `"port": "3000"` refuse every export for the session.
+    """
+    profile = tmp_path / "saved.json"
+    records = [every_field_record()]
+    dropped_field = registry.LoadResult(
+        records=records,
+        reasons=["port 70000 is not an integer 1-65535"],
+        rows_refused=0,
+    )
+
+    registry.export_profile(profile, records, load=dropped_field)
+
+    assert load_projects(profile).records == records
+
+
+def test_an_export_from_an_unloadable_registry_is_refused(tmp_path: Path) -> None:
+    """The state a `reasons`-only gate misses entirely: a raised
+    `RegistryError` produces no reasons at all, and the records in hand are
+    then not the file's contents."""
+    profile = tmp_path / "saved.json"
+    with pytest.raises(RegistryError) as caught:
+        registry.export_profile(
+            profile,
+            [every_field_record()],
+            load=RegistryError("projects.json: invalid JSON at line 4"),
+        )
+
+    assert "could not be loaded" in str(caught.value)
+    assert not profile.exists()
+
+
+def test_an_export_of_nothing_is_refused(tmp_path: Path) -> None:
+    """First run has nothing to save, and a zero-project profile is a file
+    whose restore silently does nothing."""
+    profile = tmp_path / "saved.json"
+    with pytest.raises(RegistryError) as caught:
+        registry.export_profile(profile, [], load=RegistryMissing("no file"))
+
+    assert "no projects to export" in str(caught.value)
+    assert not profile.exists()
+
+
+def test_an_exported_profile_is_private(tmp_path: Path) -> None:
+    """LWSM-1007 INV-4 reaches the second writer too — it records local paths
+    and a start-at-login flag wherever it is written."""
+    profile = tmp_path / "saved.json"
+    records = [every_field_record()]
+    registry.export_profile(profile, records, load=clean_load(records))
+
+    assert stat.S_IMODE(profile.stat().st_mode) == 0o600
+
+
+def test_a_symlinked_export_target_is_refused_not_followed(tmp_path: Path) -> None:
+    """`write_json_atomically`'s refusal reaches the profile writer, so a
+    deliberate indirection the user set up is not silently flattened."""
+    real = tmp_path / "real.json"
+    real.write_text("{}", encoding="utf-8")
+    link = tmp_path / "link.json"
+    link.symlink_to(real)
+    records = [every_field_record()]
+
+    with pytest.raises(RegistryError):
+        registry.export_profile(link, records, load=clean_load(records))
+
+    assert link.is_symlink()
+    assert real.read_text(encoding="utf-8") == "{}"
+
+
+def test_an_export_refusal_reason_is_clipped_and_escaped(tmp_path: Path) -> None:
+    """LWSM-1007 INV-8 on the second writer. The refusals interpolate a path
+    and a loader message, both of which can carry a hand-edited newline."""
+    hostile = RegistryError("x" * 5000 + "\nforged log line")
+    with pytest.raises(RegistryError) as caught:
+        registry.export_profile(
+            tmp_path / "saved.json", [every_field_record()], load=hostile
+        )
+
+    text = str(caught.value)
+    assert "\n" not in text
+    assert len(text) < 5000
+
+
+def test_an_import_restores_every_user_field_and_no_detected_one() -> None:
+    """The central rule, derived from the two sets rather than from a list.
+
+    LWSM-1007 INV-1 makes every `ProjectRecord` field a member of exactly one
+    half, so a field added later is checked here without this test being
+    touched — which is the whole reason the merge is written against the sets.
+
+    A rescan refreshes the detected half and preserves the user half; an import
+    does exactly the reverse.
+    """
+    stored = ProjectRecord(
+        path=Path("/srv/project-a/"),
+        name="renamed-locally",
+        port=3000,
+        port_override=None,
+        kind=LauncherKind.PYTHON,
+        argv=("python3", "serve.py"),
+        unit=None,
+        hidden=False,
+        launcher_override=None,
+        notes="",
+        start_at_login=False,
+        actions=(),
+        added=None,
+    )
+    profile = every_field_record()
+
+    merged = registry.merge_imported([stored], [profile])
+    assert len(merged.records) == 1
+    restored = merged.records[0]
+
+    for name in registry.USER_FIELDS:
+        assert getattr(restored, name) == getattr(profile, name), (
+            f"user field {name!r} was not restored from the profile"
+        )
+    for name in registry.DETECTED_FIELDS:
+        assert getattr(restored, name) == getattr(stored, name), (
+            f"detected field {name!r} was taken from the profile and must not be"
+        )
+    assert merged.counts[registry.CHANGED] == 1
+
+
+def test_an_import_clears_a_user_field_the_profile_left_unset() -> None:
+    """The stated loss, and the deliberate one.
+
+    An import is a RESTORE, so the user half moves whole — including a value
+    the profile does not carry. The alternative, skipping default-valued
+    fields, makes export-then-import stop being the identity and leaves a
+    profile nobody can reason about. This is the assertion to read first if
+    that decision is ever revisited.
+    """
+    stored = ProjectRecord(
+        path=Path("/srv/a"), name="a", port_override=8080, notes="local note"
+    )
+    profile = ProjectRecord(path=Path("/srv/a"), name="a")
+
+    restored = registry.merge_imported([stored], [profile]).records[0]
+
+    assert restored.port_override is None
+    assert restored.notes == ""
+
+
+def test_an_import_never_rewrites_a_stored_path() -> None:
+    """LWSM-1131 INV-8's rule on the second merge. `path` is a detected field,
+    and the stored spelling is whatever the user wrote."""
+    stored = ProjectRecord(path=Path("/srv/./project-a/"), name="a")
+    profile = ProjectRecord(path=Path("/srv/project-a"), name="renamed")
+
+    restored = registry.merge_imported([stored], [profile]).records[0]
+
+    assert restored.path == Path("/srv/./project-a/")
+    assert restored.name == "renamed"
+
+
+def test_two_spellings_of_one_directory_are_one_project_on_import(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1131 INV-5's rule on the second merge: identity is the RESOLVED
+    path, so a symlinked spelling in the profile matches the stored record
+    rather than arriving as a second project."""
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+
+    stored = ProjectRecord(path=real, name="local")
+    profile = ProjectRecord(path=link, name="from-profile")
+
+    merged = registry.merge_imported([stored], [profile])
+
+    assert len(merged.records) == 1
+    assert merged.records[0].name == "from-profile"
+    assert merged.counts[registry.NEW] == 0
+
+
+def test_a_project_absent_from_the_profile_is_kept() -> None:
+    """An import is a merge, never a replacement."""
+    kept = ProjectRecord(path=Path("/srv/kept"), name="kept", notes="mine")
+    profile = ProjectRecord(path=Path("/srv/other"), name="other")
+
+    merged = registry.merge_imported([kept], [profile])
+
+    assert merged.records[0] == kept
+    assert merged.counts[registry.NEW] == 1
+    assert [record.name for record in merged.records] == ["kept", "other"]
+
+
+def test_an_unchanged_project_is_counted_and_not_reported() -> None:
+    """`unchanged` is the one outcome that is not news — the same rule the
+    rescan merge follows, so `summarise_merge` needs no import-specific case."""
+    same = ProjectRecord(path=Path("/srv/a"), name="a", notes="n")
+
+    merged = registry.merge_imported([same], [same])
+
+    assert merged.counts[registry.UNCHANGED] == 1
+    assert merged.counts[registry.CHANGED] == 0
+    assert merged.reasons == []
+
+
+def test_a_second_profile_entry_for_one_directory_is_ignored() -> None:
+    """The loader refuses a row on its own merits and never compares rows, so
+    two profile entries naming one directory both arrive here. Taking the
+    second would silently overwrite what the first just restored."""
+    stored = ProjectRecord(path=Path("/srv/a"), name="a")
+    first = ProjectRecord(path=Path("/srv/a"), name="first", notes="kept")
+    second = ProjectRecord(path=Path("/srv/a"), name="second", notes="discarded")
+
+    merged = registry.merge_imported([stored], [first, second])
+
+    assert len(merged.records) == 1
+    assert merged.records[0].notes == "kept"
+    assert merged.counts[registry.DUPLICATE_IDENTITY] == 1
+
+
+def test_the_import_report_is_bounded() -> None:
+    """LWSM-1007 INV-6's bound on a third surface. A hand-written profile can
+    hold as many entries as the byte cap allows, and every one of them reaches
+    `log.info` at the call site."""
+    stored: list[ProjectRecord] = []
+    profile = [
+        ProjectRecord(path=Path(f"/srv/p{index}"), name=f"p{index}")
+        for index in range(registry.MAX_REASONS * 3)
+    ]
+
+    merged = registry.merge_imported(stored, profile)
+
+    assert len(merged.records) == len(profile)
+    assert len(merged.reasons) == registry.MAX_REASONS + 1
+    assert merged.reasons[-1].startswith("... and ")
+    assert str(len(profile) - registry.MAX_REASONS) in merged.reasons[-1]
+
+
+def test_no_imported_value_is_interpolated_without_the_clip() -> None:
+    """LWSM-1131 INV-10 on the second merge. Every value reaching a reason is
+    file-sourced, so a hand-edited newline in a profile must not forge a log
+    line at the call site."""
+    stored = ProjectRecord(path=Path("/srv/a"), name="a")
+    hostile = ProjectRecord(
+        path=Path("/srv/a"), name="x" * 5000 + "\nforged", notes="changed"
+    )
+
+    merged = registry.merge_imported([stored], [hostile])
+
+    assert merged.reasons
+    for reason in merged.reasons:
+        assert "\n" not in reason
+        assert len(reason) < 5000

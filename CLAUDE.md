@@ -447,6 +447,21 @@ Added at P02 (LWSM-1005), contract in
   `port_override` is ADR-0005's 1024–65535. Type checks use
   `type(v) is int`, because `isinstance(True, int)` is `True` and
   the file is hand-editable.
+  Since LWSM-1148 it also holds the profile pair — `export_profile`,
+  `merge_imported` and `_user_half_applied` — on one claim: **a profile IS a
+  `projects.json`**, same `schema_version`, same writer, same parser. That is
+  why the item needed no format, no second parser and no migration, and why it
+  was built rather than specced. The two merges are **mirrors**: a rescan
+  refreshes the detected half and preserves the user half, an import does the
+  reverse, and both are driven by `DETECTED_FIELDS` / `USER_FIELDS` so
+  LWSM-1007 INV-1 keeps each complete. **`_user_half_applied` needs no
+  per-field qualifier where `_detected_half_applied` needs one for `port`** —
+  a scan's `None` means *unknown*, a profile's `None` is a real value — and
+  that rests entirely on the window refusing an import whose load reported
+  ANY refusal. Change one and you must change the other.
+  **`export_profile`'s gate is not `save_projects`' gate**: there the risk is
+  destroying a recoverable registry, here it is saving a profile that looks
+  known-good and silently lost the rows the load refused.
 - **`src/lwsm/ports.py`** — core, no Qt at all. `PortProbe`,
   `PortSnapshot`, `ProbeError`, and the `SupportsSnapshot`
   Protocol the controller accepts so test fakes are the contract.
@@ -599,6 +614,19 @@ Added at P02 (LWSM-1005), contract in
   **Filtering hides rows, never rebuilds them** (INV-13), and `_sync_rows`
   re-applies the filter so a rescan cannot land a project into a list the user
   has narrowed.
+  Since LWSM-1148 it also owns **profile export and import** — `_export_profile`,
+  `_import_profile`, `summarise_import` and the sixth and seventh injected seams,
+  `choose_profile_to_save` / `choose_profile_to_open` (a real `QFileDialog` in a
+  test hangs the run, which is `choose_directory`'s reason). **Both File-menu
+  entries appear or neither**: exporting needs the `LoadResult` its gate reads
+  and importing needs somewhere to write back to, so one condition covers both
+  and states nothing untrue. **Import is disabled while a rescan is in flight**
+  and export is not — a rescan that started first writes last, so a restored
+  user half would be silently dropped; export only reads. `_apply_rescan`'s body
+  became **`_apply_merge`**, shared by both, because the write gate, the
+  `RegistryError` handling and the `self._load` refresh after a successful write
+  are the same three rules either way — and a second copy is a second place to
+  forget the refresh.
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](docs/specs/LWSM-1006-scanner-detection.md):

@@ -43,6 +43,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -210,6 +211,30 @@ class RescanContext:
     save: Callable[..., None] = field(default=registry.save_projects)
 
 
+def _merge_parts(counts: dict[str, int]) -> list[str]:
+    """The rendered outcome fragments, in a fixed order, omitting zeroes.
+
+    Split out of `summarise_merge` by LWSM-1148 so an import can render the
+    same counts under its own leading word. Both leading words stay literals
+    at their own call site rather than becoming an argument, because `lupdate`
+    extracts literals and an interpolated one is a string no translator sees.
+    """
+
+    parts = [
+        QCoreApplication.translate(_TR_CONTEXT, template).replace("%1", str(count))
+        for outcome, template in (
+            (registry.NEW, "%1 new"),
+            (registry.CHANGED, "%1 changed"),
+            (registry.NOT_REOBSERVED, "%1 port no longer detected"),
+            (registry.OVERRIDE_DIFFERS, "%1 override differs"),
+            (registry.DUPLICATE_IDENTITY, "%1 duplicate"),
+            (registry.MISSING, "%1 missing"),
+        )
+        if (count := counts.get(outcome, 0))
+    ]
+    return parts
+
+
 def summarise_merge(counts: dict[str, int]) -> str:
     """`MergeResult.counts` as one line, in a fixed order, omitting zeroes.
 
@@ -223,21 +248,25 @@ def summarise_merge(counts: dict[str, int]) -> str:
     table has six rows and does not include it, and its entries still reach the
     application log with every other reason.
     """
-    parts = [
-        QCoreApplication.translate(_TR_CONTEXT, template).replace("%1", str(count))
-        for outcome, template in (
-            (registry.NEW, "%1 new"),
-            (registry.CHANGED, "%1 changed"),
-            (registry.NOT_REOBSERVED, "%1 port no longer detected"),
-            (registry.OVERRIDE_DIFFERS, "%1 override differs"),
-            (registry.DUPLICATE_IDENTITY, "%1 duplicate"),
-            (registry.MISSING, "%1 missing"),
-        )
-        if (count := counts.get(outcome, 0))
-    ]
+    parts = _merge_parts(counts)
     if not parts:
         return QCoreApplication.translate(_TR_CONTEXT, "Rescan: no changes")
     return QCoreApplication.translate(_TR_CONTEXT, "Rescan: %1").replace(
+        "%1", ", ".join(parts)
+    )
+
+
+def summarise_import(counts: dict[str, int]) -> str:
+    """The same counts under the import's leading word (LWSM-1148).
+
+    An import produces only `new`, `changed`, `unchanged` and the duplicate
+    flag, so the four remaining fragments are always zero and always omitted —
+    `_merge_parts` needs no import-specific ordering.
+    """
+    parts = _merge_parts(counts)
+    if not parts:
+        return QCoreApplication.translate(_TR_CONTEXT, "Import: no changes")
+    return QCoreApplication.translate(_TR_CONTEXT, "Import: %1").replace(
         "%1", ", ".join(parts)
     )
 
@@ -839,6 +868,8 @@ class MainWindow(QMainWindow):
         save_theme: Callable[[str], None] | None = None,
         text_scale: int = MIN_TEXT_SCALE,
         save_text_scale: Callable[[int], None] | None = None,
+        choose_profile_to_save: Callable[[], str | None] | None = None,
+        choose_profile_to_open: Callable[[], str | None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -887,6 +918,23 @@ class MainWindow(QMainWindow):
         # merge that stops one field overwriting the other belongs where the
         # file is read, which is `__main__`.
         self._save_text_scale = save_text_scale
+        # The sixth and seventh seams (LWSM-1148), and they default to the real
+        # thing for `confirm`'s reason rather than `save_theme`'s: a file dialog
+        # writes nothing by itself, and a test that never triggers one never
+        # reaches it. What a test must not do is OPEN one — a real
+        # `QFileDialog.getSaveFileName` in a test blocks the event loop with
+        # nobody to click it, which is a hang rather than a failure. That is the
+        # same hazard `SettingsDialog.choose_directory` is injected for.
+        self._choose_profile_to_save = (
+            choose_profile_to_save
+            if choose_profile_to_save is not None
+            else self._pick_profile_to_save
+        )
+        self._choose_profile_to_open = (
+            choose_profile_to_open
+            if choose_profile_to_open is not None
+            else self._pick_profile_to_open
+        )
         # The size the DESKTOP asked for, captured before we scale anything, so
         # every later step multiplies it rather than the size now on screen —
         # otherwise 150 % then 200 % lands at 300 % and 100 % never returns.
@@ -1045,6 +1093,21 @@ class MainWindow(QMainWindow):
             self._rescan_action = self._file_menu.addAction("")
             self._rescan_action.triggered.connect(self._start_rescan)
             self._file_menu.addSeparator()
+        # Profile export and import (LWSM-1148). Both entries or neither:
+        # exporting needs the `LoadResult` its gate reads, importing needs the
+        # registry path to write back to, and a window holding one without the
+        # other cannot be built by `build_window`. Gating each on its own half
+        # would put two conditions in front of one feature and state nothing
+        # extra that is true.
+        self._export_action: QAction | None = None
+        self._import_action: QAction | None = None
+        if self._rescan is not None and self._load is not None:
+            self._file_menu.addSeparator()
+            self._export_action = self._file_menu.addAction("")
+            self._export_action.triggered.connect(self._export_profile)
+            self._import_action = self._file_menu.addAction("")
+            self._import_action.triggered.connect(self._import_profile)
+        self._file_menu.addSeparator()
         self._quit_action = self._file_menu.addAction("")
         # The platform's own quit sequence rather than a literal, so it is
         # whatever the desktop already taught the user.
@@ -1197,6 +1260,14 @@ class MainWindow(QMainWindow):
             self._rescan_action.setText(
                 QCoreApplication.translate(_TR_CONTEXT, "&Rescan projects")
             )
+        if self._export_action is not None:
+            self._export_action.setText(
+                QCoreApplication.translate(_TR_CONTEXT, "&Export profile...")
+            )
+        if self._import_action is not None:
+            self._import_action.setText(
+                QCoreApplication.translate(_TR_CONTEXT, "&Import profile...")
+            )
         self._quit_action.setText(QCoreApplication.translate(_TR_CONTEXT, "&Quit"))
         self._settings_menu.setTitle(
             QCoreApplication.translate(_TR_CONTEXT, "&Settings")
@@ -1280,6 +1351,94 @@ class MainWindow(QMainWindow):
             QCoreApplication.translate(_TR_CONTEXT, "Settings are not available yet.")
         )
 
+    def _pick_profile_to_save(self) -> str | None:
+        """The real Save dialog. Injected past in every test."""
+        chosen, _filter = QFileDialog.getSaveFileName(
+            self,
+            QCoreApplication.translate(_TR_CONTEXT, "Export profile"),
+            "lwsm-profile.json",
+            QCoreApplication.translate(_TR_CONTEXT, "Profiles (*.json)"),
+        )
+        return chosen or None
+
+    def _pick_profile_to_open(self) -> str | None:
+        """The real Open dialog. Injected past in every test."""
+        chosen, _filter = QFileDialog.getOpenFileName(
+            self,
+            QCoreApplication.translate(_TR_CONTEXT, "Import profile"),
+            "",
+            QCoreApplication.translate(_TR_CONTEXT, "Profiles (*.json)"),
+        )
+        return chosen or None
+
+    def _export_profile(self) -> None:
+        """Write the current registry to a file the user names (LWSM-1148)."""
+        if self._load is None:
+            return
+        chosen = self._choose_profile_to_save()
+        if not chosen:
+            return
+        try:
+            registry.export_profile(
+                Path(chosen), self._controller.records(), load=self._load
+            )
+        except RegistryError as exc:
+            log.warning("the profile could not be exported: %s", exc)
+            self.set_status_message(
+                QCoreApplication.translate(
+                    _TR_CONTEXT, "Profile not saved: %1"
+                ).replace("%1", str(exc))
+            )
+            return
+        self.set_status_message(
+            QCoreApplication.translate(_TR_CONTEXT, "Profile saved to %1").replace(
+                "%1", chosen
+            )
+        )
+
+    def _import_profile(self) -> None:
+        """Merge a saved profile back into the registry (LWSM-1148).
+
+        **Any refusal at load refuses the whole import**, where the registry's
+        own loader deliberately keeps a row whose field was dropped. The
+        asymmetry is about what each refusal costs. There, keying the gate on
+        `reasons` would let one hand-typed `"port": "3000"` disable persistence
+        for a whole session (LWSM-1007 § 4.3). Here the cost is one refused
+        button press with a reason the user can act on — and the alternative is
+        writing a silently partial user half over a good one, which is the same
+        shape as the merge writing `None` over a stored port. That guarantee is
+        what lets `_user_half_applied` take the user half whole, with no
+        per-field qualifier.
+        """
+        if self._rescan is None or self._load is None:
+            return
+        chosen = self._choose_profile_to_open()
+        if not chosen:
+            return
+        try:
+            loaded = registry.load_projects(Path(chosen))
+        except RegistryError as exc:
+            self._refuse_import(str(exc))
+            return
+        if loaded.reasons:
+            for reason in loaded.reasons:
+                log.info("import: %s", reason)
+            self._refuse_import(loaded.reasons[0])
+            return
+
+        merged = registry.merge_imported(self._controller.records(), loaded.records)
+        self.set_status_message(
+            self._apply_merge(merged, summarise_import(merged.counts), "import")
+        )
+
+    def _refuse_import(self, detail: str) -> None:
+        log.warning("the profile could not be imported: %s", detail)
+        self.set_status_message(
+            QCoreApplication.translate(_TR_CONTEXT, "Profile not loaded: %1").replace(
+                "%1", detail
+            )
+        )
+
     def scan_roots(self) -> tuple[Path, ...]:
         """The folders a Rescan walks, or none when there is nothing to rescan.
 
@@ -1305,11 +1464,19 @@ class MainWindow(QMainWindow):
             self._rescan = replace(self._rescan, roots=tuple(roots))
 
     def _set_rescan_enabled(self, enabled: bool) -> None:
-        """The button and the menu entry are one control with two faces."""
+        """The button and the menu entry are one control with two faces.
+
+        Import rides along, and that is not tidiness (LWSM-1148): a merge
+        landing while a rescan is in flight is written by whichever finishes
+        last, so the restored user half would be silently dropped by a rescan
+        that started before it. Export does not — it only reads.
+        """
         if self._rescan_button is not None:
             self._rescan_button.setEnabled(enabled)
         if self._rescan_action is not None:
             self._rescan_action.setEnabled(enabled)
+        if self._import_action is not None:
+            self._import_action.setEnabled(enabled)
 
     def _retranslate_filter(self) -> None:
         """The filter box's two user-visible strings (LWSM-1040).
@@ -1694,31 +1861,42 @@ class MainWindow(QMainWindow):
         always-finish guard above — a body and its own `finally` in one
         function is where the missing re-enable hid in the first place.
         """
+        return self._apply_merge(merged, summarise_merge(merged.counts), "rescan")
+
+    def _apply_merge(self, merged: MergeResult, message: str, source: str) -> str:
+        """Write a merge and show it, whichever merge produced it.
+
+        Generalised out of `_apply_rescan` by LWSM-1148 rather than copied: the
+        write gate, the `RegistryError` handling and the `self._load` refresh
+        after a successful write are the same three rules for an import, and a
+        second copy of them would be a second place for the refresh to be
+        forgotten. Only the leading word and the log prefix differ.
+        """
         if self._rescan is None:
             return ""
         for reason in merged.reasons:
             # The full report goes to the log, one record each; the status bar
             # gets the summary. INV-6's bound already applies to the entries.
-            log.info("rescan: %s", reason)
+            log.info("%s: %s", source, reason)
 
         stored = self._controller.records()
-        message = summarise_merge(merged.counts)
         if self._should_write(merged, stored):
             try:
                 self._rescan.save(
                     self._rescan.projects_path, merged.records, load=self._load
                 )
             except RegistryError as exc:
-                log.warning("the rescan could not be saved: %s", exc)
+                log.warning("the %s could not be saved: %s", source, exc)
                 message = (
                     QCoreApplication.translate(_TR_CONTEXT, "%1 — not saved: %2")
                     .replace("%1", message)
                     .replace("%2", str(exc))
                 )
             else:
-                # The next rescan compares against what is now on disk. Without
-                # this, a first run stays `RegistryMissing` for the life of the
-                # session and every later rescan writes unconditionally.
+                # The next merge, of either kind, compares against what is
+                # now on disk. Without this, a first run stays
+                # `RegistryMissing` for the life of the session and every later
+                # merge writes unconditionally.
                 self._load = LoadResult(
                     records=list(merged.records), reasons=[], rows_refused=0
                 )

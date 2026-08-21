@@ -7,6 +7,7 @@ which conftest.py sets when it is unset.
 from __future__ import annotations
 
 import dataclasses
+import json
 import socket
 import threading
 from collections import Counter
@@ -14,11 +15,11 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
-from lwsm import mainwindow
+from lwsm import mainwindow, registry, scanner
 from lwsm.__main__ import build_window
 from lwsm.controller import (
     ProjectController,
@@ -3615,3 +3616,245 @@ def test_a_confirmation_lands_over_the_list_and_blocks_the_whole_app(
     assert seen["rect"].intersects(listing), (
         f"the confirmation at {seen['rect']} lands away from the list {listing}"
     )
+
+
+# --- LWSM-1148: exporting a profile, and merging one back in -----------------
+
+
+def profile_window(
+    qtbot,
+    built,
+    records,
+    tmp_path: Path,
+    *,
+    to_save: str | None = None,
+    to_open: str | None = None,
+    load=None,
+    saves: list | None = None,
+) -> tuple[MainWindow, ProjectController]:
+    """A window whose registry is reachable and whose file dialogs are fakes.
+
+    Both pickers are injected in every test here for `SettingsDialog`'s reason:
+    a real `QFileDialog` blocks the event loop with nobody to click it, which
+    is a hang rather than a failure.
+    """
+    controller = build_controller(built, list(records), FakeProbe())
+
+    def fake_save(path, merged, *, load) -> None:
+        if saves is not None:
+            saves.append((path, list(merged), load))
+
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=lambda _roots: scanner.ScanResult(
+            projects=(), timed_out=False, unlistable_roots=()
+        ),
+        now=lambda: "2026-08-21T09:00:00Z",
+        save=fake_save,
+    )
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        rescan=context,
+        load=load if load is not None else LoadResult([], [], 0),
+        choose_profile_to_save=lambda: to_save,
+        choose_profile_to_open=lambda: to_open,
+    )
+    qtbot.addWidget(window)
+    return window, controller
+
+
+def test_the_file_menu_offers_export_and_import(qtbot, built, tmp_path) -> None:
+    """Asserted as the whole list, like the Settings menu beside it, so an
+    entry added without a decision about its placement lands here."""
+    window, _ = profile_window(qtbot, built, two_rows(), tmp_path)
+
+    assert entry_texts(window._file_menu) == [
+        "&Rescan projects",
+        "&Export profile...",
+        "&Import profile...",
+        "&Quit",
+    ]
+    assert all("&" in text for text in entry_texts(window._file_menu))
+
+
+def test_the_profile_entries_are_absent_without_a_registry(qtbot, built) -> None:
+    """Both or neither. Exporting needs the `LoadResult` its gate reads and
+    importing needs somewhere to write back to, so a window holding neither
+    gets no entry rather than one that reports a failure when chosen."""
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+
+    assert window._export_action is None
+    assert window._import_action is None
+    assert "&Export profile..." not in entry_texts(window._file_menu)
+
+
+def test_export_writes_a_profile_that_loads_back(qtbot, built, tmp_path) -> None:
+    """End to end through the seam: the file the picker named holds exactly
+    the controller's records."""
+    profile = tmp_path / "saved.json"
+    records = two_rows()
+    window, _ = profile_window(qtbot, built, records, tmp_path, to_save=str(profile))
+
+    window._export_action.trigger()
+
+    assert registry.load_projects(profile).records == records
+    assert str(profile) in window.statusBar().currentMessage()
+
+
+def test_a_cancelled_export_writes_nothing(qtbot, built, tmp_path) -> None:
+    """The picker returning None is the user pressing Cancel, and it must not
+    reach the writer or the status bar."""
+    window, _ = profile_window(qtbot, built, two_rows(), tmp_path, to_save=None)
+
+    window._export_action.trigger()
+
+    assert list(tmp_path.glob("*.json")) == []
+    assert window.statusBar().currentMessage() == ""
+
+
+def test_an_export_refusal_reaches_the_status_bar(qtbot, built, tmp_path) -> None:
+    """A refused export must SAY so. A silent one leaves the user believing
+    they hold a known-good configuration they do not have."""
+    window, _ = profile_window(
+        qtbot,
+        built,
+        two_rows(),
+        tmp_path,
+        to_save=str(tmp_path / "saved.json"),
+        load=LoadResult(records=[], reasons=["bad row"], rows_refused=1),
+    )
+
+    window._export_action.trigger()
+
+    message = window.statusBar().currentMessage()
+    assert "Profile not saved" in message
+    assert "incomplete" in message
+    assert not (tmp_path / "saved.json").exists()
+
+
+def write_profile(tmp_path: Path, projects: list[dict]) -> Path:
+    profile = tmp_path / "profile.json"
+    profile.write_text(
+        json.dumps({"schema_version": 1, "projects": projects}), encoding="utf-8"
+    )
+    return profile
+
+
+def test_import_restores_the_user_half_saves_it_and_updates_the_controller(
+    qtbot, built, tmp_path
+) -> None:
+    """The three things an import has to do, asserted together — a merge that
+    is computed and never written is the shape LWSM-1136 shipped."""
+    saves: list = []
+    profile = write_profile(
+        tmp_path,
+        [{"path": "/srv/a", "name": "a-from-profile", "port_override": 9100}],
+    )
+    window, controller = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_open=str(profile), saves=saves
+    )
+
+    window._import_action.trigger()
+
+    restored = controller.records()[0]
+    assert restored.name == "a-from-profile"
+    assert restored.port_override == 9100
+    # The detected half stays this machine's.
+    assert restored.port == 5005
+    assert len(saves) == 1
+    assert saves[0][1] == controller.records()
+    assert "Import:" in window.statusBar().currentMessage()
+
+
+def test_an_import_is_refused_when_the_profile_had_any_refusal(
+    qtbot, built, tmp_path
+) -> None:
+    """The guarantee `_user_half_applied` rests on, and the reason it needs no
+    per-field qualifier.
+
+    A field refusal keeps the row and drops the field, so a profile with one
+    hand-typed `"port_override": "9100"` would otherwise restore a user half
+    with a hole in it — writing `None` over a stored override, which is the
+    exact defect the LWSM-1007 gate caught on the rescan merge.
+    """
+    saves: list = []
+    profile = write_profile(
+        tmp_path, [{"path": "/srv/a", "name": "a", "port_override": "9100"}]
+    )
+    window, controller = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_open=str(profile), saves=saves
+    )
+    before = controller.records()
+
+    window._import_action.trigger()
+
+    assert controller.records() == before
+    assert saves == []
+    assert "Profile not loaded" in window.statusBar().currentMessage()
+
+
+def test_an_unreadable_profile_is_refused(qtbot, built, tmp_path) -> None:
+    """`load_projects` raising is reported, never allowed to escape a menu
+    trigger — PySide6 swallows what escapes a slot."""
+    profile = tmp_path / "profile.json"
+    profile.write_text("{not json", encoding="utf-8")
+    saves: list = []
+    window, controller = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_open=str(profile), saves=saves
+    )
+    before = controller.records()
+
+    window._import_action.trigger()
+
+    assert controller.records() == before
+    assert saves == []
+    assert "Profile not loaded" in window.statusBar().currentMessage()
+
+
+def test_a_cancelled_import_changes_nothing(qtbot, built, tmp_path) -> None:
+    saves: list = []
+    window, controller = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_open=None, saves=saves
+    )
+    before = controller.records()
+
+    window._import_action.trigger()
+
+    assert controller.records() == before
+    assert saves == []
+    assert window.statusBar().currentMessage() == ""
+
+
+def test_import_is_disabled_while_a_rescan_is_in_flight(qtbot, built, tmp_path) -> None:
+    """Not tidiness: a rescan that started first writes last, so an imported
+    user half would be silently dropped by it. Export is left alone because it
+    only reads.
+
+    This drives `_set_rescan_enabled`, which is the one place the flight state
+    reaches any control; that the rescan flow calls it is pinned by the button
+    tests above.
+    """
+    window, _ = profile_window(qtbot, built, two_rows(), tmp_path)
+
+    window._set_rescan_enabled(False)
+    assert not window._import_action.isEnabled()
+    assert window._export_action.isEnabled()
+
+    window._set_rescan_enabled(True)
+    assert window._import_action.isEnabled()
+
+
+def test_the_profile_entries_retranslate(qtbot, built, tmp_path) -> None:
+    """`LanguageChange` has one place to go, and an entry added outside
+    `_retranslate_menus` keeps its construction-time empty text."""
+    window, _ = profile_window(qtbot, built, two_rows(), tmp_path)
+
+    window._export_action.setText("")
+    window._import_action.setText("")
+    window.changeEvent(QEvent(QEvent.Type.LanguageChange))
+
+    assert window._export_action.text() == "&Export profile..."
+    assert window._import_action.text() == "&Import profile..."

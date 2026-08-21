@@ -23,6 +23,15 @@ signaling per
 
 ### Added
 
+- **Save and reload a project-settings profile** (LWSM-1148)
+  File → Export profile writes your project list and your settings to a
+  file you name; Import profile reads one back. An import is a merge, not
+  a replacement: your own names, port overrides and notes come back from
+  the profile, while what this machine detected — the launcher, the
+  declared port — stays as this machine found it. A project the profile
+  does not mention is left alone. A profile that cannot be read in full
+  is refused with a reason rather than restored in part.
+
 - **A Preferences dialog for the folders to scan, how often to check, and how much log to keep** (LWSM-1018)
   Reachable from Settings → Preferences. All three take effect
   immediately — no restart. The folder list is still the

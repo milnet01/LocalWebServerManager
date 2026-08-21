@@ -590,6 +590,43 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
     }
 
 
+def _encoded(path: Path, records: Sequence[ProjectRecord]) -> bytes:
+    """The file's bytes, or `RegistryError` naming why they could not be made.
+
+    Extracted from `save_projects` by LWSM-1148, which writes the same format
+    to a second, user-chosen path. Serialising and bounding are the half both
+    writers share; the gate above them is not, because what a write would
+    destroy differs between the registry and a profile.
+
+    `path` is a parameter only so the refusals can name the file. Nothing here
+    touches it.
+    """
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "projects": [_serialised(record) for record in records],
+    }
+    try:
+        # ensure_ascii=False so a non-Latin project name stays readable in the
+        # file the user is invited to hand-edit; the bound below is on the
+        # encoded bytes, which is what the reader's cap measures.
+        text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+        data = text.encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise RegistryError(
+            f"{quoted(str(path))}: cannot be serialised "
+            f"({type(exc).__name__}: {quoted(str(exc))})"
+        ) from exc
+
+    if len(data) > MAX_FILE_BYTES:
+        # Refused before anything is written, rather than written and then found
+        # unreadable on the next start by the reader's own cap.
+        raise RegistryError(
+            f"{quoted(str(path))}: would be {len(data)} bytes, over the "
+            f"{MAX_FILE_BYTES} limit; not written"
+        )
+    return data
+
+
 def _refuse_unwritable_load(path: Path, load: LoadResult | RegistryError) -> None:
     """The read-only gate, and it lives HERE rather than in a caller.
 
@@ -640,30 +677,7 @@ def save_projects(
     so a writer that sorted by name would silently flip both on every run.
     """
     _refuse_unwritable_load(path, load)
-
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "projects": [_serialised(record) for record in records],
-    }
-    try:
-        # ensure_ascii=False so a non-Latin project name stays readable in the
-        # file the user is invited to hand-edit; the bound below is on the
-        # encoded bytes, which is what the reader's cap measures.
-        text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
-        data = text.encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError) as exc:
-        raise RegistryError(
-            f"{quoted(str(path))}: cannot be serialised "
-            f"({type(exc).__name__}: {quoted(str(exc))})"
-        ) from exc
-
-    if len(data) > MAX_FILE_BYTES:
-        # Refused before anything is written, rather than written and then found
-        # unreadable on the next start by the reader's own cap.
-        raise RegistryError(
-            f"{quoted(str(path))}: would be {len(data)} bytes, over the "
-            f"{MAX_FILE_BYTES} limit; not written"
-        )
+    data = _encoded(path, records)
 
     try:
         # The directory, the hostile-target refusal and the durable write, in
@@ -1048,3 +1062,173 @@ def _flag_duplicate_ports(
                 f"{quoted(records[loser].name)}: port {port} is claimed by "
                 f"{quoted(winner.name)}",
             )
+
+
+# --------------------------------------------------------------------------
+# LWSM-1148 — exporting a profile, and merging one back in
+# --------------------------------------------------------------------------
+
+# A profile IS a `projects.json`: same `schema_version`, same writer, same
+# parser. That is the whole reason this item needed no new on-disk format and
+# no migration — `export_profile` encodes with `_encoded` and reads back
+# through `load_projects` unchanged. A second format would have bound another
+# item to it and made this spec-first work (`CLAUDE.md` § Review cadence).
+
+
+def export_profile(
+    path: Path,
+    records: Sequence[ProjectRecord],
+    *,
+    load: LoadResult | RegistryError,
+) -> None:
+    """Write `records` to a user-chosen path, or raise `RegistryError`.
+
+    The gate is NOT `save_projects`' gate, and the difference is what each
+    write would destroy. There, the risk is overwriting a recoverable registry,
+    so the question is whether this load may write at all. Here the target is a
+    file the user just named, and the risk runs the other way: a profile whose
+    whole purpose is to be a known-good configuration must not silently be
+    saved missing the rows the load refused. So a row refusal refuses the
+    export by naming the count, rather than quietly exporting the survivors.
+
+    `RegistryMissing` is not special-cased the way it is for the registry:
+    first run has nothing to export, and the empty check below already says so
+    in the words the user needs.
+    """
+    if not records:
+        raise RegistryError(f"{quoted(str(path))}: there are no projects to export")
+    if isinstance(load, RegistryError) and not isinstance(load, RegistryMissing):
+        raise RegistryError(
+            f"{quoted(str(path))}: not exporting a profile from a registry that "
+            f"could not be loaded ({quoted(str(load))})"
+        )
+    if isinstance(load, LoadResult) and load.rows_refused:
+        raise RegistryError(
+            f"{quoted(str(path))}: not exporting; {load.rows_refused} row(s) "
+            "were refused at load and the profile would be incomplete"
+        )
+
+    data = _encoded(path, records)
+    try:
+        write_json_atomically(path, data, prefix=".profile-")
+    except ConfigFileError as exc:
+        # Converted for `save_projects`' reason: this function promises the
+        # narrow type, and `except RegistryError` does not catch its base.
+        raise RegistryError(str(exc)) from exc
+
+
+def _user_half_applied(record: ProjectRecord, profile: ProjectRecord) -> ProjectRecord:
+    """`USER_FIELDS`, taken whole — the mirror of `_detected_half_applied`.
+
+    Driven by the set rather than by a field list, so LWSM-1007's INV-1 keeps
+    it complete: a field added to `ProjectRecord` and classified *user* is
+    restored here without this function being touched.
+
+    **Taken whole, with no per-field qualifier, and that is the deliberate
+    difference from its mirror.** `_detected_half_applied` has to qualify
+    `port`, because a scan's `None` means *unknown* and would write over a
+    stored number. A profile's `None` is not unknown — the profile is a
+    complete snapshot of the user half at the moment it was saved, and the
+    caller refuses an import whose load reported ANY refusal, so no field of it
+    was dropped on the way in. So `added` comes across with the rest: a profile
+    that restored nine of ten user fields would be one nobody could reason
+    about.
+
+    Nothing here touches `DETECTED_FIELDS`, `path` included. Those describe the
+    machine the profile was exported FROM; this machine's own scan owns them,
+    and a rescan re-derives them for free.
+    """
+    return replace(record, **{name: getattr(profile, name) for name in USER_FIELDS})
+
+
+def merge_imported(
+    stored: Sequence[ProjectRecord],
+    imported: Sequence[ProjectRecord],
+) -> MergeResult:
+    """Fold an imported profile into the stored registry.
+
+    The sibling of `merge()`, and the same three rules: identity is the
+    *resolved* path so two spellings of one directory are one project, the
+    first record in file order owns that identity, and no stored `path` is ever
+    rewritten to its resolved form.
+
+    Where it differs is which half moves. A rescan refreshes the detected half
+    and preserves the user half; an import does exactly the reverse, because
+    the user half is what a profile exists to carry. `unchanged` is counted and
+    not news, and a project stored here but absent from the profile is simply
+    kept — an import is a merge, never a replacement.
+    """
+    reasons: list[str] = []
+    counts = dict.fromkeys(OUTCOMES, 0)
+    suppressed = 0
+
+    def note(reason: str) -> None:
+        """`load_projects`' bound, on a third surface (LWSM-1007 INV-6)."""
+        nonlocal suppressed
+        if len(reasons) < MAX_REASONS:
+            reasons.append(reason)
+        else:
+            suppressed += 1
+
+    def flag(outcome: str, reason: str) -> None:
+        counts[outcome] += 1
+        note(reason)
+
+    records = list(stored)
+
+    # First in FILE ORDER owns the identity, exactly as `merge()` decides it.
+    owner: dict[Path, int] = {}
+    for index, record in enumerate(records):
+        resolved, failure = _resolve_or_lexical(record.path)
+        if failure:
+            note(failure)
+        owner.setdefault(resolved, index)
+
+    claimed_by_profile: set[Path] = set()
+    for record in imported:
+        resolved, failure = _resolve_or_lexical(record.path)
+        if failure:
+            note(failure)
+
+        if resolved in claimed_by_profile:
+            # Two records in the profile naming one directory. The loader keeps
+            # both — it refuses a row on its own merits and does not compare
+            # rows — so the second is flagged here rather than silently
+            # overwriting what the first just restored.
+            flag(
+                DUPLICATE_IDENTITY,
+                f"{quoted(record.name)}: a second profile entry for "
+                f"{quoted(str(record.path))}; ignored",
+            )
+            continue
+        claimed_by_profile.add(resolved)
+
+        index = owner.get(resolved)
+        if index is None:
+            # Not on this machine. Appended with the profile's own `path`, not
+            # its resolved form, for the reason a merge never rewrites one.
+            owner[resolved] = len(records)
+            records.append(record)
+            flag(NEW, f"{quoted(record.name)}: added from the profile")
+            continue
+
+        current = records[index]
+        restored = _user_half_applied(current, record)
+        if restored == current:
+            counts[UNCHANGED] += 1
+            continue
+        records[index] = restored
+        changed = sorted(
+            name
+            for name in USER_FIELDS
+            if getattr(current, name) != getattr(restored, name)
+        )
+        flag(
+            CHANGED,
+            f"{quoted(current.name)}: restored from the profile "
+            f"({quoted(', '.join(changed))})",
+        )
+
+    if suppressed:
+        reasons.append(f"... and {suppressed} more")
+    return MergeResult(records=records, reasons=reasons, counts=counts)

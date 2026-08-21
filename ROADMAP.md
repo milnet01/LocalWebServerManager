@@ -2893,7 +2893,7 @@ magnifier, so this is a design input, and
   Source: user-request-2026-08-18.
   Lanes: ui, core.
 
-- 📋 [LWSM-1148] **P04: save and reload a project-settings profile.**
+- ✅ [LWSM-1148] **P04: save and reload a project-settings profile.**
   `projects.json` already persists the registry, and LWSM-1007 made
   that write atomic and gated. What does not exist is a way for the user
   to **name, export and re-import** a set — to keep a known-good
@@ -2906,6 +2906,48 @@ magnifier, so this is a design input, and
   with a different source, not a file copy — importing must not silently
   discard a `port_override` the user set here.
   Dependencies: LWSM-1007.
+  Progress (2026-08-21): started, build-first per CLAUDE.md § Review
+  cadence — no spec. The format question that would have forced
+  spec-first answers itself: a profile IS a `projects.json`, same
+  `schema_version`, same writer, same parser, so export is
+  `_encode` + `write_json_atomically` to a chosen path and import is
+  `load_projects` on it. No new on-disk format, so nothing another
+  item binds to and no migration.
+  Resolved (2026-08-21): shipped as File → Export/Import profile, plus
+  `registry.export_profile`, `merge_imported` and `_user_half_applied`.
+  1041 tests (was 1013); `./scripts/local-ci.sh` green; 10 mutants, 10
+  killed.
+
+  **The format question the bullet implied never arose: a profile IS a
+  `projects.json`.** Same `schema_version`, same writer, same parser, so
+  export is `_encoded` + `write_json_atomically` to a chosen path and
+  import is `load_projects` on it. No new on-disk format, nothing else
+  binds to one, no migration — which is why this stayed build-first.
+
+  **The merge rule.** Import is the exact mirror of the rescan merge: the
+  USER half moves, the DETECTED half stays this machine's. Both are driven
+  by `DETECTED_FIELDS` / `USER_FIELDS`, so LWSM-1007 INV-1 keeps each
+  complete as fields are added.
+
+  **How the `port_override` hazard the bullet named was actually closed.**
+  Not by skipping default-valued fields — that makes export-then-import
+  stop being the identity. The window refuses an import whose load
+  reported ANY refusal, where the registry's own loader deliberately keeps
+  a row that lost a field. The asymmetry is the cost: there, keying on
+  `reasons` would disable persistence for a whole session (LWSM-1007
+  § 4.3); here it is one refused button press with a reason. That
+  guarantee is what lets `_user_half_applied` take the user half whole
+  with no per-field qualifier, and both halves are pinned by tests.
+
+  **Stated loss:** an import restores whole, so a user field the profile
+  left unset is cleared. Deliberate, and pinned by
+  `test_an_import_clears_a_user_field_the_profile_left_unset`.
+
+  Verified against the real population (7 projects,
+  /home/ants/.config/localwebservermanager/projects.json, read-only):
+  export → import round-trips to 7 unchanged and byte-identical records.
+  Perturbing two user fields and one detected port locally moved exactly
+  the two user verdicts and left the detected drift alone.
   **Layman:** Let me save my list of projects and their settings to a file, and load it back later or on another machine.
   Kind: implement.
   Source: user-request-2026-08-18.
