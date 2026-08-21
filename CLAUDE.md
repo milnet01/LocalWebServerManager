@@ -770,6 +770,22 @@ heredoc'd `python3` over shell-interpolated arguments for anything holding a
 regex. A mutant that reports green without having been applied is worse than no
 mutant, because it is counted.
 
+**And an anchored EDIT needs two guards, not one — `t.count(a) == 1` is only
+the first.** Two shapes cost a cycle each on 2026-08-21 while shipping
+LWSM-1148. **An "already applied" sentinel must name a SYMBOL, never the item
+id**: `assert "LWSM-1148" not in t` refused a file whose only mention of the id
+was a docstring the same run had written one call earlier — which reads as
+"this is already done" and is the opposite of the truth. Guard on
+`"def export_profile" not in t`. And **assert the replacement differs from the
+anchor** (`assert repl != anchor`) — a mutation that is textually a no-op
+applies cleanly, reports green, and is counted as a survivor, which is the
+LWSM-1155 failure reached from a third direction. Both are one line, and both
+fire before anything runs. **The anchor itself is the third case and it is
+self-announcing**: prose here is hard-wrapped at ~70 columns, so an anchor
+pasted as one logical sentence matches zero times. That one is safe — a zero
+count stops the run — which is exactly why the two above are worth writing
+down and it is not.
+
 **Trap: a scanner fixture cannot tell you what a matcher does to files nobody
 wrote for it — the author's own sibling projects can.** `/mnt/Games/Scripts/Linux`
 holds the real population this app scans: 7 projects across all five launcher
