@@ -21,6 +21,7 @@ than one that admits it did not run).
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -276,6 +277,112 @@ def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> N
     # And a mixed push is not docs-only, however much of it is prose.
     assert not _hook_says_docs_only(["docs/design.md", "CLAUDE.md"]), (
         "a push carrying one governed file among many exempt ones skips the gate"
+    )
+
+
+def _hook_verdict(tmp_path: Path, changed: str) -> str:
+    """Run the REAL hook in a throwaway clone whose gate is a stub, pushing one
+    commit that touches `changed`, and return everything the run printed.
+
+    Executing the hook rather than scanning it, for the reason
+    `_hook_says_docs_only` gives above: a scrape can say a variable appears
+    somewhere in the file, never that the gate was invoked *under* it.
+
+    The stub records its environment and exits. A real gate would take fifteen
+    seconds and answer nothing this test is asking.
+    """
+    repo = tmp_path / "clone"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / ".githooks").mkdir()
+    shutil.copy(HOOK, repo / ".githooks/pre-push")
+
+    gate = repo / "scripts/local-ci.sh"
+    gate.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "GATE-RAN REQUIRE=%s\\n" "${LWSM_REQUIRE_ALL_TOOLS:-unset}"\n'
+    )
+    gate.chmod(0o755)
+
+    def git(*args: str) -> str:
+        done = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.email=t@example.invalid",
+                "-c",
+                "user.name=test",
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return done.stdout.strip()
+
+    git("init", "-q", "-b", "main")
+    (repo / "seed.txt").write_text("seed\n")
+    git("add", "-A")
+    git("commit", "-qm", "seed")
+    base = git("rev-parse", "HEAD")
+
+    target = repo / changed
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("changed\n")
+    git("add", "-A")
+    git("commit", "-qm", "change")
+    head = git("rev-parse", "HEAD")
+
+    # Cleared, not inherited. CI sets LWSM_REQUIRE_ALL_TOOLS=1 for the whole
+    # gate step, so pytest itself runs under it — a stub that merely inherited
+    # the variable would report REQUIRE=1 on the runner whatever the hook did,
+    # and this test would pass on GitHub while the defect it names shipped.
+    env = {k: v for k, v in os.environ.items() if k != "LWSM_REQUIRE_ALL_TOOLS"}
+
+    done = subprocess.run(
+        ["bash", str(repo / ".githooks/pre-push"), "origin", "url"],
+        cwd=repo,
+        env=env,
+        input=f"refs/heads/main {head} refs/heads/main {base}\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, f"the hook refused the push: {done.stderr}"
+    return done.stdout + done.stderr
+
+
+def test_the_hook_runs_the_gate_under_the_same_environment_as_github(
+    tmp_path: Path,
+) -> None:
+    """A SKIP and a TOOL DRIFT are fatal on the runner and a warning locally,
+    so the hook must invoke the gate the way the workflow does.
+
+    That asymmetry is right for a developer running `./scripts/local-ci.sh` by
+    hand — a missing linter must not stop them testing their own change. It is
+    wrong at the one moment the local run is standing in for CI. Measured
+    2026-08-21 with actionlint off PATH: the same tree exited 0 through the
+    hook and 1 under the workflow's environment, so the push went out and
+    GitHub failed it. The hook already makes exactly this argument for
+    `--fast`, one line down, and stopped short of the environment.
+
+    Both halves in ONE test on purpose: a hook that ran the gate on every push
+    would satisfy the first assertion while deleting the exemption, and a hook
+    that ran it on none would satisfy the second while deleting the gate.
+    Neither holds alone — the lesson LWSM-1149's vacuous geometry tests cost.
+    """
+    ran = _hook_verdict(tmp_path / "code", "src/lwsm/thing.py")
+    assert "GATE-RAN" in ran, f"the hook never ran the gate at all: {ran}"
+    assert "REQUIRE=1" in ran, (
+        "the hook runs the gate WITHOUT LWSM_REQUIRE_ALL_TOOLS=1, so a skipped "
+        "check or a drifted tool passes a push that GitHub then fails — the "
+        f"split this file exists to close: {ran}"
+    )
+
+    skipped = _hook_verdict(tmp_path / "docs", "docs/design.md")
+    assert "GATE-RAN" not in skipped, (
+        f"a docs-only push now pays the full gate, so the exemption is dead: {skipped}"
     )
 
 

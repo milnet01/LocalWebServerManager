@@ -94,6 +94,14 @@ if printf '%s' "$changed" | docs_only; then
 fi
 
 printf 'pre-push: running ./scripts/local-ci.sh\n' >&2
-# No --fast. The point of this hook is that what runs here is what runs on
-# GitHub, and --fast drops the integration tests.
-./scripts/local-ci.sh
+# No --fast, and the runner's environment rather than a developer's. The point
+# of this hook is that what runs here is what runs on GitHub. --fast drops the
+# integration tests; and without LWSM_REQUIRE_ALL_TOOLS a check that did not
+# run, or a tool at a version CI does not install, is a WARNING here and FATAL
+# there. Measured 2026-08-21 with actionlint off PATH: the same tree exited 0
+# through this hook and 1 under the workflow's environment.
+#
+# Running the gate BY HAND stays lenient, deliberately — a missing linter must
+# not stop someone testing their own change. It is standing in for CI that
+# makes a degraded run worth refusing, and that is only true here.
+LWSM_REQUIRE_ALL_TOOLS=1 ./scripts/local-ci.sh

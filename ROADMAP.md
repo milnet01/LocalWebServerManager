@@ -2221,6 +2221,35 @@ harness to be known-working before any business code lands.
   Source: user-request-2026-08-18.
   Lanes: ci, tooling.
 
+- ✅ [LWSM-1159] **The pre-push hook ran the gate in a developer's environment, not the runner's.**
+  LWSM-1150 pinned the gate's TOOL VERSIONS and added the hook, and left the
+  hook invoking `./scripts/local-ci.sh` bare. The script's SKIP and TOOL DRIFT
+  reports are a warning by default and fatal under `LWSM_REQUIRE_ALL_TOOLS=1`,
+  which only the workflow set — so the one moment a local run stands in for CI
+  was the one moment it was not asked CI's question.
+
+  Measured 2026-08-21 with actionlint off PATH: the same tree, the same script,
+  exit **0** through the hook and exit **1** under the workflow's environment.
+  The push goes out and GitHub fails it — the exact split LWSM-1150 was filed to
+  close, surviving in the half nobody set an environment for.
+
+  The hook already made this argument for `--fast`, one line above the
+  invocation, and stopped at the flag. Fix is `LWSM_REQUIRE_ALL_TOOLS=1` on that
+  line. Running the script BY HAND is untouched and stays lenient: a missing
+  linter must not stop someone testing their own change.
+
+  The test EXECUTES the hook rather than scraping it — a throwaway git repo
+  whose `scripts/local-ci.sh` is a stub that reports the environment it was
+  handed — for the reason `_hook_says_docs_only` gives: a scrape can say the
+  variable appears in the file, never that the gate was invoked under it. And it
+  CLEARS `LWSM_REQUIRE_ALL_TOOLS` from the inherited environment, because CI sets
+  it for the whole gate step: an inheriting stub would report the right answer on
+  the runner whatever the hook did, and the test would have passed on GitHub
+  while the defect it names shipped.
+  **Layman:** The check that runs before you push now refuses a push when one of its tools is missing or the wrong version, instead of just warning — which is what GitHub does, so the two now agree.
+  Kind: fix.
+  Source: user-request-2026-08-21.
+
 ## P02 — Vertical slice (target: after P01 closes)
 
 **Theme:** the smallest feature that touches every layer —

@@ -148,6 +148,16 @@ can say which patterns are present but never which arm a path lands in.
 Every assertion in it held while the escape went through.
 Escape with `git push --no-verify` or `LWSM_SKIP_PREPUSH=1`.
 
+**The hook runs the gate under CI's environment, not a developer's** — it
+sets `LWSM_REQUIRE_ALL_TOOLS=1`, so a check that did not run and a tool at
+a version CI does not install both REFUSE the push instead of warning about
+it. Added 2026-08-21 (LWSM-1159), and it is the same argument the hook
+already made for `--fast`: what runs here has to be what runs on GitHub.
+Measured with actionlint off PATH, the identical tree exited **0** through
+the hook and **1** under the workflow — so the push went out and GitHub
+failed it, which is precisely the split the hook exists to close. Running
+`./scripts/local-ci.sh` **by hand** is unaffected and stays lenient.
+
 **The tool VERSIONS are pinned in `scripts/ci-tools.env`, which both
 the workflow and the gate read**, and the gate reports any tool whose
 version differs from the pin as **TOOL DRIFT** — a warning locally, and
@@ -264,9 +274,12 @@ silently discards the config *and* the raised limit together.
 
 In CI, a SKIP is **fatal**: the workflow sets
 `LWSM_REQUIRE_ALL_TOOLS=1`, so the machine that is supposed to
-hold every tool cannot report green on a degraded run. Locally it
-stays a warning — a missing linter should not stop you testing
-your own change.
+hold every tool cannot report green on a degraded run. **The
+`pre-push` hook sets it too** (LWSM-1159) — a local run standing in
+for CI has to answer the question CI will ask. What stays lenient is
+running the script **by hand**: a missing linter should not stop you
+testing your own change, and that is the only case the asymmetry was
+ever for.
 
 `.python-version` is committed, so a developer's machine and the
 runner resolve the **same** interpreter. `requires-python` is only

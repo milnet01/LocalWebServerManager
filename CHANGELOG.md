@@ -220,6 +220,9 @@ signaling per
 
 ### Fixed
 
+- **The pre-push hook ran the gate in a developer's environment, not the runner's.** (LWSM-1159)
+  The check that runs before you push now refuses a push when one of its tools is missing or the wrong version, instead of just warning — which is what GitHub does, so the two now agree.
+
 - **The task-accumulation test no longer fails on a busy machine.** (LWSM-1158)
   It counted Python objects rather than live ones. PySide holds a
   reference to every task handed to the thread pool and releases those
