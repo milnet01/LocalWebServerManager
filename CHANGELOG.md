@@ -249,6 +249,15 @@ signaling per
 
 ### Fixed
 
+- **A typo in the settings file no longer wipes your settings** (LWSM-1163)
+  If you hand-edited `settings.json` and made a small mistake — a stray
+  comma, say — the app fell back to its defaults, as it should. But the next
+  time it saved anything, closing the window included, it wrote those
+  defaults out over your file: theme, text size, poll interval and log cap
+  all reset, and the text you could have fixed gone with them. The app now
+  refuses to save over a settings file it could not read, and says so in
+  the status bar, so the file stays there for you to correct.
+
 - **The pre-push hook gated the working tree, not the commits being pushed.** (LWSM-1160)
   The check before a push tested the files as they sit on disk, which is not what GitHub receives.
 

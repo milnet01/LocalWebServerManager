@@ -158,13 +158,24 @@ class Settings:
 class LoadResult:
     """`settings` is always usable; `reasons` says what was ignored to get it.
 
-    The same shape as `registry.LoadResult` minus `rows_refused`, which has no
-    analogue here: this file holds fields, not rows, so there is nothing a
-    refusal can drop that would make a later write lose data.
+    `document_refused` is `registry.LoadResult.rows_refused`'s analogue, and
+    this docstring denied it had one until LWSM-1163. The denial reasoned that
+    a file of fields has no rows to drop — true, and beside the point: what a
+    whole-document refusal drops is the ENTIRE file, replaced by `Settings()`.
+
+    It is carried separately from `reasons` for exactly the reason `registry`
+    carries its own separately: `reasons` is non-empty for a single refused
+    FIELD too, where writing the default back is correct. Only this flag
+    distinguishes "one value was unusable" from "nothing in this file was
+    read", and only a WRITER needs the distinction — which is why `load()`
+    returning a usable `Settings` on every path is still right.
     """
 
     settings: Settings
     reasons: list[str]
+    # False on the two paths that read the document: a clean file, and a
+    # missing one. A first run has nothing to lose and must stay writable.
+    document_refused: bool = False
 
 
 def default_settings_path() -> Path:
@@ -272,6 +283,7 @@ def load(path: Path) -> LoadResult:
         return LoadResult(
             Settings(),
             [f"{quoted(str(path))}: cannot be read ({exc.strerror or exc})"],
+            document_refused=True,
         )
 
     try:
@@ -280,13 +292,16 @@ def load(path: Path) -> LoadResult:
         # `str(exc)` is quoted for the same reason every other reason is: it
         # interpolates a fragment of the hostile file, newlines included.
         return LoadResult(
-            Settings(), [f"{quoted(str(path))}: is not valid JSON ({quoted(str(exc))})"]
+            Settings(),
+            [f"{quoted(str(path))}: is not valid JSON ({quoted(str(exc))})"],
+            document_refused=True,
         )
 
     if not isinstance(document, dict):
         return LoadResult(
             Settings(),
             [f"{quoted(str(path))}: is {type(document).__name__}, not an object"],
+            document_refused=True,
         )
 
     version = document.get("schema_version")
@@ -300,6 +315,7 @@ def load(path: Path) -> LoadResult:
                 f"{quoted(str(path))}: schema_version is {quoted(version)}, "
                 f"not {SCHEMA_VERSION}; using defaults"
             ],
+            document_refused=True,
         )
 
     settings = Settings()
@@ -349,11 +365,14 @@ def load(path: Path) -> LoadResult:
 def save(path: Path, settings: Settings) -> None:
     """Write atomically, or raise `SettingsError` naming why it refused.
 
-    There is no read-only gate of `registry.save_projects`' kind, and the
-    asymmetry is deliberate: that gate exists so a session which refused rows
-    cannot write a file missing them, and a refusal here drops no data — an
-    unreadable field was replaced by its default, and writing the default back
-    is what the user asked for by changing a setting.
+    **The gate belongs to the caller, and this function cannot hold it.** It
+    is handed a `Settings`, so it cannot tell one built from a file that was
+    read from one built from a file that was refused — `LoadResult` is where
+    that is known, and `__main__.save_field` is the one place both it and the
+    write are in scope. Until LWSM-1163 this docstring argued no gate was
+    needed at all, on the grounds that a refusal here drops no data. That
+    holds for a refused FIELD and fails completely for a refused DOCUMENT,
+    which is every value in the file at once.
     """
     payload = {
         "schema_version": SCHEMA_VERSION,

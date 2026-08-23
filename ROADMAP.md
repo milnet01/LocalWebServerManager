@@ -1465,7 +1465,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
   Lanes: security, supervisor.
 
-- 📋 [LWSM-1163] **FP08: one JSON typo plus one window close destroys every stored setting.**
+- ✅ [LWSM-1163] **FP08: one JSON typo plus one window close destroys every stored setting.**
   `settings.load()` is total by design — a syntax error, a non-object root, a
   wrong `schema_version` or a transient read error all return `Settings()`
   plus a reason. `save_field` reads that back and writes it out with no gate,
@@ -1489,6 +1489,31 @@ module states the correct rule in almost the same words.
   rather than a corner. Fix: `load()` reports whether the DOCUMENT was
   refused, and `save_field` refuses to write when it was — the analogue of
   `rows_refused`.
+  Resolved (2026-08-23): exactly the fix the bullet prescribes.
+  `LoadResult` gained `document_refused`, set on all four whole-document
+  paths (unreadable, invalid JSON, non-object root, wrong
+  `schema_version`) and left false on the two that read the document — a
+  clean file and a missing one, since a first run has nothing to lose and
+  must stay writable. `save_field` raises `SettingsError` when it is set.
+  The gate is the CALLER's and could not be `save()`'s: `save()` is handed
+  a `Settings` and cannot tell one built from a file that was read from
+  one built from a file that was refused. `save_field` is the only call
+  site, and the only scope where the `LoadResult` and the write are both
+  visible.
+  All three passages that denied this could happen are corrected rather
+  than left standing — `LoadResult`'s docstring, `save_field`'s and
+  `save()`'s. The first had reasoned that a file of fields has no rows to
+  drop, which is true and beside the point: what a document refusal drops
+  is the whole file.
+  Tests: `load()` reports the flag on three refusal shapes and withholds
+  it on three readable ones, the three existing OSError-path tests (FIFO,
+  directory, oversized) each gained the assertion, and a `build_window`
+  test drives a real theme change against a trailing-comma file and
+  asserts the bytes are untouched — driving the writer rather than
+  `save_field`, for LWSM-1136's reason.
+  Six mutants killed: each of the four refusal paths dropping the flag,
+  the flag defaulting to true, and `save_field` dropping the gate. 1155
+  green, local-ci green.
   **Layman:** If you hand-edit the settings file and make a small mistake, closing the window quietly wipes your theme, text size and everything else you had chosen.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-2 (settings).

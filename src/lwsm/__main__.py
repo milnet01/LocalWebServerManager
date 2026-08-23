@@ -130,11 +130,25 @@ def build_window(
         Raises rather than returning quietly when there is nowhere to write:
         the window reports the failure in the status bar, and a change that
         silently will not be remembered is worse than one that says so.
+
+        **And it raises when the re-read refused the whole document**
+        (LWSM-1163). `load()` never raises, so a trailing comma comes back as
+        `Settings()` plus a reason — and writing that out is not a partial
+        loss but a total one: every stored value replaced by a default, and
+        the malformed text the user could have fixed gone with it.
+        `registry.save_projects` refuses for the same reason in almost the
+        same words, and `save_geometry` fires on every window close, so this
+        is the ordinary path rather than a corner.
         """
         if settings_path is None:
             raise SettingsError("there is no writable configuration directory")
-        current = load_settings(settings_path).settings
-        save_settings(settings_path, replace(current, **changes))
+        current = load_settings(settings_path)
+        if current.document_refused:
+            raise SettingsError(
+                "refusing to overwrite the settings file with defaults: "
+                + "; ".join(current.reasons)
+            )
+        save_settings(settings_path, replace(current.settings, **changes))
 
     def save_theme(chosen_id: str) -> None:
         save_field(theme=chosen_id)

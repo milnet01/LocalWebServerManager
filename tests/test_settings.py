@@ -46,6 +46,58 @@ def test_settings_sits_beside_projects_json(monkeypatch: pytest.MonkeyPatch) -> 
 # --- load: never raises, always says why --------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("body", "why"),
+    [
+        ('{"schema_version": 1, "theme": "emerald",}', "a JSON typo"),
+        ("[1, 2, 3]", "a non-object root"),
+        ('{"schema_version": 2, "theme": "emerald"}', "an unknown schema_version"),
+    ],
+)
+def test_a_refused_document_says_so_and_not_only_why(
+    tmp_path: Path, body: str, why: str
+) -> None:
+    """The analogue of `registry.rows_refused` (LWSM-1163).
+
+    `load()` is total, so a whole-document refusal and a first run both come
+    back as `Settings()` — and the difference matters enormously to a WRITER,
+    because writing the defaults back over the first is data loss and over the
+    second is correct. A reason string cannot carry that: `reasons` is also
+    non-empty when a single field was refused, where writing IS correct.
+    """
+    path = tmp_path / "settings.json"
+    path.write_text(body, encoding="utf-8")
+
+    result = settings.load(path)
+    assert result.settings == Settings(), why
+    assert result.reasons, why
+    assert result.document_refused is True, why
+
+
+@pytest.mark.parametrize(
+    ("body", "why"),
+    [
+        ("", "a missing file"),
+        ('{"schema_version": 1, "theme": "emerald"}', "a clean file"),
+        ('{"schema_version": 1, "text_scale": 9999}', "one refused field"),
+    ],
+)
+def test_a_document_that_was_read_is_not_reported_as_refused(
+    tmp_path: Path, body: str, why: str
+) -> None:
+    """The other half, and the half that keeps the flag from being useless.
+
+    A first run has nothing to lose and must still be writable, and a file
+    whose SHAPE was fine keeps every field it could parse — so writing the
+    default back over the one it could not is what the user asked for.
+    """
+    path = tmp_path / "settings.json"
+    if body:
+        path.write_text(body, encoding="utf-8")
+
+    assert settings.load(path).document_refused is False, why
+
+
 def test_a_missing_file_is_the_defaults_and_is_not_a_complaint(tmp_path: Path) -> None:
     """First run. A clean machine must not report a problem it does not have,
     which is why this is the one refusal-free path that returns defaults."""
@@ -121,6 +173,9 @@ def test_a_fifo_at_the_path_does_not_hang_the_load(tmp_path: Path) -> None:
 
     assert result.settings == Settings()
     assert "cannot be read" in result.reasons[0]
+    assert result.document_refused is True, (
+        "an unreadable file must not be written back as defaults (LWSM-1163)"
+    )
 
 
 def test_a_directory_at_the_path_is_a_reason_and_not_a_first_run(
@@ -141,6 +196,9 @@ def test_a_directory_at_the_path_is_a_reason_and_not_a_first_run(
     assert result.settings == Settings()
     assert result.reasons, "a path that cannot be read must not read as a first run"
     assert "cannot be read" in result.reasons[0]
+    assert result.document_refused is True, (
+        "an unreadable file must not be written back as defaults (LWSM-1163)"
+    )
 
 
 def test_an_oversized_file_is_refused_rather_than_read(tmp_path: Path) -> None:
@@ -151,6 +209,9 @@ def test_an_oversized_file_is_refused_rather_than_read(tmp_path: Path) -> None:
 
     assert result.settings == Settings()
     assert "cannot be read" in result.reasons[0]
+    assert result.document_refused is True, (
+        "an unreadable file must not be written back as defaults (LWSM-1163)"
+    )
 
 
 def test_a_good_file_round_trips(tmp_path: Path) -> None:

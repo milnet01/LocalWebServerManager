@@ -541,6 +541,52 @@ def test_saving_one_setting_does_not_reset_the_other(
     assert (stored.theme, stored.text_scale) == ("parchment", 175)
 
 
+@pytest.mark.gui
+def test_a_settings_file_with_a_typo_is_not_overwritten_with_defaults(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1163 — the read-modify-write's read can fail wholesale.
+
+    `save_field` re-reads before writing so a hand edit made while the app is
+    open loses only the field being written. But `load()` never raises: a
+    trailing comma comes back as `Settings()` plus a reason, and writing that
+    "current" value out replaced every stored setting with a default AND
+    destroyed the malformed text the user could have fixed.
+
+    `registry.py` states the counter-argument in almost the same words it
+    needed here — a gate that writes a fresh file over a hand-edited one that
+    had only a JSON typo destroys a fully recoverable file.
+
+    Driving the real writer rather than `save_field` directly, for LWSM-1136's
+    reason: this defect is entirely about which caller reads what.
+    """
+    from lwsm.settings import default_settings_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    path = default_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    malformed = (
+        "{\n"
+        '  "schema_version": 1,\n'
+        '  "theme": "parchment",\n'
+        '  "text_scale": 150,\n'
+        '  "poll_interval_ms": 2500,\n'
+        '  "log_max_mib": 42,\n'  # <- the trailing comma is the whole defect
+        "}\n"
+    )
+    path.write_text(malformed, encoding="utf-8")
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window._theme_actions["emerald"].trigger()
+    finally:
+        controller.stop()
+
+    assert path.read_text(encoding="utf-8") == malformed
+
+
 # --- LWSM-1018: the scan-roots file the dialog edits ---------------------------
 
 
