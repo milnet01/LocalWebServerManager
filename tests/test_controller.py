@@ -1594,6 +1594,50 @@ def test_a_log_that_cannot_be_rotated_does_not_stop_the_poll(
     assert "could not rotate the log" in caplog.text
 
 
+# --- LWSM-1165: the poll is what releases a self-exited project's slot ---------
+
+
+@pytest.mark.integration
+def test_the_poll_releases_the_slot_of_a_child_that_exited_on_its_own(
+    qtbot, controllers, tmp_path
+) -> None:
+    """`reap_exited` is only worth anything if something CALLS it once a second.
+
+    The same trap `rotate_if_needed` fell into above: a method with no
+    production caller looks exactly like a working one, and its own unit test
+    cannot tell the two apart. So this drives the POLL against a real
+    `Supervisor` and a real child that exits by itself, and asserts the slot is
+    released — which is the user-visible effect, since until it is, every
+    Start on that project raises `AlreadyRunning` with Stop and Restart both
+    greyed out.
+
+    Dies on removing the `self._reap_exited()` call from `poll_once`.
+    """
+    project = tmp_path / "crasher"
+    project.mkdir()
+    launcher = project / "start.sh"
+    launcher.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    launcher.chmod(0o700)
+
+    supervisor = Supervisor(probe=FakeProbe(), log_dir=tmp_path / "logs")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    supervisor.start(project, name="crasher", argv=["./start.sh"], port=None)
+    try:
+        deadline = time.monotonic() + 10.0
+        while supervisor.running() and time.monotonic() < deadline:
+            controller = build(controllers, [], FakeProbe())
+            controller._supervisor = supervisor
+            controller.poll_once()
+
+        assert not supervisor.running(), "the poll never released the slot"
+        # The whole point: there is a route back.
+        supervisor.start(project, name="crasher", argv=["./start.sh"], port=None)
+    finally:
+        for path in list(supervisor.running()):
+            supervisor.stop(path, grace=0.5)
+        supervisor.close()
+
+
 # --- LWSM-1018: the poll cadence is a setting ----------------------------------
 
 

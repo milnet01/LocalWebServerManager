@@ -384,6 +384,143 @@ def test_the_confirmation_re_arms_when_the_command_changes(project: Path) -> Non
 
 
 # --------------------------------------------------------------------------
+# LWSM-1165 — a child that exits on its own must not hold its slot
+# --------------------------------------------------------------------------
+
+
+def test_a_child_that_exits_on_its_own_is_dropped_and_can_be_started_again(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """Only `start()` inserted and only `stop()` popped, so nothing removed the
+    entry for a launcher that died by itself.
+
+    After a missing dependency, a bad `scripts.dev` or an ordinary crash the
+    port is free, `_classify` returns STOPPED and the UI disables Stop and
+    Restart — so every later Start raised `AlreadyRunning` with no route back
+    for the rest of the session. The log descriptor was never closed either.
+    LWSM-1134 fixed the overlay symptom and left the entry.
+    """
+    argv = ("./start.sh",)
+    write_launcher(project, "exit 3\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+    supervisor.start(project, name="demo", argv=list(argv), port=None)
+    assert wait_until(lambda: supervisor.exited(project))
+
+    collected = supervisor.reap_exited()
+
+    assert collected == {project.resolve(): 3}, "the exit status is not collected"
+    assert not supervisor.running()
+    # The point of the whole item: there is a route back.
+    supervisor.start(project, name="demo", argv=list(argv), port=None)
+
+
+def test_a_launcher_that_forks_and_exits_keeps_its_entry(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The guard against the obvious wrong fix, and the reason this is not a
+    one-line change.
+
+    `start.sh` that spawns a server and exits leaves the LAUNCHER gone and the
+    server alive in the same process group — which is precisely the
+    double-forking wrapper `_group_members` and LWSM-1009's acceptance test
+    exist for. Dropping the entry on the launcher's death alone would orphan
+    that server: `stop()` signals the group through the entry, so with the
+    entry gone the port stays bound with no Stop button and no way back. That
+    is worse than the defect being fixed.
+
+    So the cheap check (is the launcher gone?) only selects a candidate; the
+    group is what decides.
+    """
+    child = project / "child.py"
+    child.write_text("import time\nwhile True:\n    time.sleep(0.05)\n", "utf-8")
+    write_launcher(project, f"{sys.executable} {child} &\necho launcher\n")
+    argv = ("./start.sh",)
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+    supervisor.start(project, name="demo", argv=list(argv), port=None)
+
+    assert wait_until(lambda: supervisor.exited(project)), "the launcher never exited"
+    assert supervisor.reap_exited() == {}
+    assert project.resolve() in supervisor.running(), (
+        "the entry stop() signals the group through was dropped while the "
+        "server was still running"
+    )
+
+
+def test_reaping_after_a_completed_stop_finds_nothing_to_do(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The SEQUENTIAL case, and it is worth exactly what it says and no more.
+
+    It does not reach the identity check below — `stop()` popped before
+    `running()` was even sampled, so the loop has nothing to iterate. Measured:
+    deleting that check leaves this test green. Its sibling is the one that
+    covers it, and this pair is here because a back-to-back pair of calls
+    proving nothing about a check-then-act is a trap this project has already
+    paid for once.
+    """
+    argv = ("./start.sh",)
+    write_launcher(project, "exit 0\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+    supervisor.start(project, name="demo", argv=list(argv), port=None)
+    assert wait_until(lambda: supervisor.exited(project))
+
+    supervisor.stop(project)
+
+    assert supervisor.reap_exited() == {}
+
+
+def test_a_reap_racing_a_stop_does_not_release_one_descriptor_twice(
+    supervisor: Supervisor, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whoever pops owns the sequence (LWSM-1138), and `reap_exited` is a
+    second popper.
+
+    Both would otherwise reach `_close_quietly(managed.log_fd)`, and the second
+    `os.close` operates on an integer the kernel is free to have reissued — to
+    another project's log, or to the rotation backup.
+
+    **The first call has to be HELD OPEN inside the window**, or the GIL
+    serialises the two and the broken code passes. The window here is between
+    `running()` releasing the lock and the pop re-taking it, so the stop is
+    parked inside `_group_members`, which is called in exactly that gap. It
+    fires once and then delegates, because `stop()` calls `_group_members`
+    itself and would otherwise recurse forever.
+
+    The assertion is on the DESCRIPTOR rather than on the return value: two
+    plausible-looking returns is what the broken version already gives.
+    """
+    argv = ("./start.sh",)
+    write_launcher(project, "exit 0\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+    managed = supervisor.start(project, name="demo", argv=list(argv), port=None)
+    assert wait_until(lambda: supervisor.exited(project))
+
+    released: list[int] = []
+    real_close = supervisor_module._close_quietly
+
+    def counting_close(fd: int) -> None:
+        released.append(fd)
+        real_close(fd)
+
+    monkeypatch.setattr(supervisor_module, "_close_quietly", counting_close)
+
+    real_members = supervisor._group_members
+    fired: list[bool] = []
+
+    def stop_inside_the_window(managed_process: ManagedProcess):
+        if not fired:
+            fired.append(True)
+            supervisor.stop(project)
+        return real_members(managed_process)
+
+    monkeypatch.setattr(supervisor, "_group_members", stop_inside_the_window)
+
+    assert supervisor.reap_exited() == {}
+    assert fired, "the stop never ran inside the window; the test proves nothing"
+    assert released == [managed.log_fd], "the descriptor was released twice"
+
+
+# --------------------------------------------------------------------------
 # The pre-flight port check (step 1 of every start)
 # --------------------------------------------------------------------------
 

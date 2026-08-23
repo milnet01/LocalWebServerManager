@@ -678,9 +678,13 @@ class ProjectController(QObject):
             # A stray tick after stop() would re-arm delivery into a controller
             # the app has already torn down (LWSM-1111).
             return
-        # Before the in-flight guard, not after it: the log cap is not a probe,
+        # Both before the in-flight guard, not after it: neither is a probe,
         # and a bound that lapses whenever the socket table is slow is weaker
         # than the one design.md promises (LWSM-1136).
+        #
+        # Reaping first so a log about to be released is not rotated on the way
+        # out.
+        self._reap_exited()
         self._rotate_logs()
         if self._in_flight:
             # design.md § Data flow: "the poll skips a tick rather than
@@ -689,6 +693,37 @@ class ProjectController(QObject):
             return
         self._in_flight = True
         self._pool.start(_SnapshotTask(self._probe, self._signals))
+
+    def _reap_exited(self) -> None:
+        """Release the slot of any project whose group has gone (LWSM-1165).
+
+        Only `start()` inserted and only `stop()` popped, so a launcher that
+        died by itself kept its slot for the session: Stop and Restart greyed
+        out because the port was free, and every Start raising `AlreadyRunning`
+        with no route back. `Supervisor.reap_exited` decides *what* is safe to
+        release — a launcher that forked and exited is not, since `stop()`
+        signals the group through that entry — and this is the caller that
+        makes it happen, which is the half LWSM-1136 shipped without.
+
+        The poll is where it belongs for `_rotate_logs`' reason: it is the one
+        thing already running once a second, and the cost on an ordinary tick
+        is one `/proc` read per running project.
+
+        Reached through `getattr` and contained, both for `_rotate_logs`'
+        reasons — a supervision fake need not have the method, and this runs in
+        a timer slot on the GUI thread where an escaping exception is swallowed
+        by PySide6, taking the tick's probe with it.
+        """
+        supervisor = self._supervisor
+        if supervisor is None:
+            return
+        reap = getattr(supervisor, "reap_exited", None)
+        if reap is None:
+            return
+        try:
+            reap()
+        except Exception:
+            log.warning("could not release exited projects", exc_info=True)
 
     def _rotate_logs(self) -> None:
         """Hold every managed log to `MAX_LOG_BYTES`, once a tick.

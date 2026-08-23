@@ -1556,7 +1556,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-2 (settings).
   Lanes: settings.
 
-- 📋 [LWSM-1165] **FP08: a child that exits on its own is never removed from the registry.**
+- ✅ [LWSM-1165] **FP08: a child that exits on its own is never removed from the registry.**
   **Verified 2026-08-21**: only two lines touch `_registry.processes` — the
   insert in `start()` and the pop in `stop()` (plus `close()`). Nothing
   removes an entry for a child that exited by itself, and `exited()`'s own
@@ -1569,6 +1569,40 @@ module states the correct rule in almost the same words.
   no route back. The log descriptor is never closed either.
 
   LWSM-1134 fixed the overlay symptom and left the entry.
+  Resolved (2026-08-23): `Supervisor.reap_exited` decides what is safe to
+  release, and the controller's poll calls it once a tick — both halves,
+  because LWSM-1136 is what happens when only the first ships.
+  **It is not the one-line fix the bullet's phrasing suggests, and the
+  reason is the case it would break.** A `start.sh` that spawns a server
+  and exits leaves the launcher gone and the server alive in the same
+  process group — the double-forking wrapper `_group_members` and
+  LWSM-1009's acceptance test exist for. Dropping the entry on the
+  launcher's death alone orphans that server behind a greyed-out Stop
+  button, which is worse than the defect. So `_alive(handle)` only selects
+  a candidate and the GROUP decides; the cheap check is first because
+  `_group_members` walks every process on the machine and this runs once a
+  second.
+  Pops under the lock and by identity, so a project a concurrent `stop()`
+  already took is left alone (LWSM-1138) — the descriptor must be released
+  exactly once.
+  Five mutants killed: the group check, the identity check, the candidate
+  check, and the poll's call to it. **One survived and is recorded rather
+  than papered over**: removing the `with self._registry.lock` while
+  keeping the identity check. A missing lock is observable only under an
+  interleaving of two bytecode operations that no deterministic test can
+  force, so it is equivalent-under-test rather than a coverage gap — the
+  same category LWSM-1016 recorded. The lock stays; without it the
+  identity check is itself a check-then-act.
+  The first draft of the race test was VACUOUS and the probe caught it: a
+  sequential stop-then-reap never reaches the identity check, because the
+  entry is gone before `running()` is sampled. Replaced with one that
+  parks the stop inside the window by patching `_group_members`, asserts
+  the stop actually fired, and asserts on the DESCRIPTOR rather than the
+  return value. The sequential test is kept with a docstring saying what
+  it is worth.
+  Also corrected `exited()`'s docstring, which said the removal happens in
+  `_reap`; the pop has been in `stop()` since LWSM-1138. 1162 green,
+  local-ci green.
   **Layman:** If a project's server crashes on startup, the app refuses to start it again for the rest of the session and the Stop button is greyed out — there is no way back except restarting the app.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-4 (supervisor).

@@ -852,8 +852,9 @@ class Supervisor:
                 "%s did not exit after SIGKILL; leaving it unreaped", managed.name
             )
             exit_code = None
-        # No registry pop here: `stop()` took the entry before it signalled
-        # anything (LWSM-1138), so this descriptor is one nothing else can still
+        # No registry pop here: both callers took the entry first — `stop()`
+        # before it signalled anything (LWSM-1138), `reap_exited` before it
+        # reaped (LWSM-1165) — so this descriptor is one nothing else can still
         # reach and closing it cannot be done twice.
         _close_quietly(managed.log_fd)
         return exit_code
@@ -879,6 +880,50 @@ class Supervisor:
             "something this manager did not start; nothing was signalled for it"
         )
 
+    def reap_exited(self) -> dict[Path, int | None]:
+        """Drop every entry whose process group is entirely gone (LWSM-1165).
+
+        Only `start()` inserted and only `stop()` popped, so a launcher that
+        died by itself — a missing dependency, a bad `scripts.dev`, an ordinary
+        crash — kept its slot for the life of the session. The port was free,
+        so the UI showed STOPPED and disabled Stop and Restart, while every
+        Start raised `AlreadyRunning`: no route back. Its log descriptor was
+        never closed either. LWSM-1134 fixed the overlay symptom and left this.
+
+        **The launcher being gone is not enough, and that is the whole shape of
+        this method.** A `start.sh` that spawns a server and exits leaves the
+        server alive in the same process group — the double-forking wrapper
+        `_group_members` exists for. `stop()` signals the group *through this
+        entry*, so dropping it there would orphan a running server behind a
+        greyed-out Stop button, which is worse than the defect. The cheap
+        `_alive` check only selects a candidate; the group decides.
+
+        Cheap first for a real reason: `_group_members` walks every process on
+        the machine, and this runs once a poll. On an ordinary tick the launcher
+        is alive and nothing past the first check happens.
+
+        Popping under the lock and by IDENTITY, for `stop()`'s reason: whoever
+        pops owns the sequence, so a project a concurrent `stop()` already took
+        is left entirely alone rather than reaped twice (LWSM-1138).
+        """
+        collected: dict[Path, int | None] = {}
+        for project, managed in self.running().items():
+            if _alive(managed.handle):
+                continue
+            if self._group_members(managed):
+                continue
+            with self._registry.lock:
+                if self._registry.processes.get(project) is not managed:
+                    continue
+                del self._registry.processes[project]
+            collected[project] = self._reap(managed)
+            log.info(
+                "%s exited on its own (exit %s); releasing its slot",
+                managed.name,
+                collected[project],
+            )
+        return collected
+
     # -- lifetime --------------------------------------------------------
 
     def _get(self, project: Path) -> ManagedProcess | None:
@@ -902,10 +947,13 @@ class Supervisor:
         False for a project this manager never started: there is nothing of
         ours to have exited, and `running()` is the question about that.
 
-        `running()` cannot answer this. Its entry is removed in `_reap`, which
-        only the stop sequence reaches, so a child that exits on its own stays
-        in the map — which is what let a failed start sit at `starting` for the
-        life of the session (LWSM-1134).
+        `running()` cannot answer this, and that is still true: an entry is
+        removed by whoever pops it — `stop()`, or `reap_exited` on the next poll
+        — so between a child exiting and the tick that notices, it is still in
+        the map. This is the question that closes that window, and it is what
+        let a failed start sit at `starting` for the life of the session
+        (LWSM-1134). The docstring said the removal happened in `_reap` until
+        LWSM-1165; the pop has been in `stop()` since LWSM-1138.
         """
         managed = self._get(project)
         if managed is None:

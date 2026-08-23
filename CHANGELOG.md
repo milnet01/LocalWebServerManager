@@ -249,6 +249,16 @@ signaling per
 
 ### Fixed
 
+- **A project whose server crashes can be started again** (LWSM-1165)
+  If a project's server exited on its own — a missing dependency, a typo in
+  its start script, an ordinary crash — the app kept treating that project
+  as one it was still managing. Start refused, and Stop and Restart were
+  both greyed out, so there was no way back short of restarting the app.
+  The app now notices within a second and hands the project back. A start
+  script that launches a server and then exits itself is unaffected: that
+  server is still running, so the project stays under management and Stop
+  still works.
+
 - **Config files edited in an editor that adds a byte-order mark now work** (LWSM-1182)
   Some editors put an invisible marker at the start of a file they save.
   The project list already tolerated it; `settings.json` and the
