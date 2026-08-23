@@ -1939,7 +1939,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-3 (window), outside its assigned slice.
   Lanes: security, window.
 
-- 📋 [LWSM-1182] **FP08: a BOM refuses settings.json where projects.json tolerates it, and LWSM-1163 made that permanent.**
+- ✅ [LWSM-1182] **FP08: a BOM refuses settings.json where projects.json tolerates it, and LWSM-1163 made that permanent.**
   `registry.load_projects` decodes `utf-8-sig`; `settings.load` decodes
   plain `utf-8`. `registry.py`'s own comment states the reasoning and it
   applies here word for word: "an editor-added BOM is invisible in that
@@ -1961,6 +1961,24 @@ module states the correct rule in almost the same words.
   Fix: decode `utf-8-sig` in `settings.load`, matching `registry`. Then
   check the other `read_bounded` consumers for the same divergence — the
   `scan-roots` file (LWSM-1144) at least has not been looked at.
+  Resolved (2026-08-23), taken immediately after filing rather than in
+  list order, because LWSM-1163 shipped the same day is what made it
+  permanent and leaving that window open while sixteen other items landed
+  was the worse trade.
+  `settings.load` now decodes `utf-8-sig`, matching `registry` and
+  `scanner`. The bullet's second half — check the other `read_bounded`
+  consumers — found exactly one more, and it fails DIFFERENTLY, which is
+  why reading the code beat reasoning about it. In
+  `__main__._leading_comment_block` a BOM does not fail to decode at all:
+  `U+FEFF` is a valid character, `lstrip()` leaves it alone because it is
+  not whitespace, so the first line is not a comment, the loop breaks
+  immediately, and the user's entire header is replaced by ours on the
+  next save. Measured before it was fixed.
+  Two tests, one per reader, each dying on its own decode reverted. The
+  scan-roots one sits beside `test_the_users_own_header_survives_a_save`,
+  which passes on the unfixed code — the defect is entirely in a character
+  no assertion can display, so the pair is what makes it visible. 1157
+  green, local-ci green.
   **Layman:** If your text editor adds an invisible marker to the start of the settings file, the app stops remembering any of your choices, and nothing on screen says why.
   Kind: fix.
   Source: in-session-2026-08-23, found while shipping LWSM-1163.

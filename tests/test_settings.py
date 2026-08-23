@@ -201,6 +201,30 @@ def test_a_directory_at_the_path_is_a_reason_and_not_a_first_run(
     )
 
 
+def test_an_editor_added_bom_does_not_refuse_the_file(tmp_path: Path) -> None:
+    """LWSM-1182 — `registry` decodes `utf-8-sig` and this decoded `utf-8`.
+
+    `registry.py`'s own comment states the reasoning and it applies here word
+    for word: a BOM is invisible in the editor that added it, and refusing the
+    whole file reports a problem at byte 0 that the user cannot see.
+
+    LWSM-1163 turned that from cosmetic into permanent. Before the gate a BOM
+    meant defaults and the next save rewrote the file clean; with it, every
+    write refuses, so no preference persists for as long as the BOM is there.
+    So the assertion that matters is `document_refused`, not just the value.
+    """
+    path = tmp_path / "settings.json"
+    path.write_text('{"schema_version": 1, "theme": "emerald"}', encoding="utf-8-sig")
+
+    result = settings.load(path)
+
+    assert result.settings.theme == "emerald"
+    assert result.reasons == []
+    assert result.document_refused is False, (
+        "a BOM must not make settings.json permanently un-writable"
+    )
+
+
 def test_a_deeply_nested_document_is_a_reason_and_not_a_crash(tmp_path: Path) -> None:
     """`RecursionError` is not a `ValueError`, so it escaped by itself.
 

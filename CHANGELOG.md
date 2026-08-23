@@ -249,6 +249,14 @@ signaling per
 
 ### Fixed
 
+- **Config files edited in an editor that adds a byte-order mark now work** (LWSM-1182)
+  Some editors put an invisible marker at the start of a file they save.
+  The project list already tolerated it; `settings.json` and the
+  `scan-roots` file did not. In `settings.json` that meant none of your
+  choices were kept, with a message pointing at a character you cannot see;
+  in `scan-roots` it silently replaced your own comments with ours. Both now
+  accept the marker like the project list always has.
+
 - **A malformed settings file can no longer stop the app opening** (LWSM-1164)
   One particular shape of broken `settings.json` — thousands of nested
   brackets — crashed the app on startup instead of being ignored, every

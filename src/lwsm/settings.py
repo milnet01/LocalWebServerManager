@@ -291,7 +291,14 @@ def load(path: Path) -> LoadResult:
         )
 
     try:
-        document = json.loads(raw.decode("utf-8"))
+        # `utf-8-sig`, matching `registry.load_projects` and `scanner`: an
+        # editor-added BOM is invisible in the editor that added it, so
+        # refusing the file reports a problem at byte 0 that the user cannot
+        # see. This decoded plain `utf-8` until LWSM-1182, which was cosmetic
+        # while a refusal only meant defaults — LWSM-1163's write gate made it
+        # permanent, since a refused document blocks every later save and no
+        # preference persists for as long as the BOM is there.
+        document = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         # `RecursionError` is named because it is NOT a `ValueError` — it is
         # `RecursionError` -> `RuntimeError` -> `Exception` — and deeply nested

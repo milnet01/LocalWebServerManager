@@ -627,6 +627,34 @@ def test_the_users_own_header_survives_a_save(tmp_path) -> None:
     assert default_scan_roots(config) == (Path("/srv/two"),)
 
 
+def test_the_users_own_header_survives_a_save_through_a_bom(tmp_path) -> None:
+    """The same header, behind an invisible character (LWSM-1182).
+
+    A BOM does not fail to decode here — `U+FEFF` is a perfectly good
+    character — so it survived into the first line, where `lstrip()` left it
+    alone because it is not whitespace. `\ufeff# my header` is therefore not a
+    comment, the loop breaks on line one, and the whole header was replaced by
+    ours. `utf-8-sig` in the read is the fix, matching `registry` and
+    `scanner`.
+
+    The sibling above passes on the unfixed code, which is the point of having
+    both: the defect is entirely in a character the assertion cannot show.
+    """
+    from lwsm.__main__ import default_scan_roots, save_scan_roots
+
+    config = tmp_path / "scan-roots"
+    config.write_text(
+        "# my machine keeps projects in two places\n\n/srv/one\n",
+        encoding="utf-8-sig",
+    )
+
+    save_scan_roots((Path("/srv/two"),), config)
+
+    text = config.read_text(encoding="utf-8-sig")
+    assert "# my machine keeps projects in two places" in text
+    assert default_scan_roots(config) == (Path("/srv/two"),)
+
+
 def test_a_comment_between_roots_is_not_kept_and_that_is_the_contract(
     tmp_path,
 ) -> None:

@@ -341,11 +341,19 @@ def _leading_comment_block(path: Path) -> str:
     Read through `read_bounded` rather than `Path.read_text`: this runs against
     a path the user controls, and that helper is where the FIFO-blocks-forever
     and the read-600 MB-into-memory cases are already closed.
+
+    `utf-8-sig` for `registry.load_projects`' reason, and this is the second
+    consumer LWSM-1182 found decoding plain `utf-8`. A BOM does not fail to
+    decode here — `U+FEFF` is a perfectly good character — it survives into
+    the first line, where `lstrip()` does not remove it because it is not
+    whitespace. So `﻿# my header` is not a comment, the loop breaks
+    immediately, and the user's entire header is replaced by ours on the next
+    save. Measured, not reasoned.
     """
     from lwsm.configfile import ConfigFileError, read_bounded
 
     try:
-        text = read_bounded(path).decode("utf-8")
+        text = read_bounded(path).decode("utf-8-sig")
     except (OSError, UnicodeDecodeError, ConfigFileError):
         return SCAN_ROOTS_HEADER
 
