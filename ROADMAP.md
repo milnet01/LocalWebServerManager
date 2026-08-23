@@ -1939,6 +1939,33 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-3 (window), outside its assigned slice.
   Lanes: security, window.
 
+- 📋 [LWSM-1182] **FP08: a BOM refuses settings.json where projects.json tolerates it, and LWSM-1163 made that permanent.**
+  `registry.load_projects` decodes `utf-8-sig`; `settings.load` decodes
+  plain `utf-8`. `registry.py`'s own comment states the reasoning and it
+  applies here word for word: "an editor-added BOM is invisible in that
+  editor and would otherwise refuse the whole file with a reason naming
+  byte 0, which sends the user looking at the wrong thing."
+
+  The same class as LWSM-1164 and LWSM-1116 — a guard that exists next door
+  and is missing here — and found the same way, by reading the two loaders
+  side by side.
+
+  **LWSM-1163 turned it from cosmetic into permanent.** Before that gate a
+  BOM meant the defaults were used and the file was silently rewritten
+  clean on the next save. Now a whole-document refusal blocks every write,
+  so a BOM makes `settings.json` un-writable for good: no preference
+  persists, the status bar reports a reason naming byte 0, and the user
+  cannot see the character it names.
+
+  Not a regression to revert — the gate is right and the decode is wrong.
+  Fix: decode `utf-8-sig` in `settings.load`, matching `registry`. Then
+  check the other `read_bounded` consumers for the same divergence — the
+  `scan-roots` file (LWSM-1144) at least has not been looked at.
+  **Layman:** If your text editor adds an invisible marker to the start of the settings file, the app stops remembering any of your choices, and nothing on screen says why.
+  Kind: fix.
+  Source: in-session-2026-08-23, found while shipping LWSM-1163.
+  Lanes: settings.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
