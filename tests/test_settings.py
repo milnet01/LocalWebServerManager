@@ -201,6 +201,32 @@ def test_a_directory_at_the_path_is_a_reason_and_not_a_first_run(
     )
 
 
+def test_a_deeply_nested_document_is_a_reason_and_not_a_crash(tmp_path: Path) -> None:
+    """`RecursionError` is not a `ValueError`, so it escaped by itself.
+
+    LWSM-1164, and LWSM-1116's shape exactly: the guard exists next door and
+    is missing here. `registry.py` catches `(ValueError, RecursionError)` with
+    a comment saying why — `RecursionError` -> `RuntimeError` -> `Exception`,
+    so it needs naming whatever `except ValueError` would catch — and
+    `settings.load()` named only `(UnicodeDecodeError, ValueError)`.
+
+    40 KB, well inside `MAX_FILE_BYTES`, so the size cap never sees it. It
+    propagated out of `build_window`, whose `try` catches only `RegistryError`,
+    and out of `main()`: the app died with a traceback and no window, every
+    launch, until someone deleted the file by hand. Three passages promised
+    this could not happen — `load()`'s docstring, the module docstring, and
+    `build_window`'s comment.
+    """
+    path = tmp_path / "settings.json"
+    path.write_text("[" * 20_000 + "]" * 20_000, encoding="utf-8")
+
+    result = settings.load(path)
+
+    assert result.settings == Settings()
+    assert result.reasons
+    assert result.document_refused is True
+
+
 def test_an_oversized_file_is_refused_rather_than_read(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_bytes(b"x" * ((1 << 20) + 1))

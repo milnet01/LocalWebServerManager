@@ -1519,7 +1519,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-2 (settings).
   Lanes: settings, data-loss.
 
-- 📋 [LWSM-1164] **FP08: `settings.load()` raises RecursionError, so a hostile file kills the app at startup.**
+- ✅ [LWSM-1164] **FP08: `settings.load()` raises RecursionError, so a hostile file kills the app at startup.**
   `load()`'s docstring says "Never raises.", the module docstring says "A bad
   settings file must never cost the user a window", and `build_window`'s
   comment says reading it needs no handler. All three are false for one input
@@ -1536,6 +1536,21 @@ module states the correct rule in almost the same words.
   that exists next door and is missing here. The same escape reaches
   `save_field` from inside `closeEvent`, where only `(ConfigFileError,
   OSError)` is caught.
+  Resolved (2026-08-23): `RecursionError` added to `load()`'s parse
+  handler, which is the whole fix — `registry.py` has caught it since
+  LWSM-1108 and its comment already carries the reasoning, including the
+  warning not to widen some other handler to `BaseException` instead.
+  `load()` no longer raising also closes the `closeEvent` half the bullet
+  names: `save_field`'s only raising call was the load, and `save()`
+  serialises a flat dict of our own, which cannot recurse.
+  The reproduction is pinned as a test at 40 KB — well inside
+  `MAX_FILE_BYTES`, so the size cap never sees it — and asserts
+  `document_refused` alongside, so LWSM-1163's gate covers this shape too
+  rather than the two fixes leaving a seam. One mutant killed: dropping
+  `RecursionError` from the tuple. 1156 green, local-ci green.
+  Also corrected `load()`'s docstring, which promised "never raises" while
+  the handler did not deliver it. The module docstring and
+  `build_window`'s comment are now true as written and were left alone.
   **Layman:** A specially-crafted settings file stops the app opening at all — every launch, until someone deletes the file by hand.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-2 (settings).

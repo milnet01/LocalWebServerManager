@@ -267,7 +267,11 @@ def _bool_or_reason(field: str, value: object) -> tuple[bool | None, str | None]
 def load(path: Path) -> LoadResult:
     """Read `path`, or return the defaults and say why.
 
-    Never raises. Every `except` here has a measured cause behind it in
+    Never raises — including on the input classes that are not `ValueError`s.
+    LWSM-1164 found that claim false for a deeply nested document, which is
+    the one case where "the parser said no" arrives as a `RecursionError`.
+
+    Every `except` here has a measured cause behind it in
     `registry.load_projects`, and the difference is only what happens next:
     there a `RegistryError` reaches the user as an empty window with a reason,
     here the same condition reaches them as the default theme and a log line.
@@ -288,7 +292,21 @@ def load(path: Path) -> LoadResult:
 
     try:
         document = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        # `RecursionError` is named because it is NOT a `ValueError` — it is
+        # `RecursionError` -> `RuntimeError` -> `Exception` — and deeply nested
+        # arrays exhaust the stack rather than failing to parse. 40 KB of `[`
+        # is well inside `MAX_FILE_BYTES`, so the size cap never sees it, and
+        # the error escaped `load()` as itself: past `build_window`, whose
+        # `try` catches only `RegistryError`, and out of `main()`. The app died
+        # with a traceback and no window on every launch until the file was
+        # deleted by hand (LWSM-1164).
+        #
+        # `registry.py` has caught this since LWSM-1108 and its comment carries
+        # the reasoning at length, including the warning not to "fix" it by
+        # widening some other handler to `BaseException`. This is LWSM-1116's
+        # shape: a guard that exists next door and is missing here.
+        #
         # `str(exc)` is quoted for the same reason every other reason is: it
         # interpolates a fragment of the hostile file, newlines included.
         return LoadResult(

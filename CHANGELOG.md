@@ -249,6 +249,13 @@ signaling per
 
 ### Fixed
 
+- **A malformed settings file can no longer stop the app opening** (LWSM-1164)
+  One particular shape of broken `settings.json` — thousands of nested
+  brackets — crashed the app on startup instead of being ignored, every
+  launch, until the file was deleted by hand. It is now reported like any
+  other unreadable settings file: the app opens with its defaults and says
+  what it could not read.
+
 - **A typo in the settings file no longer wipes your settings** (LWSM-1163)
   If you hand-edited `settings.json` and made a small mistake — a stray
   comma, say — the app fell back to its defaults, as it should. But the next
