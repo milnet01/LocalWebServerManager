@@ -252,7 +252,11 @@ def build_child_env(
 
 
 def _launcher_path(project: Path, argv: tuple[str, ...]) -> Path | None:
-    """The file inside the project whose contents `argv` executes, if any.
+    """The file whose contents `argv` executes, if any — refused by the caller.
+
+    Classification only. Whether that file is *acceptable* — inside the
+    project, a regular file, not group-writable — is `validate_launcher`'s,
+    and `start()` calls it on whatever this returns.
 
     Two of the four shapes `scanner.py` emits have one. `["./start.sh"]` names
     it directly. `["python3", "serve.py"]` and `["node", "serve.mjs"]` name it
@@ -289,13 +293,25 @@ def _launcher_path(project: Path, argv: tuple[str, ...]) -> Path | None:
 
 
 def _contained(project: Path, name: str) -> Path | None:
-    """`name` resolved under `project`, or `None` when it escapes or is the root."""
+    """`name` resolved, or `None` when it names nothing or is the project root.
+
+    **Escaping is deliberately NOT filtered here** — that is the whole of
+    LWSM-1162. A symlink leaving the project is a launcher to REFUSE, not a
+    launcher we do not have, and returning `None` for it made `_launcher_path`
+    give the same answer it gives `npm run dev`. So `validate_launcher` was
+    never reached from `start()`, its "outside the project directory" refusal
+    was unreachable, and the fingerprint fell through to the `\0nofile\0`
+    marker — hashing argv alone, so rewriting the target could not re-arm the
+    gate. Containment is `validate_launcher`'s decision, on the resolved target
+    that `execve` will actually run; this function only says which file `argv`
+    names.
+    """
     try:
         resolved = (project / Path(name)).resolve()
         project_resolved = Path(project).resolve()
     except OSError:
         return None
-    if resolved == project_resolved or not resolved.is_relative_to(project_resolved):
+    if resolved == project_resolved:
         return None
     return resolved
 

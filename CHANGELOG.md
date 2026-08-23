@@ -484,6 +484,13 @@ signaling per
 
 ### Security
 
+- **A start script pointing outside its project is now refused** (LWSM-1162)
+  A project could point its start script at a file somewhere else on the
+  disk. The app showed you the harmless-looking name, ran the other file,
+  and never asked again — even if that other file was rewritten afterwards.
+  That launcher is now refused outright, so it never reaches the "do you
+  trust this?" dialog at all.
+
 - ****Open in browser is offered only for servers this app started** (LWSM-1141)** (LWSM-1141)
   Anything on your machine can sit on a project's port, and the app would
   then show that row as running and offer to open it in your browser. It

@@ -1421,7 +1421,7 @@ here cannot lose data, and `supervisor.py`'s trust gate claimed a symlink out of
 the project is refused outright. Neither was true, and in both cases the sibling
 module states the correct rule in almost the same words.
 
-- 📋 [LWSM-1162] **FP08: a launcher symlinked out of its project is not refused, and its fingerprint carries no content.**
+- ✅ [LWSM-1162] **FP08: a launcher symlinked out of its project is not refused, and its fingerprint carries no content.**
   ADR-0003 § Trust says a launcher that is a symlink pointing outside its
   project "is refused outright". It is not. `_launcher_path` calls
   `_contained`, which resolves the symlink and returns `None` for exactly the
@@ -1441,6 +1441,25 @@ module states the correct rule in almost the same words.
 
   Fix: refuse the escaping symlink at `start()` as the ADR requires, and make
   the dialog show what will actually run.
+  Resolved (2026-08-23): `_contained` no longer swallows the escaping
+  case. Containment is `validate_launcher`'s decision, taken on the
+  resolved target `execve` actually runs, and `start()` calls it on
+  whatever `_launcher_path` returns — so the ADR's refusal is reachable,
+  an escaping symlink cannot reach the trust dialog, and the fingerprint
+  hashes the target's bytes instead of colliding with a launcher that
+  does not exist. The dialog's `str(resolved or argv[0])` needed no
+  change once the escape is refused: `resolved` is now `None` only for
+  `npm`, whose `argv[0]` is what runs.
+  Tests: a parametrised `start()`-driven refusal over two launcher kinds
+  (the escape is per-argument — `argv[0]` for `./start.sh`, `argv[1]` for
+  `python3 serve.py`), plus a fingerprint-collision test. The existing
+  `test_an_interpreter_script_outside_the_project_is_not_a_launcher` had
+  encoded the defect as the contract and was corrected — classifying an
+  escaping path as "no launcher" is exactly what made the refusal
+  unreachable.
+  Three mutants killed: restoring the filter, skipping `validate_launcher`
+  from `start()`, and disabling its containment refusal. 1148 green,
+  local-ci green.
   **Layman:** A project can point its start script at a file somewhere else on the disk; the app shows you the harmless-looking name, runs the other file, and never asks again even if that file is rewritten.
   Kind: security.
   Source: close-phase-2026-08-21 lane-4 (supervisor).

