@@ -23,6 +23,13 @@ signaling per
 
 ### Added
 
+- **Hide a project you do not use, and show it again from the View menu** (LWSM-1185)
+  Right-click a project (or press the Menu key on it) for "Hide this
+  project". Hidden projects leave the list and the choice is saved.
+  View → Show hidden projects brings them back, each marked "(hidden)"
+  so you can tell which and unhide it. Nothing becomes unrecoverable
+  without editing the file by hand.
+
 - **Enter in the filter box jumps to the first matching project** (LWSM-1156)
   Type `/`, type part of a project's name, press Enter — you land on the
   first project that matches, instead of having to press Tab first. Enter on

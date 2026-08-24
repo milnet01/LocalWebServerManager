@@ -255,6 +255,10 @@ class RowView:
     # else started reads `running` exactly like one of ours. Open-in-browser is
     # gated on it (LWSM-1141).
     managed: bool = False
+    # The user's own "do not show me this" flag, stored since LWSM-1007 and
+    # read by nothing until LWSM-1185. Carried on the view rather than looked
+    # up by the window, so the row has one source for everything it renders.
+    hidden: bool = False
 
 
 class _SnapshotSignals(QObject):
@@ -411,6 +415,7 @@ class ProjectController(QObject):
                 effective_port=record.effective_port,
                 status=self._status_of(record.path),
                 managed=record.path in managed,
+                hidden=record.hidden,
             )
             for record in self._records
         ]

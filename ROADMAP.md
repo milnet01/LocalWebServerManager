@@ -3240,6 +3240,42 @@ path. `docs/design.md § Detection rules` is the contract.
   Source: in-session-2026-08-19 (measured against Ants_Projects_Hub_Website).
   Lanes: core, tests.
 
+- 📋 [LWSM-1183] **The launcher follower picks a shell assignment as its next file.**
+  Scanning RetroDB, the follower reads `start.sh` and then tries to
+  open a file named `PYTHON=python` — a shell variable assignment,
+  not a path. Confirmed by recording every path `_open_source`
+  receives during a live scan of the author's own tree.
+
+  So the walk never reaches `server_port.py`, where the default port
+  is declared, and the row reads `unknown` with no port.
+
+  The fixture corpus cannot see this: the shape only appears in a
+  launcher that assigns an interpreter to a variable before using
+  it, which no fixture does.
+  **Layman:** RetroDB shows no port because the scanner went looking for a file that does not exist.
+  Kind: fix.
+  Source: user-report-2026-08-24.
+  Lanes: scanner.
+
+- 📋 [LWSM-1184] **The import walk stops at a launcher that uses ordinary imports.**
+  Scanning Contact_List, the follower reads `run.sh`, then
+  `launcher.py`, and stops. The port is declared in `config.py`,
+  which `launcher.py` reaches by an ordinary import rather than the
+  relative form the walk follows.
+
+  Same symptom as the RetroDB item and a different cause, so both
+  need their own fixture. Confirmed the same way, by recording the
+  paths a live scan opened.
+
+  Worth checking together with the two items above: both projects
+  resolve the port through a FUNCTION CALL rather than writing a
+  literal where the server starts, so reaching the right file may
+  not be sufficient on its own.
+  **Layman:** Contact_List shows no port because the scanner stopped one file short of where the port is written.
+  Kind: fix.
+  Source: user-report-2026-08-24.
+  Lanes: scanner.
+
 ## P04 — Appearance and accessibility foundation
 
 **Theme:** the visual and accessible foundation, laid **before**
@@ -4477,6 +4513,54 @@ is the contract.
   Lanes: core, docs.
 
 ---
+
+- ✅ [LWSM-1185] **Hide a project from the list, with a View menu toggle to bring it back.**
+  `ProjectRecord.hidden` already exists: parsed, range-checked,
+  persisted, and carried through both merges as a USER field. Nothing
+  reads it. So the storage half is done and has been for some time,
+  and what is missing is a consumer — the same shape as a method with
+  no production caller, one layer up.
+
+  Decided with the user (2026-08-24): hiding removes the project from
+  the list, and a **Show hidden** tick in the View menu brings hidden
+  rows back so they can be unhidden. Nothing may become unrecoverable
+  without editing the file by hand.
+
+  Note for the test: `hidden` is a user field, so a rescan must
+  preserve it. `USER_FIELDS` already covers that, and a test should
+  say so rather than assume it.
+  Resolved (2026-08-24): `RowView` carries `hidden`, the row owns a
+  `hide_action` under Qt's `ActionsContextMenu` policy, and the View
+  menu gained a checkable **Show hidden projects**. Filtering hides
+  rows and never rebuilds them, so the stored flag and the live
+  needle are two independent reasons to be off screen and neither
+  can resurrect a row the other excluded (INV-13).
+
+  The marker is rendered TEXT, not a colour: the announcement is
+  built from the rendered cells so no accessibility-only string can
+  drift, and colour alone carries no meaning to a screen reader.
+
+  `ActionsContextMenu` was chosen over a `contextMenuEvent` of our
+  own precisely because it leaves no wiring a test cannot reach —
+  Qt renders `actions()`, and there is no `menu.exec()` to avoid.
+  The tests drive the action out of `actions()` rather than the
+  method it calls.
+
+  Also extracted `_write_records` from `_apply_merge`. Hiding is
+  the third writer, and the write gate, the `RegistryError` report
+  and the `self._load` refresh are the same three rules each time —
+  LWSM-1166 was that refresh being read from the wrong place, and a
+  second copy would be a second place to repeat it.
+
+  Mutants: eight against the window, one against the controller,
+  all killed. One survivor on the first pass was a real pre-existing
+  gap and is now closed — nothing checked that a SUCCESSFUL write
+  stops the next identical rescan rewriting the file, which is the
+  whole purpose of the refresh. Full gate green.
+  **Layman:** Lets you take a project you do not use off the list, and get it back when you want it.
+  Kind: feature.
+  Source: user-request-2026-08-24.
+  Lanes: window, registry.
 
 ## P10 — Release for other people (📦 Packaging)
 

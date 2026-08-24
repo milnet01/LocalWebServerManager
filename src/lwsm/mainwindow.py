@@ -166,6 +166,15 @@ def port_text(effective_port: int | None) -> str:
     )
 
 
+def hidden_name(name: str) -> str:
+    """A hidden project's name, as it reads while the toggle is showing them.
+
+    Translated at call time like every other cell, so a language change reaches
+    a row that already exists (LWSM-1107).
+    """
+    return QCoreApplication.translate(_TR_CONTEXT, "%1 (hidden)").replace("%1", name)
+
+
 def project_url(port: int) -> QUrl:
     """`http://localhost:<port>/`, built rather than concatenated.
 
@@ -345,6 +354,15 @@ class ProjectRow(QFrame):
         self._theme = theme
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFrameShape(QFrame.Shape.StyledPanel)
+
+        # Qt's own context menu, not a `contextMenuEvent` of ours (LWSM-1185).
+        # `ActionsContextMenu` renders the widget's actions on right-click and
+        # on the Menu key, so the row is menu-reachable from the keyboard with
+        # nothing here saying so — and there is no `menu.exec()` of ours for a
+        # test to have to avoid, which is what an untestable wiring looks like.
+        self.hide_action = QAction(self)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+        self.addAction(self.hide_action)
 
         # Two layouts, not one: the cells and controls across, and the failure
         # message under them (LWSM-1032). A message beside the controls would
@@ -589,6 +607,16 @@ class ProjectRow(QFrame):
         if event.type() == QEvent.Type.FontChange:
             self._apply_text_metrics()
 
+    def hidden_by_user(self) -> bool:
+        """Whether the USER hid this project — never `QWidget.isHidden`.
+
+        The two are one letter apart and answer opposite questions: this one is
+        a stored preference, that one is whether the filter has this row off
+        screen right now. A row hidden by the filter is not hidden by the user,
+        and the toggle that shows hidden projects must not resurrect it.
+        """
+        return self._view is not None and self._view.hidden
+
     def matches(self, needle: str) -> bool:
         """Whether this row survives the filter (LWSM-1040).
 
@@ -823,7 +851,16 @@ class ProjectRow(QFrame):
         self.update()
 
         self._state.setText(state_word(row.status))
-        self._name.setText(row.name)
+        # The marker is rendered TEXT, not a colour and not an accessibility-only
+        # string. Colour alone carries no meaning to a screen reader, and the
+        # announcement below is built from the rendered cells precisely so no
+        # accessibility string can drift from what is on screen.
+        self._name.setText(hidden_name(row.name) if row.hidden else row.name)
+        self.hide_action.setText(
+            QCoreApplication.translate(_TR_CONTEXT, "&Show this project")
+            if row.hidden
+            else QCoreApplication.translate(_TR_CONTEXT, "&Hide this project")
+        )
         self._port.setText(port_text(row.effective_port))
         self._apply_button_state(row)
 
@@ -898,6 +935,7 @@ class MainWindow(QMainWindow):
         self._rescan = rescan
         self._load = load
         self._rescan_in_flight = False
+        self._show_hidden = False
         # `ProjectController._stopped`, on the window's own worker. Set by
         # `shutdown()` and checked in the rescan slots, because a merge that
         # finishes after teardown would otherwise run `save()` and
@@ -1185,6 +1223,12 @@ class MainWindow(QMainWindow):
         # cannot ask it, so the honest answer is an action that says why
         # (ADR-0007). The tooltip is set in `_retranslate_menus` with the label.
         self._centre_action.setEnabled(placement.placement_available())
+        # Checkable, and unchecked at build: hiding is only reversible because
+        # this exists, so it is offered whether or not there is a writer — a
+        # project can be hidden in the file on a window that cannot save one.
+        self._show_hidden_action = self._view_menu.addAction("")
+        self._show_hidden_action.setCheckable(True)
+        self._show_hidden_action.toggled.connect(self._set_show_hidden)
 
         self._settings_menu = bar.addMenu("")
         self._build_theme_menu(self._settings_menu)
@@ -1363,6 +1407,9 @@ class MainWindow(QMainWindow):
                 "This desktop does not let an application place its own "
                 "window, and KDE's window manager could not be reached.",
             )
+        )
+        self._show_hidden_action.setText(
+            QCoreApplication.translate(_TR_CONTEXT, "Show &hidden projects")
         )
         self._settings_menu.setTitle(
             QCoreApplication.translate(_TR_CONTEXT, "&Settings")
@@ -1654,7 +1701,11 @@ class MainWindow(QMainWindow):
         """
         needle = self._filter.text().strip().casefold()
         for row in self._ordered_rows():
-            row.setVisible(row.matches(needle))
+            # Two independent reasons to be off screen, and the same mechanism
+            # for both: a hidden project is a stored preference and the needle
+            # is a live one, so neither may resurrect a row the other excluded.
+            showable = self._show_hidden or not row.hidden_by_user()
+            row.setVisible(showable and row.matches(needle))
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """`/`, Escape and the number keys (LWSM-1040).
@@ -1868,6 +1919,32 @@ class MainWindow(QMainWindow):
                 ).replace("%1", path.name)
             )
 
+    def _set_show_hidden(self, showing: bool) -> None:
+        """The View menu toggle (LWSM-1185)."""
+        self._show_hidden = showing
+        self._apply_filter()
+
+    def set_project_hidden(self, path: Path, hidden: bool) -> None:
+        """Hide or unhide one project, and remember the choice.
+
+        The record is replaced rather than mutated: `ProjectRecord` is frozen,
+        and every other writer here hands the controller a new list.
+        """
+        records = [
+            replace(record, hidden=hidden) if record.path == path else record
+            for record in self._controller.records()
+        ]
+        name = next((r.name for r in records if r.path == path), path.name)
+        self.set_status_message(
+            self._write_records(
+                records,
+                QCoreApplication.translate(
+                    _TR_CONTEXT, "%1 is hidden" if hidden else "%1 is shown again"
+                ).replace("%1", name),
+                "hide",
+            )
+        )
+
     @staticmethod
     def _rescan_label() -> str:
         return QCoreApplication.translate(_TR_CONTEXT, "Rescan")
@@ -2001,11 +2078,25 @@ class MainWindow(QMainWindow):
             # gets the summary. INV-6's bound already applies to the entries.
             log.info("%s: %s", source, reason)
 
-        if self._should_write(merged):
+        return self._write_records(merged.records, message, source)
+
+    def _write_records(
+        self, records: list[ProjectRecord], message: str, source: str
+    ) -> str:
+        """Save a new project list and show it, whatever produced it.
+
+        Every writer goes through here — a rescan, an import, and hiding a
+        project — because the three rules are the same each time and each is
+        one somebody has already got wrong once: the write gate, the
+        `RegistryError` report, and the `self._load` refresh on success.
+        LWSM-1166 was that refresh being read from the wrong place, and a
+        second copy of this would be a second place to make that mistake.
+        """
+        if self._rescan is None:
+            return message
+        if self._should_write(records):
             try:
-                self._rescan.save(
-                    self._rescan.projects_path, merged.records, load=self._load
-                )
+                self._rescan.save(self._rescan.projects_path, records, load=self._load)
             except RegistryError as exc:
                 log.warning("the %s could not be saved: %s", source, exc)
                 message = (
@@ -2014,18 +2105,18 @@ class MainWindow(QMainWindow):
                     .replace("%2", str(exc))
                 )
             else:
-                # The next merge, of either kind, compares against what is
-                # now on disk. Without this, a first run stays
-                # `RegistryMissing` for the life of the session and every later
-                # merge writes unconditionally.
+                # The next write, of any kind, compares against what is now on
+                # disk. Without this, a first run stays `RegistryMissing` for
+                # the life of the session and every later write is
+                # unconditional.
                 self._load = LoadResult(
-                    records=list(merged.records), reasons=[], rows_refused=0
+                    records=list(records), reasons=[], rows_refused=0
                 )
 
-        self._controller.set_records(merged.records)
+        self._controller.set_records(records)
         return message
 
-    def _should_write(self, merged: MergeResult) -> bool:
+    def _should_write(self, records: list[ProjectRecord]) -> bool:
         """Exactly one trigger, plus first run.
 
         Record **content**, not report entries: three outcomes flag a row while
@@ -2052,7 +2143,7 @@ class MainWindow(QMainWindow):
         user is told why — every time, which is the point.
         """
         if isinstance(self._load, LoadResult):
-            return merged.records != self._load.records
+            return records != self._load.records
         # No registry to write to at all: `build_window` always passes a load
         # beside a rescan context, so this is a hand-built window only.
         return self._load is not None
@@ -2079,6 +2170,13 @@ class MainWindow(QMainWindow):
                 )
                 widget.open_button.clicked.connect(
                     lambda _checked=False, p=path: self._open_project(p)
+                )
+                # Bound the same way and for the same reason as the buttons
+                # above: a plain closure over `view` drives the LAST project.
+                widget.hide_action.triggered.connect(
+                    lambda _checked=False, p=path, w=widget: self.set_project_hidden(
+                        p, not w.hidden_by_user()
+                    )
                 )
                 self._rows[view.path] = widget
                 # Before the trailing stretch, so rows stay top-aligned.

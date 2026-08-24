@@ -1451,6 +1451,33 @@ def test_a_flag_only_outcome_does_not_write(qtbot, built, tmp_path) -> None:
     window.shutdown()
 
 
+def test_a_successful_write_stops_the_next_identical_rescan(
+    qtbot, built, tmp_path
+) -> None:
+    """The refresh after a successful save, which nothing measured.
+
+    A first run has no file, so the gate writes unconditionally — and stays
+    that way for the session unless the save teaches it what is now on disk.
+    Without the refresh every later rescan rewrites an unchanged file, churning
+    its mtime and widening the only window in which a concurrent writer can
+    lose an edit. Found by mutating the refresh out while shipping LWSM-1185;
+    every test stayed green.
+    """
+    project = tmp_path / "roots" / "web"
+    scan = FakeScanResult(projects=(FakeDetected(project, "web"),))
+    saves: list = []
+    window, _ = rescan_window(qtbot, built, [], tmp_path, scan, saves=saves)
+
+    run_rescan(qtbot, window)
+    assert len(saves) == 1, "first run must create the file"
+
+    run_rescan(qtbot, window)
+    assert len(saves) == 1, (
+        "nothing changed, and the save told the gate what is on disk"
+    )
+    window.shutdown()
+
+
 def test_a_read_only_session_reports_rather_than_writing(
     qtbot, built, tmp_path
 ) -> None:
@@ -1641,6 +1668,128 @@ def test_the_summary_order_is_fixed_and_not_dict_order() -> None:
     assert (
         mainwindow.summarise_merge(backwards) == "Rescan: 1 new, 1 changed, 1 missing"
     )
+
+
+# --- LWSM-1185: hiding a project ---------------------------------------------
+
+
+def hide_window(qtbot, built, tmp_path, records, saves):
+    """A window with a writer, so the hide toggle has somewhere to persist to."""
+    return rescan_window(
+        qtbot, built, records, tmp_path, FakeScanResult(projects=()), saves=saves
+    )
+
+
+def row_named(window, name: str) -> ProjectRow:
+    return next(row for row in window._ordered_rows() if name in row._name.text())
+
+
+def test_a_hidden_project_is_not_listed(qtbot, built, tmp_path) -> None:
+    """`ProjectRecord.hidden` has been parsed, validated and persisted since
+    LWSM-1007 and read by nothing. A stored flag no consumer honours looks
+    exactly like a working feature from the file's side."""
+    saves: list = []
+    window, _ = hide_window(
+        qtbot,
+        built,
+        tmp_path,
+        [record("keep", 3000), dataclasses.replace(record("gone", 3001), hidden=True)],
+        saves,
+    )
+
+    shown = [row._name.text() for row in window._visible_rows()]
+    assert "keep" in " ".join(shown)
+    assert "gone" not in " ".join(shown)
+    window.shutdown()
+
+
+def test_the_view_menu_shows_hidden_projects_again(qtbot, built, tmp_path) -> None:
+    """Nothing may become unrecoverable without hand-editing the file (user
+    decision, 2026-08-24). The toggle is what makes hiding reversible, and the
+    marker is what says WHICH rows are back — as text, because colour alone
+    carries no meaning to a screen reader."""
+    saves: list = []
+    window, _ = hide_window(
+        qtbot,
+        built,
+        tmp_path,
+        [dataclasses.replace(record("gone", 3001), hidden=True)],
+        saves,
+    )
+    assert window._visible_rows() == []
+
+    window._show_hidden_action.trigger()
+
+    shown = window._visible_rows()
+    assert len(shown) == 1
+    assert "hidden" in shown[0]._name.text().casefold(), (
+        "a row that is back must say why it is back"
+    )
+    assert "hidden" in shown[0].accessibleName().casefold(), (
+        "and must say it to a screen reader, from the same rendered string"
+    )
+
+    window._show_hidden_action.trigger()
+    assert window._visible_rows() == []
+    window.shutdown()
+
+
+def test_hiding_a_project_from_its_menu_persists_it(qtbot, built, tmp_path) -> None:
+    """Driven through the ACTION, never the method it calls.
+
+    A method whose whole value is being wired to something looks identical to a
+    working one when its own unit test invokes it directly — the trap
+    `CLAUDE.md` records against `rotate_if_needed`.
+    """
+    saves: list = []
+    window, controller = hide_window(
+        qtbot, built, tmp_path, [record("gone", 3001)], saves
+    )
+    row = row_named(window, "gone")
+
+    # Through the CONTEXT MENU Qt will actually render, which under
+    # `ActionsContextMenu` is exactly the widget's own action list. Reaching
+    # for `row.hide_action` instead would test the method and not the wiring.
+    assert row.contextMenuPolicy() == Qt.ContextMenuPolicy.ActionsContextMenu
+    (action,) = row.actions()
+    assert "hide" in action.text().casefold()
+    action.trigger()
+
+    assert [r.hidden for r in controller.records()] == [True]
+    assert saves, "the choice must outlive the session"
+    assert [r.hidden for r in saves[-1][1]] == [True]
+    assert window._visible_rows() == [], "and the row goes away at once"
+    window.shutdown()
+
+
+def test_unhiding_a_project_puts_it_back(qtbot, built, tmp_path) -> None:
+    saves: list = []
+    window, controller = hide_window(
+        qtbot,
+        built,
+        tmp_path,
+        [dataclasses.replace(record("gone", 3001), hidden=True)],
+        saves,
+    )
+    window._show_hidden_action.trigger()
+    row = row_named(window, "gone")
+
+    (action,) = row.actions()
+    assert "show" in action.text().casefold(), (
+        "an already-hidden row must offer the way back, not the way in"
+    )
+    action.trigger()
+
+    assert [r.hidden for r in controller.records()] == [False]
+    assert [r.hidden for r in saves[-1][1]] == [False]
+    window.shutdown()
+
+
+def test_hidden_survives_a_rescan(qtbot, built, tmp_path) -> None:
+    """`hidden` is a USER field, so a rescan refreshes the detected half around
+    it. Asserted rather than assumed — LWSM-1007 INV-1 is what keeps the two
+    halves complete, and a field dropped from `USER_FIELDS` would be silent."""
+    assert "hidden" in registry.USER_FIELDS
 
 
 # --- LWSM-1016: open in browser ----------------------------------------------
