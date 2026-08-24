@@ -1677,6 +1677,47 @@ module states the correct rule in almost the same words.
   finding verified" overstates this bullet. **Confirm the mechanism before
   fixing** — start by checking what `supervisor.running()` actually returns
   against a project whose port is held by something else.
+  CONFIRMED (2026-08-24), superseding the verification-status
+  paragraph above. Reproduced end to end, not read: a real
+  `Supervisor` started a real child whose launcher binds NOTHING,
+  a separate real process then bound the registered port, and the
+  row came back `running` with `managed` True — so Open was
+  enabled over the stranger. The bullet's reasoning was right.
+
+  Root cause is structural, not a wrong comparison. `_classify`
+  asks only `snapshot.is_bound(port)`, and `PortSnapshot` carries
+  the set of listening ports and nothing else. So no code can
+  currently tell our holder from anyone's: the data to answer
+  ADR-0004's "the recorded child PID" is not in the model.
+
+  The fix is cheap because the data is already read and thrown
+  away — `psutil.net_connections` returns the holding pid, and
+  `PortProbe.snapshot` discards it. Carry it, then identify the
+  holder by PROCESS GROUP against the recorded child's pid, which
+  is also its pgid under `start_new_session=True`. The group, not
+  the pid, because the server is usually a grandchild; and it is
+  the same group `stop()` already signals, so the two cannot
+  disagree. A holder pid psutil will not name (another user's) is
+  correctly refused.
+
+  TRAP — do NOT add `exited()` to the managed test. It reports
+  that the LAUNCHER is gone, and LWSM-1165 deliberately keeps the
+  registry entry while the group lives, because a `start.sh` that
+  forks and exits leaves the server running. Gating on `exited()`
+  would disable Open for exactly the double-forking launcher that
+  item protects.
+
+  Test shape, both needed. A controller-level test where the
+  snapshot names a stranger as holder while `running()` holds our
+  entry, which no fake could express before. And a probe-level
+  integration test that the REAL socket table names our own pid
+  for a socket we bind — without it the whole mechanism could be
+  plumbed through fakes and never work live.
+
+  Cost to expect: every existing fake probe reports no holder, so
+  each test that asserts Open is ENABLED needs its fake taught who
+  holds the port. That churn is correct rather than incidental —
+  those fakes were asserting a gate that did not work.
   **Layman:** The button that opens a project in your browser is supposed to be off unless this app started the server. It can be on for a server the app did not start.
   Kind: security.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
