@@ -3451,6 +3451,36 @@ path. `docs/design.md § Detection rules` is the contract.
   LWSM-1183: exactly one project moved, and it moved to a wrong
   answer. The user chose to ship LWSM-1183 and build this next,
   ahead of LWSM-1184.
+  Design constraint found while reading the rules, before any code
+  was written — the obvious discriminator does not survive contact.
+
+  "Skip a line that is entirely a quoted string" fixes RetroDB and
+  BREAKS Node detection: a `package.json` line reading
+  `"dev": "vite --port 3000"` is also a line that is entirely a
+  quoted string, and rule 1 is what reads the port out of it. Any
+  whole-line test therefore has to distinguish a string that is
+  PROSE from a string that is a COMMAND LINE, which the shape of the
+  line alone does not say.
+
+  Two facts that bound the design, both read from `scanner.py`
+  rather than recalled. `strip_comment` cannot help: there is no
+  comment marker on the offending line, and the docstring explains
+  that the stripper is deliberately NOT quote-aware, because a
+  quote-aware character loop ate `http://localhost:3000` at the `//`
+  and cost 766 µs against 64 µs. And `_scan_source` is line-major,
+  so rule 1 on the prose line wins before `_python_framework` is
+  ever consulted — which is why the Flask default (the right answer,
+  5000) never gets a chance.
+
+  Not yet decided: whether the discriminator is quote-state at the
+  MATCH position, a language-aware check for `.py` (where an
+  unspaced `PORT=5001` is shell syntax, not the Python form rule 2
+  already handles), or something narrower.
+
+  Verify any candidate by diffing live-tree verdicts across the
+  change — 7 projects, all five launcher kinds — not by fixtures
+  alone. Before: exactly one wrong (RetroDB 5001). The bar is
+  RetroDB at 5000 or unknown, with the other six unmoved.
   **Layman:** RetroDB shows the wrong port because the scanner read a number out of an error message rather than a setting.
   Kind: fix.
   Source: in-session-2026-08-24.
@@ -4766,6 +4796,11 @@ is the contract.
   gap and is now closed — nothing checked that a SUCCESSFUL write
   stops the next identical rescan rewriting the file, which is the
   whole purpose of the refresh. Full gate green.
+  Confirmed in the REAL APP by the user (2026-08-24): a project can
+  be hidden from the row's context menu and brought back through
+  View → Show hidden projects. Recorded because a green suite is not
+  evidence for anything the desktop owns, and the suite was already
+  green when this was still unverified.
   **Layman:** Lets you take a project you do not use off the list, and get it back when you want it.
   Kind: feature.
   Source: user-request-2026-08-24.
