@@ -249,6 +249,13 @@ signaling per
 
 ### Fixed
 
+- **A refused registry write is retried by the next rescan** (LWSM-1166)
+  The write gate compared the merge against the controller's in-memory
+  set, which `_apply_merge` had already updated unconditionally — so a
+  save that was refused once reported "no changes" from then on while
+  nothing ever reached the disk. It now compares against the load, which
+  is refreshed only when a write succeeds.
+
 - **A project whose server crashes can be started again** (LWSM-1165)
   If a project's server exited on its own — a missing dependency, a typo in
   its start script, an ordinary crash — the app kept treating that project

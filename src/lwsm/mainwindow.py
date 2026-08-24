@@ -2001,8 +2001,7 @@ class MainWindow(QMainWindow):
             # gets the summary. INV-6's bound already applies to the entries.
             log.info("%s: %s", source, reason)
 
-        stored = self._controller.records()
-        if self._should_write(merged, stored):
+        if self._should_write(merged):
             try:
                 self._rescan.save(
                     self._rescan.projects_path, merged.records, load=self._load
@@ -2026,7 +2025,7 @@ class MainWindow(QMainWindow):
         self._controller.set_records(merged.records)
         return message
 
-    def _should_write(self, merged: MergeResult, stored: list[ProjectRecord]) -> bool:
+    def _should_write(self, merged: MergeResult) -> bool:
         """Exactly one trigger, plus first run.
 
         Record **content**, not report entries: three outcomes flag a row while
@@ -2035,15 +2034,28 @@ class MainWindow(QMainWindow):
         churn the file's mtime and widen the only window in which a concurrent
         writer can lose an edit, for no gain.
 
+        The comparison is against **the load**, never against the controller's
+        in-memory set (LWSM-1166). `_apply_merge` calls `set_records`
+        unconditionally, so after a refused write the in-memory set already
+        holds the merge — a gate reading it finds no difference next time,
+        writes nothing and reports "no changes" while nothing has ever reached
+        the disk. `self._load` is refreshed only on the success branch, so it
+        is the one value that still says what is actually stored.
+
         First run is the exception and is not an optimisation: with no file,
         "differs from the loaded one" is vacuous, and on a clean machine whose
         first scan finds **zero** projects both sets are empty, the difference
         test says no, and `projects.json` would never come into existence at
-        all — every later run repeating the whole first-run path.
+        all — every later run repeating the whole first-run path. A load that
+        raised for any other reason is vacuous in the same way, and offering
+        the write is safe because `save_projects`' own gate refuses it and the
+        user is told why — every time, which is the point.
         """
-        if isinstance(self._load, registry.RegistryMissing):
-            return True
-        return merged.records != stored
+        if isinstance(self._load, LoadResult):
+            return merged.records != self._load.records
+        # No registry to write to at all: `build_window` always passes a load
+        # beside a rescan context, so this is a hand-built window only.
+        return self._load is not None
 
     def _sync_rows(self) -> None:
         views = self._controller.rows()

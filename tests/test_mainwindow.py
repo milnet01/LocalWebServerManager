@@ -1492,6 +1492,58 @@ def test_a_read_only_session_reports_rather_than_writing(
     window.shutdown()
 
 
+def test_a_refused_write_is_retried_by_the_next_rescan(qtbot, built, tmp_path) -> None:
+    """LWSM-1166: the gate compares against the LOAD, never the in-memory set.
+
+    `_apply_merge` calls `set_records` unconditionally, so after a refused write
+    the in-memory set already holds the merge. A gate reading that set finds no
+    difference on the next rescan, writes nothing, and reports "no changes" —
+    the app looks healthy while nothing has ever been persisted. Any transient
+    failure (read-only mount, ENOSPC) has the same shape, so the retry the user
+    makes is silently a no-op.
+
+    The two rescans are asserted against each other in one test: a gate that
+    never writes passes the second half alone, and a gate that always writes
+    passes the first half alone.
+    """
+    project = tmp_path / "roots" / "web"
+    attempts: list = []
+
+    def refusing_save(path, merged, *, load) -> None:
+        attempts.append(list(merged))
+        raise RegistryError("read-only file system")
+
+    controller = build_controller(built, [], FakeProbe())
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=lambda _roots: FakeScanResult(projects=(FakeDetected(project, "web"),)),
+        now=lambda: "2026-08-14T09:00:00Z",
+        save=refusing_save,
+    )
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        rescan=context,
+        load=LoadResult(records=[], reasons=[], rows_refused=0),
+    )
+    qtbot.addWidget(window)
+
+    run_rescan(qtbot, window)
+    assert len(attempts) == 1
+    assert "not saved" in window.statusBar().currentMessage()
+
+    run_rescan(qtbot, window)
+    assert len(attempts) == 2, (
+        "the second rescan must try again: nothing has reached the disk yet"
+    )
+    assert "not saved" in window.statusBar().currentMessage(), (
+        "and must still say so, rather than reporting no changes"
+    )
+    window.shutdown()
+
+
 def test_a_rescan_that_raises_re_enables_the_button(qtbot, built, tmp_path) -> None:
     """PySide6 swallows an exception escaping `QRunnable.run()` and emits no
     signal, so without the catch-all the in-flight flag stays set and Rescan

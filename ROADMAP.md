@@ -1608,7 +1608,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
   Lanes: supervisor.
 
-- 📋 [LWSM-1166] **FP08: a refused registry write is reported once and then never retried.**
+- ✅ [LWSM-1166] **FP08: a refused registry write is reported once and then never retried.**
   `_should_write` compares the merge against `self._controller.records()` —
   the in-memory set — while `_apply_merge` calls `set_records(merged.records)`
   UNCONDITIONALLY and refreshes `self._load` only on the success branch. So
@@ -1624,6 +1624,29 @@ module states the correct rule in almost the same words.
 
   The docstring calls the test "differs from the loaded one", which is what
   it should be comparing against.
+  Resolved (2026-08-24): `_should_write` now compares
+  `merged.records` against `self._load.records` — the load, which
+  `_apply_merge` refreshes only on the success branch — instead of
+  against `self._controller.records()`, which it updates
+  unconditionally. The `stored` parameter is gone rather than left
+  unused, so there is no second candidate to compare against.
+
+  A load that is not a `LoadResult` offers the write: for
+  `RegistryMissing` that is first run as before, and for any other
+  `RegistryError` the write is refused by `save_projects`' own gate
+  and reported every time, which is the same defect this item names
+  seen from the unparseable-file side.
+
+  Red first: `test_a_refused_write_is_retried_by_the_next_rescan`
+  runs two rescans against a save that always raises and pins them
+  against each other — a gate that never writes passes the second
+  half alone, one that always writes passes the first half alone.
+  It failed 1 == 2 before the fix.
+
+  Four mutants, all killed against a green 165-test baseline:
+  reading the in-memory set again, `return True`, `return False`,
+  and never taking the `LoadResult` branch. Full gate green (1164
+  tests).
   **Layman:** If saving the project list fails, the app tells you once and then reports "no changes" forever while quietly saving nothing.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-3 (window).
