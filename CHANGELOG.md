@@ -23,6 +23,12 @@ signaling per
 
 ### Added
 
+- **The title bar now tells you which version you are running** (LWSM-1186)
+  The window is titled "Local Web Server Manager 0.0.0" rather than just
+  the name, so the running version is visible without opening a menu.
+  The number is part of the translatable text, so a translation can move
+  it rather than having it welded to the end.
+
 - **Hide a project you do not use, and show it again from the View menu** (LWSM-1185)
   Right-click a project (or press the Menu key on it) for "Hide this
   project". Hidden projects leave the list and the choice is saved.

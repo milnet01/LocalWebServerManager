@@ -21,7 +21,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QPalette, QShowEvent
 from PySide6.QtWidgets import QApplication
 
-from lwsm import mainwindow, placement, registry, scanner
+from lwsm import __version__, mainwindow, placement, registry, scanner
 from lwsm.__main__ import build_window
 from lwsm.controller import (
     ProjectController,
@@ -1116,6 +1116,26 @@ def test_the_glyph_is_not_clipped_when_the_text_size_doubles(qtbot, built) -> No
 # --- LWSM-1081: the strings are reachable by a translator ----------------------
 
 
+def test_the_title_bar_carries_the_version(qtbot, built) -> None:
+    """LWSM-1186: the title names the running version.
+
+    Asserted against `__version__` rather than against a literal. The first
+    release bumps that constant, and a test pinned to `0.0.0` would redden CI
+    on the release commit rather than on a defect.
+
+    This test deliberately does NOT send `LanguageChange` and assert the title
+    again. It was drafted that way, and the mutation run showed that assertion
+    was vacuous: with no translator installed a retranslate rebuilds the same
+    string, so it held whether or not `changeEvent` touched the title at all —
+    deleting that `setWindowTitle` left it green. What pins the version across
+    a retranslate is `test_a_translator_installed_later_reaches_an_existing_row`,
+    whose uppercasing translator makes the two titles differ; that mutant dies
+    there.
+    """
+    window, _ = window_for(qtbot, built, [record("a", None)], FakeProbe())
+    assert window.windowTitle() == f"Local Web Server Manager {__version__}"
+
+
 def test_every_visible_string_goes_through_a_translator(qtbot, built) -> None:
     """`grep` for `.tr(` and `QCoreApplication.translate` across src/ returned
     zero hits, against `coding.md § 5.2`.
@@ -1139,7 +1159,7 @@ def test_every_visible_string_goes_through_a_translator(qtbot, built) -> None:
 
         assert row._state.text() == "UNKNOWN"
         assert row._port.text() == "NO PORT"
-        assert window.windowTitle() == "LOCAL WEB SERVER MANAGER"
+        assert window.windowTitle() == f"LOCAL WEB SERVER MANAGER {__version__}"
 
         with_port, _ = window_for(qtbot, built, [record("b", 5005)], FakeProbe(5005))
         # The number is interpolated into the translated string, not appended
@@ -1199,7 +1219,7 @@ def test_a_translator_installed_later_reaches_an_existing_row(qtbot, built) -> N
             "a row built before the translator was installed never retranslated"
         )
         assert row._port.text() == "PORT 5005"
-        assert window.windowTitle() == "LOCAL WEB SERVER MANAGER"
+        assert window.windowTitle() == f"LOCAL WEB SERVER MANAGER {__version__}"
         # The announcement must follow the words a listener actually hears.
         assert row.accessibleName() == "RUNNING, a, PORT 5005"
     finally:

@@ -61,7 +61,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lwsm import applog, placement, registry, scanner
+from lwsm import __version__, applog, placement, registry, scanner
 from lwsm.configfile import ConfigFileError
 from lwsm.controller import (
     ProjectController,
@@ -1747,7 +1747,17 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _window_title() -> str:
-        return QCoreApplication.translate(_TR_CONTEXT, "Local Web Server Manager")
+        """The app name and the running version (LWSM-1186).
+
+        `%1` and `str.replace`, never an f-string, for the reason
+        `port_label` states: a translation is data from outside the program,
+        and a translator must be able to move the number rather than have it
+        welded to the end. Rebuilt on `LanguageChange` like every other
+        string, so the version survives a language switch.
+        """
+        return QCoreApplication.translate(
+            _TR_CONTEXT, "Local Web Server Manager %1"
+        ).replace("%1", __version__)
 
     @staticmethod
     def _notice_summary(notices: list[str]) -> str:

@@ -4603,7 +4603,7 @@ is the contract.
   Source: user-request-2026-08-24.
   Lanes: window, registry.
 
-- 📋 [LWSM-1186] **Show the app version in the title bar.**
+- ✅ [LWSM-1186] **Show the app version in the title bar.**
   The window title is a static translated string (`MainWindow._window_title`).
   `__version__` already reaches `app.setApplicationVersion` and `--version`, so
   the value is in hand and only the title omits it.
@@ -4614,6 +4614,33 @@ is the contract.
 
   Note for the test: the title is rebuilt on `LanguageChange`, so the version
   must survive a retranslate. Assert that, not only the initial title.
+  Resolved (2026-08-24): `_window_title` returns
+  `translate(_TR_CONTEXT, "Local Web Server Manager %1").replace("%1",
+  __version__)`.
+
+  **The version is INSIDE the translated string, not appended to it**, which
+  `port_label`'s own comment and the existing translator test both require:
+  a translation is data from outside the program, so `str.replace` rather
+  than `str.format`, and a translator must be able to move the number.
+
+  **The mutation run found a vacuous assertion in this item's own test and
+  it was removed rather than kept.** The draft sent `LanguageChange` and
+  re-asserted the title. With no translator installed a retranslate rebuilds
+  the identical string, so that assertion held whether or not the rule did —
+  M3, deleting `setWindowTitle` from `changeEvent`, left it green. What
+  actually pins the version across a retranslate is
+  `test_a_translator_installed_later_reaches_an_existing_row`, whose
+  uppercasing translator makes the two titles differ; M3 dies there. The
+  test now says so in its docstring, so the absence reads as a decision.
+
+  Two existing assertions pinned the old contract (`"LOCAL WEB SERVER
+  MANAGER"`) and were re-fixtured to the new one rather than loosened.
+  Asserted against `__version__`, never the literal `0.0.0`, so the first
+  release bumps the constant instead of reddening CI.
+
+  Three mutants, three killed: no-op the `%1` substitution, drop the
+  placeholder from the source string, and stop rebuilding the title on
+  `LanguageChange`. 1171 green, local-ci green.
   **Layman:** The window's title bar tells you which version of the app you are running.
   Kind: feature.
   Source: user-request-2026-08-24.
