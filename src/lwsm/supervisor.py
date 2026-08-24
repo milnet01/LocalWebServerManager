@@ -792,6 +792,46 @@ class Supervisor:
         """`stop` on a worker thread. A 5-second wait on the UI thread freezes it."""
         return self._stoppers.submit(self.stop, project, grace, _on_wait)
 
+    def owns_pid(self, project: Path, pid: int) -> bool:
+        """Whether `pid` sits in the process group of our child for `project`.
+
+        The GROUP, not the pid, and for `_group_members`' reason inverted: a
+        launcher that double-forks leaves the actual server reparented to init,
+        so the process holding the port is usually a grandchild. Comparing
+        against the child's own pid would report every wrapper-script project as
+        not ours. `start_new_session=True` guarantees the whole tree shares the
+        child's pid as its group id, and it is the same group `stop()` signals,
+        so the two cannot disagree about what counts as ours.
+
+        `os.getpgid` rather than `_group_members`, which walks every process on
+        the machine: this is asked once per project per poll and the question is
+        about ONE pid.
+
+        **`_alive` is not belt-and-braces, it is the PID-reuse guard.** A dead
+        child's pid is free to be reallocated as some unrelated process's group
+        id, at which point a bare `getpgid` comparison would call a stranger
+        ours. The handle captured at spawn carries the `create_time` that tells
+        them apart -- ADR-0004: "for a *managed* server, identity is the
+        recorded child PID **plus its `create_time`**, never the working
+        directory".
+
+        Deliberately NOT gated on `exited()`. That reports the LAUNCHER is gone,
+        and LWSM-1165 keeps the registry entry while the group lives precisely
+        because a `start.sh` that forks and exits leaves the server running --
+        so gating here would report exactly that project as not ours.
+        """
+        managed = self._get(project)
+        if managed is None or not _alive(managed.handle):
+            return False
+        try:
+            return os.getpgid(pid) == managed.pid
+        except OSError:
+            # ProcessLookupError for a holder that exited between the snapshot
+            # and this call, which is the ordinary race and not ours by
+            # definition. Widened to OSError because a hardened kernel can
+            # refuse the query, and a refusal is not evidence of ownership.
+            return False
+
     def _group_members(self, managed: ManagedProcess) -> list[psutil.Process]:
         """Every live process in the child's process group.
 

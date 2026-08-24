@@ -1652,7 +1652,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-3 (window).
   Lanes: window, data-loss.
 
-- 📋 [LWSM-1167] **FP08: `RowView.managed` does not mean what Open-in-browser's gate needs it to mean.**
+- ✅ [LWSM-1167] **FP08: `RowView.managed` does not mean what Open-in-browser's gate needs it to mean.**
   The comment says `managed` is "whether THIS manager spawned the process
   holding the port". It is computed as `set(self._supervisor.running())` —
   the registry keys — which says only that we have an ENTRY for that project,
@@ -1718,6 +1718,60 @@ module states the correct rule in almost the same words.
   each test that asserts Open is ENABLED needs its fake taught who
   holds the port. That churn is correct rather than incidental —
   those fakes were asserting a gate that did not work.
+  Resolved (2026-08-24) as the bullet's CONFIRMED block prescribes, and the
+  shape came from ADR-0004 rather than from the bullet.
+
+  `PortSnapshot` carries `holders` (port to pid) beside `listening`, and
+  `PortProbe` keeps the pid `psutil.net_connections` was already returning and
+  throwing away. `Supervisor.owns_pid(project, pid)` answers ownership, and
+  `_managed_paths` now derives `managed` from the SAME snapshot that derives
+  the statuses, in the same tick.
+
+  **Read ADR-0004 before touching this again; it carries two rules the bullet
+  did not.** It already specified the missing question -- classification
+  "combines what the `Supervisor` knows ... with two questions `PortProbe`
+  answers: *what holds the effective port?* and *which ports does this process
+  group hold?*" -- and only the second was ever built. It also forbids gating
+  on the "looks like this project" test: that is "a display heuristic with no
+  security value, and nothing may be gated on it", because `chdir()` is free.
+  And it fixes managed identity as "the recorded child PID **plus its
+  `create_time`**, never the working directory".
+
+  **`os.getpgid` rather than `_group_members`.** The bullet's fix shape said
+  group, and it is right -- the server is usually a grandchild -- but
+  `_group_members` walks every process on the machine and this runs once per
+  project per second. `getpgid` is one syscall about one pid.
+
+  **A holder the kernel will not name is not ours.** `psutil` reports no pid
+  for another user's socket unless we are root, so `holders` is deliberately
+  partial, and the gap must never become a claim.
+
+  Six mutants, six killed -- but the sixth needed a second test, and the
+  reason is worth keeping. Deleting the `_alive` PID-reuse guard SURVIVED the
+  first pass, because `stop()` pops the registry entry (LWSM-1138), so the
+  stop-path test answered False from the `managed is None` branch and never
+  reached the guard. The replacement drives a launcher that exits ON ITS OWN,
+  leaving the entry in place and the child an unreaped zombie whose pid is
+  still reserved -- so `getpgid` still answers and only `_alive` separates a
+  live child from a dead one. It asserts both preconditions explicitly.
+
+  **Cost paid as predicted**: every fake probe reported no holder, so
+  `FakeProbe` gained `holder=` / `holders=` and the fake supervisor gained
+  `owns_pid`. That churn is correct rather than incidental -- those fakes were
+  asserting a gate that did not work.
+
+  Two things found on the way, filed rather than folded in: **LWSM-1189**, two
+  pre-existing supervisor tests that leak a real `sleep 30` per run (confirmed
+  pre-existing against a stashed tree). And a new trap in `CLAUDE.md` --
+  stopping a child that has not finished STARTING leaks its grandchild while
+  `StopOutcome` reports success, which cost one orphan per run until the tests
+  waited for the launcher to signal it had spawned.
+
+  Still open and untouched: **LWSM-1154**, the disclosure dialog ADR-0004 asks
+  for. This keeps LWSM-1141's interim -- Open restricted to servers we
+  started -- and makes that restriction TRUE, which it was not. The dialog
+  still needs LWSM-1011's state model.
+  1237 green, local-ci green.
   **Layman:** The button that opens a project in your browser is supposed to be off unless this app started the server. It can be on for a server the app did not start.
   Kind: security.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
@@ -5348,6 +5402,44 @@ program actually running.
   **Layman:** Rename a helper whose name stopped being true, so the next reader is not misled.
   Kind: refactor.
   Source: in-session-2026-08-21 (noted while shipping LWSM-1018).
+
+- 📋 [LWSM-1189] **Two supervisor tests leave a real `sleep 30` running on the developer's machine.**
+  Measured 2026-08-24, and it is the exact check `CLAUDE.md`'s own trap tells
+  you to run: "the count before and after a full suite must be equal". It is
+  not. `pytest tests/test_supervisor.py` leaves **two** live processes, every
+  run:
+
+  - `test_a_live_child_has_not_exited` -- cwd
+    `/tmp/pytest-of-ants/.../test_a_live_child_has_not_exit0/demo-project`
+  - `test_a_lowered_log_cap_rotates...` -- same shape
+
+  Both launch `write_launcher(project, "sleep 30\n")` and neither stops what
+  it started. They are reparented to init and outlive the run with their
+  pytest tmpdirs already deleted, which is precisely the state the 2026-08-14
+  note describes ("five orphans ... still holding their ports 2.5 hours and
+  ~85 test runs later").
+
+  **Pre-existing, and confirmed so** rather than assumed: the same two survive
+  with the LWSM-1167 working tree stashed. Filed rather than fixed in that
+  item's commit, because it is orthogonal to it (`coding.md § 1.3`/`§ 1.7`).
+
+  The `supervisor` fixture already does the right thing -- it stops everything
+  in `sup.running()` before closing -- so the fix is almost certainly to route
+  these two through it rather than to add a second teardown.
+
+  **Do not fix this by shortening the sleep.** A shorter sleep makes the
+  orphan expire on its own and the check go quiet, which hides the defect
+  instead of closing it; the launcher outliving the test is the thing being
+  tested for.
+
+  Worth pairing with a guard so it cannot regress: a session-scoped fixture
+  that counts matching processes before and after and fails the run on a
+  difference would make this class self-reporting, which is what the trap note
+  has been asking a human to do by hand since 2026-08-14.
+  **Layman:** Running the tests leaves two stray background processes behind every time, which build up until you notice and kill them.
+  Kind: test.
+  Source: in-session-2026-08-24.
+  Lanes: tests.
 
 ## FP02 — Audit + review fold-in (2026-08-06)
 

@@ -45,12 +45,32 @@ from lwsm.theme import DEFAULT_THEME, THEMES, Theme
 pytestmark = pytest.mark.gui
 
 
+# The pid the fakes agree is "our child's group". Any value; what matters is
+# that a test can name a DIFFERENT one and mean a stranger (LWSM-1167).
+OUR_PID = 4242
+
+
 class FakeProbe:
-    def __init__(self, *ports: int) -> None:
+    def __init__(
+        self,
+        *ports: int,
+        holder: int | None = OUR_PID,
+        holders: dict[int, int] | None = None,
+    ) -> None:
         self.listening = set(ports)
+        # Who the socket table says holds each listening port. Defaults to us,
+        # so the existing tests keep meaning what they meant; `holder=<other>`
+        # is a stranger and `holder=None` is a holder the kernel will not name.
+        # `holders=` sets them per port, which is what it takes to put one
+        # managed row beside one foreign row in a single fixture.
+        self.holder = holder
+        self.holders = holders
 
     def snapshot(self) -> PortSnapshot:
-        return PortSnapshot(frozenset(self.listening))
+        if self.holders is not None:
+            return PortSnapshot(frozenset(self.listening), dict(self.holders))
+        found = {} if self.holder is None else {p: self.holder for p in self.listening}
+        return PortSnapshot(frozenset(self.listening), found)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1841,6 +1861,14 @@ class ManagingSupervisor:
     def running(self) -> dict:
         return dict(self._running)
 
+    def owns_pid(self, project: Path, pid: int) -> bool:
+        """Ours only if we hold the project AND the pid is in our child's group.
+
+        Both halves, so the fake can express the state LWSM-1167 was wrong
+        about: an entry we hold, on a port somebody else is sitting on.
+        """
+        return Path(project) in self._running and pid == OUR_PID
+
     def exited(self, project: Path) -> bool:
         return False
 
@@ -2557,6 +2585,60 @@ def test_a_save_failure_is_reported_and_does_not_undo_the_switch(qtbot, built) -
 
 
 # --- LWSM-1141: Open is offered only for a server this manager started --------
+
+
+def test_open_is_refused_when_a_stranger_holds_the_registered_port(
+    qtbot, built
+) -> None:
+    """LWSM-1167, reproduced. Two rows the OLD test could not tell apart.
+
+    Both projects are in the supervisor's running set, so `set(running())` --
+    what `managed` used to be -- called both of them ours and enabled Open on
+    both. What actually separates them is the socket table: one port is held by
+    our own child's group, the other by a stranger who got there first. Opening
+    a browser on the second is localhost phishing with this app's credibility
+    behind it, which is the exact thing ADR-0004 says the gate exists to stop.
+
+    Two rows in one fixture on purpose: a one-row version cannot tell "Open is
+    disabled for a stranger" from "Open is disabled", which is `CLAUDE.md`'s
+    one-row-fixture trap.
+    """
+    opened: list = []
+    window = opening_window(
+        qtbot,
+        built,
+        [record("ours", 5005), record("theirs", 6006)],
+        FakeProbe(5005, 6006, holders={5005: OUR_PID, 6006: 9999}),
+        opened,
+        managed=[Path("/srv/ours"), Path("/srv/theirs")],
+    )
+    ours, theirs = rows_of(window)
+
+    assert ours.open_button.isEnabled()
+    assert not theirs.open_button.isEnabled(), (
+        "the supervisor holds an entry for this project, but a stranger holds "
+        "its port -- an entry is not evidence about who is listening"
+    )
+
+
+def test_open_is_refused_when_the_holder_cannot_be_named(qtbot, built) -> None:
+    """`psutil` reports no pid for another user's socket unless we are root.
+
+    Unknown must read as not-ours. The opposite default would hand Open to any
+    process this app cannot see, which is strictly worse than the defect being
+    fixed -- so `holders` being partial is load-bearing rather than sloppy.
+    """
+    opened: list = []
+    window = opening_window(
+        qtbot,
+        built,
+        [record("ours", 5005)],
+        FakeProbe(5005, holder=None),
+        opened,
+        managed=[Path("/srv/ours")],
+    )
+
+    assert not rows_of(window)[0].open_button.isEnabled()
 
 
 def test_open_is_refused_for_a_server_this_manager_did_not_start(qtbot, built) -> None:

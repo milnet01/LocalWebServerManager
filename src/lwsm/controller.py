@@ -228,6 +228,8 @@ class SupportsSupervision(Protocol):
 
     def running(self) -> dict[Path, ManagedProcess]: ...
 
+    def owns_pid(self, project: Path, pid: int) -> bool: ...
+
     def exited(self, project: Path) -> bool: ...
 
     @property
@@ -383,6 +385,10 @@ class ProjectController(QObject):
         self._action_signals.stopped.connect(self._on_stopped)
         # Paths whose stop is the first half of a restart.
         self._restarting: set[Path] = set()
+        # Recomputed from each snapshot by `_managed_paths`. Empty until the
+        # first poll completes, which is the honest answer: nothing has looked
+        # at the socket table yet, so nothing is known to be ours.
+        self._managed: set[Path] = set()
         self._statuses: dict[Path, ProjectStatus] = {
             record.path: ProjectStatus.UNKNOWN for record in records
         }
@@ -414,7 +420,7 @@ class ProjectController(QObject):
 
     def rows(self) -> list[RowView]:
         """File order, so rows do not jump between polls."""
-        managed = self._managed_paths()
+        managed = self._managed
         return [
             RowView(
                 path=record.path,
@@ -428,17 +434,37 @@ class ProjectController(QObject):
             for record in self._records
         ]
 
-    def _managed_paths(self) -> set[Path]:
-        """The projects this manager spawned, asked once per render.
+    def _managed_paths(self, snapshot: PortSnapshot) -> set[Path]:
+        """The projects whose EFFECTIVE PORT is held by our own child's group.
 
-        `running()` takes the supervisor's lock and copies its map, so it is
-        asked once for the whole list rather than once per row. Keyed the same
-        way `stop_project` already keys its own ownership test, so the two
-        cannot disagree about what counts as ours.
+        **Not `set(supervisor.running())`, which was the whole defect.** That
+        says we hold an ENTRY for the project -- never who holds the port, and
+        since LWSM-1165 not even that our child is the one listening. ADR-0004
+        defines `running (managed)` as "effective port held by that child's
+        group", and Open-in-browser is gated on it, so a stranger sitting on the
+        registered port used to enable Open with this app's credibility behind
+        it. Reproduced end to end 2026-08-24 (LWSM-1167).
+
+        Identity is the recorded child PID plus its `create_time`, never the
+        holder's working directory: ADR-0004 says the "looks like this project"
+        test "is a display heuristic with no security value, and nothing may be
+        gated on it", because `chdir()` is free. `owns_pid` carries both halves.
+
+        A port whose holder the kernel will not name -- another user's, without
+        root -- yields `None` here and is therefore not ours. That is the safe
+        direction and it is the reason `holders` is allowed to be partial.
         """
         if self._supervisor is None:
             return set()
-        return set(self._supervisor.running())
+        managed: set[Path] = set()
+        for record in self._records:
+            port = record.effective_port
+            if port is None:
+                continue
+            holder = snapshot.holder(port)
+            if holder is not None and self._supervisor.owns_pid(record.path, holder):
+                managed.add(record.path)
+        return managed
 
     def _status_of(self, path: Path) -> ProjectStatus:
         """The derived status, unless the overlay covers this project."""
@@ -786,6 +812,11 @@ class ProjectController(QObject):
         self._statuses = {
             record.path: self._classify(record, snapshot) for record in self._records
         }
+        # Derived from the SAME snapshot as the statuses, in the same tick.
+        # Asking the supervisor separately at render time is what LWSM-1167 was
+        # -- the answer has to come from the socket table, and this is the only
+        # scope that holds one.
+        self._managed = self._managed_paths(snapshot)
         if self._settle_overlay():
             # Probing always wins, so a settled overlay is a visible change even
             # when the derived map happens to match the previous one.

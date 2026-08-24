@@ -7,6 +7,7 @@ Ports come from binding 0 and asking the socket, never a literal
 
 from __future__ import annotations
 
+import os
 import socket
 from collections.abc import Iterator
 
@@ -73,9 +74,10 @@ def test_one_net_connections_call_per_snapshot(monkeypatch: pytest.MonkeyPatch) 
 class FakeConn:
     """One row of what `psutil.net_connections` returns."""
 
-    def __init__(self, status, laddr) -> None:
+    def __init__(self, status, laddr, pid=None) -> None:
         self.status = status
         self.laddr = laddr
+        self.pid = pid
 
 
 class FakeAddr:
@@ -171,3 +173,74 @@ def test_any_read_failure_becomes_a_probe_error(
     # The original survives as the cause, so the app log can name what really
     # went wrong rather than only that the read failed.
     assert caught.value.__cause__ is raised
+
+
+# --- LWSM-1167: the snapshot names who holds each port ------------------------
+
+
+@pytest.mark.integration
+def test_the_real_socket_table_names_our_own_pid_for_a_port_we_bind(
+    listening_socket: tuple[socket.socket, int],
+) -> None:
+    """The holder plumbing, against the kernel rather than against a fake.
+
+    Every other holder test here builds `PortSnapshot` from fake connection
+    rows, so the whole mechanism could be wired end to end through fakes and
+    still be wrong about what `psutil.net_connections` actually returns for a
+    real socket. This is the one test that would notice, and LWSM-1167's own
+    bullet asks for it by name.
+    """
+    _sock, port = listening_socket
+
+    snapshot = PortProbe().snapshot()
+
+    assert snapshot.is_bound(port)
+    assert snapshot.holder(port) == os.getpid()
+
+
+def test_a_listening_socket_with_no_pid_is_bound_but_has_no_holder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """psutil reports no pid for another user's socket unless we are root.
+
+    The gap must stay a gap. Reporting the port as bound while admitting we
+    cannot name its holder is what lets the managed test refuse it; inventing a
+    holder, or dropping the port from `listening`, would each be a claim the
+    kernel did not make.
+    """
+    monkeypatch.setattr(
+        psutil,
+        "net_connections",
+        lambda **_: [FakeConn(psutil.CONN_LISTEN, FakeAddr(5005), pid=None)],
+    )
+
+    snapshot = PortProbe().snapshot()
+
+    assert snapshot.is_bound(5005)
+    assert snapshot.holder(5005) is None
+
+
+def test_two_sockets_on_one_port_settle_on_the_first_holder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A port normally carries two listening sockets, IPv4 and IPv6.
+
+    First wins rather than last, so the answer cannot depend on the order
+    psutil happens to return them in -- which is not a documented order.
+    """
+    monkeypatch.setattr(
+        psutil,
+        "net_connections",
+        lambda **_: [
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5005), pid=111),
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5005), pid=222),
+        ],
+    )
+
+    assert PortProbe().snapshot().holder(5005) == 111
+
+
+def test_a_holder_is_not_reported_for_a_port_nobody_holds() -> None:
+    from lwsm.ports import PortSnapshot
+
+    assert PortSnapshot(frozenset({5005})).holder(5005) is None

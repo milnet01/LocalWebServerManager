@@ -114,6 +114,28 @@ def supervisor(tmp_path: Path):
         sup.close()
 
 
+def await_ready(project: Path, timeout: float = 5.0) -> None:
+    """Block until a launcher that touches `ready` has actually spawned.
+
+    **Stopping a child that has not finished starting leaks its grandchild**,
+    and it leaks it silently. `killpg` sweeps the group as it is at that
+    instant, so a `sleep` forked a microsecond later is never signalled, is
+    reparented to init, and outlives the run -- while `stop()` reports a clean
+    `StopOutcome` and the test passes. Measured 2026-08-24: one orphan per run
+    from a test that called `stop()` immediately after `start()`.
+
+    The launcher backgrounds the real process FIRST and touches the file
+    second, so the file existing proves the grandchild exists. A bare sleep
+    would only make the race less likely.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if (project / "ready").exists():
+            return
+        time.sleep(0.02)
+    raise AssertionError("the launcher never signalled that it had started")
+
+
 def write_launcher(project: Path, body: str, name: str = "start.sh") -> Path:
     path = project / name
     path.write_text("#!/bin/sh\n" + textwrap.dedent(body), encoding="utf-8")
@@ -1279,3 +1301,114 @@ def test_a_lowered_log_cap_rotates_a_file_the_default_would_have_kept(
     assert rotated.exists(), "the lowered cap was ignored"
     assert managed.log_path.stat().st_size <= lowered
     supervisor.stop(project)
+
+
+# --- LWSM-1167: owns_pid — is this pid in our child's process group? ----------
+
+
+def test_owns_pid_accepts_our_child_and_refuses_a_stranger(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The question `RowView.managed` should have been asking all along.
+
+    This test process stands in for the stranger: a real, live pid in a
+    different process group. That is exactly the case the old
+    `set(running())` test called managed, because it never asked who was
+    listening -- only whether we held an entry.
+    """
+    write_launcher(project, "sleep 30 &\ntouch ready\nwait\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+
+    assert supervisor.owns_pid(project, managed.pid)
+    assert not supervisor.owns_pid(project, os.getpid()), (
+        "the test process is alive and in another group -- not ours"
+    )
+    assert not supervisor.owns_pid(Path("/srv/never-started"), managed.pid), (
+        "a project we hold no child for owns nothing"
+    )
+
+
+def test_owns_pid_accepts_a_grandchild_in_the_group(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The whole reason this is the GROUP and not the child's pid.
+
+    A launcher that spawns the real server leaves the port held by a
+    grandchild, and comparing against the child's own pid would report every
+    wrapper-script project as not ours -- the shape LWSM-1009's acceptance
+    names and LWSM-1132 shipped a bug behind. `start_new_session=True` is what
+    makes the group answer available at all.
+    """
+    write_launcher(project, "sleep 30 &\ntouch ready\nwait\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+
+    grandchildren = psutil.Process(managed.pid).children(recursive=True)
+    assert grandchildren, "precondition: the launcher must have spawned one"
+
+    assert supervisor.owns_pid(project, grandchildren[0].pid), (
+        "the grandchild holds the port in real launchers, and it is in the group"
+    )
+
+
+def test_owns_pid_refuses_everything_once_the_child_is_gone(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The PID-reuse guard, which is why this cannot be a bare getpgid compare.
+
+    Once our child is gone its pid is free to be reallocated as some unrelated
+    process's group id. `_alive` on the handle captured at spawn is what tells
+    them apart -- ADR-0004's "the recorded child PID **plus its create_time**".
+    Asserted by killing the child and re-asking with the very pid that was ours
+    a moment ago.
+    """
+    write_launcher(project, "sleep 30 &\ntouch ready\nwait\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+    assert supervisor.owns_pid(project, managed.pid), "precondition"
+
+    supervisor.stop(project, grace=0.5)
+
+    assert not supervisor.owns_pid(project, managed.pid)
+
+
+def test_owns_pid_refuses_a_child_that_has_already_exited(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The `_alive` PID-reuse guard, which the stop-path test cannot reach.
+
+    `stop()` POPS the registry entry (LWSM-1138), so after a stop `owns_pid`
+    answers False from its `managed is None` branch and never consults the
+    guard at all. The mutation run proved it: deleting `_alive` left that test
+    green, which read as "the guard is untested" and was exactly right.
+
+    A launcher that exits on its own leaves the entry in place -- LWSM-1165
+    keeps it while the group lives, and nothing reaps here because that is the
+    controller's poll. The child is then an unreaped zombie whose pid is STILL
+    RESERVED, so `getpgid` happily answers and returns the child's own pid as
+    its group. Only `_alive` separates "our child holds this port" from "our
+    child is dead and its pid is on borrowed time".
+    """
+    write_launcher(project, "exit 0\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+    proc = psutil.Process(managed.pid)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and proc.status() != psutil.STATUS_ZOMBIE:
+        time.sleep(0.02)
+    assert proc.status() == psutil.STATUS_ZOMBIE, "precondition: exited, unreaped"
+    assert Path(project).resolve() in supervisor.running(), (
+        "precondition: the entry must still be held, or this test measures the "
+        "`managed is None` branch instead of the guard -- which is how the "
+        "first version of it passed against code with no guard at all"
+    )
+    assert os.getpgid(managed.pid) == managed.pid, (
+        "precondition: the zombie's pid is still reserved and still its own pgid"
+    )
+
+    assert not supervisor.owns_pid(project, managed.pid)

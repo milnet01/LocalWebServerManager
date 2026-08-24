@@ -6,7 +6,8 @@ Contract: `docs/specs/LWSM-1005-vertical-slice.md § 4.2`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import psutil
@@ -22,12 +23,37 @@ class ProbeError(Exception):
 
 @dataclass(frozen=True)
 class PortSnapshot:
-    """One socket-table reading: every TCP port something is listening on."""
+    """One socket-table reading: every listening TCP port, and who holds it.
+
+    ADR-0004 names two questions this must answer -- *what holds the effective
+    port?* as well as *is anything listening?* -- and only the second was ever
+    implemented, which is what made `RowView.managed` untrue (LWSM-1167).
+
+    `holders` is deliberately PARTIAL, and its gaps are load-bearing.
+    `psutil.net_connections` reports no pid for a socket owned by another user
+    unless we are root, so a port can be in `listening` and absent from
+    `holders`. ADR-0004 makes that the safe direction: a holder we cannot name
+    is not ours, so the project reads as not-managed rather than as managed on
+    a stranger's evidence.
+    """
 
     listening: frozenset[int]
+    # Defaulted so every existing fake probe keeps constructing, and so the
+    # default is "we do not know who holds this" rather than a claim.
+    holders: Mapping[int, int] = field(default_factory=dict)
 
     def is_bound(self, port: int) -> bool:
         return port in self.listening
+
+    def holder(self, port: int) -> int | None:
+        """The pid listening on `port`, or None.
+
+        None covers two different facts on purpose -- nothing is listening, and
+        something is listening that the kernel will not name for us. Neither is
+        evidence that the port is ours, which is the only question the caller
+        asks, so they need not be told apart here.
+        """
+        return self.holders.get(port)
 
 
 class SupportsSnapshot(Protocol):
@@ -70,13 +96,20 @@ class PortProbe:
         # laddr on this machine, but the field is typed as possibly empty and an
         # AttributeError mid-tick would take the poll down.
         try:
-            return PortSnapshot(
-                frozenset(
-                    conn.laddr.port
-                    for conn in connections
-                    if conn.status == psutil.CONN_LISTEN and conn.laddr
-                )
-            )
+            listening: set[int] = set()
+            holders: dict[int, int] = {}
+            for conn in connections:
+                if conn.status != psutil.CONN_LISTEN or not conn.laddr:
+                    continue
+                port = conn.laddr.port
+                listening.add(port)
+                if conn.pid is not None:
+                    # One port can carry two listening sockets -- an IPv4 and an
+                    # IPv6 -- and in practice both belong to the same process.
+                    # First one wins rather than last, so the answer does not
+                    # depend on the order psutil happens to return them in.
+                    holders.setdefault(port, conn.pid)
+            return PortSnapshot(frozenset(listening), holders)
         except Exception as exc:
             raise ProbeError(
                 f"could not read the socket table: {type(exc).__name__}: {exc}"

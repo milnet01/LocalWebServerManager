@@ -554,6 +554,16 @@ signaling per
 
 ### Security
 
+- **Open in browser now checks who is actually holding the port** (LWSM-1167)
+  Open is meant to be offered only for a server this app started. It was
+  deciding that from its own records — "we started something for this
+  project" — rather than from who is listening right now. So if your
+  project's server had crashed and anything else picked up the port, Open
+  would light up and send your browser to a stranger's page with this
+  app's name behind it. The app now asks the system which process holds
+  the port and only offers Open when that process belongs to the server it
+  started.
+
 - **A start script pointing outside its project is now refused** (LWSM-1162)
   A project could point its start script at a file somewhere else on the
   disk. The app showed you the harmless-looking name, ran the other file,

@@ -954,7 +954,25 @@ to pid 1 with their pytest tmpdirs already deleted. **A supervisor fixture must
 stop everything it started before closing** — `for path in sup.running():
 sup.stop(path, grace=0.5)` in a `finally`, which is what `tests/test_supervisor.py`
 now does. Verify with `pgrep -af "start\.sh|child\.py"` after a run; the count
-before and after a full suite must be equal.
+before and after a full suite must be equal. **Measured 2026-08-24: it is
+not** — `test_a_live_child_has_not_exited` and `test_a_lowered_log_cap_rotates`
+leave one `sleep 30` each, every run. Filed as LWSM-1189 rather than fixed
+inside an unrelated item.
+
+**Trap: stopping a child that has not finished STARTING leaks its grandchild,
+and `stop()` reports success.** `killpg` sweeps the group as it stands at that
+instant, so a server the launcher forks a microsecond later never joins the
+sweep — it is reparented to init and outlives the run, while `StopOutcome`
+comes back clean and the test passes. Measured 2026-08-24 on LWSM-1167: one
+orphan per run from a test that called `stop()` on the line after `start()`.
+**The code is not at fault and changing it would be wrong** — the real app
+polls before it offers a Stop button, so it never asks this. **A test must wait
+for the launcher to signal that it has spawned**, which means a launcher that
+backgrounds the real process FIRST and touches a file second (`await_ready` in
+`test_supervisor.py`), so the file existing proves the grandchild exists. A
+bare sleep only makes the race less likely, and a *shorter* sleep in the
+launcher is worse than useless: the orphan then expires on its own and the
+`pgrep` check goes quiet while the defect stands.
 
 **Trap: a one-row fixture cannot see a per-row bug.** Hit on 2026-08-14
 mutation-testing LWSM-1016. Every window fixture in `test_mainwindow.py` built
