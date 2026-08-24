@@ -3481,6 +3481,16 @@ path. `docs/design.md § Detection rules` is the contract.
   change — 7 projects, all five launcher kinds — not by fixtures
   alone. Before: exactly one wrong (RetroDB 5001). The bar is
   RetroDB at 5000 or unknown, with the other six unmoved.
+  Settled with the user (2026-08-24): the fix is OURS, and the
+  sibling project is not asked to change. RetroDB's port handling is
+  better than most of the tree — a dedicated `server_port.py` with a
+  stated precedence chain, no literal at the bind site, and
+  "unset" deliberately distinguished from "malformed". The number we
+  mis-read sits in a help message telling the user how to move off a
+  busy port, which is good behaviour. Asking every scanned project
+  to keep port numbers out of its prose so our scanner is not
+  confused inverts who serves whom. Do not reopen this as "RetroDB
+  should reword its error".
   **Layman:** RetroDB shows the wrong port because the scanner read a number out of an error message rather than a setting.
   Kind: fix.
   Source: in-session-2026-08-24.
