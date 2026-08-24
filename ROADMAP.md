@@ -4603,6 +4603,65 @@ is the contract.
   Source: user-request-2026-08-24.
   Lanes: window, registry.
 
+- 📋 [LWSM-1186] **Show the app version in the title bar.**
+  The window title is a static translated string (`MainWindow._window_title`).
+  `__version__` already reaches `app.setApplicationVersion` and `--version`, so
+  the value is in hand and only the title omits it.
+
+  Decided with the user (2026-08-24): show the version unconditionally,
+  including the current `0.0.0`. A rule suppressing it below 0.1.0 would exist
+  only to be deleted, and nobody would remember to delete it.
+
+  Note for the test: the title is rebuilt on `LanguageChange`, so the version
+  must survive a retranslate. Assert that, not only the initial title.
+  **Layman:** The window's title bar tells you which version of the app you are running.
+  Kind: feature.
+  Source: user-request-2026-08-24.
+  Lanes: window.
+
+- 📋 [LWSM-1187] **Choose a preferred browser per project, from a dropdown in the row.**
+  `_open_project` calls the injected `open_url` seam, defaulting to
+  `QDesktopServices.openUrl` — always the desktop's default, the same for every
+  project.
+
+  Decided with the user (2026-08-24), in this order and each answer narrowing
+  the next. The choice is PER PROJECT. It lives as a control in the ROW itself,
+  beside the port and the buttons — not in Preferences, and not in the
+  right-click menu LWSM-1185 just built. The list offered is the browsers
+  already installed, read from the desktop's own registered handlers, and the
+  user never types a command. That last part is the load-bearing one: a
+  free-text command would be a new "run a binary named in a config file"
+  surface, which is exactly what ADR-0003's trust model exists to gate. Reading
+  the desktop's own handler list avoids the surface rather than gating it.
+
+  Default stays the system browser for any project with nothing chosen.
+
+  The stored field is a USER field, so `USER_FIELDS` must carry it or LWSM-1007
+  INV-1 breaks and the next rescan wipes the choice.
+
+  Six notes for the build, each of which has already cost this project a cycle
+  in a neighbouring item.
+
+  - The row's columns are aligned by `natural_widths` / `apply_column_widths` /
+    `_align_columns`, a fixed 3-tuple today. A fourth column joins all three.
+  - LWSM-1174 is open and says a long name already pushes the buttons out of
+    reach unrecoverably. A new column must not make it worse — fixed width,
+    never content-driven.
+  - The row announcement is built from the rendered cell strings and gated on
+    the accessible NAME (LWSM-1141). A combo box renders no cell string, so it
+    needs an explicit accessible name or the announcement silently loses it.
+  - `MIN_TARGET_PX` puts a 24 px floor under every clickable target, and
+    LWSM-1032 says that floor belongs in the SOURCE, not only in an assertion.
+  - Keyboard-first navigation (LWSM-1040) rests on Qt propagation rather than
+    guards. A focused combo box consumes digits and arrow keys — check the
+    row's Enter still clicks the enabled button.
+  - Theme and language both re-render a row, so the combo's own strings need
+    `_retranslate` and `apply_theme` like every other cell.
+  **Layman:** Each project can open in the browser you prefer for it, chosen from a dropdown on its own row.
+  Kind: feature.
+  Source: user-request-2026-08-24.
+  Lanes: window, registry.
+
 ## P10 — Release for other people (📦 Packaging)
 
 **Theme:** the project is public and meant to be useful to
