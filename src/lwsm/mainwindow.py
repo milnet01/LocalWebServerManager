@@ -24,6 +24,7 @@ from PySide6.QtCore import (
     QRect,
     QRectF,
     QRunnable,
+    QSignalBlocker,
     QSize,
     Qt,
     QThreadPool,
@@ -47,6 +48,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -57,11 +59,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
 
-from lwsm import __version__, applog, placement, registry, scanner
+from lwsm import __version__, applog, browsers, placement, registry, scanner
 from lwsm.configfile import ConfigFileError
 from lwsm.controller import (
     ProjectController,
@@ -103,6 +106,23 @@ MIN_VISIBLE_ROWS = 3
 # Decorative only. One of the three signals design.md § Accessibility requires,
 # and excluded from the accessible name — a screen reader announcing "black
 # circle, running" is noise wearing the costume of redundancy.
+# The browser column is capped at this many average characters. A cap rather
+# than a natural width because LWSM-1174 is open and says a long project name
+# already pushes the buttons out of reach unrecoverably -- so a column that grew
+# with its content would make a live defect worse. Measured in characters and
+# resolved through the font metric, never in pixels (`§ O7`), so the 100-200 %
+# text-size control still reaches it.
+BROWSER_COLUMN_CHARS = 10
+
+# The name column is capped at this many average characters and elided past it
+# (LWSM-1174, needed by LWSM-1187). Uncapped, a long project name pushed the
+# whole row's controls out of the ~600 px lens a magnifier user reads through,
+# with no way to recover -- measured 2026-08-24 at 593 px for a 30-character
+# name, 7 px inside the limit before a browser column existed at all.
+# `design-accessibility.md` derives that band from who this app is for, so it
+# is the name that gives way, not the controls.
+NAME_COLUMN_CHARS = 16
+
 MIN_TARGET_PX = 24
 """`design.md § Accessibility`: no clickable target smaller than 24x24 at
 100 %. A FLOOR, not a size — everything here is derived from the text metric
@@ -349,7 +369,13 @@ class ProjectRow(QFrame):
     controller's change-detection achieves at the signal level.
     """
 
-    def __init__(self, row: RowView, theme: Theme, parent: QWidget | None = None):
+    def __init__(
+        self,
+        row: RowView,
+        theme: Theme,
+        parent: QWidget | None = None,
+        available_browsers: tuple[browsers.Browser, ...] = (),
+    ):
         super().__init__(parent)
         self._theme = theme
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -396,6 +422,19 @@ class ProjectRow(QFrame):
         # currently is would compound it on each call.
         self._base_margins = margins
         self._glyph_width = 0
+        # The name as it should READ, before elision fits it to the column.
+        # Set before `_apply_text_metrics`, which measures it.
+        self._name_display = row.name
+        # The column width `apply_column_widths` last handed down. Held rather
+        # than read back from the label: `setFixedWidth` does not update
+        # `width()` until Qt runs a layout pass, so eliding against `width()`
+        # immediately after setting it measures the PREVIOUS width -- which
+        # elided "alpha" to "alp…" in a 33 px column.
+        self._name_width = 0
+        # Scanned once by MainWindow and handed down, never rescanned per row:
+        # the scan reads every desktop entry on the machine (381 of them here),
+        # and a row is rebuilt on every rescan.
+        self._browsers = available_browsers
 
         self._state = QLabel(self)
         self._name = QLabel(self)
@@ -410,6 +449,22 @@ class ProjectRow(QFrame):
         layout.addWidget(self._state)
         layout.addWidget(self._name)
         layout.addWidget(self._port)
+
+        # Which browser Open uses for THIS project (LWSM-1187). A control among
+        # the cells rather than a context-menu entry, on the user's own decision
+        # -- it is a per-project setting they want to see at a glance, not one
+        # to go hunting for.
+        #
+        # The first entry is the desktop default and is always present. A
+        # project with no choice and a project whose chosen browser has since
+        # been uninstalled both land on it, so an uninstalled browser degrades
+        # to "the default" rather than to a phantom entry that cannot launch.
+        # Its text is set in `update_from`, so a language change reaches it.
+        self.browser_box = QComboBox(self)
+        self.browser_box.addItem("", "")
+        for browser in self._browsers:
+            self.browser_box.addItem(browser.name, browser.entry_id)
+        layout.addWidget(self.browser_box)
         # The buttons, after the cells so the state word is still first in tab
         # order (`design.md § Accessibility`). Created for every row and enabled
         # by status, rather than added and removed as the status changes:
@@ -480,6 +535,7 @@ class ProjectRow(QFrame):
         # (LWSM-1145).
         self._state_floor = metrics.horizontalAdvance("stopped_")
         self._port_floor = metrics.horizontalAdvance("no port_")
+        self._name_cap = metrics.horizontalAdvance("x") * NAME_COLUMN_CHARS
         self._state.setMinimumWidth(self._state_floor)
         self._port.setMinimumWidth(self._port_floor)
 
@@ -494,6 +550,26 @@ class ProjectRow(QFrame):
             self._base_margins.right(),
             self._base_margins.bottom(),
         )
+        # The browser column is FIXED and capped -- see `BROWSER_COLUMN_CHARS`.
+        # It therefore does NOT join `natural_widths`' tuple: every row gets the
+        # same width from the same font, so the column is aligned by
+        # construction and there is nothing for `_align_columns` to reconcile.
+        # Guarded for `start_button`'s reason -- this runs from `__init__`
+        # before the widgets exist.
+        if hasattr(self, "browser_box"):
+            widest = max(
+                (metrics.horizontalAdvance(b.name) for b in self._browsers),
+                default=0,
+            )
+            cap = metrics.horizontalAdvance("x") * BROWSER_COLUMN_CHARS
+            # The arrow is furniture the text may not overlap; taken from the
+            # style rather than guessed, so it follows the platform.
+            arrow = self.browser_box.style().pixelMetric(
+                QStyle.PixelMetric.PM_ScrollBarExtent
+            )
+            self.browser_box.setFixedWidth(min(widest, cap) + arrow + layout.spacing())
+            self.browser_box.setMinimumHeight(MIN_TARGET_PX)
+
         # The buttons are sized from the same metric and so go stale with it.
         # Guarded because `_apply_text_metrics` runs from `__init__` before the
         # buttons exist, and again on every later font change when they do.
@@ -587,7 +663,15 @@ class ProjectRow(QFrame):
         """
         return (
             max(self._state_floor, self._state.sizeHint().width()),
-            self._name.sizeHint().width(),
+            # From the FULL name, never from the label: the label holds the
+            # elided string, so reading its size hint back would shrink the
+            # column, which would elide harder, which would shrink it again --
+            # the ratchet this method's docstring warns about, running the other
+            # way. Capped per LWSM-1174.
+            min(
+                self.fontMetrics().horizontalAdvance(self._name_display),
+                self._name_cap,
+            ),
             max(self._port_floor, self._port.sizeHint().width()),
         )
 
@@ -601,6 +685,38 @@ class ProjectRow(QFrame):
             (self._state, self._name, self._port), widths, strict=True
         ):
             label.setFixedWidth(width)
+        self._name_width = widths[1]
+        # Last, because it fits the name to the column this method has just set.
+        self._elide_name()
+
+    def _elide_name(self) -> None:
+        """Fit the displayed name to the name column, keeping the full one.
+
+        The label carries an elided string; `_name_display` keeps the whole one,
+        and it is `_name_display` that the announcement and the tooltip read.
+        That does not breach `update_from`'s cell-strings rule: what that rule
+        forbids is an accessibility string DRIFTING from what is on screen, and
+        elision cannot drift, because the shown string is a pure function of
+        this one. The filter is untouched -- `matches` reads `RowView.name`.
+        """
+        metrics = self.fontMetrics()
+        width = self._name_width
+        # A guard, not an optimisation: `elidedText` is free to cut a string
+        # whose advance merely EQUALS the width it is given, and the column is
+        # set to exactly that advance for any name under the cap -- which is
+        # every short name in the list.
+        if not width or metrics.horizontalAdvance(self._name_display) <= width:
+            elided = self._name_display
+        else:
+            elided = metrics.elidedText(
+                self._name_display, Qt.TextElideMode.ElideRight, width
+            )
+        self._name.setText(elided)
+        # Only when something was actually cut. A tooltip repeating the visible
+        # text is noise a magnifier user has to read and dismiss.
+        self._name.setToolTip(
+            "" if elided == self._name_display else self._name_display
+        )
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
@@ -765,8 +881,11 @@ class ProjectRow(QFrame):
             (self.open_button, "Open %1 in a browser"),
         ):
             button.setAccessibleName(
+                # `_name_display`, never the label: since LWSM-1174 the label
+                # holds an ELIDED name, and "Start customer-dash…" is not a
+                # control anybody can identify by ear.
                 QCoreApplication.translate(_TR_CONTEXT, verb).replace(
-                    "%1", self._name.text()
+                    "%1", self._name_display
                 )
             )
         # Last, because it measures the labels this method has just set.
@@ -855,13 +974,41 @@ class ProjectRow(QFrame):
         # string. Colour alone carries no meaning to a screen reader, and the
         # announcement below is built from the rendered cells precisely so no
         # accessibility string can drift from what is on screen.
-        self._name.setText(hidden_name(row.name) if row.hidden else row.name)
+        self._name_display = hidden_name(row.name) if row.hidden else row.name
+        self._elide_name()
         self.hide_action.setText(
             QCoreApplication.translate(_TR_CONTEXT, "&Show this project")
             if row.hidden
             else QCoreApplication.translate(_TR_CONTEXT, "&Hide this project")
         )
         self._port.setText(port_text(row.effective_port))
+
+        # Signals blocked: this runs once a second from the poll, and the user's
+        # own `currentIndexChanged` handler writes projects.json. Without the
+        # blocker every tick would rewrite the registry with the value it just
+        # read -- a write loop that would look like nothing at all until the
+        # disk activity was noticed.
+        with QSignalBlocker(self.browser_box):
+            self.browser_box.setItemText(
+                0, QCoreApplication.translate(_TR_CONTEXT, "Default browser")
+            )
+            index = self.browser_box.findData(row.browser or "")
+            # -1 means the stored browser is not installed any more. Fall back to
+            # the default entry; the id stays in the file, so reinstalling the
+            # browser restores the choice (`browsers.by_id` takes the same view).
+            self.browser_box.setCurrentIndex(index if index >= 0 else 0)
+        # Its own accessible name, for the same reason each button has one: the
+        # visible label reads as "Firefox" three times over in a list of three
+        # projects (`§ O8`). Not folded into the row's announcement below, which
+        # is built from the CELL strings -- a control announces itself when it
+        # takes focus.
+        self.browser_box.setAccessibleName(
+            # The full name, for the buttons' reason above.
+            QCoreApplication.translate(_TR_CONTEXT, "Browser for %1").replace(
+                "%1", self._name_display
+            )
+        )
+
         self._apply_button_state(row)
 
         # A property, not composed CSS: the rule lives in the theme's generated
@@ -880,7 +1027,7 @@ class ProjectRow(QFrame):
 
         # Built from the rendered cell strings, glyph excluded, so there is no
         # accessibility-only string that can drift from what is on screen.
-        announced = f"{self._state.text()}, {self._name.text()}, {self._port.text()}"
+        announced = f"{self._state.text()}, {self._name_display}, {self._port.text()}"
         name_changed = announced != self.accessibleName()
         self.setAccessibleName(announced)
         # Qt does NOT notify AT-SPI when an accessible name changes, so
@@ -913,6 +1060,7 @@ class MainWindow(QMainWindow):
         load: LoadResult | RegistryError | None = None,
         confirm: Callable[[Path, str, tuple[str, ...]], bool] | None = None,
         open_url: Callable[[QUrl], bool] | None = None,
+        list_browsers: Callable[[], tuple[browsers.Browser, ...]] | None = None,
         open_settings: Callable[[], None] | None = None,
         save_theme: Callable[[str], None] | None = None,
         text_scale: int = MIN_TEXT_SCALE,
@@ -951,6 +1099,16 @@ class MainWindow(QMainWindow):
         # Injected for the same reason as `confirm`: a test that reached
         # `QDesktopServices.openUrl` would launch the developer's browser.
         self._open_url = open_url if open_url is not None else QDesktopServices.openUrl
+        # Resolved in the body, never as a default argument: a default bound to
+        # the function object is captured when `def` runs and can never be
+        # monkeypatched, which cost LWSM-1033 a cycle and nearly cost a second.
+        #
+        # Scanned ONCE, here. It reads every desktop entry on the machine (381
+        # of them as measured 2026-08-24), so doing it per row or per poll would
+        # put a directory walk on the once-a-second path.
+        self._browsers = (
+            browsers.installed if list_browsers is None else list_browsers
+        )()
         # The third injected seam, and the reason LWSM-1146 could land without
         # LWSM-1018: this item owns the BAR, not the dialog. The dialog arrives
         # as an argument rather than as an edit to `_build_menus`.
@@ -1919,10 +2077,25 @@ class MainWindow(QMainWindow):
                 ).replace("%1", path.name)
             )
             return
-        if not self._open_url(project_url(view.effective_port)):
+        url = project_url(view.effective_port)
+        chosen = browsers.by_id(self._browsers, view.browser)
+        if chosen is None:
             # openUrl returns False when the desktop has no handler. Silence
             # here would look identical to a browser that opened behind the
             # window.
+            opened = self._open_url(url)
+        else:
+            # A chosen browser is launched directly, so the desktop's default
+            # handler is never consulted. `by_id` returns None for an id whose
+            # browser is no longer installed, so reaching here means the entry
+            # was on disk when the list was scanned (LWSM-1187).
+            try:
+                browsers.open_url(chosen, url.toString())
+                opened = True
+            except browsers.BrowserError as exc:
+                log.warning("open %s: %s", path, exc)
+                opened = False
+        if not opened:
             self.set_status_message(
                 QCoreApplication.translate(
                     _TR_CONTEXT, "Could not open a browser for %1"
@@ -1954,6 +2127,35 @@ class MainWindow(QMainWindow):
                 "hide",
             )
         )
+
+    def set_project_browser(self, path: Path, entry_id: str | None) -> None:
+        """Remember which browser Open uses for one project (LWSM-1187).
+
+        `set_project_hidden`'s shape exactly, and through the same
+        `_write_records`: the write gate, the `RegistryError` report and the
+        `self._load` refresh are the same three rules for the fourth writer as
+        for the first three, and LWSM-1166 was that refresh being read from the
+        wrong place.
+
+        An empty choice is stored as `None` rather than `""`, so the file has
+        one spelling of "no preference" and `browsers.by_id` has one case.
+        """
+        records = [
+            replace(record, browser=entry_id) if record.path == path else record
+            for record in self._controller.records()
+        ]
+        name = next((r.name for r in records if r.path == path), path.name)
+        chosen = browsers.by_id(self._browsers, entry_id)
+        message = (
+            QCoreApplication.translate(_TR_CONTEXT, "%1 opens in %2")
+            .replace("%1", name)
+            .replace("%2", chosen.name)
+            if chosen is not None
+            else QCoreApplication.translate(
+                _TR_CONTEXT, "%1 opens in the default browser"
+            ).replace("%1", name)
+        )
+        self.set_status_message(self._write_records(records, message, "browser"))
 
     @staticmethod
     def _rescan_label() -> str:
@@ -2163,7 +2365,7 @@ class MainWindow(QMainWindow):
         for view in views:
             existing = self._rows.get(view.path)
             if existing is None:
-                widget = ProjectRow(view, self._theme, self)
+                widget = ProjectRow(view, self._theme, self, self._browsers)
                 # Bound with a default argument rather than a closure over
                 # `view`: the loop variable is rebound on every iteration, so a
                 # plain closure would leave every row's buttons driving the last
@@ -2186,6 +2388,14 @@ class MainWindow(QMainWindow):
                 widget.hide_action.triggered.connect(
                     lambda _checked=False, p=path, w=widget: self.set_project_hidden(
                         p, not w.hidden_by_user()
+                    )
+                )
+                # Same binding, same reason. `update_from` blocks this signal
+                # while it sets the box from the poll, so reaching here means a
+                # person changed it.
+                widget.browser_box.currentIndexChanged.connect(
+                    lambda _index=0, p=path, w=widget: self.set_project_browser(
+                        p, w.browser_box.currentData() or None
                     )
                 )
                 self._rows[view.path] = widget

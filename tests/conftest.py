@@ -24,6 +24,17 @@ branch passes on one and fails on the other — the same two-machines-one-gate
 split `CLAUDE.md` records for shellcheck versions and for the 24x24 target
 floor. Pinned to `x11`, so the default is the branch that needs no compositor;
 a test that wants the Wayland branch sets it itself.
+
+`XDG_DATA_HOME` and `XDG_DATA_DIRS` are the fourth and fifth, and they are the
+same argument a third time (LWSM-1187). `browsers.installed()` reads every
+`.desktop` file those two name, and `MainWindow` calls it once per window. So
+an unpinned test would build its dropdown from whichever browsers the author
+happens to have installed — 3 on this machine, an unknown number on the runner
+— and would also walk 381 files per window for an answer it does not use.
+Pointed at an empty directory, so the default is a machine with no browsers and
+every window gets the "Default browser" entry alone. A test that wants browsers
+injects them through `MainWindow`'s `list_browsers` seam, which is what `§ T1`
+asks for.
 """
 
 from __future__ import annotations
@@ -47,6 +58,9 @@ def _isolated_config_home(tmp_path_factory, monkeypatch):
     """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
     monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    empty = tmp_path_factory.mktemp("xdg-data")
+    monkeypatch.setenv("XDG_DATA_HOME", str(empty))
+    monkeypatch.setenv("XDG_DATA_DIRS", str(empty))
 
 
 @pytest.fixture(scope="session", autouse=True)

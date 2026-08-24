@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QApplication
 
 from lwsm import __version__, mainwindow, placement, registry, scanner
 from lwsm.__main__ import build_window
+from lwsm.browsers import Browser
 from lwsm.controller import (
     ProjectController,
     ProjectStatus,
@@ -424,6 +425,11 @@ def test_the_row_exposes_its_cells_and_its_buttons(qtbot, built) -> None:
         "running",
         "a",
         "port 5005",
+        # LWSM-1187's browser picker. A control, so it carries its own name
+        # rather than joining the row's announcement -- and it is present on
+        # every row whether or not any browser is installed, because the
+        # "Default browser" entry always exists.
+        "Default browser",
         "Start a",
         "Stop a",
         "Restart a",
@@ -1352,6 +1358,7 @@ def rescan_window(
     scan_result,
     load=None,
     saves: list | None = None,
+    browsers_available: tuple = (),
 ) -> tuple[MainWindow, ProjectController]:
     """A window with a Rescan context whose scan and writer are both fakes.
 
@@ -1377,6 +1384,10 @@ def rescan_window(
         [],
         rescan=context,
         load=load if load is not None else RegistryMissing("first run"),
+        # Injected, never scanned: conftest points XDG_DATA_DIRS at an empty
+        # directory so the real scan finds nothing, and a test that wants
+        # browsers says which (`§ T1`).
+        list_browsers=lambda: browsers_available,
     )
     qtbot.addWidget(window)
     return window, controller
@@ -2059,7 +2070,12 @@ def test_the_columns_stay_aligned_after_an_in_place_update(qtbot, built) -> None
     construction — a rescan can rename a project without replacing its row."""
     window, controller = aligned_window(qtbot, built, UNEVEN, FakeProbe(5005))
     row = next(r for p, r in window._rows.items() if p == Path("/srv/mid"))
-    was = row._name.width()
+    # The RENDERED name, not the column width. Width was the precondition until
+    # LWSM-1174 capped the name column: the fixture's widest name already sits
+    # at the cap, so a rename can no longer widen it and the precondition would
+    # fail for a reason that says nothing about alignment. What it was really
+    # proving is that the in-place update landed, which the text says directly.
+    was = row._name.text()
 
     renamed = [
         r
@@ -2069,7 +2085,7 @@ def test_the_columns_stay_aligned_after_an_in_place_update(qtbot, built) -> None
     ]
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.set_records(renamed)
-    qtbot.waitUntil(lambda: row._name.width() > was, timeout=2000)
+    qtbot.waitUntil(lambda: row._name.text() != was, timeout=2000)
 
     assert row is next(r for p, r in window._rows.items() if p == Path("/srv/mid")), (
         "the row must have been updated in place, not rebuilt"
@@ -4643,3 +4659,278 @@ def test_enter_on_a_row_still_clicks_that_row_button(qtbot, built) -> None:
     qtbot.keyClick(row, Qt.Key.Key_Return)
 
     assert started == ["beta"], "Enter on a row must still drive that row's button"
+
+
+# --- LWSM-1187: a browser per project -----------------------------------------
+
+BROWSERS = (
+    Browser("firefox.desktop", "Firefox", ("/bin/firefox", "%u")),
+    Browser("brave.desktop", "Brave", ("/bin/brave", "%u")),
+)
+
+
+def browser_window(qtbot, built, tmp_path, records, saves=None):
+    """A writable window whose installed-browser list is injected, not scanned."""
+    return rescan_window(
+        qtbot,
+        built,
+        records,
+        tmp_path,
+        FakeScanResult(projects=()),
+        saves=saves,
+        browsers_available=BROWSERS,
+    )
+
+
+def with_browser(name: str, port: int | None, entry_id: str | None):
+    return dataclasses.replace(record(name, port), browser=entry_id)
+
+
+def test_the_picker_offers_the_default_and_every_installed_browser(
+    qtbot, built, tmp_path
+) -> None:
+    window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    box = row_named(window, "a").browser_box
+
+    assert [box.itemText(i) for i in range(box.count())] == [
+        "Default browser",
+        "Firefox",
+        "Brave",
+    ]
+    assert box.currentIndex() == 0, "no stored choice must read as the default"
+
+
+def test_the_picker_shows_the_stored_choice(qtbot, built, tmp_path) -> None:
+    window, _ = browser_window(
+        qtbot, built, tmp_path, [with_browser("a", 3000, "brave.desktop")]
+    )
+    assert row_named(window, "a").browser_box.currentText() == "Brave"
+
+
+def test_a_browser_that_is_no_longer_installed_reads_as_the_default(
+    qtbot, built, tmp_path
+) -> None:
+    """Uninstalling a browser must not lose the choice, or break the row.
+
+    The picker falls back to the default entry rather than growing a phantom
+    row for something that cannot be launched — and the stored id STAYS in the
+    file, so reinstalling the browser restores the choice. Asserting the record
+    is the half that would otherwise rot: a fallback that also cleared the field
+    would look identical here.
+    """
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [with_browser("a", 3000, "uninstalled.desktop")]
+    )
+    assert row_named(window, "a").browser_box.currentIndex() == 0
+    assert controller.records()[0].browser == "uninstalled.desktop"
+
+
+def test_choosing_a_browser_writes_it_to_the_registry(qtbot, built, tmp_path) -> None:
+    saves: list = []
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [record("a", 3000)], saves
+    )
+    box = row_named(window, "a").browser_box
+    box.setCurrentIndex(box.findData("firefox.desktop"))
+
+    assert [r.browser for _path, records, _load in saves for r in records] == [
+        "firefox.desktop"
+    ]
+    assert controller.records()[0].browser == "firefox.desktop"
+
+
+def test_choosing_the_default_again_stores_none_rather_than_an_empty_string(
+    qtbot, built, tmp_path
+) -> None:
+    """One spelling of "no preference" in the file, so `by_id` has one case."""
+    saves: list = []
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [with_browser("a", 3000, "firefox.desktop")], saves
+    )
+    row_named(window, "a").browser_box.setCurrentIndex(0)
+
+    assert controller.records()[0].browser is None
+
+
+def test_rendering_a_changed_choice_does_not_write_it_back(
+    qtbot, built, tmp_path
+) -> None:
+    """The `QSignalBlocker` in `update_from`, which is easy to leave out.
+
+    The view's browser MUST change here. A first draft re-rendered a row whose
+    stored choice already matched the box, and the mutation run showed it was
+    vacuous: `setCurrentIndex` emits nothing when the index does not move, so
+    deleting the blocker left it green. The live case is a rescan or a profile
+    import arriving with a different browser — `update_from` then moves the
+    index, and without the blocker that fires `currentIndexChanged`, whose
+    handler writes projects.json. Rendering must never write.
+    """
+    saves: list = []
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [record("a", 3000)], saves
+    )
+    row = row_named(window, "a")
+    assert row.browser_box.currentIndex() == 0, "precondition: no choice yet"
+    saves.clear()
+
+    row.update_from(
+        dataclasses.replace(controller.rows()[0], browser="firefox.desktop")
+    )
+
+    assert row.browser_box.currentText() == "Firefox", "precondition: it moved"
+    assert saves == [], f"{len(saves)} registry writes from rendering alone"
+
+
+def test_open_launches_the_chosen_browser_and_not_the_desktop_default(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """Driven through `_open_project` rather than the button.
+
+    The button's wiring is pinned by the existing Open tests; what is new here
+    is which of the two routes `_open_project` takes, and enabling the button
+    needs a bound port and a supervised child this fixture has no reason to
+    build.
+    """
+    launched: list = []
+    fell_back: list = []
+    monkeypatch.setattr(
+        mainwindow.browsers,
+        "open_url",
+        lambda browser, url: launched.append((browser.entry_id, url)),
+    )
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [with_browser("a", 3000, "brave.desktop")]
+    )
+    window._open_url = lambda url: fell_back.append(url) or True
+
+    window._open_project(controller.records()[0].path)
+
+    assert launched == [("brave.desktop", "http://localhost:3000/")]
+    assert fell_back == [], "the desktop default must not also be consulted"
+
+
+def test_open_falls_back_to_the_desktop_default_when_nothing_is_chosen(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    launched: list = []
+    opened: list = []
+    monkeypatch.setattr(
+        mainwindow.browsers, "open_url", lambda b, u: launched.append(u)
+    )
+    window, controller = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    window._open_url = lambda url: opened.append(url.toString()) or True
+
+    window._open_project(controller.records()[0].path)
+
+    assert opened == ["http://localhost:3000/"]
+    assert launched == []
+
+
+def test_a_browser_that_fails_to_launch_is_reported_not_silent(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """Silence here looks exactly like a browser that opened behind the window."""
+
+    def boom(browser, url):
+        raise mainwindow.browsers.BrowserError("no such binary")
+
+    monkeypatch.setattr(mainwindow.browsers, "open_url", boom)
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [with_browser("a", 3000, "firefox.desktop")]
+    )
+
+    window._open_project(controller.records()[0].path)
+
+    assert "Could not open a browser" in window.statusBar().currentMessage()
+
+
+# --- LWSM-1174: the name column is capped so the row stays in the lens ---------
+
+
+def test_a_long_project_name_is_elided_and_keeps_its_full_name(qtbot, built) -> None:
+    long_name = "customer-dashboard-frontend-v2"
+    window, _ = window_for(qtbot, built, [record(long_name, 5005)], FakeProbe(5005))
+    row = rows_of(window)[0]
+
+    assert row._name.text() != long_name, "an uncapped name blows the lens budget"
+    assert row._name.text().endswith("…")
+    assert long_name.startswith(row._name.text().rstrip("…"))
+    assert row._name.toolTip() == long_name, "the whole name must stay reachable"
+    assert row.accessibleName() == f"running, {long_name}, port 5005", (
+        "a screen reader is read the FULL name — elision is a fitting concern, "
+        "and an announcement of a truncated name helps nobody"
+    )
+
+
+def test_every_control_in_the_row_is_named_with_the_FULL_project_name(
+    qtbot, built, tmp_path
+) -> None:
+    """Elision is a fitting concern and must not reach the accessibility tree.
+
+    Found by running the app rather than by a test: every one of these read
+    `self._name.text()`, which since LWSM-1174 is the ELIDED string, so a screen
+    reader got "Start customer-dash…" — four identical-sounding controls whose
+    whole purpose (`§ O8`) is telling one project's buttons from another's. The
+    existing tree test could not see it: its fixture's name is short enough that
+    elided and full are the same string.
+    """
+    long_name = "customer-dashboard-frontend-v2"
+    window, _ = browser_window(qtbot, built, tmp_path, [record(long_name, 5005)])
+    row = rows_of(window)[0]
+
+    assert row._name.text() != long_name, "precondition: the label IS elided"
+    assert [
+        row.start_button.accessibleName(),
+        row.stop_button.accessibleName(),
+        row.restart_button.accessibleName(),
+        row.open_button.accessibleName(),
+        row.browser_box.accessibleName(),
+    ] == [
+        f"Start {long_name}",
+        f"Stop {long_name}",
+        f"Restart {long_name}",
+        f"Open {long_name} in a browser",
+        f"Browser for {long_name}",
+    ]
+
+
+def test_a_short_project_name_is_untouched_and_carries_no_tooltip(qtbot, built) -> None:
+    """A tooltip repeating the visible text is noise a magnifier user dismisses.
+
+    This is also the guard on the boundary: `elidedText` is free to cut a string
+    whose advance merely EQUALS the width it is handed, and the column is set to
+    exactly that advance for every name under the cap. Without the explicit
+    fits-check, "alpha" rendered as "alp…".
+    """
+    window, _ = window_for(qtbot, built, [record("alpha", 5005)], FakeProbe(5005))
+    row = rows_of(window)[0]
+
+    assert row._name.text() == "alpha"
+    assert row._name.toolTip() == ""
+
+
+def test_the_row_still_fits_one_lens_view_with_a_browser_picker(
+    qtbot, built, tmp_path
+) -> None:
+    """The band, with the longest name and the picker together (LWSM-1187).
+
+    Measured 2026-08-24: this row was 593 px before the picker existed — 7 px
+    inside the limit — and 677 px with an uncapped name column and the picker.
+    Capping the name is what bought it back. Both halves are asserted in ONE
+    test on purpose: either alone passes against a row that is wrong.
+    """
+    window, _ = browser_window(
+        qtbot, built, tmp_path, [record("customer-dashboard-frontend-v2", 5005)]
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    window.resize(1400, window.height())
+    qtbot.waitUntil(lambda: window.width() == 1400, timeout=2000)
+    row = rows_of(window)[0]
+
+    assert row.browser_box.isVisible(), "the picker must actually be in the row"
+    right_edge = row.open_button.geometry().right()
+    assert right_edge <= READABLE_BAND_PX, (
+        f"the row's controls end at x={right_edge}, outside the "
+        f"{READABLE_BAND_PX} px lens the user has to read it through"
+    )

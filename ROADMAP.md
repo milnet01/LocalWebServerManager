@@ -1858,7 +1858,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-2 (settings).
   Lanes: settings.
 
-- 📋 [LWSM-1174] **FP08: a long project name pushes every row's buttons out of reach, unrecoverably.**
+- ✅ [LWSM-1174] **FP08: a long project name pushes every row's buttons out of reach, unrecoverably.**
   Nothing bounds a project `name` on the way in — the registry validators
   impose no length limit and a scanned directory name is legal to 255 bytes —
   and `ProjectRow._name` has no elide or word-wrap, so `natural_widths()`
@@ -1876,6 +1876,33 @@ module states the correct rule in almost the same words.
 
   Also reachable through an imported profile, since `name` is in
   `USER_FIELDS` and is restored verbatim.
+  Resolved (2026-08-24): the name column is capped at `NAME_COLUMN_CHARS`
+  and elided past it, measured through the font metric rather than in pixels
+  (`§ O7`) so the 100-200 % text-size control still reaches it.
+
+  Fixed while shipping LWSM-1187, which could not fit inside
+  `design-accessibility.md`'s ~600 px lens band until this was closed --
+  measured at 593 px before the picker existed and 677 px with it. The row
+  now ends at 561 px with the picker AND the longest fixture name, which is
+  more headroom than it had before either change.
+
+  **What was fixed is the BOUND, not the two mechanisms the bullet also
+  names.** `_align_columns` still iterates hidden rows and still is not
+  re-run on a filter keystroke. Both were only harmful because the width was
+  unbounded; with a cap the worst case is bounded by construction, so
+  neither can push a control off-screen. Recorded rather than silently
+  treated as covered.
+
+  The full name is kept: tooltip when something was actually cut, and the
+  accessible name of the row and of every control in it. That last part was
+  not true of the first version and the suite could not see it -- see
+  LWSM-1187's note.
+
+  Two mutants killed: uncapping the column, and eliding a name that fits.
+  The second is not hypothetical -- `elidedText` will cut a string whose
+  advance merely EQUALS the width it is given, and the column is set to
+  exactly that advance for every name under the cap, so a first version
+  rendered "alpha" as "alp...".
   **Layman:** One project with a very long folder name can push the Start and Stop buttons off the edge of the window for every project, with no scrollbar and no way to get them back.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-3 (window).
@@ -4646,7 +4673,7 @@ is the contract.
   Source: user-request-2026-08-24.
   Lanes: window.
 
-- 📋 [LWSM-1187] **Choose a preferred browser per project, from a dropdown in the row.**
+- ✅ [LWSM-1187] **Choose a preferred browser per project, from a dropdown in the row.**
   `_open_project` calls the injected `open_url` seam, defaulting to
   `QDesktopServices.openUrl` — always the desktop's default, the same for every
   project.
@@ -4684,6 +4711,53 @@ is the contract.
     row's Enter still clicks the enabled button.
   - Theme and language both re-render a row, so the combo's own strings need
     `_retranslate` and `apply_theme` like every other cell.
+  Resolved (2026-08-24): a `QComboBox` per row, between the port and the
+  buttons, backed by a new core module `browsers.py` (no Qt at all, like
+  `placement.py`) and a `browser` USER field on `ProjectRecord`.
+
+  **The list is the desktop's own registered `x-scheme-handler/http`
+  handlers, and nothing here is ever executed as text.** That is the whole
+  security argument and it is why this needed no trust gate: the entries
+  offered are ones the session would already run for any clicked link, so a
+  per-project browser adds no new surface. A free-text command would have
+  needed ADR-0003's gate; reading the handler list avoids needing one.
+
+  **Running the matcher over the REAL population found what no fixture
+  would have.** 381 desktop entries on this machine, 3 selected, and one of
+  them is a Flatpak whose `Exec` carries `--file-forwarding` and `@@u ... @@`
+  markers. Those are not Desktop Entry field codes; `flatpak run` consumes
+  them itself (checked in `man flatpak-run` rather than assumed), so passing
+  them through with the URL between them is correct. Locked as a regression
+  test.
+
+  **It could not ship without LWSM-1174, and that is the finding worth
+  keeping.** `design-accessibility.md` requires a row's whole set of
+  controls to sit inside the ~600 px band a magnifier user reads through.
+  Measured: 593 px with a 30-character name and no picker -- 7 px inside the
+  limit -- and 677 px with the picker. The name column is what gave way; put
+  to the user, who chose that over icon-only buttons or a second row.
+
+  Ten mutants, ten killed, but only after three survived a first pass and
+  each exposed a real weakness rather than a gap in the code. The signal
+  blocker's test set the picker to the value it already held, and Qt emits
+  nothing when the index does not move. The scheme refusal's test asserted
+  `BrowserError` and passed with the guard deleted, because the spawn then
+  fails and raises the same type -- it now asserts the process was never
+  spawned. And the group-header test could not distinguish the mutant twice
+  over, because `setdefault` protects any key `[Desktop Entry]` declares;
+  the case with no backstop is a key that group OMITS.
+
+  **Live run found a regression the suite could not**: every control's
+  accessible name was built from the label, which is now elided, so a screen
+  reader got "Start customer-dash...". The existing tree test's fixture name
+  is too short for elided and full to differ. Fixed and pinned.
+
+  conftest now pins `XDG_DATA_HOME`/`XDG_DATA_DIRS` at an empty directory,
+  the fourth and fifth variables to earn it and for the third time the same
+  argument: an unpinned test built its dropdown from whatever the author had
+  installed. It also took the suite from 24.3 s to 17.7 s, because every
+  window had been walking 381 files.
+  1230 green, local-ci green.
   **Layman:** Each project can open in the browser you prefer for it, chosen from a dropdown on its own row.
   Kind: feature.
   Source: user-request-2026-08-24.

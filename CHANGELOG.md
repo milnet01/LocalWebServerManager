@@ -23,6 +23,15 @@ signaling per
 
 ### Added
 
+- **Pick which browser each project opens in** (LWSM-1187)
+  Every project's row has a browser dropdown beside its port. Leave it on
+  "Default browser" and Open behaves as before; pick Firefox for one
+  project and Chrome for another and each opens where you chose. The list
+  is the browsers already installed on your machine, so there is no
+  command to type. If you later uninstall a browser you had picked, that
+  project quietly falls back to your default and remembers the choice in
+  case you install it again.
+
 - **The title bar now tells you which version you are running** (LWSM-1186)
   The window is titled "Local Web Server Manager 0.0.0" rather than just
   the name, so the running version is visible without opening a menu.
@@ -261,6 +270,13 @@ signaling per
   default.
 
 ### Fixed
+
+- **A very long project name no longer pushes the buttons off the window** (LWSM-1174)
+  A single project with a long folder name used to stretch the name column
+  for every row, pushing Start, Stop and Open past the edge of the window
+  with no scrollbar and no way to get them back. Long names are now
+  shortened with an ellipsis; the full name is in the tooltip and is still
+  read out in full by a screen reader.
 
 - **A refused registry write is retried by the next rescan** (LWSM-1166)
   The write gate compared the merge against the controller's in-memory

@@ -748,6 +748,7 @@ def every_field_record() -> ProjectRecord:
         start_at_login=True,
         actions=('{"kind":"open_url","label":"Docs"}',),
         added="2026-08-12T14:03:11Z",
+        browser="firefox.desktop",
     )
 
 
@@ -1054,6 +1055,8 @@ def test_a_registry_over_the_size_limit_is_refused_before_anything_is_written(
         ("added", "2026-08-12T14:03:11", "added", None),
         ("added", "yesterday", "added", None),
         ("added", 17, "added", None),
+        ("browser", 7, "browser", None),
+        ("browser", [], "browser", None),
     ],
 )
 def test_a_wrong_typed_field_loses_the_field_and_keeps_the_row(

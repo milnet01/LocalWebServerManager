@@ -104,6 +104,11 @@ class ProjectRecord:
     start_at_login: bool = False
     actions: tuple[str, ...] = ()
     added: str | None = None
+    # The desktop entry id of the browser Open uses for this project
+    # (`firefox.desktop`), or None for the desktop default (LWSM-1187). An id
+    # rather than a command: `browsers.py` resolves it against the desktop's
+    # own registered handlers, so nothing here is ever executed as text.
+    browser: str | None = None
 
     @property
     def effective_port(self) -> int | None:
@@ -136,6 +141,7 @@ USER_FIELDS: frozenset[str] = frozenset(
         "start_at_login",
         "actions",
         "added",
+        "browser",
     }
 )
 
@@ -216,7 +222,7 @@ def _port_or_reason(
 def _string_or_reason(
     value: object, field: str, name: str
 ) -> tuple[str | None, str | None]:
-    """A `str | None` field defaulting to `None` — `unit`, `launcher_override`."""
+    """A `str | None` field — `unit`, `launcher_override`, `browser`."""
     if value is None:
         return None, None
     if not isinstance(value, str):
@@ -498,7 +504,7 @@ def load_projects(path: Path) -> LoadResult:
         if reason:
             note(reason)
 
-        # The remaining nine keys, each defaulting when absent and each losing
+        # The remaining ten keys, each defaulting when absent and each losing
         # only itself when present at the wrong type. Collected through one list
         # so no field can be parsed and then forgotten on the way to the record —
         # the shape an earlier draft of § 4.2 missed `kind` through.
@@ -514,6 +520,7 @@ def load_projects(path: Path) -> LoadResult:
             _bool_or_reason(entry.get("start_at_login"), "start_at_login", name),
             _actions_or_reason(entry.get("actions"), name),
             _added_or_reason(entry.get("added"), name),
+            _string_or_reason(entry.get("browser"), "browser", name),
         ]
         for _value, reason in fields_and_reasons:
             if reason:
@@ -528,6 +535,7 @@ def load_projects(path: Path) -> LoadResult:
             start_at_login,
             actions,
             added,
+            browser,
         ) = (value for value, _reason in fields_and_reasons)
 
         records.append(
@@ -545,6 +553,7 @@ def load_projects(path: Path) -> LoadResult:
                 start_at_login=start_at_login,
                 actions=actions,
                 added=added,
+                browser=browser,
             )
         )
 
@@ -587,6 +596,7 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
         # and writing the strings would nest a document inside a string field.
         "actions": [json.loads(action) for action in record.actions],
         "added": record.added,
+        "browser": record.browser,
     }
 
 

@@ -259,6 +259,13 @@ class RowView:
     # read by nothing until LWSM-1185. Carried on the view rather than looked
     # up by the window, so the row has one source for everything it renders.
     hidden: bool = False
+    # The desktop entry id of the browser this project's Open uses, or None for
+    # the desktop default (LWSM-1187). Carried here for `hidden`'s reason: the
+    # row renders it, so the row's one source should hold it. The id is not
+    # resolved to a `Browser` here — that needs `browsers.py`'s scan of the
+    # desktop, which is the window's to do once rather than the controller's to
+    # repeat every poll.
+    browser: str | None = None
 
 
 class _SnapshotSignals(QObject):
@@ -416,6 +423,7 @@ class ProjectController(QObject):
                 status=self._status_of(record.path),
                 managed=record.path in managed,
                 hidden=record.hidden,
+                browser=record.browser,
             )
             for record in self._records
         ]
