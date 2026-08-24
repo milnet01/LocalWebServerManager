@@ -3362,7 +3362,7 @@ path. `docs/design.md § Detection rules` is the contract.
   Source: in-session-2026-08-19 (measured against Ants_Projects_Hub_Website).
   Lanes: core, tests.
 
-- 📋 [LWSM-1183] **The launcher follower picks a shell assignment as its next file.**
+- ✅ [LWSM-1183] **The launcher follower picks a shell assignment as its next file.**
   Scanning RetroDB, the follower reads `start.sh` and then tries to
   open a file named `PYTHON=python` — a shell variable assignment,
   not a path. Confirmed by recording every path `_open_source`
@@ -3374,6 +3374,33 @@ path. `docs/design.md § Detection rules` is the contract.
   The fixture corpus cannot see this: the shape only appears in a
   launcher that assigns an interpreter to a variable before using
   it, which no fixture does.
+  Resolved (2026-08-24): a `$VAR` / `${VAR}` reference in command
+  position is now a hop keyword, a `NAME=` token is dropped as a
+  shell assignment, and a keyword line that yields no target falls
+  back to the next one up instead of ending the walk. The variable
+  is still never expanded — `$PYTHON app.py` resolves because the
+  token beside it is a literal, and `exec "$DIR/launcher.py"` still
+  gives no hop.
+
+  Verified on the live tree, which is the only instrument that can
+  see this: exactly one verdict moved, RetroDB from *unknown* to a
+  port read from `app.py`, and the paths opened went from
+  `start.sh` + `PYTHON=python` to `start.sh` + `app.py`.
+
+  Six mutants; six killed. Two further mutations of the assignment
+  guard were provably EQUIVALENT — `^` is redundant with
+  `re.match()`, so neither unanchoring the pattern nor swapping to
+  `search()` changes any input; the mechanism-level form of that
+  mutation dies. Three of the six only died after three extra tests
+  were written for the gaps the first probe exposed.
+
+  The port LWSM-1183 now surfaces for RetroDB is WRONG (5001, from
+  a quoted error message; the real default is 5000). That is
+  LWSM-1190, filed rather than folded in, and built next by the
+  user's decision.
+
+  Spec § 4.5 steps 2, 3 and a new step 5 amended to record what was
+  built.
   **Layman:** RetroDB shows no port because the scanner went looking for a file that does not exist.
   Kind: fix.
   Source: user-report-2026-08-24.
@@ -3396,6 +3423,37 @@ path. `docs/design.md § Detection rules` is the contract.
   **Layman:** Contact_List shows no port because the scanner stopped one file short of where the port is written.
   Kind: fix.
   Source: user-report-2026-08-24.
+  Lanes: scanner.
+
+- 📋 [LWSM-1190] **A port rule reads a number out of a quoted error message.**
+  Exposed by LWSM-1183, not caused by it. With the follower fixed,
+  the walk correctly reaches `app.py` — which `start.sh` really does
+  run — and rule 1 then matches `PORT=5001` inside a quoted string:
+
+      '    Settings -> System -> Server Port, or PORT=5001 in the',
+
+  That is English advice telling the user how to move off a busy
+  port, not a declaration. RetroDB's default is 5000, which is what
+  `_python_framework` returns for its Flask import once rule 1 stops
+  firing first.
+
+  So the row went from blank to CONFIDENTLY WRONG. A wrong port is
+  worse than an unknown one: the app matches status against whoever
+  holds the port, so it reports the project stopped while it is
+  running.
+
+  Same class as `project-o-vite-in-a-comment` — real text that is
+  not a declaration — but `strip_comment` cannot reach it, because
+  there is no comment marker on the line. The discriminator
+  available is that the match sits inside a quoted string.
+
+  Measured 2026-08-24 by diffing live-tree verdicts across
+  LWSM-1183: exactly one project moved, and it moved to a wrong
+  answer. The user chose to ship LWSM-1183 and build this next,
+  ahead of LWSM-1184.
+  **Layman:** RetroDB shows the wrong port because the scanner read a number out of an error message rather than a setting.
+  Kind: fix.
+  Source: in-session-2026-08-24.
   Lanes: scanner.
 
 ## P04 — Appearance and accessibility foundation

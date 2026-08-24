@@ -271,6 +271,11 @@ signaling per
 
 ### Fixed
 
+- **The scanner follows a launcher whose interpreter is a shell variable** (LWSM-1183)
+  A project whose `start.sh` picks its interpreter at run time and
+  then runs `$PYTHON app.py` showed no port: the walk never saw the
+  launch line, and followed the assignment above it instead.
+
 - **A very long project name no longer pushes the buttons off the window** (LWSM-1174)
   A single project with a long folder name used to stretch the name column
   for every row, pushing Start, Stop and Open past the edge of the window

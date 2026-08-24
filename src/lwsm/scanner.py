@@ -550,7 +550,27 @@ def _python_framework(root: Path, lines: Sequence[str]) -> PortFinding | None:
 # § 4.5 — the one-hop port-bearing file
 # --------------------------------------------------------------------------
 
-_HOP_KEYWORD = re.compile(r"\b(?:exec|python3|python|node)\b")
+# LWSM-1183 — the interpreter is not always spelled out. A launcher that picks
+# one at runtime (`PYTHON=python3` … later `$PYTHON app.py`) invokes through a
+# VARIABLE, which `\bpython\b` cannot see. Measured live 2026-08-24: the last
+# line the keyword did match was the assignment itself, so the walk tried to
+# open a file named `PYTHON=python`.
+#
+# A variable reference therefore counts as a keyword **in command position
+# only** — starting a line, or following the `;`, `&`, `|` or `(` that ended the
+# previous command. Any `$VAR` anywhere on the line would be far wider: every
+# `echo "${MSG}"` would become an invocation, and command position is the
+# property that actually makes one. The variable is still never expanded, which
+# `_hop_target` below states as a rule; what makes this reach a file is that the
+# token beside it, `app.py`, is a literal.
+_HOP_KEYWORD = re.compile(
+    r"\b(?:exec|python3|python|node)\b" r'|(?:^|[;&|(])\s*!?\s*"?\$\{?[A-Za-z_]'
+)
+
+# `NAME=value` is a shell assignment and can never name a file to run. `exec env
+# FOO=1 python3 launcher.py` already survived it by having a later token win;
+# a line that is ONLY an assignment had nothing later to fall back to.
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def _accept_hop(
@@ -739,11 +759,15 @@ def _hop_target(
     which is correct: `http.server` runs no file in the project. This module
     does not expand shell variables and must not start.
     """
+    first_refusal: str | None = None
     for line in reversed(lines):
         if not _HOP_KEYWORD.search(line):
             continue
+        stripped = (token.strip("'\"") for token in line.split())
         tokens = [
-            token.strip("'\"") for token in line.split() if not token.startswith("-")
+            token
+            for token in stripped
+            if not token.startswith("-") and not _ASSIGNMENT.match(token)
         ]
         refusal: str | None = None
         for token in reversed(tokens):
@@ -773,8 +797,18 @@ def _hop_target(
                 # is still runnable and only the port is unknown.
                 unreadable = f"{_quoted(token)} cannot be read ({exc.strerror or exc})"
                 return None, [], unreadable
-        return None, [], refusal
-    return None, [], None
+        # LWSM-1183 — "the last invocation" is the last one that RESOLVES, not
+        # the last line carrying the keyword. A line can hold the keyword and
+        # name no runnable file at all — a trailing `echo "re-run with python3
+        # start.sh"`, or a launcher whose last variable-led line is a `-c`
+        # one-liner — and abandoning the walk there loses the port the line
+        # above was holding. Widening the keyword to reach `$VAR` widens what
+        # can land last, so this is the half that keeps that safe. The first
+        # refusal is still what gets reported when NO line yields a hop, so
+        # falling through cannot turn a refusal into silence.
+        if first_refusal is None:
+            first_refusal = refusal
+    return None, [], first_refusal
 
 
 # --------------------------------------------------------------------------

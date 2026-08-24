@@ -1098,6 +1098,154 @@ def test_the_last_invocation_wins_and_a_commented_one_is_not_it(tmp_path: Path) 
     assert project.port.port == 3131
 
 
+def test_an_interpreter_behind_a_shell_variable_is_still_an_invocation(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1183 — a launcher that resolves its interpreter into a variable and
+    then runs `$PYTHON app.py`.
+
+    `\\bpython\\b` does not match `$PYTHON`, so the last line the keyword DID
+    match was the assignment `PYTHON=python3`, and the walk tried to open a file
+    of that name. Measured live against the author's own tree on 2026-08-24; no
+    fixture had this shape, because every one of them spells the interpreter
+    out.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nPYTHON=python3\n$PYTHON app.py\n",
+            "app.py": "PORT = 8123\n",
+        },
+        "start.sh",
+    )
+
+    project = by_name(scan_root(tmp_path))["proj"]
+
+    assert project.port is not None
+    assert (project.port.port, project.port.source) == (8123, "app.py")
+
+
+def test_a_shell_assignment_is_never_a_hop_target(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """The seam, not the verdict: `NAME=value` is an assignment and cannot name
+    a file to run.
+
+    Asserted on the paths opened, because *port unknown* is what the defect
+    produced too — from the outside the two are indistinguishable.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {"start.sh": "#!/bin/sh\nPYTHON=python3\n", "app.py": "PORT = 8123\n"},
+        "start.sh",
+    )
+
+    scan_root(tmp_path)
+
+    assert [path.name for path in opened_paths] == ["start.sh"]
+
+
+def test_an_invocation_line_yielding_no_hop_falls_back_to_an_earlier_one(
+    tmp_path: Path,
+) -> None:
+    """The "last invocation" is the last one that RESOLVES, not the last line
+    carrying the keyword.
+
+    Widening the keyword to reach `$PYTHON` widens what can land last, so a
+    trailing line naming no runnable file must not consume the walk. Here that
+    line names the launcher itself, which § 4.5 constraint 6 refuses — so the
+    fallback is exercised through a refusal rather than a missing file, which is
+    the harder of the two paths.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nexec python3 app.py\n"
+            'echo "re-run with python3 start.sh"\n',
+            "app.py": "PORT = 7373\n",
+        },
+        "start.sh",
+    )
+
+    project = by_name(scan_root(tmp_path))["proj"]
+
+    assert project.port is not None
+    assert project.port.port == 7373
+
+
+def test_a_variable_mentioned_outside_command_position_is_not_an_invocation(
+    tmp_path: Path,
+) -> None:
+    """`$VAR` is a keyword only where a command would start. A line that merely
+    MENTIONS a variable — an echo, a usage banner — is not a launch, and reading
+    it as one hops to whatever file happens to be named beside it.
+
+    This launcher carries no other invocation, so the wrong reading has nothing
+    to fall back to and surfaces as a port that was never declared.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": '#!/bin/sh\necho "logs in ${LOG_DIR}, config in settings.py"\n',
+            "settings.py": "PORT = 4242\n",
+        },
+        "start.sh",
+    )
+
+    assert by_name(scan_root(tmp_path))["proj"].port is None
+
+
+def test_a_hop_target_whose_name_holds_an_equals_sign_is_still_followed(
+    tmp_path: Path,
+) -> None:
+    """The assignment guard is anchored on purpose: a shell assignment is
+    `NAME=value` from the START of the token. An `=` merely present inside a
+    path is an ordinary character, and refusing it would drop a real launcher
+    for a reason the user could never guess.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nexec python3 ./app=1.py\n",
+            "app=1.py": "PORT = 5252\n",
+        },
+        "start.sh",
+    )
+
+    project = by_name(scan_root(tmp_path))["proj"]
+
+    assert project.port is not None
+    assert project.port.port == 5252
+
+
+def test_the_refusal_reported_is_the_one_from_the_last_invocation_line(
+    tmp_path: Path,
+) -> None:
+    """Both lines refuse. The walk examines the last one first, and that is the
+    launch the user is asking about — reporting the earlier line's reason names
+    an invocation that does not run.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nexec python3 ../outside-first.py\n"
+            "exec python3 ../outside-last.py\n"
+        },
+        "start.sh",
+    )
+
+    skipped = scan_root(tmp_path).skipped
+
+    assert any("outside-last.py" in reason for reason in skipped)
+    assert not any("outside-first.py" in reason for reason in skipped)
+
+
 @pytest.mark.parametrize(
     "invocation",
     [

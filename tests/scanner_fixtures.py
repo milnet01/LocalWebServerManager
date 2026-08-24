@@ -127,6 +127,23 @@ CORPUS: tuple[FixtureProject, ...] = (
         why="rule 1's first alternative, the ${PORT:-N} form",
     ),
     FixtureProject(
+        name="project-p-variable-interpreter",
+        # LWSM-1183, found in the wild rather than imagined: the launcher picks
+        # its interpreter at runtime, so the LAUNCH line names no keyword and the
+        # last line that did was the assignment above it.
+        files={
+            "start.sh": "#!/bin/sh\nPYTHON=python3\n$PYTHON app.py\n",
+            "app.py": "PORT = 8123\n",
+        },
+        executable=("start.sh",),
+        kind=LauncherKind.SHELL,
+        argv=("./start.sh",),
+        port=8123,
+        rule=PortRule.ASSIGNMENT,
+        source="app.py",
+        why="a variable in command position is still an invocation",
+    ),
+    FixtureProject(
         name="project-h-flask",
         files={"serve.py": "import flask\n\napp = flask.Flask(__name__)\n"},
         kind=LauncherKind.PYTHON,

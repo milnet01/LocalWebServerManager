@@ -729,6 +729,9 @@ Two forms, and the second was added by **LWSM-1155** on 2026-08-20 — an
 amendment recording what was built, not a change of direction for work still to
 come.
 
+**LWSM-1183 amended steps 2 and 3 on 2026-08-24**, on the same footing: the code
+already existed, so the build was the review.
+
 **The invocation form, for `kind == SHELL` only.** A shell launcher runs another
 file whose name it names, and rule 0's equivalent hop is § 4.4 step 3, which
 reaches the unit's properties through `systemctl` rather than by opening
@@ -791,10 +794,32 @@ tokens:
    `exec python3 new.py` / `# exec python3 old.py (kept for reference)`
    resolves to **`old.py`** unstripped and `new.py` stripped.
 2. Take the **last** line still containing `exec`, `python3`, `python` or
-   `node` as a whole word.
-3. Split it on whitespace, **drop every token beginning with `-`**, and strip
-   surrounding quotes.
+   `node` as a whole word, **or a `$VAR` / `${VAR}` reference in command
+   position** — starting the line, or following the `;`, `&`, `|` or `(` that
+   ended the previous command. A launcher that picks its interpreter at run
+   time invokes through a variable, which the keyword set alone cannot see:
+   measured 2026-08-24 against a real sibling whose `start.sh` resolves
+   `PYTHON=python3` and then runs `$PYTHON app.py`, the last line the keyword
+   *did* match was the assignment, and the walk tried to open a file named
+   `PYTHON=python`. Command position is what makes a variable an invocation —
+   `$VAR` anywhere on the line would make every `echo "${MSG}"` one.
+3. Split it on whitespace, strip surrounding quotes, then **drop every token
+   beginning with `-` and every token of the form `NAME=`** — a shell
+   assignment can never name a file to run. `exec env PORT=1 python3
+   launcher.py` survived without that second rule by having a later token win;
+   a line that is *only* an assignment has nothing later to fall back to. The
+   test is anchored at the start of the token, so an `=` inside a path is an
+   ordinary character and the file is still followed.
 4. Take the **last** remaining token that satisfies § 4.5's six constraints.
+5. If **no** token on that line satisfies them, fall back to the next line up
+   that step 2 selects, and so on. "The last invocation" means the last one
+   that *resolves*, not the last line carrying a keyword: a trailing
+   `echo "re-run with python3 start.sh"` names no runnable file, and
+   abandoning the walk there loses the port the line above was holding.
+   Widening step 2 to reach `$VAR` widens what can land last, so this is the
+   half that keeps that safe. The refusal reported is the one from the **first**
+   line examined — the last in the file, and the launch the user is asking
+   about — so falling through cannot turn a refusal into silence.
 
 Steps 3 and 4 are what the prose left open, and each of these lines resolves
 differently under "the token after the keyword": `exec python3 -u launcher.py`
@@ -804,7 +829,9 @@ give `launcher.py` and the third gives **no hop at all**, which is correct —
 `http.server` runs no file in the project. `exec "$DIR/launcher.py"` also gives
 no hop: an unexpanded shell variable cannot resolve, so it fails constraint 1
 rather than being guessed at. This module does not expand shell variables and
-must not start.
+must not start. Step 2's variable form is **not** an exception to that:
+`$PYTHON app.py` is followed because the token beside the variable is a literal,
+and `exec "$DIR/launcher.py"` still gives no hop at all.
 
 Exactly one hop is followed — `project-e` puts its port two hops out (`run.sh` → `launcher.py` →
 `config.py`) and is expected back as *port unknown*, which is an honest limit
