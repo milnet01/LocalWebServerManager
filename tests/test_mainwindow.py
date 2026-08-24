@@ -4725,6 +4725,43 @@ def test_a_browser_that_is_no_longer_installed_reads_as_the_default(
     assert controller.records()[0].browser == "uninstalled.desktop"
 
 
+def test_opening_with_an_uninstalled_browser_says_so(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1055's third acceptance criterion, which LWSM-1187 first missed.
+
+    "a browser since uninstalled falls back to the default with a visible
+    message rather than failing silently". The picker already reads "Default
+    browser" in this state, and that is NOT the message: it is indistinguishable
+    from a project nobody ever chose one for.
+    """
+    opened: list = []
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [with_browser("a", 3000, "uninstalled.desktop")]
+    )
+    window._open_url = lambda url: opened.append(url.toString()) or True
+
+    window._open_project(controller.records()[0].path)
+
+    assert opened == ["http://localhost:3000/"], "it must still open"
+    assert "not installed" in window.statusBar().currentMessage()
+
+
+def test_opening_with_no_browser_chosen_says_nothing(qtbot, built, tmp_path) -> None:
+    """The other half, and the one that keeps the message meaningful.
+
+    A project that never had a choice is the common case. Announcing the
+    fallback there would put a notice under every ordinary Open, and a message
+    everybody learns to ignore is worth nothing when it is true.
+    """
+    window, controller = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    window._open_url = lambda url: True
+
+    window._open_project(controller.records()[0].path)
+
+    assert "not installed" not in window.statusBar().currentMessage()
+
+
 def test_choosing_a_browser_writes_it_to_the_registry(qtbot, built, tmp_path) -> None:
     saves: list = []
     window, controller = browser_window(

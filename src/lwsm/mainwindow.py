@@ -2080,6 +2080,18 @@ class MainWindow(QMainWindow):
         url = project_url(view.effective_port)
         chosen = browsers.by_id(self._browsers, view.browser)
         if chosen is None:
+            if view.browser is not None:
+                # LWSM-1055's third acceptance criterion: an uninstalled browser
+                # falls back to the default WITH a visible message. The picker
+                # reading "Default browser" is not that message -- it looks
+                # identical to a project nobody ever set one for, which is the
+                # silent failure the criterion names.
+                self.set_status_message(
+                    QCoreApplication.translate(
+                        _TR_CONTEXT,
+                        "%1's chosen browser is not installed - opening in the default",
+                    ).replace("%1", view.name)
+                )
             # openUrl returns False when the desktop has no handler. Silence
             # here would look identical to a browser that opened behind the
             # window.

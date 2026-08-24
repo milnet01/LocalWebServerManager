@@ -4088,7 +4088,7 @@ is the contract.
   Everything else here still holds, including the part that mattered most: the
   port is read from the row at CLICK time and never cached at build time.
 
-- 📋 [LWSM-1055] **P05: a per-project browser choice for Open in browser.**
+- ✅ [LWSM-1055] **P05: a per-project browser choice for Open in browser.**
   LWSM-1016 opens the desktop default. A project the user always
   wants in a *particular* browser — a work profile, one carrying the
   right extensions, one kept apart from a personal session — means
@@ -4116,6 +4116,35 @@ is the contract.
   Source: user-2026-08-06.
   Priority: 2.
   Lanes: ui, core, tests.
+  Resolved (2026-08-24) by LWSM-1187, which was filed and built as a fresh
+  user request without anyone noticing this bullet already existed. Recorded
+  as the duplicate it is rather than closed quietly.
+
+  **How it was missed, because the miss is the reusable part.** Phase 0's
+  contract lookup ran `invariant_check`, which reads `docs/specs/` only and
+  therefore cannot see a roadmap bullet. `task_priors` is the lookup that
+  would have surfaced this one, and it was skipped on the grounds that the
+  session was holding a contract it had just written itself -- which is
+  exactly the case where the held contract is the LEAST likely to know what
+  the roadmap already says.
+
+  All three acceptance criteria are met, and the third was met only because
+  this bullet was found. Two projects set to different browsers each open in
+  the right one; a project with none set opens in the desktop default; and a
+  browser since uninstalled falls back to the default **with a visible
+  message** -- LWSM-1187 fell back silently, and the picker reading "Default
+  browser" is not that message, because it is indistinguishable from a
+  project nobody ever set one for.
+
+  The two design constraints written here in August were reached
+  independently and match: the list comes from the browsers the system
+  reports rather than a free-text command, and the field is user-set only
+  (`USER_FIELDS`), never populated by detection.
+
+  Still open and untouched by this: **LWSM-1053**, which this bullet names.
+  A sibling that opens its own browser at startup ignores the preference
+  entirely, so that item is no longer cosmetic -- it now contradicts a
+  setting the user deliberately chose.
 
 ---
 
@@ -4807,6 +4836,53 @@ is why it sits after the app works.
   Source: user-2026-08-03.
   Priority: 3.
   Lanes: build, docs.
+  Progress (2026-08-24): the user asked for an auto-update feature and
+  pointed at **finbreak** as a project that has already shipped one. Half
+  the research this bullet asks for is therefore done; the OneUp half is
+  NOT, and this bullet's warning still stands.
+
+  **Option B -- build our own -- is now fully specified**, from a read of
+  `/mnt/Games/Scripts/Linux/finbreak/` (FIBR-0054 Linux, FIBR-0131 Windows).
+  Same stack: PySide6, frozen to an AppImage. Shape: `services/update.py`
+  (policy: prefs, version grammar, asset picker, verify), `update_fetch.py`
+  (the ONLY networked file -- https-only including on redirects, bundled
+  certifi CA, byte cap, timeout), `update_key.py` (one baked-in Ed25519
+  public key), `update_installer.py` (a Protocol seam with one
+  implementation per package format, `detect_installer() -> None` making the
+  whole feature inert for an unpackaged run), two `QThread` workers and a
+  non-modal dialog. Checks `api.github.com/repos/<o>/<r>/releases/latest` on
+  launch only -- no polling timer -- opt-in and OFF by default. Ed25519
+  signature verification is mandatory before anything runs.
+
+  **Its four hardest-won details, each a bug it shipped and fixed.** A
+  frozen binary's OpenSSL looks for CA certificates where its BUILD host
+  kept them, so the update check silently did nothing on any other distro --
+  fixed by bundling certifi. `urlopen(context=...)` builds a throwaway
+  opener with the DEFAULT redirect handler, so an https-only guard on the
+  first request does not survive a 3xx to http. The verified bytes must be
+  re-written to a fresh temp immediately before hand-off, or the file that
+  is installed is not the file that was checked. And relaunch-after-install
+  took **three** attempts on Linux: the working shape is a detached
+  `/bin/sh` that waits for the old PID to die and then execs, with the
+  loader variables restored from PyInstaller's `<VAR>_ORIG` -- otherwise the
+  system shell inherits the app's private library path and dies before it
+  can reopen anything.
+
+  **The structural trap worth knowing before starting**: the version doing
+  the relaunching is the one you are updating FROM, so every relaunch fix
+  only takes effect from the NEXT update. finbreak told users this three
+  separate times in its changelog.
+
+  **Do not read any of this as a decision.** This bullet says the option
+  most likely to be wrong is "build an updater", and that judgement is
+  untouched -- what changed is that the cost of option B is now known
+  rather than guessed. OneUp still has to be read, and it remains the
+  cheaper answer if it fits.
+
+  **Blocked on LWSM-1021 either way.** finbreak's updater is inert unless
+  the app is a packaged artifact -- `detect_installer()` returns None for a
+  `python -m` run -- and this project has no AppImage yet. There is nothing
+  for an updater to replace until there is.
 
 - 📋 [LWSM-1052] **P10: a local release script, run before CI is asked to build one.**
   `scripts/local-release.sh` builds and
