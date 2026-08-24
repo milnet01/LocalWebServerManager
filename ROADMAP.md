@@ -5069,6 +5069,54 @@ is why it sits after the app works.
   Source: user-decision-2026-08-18.
   Lanes: release.
 
+- 📋 [LWSM-1188] **Define what 1.0.0 means, and hold the line on it.**
+  Nothing in this repository defined 1.0.0 before this bullet. Checked
+  2026-08-24 across every markdown file: the only match is a generic example
+  inside `roadmap-format.md`. LWSM-1152 defines 0.1.0 and stops there, so
+  "what gets us to 1.0?" had no answer anyone could read.
+
+  **The definition, agreed with the user 2026-08-24: 1.0.0 is the five
+  success criteria delivered end to end, plus the security fold-in, plus a
+  packaged download.** The criteria are not invented here -- the roadmap
+  already labels five phases `criterion 1` .. `criterion 5`, from
+  `discovery.md`, and they are the app's own statement of what it is for.
+
+  In scope, with the open count on the day this was written:
+
+  - criterion 1, find projects (P03b) -- 5
+  - criterion 2, start / stop / restart (P05) -- 1
+  - criterion 3, the full state model (P06) -- 6
+  - criterion 4, ports (P07) -- 4
+  - criterion 5, logs (P08) -- 2
+  - the security fold-in (FP01) -- 3
+  - packaging, so there is something to download (P10) -- 5
+
+  Deliberately OUT, and this is the half that makes the bullet worth
+  having. P09's shell work -- tray, restore-session, custom actions,
+  start-at-login, crash-loop guard -- is 7 open items of genuine value that
+  nobody needs in order to use the app for what it is for. DS01's debt and
+  the older fold-ins are another 9. Both go to 1.1. A 1.0 that waits for
+  every open item is a 1.0 that never ships, and this project has 57 open
+  items and has never released anything.
+
+  **The counts are a snapshot, not a contract.** What is fixed is the
+  membership rule -- the five criteria, security, packaging -- so a bullet
+  filed into P06 tomorrow is in scope by construction and needs no
+  renegotiation here.
+
+  Order: 0.1.0 first (LWSM-1152, gated on P04 closing, which is gated on
+  FP08). This is the milestone after it, not a replacement for it.
+
+  Watch for the failure this bullet exists to prevent: scope creeping in
+  because an item is nearly done, or because it sits next to one that is in
+  scope. The test is the membership rule above, never how finished
+  something feels.
+  Dependencies: LWSM-1152, LWSM-1021.
+  **Layman:** Write down what "finished enough to call it version 1" means, so it is a target rather than a feeling.
+  Kind: release.
+  Source: user-decision-2026-08-24.
+  Lanes: release, docs.
+
 ## DS01 — Debt sweep (2026-08-06)
 
 The first debt sweep, run over the whole history because there had
