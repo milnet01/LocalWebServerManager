@@ -754,8 +754,11 @@ def _import_hop_port(
     deadline: Deadline,
     note: Callable[[str], None],
 ) -> PortFinding | None:
-    """§ 4.5's one hop, for launcher rules 3 and 4 — where the launcher is the
-    program and there is no `exec` line to read.
+    """§ 4.5's one hop, taken along an import.
+
+    Reached two ways: from launcher rules 3 and 4, where the launcher IS the
+    program and there is no `exec` line to read; and from the shell rule's
+    invocation hop, where the program is the file that line named (LWSM-1184).
 
     Every one of § 4.5's six constraints still applies, because the target
     still goes through `_accept_hop`: in-project, not the launcher, not under an
@@ -1244,6 +1247,23 @@ def _shell_port(
         return None
 
     found = _scan_source(target.relative_to(candidate).as_posix(), hop_lines)
+    if found is not None:
+        return found
+    # LWSM-1184 — the wrapper is not the program. Measured live 2026-08-24:
+    # Contact_List's `run.sh` builds a venv and runs `launcher.py`, which
+    # declares no port and imports one from `config.py`; the scan opened two
+    # files and stopped. The invocation hop already grants its target program
+    # status for rule 3 below, and this is the same grant for the port rules.
+    #
+    # It does not deepen the walk. The budget was one hop per launcher shape
+    # and still is — one INVOCATION and one IMPORT — so a module the hop file
+    # imports that imports another is out of scope exactly as before.
+    #
+    # Ahead of rule 3, because a port another file DECLARES outranks one a
+    # framework merely defaults to. That is § 4.6's own ordering ("only when
+    # neither port rule found anything"), and the import walk is those rules
+    # read in another file.
+    found = _import_hop_port(candidate, target, hop_lines, deadline, note)
     if found is not None:
         return found
     # A shell project reaches Django and Flask evidence only through a `.py`

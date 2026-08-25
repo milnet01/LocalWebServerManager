@@ -1513,12 +1513,22 @@ def test_a_finding_reports_the_rule_that_matched(
     assert (found.port, found.rule, found.source) == (port, rule, source)
 
 
-def test_project_e_shape_comes_back_unknown(corpus_tree: Path) -> None:
-    """Exactly one hop is followed. `project-e` puts its port two hops out and
-    is expected back as *port unknown*, which is an honest limit rather than a
-    bug — and a rule that quietly starts guessing for it is the regression this
-    corpus exists to catch."""
-    project = by_name(scan_root(corpus_tree, corpus_units(corpus_tree)))["project-e"]
+def test_the_wrapped_walk_is_bounded_at_one_invocation_and_one_import(
+    corpus_tree: Path,
+) -> None:
+    """The bound moved once, on purpose, and this is where it stopped.
+
+    `project-e` held this assertion until LWSM-1184: its port sits behind a
+    wrapper that runs the program and a program that imports its port, and the
+    user filed that shape — Contact_List's — as a defect rather than a limit.
+    So the corpus now expects `project-e` DETECTED, and `project-e-deep` adds
+    one more import to hold the line that is left. An honest limit is still an
+    honest limit; a rule that quietly starts guessing past this one is the
+    regression this corpus exists to catch.
+    """
+    project = by_name(scan_root(corpus_tree, corpus_units(corpus_tree)))[
+        "project-e-deep"
+    ]
 
     assert project.port is None
     assert project.confidence is Confidence.UNKNOWN
@@ -2192,6 +2202,69 @@ def test_the_import_hop_reads_at_most_MAX_IMPORT_HOPS_files(
     assert project.port is None
     hopped = [path.name for path in opened_paths if path.name.startswith("m")]
     assert len(hopped) == scanner.MAX_IMPORT_HOPS
+
+
+def test_a_shell_launcher_hands_its_program_to_the_import_walk(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """LWSM-1184 — a wrapper that runs the program is not itself the program.
+
+    Measured live 2026-08-24: Contact_List's `run.sh` builds a venv and runs
+    `launcher.py`, which declares no port and imports one from `config.py`.
+    The scan opened exactly two files and stopped.
+
+    The invocation hop already grants its target program status for rule 3 —
+    `_python_framework` runs on it. This is the same grant for the port rules,
+    and the budget stays one invocation plus one import either way.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "wrapped",
+        {
+            "run.sh": "#!/bin/sh\nexec python3 launcher.py\n",
+            "launcher.py": "from config import PORT\n\nserve(PORT)\n",
+            "config.py": "PORT = 5002\n",
+        },
+        "run.sh",
+    )
+
+    project = by_name(scan_root(root))["wrapped"]
+
+    assert project.port is not None
+    assert project.port.port == 5002
+    assert project.port.source == "config.py"
+    assert "config.py" in {path.name for path in opened_paths}
+
+
+def test_a_wrapped_program_reaches_the_import_walk_before_a_framework_default(
+    tmp_path: Path,
+) -> None:
+    """A port another file DECLARES outranks one a framework merely defaults
+    to, which is § 4.6's own ordering — rule 3 runs "only when neither port
+    rule found anything", and the import walk is those rules in another file.
+
+    Without the ordering this project reports Flask's 5000 and is wrong by
+    two, which is exactly the confidently-wrong failure LWSM-1190 closed.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "flasky",
+        {
+            "run.sh": "#!/bin/sh\nexec python3 launcher.py\n",
+            "launcher.py": "import flask\nfrom config import PORT\n",
+            "config.py": "PORT = 5002\n",
+        },
+        "run.sh",
+    )
+
+    project = by_name(scan_root(root))["flasky"]
+
+    assert project.port is not None
+    assert project.port.port == 5002
 
 
 def test_an_import_hop_is_still_exactly_one_hop(

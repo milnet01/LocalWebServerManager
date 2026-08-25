@@ -833,9 +833,26 @@ must not start. Step 2's variable form is **not** an exception to that:
 `$PYTHON app.py` is followed because the token beside the variable is a literal,
 and `exec "$DIR/launcher.py"` still gives no hop at all.
 
-Exactly one hop is followed — `project-e` puts its port two hops out (`run.sh` → `launcher.py` →
-`config.py`) and is expected back as *port unknown*, which is an honest limit
-rather than a bug.
+**Amendment (LWSM-1184, 2026-08-25) — the bound is one INVOCATION and one
+IMPORT, not one hop of either kind.** Folded back from what was built.
+
+This read *"exactly one hop is followed"*, and `project-e` — `run.sh` →
+`launcher.py` → `config.py` — was its stated honest limit. The user filed that
+shape as a defect: it is Contact_List's, where `run.sh` builds a venv and runs
+`launcher.py`, which declares no port and imports one from `config.py`. A
+wrapper that runs the program is not itself the program, and the scan stopped
+one file short of the answer.
+
+The invocation hop already grants its target program status for § 4.6's rule 3
+— `_python_framework` runs on it, not on the wrapper. The shell rule now gives
+the same target the import walk as well, ahead of rule 3 because a port another
+file DECLARES outranks one a framework merely defaults to. Nothing recurses:
+`project-e-deep` adds one more import and is still *unknown*.
+
+Measured 2026-08-25 across the live sibling tree. Contact_List moved from
+*unknown* to 5002, and RetroDB kept 5000 while gaining real provenance — read
+from `settings_manager.py`'s `'server_port': 5000` instead of guessed from
+Flask's default. No other verdict moved.
 
 **A token containing a NUL byte is rejected before anything else touches it.**
 `os.path.commonpath` accepts one happily, and then `Path.resolve()` and
@@ -1634,7 +1651,8 @@ with the rules it is meant to lock:
 | `project-b` | `serve.py` with a port assignment | detected, launcher rule 3 + port rule 2 |
 | `project-c` | `server.py` with a port assignment | detected, launcher rule 3 + port rule 2 |
 | `project-d` | `start.sh` hopping to a `.py` that **imports neither Flask nor Django**, port held in a saved setting | **unknown** |
-| `project-e` | `run.sh` → `launcher.py` → `config.py`, port two hops out, no framework import in the hop target | **unknown** |
+| `project-e` | `run.sh` → `launcher.py` → `config.py`, the program importing its port | detected, port rule 2 in the imported file (LWSM-1184) |
+| `project-e-deep` | one import further out again | **unknown** — the walk is bounded at one invocation and one import |
 | `project-f` | `start.sh` declaring its port directly | detected, port rule 1 |
 | `project-g` | `run.sh` with `${PORT:-8080}` | detected, port rule 1's first alternative |
 | framework fixture (§ 3) | `serve.py` importing Flask, no port anywhere | detected, **port rule 3** |
@@ -1643,8 +1661,8 @@ with the rules it is meant to lock:
 | `vitest` fixture (rule 3) | `package.json` with `devDependencies: {"vitest": …}`, `"dev": "vitest"`, no port | **unknown** — `vite` is an exact key, and `vitest` is not it |
 | `flask_login` fixture (rule 3) | `serve.py` containing `import flask_login`, no port | **unknown** — the evidence is whole-word `flask` |
 
-**The `project-d` and `project-e` rows carry an explicit negative, and they
-have to.** Both are `SHELL` projects whose hop target is a `.py` file, and
+**The `project-d` and `project-e-deep` rows carry an explicit negative, and
+they have to.** Both are `SHELL` projects whose hop target is a `.py` file, and
 § 4.6's table lets a `SHELL` project reach Flask and Django evidence exactly
 that way. The real `project-d` runs on **5000** — Flask's default — so a
 fixture whose hop target imports Flask would make rule 3 return 5000, which is
@@ -1693,7 +1711,7 @@ Plus the acceptance test the roadmap names:
 rather than for seven, since the tree already holds more than the seven real
 projects and grows with every
 mis-detection — parametrised over the fixture tree, asserting launcher **and** port — including the *unknown* cases, since a
-rule that quietly starts guessing for `project-e` is the regression this
+rule that quietly starts guessing for `project-e-deep` is the regression this
 corpus exists to catch.
 
 **Every test is seen failing before the code exists** (`testing.md § 1`), and

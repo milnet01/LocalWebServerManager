@@ -271,6 +271,14 @@ signaling per
 
 ### Fixed
 
+- **A project whose start script runs a separate program now shows its port** (LWSM-1184)
+  Many projects have a start script that only prepares the machine and
+  then hands over to the real program. The scanner read the script and
+  the program, and stopped — so a port the program looks up in a
+  settings file beside it was never found. It now follows that one last
+  step. Contact_List picked up its port, and RetroDB kept the same port
+  while learning where it actually comes from.
+
 - **A port number written inside a sentence is no longer read as a setting** (LWSM-1190)
   Help text and error messages often name a port — "or PORT=5001 in the
   environment", "expected an integer in 1024-65535". The scanner read

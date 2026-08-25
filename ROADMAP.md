@@ -3406,7 +3406,7 @@ path. `docs/design.md § Detection rules` is the contract.
   Source: user-report-2026-08-24.
   Lanes: scanner.
 
-- 📋 [LWSM-1184] **The import walk stops at a launcher that uses ordinary imports.**
+- ✅ [LWSM-1184] **The import walk stops at a launcher that uses ordinary imports.**
   Scanning Contact_List, the follower reads `run.sh`, then
   `launcher.py`, and stops. The port is declared in `config.py`,
   which `launcher.py` reaches by an ordinary import rather than the
@@ -3420,6 +3420,36 @@ path. `docs/design.md § Detection rules` is the contract.
   resolve the port through a FUNCTION CALL rather than writing a
   literal where the server starts, so reaching the right file may
   not be sufficient on its own.
+  Resolved (2026-08-25). The filed cause was wrong and measuring said
+  so before any code was written: `_import_specifiers` already resolves
+  the dotless form, and `from config import ...` on Contact_List's own
+  `launcher.py` returns `config.py` today. What actually stopped the
+  walk is that the import walk was wired only into launcher rules 3 and
+  4 — a shell launcher's invocation hop never reached it. Recorded here
+  because this is the fifth time a fold-in bullet has been wrong about
+  its own mechanism; the path recorder settled it in one run.
+
+  The fix is one call in `_shell_port`. The invocation hop already
+  grants its target program status for rule 3 — `_python_framework`
+  runs on the hop file, not on the wrapper — so this is the same grant
+  for the port rules, ahead of rule 3 because a port another file
+  DECLARES outranks one a framework merely defaults to.
+
+  The contract moved and it is worth being plain about it. `project-e`
+  IS this shape, and the corpus pinned it as *unknown* with the reason
+  "an honest limit rather than a bug". That limit is what the user
+  filed as the defect, so `project-e` is now a detected fixture and
+  `project-e-deep` adds one more import to hold the line that is left:
+  the bound is one invocation and one import, and nothing recurses.
+
+  Live-tree diff: Contact_List *unknown* → 5002 from `config.py`, which
+  is its real `DEFAULT_PORT`. RetroDB kept 5000 and gained real
+  provenance — read from `settings_manager.py`'s `'server_port': 5000`
+  rather than guessed from Flask's default, so LWSM-1190's answer is no
+  longer right by coincidence. Five projects unmoved.
+
+  Five mutants, five killed, baseline green. Spec § 4.5 amended to
+  record what was built. `./scripts/local-ci.sh` green.
   **Layman:** Contact_List shows no port because the scanner stopped one file short of where the port is written.
   Kind: fix.
   Source: user-report-2026-08-24.
