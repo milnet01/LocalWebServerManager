@@ -5682,6 +5682,15 @@ program actually running.
   that counts matching processes before and after and fails the run on a
   difference would make this class self-reporting, which is what the trap note
   has been asking a human to do by hand since 2026-08-14.
+  Progress (2026-08-25): a THIRD leaker, found while shipping LWSM-1169.
+  An orphaned `/bin/sh ./start.sh` was still holding on hours after its run;
+  `/proc/<pid>/cwd` named the tmpdir of
+  `test_a_stop_during_the_stop_sequence_is_still_idempotent`, so that test
+  leaks one too and the bullet's list of two is short. Reading
+  `/proc/<pid>/cwd` is what makes a stray attributable to a named test — a
+  `pgrep` count alone says only that something leaked. The two tests added
+  for LWSM-1169 leak nothing: measured before and after, the count was
+  unchanged.
   **Layman:** Running the tests leaves two stray background processes behind every time, which build up until you notice and kill them.
   Kind: test.
   Source: in-session-2026-08-24.
