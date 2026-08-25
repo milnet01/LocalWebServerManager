@@ -38,6 +38,7 @@ from lwsm.supervisor import (
     LauncherUntrusted,
     ManagedProcess,
     PortAlreadyBound,
+    StopOutcome,
     Supervisor,
     _launcher_path,
     build_child_env,
@@ -701,6 +702,119 @@ def test_a_wrapper_script_and_its_child_are_fully_reaped(
     assert wait_until(lambda: not probe.snapshot().is_bound(port))
     assert not psutil.pid_exists(grandchild) or not _alive(grandchild)
     assert outcome.exit_code is not None
+
+
+@pytest.mark.integration
+def test_a_start_during_the_stop_sequence_is_refused(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """LWSM-1168 — the counterpart of LWSM-1137's `starting` set.
+
+    `stop()` pops the entry under the lock and then holds nothing for the whole
+    grace, kill and reap window. A `start()` arriving inside it finds the
+    project in neither `processes` nor `starting`, passes the pre-flight and
+    spawns a SECOND child; the old sequence then kills the old group while the
+    new one holds the port, and the manager reports its own new server as one
+    it did not start.
+
+    The window is HELD OPEN rather than raced for: `_on_wait` fires once per
+    turn of the wait loop, which is exactly inside it. Two calls issued back to
+    back would serialise on the GIL often enough to pass against broken code.
+    """
+    write_launcher(
+        project,
+        """
+        trap '' TERM
+        echo trap-installed
+        while true; do sleep 0.05; done
+        """,
+    )
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    assert wait_until(
+        lambda: "trap-installed" in managed.log_path.read_text(encoding="utf-8")
+    ), "the launcher never reported installing its SIGTERM trap"
+
+    attempts: list[object] = []
+
+    def start_again() -> None:
+        if attempts:
+            return
+        try:
+            attempts.append(
+                supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+            )
+        except AlreadyRunning as exc:
+            attempts.append(exc)
+
+    supervisor.stop(project, grace=0.5, _on_wait=start_again)
+
+    assert attempts, "_on_wait never fired, so nothing was tried inside the window"
+    assert isinstance(attempts[0], AlreadyRunning), (
+        f"a second child was spawned mid-stop: {attempts[0]!r}"
+    )
+
+
+@pytest.mark.integration
+def test_a_stop_that_raises_still_releases_the_project(
+    supervisor: Supervisor, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reservation is discarded in a `finally`, for LWSM-1137's reason.
+
+    One that only ran on the success path would turn a single failed stop into
+    a project that can never be started again this session — and the failure
+    would be invisible, since the child really did die.
+
+    `_port_after_stop` is the seam because it runs LAST: the child is already
+    signalled and reaped, so the raise leaves nothing behind to warn about.
+    """
+    write_launcher(project, "while true; do sleep 0.05; done\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    monkeypatch.setattr(Supervisor, "_port_after_stop", lambda self, managed: 1 / 0)
+
+    with pytest.raises(ZeroDivisionError):
+        supervisor.stop(project, grace=0.5)
+
+    monkeypatch.undo()
+    supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+
+@pytest.mark.integration
+def test_a_stop_during_the_stop_sequence_is_still_idempotent(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The reservation gates `start()` and nothing else.
+
+    `stop()`'s own contract is that whoever pops owns the sequence and a later
+    caller returns an empty outcome — that is what makes it idempotent, and a
+    reservation that refused the second caller would break it.
+    """
+    write_launcher(
+        project,
+        """
+        trap '' TERM
+        echo trap-installed
+        while true; do sleep 0.05; done
+        """,
+    )
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    assert wait_until(
+        lambda: "trap-installed" in managed.log_path.read_text(encoding="utf-8")
+    ), "the launcher never reported installing its SIGTERM trap"
+
+    seen: list[StopOutcome] = []
+
+    def stop_again() -> None:
+        if seen:
+            return
+        seen.append(supervisor.stop(project, grace=0.1))
+
+    supervisor.stop(project, grace=0.5, _on_wait=stop_again)
+
+    assert seen, "_on_wait never fired"
+    assert seen[0] == StopOutcome()
 
 
 @pytest.mark.integration

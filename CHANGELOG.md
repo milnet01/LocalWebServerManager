@@ -271,6 +271,13 @@ signaling per
 
 ### Fixed
 
+- **Pressing Start while a server is still stopping no longer launches a second copy** (LWSM-1168)
+  Stopping a stubborn server can take a few seconds. During that window
+  the app had forgotten it owned the project, so a Start arriving in
+  the middle spawned a second copy — and the stop then killed the first
+  one while reporting the new one as a server the app had not started.
+  Start is now refused with a clear message until the stop finishes.
+
 - **A project whose start script runs a separate program now shows its port** (LWSM-1184)
   Many projects have a start script that only prepares the machine and
   then hands over to the real program. The scanner read the script and

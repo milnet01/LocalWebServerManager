@@ -1777,7 +1777,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
   Lanes: security, controller.
 
-- 📋 [LWSM-1168] **FP08: `stop()` releases exclusivity at its first line, so a second child can be spawned mid-stop.**
+- ✅ [LWSM-1168] **FP08: `stop()` releases exclusivity at its first line, so a second child can be spawned mid-stop.**
   `stop()` pops the entry under the lock and then holds nothing for the whole
   grace/kill/reap window — the symmetric counterpart of the `starting` set
   LWSM-1137 added to `start()` is missing. Meanwhile `controller.py:797`
@@ -1800,6 +1800,40 @@ module states the correct rule in almost the same words.
   overlay clears and Start re-enables before `stop()` returns — was not
   observed. **Reproduce first**; `tests/test_supervisor.py` already has a
   `trap '' TERM` launcher to build on.
+  Resolved (2026-08-25). **Reproduced first, as the bullet demanded, and
+  the supervisor half is CONFIRMED**: a second real child was spawned
+  mid-stop, pid and all. The window is held open at the `_on_wait` seam
+  rather than raced for — two calls back to back serialise on the GIL
+  often enough to pass against the broken code.
+
+  Fix: `stop()` now RESERVES the key in `_Registry.stopping` in the same
+  locked block that pops it, and discards it in a `finally` — LWSM-1137's
+  reservation read backwards, with `finally` for the same reason a
+  half-failed stop must not leave a project unstartable for the session.
+  It gates `start()` alone; a second `stop()` still returns an empty
+  outcome, pinned by its own test.
+
+  **The UI half of the filed diagnosis is WRONG in its stated mechanism
+  and right in its conclusion.** The bullet says the STOPPING overlay
+  clears about a second in against a SIGTERM-ignoring child. It does not:
+  `_settle_overlay` settles STOPPING only on a derived STOPPED, and a
+  child ignoring SIGTERM keeps holding its port, so the overlay persists
+  for the whole grace window. The reachable route is a different branch —
+  LWSM-1133's `effective_port is None` clause, which clears any overlay on
+  the next poll. So it is a PORT-LESS project that re-enables Start
+  mid-stop, not a stubborn one. MAME_Curator is such a project today.
+
+  That leaves a smaller UI defect this item does not close: for a
+  port-less project Start is enabled during a stop and now answers with a
+  refusal instead of a second child. Correct, but a live button that
+  always errors is worth a follow-up rather than widening this item.
+
+  This is the sixth fold-in bullet found wrong about its own mechanism.
+  The reproduction cost one test and settled both halves.
+
+  Five mutants, five killed, baseline green. `CLAUDE.md`'s module map
+  amended. `./scripts/local-ci.sh` green, no orphaned children after the
+  run.
   **Layman:** Press Stop on a stubborn server and the Start button comes back before the stop has finished; pressing it starts a second copy, and the app then reports your own new server as a stranger's.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
@@ -2162,6 +2196,36 @@ module states the correct rule in almost the same words.
   Kind: fix.
   Source: in-session-2026-08-23, found while shipping LWSM-1163.
   Lanes: settings.
+
+- 📋 [LWSM-1191] **FP08: a port-less project re-enables Start while its stop is still running.**
+  Found while closing LWSM-1168, which fixed the dangerous half. The
+  supervisor now refuses a Start issued mid-stop, so no second child is
+  spawned — but the button that issues it is still live, so the user
+  gets an error for pressing an enabled control.
+
+  The route is not the one LWSM-1168 was filed with. `_settle_overlay`
+  settles a STOPPING overlay only on a derived STOPPED, so a child that
+  holds its port keeps the overlay for the whole grace window. What
+  clears it early is LWSM-1133's separate branch: a project whose
+  `effective_port is None` has nothing to wait for, so the overlay is
+  dropped on the very next poll — within the poll interval, while
+  `stop()` may still have seconds to run.
+
+  MAME_Curator is such a project today, deliberately: it declares no
+  default port at all, and LWSM-1190 stopped the scanner inventing one.
+  So this is reachable on the author's own tree rather than
+  hypothetical.
+
+  The fix is not simply to keep the overlay — LWSM-1133 removed a real
+  defect where a port-less project read `starting` for the life of the
+  session with every button dead. Whatever lands has to leave that
+  closed. The narrower question is whether Start specifically may be
+  enabled while the supervisor holds a stop reservation, which is a
+  fact the controller can ask for rather than infer from the port.
+  **Layman:** On a project whose port the app cannot detect, the Start button comes back before the stop has finished, and pressing it just shows an error.
+  Kind: fix.
+  Source: in-session-2026-08-25.
+  Lanes: controller, window.
 
 ### 🐛 Bug fixes
 

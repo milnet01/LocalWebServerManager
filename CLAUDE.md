@@ -713,6 +713,16 @@ built under § Review cadence's build-first default:
   the log descriptor is closed exactly once. The reservation's discard lives in
   a `finally`: one that only ran on success would turn a single refused start
   into a project that can never start again this session.
+  **Popping is not RESERVING, and for a while `stop()` only popped**
+  (LWSM-1168) — the grace, kill and reap window ran with the project in
+  neither map, so a Start arriving inside it passed the pre-flight and spawned
+  a second child, after which the in-flight stop killed the old group and the
+  manager reported its own new server as a stranger's. Reproduced by holding
+  the window open at the `_on_wait` seam rather than racing for it. `stop()`
+  now holds the key in `_Registry.stopping` for the whole sequence, discarded
+  in the same `finally` shape and for the same reason. It gates `start()`
+  alone: a second `stop()` still finds nothing and returns an empty outcome,
+  which is what makes stop() idempotent.
 
 Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
 

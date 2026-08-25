@@ -480,6 +480,11 @@ class _Registry:
     # trust gate, the log open and the spawn, so `processes` alone cannot answer
     # "is one already on its way?" (LWSM-1137).
     starting: set[Path] = field(default_factory=set)
+    # The mirror of `starting`, for the other end (LWSM-1168). `stop()` pops the
+    # entry out of `processes` under the lock and then runs the whole grace,
+    # kill and reap window with the lock released, so `processes` alone cannot
+    # answer "is one already on its way OUT?" either.
+    stopping: set[Path] = field(default_factory=set)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -635,6 +640,13 @@ class Supervisor:
                 or resolved_project in self._registry.starting
             ):
                 raise AlreadyRunning(f"{name} is already running under this manager")
+            if resolved_project in self._registry.stopping:
+                # Reproduced 2026-08-25: without this a Start arriving inside
+                # the grace window spawns a SECOND child, the in-flight stop
+                # then kills the old group while the new child holds the port,
+                # and `_port_after_stop` reports the manager's own server as
+                # one it did not start.
+                raise AlreadyRunning(f"{name} is still stopping")
             self._registry.starting.add(resolved_project)
 
         try:
@@ -740,11 +752,38 @@ class Supervisor:
         # (LWSM-1138). Whoever pops owns the sequence; a later caller finds
         # nothing and returns an empty outcome, which is what makes stop()
         # idempotent.
+        #
+        # Popping is not the same as RESERVING, and only the pop was here
+        # (LWSM-1168). Everything below runs with the lock released, so between
+        # these two lines and the return the project sits in neither map and a
+        # concurrent `start()` passes its pre-flight. The key is therefore held
+        # in `stopping` for the whole sequence — `start()`'s reservation read
+        # backwards, and discarded in a `finally` for its reason: a stop that
+        # raised would otherwise leave the project unstartable for the session.
+        #
+        # It gates `start()` alone. A second `stop()` still finds nothing and
+        # returns an empty outcome, which is what makes stop() idempotent.
+        key = Path(project).resolve()
         with self._registry.lock:
-            managed = self._registry.processes.pop(Path(project).resolve(), None)
+            managed = self._registry.processes.pop(key, None)
+            if managed is not None:
+                self._registry.stopping.add(key)
         if managed is None:
             return StopOutcome()
 
+        try:
+            return self._stop_sequence(managed, grace, _on_wait)
+        finally:
+            with self._registry.lock:
+                self._registry.stopping.discard(key)
+
+    def _stop_sequence(
+        self,
+        managed: ManagedProcess,
+        grace: float,
+        _on_wait: Callable[[], None] | None,
+    ) -> StopOutcome:
+        """The signal, wait, escalate and reap half, with the key reserved."""
         members = self._group_members(managed)
         terminated: list[int] = []
         for proc in members:
