@@ -271,6 +271,13 @@ signaling per
 
 ### Fixed
 
+- **Open at a size the current screen can hold, whatever size the window was last closed at** (LWSM-1172)
+  A window sized on a large monitor and reopened on a smaller one came
+  back at its remembered size — off the edge of the display, where the
+  corner you would drag to shrink it is out of reach. The remembered
+  size is now bounded by the screen the window opens on, and the
+  compositor is told the bounded size rather than the stored one.
+
 - **"Centre on screen" now reports a desktop that refused the request.** (LWSM-1170)
   On a non-KDE Linux desktop the menu entry looked available, did
   nothing when clicked, and said nothing about why. The exit status the

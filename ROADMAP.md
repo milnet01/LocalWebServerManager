@@ -1963,7 +1963,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-1 (placement).
   Lanes: placement, security.
 
-- 📋 [LWSM-1172] **FP08: the remembered window size is applied without the clamp ADR-0007 requires.**
+- ✅ [LWSM-1172] **FP08: the remembered window size is applied without the clamp ADR-0007 requires.**
   `_restore_geometry` calls `self.resize(*self._remembered_size)` and
   discards the clamped rectangle `place_window` returns; on X11 the `move`
   seam only moves. ADR-0007 requires a restored geometry to be "validated
@@ -1976,6 +1976,37 @@ module states the correct rule in almost the same words.
   AFTER the restore and does bound the same stored size via
   `want.boundedTo(cap)` — so the identical file gives a capped window on one
   path and an uncapped one on the other.
+  Resolved (2026-08-25): reproduced first, and the filed INCONSISTENCY is wrong
+  in a way that matters. The bullet says the empty-list path bounds the size via
+  `_apply_default_geometry` while the other does not. Measured on an 800x800
+  screen with a stored 2400x2400: BOTH paths opened at 2400x2400. With rows,
+  `_apply_default_geometry` runs inside `__init__` and its `boundedTo` is then
+  overwritten by `_restore_geometry`, which fires off the first `showEvent`;
+  with no rows it returns early and never runs. So there was no capped path,
+  and a fix to `_restore_geometry` alone would have been enough.
+
+  Fixed by one rule in one place — `_bounded_to_screen`, called from both — with
+  the fraction lifted to `SCREEN_FRACTION` so two copies of `0.9` cannot drift.
+  `_restore_geometry` now passes the window's own size to `_place_at` rather
+  than the stored one, so KWin is asked for the rectangle the window actually
+  is: its geometry write is authoritative, and asking for the unbounded size
+  would undo the bound on the one platform where the user cannot drag the
+  window back.
+
+  Four tests: the two restore paths (parametrised), the reversed ordering where
+  rows arrive after the restore, and what the compositor is told. Six mutants,
+  four killed. Two survived, BOTH on pre-existing defensive lines this item did
+  not introduce and neither is claimed as covered: the `floor` bound in
+  `_apply_default_geometry` (the content minimum never exceeds the cap at any
+  font the suite drives) and the no-screen headless branch (unreachable — the
+  suite always has an offscreen screen).
+
+  Noted, NOT fixed here: `_restore_geometry`'s docstring opens "Position first,
+  then size" and its measured-KWin paragraph concludes place-then-resize, while
+  the code has resized first since `kwin_script` stopped preserving the current
+  size and began sending it explicitly. The prose is stale rather than the code
+  wrong, but confirming that needs a real KWin session, which this item did not
+  have.
   **Layman:** A window size remembered from a big monitor opens off the edge of a smaller screen.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-1 (placement).

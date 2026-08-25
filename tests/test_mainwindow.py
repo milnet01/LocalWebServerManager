@@ -4332,6 +4332,85 @@ def test_a_remembered_size_beats_the_measured_default(qtbot, built) -> None:
     assert (measured.width(), measured.height()) != (705, 505)
 
 
+def oversized() -> tuple[int, int]:
+    """A size no attached screen can hold — the 4K-monitor file on a laptop.
+
+    Derived from the running screen rather than written as a constant, because
+    the suite's offscreen screen and a real one are different sizes and a
+    literal would stop being oversized on one of them.
+    """
+    room = QApplication.primaryScreen().availableGeometry()
+    return room.width() * 3, room.height() * 3
+
+
+@pytest.mark.parametrize("records", [[], "two"], ids=["empty-list", "two-rows"])
+def test_a_size_remembered_from_a_bigger_monitor_opens_inside_this_one(
+    qtbot, built, records
+) -> None:
+    """ADR-0007 requires a restored geometry to be validated against the
+    CURRENT screens, and names "sized larger than the current display".
+
+    Measured on 2026-08-25 before the fix: a stored size of three times the
+    screen opened at three times the screen on BOTH paths — `_restore_geometry`
+    applied it verbatim, and where `_apply_default_geometry` had bounded it
+    first that ran earlier and was overwritten. Off the edge of the display is
+    where the corner that would resize the window back is unreachable.
+
+    Parametrised over the two paths because they are separately reachable and
+    were separately broken: with no rows `_apply_default_geometry` returns
+    early and never runs at all.
+    """
+    room = QApplication.primaryScreen().availableGeometry()
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows() if records == "two" else [],
+        position=(0, 0),
+        size=oversized(),
+    )
+
+    assert window.width() <= room.width()
+    assert window.height() <= room.height()
+
+
+def test_kwin_is_asked_for_the_size_the_window_actually_is(qtbot, built) -> None:
+    """The rectangle sent to the compositor is the bounded one, not the file's.
+
+    KWin's geometry write is authoritative — `kwin_script` measured that: once
+    the script says a size, the client's own `resize` is configured straight
+    back to it. So asking for the unbounded remembered size would undo the
+    bound on exactly the platform where the user cannot drag the window back,
+    and `closeEvent` would then store what KWin imposed.
+    """
+    asked: list[tuple[int, int]] = []
+
+    def fake_kwin(
+        argv: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        for arg in argv:
+            if arg.startswith("string:") and arg.endswith(".js"):
+                script = Path(arg[len("string:") :]).read_text()
+                found = dict(re.findall(r"(width|height): (\d+) \+", script))
+                asked.append((int(found["width"]), int(found["height"])))
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    window = geometry_window(
+        qtbot,
+        built,
+        [],
+        position=(0, 0),
+        size=oversized(),
+        place=functools.partial(
+            placement.place_window,
+            environ={"XDG_SESSION_TYPE": "wayland"},
+            which=lambda _name: "/usr/bin/dbus-send",
+            run=fake_kwin,
+        ),
+    )
+
+    assert asked == [(window.width(), window.height())]
+
+
 def test_a_maximised_window_reopens_maximised_and_is_not_placed(qtbot, built) -> None:
     """Its position is the screen's, so asking for the stored coordinates would
     un-maximise it to honour them."""
@@ -4577,6 +4656,39 @@ def test_rows_arriving_after_the_restore_do_not_undo_the_remembered_size(
 
     assert len(rows_of(window)) == 2, "the rows must arrive AFTER the restore"
     assert (window.width(), window.height()) == (705, 505)
+
+
+def test_rows_arriving_after_the_restore_still_bound_an_oversized_size(
+    qtbot, built
+) -> None:
+    """The same reversed ordering, with a size no screen can hold.
+
+    The test above pins that `_apply_default_geometry` prefers the remembered
+    size when it runs last; this pins that preferring it is not the same as
+    applying it whole. Dropping the bound there survived the whole suite on
+    2026-08-25 — every other oversized test reaches the method through the
+    ordering in which its result is overwritten by the restore, so the bound
+    ran and could not be observed. Same shape as the mutation that produced the
+    test above, one property along.
+    """
+    room = QApplication.primaryScreen().availableGeometry()
+    controller = build_controller(built, [], FakeProbe(5005))
+    window = MainWindow(
+        controller, Theme.default(), [], position=(0, 0), size=oversized()
+    )
+    qtbot.addWidget(window)
+    with qtbot.waitExposed(window):
+        window.show()
+    qtbot.wait(1)
+
+    controller.set_records(two_rows())
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    qtbot.wait(1)
+
+    assert len(rows_of(window)) == 2, "the rows must arrive AFTER the restore"
+    assert window.width() <= room.width()
+    assert window.height() <= room.height()
 
 
 def test_a_wayland_session_stores_the_size_and_leaves_the_position_alone(

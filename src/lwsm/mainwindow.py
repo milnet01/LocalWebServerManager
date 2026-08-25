@@ -102,6 +102,10 @@ menu cannot come to offer a size the settings file would refuse to store.
 
 DEFAULT_VISIBLE_ROWS = 8
 MIN_VISIBLE_ROWS = 3
+# The largest fraction of a screen this window opens at. Not a pixel size
+# (`§ O7`): the point is that it is relative to whatever display is attached
+# now, which is the one thing a size recorded on a different monitor is not.
+SCREEN_FRACTION = 0.9
 
 # Decorative only. One of the three signals design.md § Accessibility requires,
 # and excluded from the accessible name — a screen reader announcing "black
@@ -2604,18 +2608,21 @@ class MainWindow(QMainWindow):
         first, so that un-maximising later gives back the window they had.
         """
         if self._remembered_size is not None:
-            self.resize(*self._remembered_size)
+            # Bounded, because a size is restored on every platform while
+            # placement can be refused — so this is the only guard ADR-0007's
+            # "sized larger than the current display" case ever gets.
+            self.resize(self._bounded_to_screen(QSize(*self._remembered_size)))
         if self._remembered_maximized:
             self.showMaximized()
             return
         if self._remembered_pos is None:
             return
-        # The size sent is the one just applied where there is one, and the
-        # window's own otherwise — KWin needs a whole rectangle either way, and
-        # a session that remembered a position without a size still deserves
-        # the position.
-        width, height = self._remembered_size or (self.width(), self.height())
-        self._place_at(Rect(*self._remembered_pos, width, height))
+        # The window's OWN size, not the remembered one: where a size was
+        # remembered the resize above has already applied it bounded, and
+        # sending the unbounded value would ask KWin for a rectangle the
+        # window is not. A session that remembered a position without a size
+        # still deserves the position, and this reads correctly there too.
+        self._place_at(Rect(*self._remembered_pos, self.width(), self.height()))
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Remember where the window was, then let it close.
@@ -2753,14 +2760,38 @@ class MainWindow(QMainWindow):
         # height is negotiable.
         floor = QSize(width, chrome + MIN_VISIBLE_ROWS * row_height)
 
+        self.setMinimumSize(self._bounded_to_screen(floor))
+        self.resize(self._bounded_to_screen(want))
+
+    def _bounded_to_screen(self, size: QSize) -> QSize:
+        """`size`, never bigger than the screen this window is on.
+
+        ADR-0007 requires a restored geometry to be validated against the
+        CURRENT screens and names "sized larger than the current display" as
+        the case: `"width": 3800` recorded on a 4K monitor otherwise opens off
+        the edge of a 1920x1080 laptop, where the corner that would drag it
+        back is unreachable.
+
+        **One rule, called from both places that apply a remembered size.**
+        `_restore_geometry` discarded the bound entirely and ran last, so the
+        cap computed here was overwritten on the path where rows exist and
+        never computed at all on the path where they do not (measured
+        2026-08-25: three times the screen, on both). Two copies of the
+        fraction is how the same stored file starts giving two windows.
+
+        No screen at all is the headless case; there is nothing to bound
+        against and the asked-for size stands.
+        """
         screen = self.screen() or QApplication.primaryScreen()
-        if screen is not None:
-            room = screen.availableGeometry()
-            cap = QSize(int(room.width() * 0.9), int(room.height() * 0.9))
-            want = want.boundedTo(cap)
-            floor = floor.boundedTo(cap)
-        self.setMinimumSize(floor)
-        self.resize(want)
+        if screen is None:
+            return size
+        room = screen.availableGeometry()
+        return size.boundedTo(
+            QSize(
+                int(room.width() * SCREEN_FRACTION),
+                int(room.height() * SCREEN_FRACTION),
+            )
+        )
 
     def _align_columns(self) -> None:
         """One width per column across every row, the widest cell winning.
