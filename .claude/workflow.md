@@ -208,6 +208,13 @@ roadmap items shipped: LWSM-1162, 1163, 1164, 1182, 1165.
 a later session agrees — it is recorded here first because adding it there
 re-arms global rule 14's gate, and that call is the user's, not a session's.**
 
+- **PROMOTED to `CLAUDE.md` 2026-08-25** (rule 14 applied: a conformer hitting
+  a reddened pre-existing test behaves differently, so it changes what gets
+  written — no gate, since CLAUDE.md's Trap cluster records what was measured
+  rather than directing new work). LWSM-1184 supplied the second and stronger
+  instance, where the test was not wrong at all. Kept below as the record of
+  where it came from.
+
 - **A pre-existing test can encode the defect as the contract, and it reads
   exactly like coverage.** LWSM-1162's escaping-symlink refusal was
   unreachable from `start()` because `_contained` returned `None` for the

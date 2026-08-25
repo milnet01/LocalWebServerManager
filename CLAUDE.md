@@ -1029,6 +1029,38 @@ cheapest way to ask; one caller, in a test file, is the tell. Same family as
 the `semgrep` and stale-`.pyc` notes above — a mechanism that ran nothing looks
 exactly like a mechanism that found nothing to do.
 
+**Trap: a green test can be holding the defect in place, and it reads exactly
+like coverage.** Two shapes, both measured here. LWSM-1162's escaping-symlink
+refusal was unreachable from `start()`, and a test asserted precisely that, by
+name, with a docstring explaining why it was right — fixing the code turned a
+green test red, which is the only reason anyone looked. LWSM-1184's was
+stronger, because nothing was wrong with the test: `project-e` pinned "the port
+is two hops out, and exactly one hop is followed" as **an honest limit rather
+than a bug**, and that limit was the thing the user filed as the defect.
+**When a change reddens a pre-existing test, read what the test CLAIMS before
+assuming the change is wrong** — a fixture can encode a limit that has since
+stopped being one. Then say so where it is visible: the fixture moves, the
+reason moves with it, and something narrower takes its place holding whatever
+bound is left (`project-e-deep`). Silently editing a fixture to go green and
+silently backing out a correct change are the same mistake from opposite
+sides. The inverse of the LWSM-1136 trap above — there a test asserted a
+mechanism nothing called, here one asserted a mechanism that was no longer
+wanted.
+
+**Trap: a fold-in bullet's stated CAUSE is a reading, not a measurement, and it
+has now been wrong six times.** LWSM-1184 was filed as "the launcher uses an
+ordinary import rather than the relative form the walk follows" — and
+`_import_specifiers` already resolved the dotless form; the walk was simply
+never wired into the shell launcher's hop. LWSM-1168's supervisor half
+reproduced exactly as filed while its UI half named the wrong branch entirely.
+**Reproduce before designing, and prefer an instrument to an argument.** Two
+that pay for themselves in one run here: patch `scanner._open_source` to
+record every path a live scan opens, which answers "where did it stop?"
+outright; and diff live-tree verdicts across the change, which is the only
+thing that catches a SECOND project with the same defect (LWSM-1190's
+MAME_Curator) or proves a change surgical. Neither is expensive. Both have
+overturned a bullet the same session it was read.
+
 **Trap: a concurrency test that issues two calls back to back proves nothing
 about a check-then-act.** Python serialises the two threads on the GIL often
 enough that the loser arrives after the winner has finished, so the broken code
