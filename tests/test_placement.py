@@ -16,6 +16,7 @@ import logging
 import os
 import stat
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -312,6 +313,51 @@ def test_the_script_is_written_privately_and_then_deleted(tmp_path: Path) -> Non
     # scripts in the state directory.
     assert not path.exists()
     assert list((tmp_path / "state").iterdir()) == []
+
+
+@pytest.fixture
+def loose_umask() -> Iterator[None]:
+    """A umask that would leave a created directory group- and world-readable.
+
+    Pinned, because the mode a bare `mkdir` produces is the developer's own
+    umask and the assertions below are about what happens when it is loose.
+    """
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+def test_every_component_of_the_state_directory_is_created_owner_only(
+    tmp_path: Path, loose_umask: None
+) -> None:
+    """`mkdir(parents=True, mode=0o700)` applies the mode to the LEAF only and
+    leaves every parent it created at the umask default — measured 0o755 by
+    `applog._prepare_state_dir`, and again here on 2026-08-25. The file this
+    directory holds is one the compositor executes, so a parent another local
+    account can traverse and unlink from is the whole exposure."""
+    state_dir = tmp_path / "state" / "lwsm" / "place"
+
+    assert run_kwin_script("// script", state_dir, FakeRun())
+
+    for created in (state_dir.parent.parent, state_dir.parent, state_dir):
+        assert stat.S_IMODE(created.stat().st_mode) == 0o700, created
+
+
+def test_a_state_directory_left_loose_by_something_else_is_tightened(
+    tmp_path: Path, loose_umask: None
+) -> None:
+    """`exist_ok=True` accepts whatever mode is already there. The state tree is
+    `applog`'s, which re-chmods the directory it is handed for exactly this
+    reason, and a second weaker copy of the job is what `coding.md § 1.3`
+    forbids — so this path goes through that function rather than around it."""
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(mode=0o755)
+
+    assert run_kwin_script("// script", state_dir, FakeRun())
+
+    assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700
 
 
 def test_the_three_dbus_calls_are_argument_vectors_with_a_deadline(

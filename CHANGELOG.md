@@ -593,6 +593,14 @@ signaling per
 
 ### Security
 
+- **Create the directory holding the KWin placement script owner-only, every component of it** (LWSM-1171)
+  "Centre on screen" writes a script the compositor then executes.
+  The directory it goes in was created with a form that sets the mode
+  on the last component only, leaving the ones above it readable and
+  traversable by other accounts on the machine — and reused an
+  existing directory whatever its permissions were. It now goes
+  through the same routine the log and the config files already use.
+
 - **Open in browser now checks who is actually holding the port** (LWSM-1167)
   Open is meant to be offered only for a server this app started. It was
   deciding that from its own records — "we started something for this

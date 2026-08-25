@@ -1930,7 +1930,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-1 (placement).
   Lanes: placement.
 
-- 📋 [LWSM-1171] **FP08: the KWin script's directory is created with the mkdir form this project measured as wrong.**
+- ✅ [LWSM-1171] **FP08: the KWin script's directory is created with the mkdir form this project measured as wrong.**
   `placement.py` uses `state_dir.mkdir(parents=True, exist_ok=True,
   mode=0o700)` — the exact form `applog.py:70` and `configfile.py:121` both
   document as measured-wrong: the mode applies to the LEAF only, so every
@@ -1948,6 +1948,16 @@ module states the correct rule in almost the same words.
   reading it is then guarded only by the file mode, in a directory another
   local account may be able to unlink from, for content the compositor
   executes.
+  Resolved (2026-08-25): reproduced first — with umask 0o022 the filed form
+  left both intermediates at 0o755 and reused an existing 0o755 leaf
+  unchanged, exactly as filed. `run_kwin_script` now calls
+  `applog._prepare_state_dir`, the name `supervisor.py` already uses for this
+  same tree, rather than a third copy of the job. `configfile.prepare_config_dir`
+  was the other candidate and is wrong here: it deliberately does NOT re-chmod
+  an existing directory, which is the second half of this defect. Two tests, one
+  per half, on a pinned umask. Three mutants, 3/3 killed, none inert — the full
+  revert kills both tests and each partial fix kills exactly the one that names
+  its half.
   **Layman:** A directory the app creates for a file the desktop then executes may be left readable by other accounts on the machine.
   Kind: security.
   Source: close-phase-2026-08-21 lane-1 (placement).

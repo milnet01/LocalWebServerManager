@@ -297,7 +297,7 @@ def run_kwin_script(
     for a name never registered. So every call is checked, because a failure
     that reaches one reaches all three, and none can tell us more than that.
 
-    The script goes to a private temporary file in the app's own state
+    The script goes to a private temporary file in an owner-only state
     directory at 0600 (`mkstemp`'s mode), not to a predictable path: between
     writing it and KWin reading it, a predictable path is a symlink-replacement
     target, and what would be swapped in is a file the compositor executes.
@@ -313,7 +313,13 @@ def run_kwin_script(
     runner = subprocess.run if run is None else run
     handle, name = None, None
     try:
-        state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # `applog`'s, not a third copy: `mkdir(parents=True, mode=0o700)` sets
+        # the mode on the leaf alone and leaves every parent it created at the
+        # umask default (measured 0o755 again on 2026-08-25), and `exist_ok`
+        # accepts a directory already left loose. That function creates each
+        # component explicitly and re-chmods the leaf. `supervisor.py` reaches
+        # for the same private name for the same tree.
+        applog._prepare_state_dir(state_dir)
         handle, name = tempfile.mkstemp(suffix=".js", prefix="place-", dir=state_dir)
         with os.fdopen(handle, "w", encoding="utf-8") as script:
             # The descriptor is now owned by the file object, so the `finally`
