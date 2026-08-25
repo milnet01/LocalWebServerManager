@@ -971,7 +971,7 @@ are mutually exclusive, so exactly one is ever set.
 **An out-of-range value is not a match, and scanning resumes after it** — the
 rest of the same line, then the next line, then the next source. So rule 1 uses
 `finditer` and returns the first in-range value rather than `search` and a
-range check on one result: `localhost:99999 and PORT=8080` on one line yields
+range check on one result: `localhost:99999 ; PORT=8080` on one line yields
 **8080**, where checking only the first match would yield nothing and hand the
 line to rule 2. Rule 2's fenced code carries the same rule inside its loop.
 
@@ -1077,6 +1077,52 @@ example `design.md` gives and rejects all four:
 | `transport = 4` | **4** | none |
 | `report: 7` | **7** | none |
 | `export = 5` | **5** | none |
+
+**Amendment (LWSM-1190, 2026-08-24) — both rules also ask WHERE the
+declaration sits, not only what it looks like.** Folded back from what was
+built; the rules above are otherwise unchanged.
+
+Neither guard above can tell a setting from a sentence about one, and the real
+population holds both. RetroDB's `app.py` prints help for moving off a busy
+port — `'    Settings -> System -> Server Port, or PORT=5001 in the'` — which
+rule 1 read as an explicit setting; MAME_Curator's `run.sh` prints
+`echo "error: PORT='${PORT}' … expected an integer in 1024-65535."`, whose key
+left of the first `=` is `echo "error: PORT`, satisfying `KEY_IS_PORT` through
+the space, so rule 2 returned the lower bound of a validation range. Both were
+*confidently wrong*, which is worse than blank: the window matches status
+against whoever holds the port, so a wrong number reports a running project
+stopped.
+
+The discriminator is position, the property § 4.5 already leans on for a
+`$VAR` interpreter. **A declaration begins at the start of a line, after a
+separator (`;&|({[,`), or after a word that introduces one** — `export`, `env`,
+`then`, `do`, `else`, `elif`, `const`, `let`, `var`, `local`, `declare`,
+`readonly`, a `-flag`, another `NAME=value`, or a bare `=` (the
+right-hand side, which is where `opts = {"port": 5173}` puts its key). Prose
+ends in an ordinary word, and neither `or` nor `"error:` is any of these.
+
+Applied to each rule at the one place it can be:
+
+- **Rule 1** applies it to the two `PORT=` alternatives only, against the text
+  left of the match. `--port` and `localhost:` are not assignments and stay
+  readable anywhere — including inside a quoted script value, which is the only
+  place a `package.json` port is ever written (`"dev": "vite --port 3000"`).
+- **Rule 2** applies it to the key minus its last word, so `export const
+  DEFAULT_PORT` still declares and `… Server Port, or PORT` does not.
+
+**Narrow in one direction only, deliberately.** A declarator the set does not
+know costs a detection, and an undetected port is `None` — which § 4.1 already
+means as *unknown* and never as a guess. A wrong number has no such reading,
+which is why the trade runs this way round. Two consequences are accepted and
+stated rather than chased: a key that is prose but carries no punctuation
+(`the port = 5000`) still passes, and a declaration behind a statement the key
+swallows may now be missed.
+
+Measured 2026-08-24 by diffing verdicts over the author's live sibling tree
+across the change, all five launcher kinds represented. Two projects moved and
+both moved toward the truth: RetroDB from a wrong 5001 to Flask's 5000, and
+MAME_Curator — which declares no default at all, `PORT="${PORT:-}"` — from a
+wrong 1024 to *unknown*. Every other verdict was unchanged.
 
 Produced 2026-08-08 by running both key rules over those ten lines under
 `uv run python3` on 3.13.14. **Both columns**, not just the shipping one:

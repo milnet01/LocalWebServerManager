@@ -3425,7 +3425,7 @@ path. `docs/design.md § Detection rules` is the contract.
   Source: user-report-2026-08-24.
   Lanes: scanner.
 
-- 📋 [LWSM-1190] **A port rule reads a number out of a quoted error message.**
+- ✅ [LWSM-1190] **A port rule reads a number out of a quoted error message.**
   Exposed by LWSM-1183, not caused by it. With the follower fixed,
   the walk correctly reaches `app.py` — which `start.sh` really does
   run — and rule 1 then matches `PORT=5001` inside a quoted string:
@@ -3491,6 +3491,41 @@ path. `docs/design.md § Detection rules` is the contract.
   to keep port numbers out of its prose so our scanner is not
   confused inverts who serves whom. Do not reopen this as "RetroDB
   should reword its error".
+  Resolved (2026-08-25): both rules now ask WHERE the declaration sits,
+  not only what it looks like. A declaration begins at a line start,
+  after a separator, or after a word that introduces one; prose ends in
+  an ordinary word, and neither `or` nor `"error:` is one of those. Rule
+  1 applies it to its two `PORT=` forms only, so `--port` and
+  `localhost:` stay readable inside a quoted script value — which is
+  what the design constraint above ruled out for a whole-line test.
+  Rule 2 applies it to the key minus its last word, so `export const
+  DEFAULT_PORT` still declares.
+
+  The instrument found a SECOND instance of the same defect that no
+  fixture had. MAME_Curator was reporting 1024, read out of
+  `echo "error: PORT='${PORT}' ... expected an integer in 1024-65535."`
+  — the lower bound of a validation range. That project declares no
+  default on purpose (`PORT="${PORT:-}"`), so *unknown* is its truthful
+  answer.
+
+  Live-tree diff: two projects moved and both moved toward the truth —
+  RetroDB from a wrong 5001 to Flask's 5000, MAME_Curator from a wrong
+  1024 to unknown. Every other verdict unchanged. The filed bar said
+  the other six would be unmoved; one of the six was wrong for this
+  same reason and is now right.
+
+  Narrow in one direction only: a declarator the set does not know
+  costs a detection, and an undetected port is `None`, which this
+  module already means as unknown. Two limits are stated rather than
+  chased — a prose key carrying no punctuation (`the port = 5000`)
+  still passes, and a declaration behind a statement the key swallows
+  may now be missed.
+
+  Ten mutants, ten killed, baseline green; four re-run against the
+  final text after a formatting reshuffle. `global` was dropped from
+  the declarator set on the way: `global PORT = 5000` is not valid
+  Python, so no line could ever reach it. Spec § 4.6 amended to record
+  what was built. `./scripts/local-ci.sh` green.
   **Layman:** RetroDB shows the wrong port because the scanner read a number out of an error message rather than a setting.
   Kind: fix.
   Source: in-session-2026-08-24.

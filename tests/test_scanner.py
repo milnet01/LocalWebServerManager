@@ -310,6 +310,47 @@ def test_a_commented_out_port_is_not_detected(line: str, expected: int | None) -
 
 @pytest.mark.parametrize(
     ("line", "expected"),
+    [
+        # LWSM-1190 — the two lines measured in the live population. Both are
+        # help text telling the user how to move off a busy port, and both were
+        # read as declarations: RetroDB's by rule 1, MAME_Curator's by rule 2.
+        ("    'Settings -> System -> Server Port, or PORT=5001 in the',", None),
+        (
+            """echo "error: PORT='${PORT}' is not valid — expected 1024-65535." >&2""",
+            None,
+        ),
+        # Rule 1's `PORT=N` assigns in command position, and these are the
+        # positions. Losing any one of them loses a real launcher.
+        ("PORT=8080", 8080),
+        ("    PORT=8080", 8080),
+        ("export PORT=8080", 8080),
+        ("env PORT=8080 node serve.mjs", 8080),
+        ("cd /app && PORT=8080 npm start", 8080),
+        ("FOO=1 PORT=8080 ./start.sh", 8080),
+        ("docker run -e PORT=8080 image", 8080),
+        # Rule 2's key is an identifier, alone or behind declarators.
+        ("export const DEFAULT_PORT = 4321;", 4321),
+        ("'server_port': 5000", 5000),
+        ("self.port = 5000", 5000),
+        # Untouched: neither guard fires on `--port` or on `localhost:N`, which
+        # are not assignments and are ordinary inside a quoted command.
+        ('"dev": "vite --port 3000"', 3000),
+        ("PORT=http://localhost:8080", 8080),
+    ],
+)
+def test_a_port_inside_prose_is_not_a_declaration(
+    line: str, expected: int | None
+) -> None:
+    """A number in a sentence is advice, not a setting.
+
+    Worse than an unknown port: the app matches status against whoever holds
+    the port, so a wrong one reports a running project stopped.
+    """
+    assert line_port(line) == expected
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
     [("PORT = -1", None), ("PORT = 80.80", 80)],
 )
 def test_a_negative_number_is_not_a_port(line: str, expected: int | None) -> None:
@@ -322,7 +363,7 @@ def test_a_negative_number_is_not_a_port(line: str, expected: int | None) -> Non
 @pytest.mark.parametrize(
     ("rule", "line", "expected"),
     [
-        (rule_1, "localhost:99999 and PORT=8080", 8080),
+        (rule_1, "localhost:99999 ; PORT=8080", 8080),
         (rule_1, "localhost:99999", None),
         (rule_2, "'server_port': 70000, 'port': 5000", 5000),
         (rule_2, "PORT = 70000 5000", 5000),

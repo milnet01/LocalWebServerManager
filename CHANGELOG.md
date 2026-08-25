@@ -271,6 +271,15 @@ signaling per
 
 ### Fixed
 
+- **A port number written inside a sentence is no longer read as a setting** (LWSM-1190)
+  Help text and error messages often name a port — "or PORT=5001 in the
+  environment", "expected an integer in 1024-65535". The scanner read
+  those as declarations and showed the wrong port, which is worse than
+  showing none: the app matches status against whoever holds the port,
+  so a wrong number reports a running project as stopped. Both port
+  rules now ask where the declaration sits as well as what it looks
+  like.
+
 - **The scanner follows a launcher whose interpreter is a shell variable** (LWSM-1183)
   A project whose `start.sh` picks its interpreter at run time and
   then runs `$PYTHON app.py` showed no port: the walk never saw the

@@ -398,6 +398,52 @@ def strip_comment(line: str) -> str:
     return line if not match else line[: match.start()]
 
 
+# LWSM-1190 — a port number in a sentence is advice, not a setting. Measured
+# live 2026-08-24 against the real population: RetroDB's help text for moving
+# off a busy port ("… Server Port, or PORT=5001 in the …") was read by rule 1,
+# and MAME_Curator's validation message ("… expected an integer in 1024-65535")
+# by rule 2. Both rows went from blank or right to CONFIDENTLY WRONG, which is
+# the worse failure — the app matches status against whoever holds the port, so
+# a wrong number reports a running project stopped.
+#
+# What separates the two is POSITION, the property LWSM-1183 already leans on
+# for `$VAR`: a declaration begins at the start of a line, after a separator,
+# or after a word that introduces one. Prose ends in an ordinary word, and
+# neither `or` nor `"error:` is any of these.
+#
+# Deliberately narrow in one direction only. A declarator this set does not
+# know costs a detection, and an undetected port is `None` — which this module
+# already means as *unknown* and never as a guess. A wrong number is not
+# recoverable that way, which is why the trade runs this way round.
+_SEPARATORS = ";&|({[,"
+# A command starts after these; a declaration is named after those. The bare
+# `=` is the right-hand side of an assignment, where `opts = {"port": 5173}`
+# puts the key rule 2 is looking for.
+_COMMAND_WORDS = frozenset({"export", "env", "then", "do", "else", "elif", "="})
+_DECLARATORS = frozenset({"const", "let", "var", "local", "declare", "readonly"})
+
+
+def _declaration_position(before: str) -> bool:
+    """Whether `before` leaves a declaration about to start.
+
+    `_ASSIGNMENT` is defined with the hop rules below and is the same shell
+    fact read from the other end: `FOO=1 PORT=8080` chains assignments, so a
+    token that IS one still leaves the next one in position.
+    """
+    text = before.rstrip()
+    cut = max(text.rfind(char) for char in _SEPARATORS)
+    words = text[cut + 1 :].split()
+    if not words:
+        return True
+    last = words[-1]
+    return (
+        last in _COMMAND_WORDS
+        or last in _DECLARATORS
+        or last.startswith("-")  # `docker run -e PORT=8080 image`
+        or _ASSIGNMENT.match(last) is not None
+    )
+
+
 RULE_1 = re.compile(
     r"(?:^|[^A-Za-z0-9_])PORT=\$\{PORT:-(\d{1,5})\}(?![0-9])"  # PORT=${PORT:-N}
     r"|(?:^|[^A-Za-z0-9_])PORT=(\d{1,5})(?![0-9])"  # PORT=N
@@ -416,12 +462,22 @@ def rule_1(line: str) -> int | None:
     the load-bearing half.
 
     `finditer` and not `search`, because an out-of-range value is not a match and
-    scanning resumes after it: `localhost:99999 and PORT=8080` yields 8080.
+    scanning resumes after it: `localhost:99999 ; PORT=8080` yields 8080.
+    The separator is load-bearing since LWSM-1190 — `and PORT=8080` is a
+    sentence, and rule 1 no longer reads an assignment out of one.
     """
     for match in RULE_1.finditer(line):
-        value = int(next(group for group in match.groups() if group is not None))
-        if PORT_RANGE[0] <= value <= PORT_RANGE[1]:
-            return value
+        form = match.lastindex  # exactly one alternation group can have matched
+        value = int(match.group(form))
+        if not PORT_RANGE[0] <= value <= PORT_RANGE[1]:
+            continue
+        # The first two forms are environment assignments and assign only in
+        # command position. `--port` and `localhost:` are neither, and stay
+        # readable anywhere — including inside a quoted script value, which is
+        # the only place a `package.json` port is ever written.
+        if form in (1, 2) and not _declaration_position(line[: match.start()]):
+            continue
+        return value
     return None
 
 
@@ -447,6 +503,13 @@ def rule_2(line: str) -> int | None:
             continue
         key = left.strip().strip("'\"").rstrip("'\" \t")
         if key.lower() != "port" and not KEY_IS_PORT.search(key):
+            continue
+        # `KEY_IS_PORT` accepts any key ENDING in a port word, and a sentence
+        # can end in one: `echo "error: PORT` satisfies it through the space.
+        # What may precede the name is a declarator, not a verb — the whole
+        # key minus its last word has to leave a declaration in position.
+        words = key.split()
+        if not _declaration_position(" ".join(words[:-1])):
             continue
         # finditer, not search — the range check below must not end the scan at
         # the first out-of-range number: `'server_port': 70000, 'port': 5000`
