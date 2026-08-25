@@ -1073,6 +1073,17 @@ overlapping calls come free from the stop pool's own `max_workers=4` and the
 assertion belongs on the **descriptor** rather than on the `StopOutcome` — two
 plausible-looking outcomes is exactly what the broken version returned.
 
+**Trap: to prove an fd-reuse hazard, make the reuse HAPPEN — a test that only
+asserts the fix's shape proves nothing.** LWSM-1169's two tests run a real
+`stop()` from inside the rotation's window, then `os.open()` a sentinel-filled
+bystander file: lowest-free-fd means it takes the number `stop()` just freed,
+and the pre-fix code truncates that bystander to zero. **Assert the steal
+happened** (`stolen == managed.log_fd`) or the test passes for a reason
+unrelated to the defect. Where the fix holds a lock across the window, the
+`stop()` must run on its own thread with a BOUNDED join, or the test deadlocks
+instead of failing. Same family as the held-open note above — the window has to
+be entered, never raced for.
+
 **Trap: a fixture set that only exercises one branch of a four-way split.**
 Every `start()` test in `test_supervisor.py` used `("./start.sh",)`, so the one
 launcher kind that works was the only one tested — and `_launcher_path` refusing
@@ -1093,6 +1104,17 @@ skipped. Report semgrep's result as a statement about `src/` only, or pass an
 explicit file list. Same family as the `actionlint`/`yamllint` shared-flag bug
 and the stale `.pyc`: **a tool that analysed nothing looks exactly like a tool
 that found nothing.**
+
+**Trap: an exit status can report the TRANSPORT and not the operation.**
+Measured against real KWin on 2026-08-25 (LWSM-1170): `dbus-send` exits 1 with
+`ServiceUnknown` on stderr when nothing owns the destination — and exits **0**
+for a `loadScript` naming a file that does not exist, and for an `unloadScript`
+of a name never registered. So the status says the call landed and nothing
+more, and a check written as "did the load succeed?" asks a question the tool
+never answers. **Measure what a nonzero status actually means before building a
+check on it**, and say in the code what it does not cover. Third costume of the
+family above: a call that did nothing looks exactly like a call that found
+nothing to do.
 
 **Trap: `.editorconfig`'s blanket `[*]` section is not a declared shell style**,
 so `shfmt` has no config to run against here and must be reported as skipped
