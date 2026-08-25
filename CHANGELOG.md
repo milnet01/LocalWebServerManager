@@ -271,6 +271,10 @@ signaling per
 
 ### Fixed
 
+- **Log rotation now works through its own copy of the log descriptor.** (LWSM-1169)
+  Stopping a server while its log was being rotated could blank an
+  unrelated file the app had just opened. Reproduced, not theoretical.
+
 - **Pressing Start while a server is still stopping no longer launches a second copy** (LWSM-1168)
   Stopping a stubborn server can take a few seconds. During that window
   the app had forgotten it owned the project, so a Start arriving in

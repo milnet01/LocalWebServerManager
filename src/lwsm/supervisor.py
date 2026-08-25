@@ -575,35 +575,50 @@ class Supervisor:
         reach. The cost is a write racing the copy, which is lost — a bounded
         and stated loss, against silently losing everything after the rotation.
         """
-        managed = self._get(project)
-        if managed is None:
-            return False
-        size = os.fstat(managed.log_fd).st_size
-        if size <= self.max_log_bytes:
-            return False
+        # Everything below works through a DUPLICATE of the log descriptor,
+        # taken while the lock proves the entry is still held. `_get` releases
+        # the lock the moment it returns, and the `fstat`, `pread` and
+        # `ftruncate` then run on the poll thread while a `stop()` on a worker
+        # may pop the same entry and have `_reap` close `managed.log_fd`. The
+        # kernel reissues a freed number to the very next `open` -- the backup
+        # opened a few lines down is itself a candidate -- so the truncate
+        # would blank whatever now holds it (LWSM-1169, reproduced). A
+        # duplicate names the same open file and is ours alone to close.
+        with self._registry.lock:
+            managed = self._registry.processes.get(Path(project).resolve())
+            if managed is None:
+                return False
+            fd = os.dup(managed.log_fd)
 
-        backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
-        out = os.open(
-            backup,
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-            0o600,
-        )
         try:
-            offset = 0
-            while offset < size:
-                # Read through our own descriptor, never by reopening the path:
-                # reopening is a second chance for a symlink to be swapped in
-                # between the check and the copy.
-                chunk = os.pread(managed.log_fd, _COPY_CHUNK_BYTES, offset)
-                if not chunk:
-                    break
-                offset += len(chunk)
-                os.write(out, chunk)
+            size = os.fstat(fd).st_size
+            if size <= self.max_log_bytes:
+                return False
+
+            backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
+            out = os.open(
+                backup,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                0o600,
+            )
+            try:
+                offset = 0
+                while offset < size:
+                    # Read through our own descriptor, never by reopening the
+                    # path: reopening is a second chance for a symlink to be
+                    # swapped in between the check and the copy.
+                    chunk = os.pread(fd, _COPY_CHUNK_BYTES, offset)
+                    if not chunk:
+                        break
+                    offset += len(chunk)
+                    os.write(out, chunk)
+            finally:
+                os.close(out)
+            os.ftruncate(fd, 0)
+            log.info("rotated the log for %s at %d bytes", managed.name, size)
+            return True
         finally:
-            os.close(out)
-        os.ftruncate(managed.log_fd, 0)
-        log.info("rotated the log for %s at %d bytes", managed.name, size)
-        return True
+            os.close(fd)
 
     # -- starting --------------------------------------------------------
 

@@ -1839,7 +1839,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
   Lanes: supervisor.
 
-- 📋 [LWSM-1169] **FP08: log rotation holds a descriptor outside the lock that a concurrent stop may have closed.**
+- ✅ [LWSM-1169] **FP08: log rotation holds a descriptor outside the lock that a concurrent stop may have closed.**
   `_reap`'s comment claims the log descriptor "is one nothing else can still
   reach". `rotate_if_needed` takes the `ManagedProcess` under the lock and
   then releases it for the whole body, using `managed.log_fd` for `fstat`,
@@ -1862,6 +1862,20 @@ module states the correct rule in almost the same words.
   **Decide whether it is real before writing a fix**; if it is only
   theoretical, closing the fd inside the lock is still the cheaper answer
   than proving the race cannot happen.
+  Resolved (2026-08-25): REPRODUCED before designing, so the bullet's
+  "most likely to be wrong" caveat is now answered — it was right. A real
+  `stop()` driven from inside the rotation's first `pread` left a bystander
+  file truncated to zero bytes, with the freed descriptor provably reissued
+  to it. The lane's framing understated it: fd reissue is not the improbable
+  step, it is what the next `open` does, and the rotation opens the `.1`
+  backup inside its own window. Fixed by duplicating the descriptor under
+  the lock — while the entry is provably still held — and running the whole
+  rotation on the duplicate, which is ours alone to close. Two tests: one
+  forcing the window at `pread` (the truncation), one at `os.dup` (the
+  check-then-act the lock closes). Mutants 4/5 killed; the survivor reverts
+  `fstat` to the shared descriptor, which is bounded to the cap comparison —
+  the copy loop stops at EOF, so it can select no wrong file to write or
+  truncate.
   **Layman:** A rare timing collision between rotating a log and stopping a server could blank a different file the app owns.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-4 (supervisor).

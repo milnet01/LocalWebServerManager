@@ -1526,3 +1526,137 @@ def test_owns_pid_refuses_a_child_that_has_already_exited(
     )
 
     assert not supervisor.owns_pid(project, managed.pid)
+
+
+# --- LWSM-1169: rotation works through a descriptor nothing else can close ----
+
+
+def test_rotation_does_not_truncate_a_file_a_concurrent_stop_freed_the_fd_for(
+    supervisor: Supervisor, project: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """A stop landing mid-rotation must not turn the truncate onto another file.
+
+    `rotate_if_needed` reads the registry under the lock and then does its
+    `fstat`, `pread` and `ftruncate` with the lock released -- on the poll
+    thread, once a tick -- while `stop()` runs `_reap` on a worker and closes
+    that same descriptor. Once the number is free the kernel reissues it to the
+    next `open`, and the `ftruncate` blanks whatever now holds it: another
+    project's log, the `.1` backup, or an atomic-write temp file.
+
+    The interleaving is forced, not raced. A real `stop()` runs from inside the
+    first `pread` and the bystander is opened straight after, so it provably
+    takes the freed number -- which the assertion checks, because a test that
+    failed to reissue the descriptor would pass while proving nothing. Two
+    back-to-back calls would simply run in order.
+
+    Dies on rotating through `managed.log_fd` instead of a duplicate.
+    """
+    sentinel = b"another project's log\n" * 64
+    bystander = tmp_path / "bystander.log"
+    bystander.write_bytes(sentinel)
+
+    write_launcher(project, "sleep 30 &\ntouch ready\nwait\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+
+    lowered = 4096
+    supervisor.max_log_bytes = lowered
+    os.pwrite(managed.log_fd, b"x" * (lowered + 1), 0)
+
+    real_pread = os.pread
+    fired: list[int] = []
+
+    def pread_inside_the_window(fd: int, length: int, offset: int) -> bytes:
+        if not fired:
+            fired.append(fd)
+            # The real stop, on this thread: it pops the entry, signals the
+            # group and reaps, and `_reap` closes `managed.log_fd`.
+            supervisor.stop(project, grace=0.5)
+            fired.append(os.open(bystander, os.O_RDWR))
+        return real_pread(fd, length, offset)
+
+    monkeypatch.setattr(os, "pread", pread_inside_the_window)
+    try:
+        supervisor.rotate_if_needed(project)
+    finally:
+        monkeypatch.setattr(os, "pread", real_pread)
+        for stolen in fired[1:]:
+            os.close(stolen)
+
+    assert fired, "the window never opened, so this test proved nothing"
+    assert fired[1] == managed.log_fd, (
+        "the freed descriptor was not reissued to the bystander, so the hazard "
+        "was not reproduced"
+    )
+    assert bystander.read_bytes() == sentinel, (
+        "the rotation truncated a file that was not the log"
+    )
+    rotated = managed.log_path.with_name(managed.log_path.name + ".1")
+    assert sentinel not in rotated.read_bytes(), (
+        "the rotation copied a file that was not the log into the backup"
+    )
+
+
+def test_the_duplicate_is_taken_while_the_lock_still_proves_the_entry_is_held(
+    supervisor: Supervisor, project: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Looking the entry up and duplicating its descriptor is one step.
+
+    Its sibling above covers the copy; this covers the gap before it. Taking
+    the `ManagedProcess` under the lock and duplicating outside it leaves the
+    same check-then-act: a `stop()` in between closes `managed.log_fd`, the
+    next `open` takes the freed number, and the `dup` then names that file --
+    so the whole rotation runs against a bystander rather than merely ending
+    on one.
+
+    The stop runs on its own thread and is given a bounded wait, because that
+    is the only shape that reads both ways: with the lookup and the `dup`
+    under one lock it blocks and the wait expires, and without the lock it
+    completes and the descriptor is freed inside the window.
+
+    Dies on widening the lock to the lookup alone.
+    """
+    sentinel = b"another project's log\n" * 64
+    bystander = tmp_path / "bystander.log"
+    bystander.write_bytes(sentinel)
+
+    write_launcher(project, "sleep 30 &\ntouch ready\nwait\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+
+    lowered = 4096
+    supervisor.max_log_bytes = lowered
+    os.pwrite(managed.log_fd, b"x" * (lowered + 1), 0)
+
+    real_dup = os.dup
+    fired: list[int] = []
+    stopper = threading.Thread(
+        target=supervisor.stop, args=(project,), kwargs={"grace": 0.5}, daemon=True
+    )
+
+    def dup_inside_the_window(fd: int) -> int:
+        if not fired:
+            fired.append(fd)
+            stopper.start()
+            # Bounded: it can only finish here if nothing holds the lock.
+            stopper.join(timeout=1.0)
+            if not stopper.is_alive():
+                fired.append(os.open(bystander, os.O_RDWR))
+        return real_dup(fd)
+
+    monkeypatch.setattr(os, "dup", dup_inside_the_window)
+    try:
+        rotated_now = supervisor.rotate_if_needed(project)
+    finally:
+        monkeypatch.setattr(os, "dup", real_dup)
+        stopper.join(timeout=5.0)
+        for stolen in fired[1:]:
+            os.close(stolen)
+
+    assert fired, "the window never opened, so this test proved nothing"
+    assert rotated_now is True, "the log over the cap was not rotated at all"
+    assert bystander.read_bytes() == sentinel, (
+        "the rotation ran against a file that was not the log"
+    )
