@@ -1881,7 +1881,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-4 (supervisor).
   Lanes: supervisor.
 
-- 📋 [LWSM-1170] **FP08: `dbus-send`'s exit status is discarded, so placement fails silently off KWin.**
+- ✅ [LWSM-1170] **FP08: `dbus-send`'s exit status is discarded, so placement fails silently off KWin.**
   `run_kwin_script` calls `runner(call, capture_output=True, timeout=...)`
   with no `check=True` and never reads `returncode` — **verified 2026-08-21,
   zero occurrences of either in the module**. A failed `loadScript` is
@@ -1896,6 +1896,35 @@ module states the correct rule in almost the same words.
   "degrades honestly ... rather than being offered and doing nothing".
 
   Fix: check the `loadScript` returncode.
+  Resolved (2026-08-25): every one of the three D-Bus calls now has its
+  exit status read; a nonzero one is warned about, with `dbus-send`'s
+  stderr, and returns False, so `place_window` returns None and
+  `centre_on_screen` reports it. The reporting chain already existed and
+  was untouched.
+
+  MEASURED FIRST, and it corrects the bullet's prescribed fix. Against
+  real KWin on this machine's Plasma 6 Wayland session, 2026-08-25: a
+  nonzero exit is the ONLY failure `dbus-send` reports, and it means the
+  CALL did not land (absent service or bad method → exit 1,
+  `ServiceUnknown` / `UnknownMethod` on stderr). It says NOTHING about the
+  script — `loadScript` naming a file that does not exist still exits 0
+  (reply `int32 0`), and `unloadScript` for a name never registered exits
+  0 (reply `boolean false`). So "check the `loadScript` returncode" reads
+  as though the status reported the load, and singling out one call would
+  have left `start` and `unloadScript` exactly as silent. A mutant
+  restricting the check to `loadScript` is killed by the new test's
+  `start` case.
+
+  Seam change, deliberately loud: the injected `run` must now return a
+  `subprocess.CompletedProcess`, and its annotation says so. Four test
+  fakes returned `None` and raised `AttributeError` rather than passing
+  quietly — a stand-in that stopped modelling the status must not look
+  like a success. Fixed in `test_placement.py` (2) and
+  `test_mainwindow.py` (1 shared helper covering 3 tests).
+
+  Verified: ./scripts/local-ci.sh green, no SKIP, no tool drift.
+  Mutants 4/4 killed — status discarded, `loadScript`-only, warn-and-
+  carry-on, stderr dropped from the warning.
   **Layman:** On a non-KDE Linux desktop the "Centre on screen" menu item looks available, does nothing when clicked, and says nothing about why.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-1 (placement).

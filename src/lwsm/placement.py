@@ -278,14 +278,24 @@ for (var i = 0; i < wins.length; i++) {{
 def run_kwin_script(
     js: str,
     state_dir: Path,
-    run: Callable[..., object] | None = None,
+    run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
 ) -> bool:
     """Load, start and unload a one-shot KWin script. True if it was asked.
 
-    True means the three D-Bus calls were made without raising, **never that
-    the window moved** — KWin reports nothing back, and this module has no way
-    to observe the result. The caller reads the window's own geometry if it
-    wants to know, which is what ADR-0007's behavioural verification does.
+    True means the three D-Bus calls were made and each was accepted, **never
+    that the window moved** — KWin reports nothing back about what the script
+    did, and this module has no way to observe the result. The caller reads the
+    window's own geometry if it wants to know, which is what ADR-0007's
+    behavioural verification does.
+
+    A nonzero exit status is the only failure `dbus-send` reports, and it means
+    the CALL did not land: off KWin the session bus answers `ServiceUnknown`,
+    and discarding that left the Centre action offered and doing nothing, which
+    ADR-0007 forbids in as many words (LWSM-1170). Measured against real KWin on
+    2026-08-25, the status says nothing about the script itself — a `loadScript`
+    naming a file that does not exist still exits 0, as does an `unloadScript`
+    for a name never registered. So every call is checked, because a failure
+    that reaches one reaches all three, and none can tell us more than that.
 
     The script goes to a private temporary file in the app's own state
     directory at 0600 (`mkstemp`'s mode), not to a predictable path: between
@@ -333,7 +343,17 @@ def run_kwin_script(
             ],
         ):
             # An argument vector, never a shell string (`coding.md § O4`).
-            runner(call, capture_output=True, timeout=DBUS_TIMEOUT_S)
+            result = runner(call, capture_output=True, timeout=DBUS_TIMEOUT_S)
+            if result.returncode != 0:
+                # `dbus-send` puts the reason on stderr, which is why the calls
+                # capture output they otherwise never read.
+                log.warning(
+                    "KWin would not accept %s: %s",
+                    call[len(base)],
+                    result.stderr.decode("utf-8", "replace").strip()
+                    or f"exit status {result.returncode}",
+                )
+                return False
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         log.warning("could not ask KWin to place the window: %s", exc)
         return False
@@ -357,7 +377,7 @@ def place_window(
     state_dir: Path,
     environ: dict[str, str] | None = None,
     which: Callable[[str], str | None] | None = None,
-    run: Callable[..., object] | None = None,
+    run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
 ) -> Rect | None:
     """Ask for `target`, and return the rectangle actually asked for.
 

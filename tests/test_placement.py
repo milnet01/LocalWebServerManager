@@ -12,6 +12,7 @@ nothing here observes a window.
 
 from __future__ import annotations
 
+import logging
 import os
 import stat
 import subprocess
@@ -49,16 +50,32 @@ def no_dbus_send(_name: str) -> str | None:
     return None
 
 
-class FakeRun:
-    """Stands in for `subprocess.run`, recording the argument vectors."""
+# What `dbus-send` writes to STDERR, and exits 1 with, when nothing owns the
+# destination — measured 2026-08-25 against an absent service.
+SERVICE_UNKNOWN = (
+    b"Error org.freedesktop.DBus.Error.ServiceUnknown: The name is not activatable\n"
+)
 
-    def __init__(self, fail: Exception | None = None) -> None:
+
+class FakeRun:
+    """Stands in for `subprocess.run`, recording the argument vectors.
+
+    Returns a real `CompletedProcess`, because `run_kwin_script` reads the exit
+    status off it (LWSM-1170). A fake still returning `None` would make that
+    read raise rather than quietly pass — which is the intent: a seam that has
+    stopped modelling the status must not look like a success.
+    """
+
+    def __init__(self, fail: Exception | None = None, rc_on: int | None = None) -> None:
         self.calls: list[list[str]] = []
         self.kwargs: list[dict[str, object]] = []
         self.scripts: list[str] = []
         self._fail = fail
+        self._rc_on = rc_on
 
-    def __call__(self, argv: list[str], **kwargs: object) -> None:
+    def __call__(
+        self, argv: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
         self.calls.append(list(argv))
         self.kwargs.append(dict(kwargs))
         # Read the script back while KWin still could — the file is deleted the
@@ -69,6 +86,10 @@ class FakeRun:
                 self.scripts.append(Path(arg[len("string:") :]).read_text())
         if self._fail is not None:
             raise self._fail
+        failed = self._rc_on == len(self.calls) - 1
+        return subprocess.CompletedProcess(
+            argv, 1 if failed else 0, b"", SERVICE_UNKNOWN if failed else b""
+        )
 
 
 # --- The arithmetic -------------------------------------------------------
@@ -272,11 +293,14 @@ def test_the_script_is_written_privately_and_then_deleted(tmp_path: Path) -> Non
     executes."""
     seen: list[tuple[Path, int]] = []
 
-    def inspect(argv: list[str], **_kwargs: object) -> None:
+    def inspect(
+        argv: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
         for arg in argv:
             if arg.startswith("string:") and arg.endswith(".js"):
                 path = Path(arg[len("string:") :])
                 seen.append((path, stat.S_IMODE(path.stat().st_mode)))
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
 
     assert run_kwin_script("// script", tmp_path / "state", inspect)
 
@@ -318,6 +342,34 @@ def test_a_failed_dbus_call_is_a_false_and_still_cleans_up(tmp_path: Path) -> No
     run = FakeRun(fail=subprocess.SubprocessError("no session bus"))
 
     assert not run_kwin_script("// script", tmp_path, run)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("failing_call", [0, 1, 2])
+def test_a_dbus_call_that_reports_an_error_is_a_false(
+    tmp_path: Path, failing_call: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    """LWSM-1170. `dbus-send` exits 1 and prints `ServiceUnknown` when nothing
+    owns `org.kde.KWin` — a GNOME or wlroots session with `dbus-send` installed,
+    where `placement_available` says yes and the compositor is not KWin.
+    Discarding that status leaves the Centre action offered and doing nothing,
+    which ADR-0007 forbids in as many words.
+
+    **Every call is checked, not only `loadScript`.** Measured against real KWin
+    on 2026-08-25: a nonzero status is the only failure `dbus-send` reports at
+    all — a `loadScript` naming a file that does not exist still exits 0, and so
+    does an `unloadScript` for a name never registered. So the status says the
+    CALL did not land and nothing else, and checking the first alone would leave
+    the other two exactly as silent as they were.
+    """
+    run = FakeRun(rc_on=failing_call)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.placement"):
+        assert not run_kwin_script("// script", tmp_path, run)
+
+    # The reason reaches the log, not only the return value — `dbus-send` puts
+    # it on stderr, which `capture_output` is already collecting.
+    assert "ServiceUnknown" in caplog.text
     assert list(tmp_path.iterdir()) == []
 
 

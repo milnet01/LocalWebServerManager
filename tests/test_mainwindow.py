@@ -11,6 +11,7 @@ import functools
 import json
 import re
 import socket
+import subprocess
 import threading
 from collections import Counter
 from collections.abc import Iterator
@@ -4228,12 +4229,17 @@ def geometry_window(qtbot, built, records, **kwargs) -> MainWindow:
 def wayland_place(applied: list[Rect]):
     """`place_window` with a stand-in for KWin, driven as a Wayland session."""
 
-    def fake_kwin(argv: list[str], **_kwargs: object) -> None:
+    def fake_kwin(
+        argv: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
         for arg in argv:
             if arg.startswith("string:") and arg.endswith(".js"):
                 script = Path(arg[len("string:") :]).read_text()
                 found = dict(re.findall(r"([xy]): (-?\d+),", script))
                 applied.append(Rect(int(found["x"]), int(found["y"]), 0, 0))
+        # A KWin that accepted the call — `run_kwin_script` reads the status
+        # since LWSM-1170, so a stand-in that returned `None` would raise.
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
 
     return functools.partial(
         placement.place_window,

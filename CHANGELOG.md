@@ -271,6 +271,12 @@ signaling per
 
 ### Fixed
 
+- **"Centre on screen" now reports a desktop that refused the request.** (LWSM-1170)
+  On a non-KDE Linux desktop the menu entry looked available, did
+  nothing when clicked, and said nothing about why. The exit status the
+  desktop returns is now read, so the window says it could not be moved
+  instead of appearing to have moved.
+
 - **Log rotation now works through its own copy of the log descriptor.** (LWSM-1169)
   Stopping a server while its log was being rotated could blank an
   unrelated file the app had just opened. Reproduced, not theoretical.
