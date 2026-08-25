@@ -2211,6 +2211,21 @@ module states the correct rule in almost the same words.
   nowhere but its own comment. **Items 1, 2 and 5 rest on reading both sides
   of the contradiction** and were not otherwise checked; they are docstring
   corrections, so the cost of being wrong is a re-read rather than a bad fix.
+  Progress (2026-08-25): item 1 independently re-derived while shipping
+  LWSM-1172, from the code rather than from this bullet, and it holds exactly as
+  written — the summary line reads "Position first, then size", the measured
+  paragraph concludes place-then-resize, and the code resizes first. Still
+  unfixed, still a docstring correction, and this item remains its owner: the
+  LWSM-1172 note records the finding and points nowhere, so do not file a
+  duplicate.
+
+  One thing changed underneath it. LWSM-1172 made `_restore_geometry` hand
+  `_place_at` the window's OWN size rather than the stored one, which only reads
+  correctly if the resize has already happened — so the resize-first order is now
+  load-bearing for a second, independent reason that has nothing to do with the
+  KWin race this docstring describes. Whatever replaces the prose has to say
+  that. Confirming the race itself is dead still needs a real KWin session; a
+  green suite is not evidence for anything the compositor owns.
   **Layman:** Five comments explain how something works and are now out of date, which would mislead the next person who reads them.
   Kind: doc-fix.
   Source: close-phase-2026-08-21 lanes 1 and 4.
