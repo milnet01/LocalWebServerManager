@@ -3786,6 +3786,60 @@ def test_the_failure_clears_when_the_row_moves_on(qtbot, built) -> None:
     assert row.error_rect() is None, "the error outlived the state it described"
 
 
+# --- LWSM-1175: re-rendering is not the state moving on -----------------------
+
+
+def test_the_failure_survives_a_theme_change(qtbot, built) -> None:
+    """`clear_error` is justified by "the state has moved on, so a failure
+    describing the old one is now a lie". A theme swap moves no state: it
+    changes how the held `RowView` is RENDERED, which is exactly why
+    `_rerender` nulls `_view` to get past the equality guard.
+
+    The user this hurts is the one switching to a high-contrast theme in order
+    to read the message, which is the user that theme exists for.
+
+    Filed unconfirmed (2026-08-21) with the note that one test settles it
+    whichever way it comes out. It came out reproduced.
+    """
+    window, controller = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    with qtbot.waitExposed(window):
+        window.show()
+    row = rows_of(window)[0]
+    controller.action_failed.emit(row._view.path, "it would not start")
+    qtbot.wait(20)
+    assert row.error_rect() is not None, "precondition"
+
+    window.set_theme("highcontrast-dark")
+    qtbot.wait(20)
+
+    assert row.error_rect() is not None, (
+        "switching theme deleted a failure message nothing had invalidated"
+    )
+
+
+def test_the_failure_survives_a_language_change(qtbot, built) -> None:
+    """The other `_rerender` caller, and the same argument: the data did not
+    change, the words for it did.
+
+    `LanguageChange` is sent by hand for the reason
+    `test_a_translator_installed_later_reaches_an_existing_row` records.
+    """
+    window, controller = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    with qtbot.waitExposed(window):
+        window.show()
+    row = rows_of(window)[0]
+    controller.action_failed.emit(row._view.path, "it would not start")
+    qtbot.wait(20)
+    assert row.error_rect() is not None, "precondition"
+
+    row.retranslate()
+    qtbot.wait(20)
+
+    assert row.error_rect() is not None, (
+        "a language change deleted a failure message nothing had invalidated"
+    )
+
+
 def test_a_failure_for_no_particular_project_still_reaches_the_user(
     qtbot, built
 ) -> None:

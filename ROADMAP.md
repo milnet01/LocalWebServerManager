@@ -2106,7 +2106,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-3 (window).
   Lanes: window.
 
-- 📋 [LWSM-1175] **FP08: changing the theme or the language deletes a row's visible failure message.**
+- ✅ [LWSM-1175] **FP08: changing the theme or the language deletes a row's visible failure message.**
   `update_from` calls `clear_error()` on the grounds that "the state has
   moved on, so a failure describing the old one is now a lie". That reason is
   false on two paths: `_rerender` — shared by `retranslate` and
@@ -2123,6 +2123,27 @@ module states the correct rule in almost the same words.
   code and reads correctly, but the session that filed it did not show an
   error on a row and then switch theme to watch it vanish. **One qtbot test
   settles it** — and that test is worth writing whichever way it comes out.
+  Resolved (2026-08-27). The bullet filed itself NOT independently
+  confirmed and said one qtbot test would settle it whichever way it came
+  out. Written first, before any fix: it came out REPRODUCED, on both
+  `_rerender` callers. A row showing "it would not start" lost the message
+  on `set_theme` and on `retranslate`.
+
+  The fix is to `_rerender`, not to `clear_error`. Nulling `_view` to get
+  past the equality guard worked on the guard and had collateral one line
+  below it, so `_rerender` now says what it is — `update_from(view,
+  rerendering=True)` — and the one flag answers both keys, which are the
+  same question: is this a state change or a redraw? Everything else in
+  `update_from` is rendering and is correctly re-run. The announcement
+  needed nothing: LWSM-1141 already gates it on the accessible NAME, so a
+  language change re-announces and a theme change does not.
+
+  Not over-corrected, and that is pinned rather than asserted:
+  `test_the_failure_clears_when_the_row_moves_on` already existed and
+  kills the "never clear at all" mutant. mutation_probe 3/3 killed against
+  a green baseline — reverting the fix kills the two new tests, the
+  over-correction kills the pre-existing one, and dropping the guard
+  escape kills two. local-ci green, 1286 tests, no SKIP, no tool drift.
   **Layman:** If a project fails to start and you switch to the high-contrast theme to read the message, the message disappears.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-3 (window).

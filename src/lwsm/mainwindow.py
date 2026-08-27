@@ -931,14 +931,20 @@ class ProjectRow(QFrame):
         which is exactly the case the guard is wrong for. `update()` runs even
         with no view held, so a row that has never been populated still
         repaints its ring in the new palette.
+
+        Says what it is rather than nulling `_view` to sneak past the guard
+        (LWSM-1175). That trick worked on the guard and had collateral one line
+        below it: `update_from` also clears the row's failure message, on the
+        grounds that the state has moved on — which is true of a poll tick and
+        false of a re-render. Both keys are the same question, so one flag
+        answers both.
         """
-        view, self._view = self._view, None
-        if view is not None:
-            self.update_from(view)
+        if self._view is not None:
+            self.update_from(self._view, rerendering=True)
         self.update()
 
-    def update_from(self, row: RowView) -> None:
-        if row == self._view:
+    def update_from(self, row: RowView, *, rerendering: bool = False) -> None:
+        if row == self._view and not rerendering:
             # `_sync_rows` calls this on EVERY row on every signal, and only
             # `QLabel::setText` short-circuits — `setStyleSheet` and
             # `setAccessibleName` do not, and the announcement below certainly
@@ -962,7 +968,13 @@ class ProjectRow(QFrame):
         # on screen to contradict it (LWSM-1032). Cleared here rather than on a
         # timer: what makes the message stale is the state changing, and that
         # is exactly what reaching this line means.
-        self.clear_error()
+        #
+        # Not on a re-render, which reaches this line with the SAME view: a
+        # theme or language change invalidates nothing (LWSM-1175). The user it
+        # hurt is the one switching to a high-contrast theme in order to read
+        # the message they were then shown losing.
+        if not rerendering:
+            self.clear_error()
 
         # .get, not [...]: this runs inside a signal handler, so an unmapped
         # state would be a UI crash rather than a missing glyph — and LWSM-1011

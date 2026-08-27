@@ -271,6 +271,14 @@ signaling per
 
 ### Fixed
 
+- **Changing the theme or the language no longer deletes a project's failure message.** (LWSM-1175)
+  When a project failed to start, the message shown beside it vanished the
+  moment you switched theme or language — most painfully for someone
+  switching to a high-contrast theme in order to read that very message.
+  The message is cleared because the project's state moved on, and
+  re-drawing a row is not the state moving on. It still clears the instant
+  the project actually starts or stops.
+
 - **A hostile `scan-roots` file can no longer hang the app on startup.** (LWSM-1173)
   The file that says where to look for projects was read without any of
   the protections the other config files get, and it is read before the
