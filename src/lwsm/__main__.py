@@ -392,6 +392,15 @@ def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
     A file that cannot be read is treated as absent rather than fatal: this
     runs before the window exists, and a config the user cannot fix without a
     window is a worse failure than scanning the default.
+
+    Read through `read_bounded` for `_leading_comment_block`'s reason, which
+    reads this same path twelve lines above: a FIFO here blocked forever with
+    no window, no error and no log line, and the `except` below never fired
+    because nothing was raised (LWSM-1173, measured). The size cap is
+    load-bearing too and not just memory — every line becomes a directory the
+    scan then walks. `utf-8-sig` because two readers of one file must agree on
+    the decode; under plain `utf-8` a BOM left the user's own header a scan
+    root (LWSM-1182's class, on the reader that sweep did not reach).
     """
     try:
         fallback = (Path.home() / "projects",)
@@ -414,8 +423,10 @@ def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
             # anything to report the failure in.
             return fallback
 
+    from lwsm.configfile import read_bounded
+
     try:
-        text = config.read_text(encoding="utf-8")
+        text = read_bounded(config).decode("utf-8-sig")
     except (OSError, UnicodeDecodeError):
         return fallback
 

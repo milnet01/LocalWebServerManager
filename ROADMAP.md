@@ -2012,7 +2012,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-1 (placement).
   Lanes: placement, window.
 
-- 📋 [LWSM-1173] **FP08: `default_scan_roots` reads a user-controlled file with the unhardened reader.**
+- ✅ [LWSM-1173] **FP08: `default_scan_roots` reads a user-controlled file with the unhardened reader.**
   `__main__.py:396` uses `config.read_text(encoding="utf-8")` on the
   `scan-roots` path. Twelve lines above, `_leading_comment_block` reads the
   SAME file through `read_bounded`, and its docstring says why: "this runs
@@ -2025,6 +2025,32 @@ module states the correct rule in almost the same words.
   so a FIFO there blocks with no window, no error and no log line, and the
   `except (OSError, UnicodeDecodeError)` never fires because nothing is
   raised.
+  Resolved (2026-08-27). Reproduced exactly as filed before designing:
+  a FIFO at the scan-roots path blocked until killed, while
+  `_leading_comment_block` on the same FIFO returned. `default_scan_roots`
+  now reads through `read_bounded`.
+
+  Two things the bullet did not name, both measured on the way:
+  the size cap is load-bearing here for more than memory — a 2.4 MB file
+  yielded 349,796 roots at 145 MB RSS, and every one of them is a
+  directory the scan then walks; and the decode had to be chosen, because
+  the fix replaces the read. `utf-8-sig`, matching the sibling reader of
+  the same file — under plain `utf-8` a BOM left `# my header` as a scan
+  root. That is LWSM-1182's class on the one reader its sweep could not
+  reach, since that sweep was scoped to `read_bounded` consumers and this
+  was the `read_text` one.
+
+  `ConfigFileError` was deliberately NOT added to the `except`:
+  `read_bounded` raises `OSError` only, and both real callers
+  (`registry.load_projects`, `settings.load`) catch exactly that. The
+  sibling's extra arm is dead code and was not copied.
+
+  Three tests, one per hazard: FIFO (alarm safety net, `_Blocked` from
+  `BaseException` so the code under test cannot swallow it), oversize,
+  BOM. All three red first. mutation_probe 3/3 killed against a green
+  baseline — reverting the whole reader kills 3, reverting the decode
+  alone kills 1, which is what pins the decode independently.
+  local-ci green, 1284 tests, no SKIP, no tool drift, no leaked processes.
   **Layman:** A booby-trapped scan-roots file can make the app hang on startup with no window and nothing in the log.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-2 (settings).

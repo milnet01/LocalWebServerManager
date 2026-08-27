@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -21,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from lwsm import __main__ as entry
-from lwsm import __version__, applog
+from lwsm import __version__, applog, configfile
 from lwsm.__main__ import build_window, main
 
 
@@ -350,8 +351,66 @@ def test_an_unreadable_config_falls_back_instead_of_raising(tmp_path) -> None:
     """This runs before the window exists, so a config the user cannot fix
     without a window is a worse failure than scanning the default."""
     config = tmp_path / "scan-roots"
-    config.mkdir()  # a directory where a file is expected: read_text raises
+    config.mkdir()  # a directory where a file is expected: the read raises
     assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+
+
+# --- LWSM-1173: the scan-roots file gets the hardened reader too ---------------
+
+
+def test_a_fifo_scan_roots_file_falls_back_rather_than_blocking(tmp_path) -> None:
+    """This runs inside `build_window` before any window exists, so blocking
+    here is the least debuggable failure the app can have: no window, no error,
+    no log line, and the `except` never fires because nothing is raised.
+
+    `_leading_comment_block` reads this same file through `read_bounded` and
+    returns. Measured 2026-08-27: this one blocked until killed.
+
+    Same alarm safety net as `test_registry.py`, so a regression fails here
+    instead of hanging the suite. `_Blocked` derives from `BaseException`
+    deliberately: a `TimeoutError` subclasses `OSError` and would be caught by
+    the code under test.
+    """
+    config = tmp_path / "scan-roots"
+    os.mkfifo(config)
+
+    class _Blocked(BaseException):
+        pass
+
+    def _too_slow(_signum, _frame):
+        raise _Blocked("default_scan_roots blocked on the FIFO")
+
+    previous = signal.signal(signal.SIGALRM, _too_slow)
+    signal.alarm(5)
+    try:
+        assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def test_an_oversized_scan_roots_file_falls_back_rather_than_being_read_whole(
+    tmp_path,
+) -> None:
+    """Every line becomes a directory the scanner then walks, so an unbounded
+    read is not just memory: measured 2026-08-27, a 2.4 MB file yielded 349,796
+    roots at 145 MB RSS. The cap `configfile` already owns bounds both."""
+    config = tmp_path / "scan-roots"
+    config.write_bytes(b"/srv/x\n" * ((configfile.MAX_FILE_BYTES // 7) + 1))
+
+    assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+
+
+def test_a_leading_bom_leaves_the_header_a_comment(tmp_path) -> None:
+    """Both readers of this file must agree on the decode, or a BOM makes one
+    see a header and the other a path. `U+FEFF` decodes fine and `lstrip()`
+    leaves it alone, so under plain `utf-8` the user's own comment line becomes
+    a scan root — LWSM-1182's class, on the one reader that sweep did not
+    reach because it was scoped to `read_bounded` consumers."""
+    config = tmp_path / "scan-roots"
+    config.write_bytes("﻿# where my projects live\n/srv/first\n".encode())
+
+    assert entry.default_scan_roots(config) == (Path("/srv/first"),)
 
 
 # --- LWSM-1031: the theme survives a restart ---------------------------------

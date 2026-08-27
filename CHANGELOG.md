@@ -271,6 +271,15 @@ signaling per
 
 ### Fixed
 
+- **A hostile `scan-roots` file can no longer hang the app on startup.** (LWSM-1173)
+  The file that says where to look for projects was read without any of
+  the protections the other config files get, and it is read before the
+  window exists — so a booby-trapped one made the app block forever with
+  no window, no error and nothing in the log. It now goes through the
+  same bounded reader, which also caps its size: every line in it becomes
+  a directory the scan walks. A leading byte-order mark no longer turns
+  your own comment line into a directory to scan.
+
 - **Open at a size the current screen can hold, whatever size the window was last closed at** (LWSM-1172)
   A window sized on a large monitor and reopened on a smaller one came
   back at its remembered size — off the edge of the display, where the
