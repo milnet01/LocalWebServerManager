@@ -1077,6 +1077,8 @@ class FakeSupervisor:
         # The child spawned and then died on its own. A real `Supervisor`
         # answers this from a non-reaping liveness check; here the test says so.
         self.exited_projects: set[Path] = set()
+        # A stop the supervisor has reserved but not finished (LWSM-1191).
+        self.stopping_projects: set[Path] = set()
 
     def start(self, project, name, argv, port):
         if self.refusal is not None:
@@ -1097,6 +1099,9 @@ class FakeSupervisor:
 
     def exited(self, project):
         return project in self.exited_projects
+
+    def is_stopping(self, project):
+        return project in self.stopping_projects
 
 
 def supervised(controllers, records, probe, supervisor):
@@ -1570,6 +1575,9 @@ def test_a_log_that_cannot_be_rotated_does_not_stop_the_poll(
             return {Path("/srv/a"): object(), Path("/srv/b"): object()}
 
         def exited(self, project):
+            return False
+
+        def is_stopping(self, project):
             return False
 
         def rotate_if_needed(self, project: Path) -> bool:

@@ -1958,6 +1958,97 @@ class ManagingSupervisor:
     def exited(self, project: Path) -> bool:
         return False
 
+    def is_stopping(self, project: Path) -> bool:
+        return False
+
+
+class SlowStoppingSupervisor:
+    """A supervisor whose stop never finishes, so a test can stand inside the
+    window LWSM-1191 is about.
+
+    `is_stopping` is answered from the future rather than a flag, so the fake's
+    reservation lives exactly as long as the real one does.
+    """
+
+    def __init__(self, project: Path) -> None:
+        from concurrent.futures import Future
+
+        self._project = Path(project)
+        self._running = {self._project: object()}
+        self.future = Future()
+
+    def running(self) -> dict:
+        return dict(self._running)
+
+    def stop_async(self, project: Path):
+        self._running.pop(Path(project), None)
+        return self.future
+
+    def owns_pid(self, project: Path, pid: int) -> bool:
+        return Path(project) == self._project and pid == OUR_PID
+
+    def exited(self, project: Path) -> bool:
+        return False
+
+    def is_stopping(self, project: Path) -> bool:
+        return Path(project) == self._project and not self.future.done()
+
+
+def test_start_stays_disabled_while_a_stop_is_still_running(qtbot, built) -> None:
+    """The supervisor refuses a Start issued mid-stop (LWSM-1168), so pressing
+    one only produces an error — from a control that looked available.
+
+    The route is narrower than LWSM-1191 was filed with, and was measured
+    rather than argued. Stop and Restart are both gated on a derived `running`,
+    which needs a port, so a project that has never had one cannot be stopped
+    from the UI at all. What reaches this state is a project stopped WHILE it
+    had a port whose port then goes away under it — which is what a rescan does
+    to a project that declares none, and what LWSM-1190 made possible by
+    stopping the scanner inventing one.
+
+    LWSM-1133's branch then fires: a port-less project has nothing to wait for,
+    so the overlay is dropped on the very next poll while `stop()` may still
+    have seconds to run. Keeping the overlay is NOT the fix — that branch
+    closed a real defect where a port-less project read `starting` for the
+    session with every button dead. Start is gated on the reservation instead,
+    which the supervisor knows and nothing needs to infer from the port.
+    """
+    from lwsm.supervisor import StopOutcome
+
+    supervisor = SlowStoppingSupervisor(Path("/srv/a"))
+    controller = ProjectController([record("a", 5005)], FakeProbe(5005), supervisor)
+    built.append(controller)
+    window = MainWindow(controller, Theme.default(), [])
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    row = rows_of(window)[0]
+    assert row.stop_button.isEnabled(), "precondition: the project reads running"
+    row.stop_button.click()
+    assert not row.start_button.isEnabled(), (
+        "precondition: the stopping overlay disables Start"
+    )
+
+    # The rescan that loses the port, with the stop still in flight.
+    controller.set_records([record("a", None)])
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert not rows_of(window)[0].start_button.isEnabled()
+
+    # And it comes BACK. Both halves are asserted here rather than in two
+    # tests, because a blanket disable passes the first on its own and this is
+    # the defect LWSM-1133 closed: a port-less project whose every button was
+    # dead for the life of the session.
+    # Inside the wait, not before it: completing the future runs the callback
+    # on this thread, so the re-render happens synchronously and a wait armed
+    # afterwards would time out on a signal it had already missed.
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        supervisor.future.set_result(StopOutcome())
+
+    assert rows_of(window)[0].start_button.isEnabled()
+
 
 def opening_window(
     qtbot, built, records, probe, opened: list, managed=None

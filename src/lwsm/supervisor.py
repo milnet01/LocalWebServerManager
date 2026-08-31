@@ -1028,6 +1028,22 @@ class Supervisor:
         with self._registry.lock:
             return dict(self._registry.processes)
 
+    def is_stopping(self, project: Path) -> bool:
+        """Whether a stop is in flight for this project (LWSM-1191).
+
+        `stop()` holds the key from before it signals anything until the
+        sequence returns, which is the window in which `start()` refuses. The
+        UI needs the same fact to stop OFFERING a Start it knows will be
+        refused, and asking here is what keeps the two answers one answer —
+        the alternative was inferring it from the derived status, which cannot
+        see a reservation at all.
+
+        Neither `running()` nor `exited()` answers it: the entry is popped
+        before the sequence begins, so a stopping project is in neither map.
+        """
+        with self._registry.lock:
+            return Path(project).resolve() in self._registry.stopping
+
     def exited(self, project: Path) -> bool:
         """Whether a child we spawned is gone — asked WITHOUT reaping it.
 

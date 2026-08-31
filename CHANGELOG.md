@@ -271,6 +271,14 @@ signaling per
 
 ### Fixed
 
+- **Start no longer comes back before the stop it is waiting on has finished** (LWSM-1191)
+  On a project whose port the app cannot detect, Start went live again
+  within a second of pressing Stop, while the shutdown was still running —
+  and pressing it only produced an error, because the app correctly refuses
+  to start something it is still stopping. Start now stays unavailable until
+  the stop actually finishes, and becomes available again the moment it
+  does.
+
 - **A scan folder the app cannot store is now refused instead of quietly changed** (LWSM-1179)
   The list of folders to scan is stored one per line, so a folder whose name
   ends in a space or contains a line break could not be written down

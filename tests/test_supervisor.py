@@ -756,6 +756,41 @@ def test_a_start_during_the_stop_sequence_is_refused(
 
 
 @pytest.mark.integration
+def test_is_stopping_is_true_only_inside_the_stop_window(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """The fact the UI gates Start on (LWSM-1191), read from the real registry.
+
+    Neither `running()` nor `exited()` can answer it: `stop()` pops the entry
+    before it signals anything, so a stopping project is in neither map. Held
+    open at `_on_wait` for the reason the sibling above gives — raced for, the
+    window is usually already shut by the time anything looks.
+
+    Before and after are asserted with it, so a mutant that simply returns True
+    dies: the reservation has to be released, or the Start button gated on it
+    never comes back.
+    """
+    write_launcher(project, "while true; do sleep 0.05; done")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+    assert not supervisor.is_stopping(project), "precondition: nothing is stopping"
+
+    seen: list[bool] = []
+
+    def ask_inside_the_window() -> None:
+        seen.append(supervisor.is_stopping(project))
+
+    supervisor.stop(project, grace=0.5, _on_wait=ask_inside_the_window)
+
+    assert seen, "_on_wait never fired, so nothing was asked inside the window"
+    assert seen[0] is True
+    assert not supervisor.is_stopping(project), (
+        "the reservation outlived the stop, so Start would never come back"
+    )
+
+
+@pytest.mark.integration
 def test_a_stop_that_raises_still_releases_the_project(
     supervisor: Supervisor, project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

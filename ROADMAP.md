@@ -2483,7 +2483,7 @@ module states the correct rule in almost the same words.
   Source: in-session-2026-08-23, found while shipping LWSM-1163.
   Lanes: settings.
 
-- 📋 [LWSM-1191] **FP08: a port-less project re-enables Start while its stop is still running.**
+- ✅ [LWSM-1191] **FP08: a port-less project re-enables Start while its stop is still running.**
   Found while closing LWSM-1168, which fixed the dangerous half. The
   supervisor now refuses a Start issued mid-stop, so no second child is
   spawned — but the button that issues it is still live, so the user
@@ -2508,6 +2508,37 @@ module states the correct rule in almost the same words.
   closed. The narrower question is whether Start specifically may be
   enabled while the supervisor holds a stop reservation, which is a
   fact the controller can ask for rather than infer from the port.
+  Resolved (2026-08-31): reproduced, and the ROUTE is narrower than filed —
+  measured, not argued. Stop and Restart are BOTH gated on a derived `running`,
+  which needs a port, so a project that has never had one cannot be stopped from
+  the UI at all. What reaches this state is a project stopped WHILE it had a
+  port whose port then goes away under it: a rescan that no longer detects one,
+  which is exactly what LWSM-1190 made possible for a project declaring none.
+  The reproduction drives that sequence and the two preconditions are asserted,
+  so it cannot pass by never reaching the state.
+
+  Fixed the way the bullet's last paragraph proposed: `Supervisor.is_stopping`
+  reads the reservation `stop()` already holds, `RowView.stopping` carries it,
+  and Start is gated on it. Nothing infers anything from the port, and
+  LWSM-1133's branch is untouched.
+
+  Asked at RENDER time, unlike `managed`, and the reason differs: `managed` must
+  come from the poll's own snapshot (LWSM-1167) because it is a fact about the
+  socket table, while this is the supervisor's own bookkeeping and the only
+  useful answer is the current one.
+
+  The test found a second defect the gate itself introduced, which is why it
+  pins both halves in one test. `_maybe_emit` compares statuses only, and a
+  port-less project's status never changes — so nothing re-rendered the row when
+  the stop finished and Start would have stayed disabled for the session, which
+  is LWSM-1133's defect by another route. `_on_stopped` now emits in a `finally`.
+  Caught by the second assertion timing out, not by review.
+
+  Mutants 7/7 killed across three files: Start ignoring the reservation, Start
+  never returning, the view never reporting it, no re-render on completion, and
+  `is_stopping` always-false / always-true / reading `processes`. The real
+  `Supervisor.is_stopping` has its own test held open at `_on_wait` rather than
+  resting on the window fake. Gate green (1298 verified), no leaked processes.
   **Layman:** On a project whose port the app cannot detect, the Start button comes back before the stop has finished, and pressing it just shows an error.
   Kind: fix.
   Source: in-session-2026-08-25.

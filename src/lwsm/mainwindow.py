@@ -874,7 +874,11 @@ class ProjectRow(QFrame):
         # from the outside. Start is the one that needs it: `not running` is
         # true while starting, so without the guard a second click would spawn
         # a second server (`coding.md § 1.1`).
-        self.start_button.setEnabled(not in_transition and not running)
+        # `row.stopping` is the third condition and not a fourth spelling of
+        # the first: the overlay is gone by the time it matters (LWSM-1191).
+        self.start_button.setEnabled(
+            not in_transition and not running and not row.stopping
+        )
         self.stop_button.setEnabled(running)
         self.restart_button.setEnabled(running)
         # Running AND ours. ADR-0004 carries the threat model and governs here

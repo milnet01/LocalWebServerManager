@@ -232,6 +232,8 @@ class SupportsSupervision(Protocol):
 
     def exited(self, project: Path) -> bool: ...
 
+    def is_stopping(self, project: Path) -> bool: ...
+
     @property
     def trust(self) -> SupportsTrust: ...
 
@@ -257,6 +259,13 @@ class RowView:
     # else started reads `running` exactly like one of ours. Open-in-browser is
     # gated on it (LWSM-1141).
     managed: bool = False
+    # Whether a stop is in flight for this project. Start is gated on it
+    # (LWSM-1191): the supervisor refuses a Start issued inside that window, so
+    # offering one produces an error from a control that looked available.
+    # `status` cannot answer this — a stopping project's entry is popped before
+    # the sequence begins, and where its port is unknown the overlay is dropped
+    # on the very next poll.
+    stopping: bool = False
     # The user's own "do not show me this" flag, stored since LWSM-1007 and
     # read by nothing until LWSM-1185. Carried on the view rather than looked
     # up by the window, so the row has one source for everything it renders.
@@ -421,6 +430,7 @@ class ProjectController(QObject):
     def rows(self) -> list[RowView]:
         """File order, so rows do not jump between polls."""
         managed = self._managed
+        supervisor = self._supervisor
         return [
             RowView(
                 path=record.path,
@@ -428,6 +438,11 @@ class ProjectController(QObject):
                 effective_port=record.effective_port,
                 status=self._status_of(record.path),
                 managed=record.path in managed,
+                # Asked at render time, unlike `managed`. That one has to come
+                # from the poll's own snapshot (LWSM-1167) because it is a fact
+                # about the socket table; this is the supervisor's own
+                # bookkeeping, and the only useful answer is the current one.
+                stopping=supervisor is not None and supervisor.is_stopping(record.path),
                 hidden=record.hidden,
                 browser=record.browser,
             )
@@ -585,8 +600,25 @@ class ProjectController(QObject):
             log.debug("a stop finished with no live signaller", exc_info=True)
 
     def _on_stopped(self, path: Path, outcome: object) -> None:
+        """Handle the outcome, then re-render whatever the answer was.
+
+        The emit is unconditional and in a `finally` because the supervisor's
+        stop reservation — which `RowView.stopping` reads and Start is gated on
+        (LWSM-1191) — is released before the future resolves, and nothing else
+        observes it: `_maybe_emit` compares statuses only, and a port-less
+        project's status never changes. Without this the Start button would
+        stay disabled until some unrelated change re-rendered the row, which is
+        LWSM-1133's defect reached by another route. Measured: the test for the
+        gate timed out waiting for this signal.
+        """
         if self._stopped:
             return
+        try:
+            self._apply_stop_outcome(path, outcome)
+        finally:
+            self.projects_changed.emit()
+
+    def _apply_stop_outcome(self, path: Path, outcome: object) -> None:
         pending_restart = path in self._restarting
         self._restarting.discard(path)
         if isinstance(outcome, BaseException):
