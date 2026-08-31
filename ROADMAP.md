@@ -2544,6 +2544,111 @@ module states the correct rule in almost the same words.
   Source: in-session-2026-08-25.
   Lanes: controller, window.
 
+## Findings filed in passing
+
+Findings noticed while doing something else and not fixed on the spot — a
+surviving mutant, an untested mechanism, a defect in a neighbouring subsystem.
+Standing instruction from the user, 2026-08-31: anything found and not fixed
+immediately is filed here rather than reported once and lost.
+
+This is NOT a fix-pass. A fold-in section (`FP##`) collects what a phase close
+produced and is worked as a batch through the 9-step loop; these arrive one at a
+time, gate nothing, and are picked up whenever a phase has room. An item here is
+not evidence a phase is unclosed.
+
+Each bullet says who found it and while doing what, because a finding's value is
+mostly in the measurement behind it.
+
+- 📋 [LWSM-1192] **The filter box's placeholder text is asserted by nothing.**
+  Deleting `_filter.setPlaceholderText` from `_retranslate_strip` entirely
+  leaves the whole suite green (measured, mutation probe).
+
+  The one assertion that touches it compares the placeholder against the
+  accessible name for INEQUALITY — deliberately, since LWSM-1040 records that
+  a placeholder is erased by the first keystroke and so must not be the
+  accessible name. An empty placeholder still satisfies that, so the
+  assertion holds whether or not the placeholder exists.
+
+  Pre-existing, from LWSM-1040. Surfaced by an over-correction mutant while
+  shipping LWSM-1177 — the mutation asked whether that method still does the
+  job it already had, and the answer was that nothing checks.
+  **Layman:** A test would not notice if the "Filter…" hint inside the search box disappeared.
+  Kind: test.
+  Source: in-session-2026-08-31, mutation probe while shipping LWSM-1177.
+  Lanes: window, tests.
+
+- 📋 [LWSM-1193] **The ban on `str.format` for translated text is stated three times and enforced by nothing.**
+  `mainwindow.py` states the rule in prose three times, once as "The rule is
+  the file's, not that function's", and records that it was written as
+  `.format` first and caught within the hour. It was then broken again in two
+  places and shipped, which is LWSM-1176.
+
+  So the rule has been broken twice and caught twice by reading. A source
+  invariant would close the class rather than the instances:
+  `tests/test_layering.py` already asserts the layering rule by parsing the
+  AST rather than grepping, and the same shape answers this — no `.format`
+  call whose receiver is a `QCoreApplication.translate` result.
+
+  Out of scope for LWSM-1176, which fixed the two sites it was filed for.
+  CLAUDE.md's own note applies: do not add a fifth guard to a fifth call
+  site.
+  **Layman:** A rule the code explains three times has no automatic check, and it has already been broken twice.
+  Kind: test.
+  Source: in-session-2026-08-31, while shipping LWSM-1176.
+  Lanes: tests, i18n.
+
+- 📋 [LWSM-1194] **Check whether a change to `RowView.managed` alone ever re-renders the row.**
+  **Filed unverified, and the reasoning is here so the check is cheap.**
+  LWSM-1191 hit exactly this shape for `stopping`: `_maybe_emit` compares
+  `_statuses` and nothing else, so a field that changed while every status
+  stayed the same never reached the screen. `_on_stopped` now emits in a
+  `finally` to close it for `stopping`.
+
+  `managed` is recomputed in the same tick and is not in that comparison
+  either, so the same gap looks present. The reachable case: our child dies
+  and a stranger binds the same port between two polls. `_classify` reads the
+  socket table, so the status stays `running` both times, while
+  `_managed_paths` flips the project out. No status changed, so nothing
+  emits, and the row is not re-rendered.
+
+  That matters because Open is gated on `managed` for a security reason
+  (LWSM-1141, ADR-0004): the whole point is not offering to open a browser on
+  a port this manager cannot vouch for. A stale `True` is the wrong
+  direction.
+
+  **Not measured.** The window is one poll interval wide and needs a fake
+  whose `owns_pid` flips while the probe keeps the port bound — the shape
+  `ManagingSupervisor` already has. Reproduce before designing; the fix may
+  be as small as `_on_stopped`'s was, or the case may turn out unreachable,
+  in which case say so and close it.
+  **Layman:** The Open button may stay available after the app stops being able to vouch for what is answering on that port.
+  Kind: investigate.
+  Source: in-session-2026-08-31, noticed while shipping LWSM-1191.
+  Lanes: controller, security.
+
+- 📋 [LWSM-1195] **Two `###` subsections holding FP07 items render outside FP07.**
+  `### 🐛 Bug fixes` and `### 🔒 Security` hold FP07 items (LWSM-1132,
+  LWSM-1140 and their neighbours) and are rendered AFTER `## FP08`'s bullets
+  rather than under `## FP07`, which has no children of its own. So a reader
+  attributes finished FP07 work to whatever `##` precedes it.
+
+  Pre-existing in the store's section order, not caused by the section added
+  on 2026-08-31 — but that addition MOVED the problem: those two blocks now
+  render under `## Findings filed in passing` instead of under `## FP08`.
+  Both parents are wrong; the new one is at least a generic bucket rather
+  than a specific claim about a fix-pass.
+
+  **It cannot be fixed with the roadmap verbs as they stand.** `roadmap_log`
+  has no op that moves or deletes a section, and `roadmap_query
+  check_sync:true` reports `file_in_sync: true`, so ROADMAP.md is rendered
+  from the store and a hand-edit is reverted by the next write. Filed with
+  Ants MCP the same day. Whoever picks this up should check whether a move
+  or delete op has landed before attempting anything else.
+  **Layman:** Two groups of finished work appear under the wrong heading in the roadmap, so a reader is told they belong to a different batch.
+  Kind: doc-fix.
+  Source: in-session-2026-08-31, found while creating the Findings filed in passing section.
+  Lanes: docs.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
