@@ -271,6 +271,15 @@ signaling per
 
 ### Fixed
 
+- **A scan-folders file the app cannot read is no longer overwritten with the default** (LWSM-1178)
+  If the file listing which folders to scan could not be read — one stray
+  byte in it was enough — the app quietly fell back to a single default
+  folder, Preferences showed that as though it were your list, and clicking
+  OK wrote it back over the real one. Your folders and your own comments at
+  the top of the file both went. Saving now refuses and tells you why, so
+  the file you can still repair is left alone. A file that simply does not
+  exist yet is unaffected and still saves.
+
 - **The Rescan button now changes language with the rest of the window** (LWSM-1177)
   Switching language left the Rescan button showing its old label while
   File → Rescan projects beside it changed — and a screen reader read out

@@ -2216,7 +2216,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-3 (window).
   Lanes: window, i18n.
 
-- 📋 [LWSM-1178] **FP08: a scan-roots file that failed to read is written back as if it were the user's list.**
+- ✅ [LWSM-1178] **FP08: a scan-roots file that failed to read is written back as if it were the user's list.**
   `default_scan_roots` returns `fallback` on `OSError` / `UnicodeDecodeError`
   and records nothing to say the value is a fallback rather than the user's
   list. `save_scan_roots` then writes whatever the dialog holds.
@@ -2234,6 +2234,35 @@ module states the correct rule in almost the same words.
   reproduced, so the mechanism is credible — but the specific claim that
   `_leading_comment_block` falls back on the same input was not tested.
   Reproduce alongside LWSM-1163's fix; they want one answer.
+  Resolved (2026-08-31): CONFIRMED, including the half the bullet said was
+  untested. A throwaway probe wrote a two-line header plus six roots with one
+  non-UTF-8 byte: `default_scan_roots` returned `(~/projects,)`,
+  `_leading_comment_block` returned OUR header, and one `save_scan_roots`
+  replaced all 115 bytes. Both readers fall back on the same input, exactly as
+  filed.
+
+  The gate is LWSM-1163's, placed differently and for a stated reason. There
+  the reader reported and the CALLER refused, because `settings.save` cannot
+  tell a refused document from a clean one. Here `save_scan_roots` reads the
+  same path itself, through `_leading_comment_block`, so that read is the one
+  place where the file's condition and the impending write are both in scope —
+  no signature change, no second read, and the refusal holds for every caller
+  rather than the one that remembered.
+
+  Absence is the split LWSM-1163 named: only `FileNotFoundError` returns the
+  default header, because a first run has nothing to lose and must stay
+  writable. `UnicodeDecodeError` is CONVERTED to `ConfigFileError` and an
+  `OSError` is not — the first is not a type `build_window`'s handler catches
+  and would have escaped as a bare traceback; the second already is, so a
+  conversion would be a layer that buys nothing. The test asserts that handler
+  tuple rather than one class, and pins what matters: the save refuses and the
+  bytes survive.
+
+  Tests: both arms (a non-UTF-8 byte, and mode 0o000) — they are different
+  `except` arms and a fix closing one left the other writing the file away.
+  Mutants 4/4 killed: the blanket fallback restored, the conversion dropped,
+  absence refused too (the over-correction, caught by a pre-existing test), and
+  absence widened to any `OSError`. Gate green, no leaked processes.
   **Layman:** If the app cannot read your list of folders to scan, opening Preferences and clicking OK replaces your list with the fallback.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-2 (settings).

@@ -325,7 +325,10 @@ def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
 
     Raises `ConfigFileError` — or whatever `scan_roots_path` raises — when there
     is nowhere to write, for `save_field`'s reason: a change that silently will
-    not be remembered is worse than one that says so.
+    not be remembered is worse than one that says so. It raises for a second
+    reason since LWSM-1178: an EXISTING file that cannot be read is refused
+    rather than overwritten, and `_leading_comment_block` carries that gate
+    because it is the one place this path is read before the write.
     """
     from lwsm.configfile import write_json_atomically
 
@@ -336,7 +339,21 @@ def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
 
 
 def _leading_comment_block(path: Path) -> str:
-    """The file's own header, or ours if it has none we can read.
+    """The file's own header, or ours when there is no file to lose.
+
+    A file that is PRESENT and cannot be read RAISES rather than falling back
+    (LWSM-1178), which is what makes `save_scan_roots` refuse. The caller is
+    about to overwrite this path, and the roots it was handed came from
+    `default_scan_roots`, which fell back on the same input — so a fallback
+    header here writes the default list over the user's, header and all.
+    Measured before the fix: a two-line header and six roots became ours and
+    `~/projects`. It is LWSM-1163's answer on the third config file.
+
+    Only `FileNotFoundError` is absence, and absence stays writable: a first
+    run has nothing to lose and must be able to save (LWSM-1163's split).
+    A `UnicodeDecodeError` is converted because it is not an `OSError`, and
+    `build_window`'s handler catches that — unconverted it would escape as a
+    bare traceback rather than a message the user can act on.
 
     Read through `read_bounded` rather than `Path.read_text`: this runs against
     a path the user controls, and that helper is where the FIFO-blocks-forever
@@ -354,8 +371,10 @@ def _leading_comment_block(path: Path) -> str:
 
     try:
         text = read_bounded(path).decode("utf-8-sig")
-    except (OSError, UnicodeDecodeError, ConfigFileError):
+    except FileNotFoundError:
         return SCAN_ROOTS_HEADER
+    except UnicodeDecodeError as exc:
+        raise ConfigFileError(f"{path}: is not valid UTF-8 ({exc.reason})") from exc
 
     kept: list[str] = []
     for line in text.splitlines():

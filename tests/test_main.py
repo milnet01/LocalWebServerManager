@@ -714,6 +714,48 @@ def test_the_users_own_header_survives_a_save_through_a_bom(tmp_path) -> None:
     assert default_scan_roots(config) == (Path("/srv/two"),)
 
 
+@pytest.mark.parametrize("hostile", ["undecodable", "unreadable"])
+def test_a_scan_roots_file_that_cannot_be_read_is_not_written_over(
+    tmp_path, hostile
+) -> None:
+    """LWSM-1163's shape on the third config file.
+
+    `default_scan_roots` falls back and says nothing, so the dialog offers the
+    DEFAULT as though it were the user's list — and that is the value the OK
+    button hands back to `save_scan_roots`. `_leading_comment_block` fell back
+    on the same input, so the header went with the roots. Measured before the
+    fix: a two-line header and five roots became our header and `~/projects`.
+
+    Both hostile states are driven because they are different arms:
+    `UnicodeDecodeError` is not an `OSError`, and a fix that closed one left
+    the other writing the file away. Only the first is converted, for that
+    reason — the second is already a type the caller handles, so the assertion
+    is `build_window`'s own handler tuple rather than one class. What is being
+    pinned is that the save REFUSES and the bytes survive; which of the two it
+    refuses with is the caller's business and is stated in the docstring.
+    """
+    from lwsm.__main__ import default_scan_roots, save_scan_roots
+    from lwsm.configfile import ConfigFileError
+
+    config = tmp_path / "scan-roots"
+    payload = b"# my own header\n# and its second line\n\n/srv/one\n/srv/two\n"
+    if hostile == "undecodable":
+        payload += b"/srv/three\xff\n"
+    config.write_bytes(payload)
+    if hostile == "unreadable":
+        config.chmod(0o000)
+
+    assert default_scan_roots(config) == (Path.home() / "projects",), (
+        "precondition: the reader falls back, and says nothing about it"
+    )
+
+    with pytest.raises((ConfigFileError, OSError)):
+        save_scan_roots(default_scan_roots(config), config)
+
+    config.chmod(0o600)
+    assert config.read_bytes() == payload
+
+
 def test_a_comment_between_roots_is_not_kept_and_that_is_the_contract(
     tmp_path,
 ) -> None:
