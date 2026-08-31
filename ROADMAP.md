@@ -2389,7 +2389,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lanes 1 and 4.
   Lanes: docs.
 
-- 📋 [LWSM-1181] **FP08: check whether an untrusted project name can distort the trust dialog.**
+- ✅ [LWSM-1181] **FP08: check whether an untrusted project name can distort the trust dialog.**
   Raised by the window lane from OUTSIDE its assigned slice and passed on
   rather than dropped, so it is filed to be checked rather than as a
   confirmed defect.
@@ -2404,6 +2404,35 @@ module states the correct rule in almost the same words.
   dialog whose entire purpose is telling the user what is about to run, and
   the launcher-symlink finding above already shows that dialog naming the
   wrong file. Verify, then fix or dismiss with a reason.
+  Resolved (2026-08-31): investigated and CONFIRMED, and the investigation found
+  the larger half the bullet had not reached.
+
+  As filed: `%1` was substituted into a template still holding `%2` and `%3`, so
+  a directory called `evil%2` had the resolved launcher path pasted into its own
+  name. Real, and fixed.
+
+  Not as filed, and worse: reordering the substitutions would not have been
+  enough. ALL THREE fields — name, resolved path, argv — come from someone
+  else's tree, and the dialog is one plain-text block whose headings are its
+  only structure. A line break in ANY of them draws a second "This will
+  execute:" naming a different program above the real one. So the fix is not an
+  ordering change: all three go in on one `re.sub` pass, which never rescans what
+  it substituted, and each is rendered with its line breaks escaped.
+
+  Stated loss: a name holding a literal backslash-n now displays the same as one
+  holding a line break. Distinguishing them costs escaping every backslash in
+  every path shown, and neither can forge the dialog, which is what this
+  defends.
+
+  Tests: the `%2` case, and a forgery asserted against a BENIGN prompt rather
+  than a fixed count — what is pinned is that an untrusted value adds no line,
+  whatever the template says. The forged name deliberately holds no `/`, so the
+  whole structure comes from ONE directory name.
+
+  Mutants 4/4 killed, in two runs. The first three left the one-pass property
+  unpinned — the mutant labelled for it had removed the escape instead — so a
+  fourth was run that reverts ONLY the single pass, keeping the escape. It dies.
+  Gate green (1296 verified), no leaked processes.
   **Layman:** Check whether a project with an unusual folder name can make the "do you want to run this?" box say something misleading.
   Kind: investigate.
   Source: close-phase-2026-08-21 lane-3 (window), outside its assigned slice.

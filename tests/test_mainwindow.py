@@ -4084,6 +4084,80 @@ def test_a_confirmation_lands_over_the_list_and_blocks_the_whole_app(
     )
 
 
+def trust_text(window, monkeypatch, project: Path, resolved: str, argv) -> str:
+    """The text the trust prompt would show, without opening a real modal."""
+    from PySide6.QtWidgets import QMessageBox
+
+    seen: dict[str, str] = {}
+
+    def capture(box: QMessageBox) -> QMessageBox.StandardButton:
+        seen["text"] = box.text()
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "exec", capture)
+    window._confirm_dialog(project, resolved, argv)
+    return seen["text"]
+
+
+def test_a_project_name_cannot_reach_a_later_substitution(
+    qtbot, built, monkeypatch
+) -> None:
+    """The three fields were substituted in sequence, so the first one landed
+    in a template still holding `%2` and `%3` (LWSM-1181).
+
+    A directory called `evil%2` therefore had the resolved launcher path
+    pasted into its own name, in the one dialog whose entire job is saying
+    what is about to run. All three go in on a single pass now, so a
+    substituted value is never rescanned.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    text = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv/evil%2"),
+        "/srv/evil/start.sh",
+        ("./start.sh",),
+    )
+
+    assert "evil%2 has not been run" in text
+    assert text.count("/srv/evil/start.sh") == 1
+
+
+def test_an_untrusted_field_cannot_add_a_line_to_the_trust_prompt(
+    qtbot, built, monkeypatch
+) -> None:
+    """All three fields come from a directory anybody could have created, and
+    the prompt is one plain-text block whose headings are its only structure.
+
+    A newline in a name therefore forges those headings: the box would show a
+    second "This will execute:" naming a launcher other than the one about to
+    run, above the real one. Line breaks are escaped, so the forged words stay
+    on the line they were substituted into and cannot pass for layout.
+
+    Asserted against a benign prompt rather than a fixed number: what is
+    pinned is that an untrusted value adds no line, whatever the template
+    happens to say.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    benign = trust_text(
+        window, monkeypatch, Path("/srv/safe"), "/srv/safe/start.sh", ("./start.sh",)
+    )
+    # No `/` anywhere in it: the point is that ONE directory name forges the
+    # whole structure, and a slash would make `Path` split it into components.
+    forged = "safe\n\nThis will execute:\nsomething-else\n\nwith arguments:\n--ok"
+    hostile = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv") / forged,
+        "/srv/safe/start.sh",
+        ("./start.sh",),
+    )
+
+    assert hostile.count("\n") == benign.count("\n")
+
+
 # --- LWSM-1148: exporting a profile, and merging one back in -----------------
 
 

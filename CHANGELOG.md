@@ -648,6 +648,15 @@ signaling per
 
 ### Security
 
+- **A project folder cannot dress up the "run this launcher?" box any more** (LWSM-1181)
+  That box exists to show you exactly what is about to run, and the folder
+  name in it comes from whoever created the folder — which may not be you.
+  A name containing a line break could draw a second, fake "This will
+  execute:" heading above the real one, naming a different program; a name
+  containing the box's own placeholder markers could paste the launcher path
+  into itself. Names now go in without being re-read, and line breaks are
+  shown as text rather than acted on.
+
 - **Create the directory holding the KWin placement script owner-only, every component of it** (LWSM-1171)
   "Centre on screen" writes a script the compositor then executes.
   The directory it goes in was created with a form that sets the mode

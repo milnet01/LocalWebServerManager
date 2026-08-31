@@ -11,6 +11,7 @@ name, keyboard reachability, its state as text, and a layout that reflows.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -151,6 +152,21 @@ STATE_GLYPHS = {
 # to match the source, nor to the argparse text in __main__ — translating that
 # needs Qt imported before argparse runs, which INV-14 forbids.
 _TR_CONTEXT = "ProjectRow"
+
+# The trust prompt's placeholders, matched so all three can be substituted on
+# one pass (LWSM-1181). Sequential `.replace` calls let the first value land in
+# a template that still held the other two.
+_TRUST_FIELD = re.compile(r"%[123]")
+
+
+def _no_line_breaks(value: str) -> str:
+    """A value from someone else's tree, rendered so it cannot forge layout.
+
+    `_confirm_dialog` is one plain-text block whose headings are its only
+    structure, and all three of its fields are names a stranger may have
+    chosen. A line break in one lets it draw a heading of its own.
+    """
+    return value.replace("\r", "\\r").replace("\n", "\\n")
 
 
 def state_word(status: ProjectStatus) -> str:
@@ -2051,6 +2067,21 @@ class MainWindow(QMainWindow):
         shows what will actually run". `Qt.PlainText` explicitly, because the
         thing being displayed is a path from a directory anybody could have
         written into, and Qt's default sniffs for rich text.
+
+        **All three fields go in on ONE pass, and their line breaks are
+        escaped** (LWSM-1181). They were substituted in sequence, so the name
+        landed in a template still holding `%2` and `%3` and a directory called
+        `evil%2` had the launcher path pasted into its own name. And every one
+        of the three comes from someone else's tree, while the headings are
+        this dialog's only structure — so a newline in any of them forged a
+        second "This will execute:" naming a different launcher, above the real
+        one. `re.sub` never rescans what it substituted, and an escaped break
+        cannot pass for layout.
+
+        A name holding a literal backslash-n is displayed the same as one
+        holding a line break. That is a stated loss: distinguishing them costs
+        escaping every backslash in every path, and neither can forge the
+        dialog, which is what this is defending.
         """
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
@@ -2058,15 +2089,20 @@ class MainWindow(QMainWindow):
         box.setWindowTitle(
             QCoreApplication.translate(_TR_CONTEXT, "Run this launcher?")
         )
+        fields = {
+            "%1": project.name,
+            "%2": resolved,
+            "%3": " ".join(argv),
+        }
         box.setText(
-            QCoreApplication.translate(
-                _TR_CONTEXT,
-                "%1 has not been run from here before.\n\n"
-                "This will execute:\n%2\n\nwith arguments:\n%3",
+            _TRUST_FIELD.sub(
+                lambda match: _no_line_breaks(fields[match.group()]),
+                QCoreApplication.translate(
+                    _TR_CONTEXT,
+                    "%1 has not been run from here before.\n\n"
+                    "This will execute:\n%2\n\nwith arguments:\n%3",
+                ),
             )
-            .replace("%1", project.name)
-            .replace("%2", resolved)
-            .replace("%3", " ".join(argv))
         )
         box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
