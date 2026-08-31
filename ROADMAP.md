@@ -2149,7 +2149,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-3 (window).
   Lanes: window, accessibility.
 
-- 📋 [LWSM-1176] **FP08: two translated strings use `str.format`, the one construct this file forbids by name.**
+- ✅ [LWSM-1176] **FP08: two translated strings use `str.format`, the one construct this file forbids by name.**
   **Verified 2026-08-21**: exactly two `.format(` calls exist in
   `mainwindow.py`, at `:1322` and `:1430`, and both are on
   `QCoreApplication.translate` results — the text-size and theme save-failure
@@ -2165,6 +2165,17 @@ module states the correct rule in almost the same words.
   hostile or merely mismatched translation turns a handled save failure into
   an exception out of a `QAction.triggered` slot. Fix: `%1` plus
   `str.replace` at both.
+  Resolved (2026-08-31): reproduced exactly as filed — both sites still
+  present, line numbers moved. The red test installs a `QTranslator`
+  returning a renamed placeholder and drives both `except` blocks: with
+  `.format` the text-size path raised `KeyError` out of a
+  `QAction.triggered` slot, which PySide6 swallowed, so the status bar was
+  left EMPTY rather than the process dying. The test therefore asserts the
+  message, not the absence of an exception. Both sites now use `%1` plus
+  `str.replace`, the idiom the rest of the file already uses. Mutants 4/4
+  killed — reverting either site to `.format`, and dropping either
+  substitution entirely (the over-correction), each of which a pre-existing
+  test catches. Gate green, no leaked processes.
   **Layman:** A translation mistake in two error messages could crash the app instead of showing the message.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-3 (window).

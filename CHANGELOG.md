@@ -271,6 +271,14 @@ signaling per
 
 ### Fixed
 
+- **A faulty translation of a settings save-failure message no longer takes the window down** (LWSM-1176)
+  If saving your theme or text size failed, the app showed the reason in
+  the status bar. Under a translation that had renamed the slot the reason
+  goes into, showing that message raised an error of its own — turning a
+  handled failure into a broken window. The two messages now use the
+  placeholder Qt substitutes without being able to fail, so a bad
+  translation loses the reason and nothing else.
+
 - **Changing the theme or the language no longer deletes a project's failure message.** (LWSM-1175)
   When a project failed to start, the message shown beside it vanished the
   moment you switched theme or language — most painfully for someone

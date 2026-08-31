@@ -1329,6 +1329,48 @@ def test_a_broken_translation_loses_the_number_not_the_window(qtbot, built) -> N
         app.removeTranslator(translator)
 
 
+def test_a_broken_translation_of_a_save_failure_is_shown_not_raised(
+    qtbot, built, app_font
+) -> None:
+    """The two save-failure messages sit inside `except` blocks whose whole job
+    is to keep an unwritable settings file from taking the window down.
+
+    Written with `str.format`, a translation that renamed the placeholder raised
+    `KeyError` back out of the handler, so the handled failure became LWSM-1082's
+    crash by another route (LWSM-1176). `str.replace` cannot raise whatever comes
+    back, and the test asserts the message rather than the absence of an
+    exception: PySide6 swallows one raised in a slot it invoked, so a `trigger()`
+    that died silently leaves the status bar empty instead.
+    """
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    broken = "Impossible : {raison}"  # every placeholder renamed
+
+    class Broken(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return broken
+
+    def refuse(_value) -> None:
+        raise SettingsError("nowhere to write")
+
+    translator = Broken()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window, _ = scaled_window(
+            qtbot, built, save_text_scale=refuse, save_theme=refuse
+        )
+
+        window._text_size_actions[200].trigger()
+        assert window.statusBar().currentMessage() == broken
+
+        window.statusBar().clearMessage()
+        window.set_theme("emerald")
+        assert window.statusBar().currentMessage() == broken
+    finally:
+        app.removeTranslator(translator)
+
+
 # --- LWSM-1113: the palette is applied, not merely built ----------------------
 
 

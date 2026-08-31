@@ -1536,8 +1536,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "The text size could not be saved: {0}"
-                ).format(exc)
+                    _TR_CONTEXT, "The text size could not be saved: %1"
+                ).replace("%1", str(exc))
             )
 
     def _retranslate_menus(self) -> None:
@@ -1647,8 +1647,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "The theme could not be saved: {0}"
-                ).format(exc)
+                    _TR_CONTEXT, "The theme could not be saved: %1"
+                ).replace("%1", str(exc))
             )
 
     def _settings_unavailable(self) -> None:
