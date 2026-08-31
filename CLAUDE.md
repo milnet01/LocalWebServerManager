@@ -861,6 +861,16 @@ set. This is what makes an unhandled probe error freeze the poll loop
 permanently rather than crash (LWSM-1069). Any `run()` body needs a
 catch-all that still reports, not just the exception it expects.
 
+**The same swallowing applies to a SLOT Qt invoked, which changes how a test
+must assert.** Measured 2026-08-31 (LWSM-1176): a `KeyError` raised inside a
+`QAction.triggered` handler printed "Exceptions caught in Qt event loop" and
+the test carried on. So `pytest.raises` sees nothing and a test written as
+"this must not raise" passes against the defect. **Assert the observable
+instead** — there, the status-bar message the handler exists to show, which
+was empty precisely because the handler died. A slot called DIRECTLY from
+Python still propagates, so the same defect reaches you two ways depending on
+how the test reaches it.
+
 **Trap: `setAccessibleName("")` does not hide a widget from the
 accessibility tree.** `QAccessibleDisplay` falls back to
 `QLabel::text()` when the accessible name is empty, so a decorative
@@ -914,6 +924,14 @@ deleted` — which reads as a bug in the code under test rather than in the test
 `qtbot.addWidget` does **not** save you: it registers the widget for cleanup,
 not for ownership. Bind the parent to a name and keep it alive for the whole
 test. Hit 2026-08-21 on LWSM-1018.
+
+**Trap: `qtbot.waitSignal` must be armed BEFORE anything that emits
+synchronously.** Completing a `Future` on the main thread runs its
+done-callback inline, so a signal emitted from that callback has already been
+and gone by the time a wait armed afterwards starts listening — and the
+failure is a timeout, which reads as "the code never emitted" rather than
+"the test looked too late". Put the triggering call INSIDE the `with`. Cost a
+cycle on 2026-08-31 (LWSM-1191), where the emit being tested was the fix.
 
 **Trap: `QCoreApplication.installTranslator` only broadcasts once the event
 loop is running**, because it is gated on `is_app_running`. With no `exec()`,
