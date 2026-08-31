@@ -58,8 +58,14 @@ class Rect:
     Plain integers, not a `QRect`, for the same reason `settings.json` stores
     them rather than a `saveGeometry()` blob (ADR-0007): they are the values
     that go on disk, they are hand-editable there, and every one of them is
-    interpolated into a script that runs inside the compositor. A type that
-    can only hold integers is the cheapest half of that guarantee.
+    interpolated into a script that runs inside the compositor.
+
+    **The annotations are documentation, not a guard.** A frozen dataclass
+    validates nothing, and `Rect("0); evil(); //", 0, 1, 1)` constructs
+    (verified). What holds the guarantee is `settings._bounded_int_or_reason`
+    on the way in and the `int()` calls in `kwin_script`'s template on the way
+    out. Neither is redundant — this said the type could only hold integers,
+    which reads as licence to delete the second.
     """
 
     x: int
@@ -141,9 +147,16 @@ def clamp_to_screens(target: Rect, screens: Sequence[Rect]) -> Rect:
 
     ADR-0007 requires this for correctness — a window remembered on a monitor
     that is no longer attached must not be restored off-screen, where the user
-    cannot reach it to fix it. It is also half the security boundary: whatever
-    a hand-edited `settings.json` claims, what reaches the KWin script is a
-    rectangle inside a real screen.
+    cannot reach it to fix it. It also bounds what a hand-edited
+    `settings.json` can ask for: what reaches the KWin script is a rectangle
+    that fits a real screen.
+
+    **That bound is on the CLIENT rectangle, not on the frame.** The script
+    adds the decoration margins after this runs, so the frame KWin is asked
+    for can exceed what is clamped here. This used to claim the placed
+    rectangle was inside a real screen, which is not what it can promise. The
+    injection half of the boundary is a separate guarantee and is untouched by
+    that — see `Rect` for where it actually lives.
 
     The screen chosen is the one the remembered rectangle **overlaps most**,
     which keeps a window that straddles two monitors on the one it was mostly

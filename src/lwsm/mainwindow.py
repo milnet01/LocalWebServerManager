@@ -2603,23 +2603,24 @@ class MainWindow(QMainWindow):
         return super().eventFilter(watched, event)
 
     def _restore_geometry(self) -> None:
-        """Position first, then size — and neither if there is nothing stored.
+        """Size first, then position — and neither if there is nothing stored.
 
-        **The order is load-bearing and was measured, not chosen.** KWin's
-        API takes a whole rectangle, so the script preserves the window's
-        CURRENT size by reading `c.frameGeometry.width` as it runs. Resize
-        first and the two race: Qt asks the compositor for 700x500, the script
-        runs before that has been applied, reads the size KWin still believes
-        in, and writes it straight back — cancelling the resize. Measured
-        against real KWin on 2026-08-21: resize-then-place gave the right
-        position at 239x216, the window's undecorated minimum, while the
-        remembered size was 700x500.
+        **The order is load-bearing, but not for the reason this said.** An
+        early version of the KWin script preserved the window's current size by
+        reading `c.frameGeometry.width` back as it ran, which raced a `resize()`
+        the compositor had not applied yet. The shipped script is HANDED the
+        size instead, so that race is not in the code any more;
+        `placement.kwin_script` records what each measurement refuted, and the
+        constraint that survived — KWin's geometry write is authoritative, so
+        the script must carry the size — is stated there rather than here.
 
-        Placing first has no matching hazard, because a later resize keeps the
-        top-left corner it was given. So the position is asked for while the
-        size is still whatever it was, and the size lands afterwards as the
-        last word — which is the division ADR-0007 already describes, since
-        `resize()` is honoured on every platform and only placement is refused.
+        What keeps the order today is LWSM-1172: the placement call below is
+        given the window's OWN size rather than the remembered one, and that
+        reads correctly only once the bounded resize has happened.
+
+        Whether any ordering hazard remains under a live compositor has not
+        been re-measured since the script stopped reading the size back, and a
+        green suite is not evidence for anything the compositor owns.
 
         The size is applied here as well as in `_apply_default_geometry`,
         which is not a duplicate: that method returns early when there are no

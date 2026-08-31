@@ -2312,7 +2312,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-2 (settings).
   Lanes: settings.
 
-- 📋 [LWSM-1180] **FP08: five docstrings describe mechanisms the code no longer has.**
+- ✅ [LWSM-1180] **FP08: five docstrings describe mechanisms the code no longer has.**
   All five verified 2026-08-21, and four are in code written the same day —
   which is the point: prose ages against its own edit within hours.
 
@@ -2356,6 +2356,34 @@ module states the correct rule in almost the same words.
   KWin race this docstring describes. Whatever replaces the prose has to say
   that. Confirming the race itself is dead still needs a real KWin session; a
   green suite is not evidence for anything the compositor owns.
+  Resolved (2026-08-31): four corrected, and ITEM 5 NEEDED NO FIX — `exited()`'s
+  docstring was corrected by LWSM-1165 and names that item by id while saying the
+  pop has been in `stop()` since LWSM-1138. This bullet was stale on it, which is
+  the same ageing it was filed about.
+
+  All four re-verified before editing rather than taken from the bullet. Item 3
+  was re-run live (`Rect("0); evil(); //", 0, 1, 1)` constructs); item 4's
+  `_remembered_rect` still appears nowhere but its own comment, and
+  `placement.pair_or_none` plus `_restore_geometry` are the real deciders; items
+  1 and 2 were read against the shipped `kwin_script`, which is handed the size
+  and adds the decoration margins itself.
+
+  Item 1 is now honest about a thing the bullet did not ask for. The old text
+  justified the order by a race, and the summary line said "Position first" while
+  the code resizes first. The measurement it quoted was taken against the
+  REFUTED script, so it could not be kept as evidence for the current order —
+  what keeps the order today is LWSM-1172, and the docstring says so and says
+  outright that nothing has been re-measured under a live compositor since the
+  script changed.
+
+  Item 2 keeps the security claim it can support and drops the one it cannot: the
+  clamp bounds the CLIENT rectangle, and the script adds decoration after it, so
+  the placed frame can exceed it. The injection half is untouched and now points
+  at `Rect`, where item 3 states where the guarantee actually lives.
+
+  No test: documentation-only, and `testing.md § 8` / `write-test` both refuse
+  one. No CHANGELOG entry either — every entry there is user-visible and an
+  internal comment is not. Gate green (1294 verified), no leaked processes.
   **Layman:** Five comments explain how something works and are now out of date, which would mislead the next person who reads them.
   Kind: doc-fix.
   Source: close-phase-2026-08-21 lanes 1 and 4.

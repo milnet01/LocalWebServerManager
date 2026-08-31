@@ -143,8 +143,9 @@ class Settings:
     # a real coordinate, so the window would open in the top-left corner on a
     # clean machine and the code could not tell that from a user who put it
     # there. The four are read and written independently, so a file with three
-    # of them is a file with three of them — `_remembered_rect` decides what an
-    # incomplete set means, because that is a question about windows.
+    # of them is a file with three of them. `placement.pair_or_none` and
+    # `MainWindow._restore_geometry` decide what an incomplete set means,
+    # because that is a question about windows.
     x: int | None = None
     y: int | None = None
     width: int | None = None
