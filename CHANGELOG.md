@@ -271,6 +271,14 @@ signaling per
 
 ### Fixed
 
+- **A scan folder the app cannot store is now refused instead of quietly changed** (LWSM-1179)
+  The list of folders to scan is stored one per line, so a folder whose name
+  ends in a space or contains a line break could not be written down
+  faithfully — it came back pointing somewhere else, or split into two
+  folders that do not exist, and nothing said so. Preferences now tells you
+  it cannot store that folder and leaves your existing list alone. Ordinary
+  names with spaces in them, like "my projects", are unaffected.
+
 - **A scan-folders file the app cannot read is no longer overwritten with the default** (LWSM-1178)
   If the file listing which folders to scan could not be read — one stray
   byte in it was enough — the app quietly fell back to a single default

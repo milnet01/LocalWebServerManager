@@ -756,6 +756,50 @@ def test_a_scan_roots_file_that_cannot_be_read_is_not_written_over(
     assert config.read_bytes() == payload
 
 
+@pytest.mark.parametrize("name", ["/srv/trailing ", "/srv/two\nlines", "/srv/tabbed\t"])
+def test_a_root_the_file_cannot_represent_is_refused_not_silently_lost(
+    tmp_path, name
+) -> None:
+    """The format is one path per line and the reader strips each line, so a
+    name ending in whitespace or holding a newline cannot survive the round
+    trip. Measured: `/srv/trailing ` came back stripped and therefore pointing
+    at a directory that does not exist, and `/srv/two\\nlines` came back as TWO
+    roots — the second of them relative, so the scan would walk it from the
+    process's working directory.
+
+    Refused at the writer rather than stripped at the chooser (LWSM-1179): the
+    chooser is not the only way a root gets here, and a strip would change the
+    directory the user picked without saying so. Nothing is written, so the
+    previous list survives the refusal.
+    """
+    from lwsm.__main__ import save_scan_roots
+    from lwsm.configfile import ConfigFileError
+
+    config = tmp_path / "scan-roots"
+
+    with pytest.raises(ConfigFileError):
+        save_scan_roots((Path(name),), config)
+
+    assert not config.exists(), "the refusal must come before any write"
+
+
+def test_a_root_with_an_interior_space_still_saves(tmp_path) -> None:
+    """The guard is about what the round trip loses, never about spaces.
+
+    A directory called `my projects` is ordinary and round-trips exactly; a
+    check written as "reject spaces" would reject it. Dies on widening the
+    refusal above.
+    """
+    from lwsm.__main__ import default_scan_roots, save_scan_roots
+
+    config = tmp_path / "scan-roots"
+    roots = (Path("/srv/my projects"),)
+
+    save_scan_roots(roots, config)
+
+    assert default_scan_roots(config) == roots
+
+
 def test_a_comment_between_roots_is_not_kept_and_that_is_the_contract(
     tmp_path,
 ) -> None:

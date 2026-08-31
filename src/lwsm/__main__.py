@@ -328,9 +328,26 @@ def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
     not be remembered is worse than one that says so. It raises for a second
     reason since LWSM-1178: an EXISTING file that cannot be read is refused
     rather than overwritten, and `_leading_comment_block` carries that gate
-    because it is the one place this path is read before the write.
+    because it is the one place this path is read before the write. And for a
+    third since LWSM-1179: a root this line-based format cannot represent is
+    refused rather than silently altered.
     """
-    from lwsm.configfile import write_json_atomically
+    from lwsm.configfile import ConfigFileError, write_json_atomically
+
+    for root in roots:
+        # Refused before anything is read or written, so the previous list
+        # survives (LWSM-1179). One path per line, and the reader strips each
+        # line: a name ending in whitespace comes back pointing somewhere else,
+        # and one holding a newline comes back as TWO roots, the second of them
+        # relative. Refused here rather than stripped at the chooser — the
+        # chooser is not the only way a root reaches this function, and a strip
+        # would change the directory the user picked without saying so.
+        text = str(root)
+        if text != text.strip() or "\n" in text:
+            raise ConfigFileError(
+                f"{root!r}: a scan root cannot start or end with whitespace, "
+                "or contain a line break"
+            )
 
     path = scan_roots_path(config)
     body = "".join(f"{root}\n" for root in roots)

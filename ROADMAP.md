@@ -2268,7 +2268,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-2 (settings).
   Lanes: settings.
 
-- 📋 [LWSM-1179] **FP08: a scan root with surrounding whitespace or a newline does not survive the round trip.**
+- ✅ [LWSM-1179] **FP08: a scan root with surrounding whitespace or a newline does not survive the round trip.**
   `save_scan_roots` writes one root per line verbatim; `default_scan_roots`
   reads each back through `Path(line.strip())`. `SettingsDialog._add_root`
   deliberately stores the chooser's text unmodified.
@@ -2284,6 +2284,29 @@ module states the correct rule in almost the same words.
   rare, and the fix (strip on the way IN, at the chooser) may be worth less
   than the test that pins it. Decide whether it is worth doing at all before
   doing it.
+  Resolved (2026-08-31): CONFIRMED by the one-line round-trip check the bullet
+  asked for. `/srv/trailing ` came back stripped, `/srv/tabbed\t` likewise, and
+  `/srv/two\nlines` came back as TWO roots — the second RELATIVE, so the scan
+  would walk it from the process's working directory, which the bullet did not
+  anticipate. A LEADING space survives: the reader strips the LINE, and a
+  leading space inside a rooted path is interior.
+
+  The bullet asked for a decision before acting, and it is recorded here. Fixed,
+  but not where it proposed. Stripping at the chooser leaves a hand-edited file
+  wrong, and it changes the directory the user picked without saying so. The
+  refusal lives in `save_scan_roots` instead — before anything is read or
+  written, so the previous list survives — which is fewer lines, covers every
+  caller, and is the shape LWSM-1178 had just given the same function one item
+  earlier.
+
+  The guard is about what the round trip LOSES, never about spaces:
+  `/srv/my projects` is ordinary, round-trips exactly, and has its own test, so
+  a widened check dies.
+
+  Mutants 4/5 killed — no guard, whitespace-only, newline-only, and reject-any-
+  space. The fifth (strip in the body instead of refusing) SURVIVED and is an
+  equivalent mutant rather than a finding: the guard raises before that line is
+  reached, so no test can distinguish it. Gate green, no leaked processes.
   **Layman:** A folder whose name starts or ends with a space silently stops being scanned after you save it.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-2 (settings).
