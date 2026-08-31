@@ -1278,7 +1278,9 @@ class MainWindow(QMainWindow):
         self._rescan_pool: QThreadPool | None = None
         self._rescan_signals: _RescanSignals | None = None
         if self._rescan is not None:
-            self._rescan_button = QPushButton(self._rescan_label(), central)
+            # Unlabelled here: `_retranslate_strip` below sets the text, so one
+            # place owns it and the two cannot drift (LWSM-1177).
+            self._rescan_button = QPushButton(central)
             # Visual order is tab order, and the button is a real QPushButton so
             # it is focusable and carries its own accessible name from its text
             # (`§ O8`).
@@ -1300,7 +1302,7 @@ class MainWindow(QMainWindow):
         # because the filter box is in it either way.
         outer.addLayout(strip)
         self._strip = strip
-        self._retranslate_filter()
+        self._retranslate_strip()
         # The list scrolls (LWSM-1149). Without this the window's minimum
         # height is every row it holds, so a user with twenty projects gets a
         # window taller than the screen that cannot be shrunk — the opposite
@@ -1794,12 +1796,20 @@ class MainWindow(QMainWindow):
         if self._import_action is not None:
             self._import_action.setEnabled(enabled)
 
-    def _retranslate_filter(self) -> None:
-        """The filter box's two user-visible strings (LWSM-1040).
+    def _retranslate_strip(self) -> None:
+        """The strip's user-visible strings — the filter box's two (LWSM-1040)
+        and the Rescan button's label (LWSM-1177).
 
         Its own method, and set from here rather than at construction, for the
         reason `_retranslate_menus` gives: `LanguageChange` needs one place to
-        go.
+        go. The button was the exception and stayed in its construction
+        language: `_set_rescan_enabled` treats it and the menu entry as one
+        control with two faces, but only the entry was ever retranslated. Its
+        accessible name is derived from this text (`§ O8`), so the announcement
+        went stale with the label.
+
+        It cannot be done in `_retranslate_menus` instead: `_build_menus` runs
+        before the strip is built, so the button does not exist yet.
 
         The accessible name is not the placeholder. A placeholder is erased by
         the first keystroke, so a screen-reader user who returns to a box they
@@ -1812,6 +1822,8 @@ class MainWindow(QMainWindow):
         self._filter.setAccessibleName(
             QCoreApplication.translate(_TR_CONTEXT, "Filter projects by name")
         )
+        if self._rescan_button is not None:
+            self._rescan_button.setText(self._rescan_label())
 
     def _ordered_rows(self) -> list[ProjectRow]:
         """Every row in LAYOUT order — the order the user sees (LWSM-1040).
@@ -1963,7 +1975,7 @@ class MainWindow(QMainWindow):
             # re-applying the summary here would silently overwrite it.
             self.setWindowTitle(self._window_title())
             self._retranslate_menus()
-            self._retranslate_filter()
+            self._retranslate_strip()
             for row in self._rows.values():
                 row.retranslate()
             # A translated cell is a different width (LWSM-1145).

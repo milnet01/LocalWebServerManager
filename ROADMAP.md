@@ -2181,7 +2181,7 @@ module states the correct rule in almost the same words.
   Source: close-phase-2026-08-21 lane-3 (window).
   Lanes: window, i18n.
 
-- 📋 [LWSM-1177] **FP08: the Rescan button's label is never retranslated.**
+- ✅ [LWSM-1177] **FP08: the Rescan button's label is never retranslated.**
   **Verified 2026-08-21**: `setText` is never called on `_rescan_button` —
   the only uses are its construction and `setEnabled`. `_retranslate_menus`
   covers `_rescan_action` and stops there.
@@ -2191,6 +2191,26 @@ module states the correct rule in almost the same words.
   the shape of a generated `retranslateUi`. Both are false for the most
   prominent control in the window, and its accessible name comes from that
   text, so a screen reader gets the stale string too.
+  Resolved (2026-08-31): reproduced as filed. The red test sends
+  `LanguageChange` by hand and asserts BOTH faces, so it cannot pass by the
+  pair going stale together — the menu entry retranslated, the button did
+  not.
+
+  The fix did NOT go where the bullet's evidence pointed. Putting the
+  button's `setText` beside the menu entry's in `_retranslate_menus` broke
+  182 tests: `_build_menus` runs before the strip is built, so the button
+  does not exist at that point. `_retranslate_filter` is the method that
+  runs after construction AND on `LanguageChange`, so the label went there
+  and the method is renamed `_retranslate_strip` — it now owns the strip's
+  labels rather than the filter box's alone. The button is also constructed
+  unlabelled, so one place owns the text and the two cannot drift again.
+
+  Mutants 3/3 killed (reversion, an untranslated literal in the same shape,
+  inverted guard). A FOURTH survived and is a pre-existing gap, not this
+  item's: deleting `_filter.setPlaceholderText` entirely leaves the suite
+  green. The only assertion touching it (LWSM-1040) compares it against the
+  accessible name for inequality, which an empty placeholder still
+  satisfies. Reported, not fixed here.
   **Layman:** After switching language, the Rescan button stays in the old language while its menu entry changes.
   Kind: fix.
   Source: close-phase-2026-08-21 lane-3 (window).

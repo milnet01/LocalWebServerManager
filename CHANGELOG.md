@@ -271,6 +271,12 @@ signaling per
 
 ### Fixed
 
+- **The Rescan button now changes language with the rest of the window** (LWSM-1177)
+  Switching language left the Rescan button showing its old label while
+  File → Rescan projects beside it changed — and a screen reader read out
+  the old label too, since the button's spoken name comes from what is
+  written on it. Both now change together.
+
 - **A faulty translation of a settings save-failure message no longer takes the window down** (LWSM-1176)
   If saving your theme or text size failed, the app showed the reason in
   the status bar. Under a translation that had renamed the slot the reason

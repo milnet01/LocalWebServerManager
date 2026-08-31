@@ -1470,6 +1470,49 @@ def test_a_window_with_nothing_to_rescan_has_no_rescan_button(qtbot, built) -> N
     window.shutdown()
 
 
+def test_the_rescan_button_is_retranslated_with_its_menu_entry(
+    qtbot, built, tmp_path
+) -> None:
+    """`_set_rescan_enabled` calls the button and the menu entry "one control
+    with two faces", and `changeEvent` claims the shape of a generated
+    `retranslateUi`. Both were false for the button: its label was set once at
+    construction and `setText` was never called on it again, so a language
+    change left the window's most prominent control in the old language
+    (LWSM-1177). A `QPushButton` takes its accessible name from its text
+    (`§ O8`), so a screen reader was given the stale string too — asserted
+    here through the text, which is the single source both read.
+
+    The menu entry is asserted as well, so the test cannot pass by both faces
+    going stale together.
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent, QTranslator
+    from PySide6.QtWidgets import QApplication
+
+    class Shouting(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return sourceText.upper()
+
+    window, _ = rescan_window(
+        qtbot, built, [record("a", 5005)], tmp_path, FakeScanResult()
+    )
+    button = window._rescan_button
+    assert button.text() == "Rescan", "precondition: built untranslated"
+
+    translator = Shouting()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        # Delivered by hand for the reason
+        # `test_a_translator_installed_later_reaches_an_existing_row` records.
+        QApplication.sendEvent(window, QEvent(QEvent.Type.LanguageChange))
+
+        assert window._rescan_action.text() == "&RESCAN PROJECTS"
+        assert button.text() == "RESCAN"
+    finally:
+        app.removeTranslator(translator)
+    window.shutdown()
+
+
 def test_a_rescan_adds_a_new_project_and_says_so(qtbot, built, tmp_path) -> None:
     project = tmp_path / "roots" / "web"
     scan = FakeScanResult(
