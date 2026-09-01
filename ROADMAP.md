@@ -2544,6 +2544,1221 @@ module states the correct rule in almost the same words.
   Source: in-session-2026-08-25.
   Lanes: controller, window.
 
+## FP09 — Fourteen-lane review fold-in (check-code + review-code, 2026-09-01)
+
+A whole-tree check-code run followed by a fourteen-lane review-code sweep over
+every src/ module, all five scripts, the pre-push hook and ci.yml. check-code
+returned ONE surviving finding across eleven tools; everything else it raised
+was calibrated or verified false and is recorded in .ants_review_falsepos.jsonl.
+The lanes returned 0 CRITICAL, 15 HIGH and 53 MEDIUM, plus roughly 100 LOW/INFO
+grouped per lane at the end of this section. Severities below are the
+orchestrator's calibrated ranks, not the lanes' raw ones; the four that moved
+say so in their body. mainwindow.py:169 is the only finding two independent
+lanes cited at the same file and line, and it is the one to fix first. No fix
+has been applied yet — every item in this section is open.
+
+- 📋 [LWSM-1196] **HIGH: _no_line_breaks escapes only CR and LF, so U+2028 still forges a trust-dialog heading.**
+  mainwindow.py:169. The only finding two independent lanes cited at the
+  same file and line. Qt hard-breaks on U+2028 LINE SEPARATOR, U+2029
+  PARAGRAPH SEPARATOR and U+0085 NEL; QTextDocument uses the first two as
+  its own internal break characters. A Linux directory name admits every
+  byte but / and NUL, so `evil  This will execute: /usr/bin/true`
+  reproduces exactly the forgery LWSM-1181 shipped to close. Fix by
+  category, not by two literals: escape Zl/Zp/Cc/Cf, or at minimum add
+       \v \f. VERIFY AGAINST A REAL DIALOG before and
+  after, the way LWSM-1181 was measured - the suite cannot see this.
+  **Layman:** A folder with a sneaky name can still fake a line in the "do you trust this?" box — the fix that was meant to stop that only covers two of the characters that break lines.
+  Kind: security.
+  Source: review-code 2026-09-01 lanes 10+12 (corroborated).
+
+- 📋 [LWSM-1197] **HIGH: Stop and Restart signal an unverified holder, without the managed gate Open has.**
+  mainwindow.py:882-883. `open_button` is gated on `running and
+  row.managed` with a nine-line comment deriving that gate from ADR-0004's
+  threat model. The two buttons that actually SIGNAL got neither the gate
+  nor a substitute. ADR-0004 requires the opposite for Stop specifically:
+  enabled but confirming first, with an unspoofable pid/path/create-time
+  disclosure. Interim fix until P06 lands: gate Stop and Restart on
+  `row.managed` too, and extend the comment at :884 to say so.
+  **Layman:** The Stop button will signal whatever is holding the port, even when it is not a server this app started.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 10.
+
+- 📋 [LWSM-1198] **HIGH: the Centre-on-screen disabled tooltip is set on a surface that never renders it.**
+  mainwindow.py:1598. ADR-0007 promises the action is "disabled with a
+  tooltip saying why - rather than being offered and doing nothing".
+  QMenu::toolTipsVisible defaults to false and setToolTipsVisible appears
+  NOWHERE in the tree, so the string is never rendered. Hits exactly the
+  population placement_available() returns false for. setToolTipsVisible(True)
+  is necessary and NOT sufficient: design-accessibility.md says nothing
+  important may be hover-only, so also carry the reason at rest - append it
+  to the action text when disabled, or set statusTip.
+  **Layman:** When "Centre on screen" is greyed out we wrote an explanation nobody can see, because Qt menus hide tooltips by default.
+  Kind: review-fix.
+  Source: review-code 2026-09-01 lane 11.
+
+- 📋 [LWSM-1199] **HIGH: a rescan in flight silently discards a hide or browser choice made while it ran.**
+  mainwindow.py:2292. The merge's `stored` half is snapshotted when the
+  rescan STARTS. set_project_hidden and set_project_browser can write while
+  it is in flight; the rescan lands, _should_write compares its stale-snapshot
+  merge against the fresh _load, finds a difference and writes. The project
+  already reasoned its way to the right answer for IMPORT ("a rescan that
+  started first writes last") and did not apply it to the other two writers.
+  Fix: disable both controls while _rescan_in_flight as import already is, OR
+  re-apply current USER_FIELDS onto merged.records inside _apply_rescan.
+  **Layman:** Hide a project while a scan is running and your change is thrown away without warning - the app says it saved it.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 12.
+
+- 📋 [LWSM-1200] **HIGH: the window minimum is measured once, so content is clipped at 200% with no scrollbar.**
+  mainwindow.py:2828. _align_columns is deliberately re-run on LanguageChange
+  and FontChange because those change what a cell needs; _apply_default_geometry
+  is one-shot. An explicit minimumSize overrides minimumSizeHint and
+  apply_column_widths sets FIXED widths, so the rows outgrow the floor the
+  window still holds - and horizontal scrolling is ScrollBarAlwaysOff, so the
+  overflow is unreachable. Breaks design-accessibility.md's "must reflow at
+  every step, never clip". Fix: split the floor calculation out of
+  _apply_default_geometry and call it from both changeEvent branches beside
+  _align_columns; keep the one-shot guard on the resize alone.
+  **Layman:** Turn the text size up and the rows get wider than the window will allow, with no way to scroll across to them.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 13.
+
+- 📋 [LWSM-1201] **HIGH: only the effective port is probed, so a port override lets Start spawn a duplicate server.**
+  controller.py:959. ADR-0004 rule 3 is explicit that the declared port is
+  probed as well as the effective one whenever they differ, and spells out
+  this exact consequence: "the whole running (wrong port) case evaporates...
+  then Start would cheerfully spawn a duplicate". registry.py:121 makes
+  effective_port the override when set, so the declared port goes unprobed.
+  Both come from the same snapshot, so the ADR notes the fix costs nothing
+  extra. Return the wrong-port state when only the declared one is bound.
+  **Layman:** If you override a project's port but the project ignores it, the app thinks nothing is running and starts a second copy.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 5.
+
+- 📋 [LWSM-1202] **HIGH: starting a second project erases the first one's starting overlay, with nothing to derive it back.**
+  controller.py:652. The overlay is one slot by design (design.md covers
+  "exactly one project"). Start A then Start B and A renders `stopped` while
+  its child is alive and still binding, with Start enabled - pressing it gives
+  an AlreadyRunning refusal. There is no derived value to fall back to because
+  `starting` exists ONLY as an overlay (see the missing-states item). Two
+  servers is the app's whole premise, so this is a common path. Fix: derive
+  `starting` from the supervisor's live-child-with-no-bound-port fact.
+  **Layman:** Start two servers at once and the first one goes back to looking stopped while it is still coming up.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 5.
+
+- 📋 [LWSM-1203] **HIGH: a failed port probe freezes every row with plausible data and emits nothing.**
+  controller.py:931. _on_probe_error holds the previous statuses (correct,
+  INV-4b), logs, then calls self._maybe_emit(self._statuses) - passing the SAME
+  object it compares against, so `previous != self._statuses` is always false
+  and no signal is ever emitted. Under hidepid=2, an LSM, or a /proc-less
+  container the whole display is stale for the session with only app.log as
+  evidence. design.md forbids this outright: "Every failure has a visible
+  home... Nothing is swallowed." Fix: emit an app-scoped failure on the first
+  failure and on recovery, reusing the existing _last_error suppression.
+  **Layman:** If the app loses the ability to see which ports are busy, the screen keeps showing the last answer and never tells you it has stopped looking.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 5.
+
+- 📋 [LWSM-1204] **HIGH: the process group is enumerated once, so a process forked during the grace window is never signalled.**
+  supervisor.py:802, reused at :811 and :821. A process forked into the group
+  DURING the grace window - a trap handler that respawns, an npm run dev
+  watcher, a node cluster replacing a worker - is in no list, gets neither
+  SIGTERM nor SIGKILL, survives holding the port, and StopOutcome comes back
+  clean. ADR-0003 calls stopping the whole tree "the single most important
+  correctness property of the Stop button", and its own killpg-per-phase
+  prescription does not have this hole. NOT the CLAUDE.md start-race trap:
+  this fires after a healthy poll. Fix: re-enumerate before escalating and
+  again after the kill wait; report survivors in StopOutcome.warning.
+  **Layman:** Stop can leave a server running and still report success, if the thing it is stopping starts a new process while being asked to quit.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 4.
+
+- 📋 [LWSM-1205] **HIGH: ADR-0005's duplicate-port Start refusal has no channel to reach Start, so two projects both start.**
+  registry.py:1070. ADR-0005:68 promises every later claimant is flagged AND
+  "its Start is refused with that message". Only the flag half exists: the
+  report entry dies in registry.py, LWSM-1007 4.2 persists no merge outcome,
+  LWSM-1131 4.4 renders no per-row flag, and nothing reads DUPLICATE_PORT
+  outside registry.py. The only Start-time port check is supervisor.py:670's
+  LIVE-SOCKET probe, which fires only if the other project is currently
+  running - precisely not the state the rule is about. Structurally
+  unimplementable as designed. Decide it either way: derive the claim at Start
+  time from records the controller already holds, or amend ADR-0005.
+  **Layman:** Two projects set to the same port are supposed to refuse to start; the warning is produced and then thrown away.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 2.
+
+- 📋 [LWSM-1206] **HIGH: the 24x24 target floor is applied to two of the settings dialog's seven focusable controls.**
+  settingsdialog.py:96-102. The floor covers _add and _remove only. Ok/Cancel
+  (via self._buttons) and both spinboxes get none. LWSM-1032 already measured
+  25px here against 22px on the CI runner, so on any machine with a smaller
+  font the two most important controls in the dialog are under the floor.
+  Ask box.button(StandardButton.Ok), never the box - QDialogButtonBox's own
+  focusPolicy is NoFocus, which is the CLAUDE.md container trap.
+  **Layman:** The OK and Cancel buttons can be too small to click comfortably on machines with a smaller default font.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 6.
+
+- 📋 [LWSM-1207] **HIGH: selected-text contrast fails WCAG AA in four of eight palettes, and no check looks at the pair.**
+  theme.py:179. Highlight <- accent with HighlightedText <- base gives ledger
+  3.37:1, mint 3.49:1, parchment 3.73:1, graphite 4.18:1, against the 4.5:1
+  floor design-accessibility.md:161 and testing.md T8 both state. This is LIVE
+  text - Qt paints selected text with it, including the filter QLineEdit.
+  Arithmetic recomputed by hand from the WCAG formula (anchor: #767676 on
+  white = 4.54:1, the published value). derive_state_tokens.py:114 checks
+  accent against theme.window ONLY, so neither the tool nor its shortfall
+  report can see this pair. Fix BOTH: add ("base","accent") to the shortfall
+  loop, then darken the four accents or set HighlightedText per palette.
+  **Layman:** Highlighted text is too faint to read in half the colour themes, and the tool that checks contrast never looks at that combination.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 8.
+
+- 📋 [LWSM-1208] **HIGH: CONTRIBUTING.md step 5 is wrong three ways and re-enables the 2026-08-19 red-CI incident.**
+  CONTRIBUTING.md:59-63. (a) "a green run locally is a green run in CI" is
+  precisely what the LWSM_REQUIRE_ALL_TOOLS split exists to DENY - a hand run
+  treats SKIP and TOOL DRIFT as warnings and still prints "Local CI passed".
+  (b) "A docs-only change is exempt" omits the .githooks/pre-push:54 carve-out
+  for CLAUDE.md, README.md and docs/standards/*.md, so a contributor editing a
+  standard follows this sentence, skips the gate and reddens CI - the measured
+  2026-08-19 incident, re-enabled by the doc. (c) it never mentions
+  `git config core.hooksPath .githooks`, which is the enforcement mechanism.
+  Document side is wrong, not the code.
+  **Layman:** The instructions we give contributors tell them to skip a check they must not skip.
+  Kind: doc-fix.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1209] **HIGH: the desktop entry writes Exec= unquoted and through an unescaped sed replacement.**
+  scripts/install-desktop-entry.sh:53-55. The resolved path goes into Exec=
+  raw, against the Desktop Entry Spec's quoting requirement, so a checkout
+  under "/home/u/My Projects/..." yields an Exec the launcher splits into two
+  argv words - the entry appears and fails to start, the exact failure the
+  file's own header says it prevents. desktop-file-validate PASSES it. Second
+  failure on the same line: $exec_path is interpolated into a sed REPLACEMENT,
+  where & expands to the whole match and | terminates the s-command. Fix: emit
+  with awk -v or a heredoc, and write Exec="<escaped>" escaping " ` $ and
+  backslash per the spec. TryExec is a path, not a command line - leave it
+  unquoted.
+  **Layman:** Install the app from a folder whose name has a space in it and the launcher entry appears but will not start.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1210] **MEDIUM: RescanContext is built with projects_path=None when there is no home directory.**
+  __main__.py:257. On the branch where default_projects_path() raises,
+  projects_path is still None and the dataclass does not check. Because
+  _rescan is not None, File > Export/Import are created too. Contradicts the
+  rule at mainwindow.py:1116. Fix: rescan=None if projects_path is None.
+  **Layman:** On a machine with no home folder the Rescan and Import buttons appear but crash when used.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 1.
+
+- 📋 [LWSM-1211] **MEDIUM: the shutdown finally runs three unguarded statements, so one failure defeats the other two.**
+  __main__.py:562-569. controller.stop() / close_supervisor() / window.shutdown()
+  in one finally. If stop() raises, shutdown() never runs and the rescan pool
+  falls to ~QThreadPool's unbounded join - the LWSM-1100/1139 hazard the block
+  exists to prevent. Fix: guard each, or ExitStack.
+  **Layman:** If the first cleanup step fails on quit, the other two never run and a background thread can outlive the app.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 1.
+
+- 📋 [LWSM-1212] **MEDIUM: a settings write failure silently skips the healthy scan-roots write.**
+  __main__.py:230-231. Two independent files in one try. save_field raises
+  routinely (any malformed settings.json sets document_refused). The roots are
+  applied in memory and absent next launch. Fix: two try blocks, collect both
+  failures, report both paths.
+  **Layman:** If preferences cannot be saved, the folder list you just edited is dropped too, and the error only mentions preferences.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 1.
+
+- 📋 [LWSM-1213] **MEDIUM: an empty scan-roots list means two different things on read and on write.**
+  __main__.py:476-477 reads empty as "scan ~/projects"; save_scan_roots(())
+  writes header-only and set_scan_roots(()) sets roots=() literally. So a
+  restart can re-add the very projects the user cleared the roots to exclude.
+  Fix: pass the resolved default to set_scan_roots, or give the dialog an
+  explicit use-the-default state.
+  **Layman:** Clear every scan folder and the app scans nothing now, but silently goes back to the default folder after a restart.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 1.
+
+- 📋 [LWSM-1214] **MEDIUM: design.md says two config files and puts scan roots in the wrong one.**
+  docs/design.md:766,774. Section Persistence says two files under XDG paths
+  and puts scan roots in settings.json; the code keeps them in a third file,
+  scan-roots, in its own line-based format with no schema_version - while the
+  section says both files are version-checked. DOCUMENT side wrong (the split
+  was settled with the user 2026-08-21). Route to review-contract.
+  **Layman:** The design document describes where settings live and it does not match what the app actually does.
+  Kind: doc-fix.
+  Source: review-code 2026-09-01 lane 1.
+
+- 📋 [LWSM-1215] **MEDIUM: export_profile gates on row refusals, so a bad user field exports as null and later erases a good one.**
+  registry.py:1115. A hand-typed "port_override": "8080" is dropped with
+  rows_refused == 0, export succeeds, the profile carries null, it re-loads
+  cleanly so the window's refuse-any-refusal gate passes it, and
+  _user_half_applied writes the null over a good stored override. A dropped
+  ROW is visibly absent; a nulled FIELD looks intentional. Fix: refuse the
+  export when any reason names a USER_FIELDS member.
+  **Layman:** A typo in one setting can quietly wipe that setting on every machine you import the profile to.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 2.
+
+- 📋 [LWSM-1216] **MEDIUM: merge_imported appends an absent-counterpart profile record whole, detected half included.**
+  registry.py:1221. Contradicts the rule stated 80 lines above at :1147 -
+  "Nothing here touches DETECTED_FIELDS... this machine's own scan owns them."
+  argv is the launch command. Fix: append with the detected half cleared
+  (port=None, kind=None, argv=(), unit=None) and let a rescan derive it.
+  **Layman:** Importing a profile can bring in a launch command for a project this machine has never scanned.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 2.
+
+- 📋 [LWSM-1217] **MEDIUM: _actions_or_reason is missing the RecursionError guard its sibling call site has.**
+  registry.py:306 catches (TypeError, ValueError). load_projects:375 catches
+  (ValueError, RecursionError) with a comment explaining at length that
+  RecursionError is not a ValueError and needs naming. The guard was fixed at
+  one call site and not this one. json.dumps runs three frames deeper than
+  json.loads, so a document that cleared the load can exceed it here; the
+  escape reaches a caller that tolerates only RegistryError - LWSM-1108's
+  exact shape at a new call site. Fix: add RecursionError.
+  **Layman:** A deeply nested project file can kill the app at startup with no window and no message.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 2.
+
+- 📋 [LWSM-1218] **MEDIUM: schema v1 strips unknown keys, so an older build silently destroys the browser field.**
+  registry.py:583-599 with SCHEMA_VERSION = 1. The writer emits a fixed key
+  set and the loader drops unknown keys, so any field added INSIDE v1 is
+  stripped. browser was added by LWSM-1187 with no bump (correctly, per
+  LWSM-1007 INV-5). Same on a profile round-tripped through an older build.
+  Fix: carry unrecognised keys per record in an opaque field and re-emit them.
+  **Layman:** Run an older version of the app once and every per-project browser choice is deleted without warning.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 2.
+
+- 📋 [LWSM-1219] **MEDIUM: override differs fires only when the detected port moves, so a stale override is announced once.**
+  registry.py:968. ADR-0005:104 states the mitigation for its own accepted
+  negative as the flag that makes it visible ON EVERY RESCAN. Document is
+  probably the wrong side (ADR-0005:55 and LWSM-1131 4.3's table both say "the
+  field that moved"), but the hazard the ADR accepted is unmitigated either
+  way. Decide which side, then fix it.
+  **Layman:** A port override that no longer matches what was detected is mentioned once and then never again.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 2.
+
+- 📋 [LWSM-1220] **MEDIUM: a scan budget expiry inside the import walk is swallowed and reported as an honest unknown.**
+  scanner.py:775. `if hops >= MAX_IMPORT_HOPS or deadline.expired(): return None`.
+  Spec 4.3 requires expiry to ABANDON the candidate - not listed, no partial
+  port. Inconsistent with itself: expiry noticed two lines later inside
+  _read_lines propagates correctly via _BudgetExpired. LWSM-1007 is about to
+  persist that fabricated unknown. Fix: split the conditions - expiry raises,
+  hop exhaustion returns None.
+  **Layman:** When a scan runs out of time mid-project it lists that project as "port unknown" instead of admitting it never finished.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 3.
+
+- 📋 [LWSM-1221] **MEDIUM: an unguarded is_symlink drops a whole project when a hop target is unreadable.**
+  scanner.py:675, and the same class at :605 and :1193. On Python 3.13
+  _IGNORED_ERRNOS swallows only ENOENT/ENOTDIR/EBADF/ELOOP - EACCES and
+  ENAMETOOLONG are RE-RAISED. Path.resolve() above it is non-strict and
+  swallows, so is_symlink() is the first call that can raise, and nothing
+  catches it before scan()'s per-candidate handler drops the project. Spec 4.3
+  requires the project stay listed with only the port unknown. This is the
+  project's own measured pathlib trap at a fifth call site - contain per item.
+  **Layman:** One folder the app is not allowed to open makes a working project vanish from the list entirely.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 3.
+
+- 📋 [LWSM-1222] **MEDIUM: rule 1 re-slices the whole line prefix per rejected match, which is quadratic on untrusted input.**
+  scanner.py:478. finditer means every REJECTED match re-slices line[:start]
+  and _declaration_position runs seven rfind scans over it. A 4096-char line of
+  repeated ".PORT=1 " gives ~512 rejected matches, ~7M char operations and 1MB
+  of copying per line, with no deadline check between lines. INV-15 asserts
+  linearity for rule_2 only and predates the LWSM-1190 position rule. Fix:
+  scan backwards from match.start() to the nearest separator; add a rule_1
+  case to INV-15.
+  **Layman:** A long, awkward line in someone else's file can make a scan take far longer than it should.
+  Kind: perf.
+  Source: review-code 2026-09-01 lane 3.
+
+- 📋 [LWSM-1223] **MEDIUM: the invocation walk checks the deadline nowhere in its own loops.**
+  scanner.py:829. Every keyword-bearing line is tokenised and every token pays
+  a Path.resolve() plus an os.open() attempt; the only deadline check on that
+  path is inside _read_lines, never reached when the token names nothing. A
+  256KB start.sh of `node a` lines is ~74,000 syscalls for one candidate, with
+  the 20s budget re-checked only at the NEXT candidate - the failure spec 4.2
+  names. _import_hop_port already checks per specifier. Fix: check at the top
+  of the per-line loop.
+  **Layman:** A very large launcher script can hold up a scan well past its time limit.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 3.
+
+- 📋 [LWSM-1224] **MEDIUM: signal failures are logged at INFO and dropped from the stop outcome.**
+  supervisor.py:808-809, :818-819, and :820-821 where the escalation's return
+  value - the processes still alive AFTER SIGKILL - is discarded entirely.
+  design.md: "nothing is reported as success that was not verified."
+  StopOutcome.warning exists and is populated only for the port case. Fix:
+  collect unsignalled and surviving pids into warning.
+  **Layman:** If the app cannot signal part of a server, Stop still reports a clean success.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 4.
+
+- 📋 [LWSM-1225] **MEDIUM: the port-still-bound message asserts a stranger owns it without checking.**
+  supervisor.py:972-975. Nothing calls owns_pid or re-reads the group before
+  saying it; combined with LWSM-1205 the holder can be our own unsignalled
+  grandchild. design.md requires the opposite for this surface: say the port
+  is held by a process the user cannot inspect, rather than inventing an owner.
+  Fix: reword, or check the holder's pgid first.
+  **Layman:** The app tells you another program is holding the port when it may well be a leftover of its own.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 4.
+
+- 📋 [LWSM-1226] **MEDIUM: the group-writable launcher refusal covers the file but not its parent directory.**
+  supervisor.py:345. Checks S_IWGRP|S_IWOTH on the file only; a launcher in a
+  group-writable directory can be replaced by unlink-and-create, defeating the
+  refusal whose docstring says "whoever else can write it changes what they
+  vouched for afterwards". Ownership is not checked either. ADR-0003 Trust has
+  the same gap, so the DOCUMENT needs the same fix. Fix: refuse a group/other-
+  writable parent without the sticky bit, and a st_uid that is neither ours nor 0.
+  **Layman:** A launcher in a folder other people can write to can be swapped after you approved it.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 4.
+
+- 📋 [LWSM-1227] **MEDIUM: the launcher byte cap truncates instead of refusing, so appended content never re-arms trust.**
+  supervisor.py:438. os.read(fd, MAX_LAUNCHER_BYTES) truncates, so a launcher
+  over 1MiB is fingerprinted on its first mebibyte and anything appended past
+  that never re-arms the gate ADR-0003 says re-arms "whenever the launcher
+  command or its content hash changes". Diverges from scanner.py's three-place
+  REFUSE discipline. Fix: read cap+1 and refuse, or mix st_size and an
+  oversize marker into the digest.
+  **Layman:** A very large launcher can be changed after you trusted it without the app noticing.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 4.
+
+- 📋 [LWSM-1228] **MEDIUM: an argv of three or more elements names no launcher, so it skips validate_launcher entirely.**
+  supervisor.py:290-292. Anything that is not `npm run <name>` and is not
+  length 2 returns None, so start() at :672-674 never calls validate_launcher.
+  ("python3","-m","http.server"), ("env","node","serve.mjs") and
+  ("bash","-x","start.sh") skip the containment AND group-writable refusals
+  that LauncherRefused's docstring says "cannot be confirmed away". The scanner
+  emits only the four handled shapes, but a record is hand-editable and
+  LWSM-1148 makes it importable from a profile. Fix: classify the last argv
+  element resolving to a file inside the project, or refuse unknown shapes.
+  **Layman:** Some ways of writing a start command bypass the safety checks on what is about to run.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 4.
+
+- 📋 [LWSM-1229] **MEDIUM: the log rotation backup is the one open in supervisor.py not hardened like the others.**
+  supervisor.py:599-603. O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW with no
+  O_NONBLOCK and no S_ISREG check, while _open_log (:557) and _launcher_bytes
+  (:432) both have them. O_NOFOLLOW does not stop a FIFO, so one planted at
+  <log>.1 makes os.open block FOREVER on the poll thread - the hazard
+  configfile.py and applog.py were written after measuring. Also the module's
+  only diverged-duplication instance. Fix: add O_NONBLOCK + the S_ISREG/link
+  check, then set_blocking(out, True).
+  **Layman:** A booby-trapped file where the old log goes can freeze the app's status updates forever.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 4.
+
+- 📋 [LWSM-1230] **MEDIUM: four of ADR-0004's seven derived states are absent from ProjectStatus.**
+  controller.py:183-195. Missing: running (wrong port), running (foreign),
+  port blocked, failed. ADR-0004 calls its list "exhaustive for states derived
+  from observation". A stranger holding the port derives running where the ADR
+  requires port blocked with Start refused; a child that exits without binding
+  derives stopped where both ADR-0004 and design.md require failed with the log
+  tail. CALIBRATED DOWN from the lane's HIGH: this is P06/LWSM-1011 scope, not
+  a regression. Also: ProjectStatus.UNKNOWN appears in no row of ADR-0004's
+  table - a doc-side gap worth settling with it.
+  **Layman:** The app can only say running, stopped or unknown, where the design calls for seven distinct states.
+  Kind: feature.
+  Source: review-code 2026-09-01 lane 5 (calibrated HIGH -> MEDIUM: P06 scope).
+
+- 📋 [LWSM-1231] **MEDIUM: the managed flag survives a probe outage, so Open can point at a stranger's server.**
+  controller.py:851. _managed is recomputed only on a SUCCESSFUL snapshot, so
+  it is held through an outage exactly as the statuses are. But managed gates
+  Open-in-browser, and ADR-0004's stated safe direction is "a holder we cannot
+  name is not ours". Combined with the frozen RUNNING status this is the
+  localhost-credibility shape ADR-0004 was written to close, reached through
+  staleness rather than chdir(). Fix: clear or mark-unverified in
+  _on_probe_error.
+  **Layman:** If the app loses track of who owns a port it keeps saying the server is ours, and Open still offers to visit it.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 5.
+
+- 📋 [LWSM-1232] **MEDIUM: the port snapshot discards the listening address, so any interface counts as bound.**
+  ports.py:104 keeps only conn.laddr.port. A process on 192.168.1.5:5000 makes
+  is_bound(5000) true, so an unrelated project reads running and Open opens
+  http://localhost:5000, which nothing answers. Separately at :111,
+  holders.setdefault first-one-wins is justified by the dual-stack case and is
+  false for two processes on one port at different addresses - the holder then
+  depends on psutil's return order. Fix: key listening and holders on
+  (ip, port) and answer for loopback and wildcard.
+  **Layman:** A program listening on your network address makes an unrelated project look like it is running.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 5.
+
+- 📋 [LWSM-1233] **MEDIUM: abandon_pool retains the pool but not the signaller the abandoned task still holds.**
+  controller.py:76-77. _SnapshotTask keeps self._signals, which is
+  _SnapshotSignals(self) - a CHILD of the controller. _ABANDONED defers the
+  pool's destructor to interpreter shutdown, but if the controller is dropped
+  first the signaller's C++ object is destroyed while a pool thread may be
+  inside emit(). run()'s outer clause covers already-gone, not a destructor
+  racing an in-progress emit. Fix: retain the signaller alongside the pool, or
+  give an abandoned task a parentless signaller.
+  **Layman:** A background check that was given up on can crash the app as it shuts down.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 5.
+
+- 📋 [LWSM-1234] **MEDIUM: design.md's overlay rule contradicts its own next sentence.**
+  docs/design.md:745-747 says the overlay is "discarded the moment a poll
+  returns a derived state", and three lines later says "a slow start keeps the
+  overlay until a poll disagrees". The first would drop a starting overlay on
+  the very next tick, since an unbound server derives stopped.
+  controller.py:205-208's _OVERLAY_SETTLES_ON implements the second. DOCUMENT
+  side. Rewrite as "discarded when a poll reports the state the action was
+  heading for". Route to review-contract.
+  **Layman:** The design document gives two different answers about when a start/stop indicator disappears.
+  Kind: doc-fix.
+  Source: review-code 2026-09-01 lane 5.
+
+- 📋 [LWSM-1235] **MEDIUM: a settings schema mismatch permanently blocks every future write.**
+  settings.py:333-345 treats a version mismatch identically to unparsable
+  text, and __main__.save_field turns document_refused into a PERMANENT write
+  refusal. Three consequences: a hand-written file with no schema_version
+  loses every value and blocks every save; a downgrade leaves the app unable to
+  persist anything; and it makes the NEXT schema bump self-blocking, since
+  every existing v1 file would be refused and no v2 could be written over it.
+  No migration hook exists. Fix: separate "could not parse" from "parsed,
+  version older" - migrate the second forward and keep the refusal only for a
+  version NEWER than ours.
+  **Layman:** One bad line in the preferences file can leave the app unable to save any preference ever again.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 6.
+
+- 📋 [LWSM-1236] **MEDIUM: the config size cap is a caller obligation that two of four callers do not meet.**
+  configfile.py:186-189 states the obligation; registry._encoded honours it,
+  settings.save and __main__.save_scan_roots do not. Reachable on scan-roots:
+  _leading_comment_block re-emits the user's whole leading comment block, which
+  read_bounded accepts up to 1MiB, so header+body can cross the cap on write -
+  after which the file is unreadable AND, by LWSM-1178's gate, can never be
+  rewritten. Fix: enforce inside write_json_atomically, which holds the data.
+  **Layman:** A long comment block in the scan-roots file can make it unwritable and unreadable at the same time.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 6.
+
+- 📋 [LWSM-1237] **MEDIUM: the settings error clip removes the cause rather than the hostile input.**
+  settings.py:433 clips str(exc) to 120 chars. The attacker-controlled
+  fragment is already bounded by quoted(); the clip only eats the fixed
+  diagnostic tail. Worked case on the default path: repr(path) is 55 chars and
+  the fixed prefix is 60 - 115 of 120 - so on the directory-fsync branch the
+  errno text is ALWAYS truncated away. Both sibling converters (registry.py:1127)
+  pass it through unclipped. Fix: drop the slice.
+  **Layman:** When saving preferences fails, the part of the message that says why is cut off.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 6.
+
+- 📋 [LWSM-1238] **MEDIUM: no theme emits any focus styling, so the focus ring is whatever the platform gives.**
+  theme.py:152-156. style_sheet() returns only QLabel[state=...] colour rules.
+  design-accessibility.md requires "a thick, high-contrast focus ring on every
+  focusable widget in every theme", and the check table lists it as a row
+  LWSM-1032 lands. Related: focus_ring_color() returns accent, which is
+  2.85:1 against alt_base in ledger - below the 3:1 non-text floor. Fix: emit
+  a *:focus rule from style_sheet() and add a focus token to Theme.
+  **Layman:** There is no visible outline showing which control the keyboard is on, in any colour theme.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 6+8.
+
+- 📋 [LWSM-1239] **MEDIUM: on_wayland tests one environment variable, so a real Wayland session can take the X11 branch.**
+  placement.py:194 tests XDG_SESSION_TYPE alone, which is routinely absent -
+  the project's own conftest.py pins it because "the CI runner has it unset".
+  A systemd --user unit or a shell that scrubbed the environment takes the
+  else branch at :423, Wayland discards the move, and place_window RETURNS
+  asked - reporting the placement as done. Verbatim the shape ADR-0007 calls
+  "the worst possible failure shape". The code conforms to the ADR, so the
+  ADR's test is not sufficient either - amend both. Fix: also accept
+  WAYLAND_DISPLAY being set.
+  **Layman:** On some Wayland setups the app moves the window, the system ignores it, and the app reports success anyway.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 7.
+
+- 📋 [LWSM-1240] **MEDIUM: the D-Bus timeout is per call inside a three-call loop, giving a 9 second GUI block.**
+  placement.py:46 and :365. The comment justifies the deadline as "a
+  compositor that has wedged must not take the window with it", but 3.0s is
+  per call across three iterations. An ABSENT service returns immediately
+  (ServiceUnknown), so the slow case is precisely the wedged one the comment is
+  for. Fix: compute one deadline and pass the remaining budget, or state 3x3s.
+  **Layman:** If the window manager hangs, the app can freeze for nine seconds at startup instead of three.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 7.
+
+- 📋 [LWSM-1241] **MEDIUM: the KWin script never calls clientArea, so centring ignores panels.**
+  placement.py:269-288. ADR-0007 requires the target be "the centre of
+  workspace.clientArea(workspace.PlacementArea, c) - the usable area, so it
+  respects panels either way". The shipped script only assigns frameGeometry
+  from numbers the app interpolated; the centre is computed app-side by
+  centre_in. The one place that can ask KWin for the work area does not. Fix:
+  let the script compute the centre when centring.
+  **Layman:** Centre on screen can put the window under the taskbar instead of in the usable area.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 7.
+
+- 📋 [LWSM-1242] **MEDIUM: the X11 placement branch applies the clamped position and drops the clamped size.**
+  placement.py:417 and :423. The Wayland branch sends clamped width and height
+  into the script; the X11 branch applies only the position. place_window's own
+  docstring claims "one code path and one set of failure modes". ADR-0007
+  requires a geometry larger than the display be clamped rather than restored
+  off-screen. Fix: resize on the X11 branch, or state in the docstring that the
+  caller must apply the returned size on every platform.
+  **Layman:** A window remembered as bigger than the current screen is moved to fit but not resized to fit.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 7.
+
+- 📋 [LWSM-1243] **MEDIUM: a partial KWin failure leaves the script registered while its file is deleted.**
+  placement.py:350-375 returns False on the FIRST nonzero status, so a
+  successful loadScript followed by a failing start leaves the script
+  registered under the constant name lwsm_place while the finally deletes the
+  file it was loaded from. KWIN_SCRIPT_NAME's comment asserts "it is unloaded
+  in the same call", true only on the success path. The module's own measured
+  note says unloadScript for an unregistered name exits 0, so unloading is
+  nearly free. Fix: attempt the unload unconditionally in cleanup.
+  **Layman:** If placing the window half-fails, a leftover registration stays inside the window manager.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 7.
+
+- 📋 [LWSM-1244] **MEDIUM: Follow system is documented in two places and implemented nowhere.**
+  theme.py:199 / design-look-and-feel.md:67-71, which also promises it switches
+  to contrast-dark or contrast-light when the desktop reports a high-contrast
+  preference. Grep: follow.?system appears ONLY in two theme.py docstrings.
+  _build_theme_menu iterates THEMES, so the picker has exactly eight entries.
+  Consequence on the stated primary user: a high-contrast desktop opens
+  midnight on first run with no signal the assistive palettes exist.
+  CALIBRATED DOWN from the lane's HIGH - an unbuilt promise, not a broken
+  mechanism. Deleting the promise is a legitimate fix; decide which.
+  **Layman:** The look-and-feel doc promises a theme that follows your desktop's light/dark and high-contrast setting; it does not exist.
+  Kind: feature.
+  Source: review-code 2026-09-01 lane 8 (calibrated HIGH -> MEDIUM: unbuilt promise).
+
+- 📋 [LWSM-1245] **MEDIUM: the shipped high-contrast theme ids do not match the ids every document gives.**
+  theme.py:340,362 ship highcontrast-light and highcontrast-dark;
+  design-look-and-feel.md:64-65 and design-accessibility.md:108,212 all say
+  contrast-light and contrast-dark. The id is what is persisted in
+  settings.json, and theme_for_id falls back silently, so a user who hand-edits
+  to the documented id gets midnight with no error, no log line and no status
+  message. CODE side is right - the ids are shipped and stored, so renaming
+  them breaks live settings files. Fix the DOCUMENTS. Route to review-contract.
+  **Layman:** Follow the docs to set a high-contrast theme by hand and you silently get the default one instead.
+  Kind: doc-fix.
+  Source: review-code 2026-09-01 lane 8.
+
+- 📋 [LWSM-1246] **MEDIUM: derive_state_tokens prints a colour that failed the floor in the exact format of one that passed.**
+  scripts/derive_state_tokens.py:90. When no lightness clears the floor, solve
+  returns the closest candidate and main prints it with its contrast ratio like
+  any passing token, without incrementing shortfalls - so the run ends
+  "# 0 shortfall(s)" and main returns 0 unconditionally (:120). Reachable:
+  min() is taken across all three surfaces, so any mid-tone palette can make
+  the constraints unsatisfiable. The project's own recorded class - a tool that
+  analysed nothing looks like a tool that found nothing. Fix: return a cleared
+  flag, print # SHORTFALL, count it, and exit nonzero.
+  **Layman:** The tool that works out theme colours can fail and still print a clean-looking result someone pastes in.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 8.
+
+- 📋 [LWSM-1247] **MEDIUM: Theme.default has no caller and DEFAULT_THEME is written as two independent literals.**
+  theme.py:76-93. Theme.default() has zero non-test callers and its docstring
+  claims "what a first run gets", while __main__.py:251 actually calls
+  theme_for_id(settings.theme), defaulted at settings.py:52 by a SECOND
+  DEFAULT_THEME = "midnight" literal. CLAUDE.md states the aliasing pattern
+  exists precisely so "the file's default and the code's default cannot drift",
+  and it was not applied here. A core module may not import theme.py (O1), so
+  invert it or delete Theme.default(). Also fold in: accent_soft and attention
+  (theme.py:46-47) have ZERO readers - my first false-positive dismissal of
+  those two was wrong and is corrected in .ants_review_falsepos.jsonl.
+  **Layman:** The default theme is spelled out twice in two files, so the two can drift apart.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 8 + check-code vulture.
+
+- 📋 [LWSM-1248] **MEDIUM: installed() never reads mimeapps.list, so Removed Associations is ignored.**
+  browsers.py:190 tests a substring of the entry's own MimeType. The MIME
+  Applications Associations spec resolves handlers through mimeapps.list with
+  [Added], [Default] and [Removed] Associations. Measured on this machine:
+  ~/.config/mimeapps.list names firefox.desktop only, and
+  /usr/share/applications/kde-mimeapps.list exists - the mechanism is live and
+  unread. The set is both WIDER (a [Removed] entry is still offered) and
+  NARROWER (an [Added]-only handler never appears). BOTH sides need fixing: the
+  module docstring and registry.py:111-112 overclaim; ignoring [Removed] is a
+  code defect.
+  **Layman:** A browser you explicitly told your desktop not to use for links is still offered in the picker.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 9.
+
+- 📋 [LWSM-1249] **MEDIUM: a .desktop Name is unbounded and unsanitised and drives a column width.**
+  browsers.py:204. Name is untrusted, up to configfile.MAX_FILE_BYTES (1MiB),
+  with neither the 4096 per-line cap nor control-character stripping, and is
+  consumed at mainwindow.py:581 in a horizontalAdvance() column-width
+  computation. design.md calls 4096 "the canonical per-line limit... one number
+  governs every untrusted string the app reads or displays". Fix: truncate and
+  elide at 4096 and strip control characters in _browser_from.
+  **Layman:** One bad browser entry on your machine can stretch a column wider than the screen.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 9.
+
+- 📋 [LWSM-1250] **MEDIUM: per-entry .desktop failures are silent, producing a message that tells the user something false.**
+  browsers.py:232-235 and :224-226. The per-entry containment is correct and
+  the exception tuple is complete, but no reason is collected and the module
+  imports no logger, against design.md's "Every failure has a visible home...
+  Nothing is swallowed". by_id returns None and mainwindow.py:2158 reports
+  "%1's chosen browser is not installed - opening in the default", pointing the
+  user at reinstalling a browser that IS installed. Fix: return
+  (browsers, reasons) in the LoadResult shape this project already uses, log at
+  INFO, and let _open_project distinguish absent from refused.
+  **Layman:** If your chosen browser's entry becomes unreadable the app says it is not installed, and it is.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 9.
+
+- 📋 [LWSM-1251] **MEDIUM: the rescan outer catch-all logs at DEBUG, below the shipped level.**
+  mainwindow.py:381. design.md sets the app log to INFO by default, so at the
+  shipped level this path leaves no record at all. It catches more than a dead
+  signaller - any failure between the except at :375 and the emit at :377 -
+  and per LWSM-1131 section 6 the consequence is "Rescan stays disabled
+  forever". The one residual instance of the failure the two layers exist to
+  prevent is the one with no observable record. Fix: log.warning.
+  **Layman:** The one failure that can disable Rescan forever leaves no trace in the log people actually read.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 10.
+
+- 📋 [LWSM-1252] **MEDIUM: summarise_merge passes a loop variable to translate, so all six summary fragments are unextractable.**
+  mainwindow.py:285. template is a loop variable, so lupdate cannot extract
+  "%1 new", "%1 changed", "%1 port no longer detected", "%1 override differs",
+  "%1 duplicate" or "%1 missing". The function's own docstring states the rule
+  it breaks. Fix: call translate() on each literal inside the tuple and keep
+  .replace("%1", ...) on the result. NO LINTER CATCHES THIS - see the tool-gap
+  item.
+  **Layman:** Every word of the rescan and import summary can never be translated.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 10.
+
+- 📋 [LWSM-1253] **MEDIUM: the browser combo takes the height floor but not the width one, and has no tooltip when elided.**
+  mainwindow.py:590-591. setMinimumHeight(MIN_TARGET_PX) is applied; the width
+  is not wrapped in max(..., MIN_TARGET_PX) the way _fit_buttons does at
+  :664-666. With available_browsers=() - the constructor default, and the real
+  state where no browser is found - widest is 0 and the control lands at about
+  20-22px. Separately it is the only control in the row with no tooltip when
+  cut: index 0 reads "Default browser" (15 chars) inside BROWSER_COLUMN_CHARS =
+  10, so it is elided on every row on every machine, while _elide_name gives
+  the name label a full-text tooltip in the same situation.
+  **Layman:** The browser dropdown can be too narrow to click, and its text is cut off with no way to see the full name.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 10.
+
+- 📋 [LWSM-1254] **MEDIUM: the app elides row text deliberately while design-accessibility.md forbids truncation outright.**
+  mainwindow.py:731-733 with NAME_COLUMN_CHARS=16 and BROWSER_COLUMN_CHARS=10.
+  design-accessibility.md:124-125 says the layout "must REFLOW at every step,
+  never clip or truncate; the test asserts no text is elided at 200%". The code
+  elides at 100% too, with a measured reason (LWSM-1174: a 30-char name pushed
+  the row to 593px inside a 600px lens). DOCUMENT is the wrong side - elision
+  was adopted to answer the lens budget the same document sets. The amendment
+  needs a REPLACEMENT check-table row, e.g. "elided text always carries the
+  full string in a tooltip and in the accessible name". Route to review-contract.
+  **Layman:** The accessibility doc promises text is never cut off; the app cuts it off on purpose, for a good reason nobody wrote down.
+  Kind: doc-fix.
+  Source: review-code 2026-09-01 lane 10.
+
+- 📋 [LWSM-1255] **MEDIUM: the rescan failure message reaches the status bar unclipped and unquoted.**
+  mainwindow.py:377 emits f"{type(exc).__name__}: {exc}" straight to
+  set_status_message, which is showMessage with no clip and no escape. exc can
+  carry a path or launcher name from a scanned tree. LWSM-1131 INV-10 states
+  the rule for the neighbouring surface - "No value read from the file or from
+  a scan reaches a merge report entry without passing _quoted" - and names
+  LWSM-1078/1102/1114 as three call sites where this class was closed one at a
+  time. This is a fourth. configfile.MAX_REASON_CHARS already exists.
+  **Layman:** Text from someone else's project files can reach the status bar without being cleaned up first.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 10.
+
+- 📋 [LWSM-1256] **MEDIUM: pointSizeF returns -1 under a pixel-sized desktop font, making the text-size control a silent no-op.**
+  mainwindow.py:1227 captures app.font().pointSizeF(), which is -1 when the
+  font was set with setPixelSize, so the guard at :1547 is false and
+  set_text_scale changes nothing - while :1553 still ticks the checkmark and
+  :1557 still persists. The user is told it worked. Breaks a stated
+  non-negotiable. Fix: resolve through QFontInfo(app.font()).pointSizeF(),
+  which converts pixels to points; if still <= 0, report via set_status_message
+  rather than returning silently.
+  **Layman:** On some desktops choosing a bigger text size ticks the menu and saves the choice while nothing gets bigger.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 11.
+
+- 📋 [LWSM-1257] **MEDIUM: layout margins are computed once, so they behave exactly like the pixel constant O7 forbids.**
+  mainwindow.py:1266-1268. gap = fontMetrics().height() is computed once,
+  before set_text_scale runs at :1353, and outer is a LOCAL that nothing keeps
+  a reference to. changeEvent's FontChange branch pushes the font to every
+  descendant and re-runs _align_columns, and re-computes no margin. The comment
+  above the line states the rule it breaks. Fix: bind self._outer and re-run
+  both setters from the FontChange branch beside _align_columns.
+  **Layman:** Raise the text size and the text grows but the spacing around it does not.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 11.
+
+- 📋 [LWSM-1258] **MEDIUM: the hide/show messages put a conditional inside translate(), so neither is extractable.**
+  mainwindow.py:2204-2206. The conditional is INSIDE translate(), whose second
+  argument lupdate/pylupdate require to be a string literal. The identical
+  defect _notice_summary's own docstring records as LWSM-1107. Every other
+  branch in the slice does it correctly (:2229-2237). Fix: hoist the
+  conditional out so each literal is the direct argument.
+  **Layman:** The "project is hidden" and "project is shown again" messages can never be translated.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 12.
+
+- 📋 [LWSM-1259] **MEDIUM: keyboard jump moves focus to a row without scrolling it into view.**
+  mainwindow.py:1949 and :1895. QScrollArea calls ensureWidgetVisible only
+  from its focusNextPrevChild override, i.e. for Tab - a programmatic setFocus
+  does not scroll. ensureWidgetVisible appears ZERO times under src/. With
+  MIN_VISIBLE_ROWS = 3, pressing 4-9 focuses an off-screen row and Enter then
+  acts on a row the user cannot see. WCAG 2.4.7, and design-accessibility.md's
+  "the magnifier user's 'where am I?' depends on it entirely". Fix:
+  self._scroll.ensureWidgetVisible(row) after both setFocus calls.
+  **Layman:** Press a number key to jump to a project and the highlight can land somewhere you cannot see.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 12.
+
+- 📋 [LWSM-1260] **MEDIUM: sequential %1/%2 substitution lets a project name capture the second placeholder.**
+  mainwindow.py:2394-2398 and :2230-2232 do
+  .replace("%1", message).replace("%2", str(exc)), where message ALREADY
+  carries a project name taken from a scanned directory. A project named %2
+  lands in the template first and the second pass substitutes the error text
+  into the attacker's name. This is LWSM-1181's sequential-substitution defect
+  relocated to the status bar, and the one-pass fix is already in this file -
+  _TRUST_FIELD.sub at :2102. Fix: route both through a single re.sub over
+  %[12] with a field map.
+  **Layman:** A project named %2 can swallow an error message into its own name in the status bar.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 12.
+
+- 📋 [LWSM-1261] **MEDIUM: an operator-precedence bug can render a completely blank trust dialog that still grants trust.**
+  mainwindow.py:2123. `str(resolved or argv[0] if argv else "")` parses as
+  `(resolved or argv[0]) if argv else ""` because a conditional expression
+  binds looser than or - so an empty argv DISCARDS the known resolved path and
+  the dialog shows "This will execute:" followed by nothing. Yes still calls
+  confirm_and_start with fingerprint defaulted to "" (:2122). ADR-0003: "The
+  confirmation is not security theatre only if it shows what will actually
+  run." Fix: str(resolved or (argv[0] if argv else "")), and refuse outright
+  when both are empty rather than showing an empty prompt.
+  **Layman:** In one case the "do you trust this?" box can appear with nothing filled in, and saying yes still approves it.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 12.
+
+- 📋 [LWSM-1262] **MEDIUM: _bounded_to_screen is applied to the content floor, withdrawing the guarantee stated two lines above.**
+  mainwindow.py:2828. The comment at :2823-2825 says "the floor is the content
+  itself", and _bounded_to_screen caps at SCREEN_FRACTION of availableGeometry,
+  so whenever content exceeds 90% of the screen the floor drops below it.
+  Reachable from ordinary input: the name column is the widest cell across ALL
+  rows, so one long sibling directory name sets it for everyone. Fix: bound
+  want only, leave floor at the content width. Fix together with LWSM-1200 -
+  one edit.
+  **Layman:** On a small screen the window is allowed to be narrower than its own contents, so the columns collide.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 13.
+
+- 📋 [LWSM-1263] **MEDIUM: maximised state is applied on the deferred placement path rather than directly.**
+  mainwindow.py:2680-2682. ADR-0007 divides the work explicitly: "Size and
+  maximised state are applied directly on every platform - resize() is honoured
+  under Wayland; only placement is refused", and only "The KWin call is
+  deferred". _restore_geometry runs after Expose PLUS one event-loop tick, a
+  measured delay for the KWin call, and showMaximized() rides along - on X11
+  too, where nothing needed deferring. Fix: apply resize + showMaximized at the
+  top of showEvent and defer only _place_at. VERIFY UNDER REAL KWIN, not the
+  suite.
+  **Layman:** Leave the window maximised and it reopens small, then jumps to maximised a moment later, every launch.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 13.
+
+- 📋 [LWSM-1264] **MEDIUM: the --dry-bump write loop runs under the ERR trap, so a mid-loop failure leaves the tree half-bumped.**
+  scripts/local-release.sh:295-306. If the write fails on the third of four
+  files, fail exits 1 and the revert at :327 never runs. The author reasoned
+  about exactly this for post_check ("Not under the ERR trap: the revert below
+  MUST run even when this fails", :312-314) and covered one of the two windows.
+  Fix: record the bumped paths and revert from a trap ... EXIT armed before the
+  first write, so an exception or a Ctrl-C also unwinds.
+  **Layman:** The release dry-run can fail part way through and leave version numbers half-changed.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1265] **MEDIUM: the release pre-flight turns a failed tag query into an all-clear.**
+  scripts/local-release.sh:191-199. Both `git ls-remote --tags` and
+  `gh release view` turn FAILURE into ABSENCE, then fall through to
+  "$TAG is free - no local tag, no remote tag, no release". An unreachable
+  remote (SSH agent not loaded) with a working gh gives a false all-clear and
+  no SKIP, so the verdict can read READY - the one thing the file's own comment
+  at :73-75 forbids. Fix: branch on exit status; non-zero is skip, not ok.
+  **Layman:** If the release script cannot reach the server it says the version number is free, instead of saying it could not check.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1266] **MEDIUM: CI downloads and executes a shellcheck tarball that is pinned but never verified.**
+  .github/workflows/ci.yml:107-110. curl | tar -xJ then sudo install to
+  /usr/local/bin, executed over the checkout - in a job that SHA-pins its two
+  actions precisely to protect against this. zizmor does not read run: payloads,
+  so no tool flagged it. Blast radius is a poisoned CI result rather than a
+  credential (contents: read, public repo, no secrets), which is why this is
+  MEDIUM. Fix: pin the SHA256 beside the version in scripts/ci-tools.env and
+  sha256sum -c before extracting.
+  **Layman:** The build downloads a tool over the internet and runs it without checking it is the real one.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1267] **MEDIUM: the desktop entry is validated after it is already installed into the live directory.**
+  scripts/install-desktop-entry.sh:60-64. desktop-file-validate runs after the
+  entry and icon are in ~/.local/share, under set -e with no cleanup, so a
+  failure exits having left a broken entry visible in the launcher. The comment
+  above it is right about WHAT and wrong about WHERE. Fix: sed to a temp file,
+  validate that, then mv into place - the same atomic discipline
+  configfile.write_json_atomically holds on the Python side.
+  **Layman:** If the launcher entry turns out to be malformed, it has already been put where your desktop can see it.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1268] **MEDIUM: the release script counts workflow triggers and then prints an unconditional sentence about them.**
+  scripts/local-release.sh:279-285 counts the PRESENCE of trigger keys, then
+  prints "$runs workflow run(s) would fire: no tag trigger and no release
+  trigger means the release commit's push is the only one". The number and the
+  sentence are unrelated - add a tags: trigger and it prints "2 workflow run(s)
+  would fire: no tag trigger". Also `^\s+release:` matches a JOB named release.
+  Fix: derive the sentence from runs, or block when a tag/release trigger
+  appears.
+  **Layman:** The release check will claim no tag trigger exists even after someone adds one.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1269] **MEDIUM: the pre-push hook skips a ref whose range it cannot resolve, against its own stated rule.**
+  .githooks/pre-push:71-77. The comment says "If that cannot be resolved we run
+  the gate - an unknown range is not an exemption"; four lines later
+  `oldest=$(git rev-list "$local_sha" --not --remotes | tail -n 1)` followed by
+  `if [[ -z $oldest ]]; then continue; fi` skips the ref, contributes nothing to
+  changed, and can reach "nothing to check" with the gate never run. Bites when
+  a commit is reachable from ANY remote-tracking ref, so a second remote (a
+  backup or a fork) can exempt a first push to origin. The comment may be about
+  the root-commit fallback at :79 instead - settle which, then either run the
+  gate on the empty case or state why the exemption is safe.
+  **Layman:** In one case the push check quietly decides there is nothing to check and lets the push through.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1270] **LOW: TrustStore.revoke has no caller anywhere - the one finding that survived check-code's eleven tools.**
+  supervisor.py:210, vulture 60% confidence, verified by search: zero
+  references in src/ and zero in tests/. Same family as LWSM-1136, which
+  CLAUDE.md records - a method whose whole value is being called from
+  somewhere looks identical to a working one. Deliberately NOT a review-code
+  dimension-2b zombie: no contract promises a revoke surface, so it is a dead
+  symbol rather than a broken promise. Decide: wire it to a UI affordance, or
+  delete it.
+  **Layman:** There is a piece of code for forgetting a trusted project that nothing ever calls.
+  Kind: chore.
+  Source: check-code --tree 2026-09-01.
+
+- 📋 [LWSM-1271] **LOW batch (entrypoint + logging): five small defects from lane 1.**
+  __main__.py:69 - notices aliases LoadResult.reasons, so settings reasons are
+  appended into the registry load record (harmless today, both gates key on
+  rows_refused). :151 - save_field refuses a whole-document refusal but not a
+  FIELD refusal, so a hand-typed "text_scale": "150" is destroyed on the next
+  write. applog.py:92-98 - check-then-act mkdir races two first-run copies;
+  use exist_ok=True. __main__.py:542 - log path printed raw to a terminal;
+  quoted() exists. applog.py:225-227 - configure_logging removes only rotating
+  handlers where configure_stderr_logging removes all, so a stderr fallback
+  could survive and duplicate every record (latent, no caller reaches it).
+  **Layman:** A handful of smaller issues in the app's startup and logging code.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 1.
+
+- 📋 [LWSM-1272] **LOW batch (registry): six small defects from lane 2.**
+  registry.py:357,363,372,374,389,395,407,414 - the loader interpolates path
+  RAW at eight sites while the writer half quotes every time, and since
+  LWSM-1148 path is USER-CHOSEN (mainwindow.py:1757), so a filename with a
+  newline or escape reaches the status bar and the log. :614-617 - the payload
+  comprehension sits OUTSIDE _encoded's try, and :597 calls json.loads on
+  stored text. :1195 - merge_imported's identity pass is a drifted copy of
+  merge()'s: merge() flags DUPLICATE_IDENTITY, this one silently keeps the
+  first while its docstring claims "the same three rules"; resolved_of at :918
+  is appended to and never read. :1104 - docstring describes an implementation
+  that :1110 contradicts. start_at_login and launcher_override have zero
+  readers (deferred by LWSM-1131, not zombies).
+  **Layman:** Smaller issues in the code that stores and merges the project list.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 2.
+
+- 📋 [LWSM-1273] **LOW batch (scanner): nine small defects from lane 3.**
+  scanner.py:898 - UNIT_NAME ends in $ not \Z, so "x.service\n" passes and a
+  raw newline reaches a systemctl argv and DetectedProject.unit, the one field
+  not passed through _display. :1140 - an assembled reason carrying two quoted
+  values reaches ~280 chars against a stated 120 bound. :354 - counts
+  CHARACTERS against a BYTE cap, up to 4x loose on multibyte; and section 10's
+  residency figure ignores the lines list. :646 - docstring describes a
+  (None, None) return that never happens, making the target is None half of the
+  guards at :786 and :854 unreachable. :774 - anything not .py is treated as
+  JavaScript, so `export FOO="./bin"` in a shell hop target is read as an
+  import. :37 - "every consumer spells it scanner.LauncherKind" is stale.
+  :1518 - an entire scan root is sorted before the first deadline check. :784 -
+  one candidate can exhaust the 100-entry skipped budget. :657/:790 -
+  intermediate-component TOCTOU (recorded, not fixable without O_PATH).
+  DOC: spec 4.1's ScanResult block omits unlistable_roots.
+  **Layman:** Smaller issues in the code that discovers projects and their ports.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 3.
+
+- 📋 [LWSM-1274] **LOW batch (supervisor): seven small defects from lane 4.**
+  supervisor.py:18 - the trust store defers persistence to "until LWSM-1007's
+  writer exists", which now exists (registry.save_projects), so ADR-0003's
+  "one-time per-project confirmation" re-asks every session and gets clicked
+  through. :614 - os.write return ignored; a short write drops bytes and the
+  following ftruncate(fd,0) discards the original. :782-787 - stop() has no
+  mirror of start()'s stopping refusal against a start reserved in starting
+  (latent; the overlay disables both buttons). :1080 - close() blocks the
+  caller up to grace+KILL_TIMEOUT (~7s), re-introducing on Quit what ADR-0003
+  made stop async to avoid. :943-948 - a TimeoutExpired leaves the child
+  unreaped AND the entry popped: a permanent zombie plus a ResourceWarning.
+  :901-903 - the self-group SupervisorError propagates after the pop, losing
+  the child and leaking its log fd. :408 - ("npm","start") and
+  `npm run dev --port 3000` fall through to \0nofile\0, so scripts.start is
+  never hashed. :696-698 - full argv logged, so a hand-edited argv carrying a
+  token lands in the log unredacted.
+  **Layman:** Smaller issues in the code that launches and stops servers.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 4.
+
+- 📋 [LWSM-1275] **LOW batch (controller + ports): six small defects from lane 5.**
+  ports.py:74 - net_connections(kind="tcp") returns every TCP socket and, on
+  Linux, walks /proc/<pid>/fd for EVERY process on the machine, once per
+  second, against design.md's 250ms budget - while _managed_paths only ever
+  asks holder() for registered ports. controller.py:745 - close() is the only
+  cross-boundary getattr call not wrapped, on the shutdown path where an
+  exception has nowhere to go. :716 - _stopped is never reset, so
+  start_polling() after stop() runs a live 1s QTimer driving a dead loop with
+  no error. :511 - record.name reaches a user-facing message with no control-
+  character stripping or elision. wait_for_abandoned_probes has zero non-test
+  callers (already in known-issues.md; its docstring names the suite as the
+  intended consumer). Nothing measures the 250ms snapshot budget, so a
+  regression against it is unobservable.
+  **Layman:** Smaller issues in the polling loop that keeps the status column up to date.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 5.
+
+- 📋 [LWSM-1276] **LOW batch (settings + dialog): four small defects from lane 6.**
+  __main__.py:210-216 - the settings dialog is parented and exec()'d with no
+  deleteLater(), so every Preferences open leaks a dialog and its widget tree
+  for the window's lifetime (WA_DeleteOnClose is wrong here - values() is read
+  after exec() returns). :229-236 - a directory name with a newline or trailing
+  space is refused by save_scan_roots AFTER the two spinbox values are already
+  written, so a partial success reports as a total failure. settings.save has
+  no concurrent-writer guard: two instances read-modify-write and os.replace
+  makes the loser's change vanish silently - a stated-limit gap rather than an
+  ADR-0005 breach. DOC: design.md:768-773 lists four settings.json keys that
+  are false (scan roots, slow-start threshold, log-buffer size, tray behaviour)
+  and omits log_max_mib, which IS stored.
+  **Layman:** Smaller issues in the preferences window and the files behind it.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 6.
+
+- 📋 [LWSM-1277] **LOW batch (placement): three small defects from lane 7.**
+  placement.py:420 - clamp_to_screens and kwin_script are evaluated OUTSIDE any
+  handler, so a Rect whose fields are not integers raises straight out of
+  place_window, against run_kwin_script's promise that "a traceback out of a
+  startup path" is not acceptable. Closed today by
+  settings._bounded_int_or_reason; one caller away from open. :385-386 - a
+  failed unlink leaves a place-*.js in the state directory with no log line at
+  all. :366-375 - a failing unloadScript (the third call, after the window has
+  almost certainly already moved) returns False, so place_window returns None
+  and the caller reports a placement that DID happen as failed.
+  **Layman:** Smaller issues in the code that positions the window.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 7.
+
+- 📋 [LWSM-1278] **LOW batch (theme): six small findings from lane 8, including three unchecked colour pairs.**
+  All eight state tokens sit AT the floor and are luminance-identical: in
+  ledger, state_wrong_port #8f620c (L=0.14602) and state_unknown #7f691b
+  (L=0.14696) are 1.005:1 to each other with hues 7.2 degrees apart, so for
+  that pair colour is not the third signal design-accessibility.md:127-131
+  promises - and the greyscale check cannot detect it because it passes on the
+  word alone. accent vs alt_base is 2.85:1 in ledger (parchment 3.00, mint
+  3.02) against a 3:1 non-text floor, and focus_ring_color() returns accent.
+  border is checked against NOTHING - ledger #d8d3c4 on #f5f4ef is 1.36:1.
+  theme_for_id:401 falls back silently where settings.py:278 states the sibling
+  rule the other way ("the same condition reaches them as the default theme AND
+  a log line"). derive_state_tokens.py:47 - HIGH_CONTRAST_FLOOR's "kept here
+  rather than imported" comment is falsified by line 41, which imports two
+  other floors from that same module. Derivation and verification share one
+  contrast_ratio implementation, so an arithmetic error would agree with
+  itself (checked independently this run; the emitted ratios are correct).
+  DOC: four citations to design.md section "Tokens, not colours", which moved
+  to design-look-and-feel.md on 2026-08-20.
+  **Layman:** Smaller colour and contrast issues, plus some colours nothing ever checks.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 8.
+
+- 📋 [LWSM-1279] **LOW batch (browsers): eight small defects from lane 9.**
+  browsers.py:190 - `handler in mime` is a substring test against a
+  semicolon-separated list, so x-scheme-handler/httprelay is offered as a
+  browser. Terminal=true is never checked, so a console browser would be
+  launched into DEVNULL and open_url returns success (not reproduced here -
+  neither of this machine's two entries sets it). :270 - the Popen handle is
+  discarded and never waited on, leaving a zombie until some other Popen
+  triggers subprocess._cleanup. :85-88 - XDG_DATA_HOME/DIRS used verbatim where
+  the spec requires absolute and says to ignore a relative component. :222 -
+  non-recursive glob and entry_id = path.name, where the spec's desktop-file ID
+  includes the subdirectory prefix; 45 of this machine's 374 entries live in
+  subdirectories, which also weakens the cross-machine-profile argument at
+  :64-70. :85 - Path.home() raises RuntimeError in the for header outside every
+  guard, and installed() is called synchronously in MainWindow.__init__, so
+  window construction fails rather than degrading to no browsers. :219-238 - no
+  budget and no entry cap, unlike scanner.py; cheap today, blocks the UI thread
+  over an NFS XDG_DATA_DIRS. :128-151 - a quoted field code is substituted
+  (spec says it is not a field code) and string escapes are never unescaped
+  before tokenising. DOC: design.md section Components still describes
+  QDesktopServices with no per-project choice, and Persistence omits browser.
+  **Layman:** Smaller issues in the code that finds and launches your browsers.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 9.
+
+- 📋 [LWSM-1280] **LOW batch (mainwindow rows): eight small defects from lane 10.**
+  mainwindow.py:1003 - _glyph_color is assigned only in update_from, never in
+  __init__, while _rerender's docstring contemplates a never-populated row
+  reaching update(); paintEvent:819 would raise AttributeError into a swallowed
+  paint handler. Unreachable today, latent on any construction reorder. :579
+  and :596 - two hasattr guards whose comments ("this runs from __init__ before
+  the widgets exist") are FALSE: _apply_text_metrics is called at :524, after
+  every widget is constructed. They are dead AND they silently skip, which is
+  LWSM-1101's failure shape. :558,:584 - horizontalAdvance("x") as an average
+  character gives a CJK name about eight of the intended sixteen characters;
+  use averageCharWidth(). :641 - the docstring cites READABLE_BAND_PX, which
+  exists only in tests/test_mainwindow.py:537 - source citing a test-tree
+  constant inverts the contract direction. :1066 - the announcement's ", "
+  separator is hardcoded (not every locale's list separator) and an untrusted
+  name containing ", running, port 80" forges a row announcement. :1002 - both
+  STATE_GLYPHS.get and state_word's .get fall back silently, so a state added
+  without a glyph renders with two of three signals; no invariant asserts the
+  maps cover the enum. error_rect has zero production callers (not a zombie -
+  no contract promises it). RescanContext.scan/.save field defaults are bound
+  at class-definition time, the project's own monkeypatch trap in a second
+  costume.
+  **Layman:** Smaller issues in how each project row is drawn and announced.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 10.
+
+- 📋 [LWSM-1281] **LOW batch (mainwindow chrome): six small defects from lane 11.**
+  mainwindow.py:1551 - settings.py:358 range-checks text_scale to 100-200 but
+  never against TEXT_SIZE_STEPS, so a hand-edited 137 is accepted, applied, and
+  matches no action: the exclusive Text size group ends up with NO item
+  checked (WCAG 4.1.2 value). :1631-1633 - str(percent) hard-codes
+  Western-Arabic digits; QLocale().toString(percent). :1767 - profile import
+  overwrites the user half wholesale INCLUDING actions, a second channel that
+  design.md section Custom project actions' by-type argument does not cover;
+  latent until run_command lands, then live. Four handlers (set_text_scale,
+  set_theme, _export_profile, _refuse_import) report through set_status_message,
+  which design-accessibility.md calls invisible to the magnifier user - and the
+  doc's remedy ("next to the row that raised them") has no referent for a menu
+  action, so the DOC needs a clause for chrome-level feedback. Ten injected
+  seams, nine numbers - list_browsers is uncounted, and CLAUDE.md's module map
+  repeats the same nine. :1387/:1397 - two addSeparator() calls with nothing
+  between them in the shipped configuration. _base_point_size is captured once
+  and never refreshed, so a desktop font change makes the control replace
+  rather than multiply the desktop size.
+  **Layman:** Smaller issues in the menus and window setup.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 11.
+
+- 📋 [LWSM-1282] **LOW batch (mainwindow interaction): four small defects from lane 12.**
+  mainwindow.py:1942-1945 - the jump shortcut requires NoModifier, so on
+  layouts where digits are shifted (AZERTY, several QWERTZ) Key_1 always
+  arrives with ShiftModifier and the feature is silently unavailable. Tab still
+  reaches every row, so not a 2.1.1 failure - a feature that does not exist for
+  those users. Test event.text() instead. :2387-2388 - the `if self._rescan is
+  None: return message` guard returns BEFORE set_records at :2408, so on a
+  hand-built window set_project_hidden and set_project_browser change nothing
+  and still report success. :2099 - " ".join(argv) renders the argv unquoted in
+  the one dialog that must not misrepresent; configfile.quoted() exists.
+  :2185-2188 - _set_show_hidden calls only _apply_filter, so unhiding a row
+  that introduces a wider cell leaves columns stale until the next _sync_rows.
+  **Layman:** Smaller issues in filtering, keyboard shortcuts and the trust prompt.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 12.
+
+- 📋 [LWSM-1283] **LOW batch (mainwindow geometry): three small defects from lane 13.**
+  mainwindow.py:2573-2575 - `area = self._screen_area(); if area is None:
+  return` is a user-invoked menu action that does nothing and says nothing,
+  while every other Centre failure reports at :2582-2587 and ADR-0007 forbids
+  the action "being offered and doing nothing". Reachable on monitor
+  hot-unplug. :2623-2625 - `if handle is None or handle.isExposed():` merges
+  two different cases: isExposed() genuinely has no Expose still to come,
+  handle is None does, and merging them takes the 0ms-after-show timing this
+  very method's docstring records as MEASURED-FAILING under Wayland.
+  Defensive-only today. OPEN: SCREEN_FRACTION = 0.9 vs ADR-0007's "clamped to
+  the available area" - if the 10% margin is not justified at its definition
+  (line 109), a user who sizes the window to fill the screen gets it shrunk by
+  10% on the next launch.
+  **Layman:** Smaller issues in window sizing and the Centre on screen action.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 13.
+
+- 📋 [LWSM-1284] **LOW batch (shell tooling): thirteen small defects from lane 14.**
+  .githooks/pre-push:23 cites tests/test_hooks.py, which does not exist - that
+  assertion is in test_ci_contract.py. ci.yml:41-42's "these two lines are the
+  only third-party CODE that runs in this job" is false since the install step
+  landed (a shellcheck binary, a go-built actionlint and a PyPI yamllint all
+  run). pre-push:127-129 discards the worktree-remove error two lines below a
+  comment saying a leftover is worth seeing. local-release.sh:184-187,
+  :307-309, :324-326 interpolate $TARGET/$RECIPE into `python3 -c` SOURCE while
+  four other sites in the same file use the safe heredoc+argv form, and the
+  [0-9]*.[0-9]*.[0-9]* arg filter is a shell GLOB that admits an injecting
+  argument. :92 - a missing python3 exits 127 into `|| fail "recipe is not in
+  the dialect cut-release reads"`, reporting a malformed recipe when the
+  interpreter is absent. GNU-only sed/grep -E '\s'/mapfile with no guard;
+  check-version-drift.sh would report "no version found" on BSD sed and fail
+  the gate for the wrong reason. install-desktop-entry.sh:47-56 - mkdir -p,
+  install and the > redirect all follow a symlink at the destination, and
+  XDG_DATA_HOME is environment-influenceable, where the Python side treats this
+  as a real threat. pre-push:132 - trap cleanup EXIT with no INT/TERM.
+  local-ci.sh:295-302 - under LWSM_REQUIRE_ALL_TOOLS=1 the DRIFT block exits
+  before the SKIPPED block prints. check-version-drift.sh:33 - sed prints EVERY
+  match, so a second version line garbles every comparison.
+  install-desktop-entry.sh:96,99 - || true on both cache refreshes then an
+  unconditional "Installed:". INFO: eval "$post_check" executes a string from
+  .claude/bump.json (repo-controlled, inherent to the recipe design), and
+  LWSM_SKIP_PREPUSH=1 is exportable so it persists for a whole shell where
+  commits.md 2.3 allows a bypass only for a specific commit. DOC: CLAUDE.md
+  section Build and test and CONTRIBUTING.md:60-61 both omit "Tool versions
+  match CI" and "Version lockstep" from the ordered step list.
+  **Layman:** Smaller issues in the build, release and install scripts.
+  Kind: chore.
+  Source: review-code 2026-09-01 lane 14.
+
+- 📋 [LWSM-1285] **INFO: three fillable gaps in check-code's tool set, measured against what the lanes found.**
+  review-code's synthesis part 4 is a measurement of check-code's coverage, per
+  charters-item-building.md section 11. check-code ran this tree the same day,
+  so its status is KNOWN, not assumed. (1) mainwindow.py:2123's operator-
+  precedence bug inside a security gate - ruff ran clean and no configured rule
+  covers mixed or/conditional precedence; a pylint C0325-family or bugbear rule
+  would decide it. (2) translate() called with a non-literal first argument
+  (mainwindow.py:285 and :2204) - lupdate silently skips these and nothing in
+  the tool set looks at translation extractability; a pylupdate diff in
+  local-ci.sh would make it mechanical. (3) local-release.sh's
+  `python3 -c "$VAR"` interpolation - shellcheck -x ran clean because the
+  variable IS quoted, and no semgrep shell pack is configured. Everything else
+  the lanes found is genuinely beyond what a tool decides.
+  **Layman:** Three kinds of bug the linters could have caught but currently do not.
+  Kind: chore.
+  Source: review-code 2026-09-01 synthesis part 4.
+
+- 📋 [LWSM-1286] **INFO: three paths no lane covered, named so the sweep is not mistaken for complete.**
+  The 14 lanes tiled all 15 src/ modules (mainwindow.py split 1-1086 /
+  1087-1847 / 1848-2510 / 2511-2883, no gap, no overlap), all five scripts,
+  .githooks/pre-push, ci.yml, ci-tools.env, .claude/bump.json and
+  CONTRIBUTING.md. NOT covered and owned by nobody yet: (1)
+  .github/dependabot.yml - lane 14 flagged that it did not open it, so
+  dependencies.md 2.6 is UNVERIFIED for the three tool pins in ci-tools.env
+  that no package ecosystem watches; (2) .github/FUNDING.yml; (3)
+  packaging/*.desktop - the gate lints that template nowhere,
+  desktop-file-validate runs only at install time on the rewritten copy.
+  Deliberately out of scope and correctly owned elsewhere: tests/ (review-tests),
+  docs/ as subjects (review-contract), dependency versions (check-dependencies).
+  Also: no lane could RUN the app, so several findings - the U+2028 rendering,
+  the KWin behaviours, the pointSizeF return - are reasoned from documented
+  semantics and need a live check.
+  **Layman:** A short list of files this review did not look at, written down so nobody assumes it checked everything.
+  Kind: chore.
+  Source: review-code 2026-09-01 synthesis part 5.
+
 ## Findings filed in passing
 
 Findings noticed while doing something else and not fixed on the spot — a
