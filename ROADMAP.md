@@ -3267,12 +3267,30 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
 
-- 📋 [LWSM-1219] **MEDIUM: override differs fires only when the detected port moves, so a stale override is announced once.**
+- ✅ [LWSM-1219] **MEDIUM: override differs fires only when the detected port moves, so a stale override is announced once.**
   registry.py:968. ADR-0005:104 states the mitigation for its own accepted
   negative as the flag that makes it visible ON EVERY RESCAN. Document is
   probably the wrong side (ADR-0005:55 and LWSM-1131 4.3's table both say "the
   field that moved"), but the hazard the ADR accepted is unmitigated either
   way. Decide which side, then fix it.
+  Resolved (2026-09-02). DECIDED: the DOCUMENT was the wrong side, which
+  is what the bullet guessed, and the evidence settles it two-to-one.
+  ADR-0005 § Negative claimed the flag makes a stale override "visible on
+  every rescan"; the merge has never done that, and neither the ADR's OWN
+  outcome list twelve lines above nor `LWSM-1131 § 4.3`'s table ever said
+  so - both say the flag fires when the field that moved has an override.
+  One line disagreed with the code, the spec, and the rest of its own
+  document.
+  Changing the CODE instead would have contradicted a spec and re-armed
+  its gate, which makes it a design decision rather than a defect fix.
+  The bullet is right that the accepted hazard is unmitigated either way,
+  and the ADR now says so plainly rather than claiming a mitigation it
+  does not have: the flag is a single announcement, on the rescan that
+  creates the staleness, and a user who misses it is not told again.
+  The stronger flag is filed as LWSM-1288 (considered, not planned) so the
+  option is visible rather than lost.
+  Rule 14: No branch. This records what was built, which the rule names as
+  its own instance - the build was the review. Gate green.
   **Layman:** A port override that no longer matches what was detected is mentioned once and then never again.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
@@ -4318,6 +4336,26 @@ mostly in the measurement behind it.
   than assumed.
   **Layman:** The cleanup command our own notes tell you to run can kill unrelated programs on this machine.
   Kind: doc-fix.
+  Source: in-session-2026-09-02.
+
+- 💭 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**
+  Exposed by LWSM-1214's sibling LWSM-1219, which corrected ADR-0005 to
+  say what the flag actually does. The hazard the ADR accepts is real and
+  now stated plainly: *override differs* fires on the rescan where the
+  detected port MOVES, so a user who misses that one line is never told
+  again.
+
+  Firing it whenever `port_override != port` would re-announce it every
+  rescan and make the ADR's original wording true. Deliberately NOT done
+  under LWSM-1219: the code and `LWSM-1131 § 4.3`'s table agree with each
+  other, so changing the behaviour would contradict a spec and re-arm its
+  gate, which is a design decision rather than a defect fix.
+
+  Filed so the option is visible rather than lost. Considered, not
+  planned — the ADR accepts the negative, and someone has to decide the
+  noise is worth it.
+  **Layman:** The app tells you once that your port setting no longer matches the project, and never mentions it again.
+  Kind: enhancement.
   Source: in-session-2026-09-02.
 
 ### 🐛 Bug fixes

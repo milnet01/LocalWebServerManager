@@ -101,9 +101,18 @@ disagreement is reported.**
 
 - A stale override can persist indefinitely — the user set a port
   override, the project later changed its own default, and the
-  override still wins. Mitigated by the *override differs from
-  detected* flag, which makes it visible on every rescan, but it
-  is a real class of confusion the design accepts.
+  override still wins. The *override differs from detected* flag
+  makes that visible **on the rescan where the detected port
+  moves**, which is the rescan that creates the staleness — not
+  on every rescan afterwards. So the mitigation is a single
+  announcement, and a user who misses it is not told again. A
+  real class of confusion the design accepts.
+
+  Stated this way from 2026-09-02: this paragraph said "visible
+  on every rescan", which the merge has never done and neither
+  the outcome list above nor `LWSM-1131 § 4.3`'s table ever
+  claimed — both say the flag fires when the field that moved
+  has an override. The text was the wrong side.
 - Records for deleted projects accumulate as *missing* until the
   user clears them.
 
