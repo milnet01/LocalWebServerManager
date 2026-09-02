@@ -3161,7 +3161,7 @@ def test_the_rescan_pool_is_unparented_when_the_wait_times_out(
 # --- LWSM-1040: keyboard-first navigation ------------------------------------
 
 
-def keyboard_window(qtbot, built, names, listening=(), show=False):
+def keyboard_window(qtbot, built, names, listening=(), show=False, managed=None):
     """A window with one row per name, UNSHOWN unless a test asks.
 
     Three rows wherever a test counts them, never two. A number key selecting
@@ -3177,14 +3177,13 @@ def keyboard_window(qtbot, built, names, listening=(), show=False):
     `hasFocus`, which needs an ACTIVE window, forces a `show()`.
     """
     records = [record(name, 3000 + i) for i, name in enumerate(names)]
-    # Every row counts as ours: these tests are about which key reaches which
-    # button, and an unowned row has no enabled Stop to click (LWSM-1197).
+    # Ownership is per test, and both directions matter. Stop is offered only
+    # for a project this manager started (LWSM-1197), so a test about Stop has
+    # to claim one — and holding a live child for a project whose port is
+    # unbound derives `starting` (LWSM-1202), which disables Start, so a test
+    # about Start must NOT claim it.
     window, controller = window_for(
-        qtbot,
-        built,
-        records,
-        FakeProbe(*listening),
-        managed=[row.path for row in records],
+        qtbot, built, records, FakeProbe(*listening), managed=managed
     )
     if show:
         with qtbot.waitExposed(window):
@@ -3337,7 +3336,11 @@ def test_enter_stops_a_running_project(qtbot, built) -> None:
     the stopped case alone would leave the branch that picks Stop unexecuted.
     """
     window, controller = keyboard_window(
-        qtbot, built, ["alpha", "beta", "gamma"], listening=(3001,)
+        qtbot,
+        built,
+        ["alpha", "beta", "gamma"],
+        listening=(3001,),
+        managed=[Path("/srv/beta")],
     )
     stopped: list[Path] = []
     controller.stop_project = stopped.append

@@ -278,6 +278,14 @@ signaling per
 
 ### Fixed
 
+- **Starting a second server no longer makes the first look stopped** (LWSM-1202)
+  The "starting" label could only be shown for one project at a time, so
+  pressing Start on a second one took it away from the first while that
+  server was still coming up — leaving it reading "stopped" with its
+  Start button live, which only earned a refusal. A project we hold a
+  running process for, whose port nothing has claimed yet, now reads as
+  starting on its own.
+
 - **A project that ignores its port override is no longer reported as stopped** (LWSM-1201)
   Setting an override made the app watch only the new port. A project
   that pays no attention to it stays on the port it was written with, so

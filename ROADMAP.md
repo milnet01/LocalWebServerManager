@@ -2742,7 +2742,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1202] **HIGH: starting a second project erases the first one's starting overlay, with nothing to derive it back.**
+- ✅ [LWSM-1202] **HIGH: starting a second project erases the first one's starting overlay, with nothing to derive it back.**
   controller.py:652. The overlay is one slot by design (design.md covers
   "exactly one project"). Start A then Start B and A renders `stopped` while
   its child is alive and still binding, with Start enabled - pressing it gives
@@ -2750,6 +2750,25 @@ has been applied yet — every item in this section is open.
   `starting` exists ONLY as an overlay (see the missing-states item). Two
   servers is the app's whole premise, so this is a common path. Fix: derive
   `starting` from the supervisor's live-child-with-no-bound-port fact.
+  Resolved (2026-09-02). Reproduced as filed. Took the bullet's own fix -
+  derive `starting` - rather than a second overlay slot, and the reason is
+  worth keeping: `design.md § State management` says the overlay "covers
+  exactly one project" deliberately, so widening it would have changed a
+  contract to fix a symptom. ADR-0004 already lists `starting` among its
+  SEVEN DERIVED states ("live child, effective port held by nobody, child
+  holds no port"), so this implements a rule that was already written
+  rather than inventing a state - which is what keeps it out of P06.
+  Ordering is load-bearing and follows the ADR: the two port questions run
+  first, because a live child while someone else holds the port is
+  `failed` or `running (wrong port)`, never `starting`. LWSM-1201 reports
+  both of those as `running` one line earlier, so the `starting` branch is
+  reached only on the ADR's own row. No deadline, so § Slowness is not
+  failure is untouched - losing the child ends it, not a timer.
+  It also corrected a fixture I widened for LWSM-1197 hours earlier:
+  marking every keyboard-test project as ours was too broad, because a
+  live child on an unbound port now derives `starting` and disables Start.
+  Ownership is per test now, and both directions are stated. 3/3 mutants
+  killed. Gate green, 1314 tests.
   **Layman:** Start two servers at once and the first one goes back to looking stopped while it is still coming up.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.

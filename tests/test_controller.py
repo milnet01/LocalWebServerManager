@@ -202,6 +202,47 @@ def test_an_overridden_project_still_sitting_on_its_declared_port_reads_running(
     )
 
 
+def test_starting_a_second_project_does_not_make_the_first_read_stopped(
+    qtbot, controllers
+) -> None:
+    """The overlay is one slot, and `design.md` says so deliberately.
+
+    So Start A then Start B replaces A's label while A's child is alive and
+    still binding, and A fell back to `stopped` — with Start enabled, which
+    only earns an `AlreadyRunning` refusal. Two servers at once is the app's
+    whole premise, so this is an ordinary path rather than a corner.
+
+    The fix is not a second overlay slot, which would contradict that
+    contract. ADR-0004 already defines `starting` as a DERIVED state — "live
+    child, effective port held by nobody, child holds no port" — so the
+    fallback is a derivation the ADR asks for, and the overlay stays exactly
+    one project wide.
+
+    Two projects on purpose: with one, "A still reads starting" cannot be told
+    from "the overlay is still on A".
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(
+        controllers,
+        # `startable`, not `record`: a spawn needs an argv, and without one
+        # `start_project` refuses before the supervisor ever hears about it.
+        [startable("a", 5005), startable("b", 6006)],
+        FakeProbe(),
+        supervisor,
+    )
+
+    controller.start_project(Path("/srv/a"))
+    controller.start_project(Path("/srv/b"))
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    first = next(row for row in controller.rows() if row.name == "a")
+    assert first.status is ProjectStatus.STARTING, (
+        "A's child is alive and has not bound its port yet, and A read "
+        f"{first.status.value} — with Start offered on a live server"
+    )
+
+
 def test_a_failing_first_poll_still_emits(qtbot, controllers) -> None:
     # Exempt from INV-4b: with nothing before it, suppressing the emission
     # would leave the window at its blank initial state forever.

@@ -449,6 +449,29 @@ class ProjectController(QObject):
             for record in self._records
         ]
 
+    def _spawning_paths(self) -> set[Path]:
+        """The projects we hold a live child for.
+
+        ADR-0004's `starting` row is "live child, effective port held by
+        nobody, child holds no port", so this is the half of it the socket
+        table cannot answer. It exists because the optimistic overlay is ONE
+        slot — `design.md § State management` says so deliberately — and
+        starting a second project therefore takes the first one's label away
+        while its child is still binding. With nothing derived underneath, the
+        first project fell back to `stopped` and offered a Start that could
+        only be refused (LWSM-1202).
+
+        A second overlay slot would have fixed the symptom by contradicting
+        that contract. This is the state the ADR already asks to be derived.
+
+        `exited()` rather than `running()` alone: an entry survives the child
+        that died, and a project whose child is gone is not starting.
+        """
+        if self._supervisor is None:
+            return set()
+        live = self._supervisor.running()
+        return {path for path in live if not self._supervisor.exited(path)}
+
     def _managed_paths(self, snapshot: PortSnapshot) -> set[Path]:
         """The projects whose EFFECTIVE PORT is held by our own child's group.
 
@@ -841,8 +864,10 @@ class ProjectController(QObject):
         # recovery is logged again rather than folded into the old count.
         self._flush_repeated_error()
         previous = self._statuses
+        spawning = self._spawning_paths()
         self._statuses = {
-            record.path: self._classify(record, snapshot) for record in self._records
+            record.path: self._classify(record, snapshot, record.path in spawning)
+            for record in self._records
         }
         # Derived from the SAME snapshot as the statuses, in the same tick.
         # Asking the supervisor separately at render time is what LWSM-1167 was
@@ -955,7 +980,9 @@ class ProjectController(QObject):
             self.projects_changed.emit()
 
     @staticmethod
-    def _classify(record: ProjectRecord, snapshot: PortSnapshot) -> ProjectStatus:
+    def _classify(
+        record: ProjectRecord, snapshot: PortSnapshot, spawning: bool = False
+    ) -> ProjectStatus:
         """`running` if EITHER port is held, `stopped` only if neither is.
 
         ADR-0004: "a project's `declared` port is probed as well as its
@@ -982,4 +1009,15 @@ class ProjectController(QObject):
         declared = record.port
         if declared is not None and declared != port and snapshot.is_bound(declared):
             return ProjectStatus.RUNNING
+        # Nobody holds either port. ADR-0004's `starting` row is exactly that
+        # plus a live child of ours, and it reads AFTER the two port questions
+        # for the ADR's own reason: a child that is live while someone else
+        # holds the port is `failed` or `running (wrong port)`, never
+        # `starting`. Both of those are P06 states, and both are reported as
+        # `running` above rather than falling through to here (LWSM-1202).
+        #
+        # No deadline, so ADR-0004 § Slowness is not failure is untouched: a
+        # slow start keeps a live child, and losing the child is what ends it.
+        if spawning:
+            return ProjectStatus.STARTING
         return ProjectStatus.STOPPED
