@@ -906,6 +906,69 @@ def test_a_process_forked_during_the_grace_window_is_still_stopped(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("phase", [1, 2], ids=["terminate", "kill"])
+def test_a_process_we_could_not_signal_is_named_in_the_outcome(
+    supervisor: Supervisor, project: Path, monkeypatch, phase: int
+) -> None:
+    """`design.md`: "nothing is reported as success that was not verified."
+
+    A `psutil.Error` from `terminate()` or `kill()` was logged at INFO and
+    dropped, so a group member the manager is not allowed to signal left
+    `StopOutcome` looking exactly like a clean stop (LWSM-1224).
+
+    Injected into ONE phase at a time, which is the whole reason this is
+    parametrised. A fake that refuses both signals is reported whichever
+    collection survives, so deleting either one alone left the suite green —
+    `testing.md § T9`'s redundant-guard trap, and `CLAUDE.md` records it:
+    mutate the whole mechanism, not one line of it.
+
+    `AccessDenied`, not `NoSuchProcess`: a member that exited between the
+    enumeration and the signal is the ordinary case, and the sibling test
+    below pins that it stays silent.
+    """
+    write_launcher(project, "echo up\nwhile true; do sleep 0.05; done")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    assert wait_until(lambda: "up" in managed.log_path.read_text(encoding="utf-8")), (
+        "the launcher never started"
+    )
+
+    class Unsignallable:
+        """A group member the kernel will not let us touch."""
+
+        pid = 4242424
+
+        def terminate(self) -> None:
+            raise psutil.AccessDenied(self.pid)
+
+        def kill(self) -> None:
+            raise psutil.AccessDenied(self.pid)
+
+        def is_running(self) -> bool:
+            return False
+
+        def status(self) -> str:
+            return "dead"
+
+    real = supervisor._group_members
+    calls: list[int] = []
+
+    def with_an_unsignallable_member(m):
+        calls.append(1)
+        # Call 1 is the terminate phase, call 2 the kill phase, call 3 the
+        # straggler sweep — which answers honestly either way, so this stays
+        # a test about the SIGNAL rather than about stragglers.
+        return [*real(m), Unsignallable()] if len(calls) == phase else real(m)
+
+    monkeypatch.setattr(supervisor, "_group_members", with_an_unsignallable_member)
+
+    outcome = supervisor.stop(project, grace=0.2)
+
+    assert outcome.warning is not None, "a member we could not signal went unreported"
+    assert "4242424" in outcome.warning, outcome.warning
+
+
+@pytest.mark.integration
 def test_a_straggler_the_kill_did_not_reach_is_reported(
     supervisor: Supervisor, project: Path, monkeypatch
 ) -> None:

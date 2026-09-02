@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **Stop says so when it could not signal part of a server** (LWSM-1224)
+  If the system refused to let the app stop one of a server's processes,
+  that went only into the log file and Stop still reported a clean
+  success. The result now names what it could not signal. A process that
+  had already exited on its own is not reported — that is the outcome Stop
+  was after.
+
 - **A large launcher script can no longer hold a scan past its time limit** (LWSM-1223)
   While working through a start-up script looking for the file that sets
   the port, the scan never checked its own time limit — it only looked

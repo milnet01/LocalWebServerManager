@@ -800,13 +800,26 @@ class Supervisor:
     ) -> StopOutcome:
         """The signal, wait, escalate and reap half, with the key reserved."""
         members = self._group_members(managed)
+        # Pids we were not allowed to signal. `design.md`: "nothing is reported
+        # as success that was not verified" — and a `psutil.Error` here was
+        # logged at INFO and dropped, so a member the kernel refused left
+        # `StopOutcome` looking exactly like a clean stop (LWSM-1224).
+        #
+        # `NoSuchProcess` is deliberately NOT collected: a member that exited
+        # between the enumeration and the signal is the ordinary case and is
+        # the outcome we wanted anyway. Reporting it would make every stop
+        # noisy, which is how a warning stops being read.
+        unsignalled: list[int] = []
         terminated: list[int] = []
         for proc in members:
             try:
                 proc.terminate()
                 terminated.append(proc.pid)
+            except psutil.NoSuchProcess:
+                pass
             except psutil.Error as exc:
                 log.info("could not signal pid %d: %s", proc.pid, exc)
+                unsignalled.append(proc.pid)
 
         self._wait_for(members, grace, _on_wait)
 
@@ -829,8 +842,13 @@ class Supervisor:
             try:
                 proc.kill()
                 killed.append(proc.pid)
+            except psutil.NoSuchProcess:
+                # It died during the grace period, which is the success this
+                # phase exists to bring about.
+                pass
             except psutil.Error as exc:
                 log.info("could not kill pid %d: %s", proc.pid, exc)
+                unsignalled.append(proc.pid)
         if killed:
             self._wait_for(survivors, KILL_TIMEOUT_SECONDS, None)
 
@@ -842,6 +860,15 @@ class Supervisor:
 
         exit_code = self._reap(managed)
         bound, warning = self._port_after_stop(managed)
+        if unsignalled:
+            refused = ", ".join(str(pid) for pid in sorted(set(unsignalled)))
+            refused_warning = (
+                f"{managed.name} stopped, but {len(set(unsignalled))} process(es) "
+                f"could not be signalled: {refused}"
+            )
+            warning = (
+                refused_warning if warning is None else f"{warning}; {refused_warning}"
+            )
         if stragglers:
             straggler_warning = (
                 f"{managed.name} stopped, but {len(stragglers)} process(es) in "

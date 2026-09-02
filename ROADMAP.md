@@ -3437,12 +3437,31 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 3.
 
-- 📋 [LWSM-1224] **MEDIUM: signal failures are logged at INFO and dropped from the stop outcome.**
+- ✅ [LWSM-1224] **MEDIUM: signal failures are logged at INFO and dropped from the stop outcome.**
   supervisor.py:808-809, :818-819, and :820-821 where the escalation's return
   value - the processes still alive AFTER SIGKILL - is discarded entirely.
   design.md: "nothing is reported as success that was not verified."
   StopOutcome.warning exists and is populated only for the port case. Fix:
   collect unsignalled and surviving pids into warning.
+  Resolved (2026-09-02). Unsignalled pids now reach `StopOutcome.warning`
+  from both phases. The bullet's third site - "processes still alive AFTER
+  SIGKILL" - was already closed by LWSM-1204's straggler sweep earlier
+  today, so what remained was the two `except psutil.Error` branches.
+  ONE DISTINCTION THE BULLET DOES NOT MAKE, and it decides whether the
+  warning is worth having: `NoSuchProcess` is NOT collected. A member that
+  exits between the enumeration and the signal is the ordinary case and is
+  the outcome the stop wanted; reporting it would put a warning on every
+  successful stop, which is how a warning stops being read. Pinned from
+  both sides - a sibling test asserts the departed member stays silent,
+  and a mutant removing the guard is killed.
+  MY FIRST TEST COULD NOT TELL THE TWO COLLECTIONS APART. The fake refused
+  BOTH signals, so deleting either `unsignalled.append` left the other
+  reporting it and both reverts survived - `testing.md § T9`'s
+  redundant-guard trap, which `CLAUDE.md` states as "mutate the whole
+  mechanism, not one line of it". It is parametrised over the phase now,
+  injecting the unsignallable member into the terminate call or the kill
+  call but never both. 4/4 killed after that. Gate green, 1377 tests, no
+  leaked processes.
   **Layman:** If the app cannot signal part of a server, Stop still reports a clean success.
   Kind: fix.
   Source: review-code 2026-09-01 lane 4.
