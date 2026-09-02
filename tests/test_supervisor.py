@@ -397,6 +397,45 @@ def test_an_oversized_manifest_does_not_fingerprint_as_its_prefix(
     assert launcher_fingerprint(project, argv) != capped
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("bash", "-x", "start.sh"),
+        ("env", "sh", "start.sh"),
+        ("npm", "start"),
+        # Three elements beginning `npm`, but the subcommand is not `run`.
+        # `_npm_script` reads argv[2] as a script name, so without the
+        # subcommand check this would be vouched for by the hash of an
+        # unrelated `scripts` entry while doing something else entirely.
+        ("npm", "config", "list"),
+        # `npm run <script>` is the supported shape; another package manager
+        # spelling it the same way is not, because `_npm_script` reads the
+        # script out of `package.json` under npm's rules alone.
+        ("yarn", "run", "dev"),
+    ],
+)
+def test_start_refuses_an_argv_shape_it_cannot_check(
+    project: Path, supervisor: Supervisor, argv: tuple[str, ...]
+) -> None:
+    """A shape that names no launcher skips every refusal (LWSM-1228).
+
+    `_launcher_path` answers `None` for anything that is neither one of the
+    four shapes the scanner emits nor `npm run <script>`, and `start()` read
+    that as "nothing to check". So a launcher this very file refuses when it is
+    named directly ran unchecked when it was named as an argument, and the
+    confirmation bound to argv alone. `projects.json` is hand-editable, which
+    is the route in.
+    """
+    launcher = write_launcher(project, "exit 0\n")
+    launcher.chmod(0o777)
+    supervisor.trust.confirm(project, launcher_fingerprint(project, argv))
+
+    with pytest.raises(LauncherRefused) as caught:
+        supervisor.start(project, name="demo", argv=list(argv), port=None)
+    assert "cannot check" in str(caught.value)
+    assert not supervisor.running()
+
+
 @pytest.mark.parametrize("mode", [0o770, 0o707, 0o777])
 def test_a_group_or_other_writable_launcher_is_refused(
     project: Path, mode: int

@@ -278,6 +278,17 @@ def build_child_env(
 # --------------------------------------------------------------------------
 
 
+def _is_npm_run(argv: tuple[str, ...]) -> bool:
+    """`npm run <script>` — the one supported shape that names no file.
+
+    Stated once because two callers need it and they must agree: `_npm_script`
+    hashes the manifest string this shape executes, and `start()` refuses any
+    other shape that names no launcher (LWSM-1228). A second copy that drifted
+    would either hash nothing or refuse a launcher that works.
+    """
+    return len(argv) == 3 and argv[0] == "npm" and argv[1] == "run"
+
+
 def _launcher_path(project: Path, argv: tuple[str, ...]) -> Path | None:
     """The file whose contents `argv` executes, if any — refused by the caller.
 
@@ -471,7 +482,7 @@ def _npm_script(project: Path, argv: tuple[str, ...]) -> bytes | None:
     therefore *differs* from a confirmed one — an unreadable or unparseable
     manifest re-arms the gate rather than passing it.
     """
-    if len(argv) != 3 or argv[0] != "npm" or argv[1] != "run":
+    if not _is_npm_run(argv):
         return None
     raw = _launcher_bytes(project / "package.json")
     if raw is None:
@@ -743,6 +754,21 @@ class Supervisor:
             launcher = _launcher_path(resolved_project, argv)
             if launcher is not None:
                 launcher = validate_launcher(resolved_project, launcher)
+            elif not _is_npm_run(argv):
+                # Neither a file we can check nor the one shape whose content
+                # lives in `package.json`. `bash -x start.sh` and
+                # `env node serve.mjs` reach `validate_launcher` nowhere, so
+                # the containment, ownership and writability refusals never
+                # run and the confirmation binds to argv alone — while the
+                # script they name is as untrusted as one named directly.
+                # Refusing beats guessing which argument is the file: that is
+                # path arithmetic, which `_launcher_path`'s docstring records
+                # costing three launcher kinds once already (LWSM-1228).
+                raise LauncherRefused(
+                    f"{' '.join(argv)} is a launcher shape this manager "
+                    "cannot check: it names no file inside the project and "
+                    "is not `npm run <script>`"
+                )
             fingerprint = launcher_fingerprint(resolved_project, argv)
             if not self.trust.is_confirmed(resolved_project, fingerprint):
                 raise LauncherUntrusted(launcher, argv, fingerprint)

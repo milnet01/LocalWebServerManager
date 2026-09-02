@@ -3558,7 +3558,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 4.
 
-- 📋 [LWSM-1228] **MEDIUM: an argv of three or more elements names no launcher, so it skips validate_launcher entirely.**
+- ✅ [LWSM-1228] **MEDIUM: an argv of three or more elements names no launcher, so it skips validate_launcher entirely.**
   supervisor.py:290-292. Anything that is not `npm run <name>` and is not
   length 2 returns None, so start() at :672-674 never calls validate_launcher.
   ("python3","-m","http.server"), ("env","node","serve.mjs") and
@@ -3567,6 +3567,25 @@ has been applied yet — every item in this section is open.
   emits only the four handled shapes, but a record is hand-editable and
   LWSM-1148 makes it importable from a profile. Fix: classify the last argv
   element resolving to a file inside the project, or refuse unknown shapes.
+  Resolved (2026-09-02): took the bullet's second option — refuse an
+  unknown shape — not the first. Classifying "the last argv element
+  resolving to a file" is path arithmetic, which _launcher_path's own
+  docstring records costing three launcher kinds once already
+  (LWSM-1132); it also answers wrongly for `python3 -m http.server`,
+  where no element is a file.
+  start() now refuses when _launcher_path finds no file and the argv is
+  not `npm run <script>`. The npm shape moved into one predicate,
+  _is_npm_run, shared with _npm_script so the two cannot drift.
+  The profile-import route was already closed by LWSM-1216; what
+  remains, and what this covers, is a hand-edited projects.json.
+  Mutants, all killed: drop the branch; invert it; drop the length,
+  subcommand and command-name checks in _is_npm_run. The last three
+  each needed a test case added — the first probe left them unmeasured,
+  and the subcommand one matters most, since `npm install <x>` would
+  otherwise be vouched for by the hash of an unrelated scripts entry.
+  Gate green — 1432 tests, no SKIP, no tool drift, no leaked processes.
+  A live scan of the sibling tree still classifies all seven real
+  projects, so the refusal fires on nothing legitimate.
   **Layman:** Some ways of writing a start command bypass the safety checks on what is about to run.
   Kind: security.
   Source: review-code 2026-09-01 lane 4.

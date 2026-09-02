@@ -861,6 +861,13 @@ signaling per
 
 ### Security
 
+- **MEDIUM: an argv of three or more elements names no launcher, so it skips validate_launcher entirely.** (LWSM-1228)
+  A start command the manager cannot classify — `bash -x start.sh`,
+  `env node serve.mjs`, `npm start` — is now refused instead of run
+  with none of the launcher safety checks applied. Every launcher the
+  scanner detects is unaffected; the route in was a hand-edited
+  `projects.json`.
+
 - **MEDIUM: the launcher byte cap truncates instead of refusing, so appended content never re-arms trust.** (LWSM-1227)
   A start script or `package.json` larger than the fingerprint cap is
   now refused outright instead of being hashed on its opening
