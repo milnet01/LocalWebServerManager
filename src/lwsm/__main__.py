@@ -285,6 +285,11 @@ def build_window(
             else RescanContext(projects_path=projects_path, roots=default_scan_roots())
         ),
         save_theme=save_theme,
+        # The stored id as well as the palette it names, because `follow-system`
+        # names a rule instead and no palette expresses it (LWSM-1244). The
+        # window resolves it — only it can, since Qt reports the desktop's
+        # colour scheme after the `QApplication` is up.
+        theme_id=theme_id,
         text_scale=text_scale,
         save_text_scale=save_text_scale,
         open_settings=open_settings,

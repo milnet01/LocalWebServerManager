@@ -66,7 +66,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lwsm import __version__, applog, browsers, placement, registry, scanner
+from lwsm import (
+    __version__,
+    appearance,
+    applog,
+    browsers,
+    placement,
+    registry,
+    scanner,
+)
 from lwsm.configfile import ConfigFileError
 from lwsm.controller import (
     ProjectController,
@@ -77,7 +85,14 @@ from lwsm.controller import (
 from lwsm.placement import Rect, centre_in
 from lwsm.registry import LoadResult, MergeResult, ProjectRecord, RegistryError
 from lwsm.settings import MAX_TEXT_SCALE, MIN_TEXT_SCALE
-from lwsm.theme import THEMES, Theme, theme_for_id
+from lwsm.theme import (
+    DEFAULT_THEME,
+    FOLLOW_SYSTEM,
+    THEMES,
+    Theme,
+    resolve_theme_id,
+    theme_for_id,
+)
 
 log = applog.get_logger(__name__)
 
@@ -1126,6 +1141,38 @@ class ProjectRow(QFrame):
             )
 
 
+def _desktop_is_dark() -> bool | None:
+    """Whether the desktop asks for a dark palette, or None if it did not say.
+
+    Qt tracks this itself and updates it live, so no D-Bus and no portal.
+    `Unknown` is reported as None rather than as light: not knowing and being
+    told light are different answers, and only one of them should fall through
+    to the documented dark default.
+    """
+    app = QApplication.instance()
+    if app is None:
+        return None
+    scheme = app.styleHints().colorScheme()
+    if scheme == Qt.ColorScheme.Unknown:
+        return None
+    return scheme == Qt.ColorScheme.Dark
+
+
+def _id_of_theme(theme: Theme) -> str:
+    """The id naming `theme`, for a caller that passed a palette and no id.
+
+    Identity rather than equality: what is wanted is the entry this object came
+    from, and two palettes holding equal values would still be two entries. A
+    `Theme` built outside `THEMES` — which several tests do — names none of
+    them and gets the default, because the picker's checkmark has to land
+    somewhere and the default is where it landed before ids existed here.
+    """
+    for name, candidate in THEMES.items():
+        if candidate is theme:
+            return name
+    return DEFAULT_THEME
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -1141,6 +1188,9 @@ class MainWindow(QMainWindow):
         list_browsers: Callable[[], tuple[browsers.Browser, ...]] | None = None,
         open_settings: Callable[[], None] | None = None,
         save_theme: Callable[[str], None] | None = None,
+        theme_id: str | None = None,
+        read_high_contrast: Callable[[], bool] | None = None,
+        read_dark: Callable[[], bool | None] | None = None,
         text_scale: int = MIN_TEXT_SCALE,
         save_text_scale: Callable[[int], None] | None = None,
         choose_profile_to_save: Callable[[], str | None] | None = None,
@@ -1201,6 +1251,48 @@ class MainWindow(QMainWindow):
         # exercised the picker. `build_window` injects the real saver, the way
         # it already injects `rescan` and `load`.
         self._save_theme = save_theme
+        # LWSM-1244. The window has always been handed a resolved `Theme` and
+        # never the id that chose it, which is fine while every id names a
+        # palette and is not once `follow-system` names a rule instead: the
+        # checkmark, the re-resolve on a desktop change and what gets saved all
+        # need the id the user picked, not the palette it currently resolves to.
+        # Defaulted rather than required, so every caller that predates this —
+        # which is every test that builds a window from a `Theme` alone — keeps
+        # working and gets the id whose palette it passed.
+        self._theme_id = theme_id if theme_id is not None else _id_of_theme(theme)
+        # The tenth seam, defaulting to the real reader for `place`'s reason
+        # rather than `save_theme`'s: reading a preference writes nothing, so a
+        # test that never switches to follow-system never reaches it. What a
+        # test must not do is let it RUN — it spawns `dbus-send`, so an
+        # unsubstituted one makes the suite depend on whether the machine it
+        # runs on happens to have a settings portal, which is the ambient-state
+        # dependency `conftest.py` pins `XDG_SESSION_TYPE` to avoid.
+        self._read_high_contrast = (
+            appearance.high_contrast
+            if read_high_contrast is None
+            else read_high_contrast
+        )
+        # The eleventh seam, and it is injected for a reason the other ten are
+        # not: the offscreen platform the suite runs under IGNORES
+        # `QStyleHints.setColorScheme` outright — measured, the value stays
+        # `Unknown` and `colorSchemeChanged` never fires — so there is no way to
+        # drive Qt's own answer from a test. Without this seam the whole
+        # light/dark half of follow-system would be unverifiable, which is the
+        # same shape as `QIcon.fromTheme` returning null under offscreen.
+        self._read_dark = _desktop_is_dark if read_dark is None else read_dark
+        # Read on the first follow-system resolution and kept — see
+        # `_resolved_theme_id` for why it is not re-read.
+        self._high_contrast: bool | None = None
+        # Resolved HERE rather than by the caller, and that is the whole reason
+        # the id is passed alongside the palette. `build_window` holds the id
+        # but cannot resolve it: Qt's colour scheme is only readable once a
+        # `QApplication` exists, and the palette below is applied to that
+        # application. So the caller passes what it has — the id, and the
+        # palette that id names when it names one — and the window does the one
+        # step only it is in a position to do.
+        if self._theme_id == FOLLOW_SYSTEM:
+            theme = theme_for_id(self._resolved_theme_id(FOLLOW_SYSTEM))
+            self._theme = theme
         # The fifth seam, same shape and same reason as `save_theme`: a test
         # that exercises the picker must not write to the developer's own
         # settings.json. Kept separate from `save_theme` rather than widened
@@ -1299,6 +1391,13 @@ class MainWindow(QMainWindow):
         # Before the central widget, because `_apply_default_geometry` measures
         # the bar as chrome the list does not get.
         self._build_menus()
+        # Connected AFTER the menus, deliberately: the slot re-enters
+        # `set_theme`, which ticks an entry in `_theme_actions`, and a slot that
+        # raised would do it silently — PySide swallows an exception out of a
+        # slot Qt invoked, prints it, and carries on (measured, LWSM-1176).
+        app = QApplication.instance()
+        if app is not None:
+            app.styleHints().colorSchemeChanged.connect(self._on_color_scheme_changed)
 
         central = QWidget(self)
         outer = QVBoxLayout(central)
@@ -1501,6 +1600,21 @@ class MainWindow(QMainWindow):
         self._theme_group.setExclusive(True)
         self._theme_actions: dict[str, QAction] = {}
 
+        # LWSM-1244. First, alone, above a separator: `follow-system` is a rule
+        # for choosing a palette rather than a palette, so it belongs to none of
+        # the three groups below and `rank` never sees it. Its label IS
+        # translated, unlike the palette names beside it — "Follow system" is a
+        # sentence about behaviour, where "Midnight" is a name (finbreak INV-13).
+        # It joins the same exclusive group, so choosing it clears whichever
+        # palette was ticked without anything having to clear it by hand.
+        follow = self._theme_menu.addAction("")
+        follow.setCheckable(True)
+        follow.setChecked(self._theme_id == FOLLOW_SYSTEM)
+        follow.triggered.connect(lambda _checked=False: self.set_theme(FOLLOW_SYSTEM))
+        self._theme_group.addAction(follow)
+        self._theme_actions[FOLLOW_SYSTEM] = follow
+        self._theme_menu.addSeparator()
+
         def rank(item: tuple[str, Theme]) -> tuple[int, int]:
             """Three groups: light, dark, assistive. Not four.
 
@@ -1523,7 +1637,10 @@ class MainWindow(QMainWindow):
             previous = group
             action = self._theme_menu.addAction(theme.label)
             action.setCheckable(True)
-            action.setChecked(theme is self._theme)
+            # The stored ID, not the resolved palette: under `follow-system`
+            # the palette on screen IS one of these, and ticking it would say
+            # the user picked it directly and hide the rule that did.
+            action.setChecked(name == self._theme_id)
             # `name`, not the loop variable: a lambda closing over the loop
             # variable makes every entry select the LAST theme. That exact bug
             # shipped once here already, on the row buttons, and a one-row
@@ -1667,6 +1784,13 @@ class MainWindow(QMainWindow):
         # The submenu's TITLE is translated; the entries inside it are theme
         # labels, which are data and are not.
         self._theme_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&Theme"))
+        # Set here rather than at construction, so `LanguageChange` has one
+        # place to go — the rule every other menu label in this method follows.
+        # Translated, where the palette names below it are not: this one names
+        # a behaviour, not a palette.
+        self._theme_actions[FOLLOW_SYSTEM].setText(
+            QCoreApplication.translate(_TR_CONTEXT, "&Follow system")
+        )
         # These entries ARE translated, unlike the theme labels beside them:
         # a percentage is written differently in different locales, and the
         # placeholder is what lets a translator move the sign to the other side
@@ -1690,6 +1814,45 @@ class MainWindow(QMainWindow):
             QCoreApplication.translate(_TR_CONTEXT, "&Preferences...")
         )
 
+    def _resolved_theme_id(self, theme_id: str) -> str:
+        """The palette id to render for a stored id (LWSM-1244).
+
+        Returns anything but `follow-system` untouched, and the early return is
+        load-bearing rather than an optimisation: reading the contrast
+        preference spawns `dbus-send`, and a user who picked a palette by hand
+        must never pay a subprocess for it.
+
+        Light/dark comes from Qt, which tracks it live and needs no D-Bus.
+        `Unknown` is passed through as `None` — the desktop did not say — and
+        `resolve_theme_id` turns that into dark, which is the documented
+        default.
+        """
+        if theme_id != FOLLOW_SYSTEM:
+            return theme_id
+        dark = self._read_dark()
+        if self._high_contrast is None:
+            # Read once and kept for the window's life. Light/dark is free and
+            # live; this one costs a subprocess with a three-second bound, so
+            # re-reading it on every resolution would put that bound on the GUI
+            # thread each time the desktop toggled dark mode. A user who turns
+            # high contrast on mid-session gets it at the next launch, and can
+            # pick the palette directly now — which is the trade LWSM-1240
+            # says to make rather than block the window.
+            self._high_contrast = self._read_high_contrast()
+        return resolve_theme_id(theme_id, dark=dark, high_contrast=self._high_contrast)
+
+    def _on_color_scheme_changed(self) -> None:
+        """Re-resolve when the desktop flips light/dark, and only then.
+
+        Guarded on the stored id, not on whether the palette would change: a
+        user who chose `Midnight` outright asked for dark and keeps it when the
+        desktop goes light. `set_theme` is re-entered rather than the palette
+        applied here, so the live swap stays stated in exactly one place —
+        including the save, which rewrites the same `follow-system` it read.
+        """
+        if self._theme_id == FOLLOW_SYSTEM:
+            self.set_theme(FOLLOW_SYSTEM)
+
     def set_theme(self, theme_id: str) -> None:
         """Swap the palette on the live window, then remember the choice.
 
@@ -1703,7 +1866,8 @@ class MainWindow(QMainWindow):
         settings file that cannot be written must not undo a switch the user
         can already see happen.
         """
-        theme = theme_for_id(theme_id)
+        self._theme_id = theme_id
+        theme = theme_for_id(self._resolved_theme_id(theme_id))
         self._theme = theme
         app = QApplication.instance()
         if app is not None:

@@ -27,6 +27,7 @@ SRC = Path(__file__).resolve().parent.parent / "src" / "lwsm"
 # absent from this list while the criterion covered it, so the rule and its
 # check disagreed and the check is the one that runs (LWSM-1006 § 4.7).
 CORE_MODULES = [
+    "appearance.py",
     "applog.py",
     "browsers.py",
     "configfile.py",

@@ -23,6 +23,14 @@ signaling per
 
 ### Added
 
+- **Follow system, a theme that tracks the desktop** (LWSM-1244)
+  Picks a light or dark palette from the desktop's own setting, and an
+  assistive one where the desktop asks for higher contrast — so someone
+  who has already said they need contrast does not have to say it again
+  here. Light and dark are tracked live; the contrast preference is read
+  once at startup, because reading it costs a subprocess and the window
+  must not wait on one every time dark mode toggles.
+
 - **Pick which browser each project opens in** (LWSM-1187)
   Every project's row has a browser dropdown beside its port. Leave it on
   "Default browser" and Open behaves as before; pick Firefox for one

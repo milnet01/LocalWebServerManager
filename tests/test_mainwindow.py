@@ -41,7 +41,7 @@ from lwsm.registry import (
     RegistryMissing,
 )
 from lwsm.settings import SettingsError
-from lwsm.theme import DEFAULT_THEME, THEMES, Theme
+from lwsm.theme import DEFAULT_THEME, FOLLOW_SYSTEM, THEMES, Theme
 
 pytestmark = pytest.mark.gui
 
@@ -2738,12 +2738,29 @@ def test_quit_from_the_menu_closes_the_window(qtbot, built) -> None:
 # --- LWSM-1031: the theme picker, and the switch it drives --------------------
 
 
-def themed_window(qtbot, built, save=None) -> MainWindow:
+def themed_window(
+    qtbot, built, save=None, *, high_contrast=False, theme_id=None, dark=None
+) -> MainWindow:
     """Two rows, always. A one-row fixture has hidden a per-row bug in this
     file twice, and a theme swap is per-row work: every row caches its own
-    `Theme` and its own glyph colour."""
+    `Theme` and its own glyph colour.
+
+    `read_high_contrast` is injected on every window, not only the ones that
+    exercise follow-system: unsubstituted it spawns `dbus-send`, so the answer
+    would depend on whether the machine running the suite happens to have a
+    settings portal — the ambient dependency `conftest.py` pins
+    `XDG_SESSION_TYPE` to keep out.
+    """
     controller = build_controller(built, two_rows(), FakeProbe(5005))
-    window = MainWindow(controller, Theme.default(), [], save_theme=save)
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        save_theme=save,
+        theme_id=theme_id,
+        read_high_contrast=lambda: high_contrast,
+        read_dark=lambda: dark,
+    )
     qtbot.addWidget(window)
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
@@ -2756,7 +2773,11 @@ def test_the_picker_offers_every_theme_grouped_light_dark_assistive(
     """Derived from the registry, so a palette added to `theme.py` appears
     without anyone editing the menu — and asserted in ORDER, because the
     grouping is the whole reason `is_dark` and `high_contrast` are on the
-    theme rather than kept in a list beside it."""
+    theme rather than kept in a list beside it.
+
+    Follow system leads and is the one entry NOT derived that way (LWSM-1244):
+    it names a rule for choosing a palette rather than a palette, so it is
+    absent from `THEMES` and every group below it."""
     window = themed_window(qtbot, built)
 
     assert [
@@ -2764,21 +2785,24 @@ def test_the_picker_offers_every_theme_grouped_light_dark_assistive(
         for action in window._theme_menu.actions()
         if not action.isSeparator()
     ] == [
-        THEMES[name].label
-        for name in (
-            "ledger",
-            "parchment",
-            "mint",
-            "midnight",
-            "graphite",
-            "emerald",
-            "highcontrast-light",
-            "highcontrast-dark",
-        )
+        "&Follow system",
+        *(
+            THEMES[name].label
+            for name in (
+                "ledger",
+                "parchment",
+                "mint",
+                "midnight",
+                "graphite",
+                "emerald",
+                "highcontrast-light",
+                "highcontrast-dark",
+            )
+        ),
     ]
-    assert set(window._theme_actions) == set(THEMES)
-    # Two separators: light|dark and dark|assistive.
-    assert sum(a.isSeparator() for a in window._theme_menu.actions()) == 2
+    assert set(window._theme_actions) == set(THEMES) | {FOLLOW_SYSTEM}
+    # Three: follow|palettes, then light|dark and dark|assistive.
+    assert sum(a.isSeparator() for a in window._theme_menu.actions()) == 3
 
 
 def test_the_checked_entry_is_the_live_theme(qtbot, built) -> None:
@@ -2809,9 +2833,15 @@ def test_choosing_a_theme_repaints_every_row_not_just_the_last(qtbot, built) -> 
 
     for name, action in window._theme_actions.items():
         action.trigger()
-        assert window._theme is THEMES[name], f"{name} selected something else"
+        # The ID, for every entry: that is the closure claim exactly — this
+        # entry passed its OWN name to `set_theme` — and it is the only form
+        # that covers `follow-system`, which selects a palette it does not name
+        # and so has no `THEMES` entry to be compared against.
+        assert window._theme_id == name, f"{name} selected something else"
+        expected = THEMES.get(name, window._theme)
+        assert window._theme is expected, f"{name} rendered another palette"
         for row in rows_of(window):
-            assert row._theme is THEMES[name], f"{name} did not reach every row"
+            assert row._theme is expected, f"{name} did not reach every row"
 
 
 def test_a_swap_moves_the_glyph_colour_and_not_only_the_word(qtbot, built) -> None:
@@ -5799,3 +5829,122 @@ def test_the_row_still_fits_one_lens_view_with_a_browser_picker(
         f"the row's controls end at x={right_edge}, outside the "
         f"{READABLE_BAND_PX} px lens the user has to read it through"
     )
+
+
+# --- LWSM-1244: Follow system -------------------------------------------------
+
+
+def test_follow_system_saves_the_rule_and_not_the_palette_it_resolved_to(
+    qtbot, built
+) -> None:
+    """The whole point of the feature, and the one way to lose it silently.
+
+    Saving `ledger` here would look right on screen and be a different setting:
+    the next launch would open light on a desktop that had since gone dark,
+    and the user would have no way to tell the rule had been converted into a
+    fixed choice behind them."""
+    saved: list[str] = []
+    window = themed_window(qtbot, built, saved.append, dark=False)
+
+    window._theme_actions[FOLLOW_SYSTEM].trigger()
+
+    assert saved == [FOLLOW_SYSTEM]
+    assert window._theme is THEMES["ledger"]
+
+
+def test_follow_system_opens_the_palette_the_desktop_asks_for(qtbot, built) -> None:
+    """At construction, not only on a later switch: a window restoring
+    `follow-system` from settings.json is handed the id and the default
+    palette, and must paint the resolved one before it is ever shown."""
+    window = themed_window(qtbot, built, theme_id=FOLLOW_SYSTEM, dark=False)
+
+    assert window._theme_id == FOLLOW_SYSTEM
+    assert window._theme is THEMES["ledger"]
+    for row in rows_of(window):
+        assert row._theme is THEMES["ledger"], "the resolve did not reach the rows"
+
+
+def test_a_high_contrast_desktop_opens_an_assistive_palette(qtbot, built) -> None:
+    """The user story the item was filed for: someone who has already told
+    their desktop they need contrast should not have to tell this app too."""
+    window = themed_window(
+        qtbot, built, theme_id=FOLLOW_SYSTEM, dark=True, high_contrast=True
+    )
+
+    assert window._theme is THEMES["highcontrast-dark"]
+    assert window._theme.high_contrast
+
+
+def test_follow_system_tracks_the_desktop_flipping_to_light(qtbot, built) -> None:
+    """Driven through the slot rather than through Qt, because the offscreen
+    platform IGNORES `QStyleHints.setColorScheme` — measured: the value stays
+    `Unknown` and `colorSchemeChanged` never fires. So this asserts what the
+    slot does; that the slot is CONNECTED is asserted separately below."""
+    window = themed_window(qtbot, built, theme_id=FOLLOW_SYSTEM, dark=True)
+    assert window._theme is THEMES["midnight"]
+
+    window._read_dark = lambda: False
+    window._on_color_scheme_changed()
+
+    assert window._theme is THEMES["ledger"]
+    assert window._theme_id == FOLLOW_SYSTEM, "the rule must survive the re-resolve"
+    for row in rows_of(window):
+        assert row._theme is THEMES["ledger"]
+
+
+def test_the_desktop_signal_is_actually_connected_to_that_slot(qtbot, built) -> None:
+    """The test above drives the slot directly, so on its own it would pass
+    against a window that never subscribed to anything — the shape LWSM-1136
+    shipped behind, where a mechanism was correct, tested, and called by
+    nothing. This asserts the wiring instead of the behaviour."""
+    window = themed_window(qtbot, built, theme_id=FOLLOW_SYSTEM, dark=True)
+    hints = QApplication.instance().styleHints()
+
+    window._read_dark = lambda: False
+    hints.colorSchemeChanged.emit(Qt.ColorScheme.Light)
+
+    assert window._theme is THEMES["ledger"]
+
+
+def test_a_hand_picked_palette_ignores_the_desktop_changing(qtbot, built) -> None:
+    """Choosing Midnight outright is a statement about the app, not about the
+    desktop. Without the guard the re-resolve would overwrite it and there
+    would be no way to keep a dark app on a light desktop."""
+    window = themed_window(qtbot, built, dark=True)
+    window._theme_actions["midnight"].trigger()
+
+    window._read_dark = lambda: False
+    window._on_color_scheme_changed()
+
+    assert window._theme is THEMES["midnight"]
+    assert window._theme_id == "midnight"
+
+
+def test_a_hand_picked_palette_never_pays_for_the_contrast_read(qtbot, built) -> None:
+    """`read_high_contrast` spawns `dbus-send` with a three-second bound, on
+    the GUI thread. A user who picked a palette by hand must not wait on a
+    question that cannot change their answer."""
+    reads: list[int] = []
+    window = themed_window(qtbot, built)
+    window._read_high_contrast = lambda: reads.append(1) or False
+
+    for name in ("midnight", "ledger", "highcontrast-dark"):
+        window._theme_actions[name].trigger()
+
+    assert reads == []
+
+
+def test_the_contrast_preference_is_read_once_and_kept(qtbot, built) -> None:
+    """Once per window, not once per resolve: the desktop flipping light/dark
+    is free to track and this is not, so re-reading it here would put a
+    three-second bound on the GUI thread every time dark mode toggled."""
+    reads: list[int] = []
+    window = themed_window(qtbot, built, theme_id=FOLLOW_SYSTEM, dark=True)
+    window._high_contrast = None
+    window._read_high_contrast = lambda: reads.append(1) or False
+
+    for dark in (False, True, False):
+        window._read_dark = lambda dark=dark: dark
+        window._on_color_scheme_changed()
+
+    assert len(reads) == 1

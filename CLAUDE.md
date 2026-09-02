@@ -513,6 +513,16 @@ Added at P02 (LWSM-1005), contract in
   survived every other test. It **does not check that a theme id names a
   theme** — a core module may not import `theme.py` (`§ O1`), and
   `theme.theme_for_id` owns the fallback.
+- **`src/lwsm/appearance.py`** — core, no Qt at all. `high_contrast()`, and
+  that is the whole surface. Added by LWSM-1244 for **Follow system**, and it
+  holds the contrast preference alone because Qt already reports light/dark
+  itself, live, through `QStyleHints`. Qt has no counterpart for contrast:
+  measured against the pinned PySide6, the `ContrastPreference` enum exists
+  and no accessor returns one, so the XDG settings portal is the only route.
+  Read over `dbus-send`, which `placement.py` already needs — which is why
+  no D-Bus binding is a dependency. **Every failure answers False**, because
+  a wrong True forces an assistive palette on someone who never asked and a
+  wrong False leaves them where they already were.
 - **`src/lwsm/placement.py`** — core, and the only module importing **no Qt
   at all**, not even `QtCore`: the arithmetic in it is ADR-0007's security
   boundary, and a boundary is worth testing with no display. `Rect`,
@@ -749,7 +759,7 @@ Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
   interleaved ones** — a stated loss, pinned by a test: re-attaching a comment
   to the wrong surviving line is worse than dropping it.
 
-Tests: `test_applog.py`, `test_main.py`, `test_registry.py`,
+Tests: `test_appearance.py`, `test_applog.py`, `test_main.py`, `test_registry.py`,
 `test_settings.py`, `test_settingsdialog.py`, `test_placement.py`,
 `test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
 `test_layering.py`, `test_scanner.py`, `test_supervisor.py`,
@@ -1218,6 +1228,18 @@ same lookup returned a 128px SVG under the real Wayland session and null under
 asserting an icon resolves by theme name fails in the suite and in CI for a
 reason that says nothing about the icon.** Assert the file is installed where
 the theme expects it, or inject the icon; do not assert `fromTheme`.
+
+**Trap: the desktop's light/dark scheme cannot be driven from a test at all —
+`QStyleHints.setColorScheme` is ignored under `offscreen`.** Measured 2026-09-02
+while shipping LWSM-1244: the setter returns without error, `colorScheme()`
+stays `Unknown`, and `colorSchemeChanged` never fires. Nothing says it was
+refused. Same family as the `fromTheme` trap above — a platform-owned answer
+that the offscreen platform simply does not have — but worse in one way: the
+icon case *fails*, where this one leaves a test asserting the wrong branch and
+passing. **So anything reading the colour scheme needs an injected seam**
+(`MainWindow`'s `read_dark`), or the whole light/dark half is unverifiable.
+Set the seam, then verify the real reader against a running desktop, which is
+the only place it can be checked.
 
 **Trap: an installer that writes into `~/.local/share/icons/hicolor` can hide
 every OTHER application's icons.** That directory is shared by every app that

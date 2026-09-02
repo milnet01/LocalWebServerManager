@@ -3466,12 +3466,18 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 4.
 
-- 📋 [LWSM-1225] **MEDIUM: the port-still-bound message asserts a stranger owns it without checking.**
+- ✅ [LWSM-1225] **MEDIUM: the port-still-bound message asserts a stranger owns it without checking.**
   supervisor.py:972-975. Nothing calls owns_pid or re-reads the group before
   saying it; combined with LWSM-1205 the holder can be our own unsignalled
   grandchild. design.md requires the opposite for this surface: say the port
   is held by a process the user cannot inspect, rather than inventing an owner.
   Fix: reword, or check the holder's pgid first.
+  Resolved (2026-09-02): shipped in 1cbc627 and left unflipped. Both
+  halves of the bullet's fix landed - supervisor.py gained `owns_pid`,
+  which compares the holder's pgid to the managed pid and returns False
+  on any OSError, and the message was reworded to say the port is held
+  rather than naming an owner. Flipped on re-reading the source, not on
+  the commit subject alone.
   **Layman:** The app tells you another program is holding the port when it may well be a leftover of its own.
   Kind: fix.
   Source: review-code 2026-09-01 lane 4.
@@ -3708,7 +3714,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.
 
-- 📋 [LWSM-1244] **MEDIUM: Follow system is documented in two places and implemented nowhere.**
+- ✅ [LWSM-1244] **MEDIUM: Follow system is documented in two places and implemented nowhere.**
   theme.py:199 / design-look-and-feel.md:67-71, which also promises it switches
   to contrast-dark or contrast-light when the desktop reports a high-contrast
   preference. Grep: follow.?system appears ONLY in two theme.py docstrings.
@@ -3717,6 +3723,37 @@ has been applied yet — every item in this section is open.
   midnight on first run with no signal the assistive palettes exist.
   CALIBRATED DOWN from the lane's HIGH - an unbuilt promise, not a broken
   mechanism. Deleting the promise is a legitimate fix; decide which.
+  Decision (user, 2026-09-02): BUILD IT, both halves - follow the
+  desktop's light/dark setting AND its high-contrast preference. The
+  alternatives offered were striking the promise or building the
+  light/dark half only; both were declined. So the doc's promise stands
+  as written and the code moves to meet it. The high-contrast half is
+  the uncertain one and its detection route must be MEASURED against
+  this machine's Qt before it is designed, not inferred.
+  Resolved (2026-09-02): built, per the user's decision above.
+  `follow-system` is an id that names a RULE and is deliberately absent
+  from THEMES, so the picker's grouping and the contrast-floor tests
+  still iterate palettes only. Light/dark comes from Qt live; contrast
+  comes from the XDG portal over dbus-send, read once per window. Two
+  things were MEASURED rather than reasoned, and both changed the
+  design. Qt 6.11.1 declares Qt.ContrastPreference and exposes NO
+  QStyleHints accessor for it, so the portal is the only route to
+  contrast. And the offscreen platform IGNORES
+  QStyleHints.setColorScheme - the value stays Unknown and
+  colorSchemeChanged never fires - so the light/dark read had to become
+  an injected seam or the whole half would have been unverifiable;
+  recorded as a Trap in CLAUDE.md. Six mutants were run against the
+  mechanisms (the signal connect, the re-resolve guard, saving the rule
+  rather than the resolved palette, the early return that keeps a
+  hand-picked palette off the subprocess, the contrast cache, the
+  startup resolve) and all six died. Verified live on this KDE Wayland
+  session: dark desktop, no contrast preference, resolves to midnight.
+  The light and high-contrast branches are held by seam tests only,
+  because neither can be driven without changing the user's own desktop
+  settings - stated rather than implied. NOT fixed here: the document
+  still spells the assistive ids `contrast-*` where the code ships
+  `highcontrast-*`, which is LWSM-1245's, and theme.py's _FOLLOW_TARGETS
+  is the one place that rename would land.
   **Layman:** The look-and-feel doc promises a theme that follows your desktop's light/dark and high-contrast setting; it does not exist.
   Kind: feature.
   Source: review-code 2026-09-01 lane 8 (calibrated HIGH -> MEDIUM: unbuilt promise).
@@ -3842,6 +3879,17 @@ has been applied yet — every item in this section is open.
   was adopted to answer the lens budget the same document sets. The amendment
   needs a REPLACEMENT check-table row, e.g. "elided text always carries the
   full string in a tooltip and in the accessible name". Route to review-contract.
+  Decision (user, 2026-09-02): AMEND THE DOCUMENT, not the code. Replace
+  the never-truncate rule with one the app can be held to - elided text
+  always carries the full string in a tooltip and in the accessible name
+  - as a replacement check-table row. Changing the code to stop eliding
+  was offered and declined: it would undo LWSM-1174's measured fix and
+  breach the width budget the same document sets. Verified before
+  asking: the name column already satisfies the replacement rule
+  (mainwindow.py _elide_name sets the tooltip to the full string only
+  when it actually elided). The browser combo does not, and that is
+  LWSM-1253 - so LWSM-1253 is what makes the amended rule true
+  everywhere, and the two should close together.
   **Layman:** The accessibility doc promises text is never cut off; the app cuts it off on purpose, for a good reason nobody wrote down.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 10.

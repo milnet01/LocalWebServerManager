@@ -15,7 +15,13 @@ import pytest
 # flat import rather than `tests.contrast`.
 from contrast import INDICATOR_FLOOR, TEXT_FLOOR, contrast_ratio, relative_luminance
 from lwsm.controller import ProjectStatus
-from lwsm.theme import DEFAULT_THEME, Theme, theme_for_id
+from lwsm.theme import (
+    DEFAULT_THEME,
+    FOLLOW_SYSTEM,
+    Theme,
+    resolve_theme_id,
+    theme_for_id,
+)
 from lwsm.theme import THEMES as PALETTES
 
 # Derived from the registry, never listed: a palette added to `theme.py` and
@@ -291,3 +297,71 @@ def test_every_palette_role_carries_its_token(theme: Theme) -> None:
     }
     for role, token in expected.items():
         assert palette.color(role) == QColor(token), role
+
+
+# --- LWSM-1244: follow-system, the id that names a rule and not a palette -----
+
+
+def test_follow_system_is_deliberately_not_a_palette() -> None:
+    """The picker, the contrast floor tests and the light/dark grouping all
+    iterate `THEMES`. Were the rule an entry there, every one of them would
+    need to special-case it — and one that forgot would hold a rule to a
+    contrast floor it has no colours to meet."""
+    assert FOLLOW_SYSTEM not in PALETTES
+
+
+@pytest.mark.parametrize(
+    ("dark", "high_contrast", "expected"),
+    [
+        (False, False, "ledger"),
+        (True, False, "midnight"),
+        (False, True, "highcontrast-light"),
+        (True, True, "highcontrast-dark"),
+    ],
+)
+def test_follow_system_resolves_to_the_four_documented_targets(
+    dark: bool, high_contrast: bool, expected: str
+) -> None:
+    """`design-look-and-feel.md § Themes` names these four. All four are
+    asserted rather than one per flag: the two inputs are independent, so a
+    mapping that read only one of them would still pass a test that varied
+    only the other."""
+    resolved = resolve_theme_id(FOLLOW_SYSTEM, dark=dark, high_contrast=high_contrast)
+    assert resolved == expected
+    assert PALETTES[resolved].is_dark is dark
+    assert PALETTES[resolved].high_contrast is high_contrast
+
+
+def test_a_desktop_that_says_nothing_gets_the_documented_dark_default() -> None:
+    """Qt answers `Unknown` wherever no platform theme is loaded, which is
+    every test in this suite and any session with no portal. Not knowing must
+    land on the same palette a first run gets, or the app would open light for
+    a user who never chose light."""
+    assert (
+        resolve_theme_id(FOLLOW_SYSTEM, dark=None, high_contrast=False) == DEFAULT_THEME
+    )
+    assert (
+        resolve_theme_id(FOLLOW_SYSTEM, dark=None, high_contrast=True)
+        == "highcontrast-dark"
+    )
+
+
+@pytest.mark.parametrize("theme_id", [*PALETTES, "a-theme-that-was-removed"])
+def test_every_other_id_passes_through_untouched(theme_id: str) -> None:
+    """A user who picked Midnight asked for dark and keeps it on a light
+    desktop. Asserted over every shipped id AND an unknown one, because this
+    function resolves a rule and deliberately does not validate a palette
+    name — that is `theme_for_id`'s job, kept in one place."""
+    for dark in (True, False, None):
+        for high_contrast in (True, False):
+            assert (
+                resolve_theme_id(theme_id, dark=dark, high_contrast=high_contrast)
+                == theme_id
+            )
+
+
+def test_an_unresolved_follow_system_falls_back_to_dark_rather_than_raising() -> None:
+    """`follow-system` is absent from `THEMES`, so a caller that skipped the
+    resolve reaches `theme_for_id` with it. A `KeyError` there is a window that
+    does not open; the default is the one outcome that is certainly usable."""
+    assert theme_for_id(FOLLOW_SYSTEM) is PALETTES[DEFAULT_THEME]

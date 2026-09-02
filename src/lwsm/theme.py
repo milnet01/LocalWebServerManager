@@ -397,5 +397,45 @@ def theme_for_id(theme_id: str) -> Theme:
     theme a later build removed — or one a user hand-typed — arrives here, and
     a `KeyError` here is a window that does not open. The user gets the default
     palette instead, which is the one outcome that is certainly usable.
+
+    `FOLLOW_SYSTEM` is not a palette and is not in `THEMES`, so it lands on
+    that fallback too. That is the right answer for a caller that never
+    resolved it — dark, which is what the default is — but it is not the
+    feature. Call `resolve_theme_id` first.
     """
     return THEMES.get(theme_id, THEMES[DEFAULT_THEME])
+
+
+# Not a palette but a rule for choosing one, so it is deliberately absent from
+# `THEMES`: every caller that iterates the palettes — the picker's grouping,
+# the contrast tests — would otherwise have to special-case it.
+FOLLOW_SYSTEM = "follow-system"
+
+# Keyed by (is_dark, wants_high_contrast), which is exactly what the desktop
+# reports. `design-look-and-feel.md § Themes` states these four targets; the
+# two assistive ids here are the ones actually shipped in `THEMES` above, and
+# LWSM-1245 owns the fact that the document spells them `contrast-*`. Should
+# that item rename them, this table is the one place the rename lands.
+_FOLLOW_TARGETS = {
+    (False, False): "ledger",
+    (True, False): DEFAULT_THEME,
+    (False, True): "highcontrast-light",
+    (True, True): "highcontrast-dark",
+}
+
+
+def resolve_theme_id(theme_id: str, *, dark: bool | None, high_contrast: bool) -> str:
+    """The concrete theme id to render, given what the desktop reports.
+
+    Any id but `FOLLOW_SYSTEM` passes straight through, unexamined: this
+    resolves a rule and does not validate a palette name, which is
+    `theme_for_id`'s job and is kept there so an unknown id has one owner.
+
+    `dark=None` means the desktop did not say — Qt answers `Unknown` wherever
+    no platform theme is loaded, which includes the offscreen platform the
+    tests run under. That resolves to dark, because `design-look-and-feel.md`
+    makes dark the default, so an unreadable desktop and a dark desktop agree.
+    """
+    if theme_id != FOLLOW_SYSTEM:
+        return theme_id
+    return _FOLLOW_TARGETS[(True if dark is None else dark, high_contrast)]
