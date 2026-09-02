@@ -5948,3 +5948,71 @@ def test_the_contrast_preference_is_read_once_and_kept(qtbot, built) -> None:
         window._on_color_scheme_changed()
 
     assert len(reads) == 1
+
+
+# --- LWSM-1253: the browser picker's width floor and its tooltip --------------
+
+
+def test_the_browser_picker_clears_the_target_floor_with_nothing_installed(
+    qtbot, built, tmp_path
+) -> None:
+    """The height took `MIN_TARGET_PX` and the width did not.
+
+    No browser installed is the case that exposes it — and it is the REAL
+    state on a machine with none, not a contrived one: `widest` is then 0 and
+    the control is as wide as its arrow, around 20px, under the floor
+    `design-accessibility.md` puts under everything clickable.
+    """
+    # `rescan_window` directly, NOT `browser_window`: that helper always
+    # injects the full browser list, and its fifth positional is `saves`. A
+    # first draft of this test passed one there and measured a window with
+    # three browsers in it -- green, and about a state the test does not name.
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [record("a", 3000)],
+        tmp_path,
+        FakeScanResult(projects=()),
+        browsers_available=(),
+    )
+    box = row_named(window, "a").browser_box
+
+    assert box.count() == 1, "precondition: the default entry and nothing else"
+    assert box.width() >= mainwindow.MIN_TARGET_PX
+    assert box.height() >= mainwindow.MIN_TARGET_PX
+
+
+def test_a_cut_browser_name_is_readable_from_its_tooltip(
+    qtbot, built, tmp_path
+) -> None:
+    """The default entry reads "Default browser" inside a ten-character
+    column, so it is cut on every row on every machine — while the name label
+    beside it has carried a full-text tooltip in that situation all along."""
+    from PySide6.QtWidgets import QStyle
+
+    window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    box = row_named(window, "a").browser_box
+
+    assert box.currentText() == "Default browser", "precondition: the long entry"
+    arrow = box.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+    assert box.fontMetrics().horizontalAdvance(box.currentText()) > (
+        box.width() - arrow
+    ), "precondition: it really does not fit"
+    assert box.toolTip() == "Default browser"
+
+
+def test_a_browser_name_that_fits_carries_no_tooltip(qtbot, built, tmp_path) -> None:
+    """Empty when it fits, `_elide_name`'s rule: a tooltip repeating what is
+    already legible is noise. Asserted alongside the case above so neither can
+    be satisfied by setting the tooltip unconditionally."""
+    from PySide6.QtWidgets import QStyle
+
+    window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    box = row_named(window, "a").browser_box
+    box.setCurrentIndex(box.findText("Brave"))
+
+    arrow = box.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+    assert box.fontMetrics().horizontalAdvance("Brave") <= (box.width() - arrow), (
+        "precondition: this one fits"
+    )
+    assert box.toolTip() == ""

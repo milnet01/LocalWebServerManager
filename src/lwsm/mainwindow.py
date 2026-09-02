@@ -636,8 +636,19 @@ class ProjectRow(QFrame):
             arrow = self.browser_box.style().pixelMetric(
                 QStyle.PixelMetric.PM_ScrollBarExtent
             )
-            self.browser_box.setFixedWidth(min(widest, cap) + arrow + layout.spacing())
+            # Floored like `_fit_buttons` does, and for the same reason: with
+            # no browser installed `widest` is 0 and the control lands at the
+            # arrow's width alone -- around 20px, under the 24px target floor
+            # `design-accessibility.md` puts under every clickable thing. The
+            # height already took the floor and the width did not (LWSM-1253).
+            self.browser_box.setFixedWidth(
+                max(
+                    min(widest, cap) + arrow + layout.spacing(),
+                    MIN_TARGET_PX,
+                )
+            )
             self.browser_box.setMinimumHeight(MIN_TARGET_PX)
+            self._apply_browser_tooltip()
 
         # The buttons are sized from the same metric and so go stale with it.
         # Guarded because `_apply_text_metrics` runs from `__init__` before the
@@ -682,6 +693,32 @@ class ProjectRow(QFrame):
         if self._error is None:
             return None
         return QRect(self._error.mapToGlobal(QPoint(0, 0)), self._error.size())
+
+    def _apply_browser_tooltip(self) -> None:
+        """The full browser name in a tooltip whenever the combo cuts it.
+
+        `_elide_name`'s rule applied to the one other control that elides. It
+        is not an edge case here: the entry at index 0 reads "Default browser"
+        inside a ten-character column, so it is cut on every row on every
+        machine, and the name label beside it has carried a tooltip in exactly
+        this situation all along (LWSM-1253).
+
+        Empty when the text fits, because a tooltip repeating what is already
+        on screen is noise — and on a `QWidget`, unlike a `QAction`, an empty
+        string really does remove it.
+
+        The combo elides when it PAINTS and its item text stays whole, so a
+        screen reader already reads the full name. This is for the sighted
+        user, who otherwise cannot read it at all.
+        """
+        text = self.browser_box.currentText()
+        arrow = self.browser_box.style().pixelMetric(
+            QStyle.PixelMetric.PM_ScrollBarExtent
+        )
+        fits = self.browser_box.fontMetrics().horizontalAdvance(text) <= (
+            self.browser_box.width() - arrow
+        )
+        self.browser_box.setToolTip("" if fits else text)
 
     def _fit_buttons(self) -> None:
         """Each button as wide as its own label, not the style's default.
@@ -1101,6 +1138,7 @@ class ProjectRow(QFrame):
                 "%1", self._name_display
             )
         )
+        self._apply_browser_tooltip()
 
         self._apply_button_state(row)
 

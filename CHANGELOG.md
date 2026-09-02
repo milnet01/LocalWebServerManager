@@ -286,6 +286,12 @@ signaling per
 
 ### Fixed
 
+- **The browser picker could be too narrow to click, and cut its text with no way to read it** (LWSM-1253)
+  On a machine with no browser installed the dropdown shrank below the
+  minimum size everything clickable is meant to have. Its text was also
+  cut short on every row — the default entry is longer than the column —
+  with no way to see the whole name. Hovering now shows it.
+
 - **Stop says so when it could not signal part of a server** (LWSM-1224)
   If the system refused to let the app stop one of a server's processes,
   that went only into the log file and Stop still reported a clean

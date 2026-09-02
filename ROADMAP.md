@@ -3857,7 +3857,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 10.
 
-- 📋 [LWSM-1253] **MEDIUM: the browser combo takes the height floor but not the width one, and has no tooltip when elided.**
+- ✅ [LWSM-1253] **MEDIUM: the browser combo takes the height floor but not the width one, and has no tooltip when elided.**
   mainwindow.py:590-591. setMinimumHeight(MIN_TARGET_PX) is applied; the width
   is not wrapped in max(..., MIN_TARGET_PX) the way _fit_buttons does at
   :664-666. With available_browsers=() - the constructor default, and the real
@@ -3866,6 +3866,24 @@ has been applied yet — every item in this section is open.
   cut: index 0 reads "Default browser" (15 chars) inside BROWSER_COLUMN_CHARS =
   10, so it is elided on every row on every machine, while _elide_name gives
   the name label a full-text tooltip in the same situation.
+  Resolved (2026-09-02): both halves. The width now takes max(...,
+  MIN_TARGET_PX), the shape _fit_buttons already used and the height
+  already had; and the combo gets the full text in a tooltip whenever it
+  is cut, which is _elide_name's rule applied to the one other control
+  that elides. Done ahead of LWSM-1254 on purpose: that item's
+  replacement rule says elided text always carries the full string in a
+  tooltip, and this control was the one place that was false, so
+  amending the document first would have written a fresh untrue promise.
+  Both claims were mutation-checked, and the FIRST width test was inert
+  - it called browser_window with an empty list in the fifth positional,
+  which is `saves`, not the browser list, so it measured a row with
+  three browsers and passed while the floor mutant survived. Rebuilt on
+  rescan_window with browsers_available=(), and the mutant then died.
+  The finding's stated number was not re-used: what is asserted is the
+  floor, not a pixel count. Note the accessible side needed nothing - a
+  QComboBox elides when it PAINTS and its item text stays whole, so a
+  screen reader already read the full name; the defect was for sighted
+  users only.
   **Layman:** The browser dropdown can be too narrow to click, and its text is cut off with no way to see the full name.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 10.
