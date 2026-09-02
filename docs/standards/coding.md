@@ -403,8 +403,12 @@ magnifier.** Any new interactive widget lands with all four of:
    focus ring.
 3. Any state it displays conveyed by **text** — colour and glyphs
    reinforce, never carry.
-4. A layout that reflows at 200 % text size without clipping or
-   eliding.
+4. A layout that reflows at 200 % text size without clipping.
+   Deliberate elision is allowed and owes the full string in a
+   tooltip and in the accessible name;
+   `design-accessibility.md § Accessibility` owns that rule.
+   Corrected 2026-09-02: this forbade eliding outright, which the
+   app has done on purpose since LWSM-1174.
 
 A widget missing any of these is incomplete, in the same way an
 untested one is. Retrofitting accessibility is how it never

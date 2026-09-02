@@ -121,18 +121,26 @@ sentence was left describing the world before it.)
 **An in-app text-size control**, independent of the desktop's
 scaling — 100 % to 200 % — because desktop-wide scaling is a
 blunt instrument when only one window needs to be bigger. The
-layout must **reflow** at every step and must never **clip**: a
+layout must **reflow** as the text grows and must never **clip**: a
 `QLabel` does not elide by default, it cuts, and the missing
-characters leave no trace at all.
+characters leave no trace at all. The check runs at 200 %, the
+widest the text goes and so the case that clips first; the steps
+between are not separately asserted.
 
 **Eliding is a different act, and it is allowed.** The row has a
-width budget — § Everything else holds a row to one lens view — and
-a long project name spends it, so the name and browser cells are
-capped and cut with an ellipsis on purpose. What that costs must be
-recoverable: **where text is elided the whole string stays reachable,
-in a tooltip and in the accessible name.** Elision is a fitting
-concern and must never reach the accessibility tree, so a screen
-reader is read the full name and every control is named from it.
+width budget — § What magnifier use actually demands holds a row to
+one lens view, at 100 % text size — and a long project name spends
+it, so the name and browser cells are capped and cut with an
+ellipsis on purpose. What that costs must be recoverable: **where
+text is elided the whole string stays reachable, in a tooltip and in
+the accessibility tree.** Which mechanism meets that second half
+differs by control, and both are correct: the name label renders
+into its own accessible name, so that name carries the whole string;
+the browser combo elides only when it paints and its item text stays
+whole, so a screen reader is already read the full name. Elision is
+a fitting concern and must never reach the accessibility tree, so
+every control is named from the full project name rather than from
+the rendered one.
 
 Until 2026-09-02 this said "never clip or truncate", and that the
 200 % test asserted no text was elided. Both were wrong: the app has
@@ -198,9 +206,20 @@ name, and a description (`setAccessibleName` /
 `coding.md § O8` clause 1 sets that condition, and this section does
 not widen it. Status reaches a screen reader as
 the same text *Never colour alone* already requires, so Orca
-announces "project-b, running, port 5005" rather than an unnamed
+announces "running, project-b, port 5005" rather than an unnamed
 icon — no separate accessibility-only string to drift. A state
 change announces itself once, not on every poll.
+
+**No icon-only button without words behind it.** A button whose
+face is a glyph carries both a tooltip and an accessible name, so
+neither a magnifier user nor a screen-reader user has to recognise
+it by shape. Moved here from § Everything else on 2026-09-02: it
+obliges something, which makes it a promise rather than taste, and
+that section is excluded from the exhaustiveness rule below.
+**Buttons, not every control** — a text input legitimately renders
+no text and is named instead, which is why the row below counts
+buttons and the *Nothing important is hover-only* check counts
+everything clickable.
 
 **Respects the desktop, not our preferences.** System font family
 and size, honouring the desktop's font scaling and high-DPI
@@ -220,8 +239,8 @@ the checks: contrast arithmetic across every theme, keyboard
 reachability of every action, accessible names on every
 interactive widget, and nothing clipped at 200 %.
 
-The remaining promises above need surfaces T8 does not yet have,
-so LWSM-1032 lands them alongside the four:
+The remaining promises above needed surfaces T8 does not have, and
+LWSM-1032 landed them alongside the four:
 
 | Promise | How it is checked |
 |---|---|
@@ -235,9 +254,10 @@ so LWSM-1032 lands them alongside the four:
 | A confirmation raised with the window hidden shows it first | with the window hidden, drive the tray's start path and assert the window is visible before the dialog is shown. **Lands with the tray (P09)**, which is the only surface that can raise one with no window on screen; until then there is no path to drive and the row is stated rather than run |
 | The state word is first in the row | assert the state label's x-position precedes every other cell's |
 | Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window **at 100 % text size**. Deliberately not held at 200 %: the text doubles and the row with it, which is the control doing its job — wrapping the row to preserve the number would put the state and its controls on different lines, which is the pan this budget exists to prevent |
-| Elided text keeps its full string | where a cell renders a cut string, assert its tooltip holds the whole one and the row's accessible name does too — and that **every** control in the row is named from the full text rather than the rendered text. The last clause is the one that failed in practice: the controls read the label back, which has been the elided string since LWSM-1174, so a screen reader was given four identically-truncated names whose whole purpose is telling one project's buttons from another's. A short-named fixture cannot see it, because there the two strings are equal |
+| Elided text keeps its full string | where a cell renders a cut string, assert its tooltip holds the whole one, and that the whole string reaches the accessibility tree — by the accessible name where the cell renders into it, and by the control's own untruncated item text where it does not, which is the browser combo's route. And that **every** control in the row is named from the full text rather than the rendered text. The last clause is the one that failed in practice: the controls read the label back, which has been the elided string since LWSM-1174, so a screen reader was given four identically-truncated names whose whole purpose is telling one project's buttons from another's. A short-named fixture cannot see it, because there the two strings are equal |
 | Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
 | Nothing important is hover-only | assert every action is reachable without a hover event |
+| No icon-only button without words behind it | assert every **button** rendering no text carries a non-empty tooltip and a non-empty accessible name. The accessible-name half is already covered for every clickable widget by *Nothing important is hover-only* below; what this adds is the tooltip, and only for buttons. **Stated rather than run today**, like the tray row above: measured 2026-09-02, the only text-less clickable widget is the filter box, which is an input rather than a button — so there is no icon-only button to drive, and the row fails the day one is added, which is what it is for |
 | Focus is never stolen | drive a poll cycle during editing; assert focus did not move |
 | System font and scaling honoured | assert no widget pins a font family or pixel size, **and that a change to the application font reaches a row's labels and buttons** — measured by `fontMetrics()`, the metric the widget paints with, never by a width the row derives from its own font. Not-pinning is not sufficient: QStyleSheetStyle resolves a font onto every descendant, so with a style sheet installed an application font change reaches the window and stops there (`design-look-and-feel.md` § Look and feel) |
 
@@ -245,17 +265,16 @@ so LWSM-1032 lands them alongside the four:
 § The non-negotiables appears in one of those two lists** — those
 two subsections, not § Everything else below, whose contents are
 taste rather than promises. That is what makes the section
-trustworthy: not that the tests all exist today — LWSM-1032 lands
-the table's rows — but that a promise cannot be added here without
-a row appearing beside it. A claim with neither is decoration, and
+trustworthy: not that every test predates the promise it holds —
+LWSM-1032 landed the table's rows — but that a promise cannot be
+added here without a row appearing beside it. A claim with neither is decoration, and
 reviewing this section means checking that the two lists still
 cover it.
 
 ### Everything else
 
 One accent colour used sparingly so it means something; no
-gradients pretending to be depth, no bevels, no icon-only buttons
-without both a tooltip and an accessible name. A manager utility
+gradients pretending to be depth, no bevels. A manager utility
 should look like it belongs on the desktop it runs on, not like a
 web page pretending to be an app.
 
