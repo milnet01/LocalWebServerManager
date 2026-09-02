@@ -1873,6 +1873,93 @@ def test_an_imported_project_this_machine_has_never_seen_brings_no_launcher() ->
     assert added.unit is None
 
 
+def test_a_recursion_error_while_re_serialising_actions_is_a_reason(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """`RecursionError` is not a `ValueError`, so it has to be named.
+
+    `load_projects` carries that guard around its own `json.loads` with a
+    comment saying exactly this; the `json.dumps` in `_actions_or_reason` did
+    not (LWSM-1217). Anything escaping here reaches a caller that tolerates
+    only `RegistryError` — LWSM-1108's shape at a new call site.
+
+    Injected rather than provoked by a deep document, and the reason is a
+    measurement: there is NO depth at which the document clears `json.loads`
+    and this `json.dumps` then fails. At 9,800 levels both succeed; at 10,000
+    the load raises first and is already converted. The actions element is a
+    sub-tree of the document the load just accepted, so it is always
+    shallower. The guard is right because two call sites doing the same thing
+    must not disagree about what it raises, and that is what this pins.
+    """
+    real_dumps = json.dumps
+
+    def dumps_too_deep(obj, **kwargs):
+        if obj == {"deep": True}:
+            raise RecursionError("maximum recursion depth exceeded")
+        return real_dumps(obj, **kwargs)
+
+    monkeypatch.setattr(json, "dumps", dumps_too_deep)
+
+    path = tmp_path / "projects.json"
+    path.write_text(
+        real_dumps(
+            {
+                "schema_version": 1,
+                "projects": [
+                    {
+                        "name": "web",
+                        "path": "/srv/web",
+                        "actions": [{"deep": True}],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_projects(path)
+
+    (record,) = loaded.records
+    assert record.actions == (), "the row survives and loses only the field"
+    assert any("could not be re-serialised" in reason for reason in loaded.reasons)
+
+
+def test_an_interrupt_while_parsing_actions_is_not_turned_into_a_reason(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The other side of the guard above: catch the right exceptions, not all.
+
+    Widening it to `BaseException` also passes every test beside this one, and
+    it would turn a Ctrl-C during a load into a field refusal — the file would
+    come back looking merely malformed, and the user's interrupt would be
+    reported as a problem with their data.
+    """
+    real_dumps = json.dumps
+
+    def dumps_interrupted(obj, **kwargs):
+        if obj == {"deep": True}:
+            raise KeyboardInterrupt
+        return real_dumps(obj, **kwargs)
+
+    monkeypatch.setattr(json, "dumps", dumps_interrupted)
+
+    path = tmp_path / "projects.json"
+    path.write_text(
+        real_dumps(
+            {
+                "schema_version": 1,
+                "projects": [
+                    {"name": "web", "path": "/srv/web", "actions": [{"deep": True}]}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        load_projects(path)
+
+
 def test_an_import_clears_a_user_field_the_profile_left_unset() -> None:
     """The stated loss, and the deliberate one.
 

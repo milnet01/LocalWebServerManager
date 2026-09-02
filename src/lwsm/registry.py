@@ -313,7 +313,22 @@ def _actions_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str |
             json.dumps(element, sort_keys=True, separators=(",", ":"))
             for element in value
         ), None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
+        # `RecursionError` is not a `ValueError` and has to be named, which is
+        # the guard `load_projects` carries around its own `json.loads` and
+        # this call site did not (LWSM-1217, and LWSM-1164 before it).
+        #
+        # MEASURED, and the filed reasoning does not hold: there is no depth
+        # at which the document clears `json.loads` and this `json.dumps` then
+        # fails. At 9,800 levels both succeed; at 10,000 the LOAD raises first
+        # and is already converted. That is structural rather than lucky — the
+        # actions element is a sub-tree of the document the load just
+        # accepted, so it is strictly shallower.
+        #
+        # Kept anyway, because what makes it right is not a reachable input:
+        # two call sites doing the same thing should not disagree about which
+        # exceptions that thing raises, and the margin above is a property of
+        # CPython's C scanner rather than anything this file guarantees.
         return (), f"{name}: actions {quoted(value)} could not be re-serialised"
 
 

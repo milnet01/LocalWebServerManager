@@ -3203,7 +3203,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
 
-- 📋 [LWSM-1217] **MEDIUM: _actions_or_reason is missing the RecursionError guard its sibling call site has.**
+- ✅ [LWSM-1217] **MEDIUM: _actions_or_reason is missing the RecursionError guard its sibling call site has.**
   registry.py:306 catches (TypeError, ValueError). load_projects:375 catches
   (ValueError, RecursionError) with a comment explaining at length that
   RecursionError is not a ValueError and needs naming. The guard was fixed at
@@ -3211,6 +3211,26 @@ has been applied yet — every item in this section is open.
   json.loads, so a document that cleared the load can exceed it here; the
   escape reaches a caller that tolerates only RegistryError - LWSM-1108's
   exact shape at a new call site. Fix: add RecursionError.
+  Resolved (2026-09-02). The guard is added; THE BULLET'S REASONING FOR IT
+  DOES NOT HOLD, and that is worth more than the one-word fix.
+  It says "json.dumps runs three frames deeper than json.loads, so a
+  document that cleared the load can exceed it here". Measured through the
+  real `load_projects` path, not by argument: at 9,800 levels of nesting
+  BOTH succeed; at 10,000 the LOAD raises first and the sibling guard
+  already converts it. There is no window between them. And the reason is
+  structural rather than lucky - the actions element is a SUB-TREE of the
+  document the load just accepted, so it is strictly shallower and cannot
+  need more depth than the load already had.
+  Kept regardless, and the justification changed to one that is true: two
+  call sites doing the same thing must not disagree about which exceptions
+  that thing raises, and the margin measured above is a property of
+  CPython's C scanner rather than anything this file guarantees.
+  Tested by INJECTING the RecursionError, because no document can provoke
+  it - stated in the test, so nobody later reads the injection as laziness.
+  A mutant then showed the over-catch unmeasured: widening to
+  `BaseException` passed everything, and would turn a Ctrl-C during a load
+  into a field refusal reported as a problem with the user's data. Pinned.
+  3/3 killed after that. Gate green, 1357 tests.
   **Layman:** A deeply nested project file can kill the app at startup with no window and no message.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
