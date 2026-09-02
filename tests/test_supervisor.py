@@ -968,6 +968,41 @@ def test_a_process_we_could_not_signal_is_named_in_the_outcome(
     assert "4242424" in outcome.warning, outcome.warning
 
 
+def test_the_bound_port_warning_does_not_name_an_owner(
+    tmp_path: Path, project: Path
+) -> None:
+    """It reports what was observed, not whose the port is.
+
+    The message asserted the port was held by "something this manager did not
+    start", and nothing here asks the kernel who owns the socket. Since
+    LWSM-1204 the honest answer may be a straggler of our own, which the sweep
+    reports a line earlier — so one outcome could contradict itself
+    (LWSM-1225).
+
+    `design.md` asks for the port to be reported as held by a process the user
+    cannot inspect, rather than for an owner to be invented.
+    """
+    probe = FakeProbe({9999})
+    sup = Supervisor(probe=probe, log_dir=tmp_path / "logs")
+    write_launcher(project, "exit 0\n")
+    sup.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    try:
+        managed = sup.start(project, name="demo", argv=["./start.sh"], port=None)
+        managed.port = 9999
+        assert wait_until(lambda: not _alive(managed.pid))
+
+        outcome = sup.stop(project)
+
+        assert outcome.port_still_bound
+        assert outcome.warning is not None
+        assert "did not start" not in outcome.warning, (
+            f"the warning claims an owner nothing checked: {outcome.warning}"
+        )
+        assert "9999" in outcome.warning, outcome.warning
+    finally:
+        sup.close()
+
+
 @pytest.mark.integration
 def test_a_straggler_the_kill_did_not_reach_is_reported(
     supervisor: Supervisor, project: Path, monkeypatch

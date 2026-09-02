@@ -1026,9 +1026,15 @@ class Supervisor:
             return False, f"could not check port {managed.port} after stopping: {exc}"
         if not bound:
             return False, None
+        # Says WHAT was observed, never whose the holder is. Nothing here asks
+        # the kernel who owns the socket, and since LWSM-1204 the honest answer
+        # may be a straggler of our own that the sweep reported a line earlier
+        # (LWSM-1225). `design.md` asks for the port to be reported as held by
+        # a process the user cannot inspect, rather than for an owner to be
+        # invented.
         return True, (
-            f"{managed.name} stopped, but port {managed.port} is still bound by "
-            "something this manager did not start; nothing was signalled for it"
+            f"{managed.name} stopped, but port {managed.port} is still bound; "
+            "nothing was signalled for whatever holds it"
         )
 
     def reap_exited(self) -> dict[Path, int | None]:

@@ -685,9 +685,12 @@ class ProjectController(QObject):
                 # A bound port after a stop is a warning, never a second signal.
                 self.action_failed.emit(path, outcome.warning)
             if outcome.port_still_bound:
-                # Terminal (LWSM-1134): our child is gone and something this
-                # manager did not start holds the port, so every poll from here
-                # reports `running` and `STOPPING`'s target is unreachable.
+                # Terminal (LWSM-1134): our child is gone and the port is
+                # still held, so every poll from here reports `running` and
+                # `STOPPING`'s target is unreachable. WHOSE the holder is goes
+                # unasked — nothing checks, and it may be a straggler of our
+                # own (LWSM-1225). What makes this terminal is that the port is
+                # held, not who holds it.
                 # Keyed on `port_still_bound`, NOT on `warning` — a warning is
                 # also emitted when the probe could not be read, and there the
                 # port's state is unknown rather than held, so nothing terminal
