@@ -763,7 +763,8 @@ window.
 
 ### Persistence
 
-Two files under XDG paths:
+Three files under XDG paths, and the third is deliberately not
+JSON:
 
 - `~/.config/localwebservermanager/projects.json` — the registry:
   one record per project (path, display name, launcher, declared
@@ -771,12 +772,30 @@ Two files under XDG paths:
   flag, notes, `actions`, `added` timestamp), plus a
   `schema_version`. The `added` timestamp is what breaks a
   duplicate-port tie (ADR-0005).
-- `~/.config/localwebservermanager/settings.json` — scan roots,
-  poll interval, slow-start threshold, log-buffer size, tray
-  behaviour, theme choice, text-size percentage, and the window
-  geometry keys `width` / `height` / `x` / `y` / `maximized`
-  (ADR-0007). It carries its own `schema_version` on the same
-  terms.
+- `~/.config/localwebservermanager/settings.json` — poll
+  interval, log cap, theme choice, text-size percentage, and the
+  window geometry keys `width` / `height` / `x` / `y` /
+  `maximized` (ADR-0007). It carries its own `schema_version` on
+  the same terms.
+- `~/.config/localwebservermanager/scan-roots` — where to look
+  for projects. One directory per line, `#` comments, `~`
+  expanded, order preserved because it is the walk order. **No
+  `schema_version`, and that is the point**: it exists to be
+  hand-edited before there is a window to edit it in, and it is
+  the setting that decides whether the app finds anything at all.
+  An empty file means "use the default" — the format has no way
+  to say "scan nowhere" (LWSM-1213).
+
+**The scan roots stay in their own file now that the Settings
+dialog exists** (LWSM-1018, settled with the user 2026-08-21).
+The dialog edits it in place through `save_scan_roots` rather
+than copying the roots into `settings.json`, so there is one
+owner and no migration to write.
+
+There is no slow-start threshold to persist. ADR-0004 § Slowness
+is not failure deleted the 15-second `starting` deadline on
+measured evidence, so a setting for it would re-introduce the
+defect that ADR reversed.
 
 **`confirmed_port` is an observed fact, not runtime state**, and
 that is why it is persisted while nothing else about runtime is

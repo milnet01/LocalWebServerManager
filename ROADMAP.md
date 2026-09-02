@@ -3114,12 +3114,33 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 1.
 
-- 📋 [LWSM-1214] **MEDIUM: design.md says two config files and puts scan roots in the wrong one.**
+- ✅ [LWSM-1214] **MEDIUM: design.md says two config files and puts scan roots in the wrong one.**
   docs/design.md:766,774. Section Persistence says two files under XDG paths
   and puts scan roots in settings.json; the code keeps them in a third file,
   scan-roots, in its own line-based format with no schema_version - while the
   section says both files are version-checked. DOCUMENT side wrong (the split
   was settled with the user 2026-08-21). Route to review-contract.
+  Resolved (2026-09-02). § Persistence now describes the three files that
+  exist, with `scan-roots` named, its line-based format stated, and the
+  absence of a `schema_version` given its reason - it is meant to be
+  hand-edited before there is a window to edit it in.
+  THE BULLET SAYS "Route to review-contract" AND THAT ROUTING IS WRONG
+  HERE, for a reason rule 14 states itself. Its exemption is explicit: "an
+  amendment that records what was actually built does NOT re-arm the gate.
+  The code already exists, so a cold read before implementation has
+  nothing left to protect - the build was the review." The split was
+  settled with the user on 2026-08-21 and built; this records it. What
+  re-arms the gate is an amendment changing direction for work still to
+  come, and there is none here. Verdict recorded in the commit body, which
+  is what rule 14 asks for in place of the gate.
+  Two further staleness items in the same list, corrected because they are
+  the same claim's neighbours and I had just read them: `settings.json`
+  was credited with "tray behaviour", which nothing writes, and with a
+  "slow-start threshold" that ADR-0004 § Slowness is not failure DELETED
+  on measured evidence - a setting for it would re-introduce the defect
+  that ADR reversed, so the section now says so rather than listing it.
+  No test and no changelog entry: this is a design document catching up
+  with shipped code, and nothing a user can see changed. Gate green.
   **Layman:** The design document describes where settings live and it does not match what the app actually does.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 1.
