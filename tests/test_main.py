@@ -339,6 +339,62 @@ def test_main_stops_the_controller_when_the_loop_returns(
     assert supervisor_closes == [1], "main() returned without closing the supervisor"
 
 
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+def test_one_failed_shutdown_step_does_not_defeat_the_other_two(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Three statements in one `finally` is one statement's worth of cleanup.
+
+    If `controller.stop()` raises, `close_supervisor()` and `shutdown()` never
+    run — and the rescan pool then falls to `~QThreadPool`'s UNBOUNDED join,
+    which is the LWSM-1100/1139 hazard the block exists to prevent. The
+    failure that skips them is exactly the kind of failure that makes the
+    remaining two matter (LWSM-1211).
+
+    Each is guarded now, and each failure is logged: a cleanup that could not
+    run must not be indistinguishable from one that did.
+    """
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    done: list[str] = []
+
+    class FailingController:
+        def stop(self) -> None:
+            raise RuntimeError("the pool would not settle")
+
+        def close_supervisor(self) -> None:
+            done.append("close_supervisor")
+
+    class FakeWindow:
+        def show(self) -> None:
+            return None
+
+        def shutdown(self) -> None:
+            done.append("shutdown")
+
+    monkeypatch.setattr(
+        entry,
+        "build_window",
+        lambda _path=None: (FakeWindow(), FailingController()),
+    )
+
+    assert main([]) == 0
+    assert done == ["close_supervisor", "shutdown"], (
+        f"a failing stop() skipped the rest of the shutdown: {done}"
+    )
+    # Read from the real log file, not `caplog`: `main` calls
+    # `applog.configure_logging()`, which installs its own handler, so the
+    # capture fixture sees nothing and an assertion against it would pass
+    # against a swallowed exception.
+    log_text = (tmp_path / "state" / "localwebservermanager" / "app.log").read_text(
+        encoding="utf-8"
+    )
+    assert "the pool would not settle" in log_text, (
+        "the failure was swallowed without a trace"
+    )
+
+
 # --- LWSM-1144: where to scan is configurable ---------------------------------
 
 

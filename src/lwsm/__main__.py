@@ -569,15 +569,37 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         # In a `finally`, so an exception out of show() or exec() cannot leave a
         # pool thread outliving its controller — the race INV-16 exists to
-        # prevent. Stops the timer and waits, bounded, for any outstanding probe.
-        controller.stop()
-        # ADR-0003: the servers themselves are LEFT RUNNING, deliberately —
-        # `close()` releases our descriptors and threads and signals nothing.
-        controller.close_supervisor()
-        # The rescan worker is a second pool with the same hazard, so it gets
-        # the same bounded wait rather than being left to `~QThreadPool`, which
-        # joins with no timeout at all.
-        window.shutdown()
+        # prevent.
+        #
+        # Guarded INDIVIDUALLY, because three statements in one `finally` buy
+        # one statement's worth of cleanup: a raising `stop()` skipped the
+        # other two, and the rescan pool then fell to `~QThreadPool`'s
+        # unbounded join — the LWSM-1100/1139 hazard this block exists to
+        # prevent, reached by the failure that makes it matter most
+        # (LWSM-1211).
+        #
+        # `Exception`, not `BaseException`: a KeyboardInterrupt here is the
+        # user asking a second time, and honouring it is right. Every failure
+        # is logged with its traceback, so a step that could not run is never
+        # indistinguishable from one that did.
+        shutdown_steps = (
+            # Stops the timer and waits, bounded, for any outstanding probe.
+            ("stop the poll loop", controller.stop),
+            # ADR-0003: the servers themselves are LEFT RUNNING, deliberately —
+            # this releases our descriptors and threads and signals nothing.
+            ("close the supervisor", controller.close_supervisor),
+            # The rescan worker is a second pool with the same hazard, so it
+            # gets the same bounded wait rather than being left to
+            # `~QThreadPool`, which joins with no timeout at all.
+            ("wait for the rescan pool", window.shutdown),
+        )
+        for description, step in shutdown_steps:
+            try:
+                step()
+            except Exception:
+                applog.get_logger(__name__).exception(
+                    "could not %s while shutting down", description
+                )
 
 
 def run() -> int:

@@ -3035,11 +3035,28 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 1.
 
-- 📋 [LWSM-1211] **MEDIUM: the shutdown finally runs three unguarded statements, so one failure defeats the other two.**
+- ✅ [LWSM-1211] **MEDIUM: the shutdown finally runs three unguarded statements, so one failure defeats the other two.**
   __main__.py:562-569. controller.stop() / close_supervisor() / window.shutdown()
   in one finally. If stop() raises, shutdown() never runs and the rescan pool
   falls to ~QThreadPool's unbounded join - the LWSM-1100/1139 hazard the block
   exists to prevent. Fix: guard each, or ExitStack.
+  Resolved (2026-09-02). Reproduced as filed: a raising `stop()` skipped
+  both `close_supervisor()` and `shutdown()`, so the rescan pool fell to
+  `~QThreadPool`'s unbounded join - the LWSM-1100/1139 hazard the block
+  exists to prevent, reached by the failure that makes it matter most.
+  Took the bullet's "guard each" over ExitStack: these are three unrelated
+  cleanups rather than nested contexts, and a loop over (description,
+  step) makes the log line name which one failed. `Exception` and not
+  `BaseException` - a KeyboardInterrupt here is the user asking a second
+  time, and honouring it is right.
+  One thing the test had to learn: `caplog` sees NOTHING here, because
+  `main` calls `applog.configure_logging()`, which installs its own
+  handler. The first version asserted on `caplog.text` and would have
+  passed against a silently swallowed exception - the same shape as the
+  mutants this run keeps finding. It reads the real `app.log` instead,
+  which is also the sink a user would be pointed at.
+  3/3 mutants killed, including swallowing the failure silently and
+  stopping at the first one. Gate green, 1348 tests.
   **Layman:** If the first cleanup step fails on quit, the other two never run and a background thread can outlive the app.
   Kind: fix.
   Source: review-code 2026-09-01 lane 1.

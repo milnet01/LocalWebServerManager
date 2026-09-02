@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **One failure while quitting no longer skips the rest of the cleanup** (LWSM-1211)
+  Quitting runs three cleanup steps. They shared one block, so if the
+  first went wrong the other two were skipped — and one of those is what
+  stops a background worker outliving the app, which is the very thing
+  that block exists to prevent. Each step now runs on its own, and a
+  failure is written to the log rather than passing unnoticed.
+
 - **On a machine with no home folder, Rescan is no longer offered** (LWSM-1210)
   The app already opens and explains itself when it cannot find a home
   directory. It was still showing Rescan and the profile import and export
