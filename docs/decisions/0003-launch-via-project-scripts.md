@@ -86,6 +86,19 @@ a signal that exists rather than adding one. A launcher that is a
 symlink pointing outside its project, or that is group- or
 other-writable, is refused outright.
 
+**The file's own mode is not the whole of it** (LWSM-1226,
+2026-09-02). Replacing a file needs write permission on its
+directory, not on the file, so a `0755` launcher in a
+group-writable directory can be swapped by unlink-and-create
+after it was confirmed — which is the thing the mode check
+exists to stop. So a group- or other-writable parent is refused
+too, unless it carries the sticky bit: `/tmp` is `1777`, and
+with it set only the owner may unlink. Ownership is checked for
+the same reason — a file we do not own can be rewritten by
+whoever does, whatever its mode says — and root is allowed,
+since a root-owned launcher in a directory we control is the
+ordinary shape of a system-installed one.
+
 The confirmation is not security theatre only if it shows what will
 actually run: the resolved path and argv, never a friendly summary.
 - stdout and stderr are **merged and redirected to a per-project

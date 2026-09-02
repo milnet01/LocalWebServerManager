@@ -347,6 +347,33 @@ def validate_launcher(project: Path, launcher: Path) -> Path:
             f"{resolved} is group- or other-writable, so confirming it would "
             "vouch for whatever it is rewritten to say"
         )
+    # Ownership, which nothing checked. A file we do not own can be rewritten
+    # by whoever does, whatever its mode says. Root is allowed: a root-owned
+    # launcher in a directory we control is the ordinary shape of a
+    # system-installed one (LWSM-1226).
+    if info.st_uid not in (os.getuid(), 0):
+        raise LauncherRefused(
+            f"{resolved} is owned by uid {info.st_uid}, who can rewrite it "
+            "after it is confirmed"
+        )
+    # And the PARENT, because replacing a file needs write permission on its
+    # directory rather than on the file. The refusal above reads the launcher's
+    # own mode, and unlink-and-create defeats it outright — `0755` on the file
+    # is no protection in a directory anyone else can write.
+    #
+    # The sticky bit is the exception and it is the common case: `/tmp` is
+    # `1777`, and with it set only the owner may unlink, so the replacement
+    # this guards against cannot happen.
+    try:
+        parent = os.stat(resolved.parent)
+    except OSError as exc:
+        raise LauncherRefused(f"cannot read {resolved.parent}: {exc}") from exc
+    writable = parent.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+    if writable and not parent.st_mode & stat.S_ISVTX:
+        raise LauncherRefused(
+            f"{resolved.parent} is group- or other-writable without the sticky "
+            "bit, so the launcher can be replaced after it is confirmed"
+        )
     return resolved
 
 

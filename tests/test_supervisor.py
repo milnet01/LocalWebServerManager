@@ -343,6 +343,102 @@ def test_a_group_or_other_writable_launcher_is_refused(
     assert "writable" in str(caught.value)
 
 
+@pytest.mark.parametrize("mode", [0o775, 0o777], ids=["group", "other"])
+def test_a_launcher_in_a_writable_directory_is_refused(
+    project: Path, mode: int
+) -> None:
+    """Replacing a file needs write on its DIRECTORY, not on the file.
+
+    The refusal above covers the launcher's own mode, and its reason -
+    "whoever else can write it changes what they vouched for afterwards" - is
+    defeated by unlink-and-create in a directory anyone else can write
+    (LWSM-1226). The file's own `0755` is no protection at all there.
+
+    All seven of this machine's real project directories are `drwxr-xr-x`,
+    measured before this landed, so the refusal costs nothing that works
+    today.
+    """
+    launcher = write_launcher(project, "echo hi\n")
+    project.chmod(mode)
+    try:
+        with pytest.raises(LauncherRefused) as caught:
+            validate_launcher(project, launcher)
+    finally:
+        project.chmod(0o755)
+    assert "writable" in str(caught.value)
+
+
+def test_a_sticky_writable_directory_is_allowed(project: Path) -> None:
+    """`/tmp` is `1777`, and the sticky bit is exactly what makes it safe.
+
+    With it set only the owner may unlink, so the replacement this refusal
+    exists to stop cannot happen — refusing here would reject a legitimate
+    location and teach nobody anything.
+    """
+    launcher = write_launcher(project, "echo hi\n")
+    project.chmod(0o1777)
+    try:
+        assert validate_launcher(project, launcher) == launcher.resolve()
+    finally:
+        project.chmod(0o755)
+
+
+def test_a_launcher_owned_by_someone_else_is_refused(
+    project: Path, monkeypatch
+) -> None:
+    """A launcher we do not own can be rewritten by whoever does.
+
+    Ownership was not checked at all. Root is allowed: a file owned by root in
+    a directory we control is the ordinary shape of a system-installed
+    launcher, and refusing it would reject working setups.
+
+    `os.stat` is patched rather than the file chowned, which needs privileges
+    a test does not have and must not want.
+    """
+    launcher = write_launcher(project, "echo hi\n")
+    real = os.stat
+
+    def owned_by_a_stranger(path, *args, **kwargs):
+        info = real(path, *args, **kwargs)
+        if Path(path) == launcher.resolve():
+            return os.stat_result(
+                (info.st_mode, info.st_ino, info.st_dev, info.st_nlink, 4242)
+                + tuple(info)[5:]
+            )
+        return info
+
+    monkeypatch.setattr(os, "stat", owned_by_a_stranger)
+
+    with pytest.raises(LauncherRefused) as caught:
+        validate_launcher(project, launcher)
+    assert "owned" in str(caught.value)
+
+
+def test_a_root_owned_launcher_is_allowed(project: Path, monkeypatch) -> None:
+    """The carve-out in the ownership check, pinned.
+
+    A root-owned launcher in a directory we control is the ordinary shape of a
+    system-installed one, so refusing it would reject working setups. Without
+    this, narrowing the check to `st_uid != os.getuid()` passes every other
+    test — a carve-out written and measured by nothing.
+    """
+    launcher = write_launcher(project, "echo hi\n")
+    real = os.stat
+
+    def owned_by_root(path, *args, **kwargs):
+        info = real(path, *args, **kwargs)
+        if Path(path) == launcher.resolve():
+            return os.stat_result(
+                (info.st_mode, info.st_ino, info.st_dev, info.st_nlink, 0)
+                + tuple(info)[5:]
+            )
+        return info
+
+    monkeypatch.setattr(os, "stat", owned_by_root)
+
+    assert validate_launcher(project, launcher) == launcher.resolve()
+
+
 def test_a_launcher_that_is_not_a_regular_file_is_refused(project: Path) -> None:
     (project / "start.sh").mkdir()
     with pytest.raises(LauncherRefused):
