@@ -103,14 +103,17 @@ not an override: the global standard requires a `0.x` project to state what
 would make it `1.0`, so cutting it when that condition is met is following
 the rule rather than arguing with it.
 
-**Open: the number of the first release.** LWSM-1152 decided `0.1.0` with the
-user on 2026-08-18, before this standard was adopted. The rule above gives
-`0.0.1`, since a first release of existing capability is not a breaking
-change. The global standard says a file like this one carries the answers it
-refuses to supply, not a delta arguing with a rule — so `0.1.0` cannot simply
-be asserted here. **Nothing is released until this is settled**, and it is the
-user's call: keep `0.1.0` and record why the rule is overridden, or cut
-`0.0.1`.
+**The first release is `0.1.0`, and that is an exception rather than a
+reading.** The rule above gives `0.0.1`, since a first release of existing
+capability is not a breaking change. `0.1.0` is taken anyway, decided with the
+user on 2026-08-18 (LWSM-1152) and confirmed on 2026-09-02 once the conflict
+was put to them: a first release of a usable tool reads as `0.1`, and `0.0.1`
+understates it.
+
+Recorded here because the global standard says a file like this one carries
+the answers that standard refuses to supply, not deltas arguing with its
+rules — so an override has to be visible as one. This is the only one, it
+applies to a single release, and every number after it follows the rule.
 
 ## 4. Review loop log
 

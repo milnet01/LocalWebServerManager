@@ -4480,7 +4480,7 @@ mostly in the measurement behind it.
   Kind: doc-fix.
   Source: in-session-2026-09-02.
 
-- 💭 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**
+- 📋 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**
   Exposed by LWSM-1214's sibling LWSM-1219, which corrected ADR-0005 to
   say what the flag actually does. The hazard the ADR accepts is real and
   now stated plainly: *override differs* fires on the rescan where the
@@ -4496,6 +4496,22 @@ mostly in the measurement behind it.
   Filed so the option is visible rather than lost. Considered, not
   planned — the ADR accepts the negative, and someone has to decide the
   noise is worth it.
+  Planned by the user (2026-09-02), having been filed as considered the
+  same day. Fire *override differs* whenever `port_override` differs from
+  the detected `port`, not only on the rescan where the detected port
+  moves — which is what ADR-0005 § Negative originally claimed and what
+  LWSM-1219 had to correct the ADR to stop claiming.
+  CARRIES A SPEC AMENDMENT, and that is the whole reason it was filed as
+  considered rather than planned: `LWSM-1131 § 4.3`'s outcome table states
+  the condition as "`port_override` is set and the detected `port` moved",
+  and the code agrees with it. Changing the behaviour makes that table
+  false, so the spec is amended in the same item — and since that changes
+  what an implementer would build, it is rule 14's Yes branch and the
+  spec's own gate is owed.
+  Expect the noise question to be the real design work: the flag currently
+  fires once per staleness, and firing per rescan puts a line in every
+  merge report for as long as the override stands. Worth checking whether
+  it should be reported once per SESSION instead.
   **Layman:** The app tells you once that your port setting no longer matches the project, and never mentions it again.
   Kind: enhancement.
   Source: in-session-2026-09-02.
