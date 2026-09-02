@@ -17,6 +17,7 @@ fixed that drift twice.
 | [testing.md](testing.md) | TDD policy, test types, spec-first authoring, INV numbering, coverage, anti-patterns. Governs `Kind: test` work + the regression-test follow-through for `fix / audit-fix / review-fix`. |
 | [commits.md](commits.md) | The `<ID>: <description>` mandate, hygiene, branching, push policy, release commits. Governs every commit. |
 | [dependencies.md](dependencies.md) | Version policy for packages, GitHub Actions, runner images and the Python runtime: latest by default, the pin unit per ecosystem, and the exception register that makes a held-back pin retestable rather than permanent. Governs `Kind: chore` dependency work and any change touching a pin. **Canonical for version policy** — `coding.md § 1.5` defers to it. |
+| [versioning-overrides.md](versioning-overrides.md) | This project's breaking surfaces, and what would make it `1.0`. Versioning itself is the machine-global `~/.claude/standards/versioning.md` (local to the author's machine), which mandates SemVer 2.0.0 and is read in place rather than copied — this file holds only the two answers that standard refuses to supply for every project. Read before choosing any version number. |
 
 Sub-specs extracted from `documentation.md` for token efficiency:
 
