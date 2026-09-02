@@ -897,6 +897,26 @@ def _hop_target(
         ]
         refusal: str | None = None
         for token in reversed(tokens):
+            if deadline.expired():
+                # The only deadline check on this path was inside
+                # `_read_lines`, which a token naming nothing never reaches —
+                # so the walk ran unchecked and the budget was re-tested only
+                # at the NEXT candidate. Measured 2026-09-02: a 20,000-line
+                # launcher of `node a` took 2,326 ms against a 10 ms budget,
+                # 238x over, and reported `timed_out=False` (LWSM-1223).
+                #
+                # Per TOKEN rather than per line, which is where the cost
+                # actually is: every `_accept_hop` below is a `resolve` plus an
+                # `open` attempt. Measured on the same day, a per-line check
+                # still left ONE 4,096-character line of tokens running 107 ms
+                # against that 10 ms budget, because a line is checked once
+                # however many syscalls it asks for. `_import_hop_port` checks
+                # per specifier for the same reason.
+                #
+                # Raises, like every other expiry: the candidate is abandoned
+                # rather than listed with a port nobody finished looking for
+                # (LWSM-1220, `_BudgetExpired`).
+                raise _BudgetExpired
             target, reason = _accept_hop(token, root, launcher)
             if reason is not None:
                 # Step 4 takes the last token that satisfies the six

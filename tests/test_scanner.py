@@ -1913,6 +1913,42 @@ def test_the_budget_signal_is_not_an_oserror() -> None:
     assert not issubclass(scanner._BudgetExpired, OSError)
 
 
+def test_the_invocation_walk_checks_the_budget_in_its_own_loop(
+    tmp_path: Path,
+) -> None:
+    """The walk over a launcher's tokens was free, and the budget only
+    reappeared at the NEXT candidate.
+
+    The only deadline check on this path lives inside `_read_lines`, which a
+    token naming nothing never reaches — so every `_accept_hop` (a `resolve`
+    plus an `open` attempt) ran unbudgeted. Measured with a real clock: a
+    20,000-line launcher of `node a` took 2,326 ms against a 10 ms budget,
+    238x over, and reported `timed_out=False`. After: 38.9 ms (LWSM-1223).
+
+    ONE line with many tokens, deliberately. The launcher's own read is
+    checked per line already, so a many-LINE fixture expires in the read and
+    proves nothing about the walk; a single 4,096-character line is read in
+    one step and then walked 2,000 times. It is also why the check is per
+    token rather than per line — a per-line check still left this shape
+    running 107 ms against the same 10 ms budget.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {"start.sh": "#!/bin/sh\nnode " + "a " * 2000 + "\n"},
+        "start.sh",
+    )
+
+    result = scanner.scan(
+        [tmp_path], units=FakeUnits(), now=Clock(step=0.001), budget_seconds=0.5
+    )
+
+    assert result.timed_out is True, (
+        "the walk ran to completion without ever asking the budget"
+    )
+    assert result.projects == ()
+
+
 def test_a_budget_expiring_inside_the_import_walk_abandons_the_candidate(
     tmp_path: Path,
 ) -> None:

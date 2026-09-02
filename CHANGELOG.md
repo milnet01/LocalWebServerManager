@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **A large launcher script can no longer hold a scan past its time limit** (LWSM-1223)
+  While working through a start-up script looking for the file that sets
+  the port, the scan never checked its own time limit — it only looked
+  again when it moved on to the next project. A very large script could
+  run hundreds of times over the limit and still report that it had
+  finished in time.
+
 - **Scanning is no longer slowed down by long awkward lines** (LWSM-1222)
   Deciding whether a line really declares a port meant re-reading
   everything before it, once for every candidate on the line. A single

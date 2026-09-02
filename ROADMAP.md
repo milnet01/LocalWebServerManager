@@ -3403,7 +3403,7 @@ has been applied yet — every item in this section is open.
   Kind: perf.
   Source: review-code 2026-09-01 lane 3.
 
-- 📋 [LWSM-1223] **MEDIUM: the invocation walk checks the deadline nowhere in its own loops.**
+- ✅ [LWSM-1223] **MEDIUM: the invocation walk checks the deadline nowhere in its own loops.**
   scanner.py:829. Every keyword-bearing line is tokenised and every token pays
   a Path.resolve() plus an os.open() attempt; the only deadline check on that
   path is inside _read_lines, never reached when the token names nothing. A
@@ -3411,6 +3411,28 @@ has been applied yet — every item in this section is open.
   the 20s budget re-checked only at the NEXT candidate - the failure spec 4.2
   names. _import_hop_port already checks per specifier. Fix: check at the top
   of the per-line loop.
+  Resolved (2026-09-02). Measured with a REAL clock, which is the only
+  kind that can see this: a 20,000-line launcher of `node a` took 2,326 ms
+  against a 10 ms budget - 238x over - and reported `timed_out=False`.
+  After the fix, 38.9 ms, and the residual is the launcher's own read,
+  which is checked per line already.
+  AN INJECTED CLOCK CANNOT SEE THIS DEFECT AT ALL, and my first two
+  attempts to reproduce it failed for that reason: the fake clock advances
+  only when someone CHECKS it, so "this loop never checks the budget"
+  means the loop cannot make time pass, and every fixture came back
+  timed_out=True from checks elsewhere. The overrun is wall-clock.
+  PER TOKEN, not the bullet's per line, and it is measured rather than
+  preferred: a per-line check still left ONE 4,096-character line of
+  tokens running 107 ms against the same 10 ms budget, because a line is
+  checked once however many syscalls it asks for. Every `_accept_hop` is a
+  `resolve` plus an `open` attempt, and that is where the cost is.
+  `_import_hop_port` already checks per specifier for this reason.
+  Raises rather than returning, so the candidate is abandoned instead of
+  listed with a port nobody finished looking for - LWSM-1220's rule, and a
+  mutant returning instead is killed. The test uses ONE line with many
+  tokens deliberately: a many-LINE fixture expires in the read and proves
+  nothing about the walk. Live-tree verdicts identical across all seven
+  projects. 2/2 mutants killed. Gate green, 1375 tests.
   **Layman:** A very large launcher script can hold up a scan well past its time limit.
   Kind: fix.
   Source: review-code 2026-09-01 lane 3.
