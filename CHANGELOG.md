@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **Larger text no longer pushes the rows out of reach** (LWSM-1200)
+  The smallest size the window would allow was worked out once, when it
+  opened. Turning the text size up made the rows wider than that, and
+  since the list does not scroll sideways the extra width simply could not
+  be reached. The window now re-measures its own limit whenever the text
+  size or the language changes.
+
 - **Hiding a project during a rescan no longer loses the change** (LWSM-1199)
   A rescan works from the project list as it was when the scan started.
   Hiding a project, or choosing its browser, while one was running left

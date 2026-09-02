@@ -1290,6 +1290,51 @@ def test_the_status_bar_summary_is_translatable(qtbot, built) -> None:
         app.removeTranslator(translator)
 
 
+def test_a_translation_that_widens_a_column_also_widens_the_floor(qtbot, built) -> None:
+    """The other arm of LWSM-1200, and a mutant proved it unmeasured.
+
+    Deleting the re-floor from the `FontChange` branch reddened the suite;
+    deleting it from `LanguageChange` did not, though the reason the floor has
+    to follow is the same — a translated button label is a wider column, and
+    `apply_column_widths` then makes that width fixed.
+
+    The event is sent by hand rather than by installing a translator and
+    waiting: `installTranslator` only broadcasts once the event loop is
+    running, and `CLAUDE.md` records that even then Qt did not post it to
+    `MainWindow`. So this proves the window's own handling, which is what the
+    mutant was about.
+    """
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    class Padding(QTranslator):
+        """Every string comes back longer, the way a real language can."""
+
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return sourceText + "MMMMMMMM"
+
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    before = window.minimumWidth()
+
+    translator = Padding()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window.changeEvent(QEvent(QEvent.Type.LanguageChange))
+        # The floor is deferred to a zero-timer, because the layout's size
+        # hint is not recomputed until its posted LayoutRequest is delivered.
+        qtbot.waitUntil(lambda: window.minimumWidth() > before, timeout=2000)
+
+        assert window.minimumWidth() > before, (
+            f"the columns grew for the translation and the floor stayed at "
+            f"{before} px, so the window can still be dragged narrower than "
+            "its own content"
+        )
+    finally:
+        app.removeTranslator(translator)
+
+
 def test_every_translated_string_uses_one_context(qtbot, built) -> None:
     """§ 4.4: one context for the whole file, so a translator has one place to
     look. `self.tr("Local Web Server Manager")` resolved under `"MainWindow"`,
@@ -3540,6 +3585,44 @@ def test_choosing_a_size_enlarges_the_text_the_user_reads(
 
     after = text_heights(row)
     assert all(after[part] > before[part] for part in before), (before, after)
+
+
+def test_the_window_minimum_keeps_up_with_the_text_size(qtbot, built, app_font) -> None:
+    """`_align_columns` re-runs on a font change and the floor did not.
+
+    `apply_column_widths` sets FIXED widths, so the rows grow past a minimum
+    the window has held since construction — and an explicit `setMinimumSize`
+    overrides `minimumSizeHint`, so Qt never corrects it. Horizontal scrolling
+    is `ScrollBarAlwaysOff`, so the overflow is unreachable rather than merely
+    off-screen: `design-accessibility.md` requires a reflow at every step and
+    no clipping.
+
+    Measured before the fix at 200 %: the rows needed 801 px against a 461 px
+    viewport, with the floor still reading 495. Asserted at 150 % rather than
+    200 % because the offscreen screen is 800 px wide and 200 % needs 801, so
+    ADR-0007's screen clamp — a different and legitimate limit — would decide
+    the result instead of the mechanism under test.
+
+    The observable is the VIEWPORT, not the host: the scroll area is
+    `widgetResizable`, so the host is always given at least its own size hint
+    and `host.width() >= host.sizeHint().width()` is true whether or not
+    anything is clipped. That assertion passes against the defect.
+    """
+    window, _ = scaled_window(qtbot, built)
+    with qtbot.waitExposed(window):
+        window.show()
+
+    window._text_size_actions[150].trigger()
+    qtbot.wait(50)
+    window.resize(window.minimumSize())
+    qtbot.wait(20)
+
+    needed = window._rows_host.sizeHint().width()
+    assert window._scroll.viewport().width() >= needed, (
+        f"the rows need {needed} px and the window's own minimum leaves "
+        f"{window._scroll.viewport().width()} px, with no horizontal "
+        "scrollbar to reach the rest"
+    )
 
 
 def test_the_scale_multiplies_the_desktop_font_and_does_not_compound(

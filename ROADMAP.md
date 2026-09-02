@@ -2674,7 +2674,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 12.
 
-- 📋 [LWSM-1200] **HIGH: the window minimum is measured once, so content is clipped at 200% with no scrollbar.**
+- ✅ [LWSM-1200] **HIGH: the window minimum is measured once, so content is clipped at 200% with no scrollbar.**
   mainwindow.py:2828. _align_columns is deliberately re-run on LanguageChange
   and FontChange because those change what a cell needs; _apply_default_geometry
   is one-shot. An explicit minimumSize overrides minimumSizeHint and
@@ -2684,6 +2684,30 @@ has been applied yet — every item in this section is open.
   every step, never clip". Fix: split the floor calculation out of
   _apply_default_geometry and call it from both changeEvent branches beside
   _align_columns; keep the one-shot guard on the resize alone.
+  Resolved (2026-09-02). Reproduced with numbers: at 200 % the rows needed
+  801 px against a 461 px viewport, with the floor still reading 495.
+  Fixed as the bullet prescribed - `_content_metrics` and
+  `_apply_size_floor` split out, called from both `changeEvent` arms, the
+  one-shot guard left on the resize alone.
+  TWO measurements changed the design, neither of them in the bullet.
+  First, MY OWN first assertion was vacuous: the scroll area is
+  `widgetResizable`, so `host.width() >= host.sizeHint().width()` is true
+  whether or not anything is clipped, and it passed against the defect.
+  The observable is the VIEWPORT. Second, the floor cannot be recomputed
+  SYNCHRONOUSLY: `apply_column_widths` sets fixed widths and the layout
+  does not recompute its hint until the posted `LayoutRequest` is
+  delivered, so a translation read the old 422 px where the settled value
+  was 937 and the floor did not move. Hence `_schedule_size_floor` and a
+  zero-timer. The FontChange arm happened to work synchronously, which is
+  exactly how the LanguageChange arm would have shipped broken.
+  A mutant is what found that: deleting the re-floor from FontChange
+  reddened the suite and deleting it from LanguageChange did not. Rather
+  than report the survivor, the arm now has a test - a padding translator
+  widening every label, which is the real mechanism and not a contrivance.
+  Asserted at 150 %, not 200 %: the offscreen screen is 800 px and 200 %
+  needs 801, so ADR-0007's clamp would decide the result instead of the
+  mechanism. 3/3 mutants killed, including the deferral itself. Gate
+  green, 1312 tests.
   **Layman:** Turn the text size up and the rows get wider than the window will allow, with no way to scroll across to them.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 13.

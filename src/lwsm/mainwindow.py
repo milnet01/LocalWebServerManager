@@ -2052,8 +2052,10 @@ class MainWindow(QMainWindow):
             self._retranslate_strip()
             for row in self._rows.values():
                 row.retranslate()
-            # A translated cell is a different width (LWSM-1145).
+            # A translated cell is a different width (LWSM-1145), and a wider
+            # column needs a wider floor under it (LWSM-1200).
             self._align_columns()
+            self._schedule_size_floor()
         elif event.type() == QEvent.Type.FontChange:
             # Same shape, same reason, and a second consequence of the style
             # sheet. QStyleSheetStyle resolves a font onto every descendant,
@@ -2093,6 +2095,8 @@ class MainWindow(QMainWindow):
             # `setFont` delivers FontChange to the row synchronously, so every
             # floor has already been re-derived by the time this runs.
             self._align_columns()
+            # And the window's own floor follows the columns (LWSM-1200).
+            self._schedule_size_floor()
 
     def _report_failure(self, path: Path, message: str) -> None:
         """A failure goes to the row it is about, and to the status bar if
@@ -2875,6 +2879,24 @@ class MainWindow(QMainWindow):
             return
         self._geometry_applied = True
 
+        width, chrome, row_height = self._content_metrics(rows)
+        want = (
+            QSize(*self._remembered_size)
+            if self._remembered_size is not None
+            else QSize(
+                width, chrome + min(len(rows), DEFAULT_VISIBLE_ROWS) * row_height
+            )
+        )
+
+        self._apply_size_floor()
+        self.resize(self._bounded_to_screen(want))
+
+    def _content_metrics(self, rows: list[ProjectRow]) -> tuple[int, int, int]:
+        """The width the list needs, the height everything else takes, one row.
+
+        Split out of `_apply_default_geometry` by LWSM-1200 so the floor can be
+        re-measured without the resize beside it running a second time.
+        """
         outer = self.centralWidget().layout()
         margins = outer.contentsMargins()
         row_height = rows[0].sizeHint().height() + max(self._rows_layout.spacing(), 0)
@@ -2901,21 +2923,47 @@ class MainWindow(QMainWindow):
             + margins.left()
             + margins.right()
         )
+        return width, chrome, row_height
 
-        want = (
-            QSize(*self._remembered_size)
-            if self._remembered_size is not None
-            else QSize(
-                width, chrome + min(len(rows), DEFAULT_VISIBLE_ROWS) * row_height
-            )
-        )
-        # The columns are fixed-width, so there is no narrower window in which
-        # they do not collide — the floor is the content itself, and only the
-        # height is negotiable.
+    def _schedule_size_floor(self) -> None:
+        """Re-measure the floor once Qt has finished re-laying the rows.
+
+        `apply_column_widths` sets a fixed width on each cell, and the
+        enclosing layout does not recompute its size hint until the posted
+        `LayoutRequest` is delivered. Measured 2026-09-02: read synchronously
+        after a translation the hint was still the old 422 px where the
+        settled value was 937, so the floor was recomputed from a stale
+        measurement and did not move at all. A zero-timer runs after that
+        posted event.
+        """
+        QTimer.singleShot(0, self._apply_size_floor)
+
+    def _apply_size_floor(self) -> None:
+        """The smallest window that does not clip the list.
+
+        Re-measured whenever the content's own size changes, which is what
+        `_align_columns` is re-run for — a translated or larger cell is a wider
+        column, `apply_column_widths` makes that width FIXED, and an explicit
+        `setMinimumSize` overrides `minimumSizeHint`, so Qt does not correct
+        the floor on our behalf. Measured once, the rows outgrew it and the
+        overflow was unreachable: horizontal scrolling is `ScrollBarAlwaysOff`
+        (LWSM-1200). At 200 % the rows needed 801 px against a 461 px viewport.
+
+        Deliberately NOT guarded by `_geometry_applied`. That guard exists so a
+        second RESIZE cannot fight a window the user has already sized, and a
+        floor is not a size — it is the bound below which the window stops
+        being usable, and it has to follow the content.
+
+        The columns are fixed-width, so there is no narrower window in which
+        they do not collide: the floor is the content itself, and only the
+        height is negotiable.
+        """
+        rows = list(self._rows.values())
+        if not rows:
+            return
+        width, chrome, row_height = self._content_metrics(rows)
         floor = QSize(width, chrome + MIN_VISIBLE_ROWS * row_height)
-
         self.setMinimumSize(self._bounded_to_screen(floor))
-        self.resize(self._bounded_to_screen(want))
 
     def _bounded_to_screen(self, size: QSize) -> QSize:
         """`size`, never bigger than the screen this window is on.
