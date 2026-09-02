@@ -2587,7 +2587,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lanes 10+12 (corroborated).
 
-- 📋 [LWSM-1197] **HIGH: Stop and Restart signal an unverified holder, without the managed gate Open has.**
+- ✅ [LWSM-1197] **HIGH: Stop and Restart signal an unverified holder, without the managed gate Open has.**
   mainwindow.py:882-883. `open_button` is gated on `running and
   row.managed` with a nine-line comment deriving that gate from ADR-0004's
   threat model. The two buttons that actually SIGNAL got neither the gate
@@ -2595,6 +2595,23 @@ has been applied yet — every item in this section is open.
   enabled but confirming first, with an unspoofable pid/path/create-time
   disclosure. Interim fix until P06 lands: gate Stop and Restart on
   `row.managed` too, and extend the comment at :884 to say so.
+  Resolved (2026-09-02). The FILED SECURITY CLAIM DOES NOT HOLD, and the
+  code already said so: `controller.stop_project` refuses any project the
+  supervisor holds no handle for, emitting "was not started by this
+  manager", and a test has pinned that since LWSM-1032. `Supervisor.stop`
+  independently returns an empty outcome for a key it does not hold. So
+  nothing foreign was ever signalled and ADR-0003 was never breached; this
+  is a UX defect, not a HIGH security one, and should have been filed as
+  such. Restart was the same story by a different route: it falls through
+  to `start_project`, which the bound-port pre-flight then refuses.
+  What WAS real: both buttons were offered and could only ever fail. Fixed
+  as the bullet prescribed - gate both on `row.managed`, as Open already
+  is - so the control says what it can do. A pre-existing test reddened
+  (`test_enter_stops_a_running_project`) and the trap applied: it claims
+  Enter clicks Stop when Stop is enabled, and its fixture simply had no
+  way to express "running AND ours" because `window_for` built a
+  controller with no supervisor at all. Widened the fixture, kept the
+  claim. 4/4 mutants killed including both over-corrections. Gate green.
   **Layman:** The Stop button will signal whatever is holding the port, even when it is not a server this app started.
   Kind: security.
   Source: review-code 2026-09-01 lane 10.

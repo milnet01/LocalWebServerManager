@@ -913,8 +913,16 @@ class ProjectRow(QFrame):
         self.start_button.setEnabled(
             not in_transition and not running and not row.stopping
         )
-        self.stop_button.setEnabled(running)
-        self.restart_button.setEnabled(running)
+        # Running AND ours, for the same reason Open is below — and the two
+        # buttons that SIGNAL had neither the gate nor a substitute
+        # (LWSM-1197). Nothing foreign was ever signalled: `stop_project`
+        # refuses a project the supervisor holds no handle for, and Restart
+        # falls through to a Start the pre-flight then refuses for the bound
+        # port. What was wrong is that both were offered and could only fail,
+        # so the gate makes the control say what it can do rather than adding
+        # a defence.
+        self.stop_button.setEnabled(running and row.managed)
+        self.restart_button.setEnabled(running and row.managed)
         # Running AND ours. ADR-0004 carries the threat model and governs here
         # (user decision, 2026-08-15): `chdir()` is free, so any local process
         # can bind a project's port and be classified `running`, and opening a

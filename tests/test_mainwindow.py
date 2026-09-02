@@ -112,15 +112,24 @@ def built() -> Iterator[list[ProjectController]]:
         controller.stop()
 
 
-def build_controller(built, records, probe) -> ProjectController:
-    """A controller the `built` fixture will stop in teardown (§ T5, INV-16)."""
-    controller = ProjectController(records, probe)
+def build_controller(built, records, probe, managed=None) -> ProjectController:
+    """A controller the `built` fixture will stop in teardown (§ T5, INV-16).
+
+    `managed` names the projects the supervisor holds a handle for; None gives
+    a controller supervising nothing, which is what most of these tests want.
+    Since LWSM-1197 Stop and Restart are gated on ownership as Open already
+    was, so a test about those three has to say who owns what.
+    """
+    supervisor = None if managed is None else ManagingSupervisor(managed)
+    controller = ProjectController(records, probe, supervisor)
     built.append(controller)
     return controller
 
 
-def window_for(qtbot, built, records, probe) -> tuple[MainWindow, ProjectController]:
-    controller = build_controller(built, records, probe)
+def window_for(
+    qtbot, built, records, probe, managed=None
+) -> tuple[MainWindow, ProjectController]:
+    controller = build_controller(built, records, probe, managed)
     window = MainWindow(controller, Theme.default(), [])
     qtbot.addWidget(window)
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
@@ -2848,6 +2857,42 @@ def test_open_is_refused_for_a_server_this_manager_did_not_start(qtbot, built) -
     assert not theirs.open_button.isEnabled(), (
         "Open was offered on a port held by a process this manager did not start"
     )
+
+
+def test_stop_and_restart_are_not_offered_for_a_server_we_did_not_start(
+    qtbot, built
+) -> None:
+    """Open carried the ownership gate and the two buttons that signal did not.
+
+    `stop_project` already refuses a project the supervisor has no handle for,
+    so nothing foreign was ever signalled — the filed security claim does not
+    hold. What was real is that both buttons were offered and could only ever
+    fail, and Restart quietly became a Start, which the pre-flight then refused
+    for a different reason. A control that cannot work should say so by being
+    disabled.
+
+    Two rows, both `running`, differing only in ownership: a one-row fixture
+    cannot tell "disabled for a stranger" from "disabled".
+    """
+    opened: list = []
+    window = opening_window(
+        qtbot,
+        built,
+        [record("ours", 5005), record("theirs", 6006)],
+        FakeProbe(5005, 6006),
+        opened,
+        managed=[Path("/srv/ours")],
+    )
+    ours, theirs = rows_of(window)
+
+    assert ours.stop_button.isEnabled()
+    assert ours.restart_button.isEnabled()
+    assert not theirs.stop_button.isEnabled(), (
+        "Stop was offered for a server this manager did not start"
+    )
+    assert not theirs.restart_button.isEnabled(), (
+        "Restart was offered for a server this manager did not start"
+    )
     # The row still reads `running`, and must: this restricts the ACTION, it
     # does not make the app lie about what it observed (ADR-0004).
     assert "running" in theirs.accessibleName()
@@ -3020,7 +3065,15 @@ def keyboard_window(qtbot, built, names, listening=(), show=False):
     `hasFocus`, which needs an ACTIVE window, forces a `show()`.
     """
     records = [record(name, 3000 + i) for i, name in enumerate(names)]
-    window, controller = window_for(qtbot, built, records, FakeProbe(*listening))
+    # Every row counts as ours: these tests are about which key reaches which
+    # button, and an unowned row has no enabled Stop to click (LWSM-1197).
+    window, controller = window_for(
+        qtbot,
+        built,
+        records,
+        FakeProbe(*listening),
+        managed=[row.path for row in records],
+    )
     if show:
         with qtbot.waitExposed(window):
             window.show()

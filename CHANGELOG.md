@@ -213,6 +213,13 @@ signaling per
 
 ### Changed
 
+- **Stop and Restart are greyed out for a server this app did not start** (LWSM-1197)
+  Open was already restricted to servers the manager started. Stop and
+  Restart were offered on any project whose port was busy, and could only
+  fail: a stop was refused because there is no handle to signal, and a
+  restart quietly became a start that the port check then refused. The
+  buttons now say that up front.
+
 - **Split `docs/design.md` — the look-and-feel and accessibility contracts are their own documents** (LWSM-1157)
   The design document had reached 1223 lines and its review gate kept
   capping without settling. `docs/design-look-and-feel.md` and
