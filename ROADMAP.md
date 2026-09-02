@@ -3520,6 +3520,23 @@ has been applied yet — every item in this section is open.
   command or its content hash changes". Diverges from scanner.py's three-place
   REFUSE discipline. Fix: read cap+1 and refuse, or mix st_size and an
   oversize marker into the digest.
+  Progress (2026-09-02): analysed, not started — tree left clean.
+  Design settled by reading, not yet by measurement. Two edits, both
+  small. (1) validate_launcher gains a size refusal beside its
+  existing st_mode checks, using the stat it already takes; start()
+  calls it BEFORE launcher_fingerprint, so an unhashable launcher
+  never reaches the digest. (2) _launcher_bytes reads cap+1 and
+  returns None over the cap, so truncated content is never hashed as
+  whole. Consequence accepted: an oversize file then falls to the
+  nofile marker and collides with a missing launcher — harmless
+  because (1) refuses it first, and a distinct marker would still
+  collide oversize-with-oversize, so it buys nothing.
+  The npm manifest path needs no change: an oversize package.json
+  already truncates to unparseable JSON and yields None, and cap+1
+  makes that explicit rather than resting on JSON balance.
+  Red test to write first: a launcher of exactly cap bytes and the
+  same bytes plus an appended line must fingerprint differently
+  (equal before the fix).
   **Layman:** A very large launcher can be changed after you trusted it without the app noticing.
   Kind: security.
   Source: review-code 2026-09-01 lane 4.
