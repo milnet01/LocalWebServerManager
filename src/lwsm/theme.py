@@ -206,7 +206,7 @@ THEMES: dict[str, Theme] = {
         # Diverged from finbreak's #69707d: that is 4.22:1 on this
         # palette's alt_base, under § T8's 4.5:1. 4.52:1 here, hue kept.
         muted_text="#656b78",
-        accent="#b2842a",
+        accent="#977024",  # ledger: 4.5:1 on base (LWSM-1207)
         accent_soft="#e6d5a3",
         attention="#a53a24",
         border="#d8d3c4",
@@ -230,7 +230,7 @@ THEMES: dict[str, Theme] = {
         # Diverged from finbreak's #726552: that is 4.10:1 on this
         # palette's alt_base, under § T8's 4.5:1. 4.50:1 here, hue kept.
         muted_text="#6b5f4d",
-        accent="#b06d1f",
+        accent="#9d611c",  # parchment: 4.5:1 on base (LWSM-1207)
         accent_soft="#e0c48f",
         attention="#96331d",
         border="#d0c2a4",
@@ -254,7 +254,7 @@ THEMES: dict[str, Theme] = {
         # Diverged from finbreak's #5c766b: that is 4.26:1 on this
         # palette's alt_base, under § T8's 4.5:1. 4.50:1 here, hue kept.
         muted_text="#597267",
-        accent="#1f9d55",
+        accent="#1b8749",  # mint: 4.5:1 on base (LWSM-1207)
         accent_soft="#bce7cd",
         attention="#b03a1e",
         border="#cde0d4",
@@ -300,7 +300,7 @@ THEMES: dict[str, Theme] = {
         # Diverged from finbreak's #8a9099: that is 4.18:1 on this
         # palette's alt_base, under § T8's 4.5:1. 4.51:1 here, hue kept.
         muted_text="#90969e",
-        accent="#5b7fb5",
+        accent="#6285b8",  # graphite: 4.5:1 on base (LWSM-1207)
         accent_soft="#34435c",
         attention="#e2775c",
         border="#3a3f47",

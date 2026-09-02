@@ -110,6 +110,56 @@ def test_every_text_token_clears_the_text_floor(
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_selected_text_clears_the_text_floor(theme: Theme) -> None:
+    """Qt paints selected text as `HighlightedText` on `Highlight`.
+
+    `palette()` binds those to `base` on `accent`, so the pair is LIVE text —
+    every selection in the filter box and in any editable field — and nothing
+    looked at it. `derive_state_tokens.py` checks `accent` against `window`
+    only, against the INDICATOR floor, so neither the tool nor its shortfall
+    report could see this (LWSM-1207).
+
+    Measured before the fix: ledger 3.37:1, mint 3.49:1, parchment 3.73:1 and
+    graphite 4.18:1, against the 4.5:1 that `design-accessibility.md` and
+    `testing.md § T8` both require of a text pair.
+
+    Asserted from the PALETTE's own two roles rather than from the token
+    names, so re-binding either role to a different token keeps this honest.
+    """
+    floor = floor_for(theme)
+    ratio = contrast_ratio(theme.base, theme.accent)
+    assert ratio >= floor, (
+        f"selected text is {ratio:.2f}:1 (HighlightedText on Highlight), "
+        f"below § T8's {floor}:1 for a text pair on this palette"
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_accent_still_carries_a_hue(theme: Theme) -> None:
+    """The state-token trap, one token along, and a mutant found it.
+
+    LWSM-1207 darkened four accents until the selected-text pair cleared the
+    floor. Solving for contrast alone converges on black or white — that is
+    what the first state-token solver did — and an accent with no hue is a
+    focus ring that identifies nothing while passing every ratio above.
+    Replacing ledger's accent with pure black survived the whole suite.
+
+    Held on saturation rather than on a ratio, because that is the property
+    contrast cannot express.
+    """
+    import colorsys
+
+    value = theme.accent.lstrip("#")
+    red, green, blue = (int(value[i : i + 2], 16) / 255 for i in (0, 2, 4))
+    _hue, _lightness, saturation = colorsys.rgb_to_hls(red, green, blue)
+
+    assert saturation > 0.1, (
+        f"the accent {theme.accent} is {saturation:.2f} saturated — a grey "
+        "accent clears every contrast floor and identifies nothing"
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_the_state_tokens_are_distinguishable_from_the_body_text(
     theme: Theme,
 ) -> None:

@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **Highlighted text is readable in every colour theme** (LWSM-1207)
+  Selecting text in the Ledger, Parchment, Mint and Graphite themes drew
+  it in a combination too faint to meet the readability standard the
+  project holds itself to. Those four accent colours are now a shade
+  deeper — same hue, enough contrast — and the tool that checks the
+  palettes now looks at this pairing, which it never did.
+
 - **Two projects set to the same port: the second one is refused, and says why** (LWSM-1205)
   The port belongs to whichever project was registered first. That was
   worked out and written into the rescan report, but Start never saw it,

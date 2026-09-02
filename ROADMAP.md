@@ -2903,7 +2903,7 @@ has been applied yet — every item in this section is open.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 6.
 
-- 📋 [LWSM-1207] **HIGH: selected-text contrast fails WCAG AA in four of eight palettes, and no check looks at the pair.**
+- ✅ [LWSM-1207] **HIGH: selected-text contrast fails WCAG AA in four of eight palettes, and no check looks at the pair.**
   theme.py:179. Highlight <- accent with HighlightedText <- base gives ledger
   3.37:1, mint 3.49:1, parchment 3.73:1, graphite 4.18:1, against the 4.5:1
   floor design-accessibility.md:161 and testing.md T8 both state. This is LIVE
@@ -2913,6 +2913,30 @@ has been applied yet — every item in this section is open.
   accent against theme.window ONLY, so neither the tool nor its shortfall
   report can see this pair. Fix BOTH: add ("base","accent") to the shortfall
   loop, then darken the four accents or set HighlightedText per palette.
+  Resolved (2026-09-02). The bullet's arithmetic reproduced EXACTLY -
+  ledger 3.37, parchment 3.73, mint 3.49, graphite 4.18 - and both halves
+  of its fix were needed.
+  Took "darken the four accents" over "set HighlightedText per palette",
+  after measuring that neither existing token can carry it: the best of
+  `base` and `text` against the current accent is 4.26 (ledger), 3.73
+  (parchment), 4.03 (mint), 4.18 (graphite), all still short. So a
+  per-palette HighlightedText would have needed a NEW token in all eight
+  palettes to fix four.
+  The new accents are SOLVED, not chosen - the method `derive_state_tokens`
+  already uses: walk lightness away from the surface, hue and saturation
+  untouched, stop at the first value clearing the floor. Graphite's got
+  LIGHTER, not darker, because it is the dark palette; the bullet's
+  "darken the four" is right for three of them. accent/window stays above
+  the indicator floor on all four (4.02-4.20).
+  The tool's blind spot is closed too, and PROVEN to fire rather than
+  assumed: run against the old accents it reports the four shortfalls by
+  name and the exact ratios; against the new ones, zero.
+  A mutant then found a second gap and it is the LWSM-1031 trap one token
+  along: an accent solved for contrast ALONE converges on black or white,
+  so replacing ledger's with #000000 cleared every ratio and survived the
+  whole suite. `test_the_accent_still_carries_a_hue` holds it on
+  saturation, which is the property contrast cannot express. 5/5 mutants
+  killed after that. Gate green, 1336 tests.
   **Layman:** Highlighted text is too faint to read in half the colour themes, and the tool that checks contrast never looks at that combination.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 8.

@@ -115,6 +115,18 @@ def main() -> int:
         if ratio < INDICATOR_FLOOR:
             shortfalls += 1
             print(f"# SHORTFALL {name}: accent/window = {ratio:.2f} (indicator floor)")
+        # The accent is also a TEXT background: `Theme.palette` binds Highlight
+        # to it and HighlightedText to `base`, so every selection paints one on
+        # the other. Checking accent against `window` alone, and against the
+        # indicator floor, could not see that — and four palettes were below
+        # the text floor with the tool reporting no shortfall (LWSM-1207).
+        ratio = contrast_ratio(theme.accent, theme.base)
+        if ratio < floor:
+            shortfalls += 1
+            print(
+                f"# SHORTFALL {name}: base/accent = {ratio:.2f} "
+                f"(floor {floor}, selected text)"
+            )
 
     print(f"\n# {shortfalls} shortfall(s) in the fixed tokens.")
     return 0
