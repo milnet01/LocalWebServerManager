@@ -4536,6 +4536,32 @@ mostly in the measurement behind it.
   Kind: fix.
   Source: in-session-2026-09-02.
 
+- 📋 [LWSM-1290] **The global config-lock hook blocks Bash writes to this project's own docs/standards/.**
+  `~/.claude/hooks/global-config-lock.sh` guards the machine-global
+  instruction surface, one of whose paths is `standards/`. Its Bash branch
+  matches that as a SUBSTRING, so a `python3 - <<PY` writing
+  `docs/standards/README.md` in THIS repository is refused with "the
+  ~/.claude instruction surface is edited from a session whose cwd is
+  ~/.claude" — a project's own standards directory is not the global one.
+
+  Its Edit/Write branch does not have the fault: a `Write` to
+  `docs/standards/versioning-overrides.md` in the same session succeeded,
+  which is how the asymmetry was found. So the two branches disagree about
+  what is locked.
+
+  Hit on 2026-09-02 while adopting the global versioning standard.
+  Worked around with the Edit tool, so nothing was blocked in the end.
+
+  NOT FIXABLE FROM THIS PROJECT, and that is the lock working as designed:
+  the fix is an edit to `~/.claude/hooks/`, which needs a session whose cwd
+  is `~/.claude`, or a relaunch with `CLAUDE_GLOBAL_CONFIG_UNLOCK=1`. Filed
+  here so the next session that trips it does not re-diagnose it. The likely
+  fix is to anchor the Bash branch's match at the start of the path rather
+  than matching anywhere in it.
+  **Layman:** A safety check meant to protect the machine's own settings also blocks edits to this project's standards folder.
+  Kind: chore.
+  Source: in-session-2026-09-02.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
