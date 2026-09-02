@@ -862,6 +862,13 @@ class ProjectController(QObject):
         self._in_flight = False
         # A success ends any suppressed run, so a failure that recurs after a
         # recovery is logged again rather than folded into the old count.
+        #
+        # And it is told to the user, because a warning that appears and never
+        # clears is its own defect — the status bar would otherwise keep
+        # saying the table is unreadable long after it was readable again
+        # (LWSM-1203). Read BEFORE the flush, which clears it.
+        if self._last_error is not None:
+            self.action_failed.emit(None, "port status is readable again")
         self._flush_repeated_error()
         previous = self._statuses
         spawning = self._spawning_paths()
@@ -955,6 +962,29 @@ class ProjectController(QObject):
             self._flush_repeated_error()
             log.warning("port probe failed, holding previous statuses: %s", message)
             self._last_error = message
+            # `design.md`: "Every failure has a visible home... Nothing is
+            # swallowed." The rows keep their last values, which are plausible
+            # and no longer true, so the one thing the user must be told is
+            # that we have stopped looking (LWSM-1203).
+            #
+            # No path: an unreadable socket table is a fact about the whole
+            # table, and `_report_failure` already routes a path-less message
+            # to the status bar instead of to a row.
+            #
+            # Behind the same suppression as the log line, and for the same
+            # reason: at one poll a second, reporting every failure would be a
+            # status bar nobody can read rather than a warning.
+            self.action_failed.emit(None, f"port status unavailable: {message}")
+        # Handed `self._statuses`, the same object it compares against, so the
+        # change branch is false every time — deliberately. Nothing derived HAS
+        # changed, which is the point of INV-4b. What this call is here for is
+        # the FIRST-poll branch, which emits unconditionally so a window whose
+        # very first poll fails does not sit at its blank initial state for
+        # ever.
+        #
+        # That was read as the whole of it (LWSM-1203): because this could
+        # never report a change, a failure after the first poll reached nobody
+        # at all. The news is the failure itself, and it is reported above.
         self._maybe_emit(self._statuses)
 
     def _flush_repeated_error(self) -> None:

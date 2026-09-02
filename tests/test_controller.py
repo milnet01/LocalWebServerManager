@@ -243,6 +243,68 @@ def test_starting_a_second_project_does_not_make_the_first_read_stopped(
     )
 
 
+class SwitchableProbe:
+    """A probe the test turns on and off between polls."""
+
+    def __init__(self) -> None:
+        self.fail: str | None = None
+
+    def snapshot(self) -> PortSnapshot:
+        if self.fail is not None:
+            raise ProbeError(self.fail)
+        return PortSnapshot(frozenset({5005}))
+
+
+def test_a_probe_failure_is_reported_once_and_so_is_the_recovery(
+    qtbot, controllers
+) -> None:
+    """`design.md`: "Every failure has a visible home... Nothing is swallowed."
+
+    `_on_probe_error` correctly holds the previous statuses (INV-4b) and then
+    called `_maybe_emit(self._statuses)` — passing the SAME object it compares
+    against, so `previous != self._statuses` could never be true and no signal
+    was emitted at all. Under `hidepid=2`, an LSM, or a container with no
+    /proc, every row then showed plausible stale data for the rest of the
+    session with only `app.log` as evidence.
+
+    Reported through `action_failed` with no path, which `_report_failure`
+    already routes to the status bar rather than to a row — the failure is
+    about the whole socket table, not about one project.
+
+    The recovery is asserted too: a message that appears and never clears is
+    its own defect, and the suppression that stops 86,400 log lines a day
+    (LWSM-1079) must not also stop the second, different message.
+    """
+    probe = SwitchableProbe()
+    controller = build(controllers, [record("a")], probe)
+    reported: list[tuple[object, str]] = []
+    controller.action_failed.connect(lambda path, text: reported.append((path, text)))
+
+    # A good poll first: the first-poll branch emits unconditionally, so a
+    # failure there would pass whether or not this works.
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert reported == []
+
+    probe.fail = "AccessDenied"
+    with qtbot.waitSignal(controller.action_failed, timeout=2000):
+        controller.poll_once()
+    assert len(reported) == 1, reported
+    assert reported[0][0] is None, "the whole table is unreadable, not one row"
+    assert "AccessDenied" in reported[0][1]
+
+    # The same failure again says nothing new.
+    controller.poll_once()
+    qtbot.wait(50)
+    assert len(reported) == 1, f"the repeat was reported too: {reported}"
+
+    probe.fail = None
+    with qtbot.waitSignal(controller.action_failed, timeout=2000):
+        controller.poll_once()
+    assert len(reported) == 2, reported
+    assert reported[1][0] is None
+
+
 def test_a_failing_first_poll_still_emits(qtbot, controllers) -> None:
     # Exempt from INV-4b: with nothing before it, suppressing the emission
     # would leave the window at its blank initial state forever.

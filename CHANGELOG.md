@@ -278,6 +278,14 @@ signaling per
 
 ### Fixed
 
+- **The app now says when it can no longer see which ports are busy** (LWSM-1203)
+  If reading the system's port list started failing — a hardened kernel, a
+  container without /proc — every row kept showing its last answer, which
+  looks entirely normal and is no longer true. The only record was the log
+  file. The status bar now says so when it happens, and says so again when
+  it starts working. Repeats stay quiet, so a permanent failure does not
+  flood it.
+
 - **Starting a second server no longer makes the first look stopped** (LWSM-1202)
   The "starting" label could only be shown for one project at a time, so
   pressing Start on a second one took it away from the first while that

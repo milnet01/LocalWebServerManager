@@ -2773,7 +2773,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1203] **HIGH: a failed port probe freezes every row with plausible data and emits nothing.**
+- ✅ [LWSM-1203] **HIGH: a failed port probe freezes every row with plausible data and emits nothing.**
   controller.py:931. _on_probe_error holds the previous statuses (correct,
   INV-4b), logs, then calls self._maybe_emit(self._statuses) - passing the SAME
   object it compares against, so `previous != self._statuses` is always false
@@ -2782,6 +2782,26 @@ has been applied yet — every item in this section is open.
   evidence. design.md forbids this outright: "Every failure has a visible
   home... Nothing is swallowed." Fix: emit an app-scoped failure on the first
   failure and on recovery, reusing the existing _last_error suppression.
+  Resolved (2026-09-02). Reproduced: a probe failure AFTER the first poll
+  was logged and reached nobody. Fixed as the bullet asks - an app-scoped
+  report on the first failure and on recovery, behind the existing
+  `_last_error` suppression so a permanent failure does not write a status
+  bar nobody can read (LWSM-1079's reason, one surface along). Emitted
+  with no path, which `_report_failure` already routes to the status bar
+  rather than to a row: an unreadable socket table is a fact about the
+  table, not about one project.
+  ONE CORRECTION TO THE BULLET, found by breaking four tests. It says
+  `_maybe_emit(self._statuses)` "is always false and no signal is ever
+  emitted", and the first half is right while the second is not: that call
+  also carries the FIRST-POLL branch, which emits unconditionally so a
+  window whose first poll fails does not sit blank for ever. Removing the
+  call - which the bullet's wording invites - broke
+  `test_a_failing_first_poll_still_emits` and three others. It is restored,
+  with the reason written where the next reader will be tempted again. The
+  comparison being self-referential is deliberate: nothing derived HAS
+  changed, which is INV-4b. 5/5 mutants killed, including reporting every
+  repeat, announcing recovery on every good poll, and attaching the
+  failure to a row. Gate green, 1315 tests.
   **Layman:** If the app loses the ability to see which ports are busy, the screen keeps showing the last answer and never tells you it has stopped looking.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
