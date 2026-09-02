@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **Scanning is no longer slowed down by long awkward lines** (LWSM-1222)
+  Deciding whether a line really declares a port meant re-reading
+  everything before it, once for every candidate on the line. A single
+  long line could take twenty milliseconds on its own. The check now looks
+  only at the word immediately before, which is all it ever used, and the
+  cost stops growing with the length of the line.
+
 - **One unreadable folder no longer makes a whole project disappear** (LWSM-1221)
   If a project's start-up file referred to something inside a folder this
   app is not allowed to open, the entire project vanished from the list —

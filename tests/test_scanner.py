@@ -1732,6 +1732,48 @@ def test_an_unreadable_hop_target_costs_the_port_not_the_project(
     )
 
 
+@pytest.mark.parametrize(
+    ("prefix", "accepted"),
+    [
+        ("", True),
+        ("export ", True),
+        ("env ", True),
+        ("const ", True),
+        ("docker run -e ", True),
+        ("FOO=1 ", True),
+        ("cmd; ", True),
+        ("echo ", False),
+        ("some.word ", False),
+        ("x ", False),
+        # TWO spaces, and they are the only shape that can see the whitespace
+        # skip at all: the regex consumes the separator, so `match.start()`
+        # points AT the single space and the prefix has no trailing
+        # whitespace. With two, the prefix keeps one — which is where
+        # "skip it" and "take the token with it attached" diverge, and both
+        # mutants survived a single-space fixture.
+        ("export  ", True),
+        ("echo  ", False),
+    ],
+    ids=lambda value: repr(value) if isinstance(value, str) else str(value),
+)
+def test_rule_1_reads_the_word_before_the_assignment(prefix: str, accepted) -> None:
+    """LWSM-1190's position rule, from both sides.
+
+    `PORT=` assigns only in command position, so what precedes it decides
+    whether the number is a declaration or a mention. Only the ACCEPTING half
+    was covered: rewriting `_declaration_position` to read backwards
+    (LWSM-1222) survived two mutations — dropping the whitespace skip, and
+    taking the token with its trailing space attached — because both change
+    only which prefixes are REJECTED, and nothing asserted a rejection.
+
+    The trailing space in every prefix is deliberate: it is what those two
+    mutants got wrong, and a fixture without it cannot see either.
+    """
+    found = scanner.rule_1(prefix + "PORT=8080")
+
+    assert (found == 8080) is accepted, f"{prefix!r} before PORT=8080 gave {found!r}"
+
+
 def _plant_unreadable_directory(root: Path) -> str:
     """A candidate the scanner may list but may not enter.
 

@@ -423,19 +423,39 @@ _COMMAND_WORDS = frozenset({"export", "env", "then", "do", "else", "elif", "="})
 _DECLARATORS = frozenset({"const", "let", "var", "local", "declare", "readonly"})
 
 
-def _declaration_position(before: str) -> bool:
-    """Whether `before` leaves a declaration about to start.
+def _declaration_position(line: str, end: int) -> bool:
+    """Whether the text before `end` leaves a declaration about to start.
 
     `_ASSIGNMENT` is defined with the hop rules below and is the same shell
     fact read from the other end: `FOO=1 PORT=8080` chains assignments, so a
     token that IS one still leaves the next one in position.
+
+    Takes the line and an INDEX rather than a prefix, and reads backwards from
+    it. The prefix form copied `line[:start]` per candidate match and then ran
+    an `rstrip` and seven `rfind` scans over the copy — all of it to find one
+    token — so a hostile line paid that for every REJECTED match. Measured
+    2026-09-02 on `"x PORT=1 " * n`, where every match is rejected: 247 µs at
+    576 characters and 22.9 ms at 9,216, growing about 3x per doubling, while
+    `rule_2` on the same input stayed flat at 2.7 µs (LWSM-1222).
+
+    Only the last token before `end` is ever used, and a separator or the
+    start of the line ends it — so the work is the length of that token, not
+    of the line. Verified against the prefix form over 4,030 shapes before the
+    swap: a rewrite for speed that changes an answer is not a rewrite.
     """
-    text = before.rstrip()
-    cut = max(text.rfind(char) for char in _SEPARATORS)
-    words = text[cut + 1 :].split()
-    if not words:
+    index = end
+    while index > 0 and line[index - 1].isspace():
+        index -= 1
+    stop = index
+    while (
+        stop > 0 and not line[stop - 1].isspace() and line[stop - 1] not in _SEPARATORS
+    ):
+        stop -= 1
+    if stop == index:
+        # Nothing between the separator (or the line start) and `end`, which
+        # is the empty-`words` case: a declaration may start here.
         return True
-    last = words[-1]
+    last = line[stop:index]
     return (
         last in _COMMAND_WORDS
         or last in _DECLARATORS
@@ -475,7 +495,7 @@ def rule_1(line: str) -> int | None:
         # command position. `--port` and `localhost:` are neither, and stay
         # readable anywhere — including inside a quoted script value, which is
         # the only place a `package.json` port is ever written.
-        if form in (1, 2) and not _declaration_position(line[: match.start()]):
+        if form in (1, 2) and not _declaration_position(line, match.start()):
             continue
         return value
     return None
@@ -508,8 +528,12 @@ def rule_2(line: str) -> int | None:
         # can end in one: `echo "error: PORT` satisfies it through the space.
         # What may precede the name is a declarator, not a verb — the whole
         # key minus its last word has to leave a declaration in position.
-        words = key.split()
-        if not _declaration_position(" ".join(words[:-1])):
+        # The whole key minus its last word, as a prefix of its own — this
+        # caller synthesises the text rather than pointing into `line`, so it
+        # passes the length as the index. `key` is one bounded key here, not a
+        # 4096-character line, so LWSM-1222's cost does not arise on this path.
+        prefix = " ".join(key.split()[:-1])
+        if not _declaration_position(prefix, len(prefix)):
             continue
         # finditer, not search — the range check below must not end the scan at
         # the first out-of-range number: `'server_port': 70000, 'port': 5000`

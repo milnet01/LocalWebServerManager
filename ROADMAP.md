@@ -3364,7 +3364,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 3.
 
-- 📋 [LWSM-1222] **MEDIUM: rule 1 re-slices the whole line prefix per rejected match, which is quadratic on untrusted input.**
+- ✅ [LWSM-1222] **MEDIUM: rule 1 re-slices the whole line prefix per rejected match, which is quadratic on untrusted input.**
   scanner.py:478. finditer means every REJECTED match re-slices line[:start]
   and _declaration_position runs seven rfind scans over it. A 4096-char line of
   repeated ".PORT=1 " gives ~512 rejected matches, ~7M char operations and 1MB
@@ -3372,6 +3372,33 @@ has been applied yet — every item in this section is open.
   linearity for rule_2 only and predates the LWSM-1190 position rule. Fix:
   scan backwards from match.start() to the nearest separator; add a rule_1
   case to INV-15.
+  Resolved (2026-09-02). MEASURED, because a perf claim without numbers is
+  an opinion. On `"x PORT=1 " * n`, where every match is REJECTED and so
+  the loop continues: 247 µs at 576 chars, 6.5 ms at 4,608, 22.9 ms at
+  9,216 - about 3x per doubling - while `rule_2` on the same input stayed
+  flat at 2.7 µs. After: x2.02 per doubling, a flat 142 ns/char, and 9,216
+  chars down from 22,860 µs to 1,329.
+  MY FIRST FIXTURE MEASURED NOTHING. `".PORT=1 "` is ACCEPTED at the first
+  match, so the function returns immediately and the timing was flat at
+  2.0 µs - it looked like proof there was no defect. The rejection is the
+  whole mechanism, and the prefix has to be a word that is not a command,
+  a declarator, a dash flag or an assignment.
+  Rewritten to read backwards from the index instead of copying the
+  prefix, and VERIFIED AGAINST THE OLD FORM over 4,030 shapes before the
+  swap - a rewrite for speed that changes an answer is not a rewrite. Then
+  diffed against the author's real tree per `CLAUDE.md`: all seven
+  projects, identical verdicts.
+  The third caller synthesises its prefix rather than pointing into a
+  line, so it passes `len(prefix)`; that path handles one bounded key and
+  never had the cost.
+  Two mutants survived twice over, and both were MY TEST's fault. There
+  was no test at all that a bare word before `PORT=` is REJECTED - only
+  the accepting half was covered. And once added, a single-space fixture
+  still could not see them: the regex consumes the separator, so
+  `match.start()` points AT the space and the prefix has no trailing
+  whitespace. It takes TWO spaces to distinguish "skip it" from "take the
+  token with it attached". 5/5 killed after that. INV-15's linearity
+  claim now has a rule_1 case. Gate green, 1374 tests.
   **Layman:** A long, awkward line in someone else's file can make a scan take far longer than it should.
   Kind: perf.
   Source: review-code 2026-09-01 lane 3.
