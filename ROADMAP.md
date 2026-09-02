@@ -2616,7 +2616,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 10.
 
-- 📋 [LWSM-1198] **HIGH: the Centre-on-screen disabled tooltip is set on a surface that never renders it.**
+- ✅ [LWSM-1198] **HIGH: the Centre-on-screen disabled tooltip is set on a surface that never renders it.**
   mainwindow.py:1598. ADR-0007 promises the action is "disabled with a
   tooltip saying why - rather than being offered and doing nothing".
   QMenu::toolTipsVisible defaults to false and setToolTipsVisible appears
@@ -2625,6 +2625,19 @@ has been applied yet — every item in this section is open.
   is necessary and NOT sufficient: design-accessibility.md says nothing
   important may be hover-only, so also carry the reason at rest - append it
   to the action text when disabled, or set statusTip.
+  Resolved (2026-09-02). Reproduced as filed, and both halves were needed.
+  `QMenu.toolTipsVisible()` measured False by default, and
+  `setToolTipsVisible` was absent from the tree, so ADR-0007's "disabled
+  with a tooltip saying why" was never rendered for the population it is
+  written for. Necessary but not sufficient, exactly as the bullet said:
+  `design-accessibility.md` puts nothing important behind a hover, so the
+  label now carries the fact ("unavailable on this desktop") and the
+  tooltip the detail. This bullet's stated cause needed no correction -
+  the third of the run, against two that did. The enabled label is
+  unchanged, which the pre-existing mnemonic test pins. 4/4 mutants
+  killed; the over-correction needed narrowing first, because its anchor
+  matched the tooltip block too and would have reported a kill for a
+  wider mutation than its label described. Gate green, 1309 tests.
   **Layman:** When "Centre on screen" is greyed out we wrote an explanation nobody can see, because Qt menus hide tooltips by default.
   Kind: review-fix.
   Source: review-code 2026-09-01 lane 11.

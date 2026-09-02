@@ -5021,6 +5021,34 @@ def test_centre_on_screen_is_disabled_and_says_why_where_it_cannot_work(
     )
 
 
+def test_the_disabled_centre_action_explains_itself_without_a_hover(
+    qtbot, built, monkeypatch
+) -> None:
+    """A tooltip was written and Qt never drew it.
+
+    `QMenu.toolTipsVisible()` is False by default — measured 2026-09-02 — and
+    `setToolTipsVisible` appeared nowhere in the tree, so ADR-0007's promise
+    that the action "is disabled with a tooltip saying why" was not kept for
+    the one population it is for.
+
+    Making the tooltip render is necessary and not sufficient:
+    `design-accessibility.md` says nothing important is hover-only, because a
+    hover is impossible to discover by keyboard. So the label itself has to
+    carry the reason, with the detail left to the tooltip.
+    """
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setattr(mainwindow.placement.shutil, "which", lambda _name: None)
+
+    window = geometry_window(qtbot, built, two_rows())
+
+    assert window._view_menu.toolTipsVisible(), (
+        "the tooltip is set on a menu that never renders one"
+    )
+    assert "unavailable" in window._centre_action.text(), (
+        "the only statement of why is behind a hover"
+    )
+
+
 def test_centre_on_screen_carries_a_mnemonic_and_is_retranslated(qtbot, built) -> None:
     """`§ O8` clause 2 — every action reachable from the keyboard — and the
     label set in `_retranslate_menus` rather than at construction, so

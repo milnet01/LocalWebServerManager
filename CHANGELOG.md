@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **"Centre on screen" now says why it is greyed out** (LWSM-1198)
+  On a desktop that will not let an application place its own window the
+  entry is disabled, and the explanation for that was written into a
+  tooltip Qt never drew — menus hide tooltips unless asked. The tooltip
+  is shown now, and the entry also says "unavailable on this desktop" in
+  its own label, so the reason does not depend on hovering.
+
 - **Start no longer comes back before the stop it is waiting on has finished** (LWSM-1191)
   On a project whose port the app cannot detect, Start went live again
   within a second of pressing Stop, while the shutdown was still running —

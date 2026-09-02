@@ -1454,6 +1454,10 @@ class MainWindow(QMainWindow):
         # whose title promises preferences should not contain a verb. It is
         # also where P08's log viewer goes.
         self._view_menu = bar.addMenu("")
+        # A menu draws no tooltips unless asked: `toolTipsVisible()` is False
+        # by default (measured 2026-09-02), so the explanation ADR-0007
+        # promises was written and never rendered (LWSM-1198).
+        self._view_menu.setToolTipsVisible(True)
         self._centre_action = self._view_menu.addAction("")
         self._centre_action.triggered.connect(self.centre_on_screen)
         # Disabled here rather than left to fail on trigger: under a Wayland
@@ -1624,8 +1628,16 @@ class MainWindow(QMainWindow):
             )
         self._quit_action.setText(QCoreApplication.translate(_TR_CONTEXT, "&Quit"))
         self._view_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&View"))
+        # The disabled entry says so in its own label, not only in the tooltip
+        # below it: `design-accessibility.md` puts nothing important behind a
+        # hover, which cannot be discovered by keyboard and is easy to miss at
+        # magnification. The label carries the fact, the tooltip the detail.
         self._centre_action.setText(
             QCoreApplication.translate(_TR_CONTEXT, "&Centre on screen")
+            if self._centre_action.isEnabled()
+            else QCoreApplication.translate(
+                _TR_CONTEXT, "&Centre on screen (unavailable on this desktop)"
+            )
         )
         # Only the disabled case gets an explanation — the whole point of it is
         # that the action says why rather than appearing to work.
