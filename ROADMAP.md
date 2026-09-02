@@ -7436,7 +7436,7 @@ program actually running.
   Kind: refactor.
   Source: in-session-2026-08-21 (noted while shipping LWSM-1018).
 
-- 📋 [LWSM-1189] **Two supervisor tests leave a real `sleep 30` running on the developer's machine.**
+- ✅ [LWSM-1189] **Two supervisor tests leave a real `sleep 30` running on the developer's machine.**
   Measured 2026-08-24, and it is the exact check `CLAUDE.md`'s own trap tells
   you to run: "the count before and after a full suite must be equal". It is
   not. `pytest tests/test_supervisor.py` leaves **two** live processes, every
@@ -7478,6 +7478,28 @@ program actually running.
   `pgrep` count alone says only that something leaked. The two tests added
   for LWSM-1169 leak nothing: measured before and after, the count was
   unchanged.
+  Resolved (2026-09-02). Closed by LWSM-1204 rather than by the fix this
+  bullet proposed, and the diagnosis here was the thing that was wrong:
+  the tests were blamed ("neither stops what it started") when the defect
+  was in `Supervisor.stop` itself. It enumerated the process group ONCE,
+  before the first SIGTERM, so a `sleep` forked around the stop was in no
+  list and was never signalled. Routing those two tests through the
+  fixture would have hidden a production defect behind a test change -
+  the fixture already calls `stop()`, and `stop()` was what leaked.
+  Measured against the parent commit, attributed by /proc cwd rather than
+  by pgrep: WITHOUT the fix, 2 strays, and they are exactly the two tests
+  named here (`test_a_live_child_has_not_exited`,
+  `test_a_lowered_log_cap_rotates`); WITH it, 0. The third leaker recorded
+  in the 2026-08-25 progress note showed 0 in both runs.
+  The guard this bullet asked for is IN: a session-scoped autouse fixture
+  in `conftest.py` that fails the run and names the offender. It matches
+  by CWD under the run's own temp directory, never by command line - a
+  `pgrep sleep` cannot tell this project's orphan from another program's,
+  and on this machine it does find both. PROVEN to fire rather than
+  assumed: run against the pre-fix supervisor it failed the suite and
+  named both tests by their tmpdir. No changelog entry - the leak was on
+  the developer's machine, not in the shipped app; LWSM-1204 carries the
+  user-facing half.
   **Layman:** Running the tests leaves two stray background processes behind every time, which build up until you notice and kill them.
   Kind: test.
   Source: in-session-2026-08-24.

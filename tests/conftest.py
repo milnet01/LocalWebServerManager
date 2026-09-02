@@ -39,10 +39,12 @@ asks for.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from pathlib import Path
 
+import psutil
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -144,3 +146,45 @@ def dense_malformed_file(tmp_path: Path) -> Path:
     path = tmp_path / "projects.json"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_orphans_outlive_the_run(tmp_path_factory):
+    """Fail the run if a test left a process behind, and say which test.
+
+    `CLAUDE.md` has asked a human to run this by hand since 2026-08-14 -- "the
+    count before and after a full suite must be equal" -- and the answer was
+    no for over a week (LWSM-1189). A check nobody runs is not a check.
+
+    Matched by CWD under THIS run's own temporary directory, never by command
+    line. A `pgrep sleep` cannot tell this project's orphan from another
+    program's, and on a shared machine it will find both: matching the cwd
+    makes every hit ours by construction, and it is also what makes a stray
+    attributable to the test that leaked it, since the directory is named
+    after it.
+
+    Killed as well as reported. Leaving them running is the harm being
+    guarded against, and the failure below is what stops the kill hiding it.
+    """
+    yield
+    base = str(tmp_path_factory.getbasetemp())
+    strays = []
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cwd = proc.cwd()
+        except (psutil.Error, OSError):
+            # Gone between the listing and the question, or not ours to ask
+            # about. Either way it is not evidence.
+            continue
+        if not cwd.startswith(base):
+            continue
+        strays.append(f"{proc.pid} {' '.join(proc.info['cmdline'] or [])} in {cwd}")
+        with contextlib.suppress(psutil.Error, OSError):
+            proc.kill()
+    if strays:
+        pytest.fail(
+            "tests left "
+            + str(len(strays))
+            + " process(es) running:\n  "
+            + "\n  ".join(strays)
+        )
