@@ -278,6 +278,14 @@ signaling per
 
 ### Fixed
 
+- **Clearing every scan folder behaves the same before and after a restart** (LWSM-1213)
+  Removing all the folders from the Settings dialog stopped the app
+  scanning anything for the rest of the session, then quietly went back to
+  the default folder next time it opened — re-adding the very projects
+  that had been cleared away. An empty list has always meant "use the
+  default" when the file is read, and now means the same the moment you
+  save it.
+
 - **A preferences save that fails no longer throws away your folder list too** (LWSM-1212)
   The Settings dialog writes two separate files. They shared one attempt,
   so if the preferences file could not be written — which a single stray

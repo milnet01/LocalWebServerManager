@@ -3089,12 +3089,27 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 1.
 
-- 📋 [LWSM-1213] **MEDIUM: an empty scan-roots list means two different things on read and on write.**
+- ✅ [LWSM-1213] **MEDIUM: an empty scan-roots list means two different things on read and on write.**
   __main__.py:476-477 reads empty as "scan ~/projects"; save_scan_roots(())
   writes header-only and set_scan_roots(()) sets roots=() literally. So a
   restart can re-add the very projects the user cleared the roots to exclude.
   Fix: pass the resolved default to set_scan_roots, or give the dialog an
   explicit use-the-default state.
+  Resolved (2026-09-02). Reproduced as filed. Took the bullet's FIRST
+  option - resolve the default when applying - over giving the dialog an
+  explicit use-the-default state, and the reason is about the format
+  rather than the UI: `scan-roots` has no way to say "scan nowhere", so
+  "empty means the default" is what the file MEANS, and the session
+  disagreeing with it was the whole defect. An explicit third state would
+  be a format change and a different item.
+  The fallback is now one function both ends call, rather than a literal
+  in the reader and nothing in the writer - two callers that must agree is
+  exactly the shape `scan_roots_path` was extracted for a few lines above.
+  The test asserts the two AGREE by reading the file back, not against a
+  hard-coded `~/projects`: pinning the literal would pass even if both
+  ends changed together, which is not the property being kept.
+  3/3 mutants killed, including always applying the fallback and the
+  reader ceasing to fall back at all. Gate green, 1352 tests.
   **Layman:** Clear every scan folder and the app scans nothing now, but silently goes back to the default folder after a restart.
   Kind: fix.
   Source: review-code 2026-09-01 lane 1.

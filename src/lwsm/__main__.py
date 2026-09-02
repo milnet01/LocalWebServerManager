@@ -224,7 +224,11 @@ def build_window(
         # interval while running, and `rotate_if_needed` re-reads the cap.
         controller.set_poll_interval_ms(poll_ms)
         supervisor.max_log_bytes = log_mib * 1024 * 1024
-        window.set_scan_roots(roots)
+        # `or scan_root_fallback()`, because an empty list is not "scan
+        # nowhere" anywhere else: `default_scan_roots` resolves an empty file
+        # to the fallback, so applying `()` literally here made this session
+        # disagree with the next one (LWSM-1213).
+        window.set_scan_roots(roots or scan_root_fallback())
 
         # Two files, two attempts, ONE message. Sharing the `try` meant a
         # refusal of the first skipped the second entirely — and `save_field`
@@ -426,6 +430,28 @@ def _leading_comment_block(path: Path) -> str:
     return "".join(f"{line}\n" for line in kept) or SCAN_ROOTS_HEADER
 
 
+def scan_root_fallback() -> tuple[Path, ...]:
+    """Where a scan looks when the file names nowhere.
+
+    One expression, because two callers depend on agreeing: the reader below
+    resolves an empty file to this, and the settings dialog has to apply the
+    same answer in memory. They did not agree — clearing every root scanned
+    nothing for the rest of the session and silently went back to this on the
+    next launch, re-adding the projects the user cleared the list to exclude
+    (LWSM-1213).
+
+    The file format has no way to say "scan nothing", so "empty means the
+    default" is what it means; making the running session agree is the honest
+    half of that. Expressing "nowhere" would be a format change and a
+    different item.
+    """
+    try:
+        return (Path.home() / "projects",)
+    except RuntimeError:
+        # No home directory. INV-15's machine: the app still opens.
+        return ()
+
+
 def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
     """The directories to scan, read from a config file, else `~/projects`.
 
@@ -463,10 +489,7 @@ def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
     the decode; under plain `utf-8` a BOM left the user's own header a scan
     root (LWSM-1182's class, on the reader that sweep did not reach).
     """
-    try:
-        fallback = (Path.home() / "projects",)
-    except RuntimeError:
-        fallback = ()
+    fallback = scan_root_fallback()
 
     if config is None:
         # Imported here rather than at module scope for `build_window`'s

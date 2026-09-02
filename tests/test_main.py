@@ -860,6 +860,54 @@ def test_both_write_failures_are_named_not_just_the_first(
     )
 
 
+def test_clearing_every_scan_root_means_the_same_thing_after_a_restart(
+    qtbot, monkeypatch, tmp_path
+) -> None:
+    """An empty list must not mean two different things.
+
+    `default_scan_roots` ends in `return roots or fallback`, so a file naming
+    nowhere means "scan the default" — but `set_scan_roots(())` set the
+    session's roots to nothing at all. So clearing the list scanned nothing
+    now and silently went back to `~/projects` on the next launch, re-adding
+    the projects the user cleared the list to exclude (LWSM-1213).
+
+    Asserted against what a FRESH READ of the file returns, not against a
+    literal path: what is being pinned is that the two agree, and hard-coding
+    the fallback here would pass even if both ends changed together.
+    """
+    from lwsm import settingsdialog as dialog_module
+    from lwsm.__main__ import default_scan_roots
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    class ClearingDialog:
+        DialogCode = dialog_module.SettingsDialog.DialogCode
+
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def values(self):
+            return (), 1500, 7
+
+    monkeypatch.setattr(dialog_module, "SettingsDialog", ClearingDialog)
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window._settings_action.trigger()
+        after_restart = default_scan_roots()
+        assert tuple(window.scan_roots()) == tuple(after_restart), (
+            f"this session scans {tuple(window.scan_roots())} and the next one "
+            f"will scan {tuple(after_restart)}"
+        )
+    finally:
+        controller.stop()
+
+
 def test_a_settings_save_that_works_says_nothing(qtbot, monkeypatch, tmp_path) -> None:
     """The other half, and neither holds alone.
 
