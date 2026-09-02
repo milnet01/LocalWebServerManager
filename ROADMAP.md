@@ -2557,7 +2557,7 @@ say so in their body. mainwindow.py:169 is the only finding two independent
 lanes cited at the same file and line, and it is the one to fix first. No fix
 has been applied yet — every item in this section is open.
 
-- 📋 [LWSM-1196] **HIGH: _no_line_breaks escapes only CR and LF, so U+2028 still forges a trust-dialog heading.**
+- ✅ [LWSM-1196] **HIGH: _no_line_breaks escapes only CR and LF, so U+2028 still forges a trust-dialog heading.**
   mainwindow.py:169. The only finding two independent lanes cited at the
   same file and line. Qt hard-breaks on U+2028 LINE SEPARATOR, U+2029
   PARAGRAPH SEPARATOR and U+0085 NEL; QTextDocument uses the first two as
@@ -2567,6 +2567,22 @@ has been applied yet — every item in this section is open.
   category, not by two literals: escape Zl/Zp/Cc/Cf, or at minimum add
        \v \f. VERIFY AGAINST A REAL DIALOG before and
   after, the way LWSM-1181 was measured - the suite cannot see this.
+  Resolved (2026-09-02). Reproduced against a real QMessageBox, and the
+  measurement CORRECTED the bullet twice. Qt breaks on U+2028 AND U+2029;
+  it does NOT break on U+0085 NEL, nor on VT or FF — so the bullet's
+  "at minimum add VT FF" would have added three dead branches and still
+  missed U+2029. Cf earns its place on its own measurement rather than as
+  defence in depth: `start<U+202E>abc.sh` renders pixel-identically to
+  `starths.cba`, forging the path in place in the dialog whose job is
+  naming what runs. Fixed by category (Cc/Cf/Zl/Zp) and renamed to
+  `_no_layout_forgery`, since the old name is the reading that caused
+  the defect. The FIRST red test was vacuous — its control string held a
+  slash, so `Path` split it and the name under test collapsed to the last
+  component; the pre-existing test's own comment warns of exactly that.
+  Also: the claim "the suite cannot see this" is WRONG. It can, offscreen,
+  by comparing rendered heights of two names differing by one character —
+  a relative comparison, so the CI-font trap does not apply. 4/4 mutants
+  killed, including the over-correction. Gate green, 1307 tests.
   **Layman:** A folder with a sneaky name can still fake a line in the "do you trust this?" box — the fix that was meant to stop that only covers two of the characters that break lines.
   Kind: security.
   Source: review-code 2026-09-01 lanes 10+12 (corroborated).

@@ -656,6 +656,14 @@ signaling per
 
 ### Security
 
+- **No directory name can forge the "Run this launcher?" prompt** (LWSM-1196)
+  The prompt escaped carriage return and newline only. Qt also breaks a
+  line on U+2028 and U+2029, and U+202E reverses the text it draws — so a
+  project folder could add its own "This will execute:" heading naming a
+  different launcher, or make the real path read as another one. Every
+  character that moves the layout rather than adding a glyph is now
+  escaped.
+
 - **A project folder cannot dress up the "run this launcher?" box any more** (LWSM-1181)
   That box exists to show you exactly what is about to run, and the folder
   name in it comes from whoever created the folder — which may not be you.

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -159,14 +160,47 @@ _TR_CONTEXT = "ProjectRow"
 _TRUST_FIELD = re.compile(r"%[123]")
 
 
-def _no_line_breaks(value: str) -> str:
+# Characters that change how the trust prompt is laid out rather than adding a
+# glyph to it. Chosen by category because the set is not guessable: measured
+# against a real QMessageBox on 2026-09-02, Qt breaks the line on U+2028 (Zl)
+# and U+2029 (Zp) as well as CR and LF, and does NOT break on VT, FF or U+0085
+# NEL — so a fix written from the obvious literals would have added three dead
+# branches and still missed the two live ones. Cf earns its place separately:
+# U+202E renders `start<RLO>abc.sh` pixel-identically to `starths.cba`, which
+# is a forged path in the one dialog whose job is naming what will run.
+_FORGING_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
+
+# Kept readable where a reader would recognise the name; everything else in
+# those categories has no conventional spelling and goes out as its code point.
+_NAMED_ESCAPES = {"\r": "\\r", "\n": "\\n", "\t": "\\t"}
+
+
+def _no_layout_forgery(value: str) -> str:
     """A value from someone else's tree, rendered so it cannot forge layout.
 
     `_confirm_dialog` is one plain-text block whose headings are its only
     structure, and all three of its fields are names a stranger may have
-    chosen. A line break in one lets it draw a heading of its own.
+    chosen. A line break in one lets it draw a heading of its own, and a
+    direction override lets it draw a different path from the same bytes.
+
+    Named for what it defends rather than for how: it escaped CR and LF alone
+    when it was `_no_line_breaks`, which is exactly the reading that let
+    U+2028 through (LWSM-1196).
+
+    A name holding characters in these categories legitimately — a soft
+    hyphen, an emoji joiner — is shown escaped. That is the same stated loss
+    as the literal backslash-n below: neither can forge the dialog, which is
+    what this is defending.
     """
-    return value.replace("\r", "\\r").replace("\n", "\\n")
+    return "".join(
+        _NAMED_ESCAPES.get(char)
+        or (
+            f"\\u{ord(char):04x}"
+            if unicodedata.category(char) in _FORGING_CATEGORIES
+            else char
+        )
+        for char in value
+    )
 
 
 def state_word(status: ProjectStatus) -> str:
@@ -2072,8 +2106,9 @@ class MainWindow(QMainWindow):
         thing being displayed is a path from a directory anybody could have
         written into, and Qt's default sniffs for rich text.
 
-        **All three fields go in on ONE pass, and their line breaks are
-        escaped** (LWSM-1181). They were substituted in sequence, so the name
+        **All three fields go in on ONE pass, and anything that would move
+        the layout is escaped** (LWSM-1181, widened by LWSM-1196). They were
+        substituted in sequence, so the name
         landed in a template still holding `%2` and `%3` and a directory called
         `evil%2` had the launcher path pasted into its own name. And every one
         of the three comes from someone else's tree, while the headings are
@@ -2100,7 +2135,7 @@ class MainWindow(QMainWindow):
         }
         box.setText(
             _TRUST_FIELD.sub(
-                lambda match: _no_line_breaks(fields[match.group()]),
+                lambda match: _no_layout_forgery(fields[match.group()]),
                 QCoreApplication.translate(
                     _TR_CONTEXT,
                     "%1 has not been run from here before.\n\n"

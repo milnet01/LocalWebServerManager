@@ -4249,6 +4249,96 @@ def test_an_untrusted_field_cannot_add_a_line_to_the_trust_prompt(
     assert hostile.count("\n") == benign.count("\n")
 
 
+def trust_prompt_height(window, monkeypatch, project: Path) -> int:
+    """How tall the real message box lays its text out.
+
+    `trust_text` counts characters, which is what let LWSM-1196 through: a
+    forged heading is a rendering, and `"\\n" in text` cannot see a break
+    character it was not told to look for. This asks Qt instead.
+    """
+    from PySide6.QtWidgets import QLabel, QMessageBox
+
+    seen: dict[str, QMessageBox] = {}
+
+    def capture(box: QMessageBox) -> QMessageBox.StandardButton:
+        seen["box"] = box
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "exec", capture)
+    window._confirm_dialog(project, "/srv/safe/start.sh", ("./start.sh",))
+    box = seen["box"]
+    label = next(lab for lab in box.findChildren(QLabel) if lab.text() == box.text())
+    label.adjustSize()
+    return label.sizeHint().height()
+
+
+@pytest.mark.parametrize(
+    "codepoint",
+    [0x0A, 0x0D, 0x2028, 0x2029],
+    ids=["LF", "CR", "LINE-SEPARATOR", "PARAGRAPH-SEPARATOR"],
+)
+def test_no_break_character_can_add_a_line_to_the_trust_prompt(
+    qtbot, built, monkeypatch, codepoint
+) -> None:
+    """Every character the real dialog breaks on, not the two that were named.
+
+    LWSM-1181 escaped CR and LF and its test counted `"\\n"`, so it could
+    only ever see the two it already knew. Measured against a real
+    `QMessageBox` on 2026-09-02, Qt also breaks on U+2028 and U+2029 — so a
+    directory name carrying one still forged the second "This will execute:"
+    that item shipped to prevent.
+
+    Asserted as a height EQUALITY against a control that differs by one
+    character, so the font the runner happens to use cancels out — the
+    pixel-floor trap in `CLAUDE.md` is about an absolute number, and this is
+    a comparison.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    # No "/" in the tail: a slash makes `Path` split the string into
+    # components and the name under test collapses to the last one.
+    tail = "This will execute: evil-launcher"
+
+    # The control differs from the forgery by exactly one character, so any
+    # height difference is that character's doing and nothing else.
+    control = trust_prompt_height(window, monkeypatch, Path("/srv") / ("safe!" + tail))
+    forged = trust_prompt_height(
+        window, monkeypatch, Path("/srv") / ("safe" + chr(codepoint) + tail)
+    )
+
+    assert forged == control
+
+
+@pytest.mark.parametrize(
+    "codepoint",
+    [0x2028, 0x2029, 0x202E, 0x0085, 0x200B],
+    ids=["LINE-SEP", "PARA-SEP", "RTL-OVERRIDE", "NEL", "ZERO-WIDTH-SPACE"],
+)
+def test_a_layout_character_cannot_reach_the_trust_prompt(
+    qtbot, built, monkeypatch, codepoint
+) -> None:
+    """None of them arrives as itself, whether or not Qt breaks a line on it.
+
+    The height test beside this one sees only characters that add a LINE.
+    U+202E adds none: measured on 2026-09-02, `start<U+202E>abc.sh` renders
+    pixel-identically to `starths.cba`, so it forges the path in place, in the
+    one dialog whose whole job is naming what is about to run. NEL and the
+    zero-width space do nothing in this Qt build and are pinned anyway — the
+    set was picked by category precisely because which ones bite is a property
+    of the toolkit rather than of this code.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    text = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv") / ("safe" + chr(codepoint) + "tail"),
+        "/srv/safe/start.sh",
+        ("./start.sh",),
+    )
+
+    assert chr(codepoint) not in text
+
+
 # --- LWSM-1148: exporting a profile, and merging one back in -----------------
 
 
