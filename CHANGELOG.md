@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **On a machine with no home folder, Rescan is no longer offered** (LWSM-1210)
+  The app already opens and explains itself when it cannot find a home
+  directory. It was still showing Rescan and the profile import and export
+  entries, none of which has anywhere to write, so using one would have
+  failed. They are hidden now, like everything else that cannot work
+  there.
+
 - **The launcher entry works when the app lives in a folder with a space in its name** (LWSM-1209)
   Installing from somewhere like "My Projects" produced a menu entry that
   appeared and then would not start, because the path was written without

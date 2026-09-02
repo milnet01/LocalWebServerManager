@@ -3012,11 +3012,25 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1210] **MEDIUM: RescanContext is built with projects_path=None when there is no home directory.**
+- ✅ [LWSM-1210] **MEDIUM: RescanContext is built with projects_path=None when there is no home directory.**
   __main__.py:257. On the branch where default_projects_path() raises,
   projects_path is still None and the dataclass does not check. Because
   _rescan is not None, File > Export/Import are created too. Contradicts the
   rule at mainwindow.py:1116. Fix: rescan=None if projects_path is None.
+  Resolved (2026-09-02). Reproduced exactly: with no home directory the
+  window held `RescanContext(projects_path=None, roots=())`, inside a
+  field typed `Path`. Fixed as the bullet prescribes - no path, no
+  context - which is the answer this file already gives for the log, the
+  theme and the project list on that machine.
+  One correction, and it is about the bullet's CITATION rather than its
+  claim: "the rule at mainwindow.py:1116" points at LWSM-1141's
+  accessibility comment, not at any rule about the rescan path. The line
+  has drifted. The claim itself is right, and the rule it means is the
+  window's own - a control it cannot honour is not offered - so the test
+  asserts on the button as well as on the attribute. Line numbers in a
+  fold-in age; the claim is what to check.
+  2/2 mutants killed, including never building a context at all. Gate
+  green, 1347 tests.
   **Layman:** On a machine with no home folder the Rescan and Import buttons appear but crash when used.
   Kind: fix.
   Source: review-code 2026-09-01 lane 1.

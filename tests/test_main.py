@@ -167,6 +167,41 @@ def test_starts_even_when_there_is_no_home_directory(monkeypatch, capsys, tmp_pa
     )
 
 
+def test_no_home_directory_offers_no_rescan_it_cannot_perform(
+    qtbot, monkeypatch
+) -> None:
+    """With nowhere to save, Rescan and the profile entries must not appear.
+
+    `RescanContext.projects_path` is typed `Path` and the dataclass checks
+    nothing, so on the branch where `default_projects_path()` raises the
+    context was still built — with `None` — and the window offered Rescan,
+    Export and Import because `_rescan is not None`. All three end at
+    `self._rescan.save(self._rescan.projects_path, ...)` (LWSM-1210).
+
+    Asserted on what a user can reach as well as on the attribute: the
+    window's own rule is that a control it cannot honour is not offered, and
+    that is the promise being kept.
+    """
+    import pwd
+
+    from lwsm.__main__ import build_window
+
+    def no_passwd_entry(uid: int) -> object:
+        raise KeyError(f"no passwd entry for uid {uid}")
+
+    monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setattr(pwd, "getpwuid", no_passwd_entry)
+
+    window, controller = build_window()
+    qtbot.addWidget(window)
+    controller.stop()
+
+    assert window._rescan is None, "a rescan context was built with no path to save to"
+    assert window._rescan_button is None, "Rescan is offered and cannot work"
+
+
 def test_the_console_script_names_run_not_main() -> None:
     """The process-ending exit lives in `run()`, and this pins it there.
 
