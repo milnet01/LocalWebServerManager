@@ -1822,6 +1822,46 @@ def test_the_budget_signal_is_not_an_oserror() -> None:
     assert not issubclass(scanner._BudgetExpired, OSError)
 
 
+def test_a_budget_expiring_inside_the_import_walk_abandons_the_candidate(
+    tmp_path: Path,
+) -> None:
+    """`_BudgetExpired` states the rule this call site broke.
+
+    "The candidate in progress is abandoned rather than rejected, because
+    reporting what was read so far would hand the caller an honest-looking
+    *unknown* the project never earned — and LWSM-1007 is about to persist
+    that list." The import walk instead `return None`d on expiry (LWSM-1220).
+
+    Measured, and WORSE than filed: the project was listed with `port=None`
+    **and `timed_out` came back False**, so the caller was also told the list
+    was the whole truth. Only the walk's own guard produces that pair — an
+    expiry noticed two lines later inside `_read_lines` raises and is handled
+    correctly. One budget, two answers, by which line of the same function
+    noticed first.
+
+    The step is tuned so expiry lands on the walk's guard rather than inside
+    the read: with a generous budget this fixture finds 8080 in `config.py`,
+    so a `None` here is the expiry and nothing else.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {"serve.py": "import config\n", "config.py": "PORT = 8080\n"},
+        "serve.py",
+    )
+
+    result = scanner.scan(
+        [tmp_path], units=FakeUnits(), now=Clock(step=0.2), budget_seconds=1.0
+    )
+
+    assert result.timed_out is True, (
+        "the scan reported itself complete after abandoning a port lookup"
+    )
+    assert result.projects == (), (
+        "a project was listed with an unknown port it never earned"
+    )
+
+
 def test_a_budget_expiring_inside_a_read_still_reports_a_timeout(
     tmp_path: Path,
 ) -> None:

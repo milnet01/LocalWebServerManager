@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **A scan that runs out of time says so instead of guessing** (LWSM-1220)
+  When the time budget ran out while a scan was following a project's
+  imports to find its port, the project was listed with the port shown as
+  unknown — and the scan still reported that it had finished normally. It
+  now stops and says the scan was cut short, which is what every other
+  part of it already did.
+
 - **An older version of the app no longer deletes settings it does not recognise** (LWSM-1218)
   Anything in the project file that a given build did not know about was
   dropped the next time that build saved. Running an older version once

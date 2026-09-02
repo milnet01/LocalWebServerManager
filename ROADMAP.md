@@ -3295,13 +3295,34 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
 
-- 📋 [LWSM-1220] **MEDIUM: a scan budget expiry inside the import walk is swallowed and reported as an honest unknown.**
+- ✅ [LWSM-1220] **MEDIUM: a scan budget expiry inside the import walk is swallowed and reported as an honest unknown.**
   scanner.py:775. `if hops >= MAX_IMPORT_HOPS or deadline.expired(): return None`.
   Spec 4.3 requires expiry to ABANDON the candidate - not listed, no partial
   port. Inconsistent with itself: expiry noticed two lines later inside
   _read_lines propagates correctly via _BudgetExpired. LWSM-1007 is about to
   persist that fabricated unknown. Fix: split the conditions - expiry raises,
   hop exhaustion returns None.
+  Resolved (2026-09-02). Reproduced, and the defect is WORSE than filed:
+  the project is listed with `port=None` AND `timed_out` comes back
+  FALSE, so the caller is told the list is the whole truth as well as
+  being handed an unknown the project never earned. The bullet named only
+  the first half.
+  Fixed as prescribed - expiry raises `_BudgetExpired`, hop exhaustion
+  still returns None, because exhausting the hops is not a failure and an
+  unknown there IS honest.
+  FINDING THE FIXTURE WAS THE WORK, and two wrong ones came first. A
+  `.sh` launcher never enters the Python import walk at all, so my first
+  attempt measured nothing and passed. And filtering the probe on
+  `timed_out` hid the very case being looked for, since the whole point is
+  that `timed_out` stays False. The step is tuned so expiry lands on the
+  walk's own guard rather than inside `_read_lines`, which has always
+  raised: with a generous budget the same fixture finds 8080, so a `None`
+  there is the expiry and nothing else. Both facts are in the test, so the
+  next reader does not repeat either.
+  4/4 mutants killed, including hop exhaustion also raising and the hop
+  bound being dropped. One was refused for hitting three sites - the
+  `if deadline.expired():` line is not unique in this file - and re-run
+  narrowed. Gate green, 1361 tests.
   **Layman:** When a scan runs out of time mid-project it lists that project as "port unknown" instead of admitting it never finished.
   Kind: fix.
   Source: review-code 2026-09-01 lane 3.

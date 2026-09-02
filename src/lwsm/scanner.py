@@ -772,12 +772,28 @@ def _import_hop_port(
     hops = 0
     for line in lines:
         for specifier in _import_specifiers(strip_comment(line), launcher.suffix):
-            if hops >= MAX_IMPORT_HOPS or deadline.expired():
-                # Two different budgets. `MAX_IMPORT_HOPS` bounds the files
-                # actually READ, which is the expensive half; the deadline
-                # bounds the attempts, which are one failed `open` each and
-                # would otherwise be limited only by how many import lines a
-                # hostile launcher cares to write.
+            # Two different budgets, and they end the walk in two DIFFERENT
+            # ways — which is the whole of LWSM-1220. `MAX_IMPORT_HOPS` bounds
+            # the files actually READ, which is the expensive half; the
+            # deadline bounds the attempts, which are one failed `open` each
+            # and would otherwise be limited only by how many import lines a
+            # hostile launcher cares to write.
+            if deadline.expired():
+                # ABANDON, never `return None`. `_BudgetExpired` states the
+                # rule: "the candidate in progress is abandoned rather than
+                # rejected, because reporting what was read so far would hand
+                # the caller an honest-looking *unknown* the project never
+                # earned". Returning None did exactly that — measured, the
+                # project was listed with `port=None` AND `timed_out` came
+                # back False, so the caller was told the list was complete.
+                #
+                # An expiry noticed two lines below, inside `_read_lines`,
+                # has always raised. One budget must not have two answers
+                # depending on which line of this function noticed it.
+                raise _BudgetExpired
+            if hops >= MAX_IMPORT_HOPS:
+                # Exhausting the hops is not a failure: the walk simply stops
+                # looking, and an unknown port here IS honest.
                 return None
             target, reason = _accept_hop(specifier, candidate, launcher)
             if reason is not None:
