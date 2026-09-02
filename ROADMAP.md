@@ -2806,7 +2806,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1204] **HIGH: the process group is enumerated once, so a process forked during the grace window is never signalled.**
+- ✅ [LWSM-1204] **HIGH: the process group is enumerated once, so a process forked during the grace window is never signalled.**
   supervisor.py:802, reused at :811 and :821. A process forked into the group
   DURING the grace window - a trap handler that respawns, an npm run dev
   watcher, a node cluster replacing a worker - is in no list, gets neither
@@ -2816,6 +2816,24 @@ has been applied yet — every item in this section is open.
   prescription does not have this hole. NOT the CLAUDE.md start-race trap:
   this fires after a healthy poll. Fix: re-enumerate before escalating and
   again after the kill wait; report survivors in StopOutcome.warning.
+  Resolved (2026-09-02). Reproduced with a launcher whose SIGTERM trap
+  backgrounds a new process into the group and exits: the newcomer got
+  neither signal, outlived the stop, and StopOutcome came back clean.
+  Fixed as the bullet asks - re-enumerate before escalating and again
+  after the kill wait, with survivors named in `warning`.
+  UNPLANNED RESULT WORTH THE NEXT READER'S TIME: this also closes
+  LWSM-1189's process leak. Measured on the supervisor suite, exact
+  pattern, fix stashed and restored: 2 leaked `sleep 30` WITHOUT it and 0
+  WITH it, which matches that item's "two tests leave one each, every
+  run". Those leaks were the same defect seen from the test side - a
+  grandchild forked around the stop that the single enumeration could not
+  see. LWSM-1189 is flipped separately rather than folded in here.
+  Two mutants SURVIVED the first run and both were the straggler REPORT,
+  not the enumeration - a real gap rather than equivalence, so the report
+  now has its own test. It drives `_group_members` through a seam, because
+  a straggler is by definition something SIGKILL did not remove and
+  SIGKILL cannot be blocked; the enumeration itself is tested beside it
+  with a real child. 3/3 killed after that. Gate green, 1317 tests.
   **Layman:** Stop can leave a server running and still report success, if the thing it is stopping starts a new process while being asked to quit.
   Kind: fix.
   Source: review-code 2026-09-01 lane 4.

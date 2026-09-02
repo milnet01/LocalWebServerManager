@@ -278,6 +278,14 @@ signaling per
 
 ### Fixed
 
+- **Stop no longer leaves behind a process that appeared while it was working** (LWSM-1204)
+  Stop listed the server's processes once, at the start. Anything that
+  appeared afterwards — a shutdown handler that restarts something, a
+  watcher, a worker being replaced — was on no list, was never asked to
+  quit, kept the port, and Stop still reported success. The list is taken
+  again before the forceful step and once more at the end, and anything
+  still running is now named in the result.
+
 - **The app now says when it can no longer see which ports are busy** (LWSM-1203)
   If reading the system's port list started failing — a hardened kernel, a
   container without /proc — every row kept showing its last answer, which

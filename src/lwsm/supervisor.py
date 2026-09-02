@@ -808,7 +808,21 @@ class Supervisor:
             except psutil.Error as exc:
                 log.info("could not signal pid %d: %s", proc.pid, exc)
 
-        survivors = self._wait_for(members, grace, _on_wait)
+        self._wait_for(members, grace, _on_wait)
+
+        # Re-enumerated rather than reusing what `_wait_for` returned. A
+        # process that joined the group since the SIGTERM went out — a trap
+        # handler that respawns, a watcher, a cluster replacing a worker — is
+        # in no list here, so it was signalled by neither phase, survived
+        # holding the port, and the outcome came back clean (LWSM-1204).
+        # ADR-0003 calls stopping the whole tree "the single most important
+        # correctness property of the Stop button", and its own
+        # killpg-per-phase prescription does not have this hole.
+        #
+        # This asks the same question `_group_members` answered before the
+        # first signal, so it also still contains everything that ignored the
+        # SIGTERM: it is a superset of the survivors, not a different set.
+        survivors = self._group_members(managed)
 
         killed: list[int] = []
         for proc in survivors:
@@ -820,8 +834,24 @@ class Supervisor:
         if killed:
             self._wait_for(survivors, KILL_TIMEOUT_SECONDS, None)
 
+        # And once more, because a process forked during the KILL wait is the
+        # same hole one phase along. Nothing is signalled for these: they are
+        # reported, the way a still-bound port is (`_port_after_stop`), so a
+        # stop that could not finish the job says so instead of claiming it.
+        stragglers = [proc.pid for proc in self._group_members(managed)]
+
         exit_code = self._reap(managed)
         bound, warning = self._port_after_stop(managed)
+        if stragglers:
+            straggler_warning = (
+                f"{managed.name} stopped, but {len(stragglers)} process(es) in "
+                f"its group were still running afterwards: {stragglers}"
+            )
+            warning = (
+                straggler_warning
+                if warning is None
+                else f"{warning}; {straggler_warning}"
+            )
         log.info(
             "stopped %s: terminated %r, killed %r, exit %s",
             managed.name,

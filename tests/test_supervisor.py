@@ -13,6 +13,7 @@ property a passing acceptance test would not have noticed.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
@@ -850,6 +851,98 @@ def test_a_stop_during_the_stop_sequence_is_still_idempotent(
 
     assert seen, "_on_wait never fired"
     assert seen[0] == StopOutcome()
+
+
+@pytest.mark.integration
+def test_a_process_forked_during_the_grace_window_is_still_stopped(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """ADR-0003 calls stopping the whole tree "the single most important
+    correctness property of the Stop button".
+
+    The group was enumerated ONCE, before the first SIGTERM. Anything that
+    joined it afterwards — a trap handler that respawns, an `npm run dev`
+    watcher, a node cluster replacing a worker — was in no list, received
+    neither signal, survived holding the port, and `StopOutcome` came back
+    clean (LWSM-1204).
+
+    This is not `CLAUDE.md`'s start-race trap, which is about stopping a child
+    that has not finished starting. Here the child is fully up — the launcher
+    reports its trap installed and is polled until it has — and the new
+    process appears strictly during the grace window, in response to the
+    SIGTERM itself.
+    """
+    write_launcher(
+        project,
+        """
+        trap 'sleep 30 & echo $! > respawned.pid; exit 0' TERM
+        echo trap-installed
+        while true; do sleep 0.05; done
+        """,
+    )
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    assert wait_until(
+        lambda: "trap-installed" in managed.log_path.read_text(encoding="utf-8")
+    ), "the launcher never reported installing its SIGTERM trap"
+
+    outcome = supervisor.stop(project, grace=0.5)
+
+    marker = project / "respawned.pid"
+    assert wait_until(lambda: marker.exists()), "the trap never ran"
+    respawned = int(marker.read_text(encoding="utf-8").strip())
+    try:
+        assert not _alive(respawned), (
+            "a process forked into the group during the grace window outlived "
+            "the stop, which reported success"
+        )
+    finally:
+        # Never leave it behind: an escaped `sleep 30` is the leak this file's
+        # own fixture exists to prevent, and a failing assertion above would
+        # otherwise hand one to every later run.
+        with contextlib.suppress(OSError, psutil.Error):
+            psutil.Process(respawned).kill()
+    assert outcome.warning is None or "still" in outcome.warning
+
+
+@pytest.mark.integration
+def test_a_straggler_the_kill_did_not_reach_is_reported(
+    supervisor: Supervisor, project: Path, monkeypatch
+) -> None:
+    """A stop that could not finish the job must say so, not claim success.
+
+    Driven through the `_group_members` seam rather than with a real process,
+    because a straggler is by definition something SIGKILL did not remove, and
+    SIGKILL cannot be blocked — the only honest way to reach the branch is to
+    inject the answer. What is under test is the report, not the enumeration:
+    the enumeration has its own test beside this one, with a real child.
+
+    Two mutants found this unmeasured: deleting the report entirely, and
+    emitting it when there is nothing to report, both left the suite green.
+    """
+    write_launcher(project, "echo up\nwhile true; do sleep 0.05; done")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    assert wait_until(lambda: "up" in managed.log_path.read_text(encoding="utf-8")), (
+        "the launcher never started"
+    )
+
+    real = supervisor._group_members
+    calls: list[int] = []
+
+    def enumerate_with_a_straggler(m):
+        calls.append(1)
+        members = real(m)
+        # The LAST call is the one after the kill wait. Everything before it
+        # answers honestly, so the terminate and kill phases are unchanged.
+        return members if len(calls) < 3 else [managed.handle]
+
+    monkeypatch.setattr(supervisor, "_group_members", enumerate_with_a_straggler)
+
+    outcome = supervisor.stop(project, grace=0.2)
+
+    assert outcome.warning is not None, "a survivor was found and not reported"
+    assert "still running" in outcome.warning, outcome.warning
 
 
 @pytest.mark.integration
