@@ -286,6 +286,15 @@ signaling per
 
 ### Fixed
 
+- **A booby-trapped file where a rotated log goes could freeze status updates** (LWSM-1229)
+  The app caps each project's log and keeps one older copy. The place
+  that older copy is written was opened less carefully than the log
+  itself, so a special file planted there could make the app wait for
+  it forever, silently, and stop every project's log being capped. It
+  now refuses such a file — and checks before emptying anything, so a
+  file that is not ours is no longer blanked on the way to being
+  rejected.
+
 - **The browser picker could be too narrow to click, and cut its text with no way to read it** (LWSM-1253)
   On a machine with no browser installed the dropdown shrank below the
   minimum size everything clickable is meant to have. Its text was also

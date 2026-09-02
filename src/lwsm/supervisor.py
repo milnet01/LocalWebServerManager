@@ -90,6 +90,33 @@ POLL_INTERVAL_SECONDS = 0.02
 # `Supervisor.max_log_bytes`, which starts here and follows the user's choice.
 MAX_LOG_BYTES = DEFAULT_LOG_MAX_MIB * 1024 * 1024
 ROTATION_SUFFIX = ".1"
+
+
+def _open_private_regular(path: Path, flags: int) -> int:
+    """Open `path` as a regular file of ours alone, following nothing.
+
+    One function because there were two copies and they had diverged
+    (`coding.md § 1.3`): the log's open was hardened and the rotation backup's
+    was not, which is exactly the shape a second copy fails in.
+
+    `O_NONBLOCK` belongs in the open rather than beside it. `O_NOFOLLOW`
+    refuses a symlink and says nothing about a FIFO, and opening one for
+    writing blocks until a reader appears -- forever, on whichever thread
+    asked, with no error and no log line. `applog.py` and `configfile.py` were
+    both written after measuring that. It is dropped again once the check
+    passes, because a regular file must write blocking or a line can be
+    short-written.
+    """
+    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        _require_private_regular_file(fd, str(path))
+        os.set_blocking(fd, True)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 _COPY_CHUNK_BYTES = 1 << 20
 
 # A launcher is somebody else's file, so reading it to fingerprint it is a
@@ -581,17 +608,7 @@ class Supervisor:
         it is the project's own output, in the project's own file.
         """
         _prepare_state_dir(path.parent)
-        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK
-        fd = os.open(path, flags, 0o600)
-        try:
-            _require_private_regular_file(fd, str(path))
-            # Dropped again once the check passes: a regular file must write
-            # blocking, or a child's line can be short-written.
-            os.set_blocking(fd, True)
-        except BaseException:
-            os.close(fd)
-            raise
-        return fd
+        return _open_private_regular(path, os.O_RDWR | os.O_CREAT | os.O_APPEND)
 
     def rotate_if_needed(self, project: Path) -> bool:
         """One rotation at `max_log_bytes`, keeping the inode.
@@ -623,12 +640,19 @@ class Supervisor:
                 return False
 
             backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
-            out = os.open(
-                backup,
-                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-                0o600,
-            )
+            # The same open as the log's, and it was NOT until LWSM-1229: this
+            # one carried `O_NOFOLLOW` alone, so a FIFO planted here blocked
+            # the poll thread forever -- `O_NOFOLLOW` refuses a symlink and
+            # says nothing about a pipe.
+            #
+            # Emptying it is `ftruncate` AFTER the check rather than `O_TRUNC`
+            # in the flags, which is not a detail: `O_TRUNC` destroys the
+            # target as part of opening it, so on a hard link planted here the
+            # file would be blanked and the refusal would arrive too late to
+            # matter. The check has to gate the destruction to be worth having.
+            out = _open_private_regular(backup, os.O_WRONLY | os.O_CREAT)
             try:
+                os.ftruncate(out, 0)
                 offset = 0
                 while offset < size:
                     # Read through our own descriptor, never by reopening the

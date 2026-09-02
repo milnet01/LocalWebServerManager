@@ -34,6 +34,7 @@ from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.supervisor import (
     ENV_ALLOWLIST,
     MAX_LOG_BYTES,
+    ROTATION_SUFFIX,
     AlreadyRunning,
     LauncherRefused,
     LauncherUntrusted,
@@ -1737,6 +1738,77 @@ def test_a_lowered_log_cap_rotates_a_file_the_default_would_have_kept(
     assert rotated.exists(), "the lowered cap was ignored"
     assert managed.log_path.stat().st_size <= lowered
     supervisor.stop(project)
+
+
+# --- LWSM-1229: the rotation backup is opened like the log, not loosely -------
+
+
+def _rotatable(supervisor, project):
+    """A started project whose log is already over the cap."""
+    write_launcher(project, "sleep 30\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    supervisor.max_log_bytes = 4096
+    os.pwrite(managed.log_fd, b"x" * (supervisor.max_log_bytes + 1), 0)
+    return managed
+
+
+def test_a_fifo_planted_where_the_rotated_log_goes_refuses_instead_of_hanging(
+    supervisor, project
+) -> None:
+    """`O_NOFOLLOW` refuses a symlink and says nothing about a FIFO.
+
+    Opening one for writing blocks until a reader appears — forever, on the
+    thread that asked, which here is the poll. No error, no log line, and
+    every project's log cap stops being enforced. `O_NONBLOCK` turns that
+    into an immediate ENXIO, which is why it is in the open rather than
+    beside it.
+
+    If this test ever hangs rather than fails, that IS the defect: the flag
+    is gone.
+    """
+    managed = _rotatable(supervisor, project)
+    backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
+    os.mkfifo(backup, 0o600)
+
+    try:
+        with pytest.raises(OSError):
+            supervisor.rotate_if_needed(project)
+        assert managed.log_path.stat().st_size > supervisor.max_log_bytes, (
+            "the source log must be left alone when the backup is refused"
+        )
+    finally:
+        supervisor.stop(project, grace=0.5)
+
+
+def test_a_hard_link_at_the_rotated_path_is_refused_before_it_is_emptied(
+    supervisor, project
+) -> None:
+    """The check has to gate the destruction, or it is not worth having.
+
+    `O_TRUNC` empties the target as PART of opening it, so with the flags in
+    the open the refusal arrives after the damage: a file the user cares
+    about, hard-linked here, is already blank. Emptying with `ftruncate`
+    after `_require_private_regular_file` has passed is what makes the
+    refusal mean anything.
+
+    Dies on moving the truncation back into the open flags — the refusal
+    still fires, and the bystander comes back empty.
+    """
+    managed = _rotatable(supervisor, project)
+    backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
+    bystander = project / "something-the-user-wanted"
+    bystander.write_bytes(b"not ours to destroy")
+    os.link(bystander, backup)
+
+    try:
+        with pytest.raises(OSError):
+            supervisor.rotate_if_needed(project)
+        assert bystander.read_bytes() == b"not ours to destroy", (
+            "the hard-linked file was emptied before the refusal fired"
+        )
+    finally:
+        supervisor.stop(project, grace=0.5)
 
 
 # --- LWSM-1167: owns_pid — is this pid in our child's process group? ----------
