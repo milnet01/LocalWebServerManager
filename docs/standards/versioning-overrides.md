@@ -3,84 +3,88 @@
 
 **Status:** v1 (2026-09-02).
 
-**Versioning for this project is
-[`~/.claude/standards/versioning.md`](https://semver.org/spec/v2.0.0.html)**
-— the machine-global standard, local to the author's machine, which
-mandates Semantic Versioning 2.0.0. It is read in place and not copied
-here: a rule stated in two places is two rules that will disagree.
+Versioning for this project is the machine-global
+`~/.claude/standards/versioning.md`, which mandates
+[Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). It is read
+in place rather than copied: a rule stated in two places is two rules that
+will disagree.
 
-This file holds the two answers that standard deliberately refuses to
-supply, because they cannot be true of every project: **what a break
-means here**, and **what would make this `1.0`**. Everything else —
-which number to bump, when it moves, pre-release suffixes — is the
-global file's.
+**That file is on the author's machine and not in this repository.** It binds
+the maintainer, who cuts the releases. A contributor needs only what is
+restated here.
+
+This file holds the two answers the global standard refuses to supply for
+every project: **what a break means here**, and **what would make this
+`1.0`**.
 
 ## 1. Breaking surfaces
 
-SemVer is written for something other code imports. Nothing imports
-this: it is a desktop application. So *"the public API"* has no
-referent, and the list below is what stands in its place. Breaking any
-of these bumps the level the global standard's § 2 and § 4 require.
+Nothing imports this — it is a desktop application — so *"the public API"*
+has no referent, and this list stands in its place.
 
-- **`projects.json`** — the registry, and the same format a profile is
-  written in. Hand-editable by design, so its keys and their accepted
-  types are a promise. Dropping a key, narrowing a type, or changing
-  what an absent key means is breaking. Adding one is not: unrecognised
-  keys are carried through untouched (LWSM-1218).
-- **`settings.json`** — the same, for preferences and window geometry.
-- **`scan-roots`** — one directory per line, `#` comments, `~`
-  expanded, order preserved because it is the walk order. An empty file
-  means *use the default*, and that meaning is part of the format
-  (LWSM-1213).
-- **The `PORT` contract with sibling projects (ADR-0002).** The one
-  surface that is not ours alone: other repositories were changed to
-  read `PORT` from their environment. Changing the variable, its
-  accepted range, or what an absent value means breaks software this
-  project does not own and cannot fix.
-- **The `lwsm` command** — that it exists, that `--version` and
-  `--help` work, and that an unrecognised option exits 2.
-- **The desktop entry id** `io.github.milnet01.LocalWebServerManager`.
-  A pinned launcher and a taskbar grouping are attached to it.
-- **The keyboard interface** — the number keys, `/`, Escape and Enter.
-  `design-accessibility.md` makes the app keyboard-first, and these are
-  in the fingers of the user it is keyboard-first *for*.
-
-**Deliberately not breaking surfaces**, so the list bounds rather than
-sprawls: the on-screen layout, the palettes and their names, log file
-contents and rotation, the wording of any message, and every internal
-module boundary. A user can see all of these change without anything
-they rely on ceasing to work.
+- **`projects.json`**, the registry, and the profile written in the same
+  format. Hand-editable, so its keys and their meanings are a promise.
+  Adding a key is safe: unrecognised ones are carried through untouched
+  (LWSM-1218).
+- **`settings.json`**. Its keys and meanings are a promise in the same way,
+  but the carry-through is not: this reader takes the keys it knows and the
+  writer emits a fixed set, so a key added here is dropped by any build that
+  predates it.
+- **`scan-roots`** — one directory per line, `#` comments, `~` expanded,
+  order preserved because it is the walk order. An empty file means *use the
+  default*, and that meaning is part of the format (LWSM-1213).
+- **The `PORT` contract (ADR-0002).** The one surface not ours alone: other
+  repositories were changed to read `PORT` from their environment. Changing
+  the variable, its accepted range, or what an absent value means breaks
+  software this project does not own.
+- **The `lwsm` command** — that it exists, that `--version` and `--help`
+  work, and that an unrecognised option exits 2.
+- **The desktop entry id** `io.github.milnet01.LocalWebServerManager`, which
+  a pinned launcher is attached to.
+- **The keyboard interface.** `docs/design-accessibility.md` makes the app
+  keyboard-first, and its shortcuts are in the fingers of the user it is
+  keyboard-first *for*.
 
 **A surface nobody wrote down is still a surface.** This list makes the
-common cases cheap; it does not bound the promise.
+common cases cheap; it does not bound the promise, and a release that broke
+something absent from it was still breaking.
 
 ## 2. What would make this `1.0`
 
-The global standard's § 4 requires a `0.x` project to state its exit
-condition where someone else can check it, and warns that a `0.x`
-without one is a project whose leading zero has gone inert.
+The global standard requires a `0.x` project to state its exit condition
+where someone else can check it.
 
 **`1.0.0` is the five success criteria in
-[`docs/discovery.md`](../discovery.md) delivered end to end, plus the
-security fold-in, plus a packaged download.** Agreed with the user on
-2026-08-24 and recorded in `ROADMAP.md` as **LWSM-1188**, which holds
-the reasoning and the running counts; this is the pointer the standard
-asks for, not a second copy of it.
+[`docs/discovery.md`](../discovery.md) delivered end to end, plus `FP01`, the
+security fold-in, plus `P10`'s packaged download.** Agreed with the user on
+2026-08-24; `ROADMAP.md`'s LWSM-1188 holds the reasoning.
 
-The membership rule is what is fixed — the five criteria, security,
-packaging — so an item filed into one of those phases tomorrow is in
-scope by construction and needs no renegotiation. The phases carrying
-them are labelled `criterion 1` … `criterion 5` in the roadmap.
+The membership rule is fixed — those five criteria, `FP01`, `P10` — so an
+item filed into one of them tomorrow is in scope without renegotiation. The
+criteria are carried by the phases the roadmap labels `criterion 1` …
+`criterion 5`.
 
-**Out of `1.0`, and this is the half that makes the condition
-checkable:** the shell work in P09, the debt in DS01, and the older
-fold-ins. All of it is of genuine value and none of it is needed to use
-the app for what it is for.
+**Out of `1.0`:** `P09`'s shell work, `DS01`'s debt, and every fold-in
+before `FP09`. All of it has value; none of it is needed to use the app for
+what it is for.
 
-**Inside `0.x` the levels shift down one**, which the global § 4 states
-and which is easy to get wrong here: a breaking change to anything in
-§ 1 bumps the MINOR and resets the PATCH, and **everything else — a new
-capability included — bumps the PATCH.** So the road from the first
-release to `1.0` is `0.1.0`, then `0.1.1`, `0.1.2` … and a `0.2.0` only
-appears if something in § 1 breaks. A milestone version cannot be
-chosen in advance; it is decided by the change.
+## 3. Which number moves
+
+Inside `0.x` the global standard shifts the levels down one: a breaking
+change bumps the MINOR, and everything else — a new capability included —
+bumps the PATCH.
+
+Two things that rule does not settle, decided here:
+
+- **The first release is `0.1.0`, by decision** (LWSM-1152), not derived
+  from the rule, which would give `0.0.1`.
+- **The release meeting § 2's condition is cut as `1.0.0`**, whatever level
+  its own changes would otherwise be. That is the only planned version
+  number; every other is decided by the change rather than chosen ahead of
+  it.
+
+## 4. Review loop log
+
+| Loop | Date | Lanes | Q1 | Q2 | Q3 | Q4 | Outcome |
+|------|------|-------|----|----|----|----|---------|
+| 1 | 2026-09-02 | 3, cold — genre pinned `standard` | 1 | 5 | 2 | n/a | **Nine verified, nine fixed.** All three lanes independently found that *"the security fold-in"* and *"the older fold-ins"* named no phase, so the exit condition was not checkable by someone else — the one thing § 2 exists to be. The Q1 was mine: `settings.json` was described as *"the same"* as `projects.json`, importing a carry-through carve-out that is false — that reader takes named keys and its writer emits a fixed set. Two lanes raised it as an open question and the source settled it. Four Q2s came from one paragraph of my own: an exclusion list *"so the list bounds rather than sprawls"* beside *"it does not bound the promise"*, with log contents excluded while criterion 5 is precisely that a failed server's output is readable, and palette names excluded while a theme id is stored in `settings.json`. The list is deleted rather than reconciled. Two more Q2s were the ladder: the rule gives `0.0.1` for a first release where LWSM-1152 says `0.1.0`, and *"a milestone version cannot be chosen in advance"* sat beside a `1.0.0` defined by its contents with nothing saying what triggers the MAJOR bump. Both are now stated as decisions in § 3. **The fix was mostly deletion** — the document is shorter than the draft the lanes read. |
