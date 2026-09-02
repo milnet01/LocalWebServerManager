@@ -3513,7 +3513,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 4.
 
-- 📋 [LWSM-1227] **MEDIUM: the launcher byte cap truncates instead of refusing, so appended content never re-arms trust.**
+- ✅ [LWSM-1227] **MEDIUM: the launcher byte cap truncates instead of refusing, so appended content never re-arms trust.**
   supervisor.py:438. os.read(fd, MAX_LAUNCHER_BYTES) truncates, so a launcher
   over 1MiB is fingerprinted on its first mebibyte and anything appended past
   that never re-arms the gate ADR-0003 says re-arms "whenever the launcher
@@ -3537,6 +3537,23 @@ has been applied yet — every item in this section is open.
   Red test to write first: a launcher of exactly cap bytes and the
   same bytes plus an appended line must fingerprint differently
   (equal before the fix).
+  Resolved (2026-09-02): two edits, as designed above. validate_launcher
+  refuses st_size over the cap, using the stat it already takes, and
+  start() reaches it before it fingerprints. _launcher_bytes reads cap+1
+  and returns None over the cap, so a truncated read is never hashed as
+  whole.
+  The design note above was wrong on one point, found by mutation rather
+  than by reading: it said the npm path needed no change because an
+  oversize package.json truncates to unparseable JSON. Trailing
+  whitespace is legal JSON, so a padded prefix parses and yields the same
+  script a larger file would. The cap+1 guard is what closes that, and
+  nothing measured it until a third test was added.
+  Mutants, all killed: drop the size refusal; restore the truncating
+  read; return the prefix instead of refusing; refuse only past cap+1;
+  refuse only past twice the cap.
+  Gate green — 1427 tests, no SKIP, no tool drift, no leaked processes.
+  Largest real launcher in the sibling tree is 35 KB against a 1 MiB cap,
+  so the refusal fires on nothing legitimate.
   **Layman:** A very large launcher can be changed after you trusted it without the app noticing.
   Kind: security.
   Source: review-code 2026-09-01 lane 4.

@@ -369,6 +369,18 @@ def validate_launcher(project: Path, launcher: Path) -> Path:
 
     if not stat.S_ISREG(info.st_mode):
         raise LauncherRefused(f"{resolved} is not a regular file")
+    # Size, because the fingerprint is a bounded read. Hashing the first
+    # `MAX_LAUNCHER_BYTES` of a larger file leaves everything past the cap out
+    # of the digest, so a change there never re-arms the gate ADR-0003 re-arms
+    # on a content change. Refusing here rather than hashing a prefix is
+    # `scanner.py`'s discipline, and `start()` reaches this before it
+    # fingerprints anything (LWSM-1227).
+    if info.st_size > MAX_LAUNCHER_BYTES:
+        raise LauncherRefused(
+            f"{resolved} is larger than {MAX_LAUNCHER_BYTES} bytes, so it "
+            "cannot be fingerprinted whole and a change past the cap would "
+            "not re-arm the trust gate"
+        )
     if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise LauncherRefused(
             f"{resolved} is group- or other-writable, so confirming it would "
@@ -476,7 +488,7 @@ def _npm_script(project: Path, argv: tuple[str, ...]) -> bytes | None:
 
 
 def _launcher_bytes(path: Path) -> bytes | None:
-    """The launcher's content, bounded, or `None` when it cannot be read.
+    """The launcher's content, or `None` when it is unreadable or over the cap.
 
     `O_NOFOLLOW` and `O_NONBLOCK` for `scanner.py::_open_source`'s reasons: this
     is somebody else's file, a symlink here would be read straight through, and
@@ -489,11 +501,19 @@ def _launcher_bytes(path: Path) -> bytes | None:
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             return None
-        return os.read(fd, MAX_LAUNCHER_BYTES)
+        data = os.read(fd, MAX_LAUNCHER_BYTES + 1)
     except OSError:
         return None
     finally:
         os.close(fd)
+    # One byte past the cap, so "at the cap" and "over it" are distinguishable.
+    # Over it is a refusal, never a prefix: a truncated read hashed as though it
+    # were the whole file is the defect `validate_launcher` also refuses
+    # (LWSM-1227). An oversize file therefore reaches `launcher_fingerprint`'s
+    # `nofile` marker, which it shares with a launcher that does not exist — no
+    # loss, because nothing can start one, and a marker of its own would still
+    # collide oversize with oversize.
+    return None if len(data) > MAX_LAUNCHER_BYTES else data
 
 
 # --------------------------------------------------------------------------

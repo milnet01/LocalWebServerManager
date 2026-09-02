@@ -861,6 +861,12 @@ signaling per
 
 ### Security
 
+- **MEDIUM: the launcher byte cap truncates instead of refusing, so appended content never re-arms trust.** (LWSM-1227)
+  A start script or `package.json` larger than the fingerprint cap is
+  now refused outright instead of being hashed on its opening
+  mebibyte, so content appended past the cap can no longer stay
+  trusted. No real launcher here comes close to the cap.
+
 - **A launcher that someone else could swap out is refused** (LWSM-1226)
   Approving a project's start-up script vouches for what it says. The app
   checked that the file itself was not writable by others, but replacing a
