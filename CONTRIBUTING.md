@@ -56,11 +56,35 @@ Before opening a PR:
    conventions.
 4. Follow `docs/standards/testing.md` for test discipline:
    tests fail before code that makes them pass.
-5. **Run `./scripts/local-ci.sh` before you push.** It is the
-   whole gate — lint, format check, syntax, entry-point
-   resolution, tests, shellcheck, workflow YAML — and CI runs the
-   same script rather than restating its steps, so a green run
-   locally is a green run in CI. A docs-only change is exempt.
+5. **Install the pre-push hook once per clone**, and it runs the
+   gate for you:
+
+   ```bash
+   git config core.hooksPath .githooks
+   ```
+
+   `core.hooksPath` is a local setting and cannot be committed,
+   so this is the one step a checkout cannot do for you.
+
+   The gate is `./scripts/local-ci.sh` — lint, format check,
+   syntax, entry-point resolution, tests, shellcheck and workflow
+   YAML. CI runs that same script rather than restating its
+   steps, so the two cannot drift apart.
+
+   **Running it by hand is more forgiving than CI**, and that is
+   deliberate: a missing tool is reported as a SKIP and a tool at
+   the wrong version as TOOL DRIFT, and it still finishes with
+   "Local CI passed" so you can test your own change. CI and the
+   hook both set `LWSM_REQUIRE_ALL_TOOLS=1`, where either is
+   fatal. So the hook, not a hand run, is what tells you whether
+   CI will agree.
+
+   **A docs-only change is exempt, with exceptions.** `CLAUDE.md`,
+   `README.md` and everything under `docs/standards/` are
+   asserted against by `tests/test_docs.py`, so editing one can
+   turn the suite red — they always run the gate. `scripts/`,
+   `.github/`, `src/` and `tests/` are never exempt either: a
+   change to the checker must run the check.
 
 PRs that don't follow the standards may be asked to update
 before review.

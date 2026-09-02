@@ -242,6 +242,50 @@ def _hook_says_docs_only(paths: list[str]) -> bool:
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
+def test_contributing_does_not_contradict_the_gate_it_describes() -> None:
+    """The instructions a contributor follows must match what the hook does.
+
+    Step 5 told contributors that "a green run locally is a green run in CI"
+    and that "a docs-only change is exempt", full stop. Both are false: a hand
+    run treats a missing tool and a version mismatch as warnings and still
+    prints "Local CI passed", and the exemption has a carve-out for exactly
+    the markdown the suite asserts against. A contributor editing a standard
+    followed that sentence, skipped the gate and reddened CI — the measured
+    2026-08-19 incident, re-enabled by the documentation (LWSM-1208).
+
+    Asserted against `GOVERNED` for the sibling test's reason: naming the
+    three files here would be a second copy of a list that can grow, and a
+    standard added to `test_docs.py` alone would leave this green.
+    """
+    text = (REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+    # The COMMAND, not the setting's name. Two mutants proved the looser form
+    # worthless: `core.hooksPath` also appears in the sentence explaining it,
+    # and `docs/standards/` appears in steps 2 to 4, so both assertions passed
+    # against a doc with the instruction and the carve-out removed.
+    assert "git config core.hooksPath .githooks" in text, (
+        "the enforcement mechanism is never given as a command, so the gate is "
+        "left to a habit a contributor has to remember"
+    )
+    assert "LWSM_REQUIRE_ALL_TOOLS" in text, (
+        "the doc does not say a hand run is more forgiving than CI, which is "
+        "what the flag exists to make true"
+    )
+
+    # Scoped to the exemption's own paragraph. Elsewhere in the file these
+    # paths are cited for what they SAY, which is a different claim.
+    marker = "docs-only change is exempt"
+    assert marker in text, "the exemption is not described at all"
+    carve_out = text[text.index(marker) :]
+    for path in GOVERNED:
+        name = path.relative_to(REPO).as_posix()
+        stem = "docs/standards/" if name.startswith("docs/standards/") else name
+        assert stem in carve_out, (
+            f"{name} always runs the gate and CONTRIBUTING.md does not say so "
+            "where it describes the exemption"
+        )
+
+
 def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> None:
     """A file the gate READS is a gate input, whatever its extension.
 

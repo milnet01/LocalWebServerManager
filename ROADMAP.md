@@ -2941,7 +2941,7 @@ has been applied yet — every item in this section is open.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 8.
 
-- 📋 [LWSM-1208] **HIGH: CONTRIBUTING.md step 5 is wrong three ways and re-enables the 2026-08-19 red-CI incident.**
+- ✅ [LWSM-1208] **HIGH: CONTRIBUTING.md step 5 is wrong three ways and re-enables the 2026-08-19 red-CI incident.**
   CONTRIBUTING.md:59-63. (a) "a green run locally is a green run in CI" is
   precisely what the LWSM_REQUIRE_ALL_TOOLS split exists to DENY - a hand run
   treats SKIP and TOOL DRIFT as warnings and still prints "Local CI passed".
@@ -2951,6 +2951,28 @@ has been applied yet — every item in this section is open.
   2026-08-19 incident, re-enabled by the doc. (c) it never mentions
   `git config core.hooksPath .githooks`, which is the enforcement mechanism.
   Document side is wrong, not the code.
+  Resolved (2026-09-02). All three claims confirmed against
+  `.githooks/pre-push` and `local-ci.sh`, and step 5 is rewritten: the
+  `core.hooksPath` command is given, the hand run is described as
+  deliberately lenient with `LWSM_REQUIRE_ALL_TOOLS` named, and the
+  exemption carries its carve-out for `CLAUDE.md`, `README.md` and
+  `docs/standards/` plus the never-exempt code paths.
+  The bullet says the document side is wrong and not the code, which is
+  right - so the fix went further only in one direction: a test in
+  `test_ci_contract.py`, where the hook's other contract assertions live,
+  so a change to the CARVE-OUT that is not mirrored in the doc now
+  reddens the gate. `GOVERNED` is imported rather than restated, for the
+  sibling test's reason.
+  MY FIRST VERSION OF THAT TEST WAS WORTHLESS AND MUTANTS PROVED IT. It
+  asserted `"core.hooksPath" in text` and `"docs/standards/" in text`, and
+  BOTH pass against a document with the instruction and the carve-out
+  deleted - the token appears in the sentence explaining it, and
+  `docs/standards/` appears in steps 2 to 4 citing the standards. The
+  assertions are now the exact command, and the carve-out is scoped to the
+  exemption's own paragraph. 4/4 mutants killed after that, 2/4 before.
+  Rule 14 was applied and CONTRIBUTING.md is OUT of scope: nothing is
+  built from it, and `verify-instructions` names it by name as a document
+  whose review is to execute its steps. Gate green, 1337 tests.
   **Layman:** The instructions we give contributors tell them to skip a check they must not skip.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 14.

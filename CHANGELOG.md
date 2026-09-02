@@ -278,6 +278,14 @@ signaling per
 
 ### Fixed
 
+- **CONTRIBUTING now describes the checks that actually run** (LWSM-1208)
+  Step 5 said a green run on your own machine means a green run in CI, and
+  that any documentation change skips the checks. Neither is true: running
+  the script by hand deliberately tolerates a missing tool, and three
+  kinds of documentation are tested against and always run the checks. It
+  also never mentioned the one-off command that installs the hook doing
+  all this for you.
+
 - **Highlighted text is readable in every colour theme** (LWSM-1207)
   Selecting text in the Ledger, Parchment, Mint and Graphite themes drew
   it in a combination too faint to meet the readability standard the
