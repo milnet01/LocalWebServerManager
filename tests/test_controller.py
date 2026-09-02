@@ -305,6 +305,40 @@ def test_a_probe_failure_is_reported_once_and_so_is_the_recovery(
     assert reported[1][0] is None
 
 
+def test_a_later_claimant_on_a_port_is_refused_at_start(qtbot, controllers) -> None:
+    """ADR-0005 promises BOTH halves and only the flag existed.
+
+    "every later claimant is marked *port claimed by <other project>* and its
+    Start is refused with that message until the user re-ports one of them.
+    No silent winner, and no state where two rows both claim to own one port."
+
+    The flag is computed in `registry` at merge time and goes nowhere: nothing
+    persists it, nothing renders it per row, and the only port check at Start
+    is the supervisor's LIVE-SOCKET pre-flight, which fires only when the other
+    project is already running — precisely not the state this rule is about
+    (LWSM-1205).
+
+    The tie-break is the ADR's own: earliest `added` wins, so the SECOND
+    project is the one refused. Asserted in both directions, because a refusal
+    that fired on the winner too would look the same from one assertion.
+    """
+    first = replace(startable("first", 5005), added="2026-01-01T00:00:00Z")
+    second = replace(startable("second", 5005), added="2026-06-01T00:00:00Z")
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [first, second], FakeProbe(), supervisor)
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller.start_project(Path("/srv/second"))
+
+    assert messages, "the later claimant was started with no refusal at all"
+    assert "5005" in messages[0] and "first" in messages[0], messages
+    assert not supervisor.started, "it spawned anyway"
+
+    controller.start_project(Path("/srv/first"))
+    assert supervisor.started, "the earliest claimant owns the port and may start"
+
+
 def test_a_failing_first_poll_still_emits(qtbot, controllers) -> None:
     # Exempt from INV-4b: with nothing before it, suppressing the emission
     # would leave the window at its blank initial state forever.

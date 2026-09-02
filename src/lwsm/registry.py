@@ -1045,15 +1045,24 @@ def _note_if_missing(
     flag(MISSING, f"{quoted(record.name)}: no longer found by a scan")
 
 
-def _flag_duplicate_ports(
-    records: Sequence[ProjectRecord], flag: Callable[[str, str], None]
-) -> None:
-    """ADR-0005's duplicate-port flag: earliest `added` wins, by instant.
+def port_claims(
+    records: Sequence[ProjectRecord],
+) -> list[tuple[ProjectRecord, ProjectRecord, int]]:
+    """`(loser, winner, port)` for every project whose port was claimed first.
 
-    An absent `added` loses to any record that has one, two absent ones are
-    ordered by position in the file, and two denoting the **same** instant are
-    ordered by position as well. All three fall back to file order for the same
-    reason: position always exists.
+    ADR-0005's tie-break, in ONE place because it now has two callers: the
+    merge-time flag below, and the Start-time refusal in `ProjectController`.
+    The ADR promises both halves of the same sentence — every later claimant
+    is flagged *and* "its Start is refused with that message" — and only the
+    flag existed, with no channel to carry it (LWSM-1205).
+
+    Earliest `added` wins, by instant. An absent `added` loses to any record
+    that has one, two absent ones are ordered by position in the file, and two
+    denoting the **same** instant are ordered by position as well. All three
+    fall back to file order for the same reason: position always exists.
+
+    Returned in file order of the port's first claimant, and within a port in
+    losing order, so the merge report reads the way it always has.
     """
     claimants: dict[int, list[int]] = {}
     for index, record in enumerate(records):
@@ -1061,17 +1070,26 @@ def _flag_duplicate_ports(
         if port is not None:
             claimants.setdefault(port, []).append(index)
 
+    claims: list[tuple[ProjectRecord, ProjectRecord, int]] = []
     for port, indexes in claimants.items():
         if len(indexes) < 2:
             continue
         ordered = sorted(indexes, key=lambda i: (_instant(records[i].added), i))
         winner = records[ordered[0]]
         for loser in ordered[1:]:
-            flag(
-                DUPLICATE_PORT,
-                f"{quoted(records[loser].name)}: port {port} is claimed by "
-                f"{quoted(winner.name)}",
-            )
+            claims.append((records[loser], winner, port))
+    return claims
+
+
+def _flag_duplicate_ports(
+    records: Sequence[ProjectRecord], flag: Callable[[str, str], None]
+) -> None:
+    """ADR-0005's duplicate-port flag. The rule lives in `port_claims`."""
+    for loser, winner, port in port_claims(records):
+        flag(
+            DUPLICATE_PORT,
+            f"{quoted(loser.name)}: port {port} is claimed by {quoted(winner.name)}",
+        )
 
 
 # --------------------------------------------------------------------------

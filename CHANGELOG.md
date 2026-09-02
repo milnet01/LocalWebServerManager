@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **Two projects set to the same port: the second one is refused, and says why** (LWSM-1205)
+  The port belongs to whichever project was registered first. That was
+  worked out and written into the rescan report, but Start never saw it,
+  so both projects would launch and the second failed later with an
+  unrelated message. Start now refuses the later claimant and names the
+  project holding the port.
+
 - **Every control in the Settings dialog is now big enough to click** (LWSM-1206)
   The minimum size that keeps a control comfortably clickable was applied
   to the Add and Remove buttons only. On a machine with a smaller default

@@ -2838,7 +2838,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 4.
 
-- 📋 [LWSM-1205] **HIGH: ADR-0005's duplicate-port Start refusal has no channel to reach Start, so two projects both start.**
+- ✅ [LWSM-1205] **HIGH: ADR-0005's duplicate-port Start refusal has no channel to reach Start, so two projects both start.**
   registry.py:1070. ADR-0005:68 promises every later claimant is flagged AND
   "its Start is refused with that message". Only the flag half exists: the
   report entry dies in registry.py, LWSM-1007 4.2 persists no merge outcome,
@@ -2848,6 +2848,28 @@ has been applied yet — every item in this section is open.
   running - precisely not the state the rule is about. Structurally
   unimplementable as designed. Decide it either way: derive the claim at Start
   time from records the controller already holds, or amend ADR-0005.
+  Resolved (2026-09-02). The bullet asks to decide it either way -
+  implement the refusal, or amend ADR-0005. DECIDED: implement it. The
+  ADR's rule is sound and specific (two projects configured on one port is
+  a real misconfiguration with a stated tie-break), and amending it would
+  have weakened a promise for no reason beyond its never having been
+  wired up. Amending would also have re-armed rule 14's gate.
+  Reproduced as filed: the later claimant started with no refusal at all.
+  Fixed by deriving the claim at Start time from the records the
+  controller already holds - the bullet's first option.
+  The tie-break is NOT reimplemented. `_flag_duplicate_ports` already
+  encoded it, so the rule moved into a public `registry.port_claims` that
+  both callers use: a second copy is how the message a user is refused
+  with and the message the rescan report shows would come to disagree
+  about who won (`coding.md § 1.3`). The merge report's wording and
+  ordering are unchanged, which the registry tests pin.
+  Checked in the controller rather than in the supervisor deliberately.
+  The supervisor's pre-flight probes the LIVE SOCKET, so it fires only
+  when the other project is already running - precisely not the state this
+  rule is about. Two projects configured on one port, neither running, is
+  the ADR's case, and the records are the only evidence for it.
+  3/3 mutants killed, including refusing the winner too and reporting
+  without stopping the spawn. Gate green, 1320 tests.
   **Layman:** Two projects set to the same port are supposed to refuse to start; the warning is produced and then thrown away.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.

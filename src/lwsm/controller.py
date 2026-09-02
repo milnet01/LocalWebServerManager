@@ -20,7 +20,7 @@ from typing import Protocol
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
-from lwsm.registry import ProjectRecord
+from lwsm.registry import ProjectRecord, port_claims
 from lwsm.settings import DEFAULT_POLL_INTERVAL_MS
 from lwsm.supervisor import (
     LauncherUntrusted,
@@ -504,6 +504,19 @@ class ProjectController(QObject):
                 managed.add(record.path)
         return managed
 
+    def _port_claimed_by(self, record: ProjectRecord) -> ProjectRecord | None:
+        """The project that registered this record's port first, if any.
+
+        The rule itself is `registry.port_claims`, which the merge-time flag
+        also uses — one copy of ADR-0005's tie-break, so the message the user
+        is refused with and the message the merge report shows cannot come to
+        disagree about who won.
+        """
+        for loser, winner, _port in port_claims(self._records):
+            if loser.path == record.path:
+                return winner
+        return None
+
     def _status_of(self, path: Path) -> ProjectStatus:
         """The derived status, unless the overlay covers this project."""
         if self._overlay is not None and self._overlay[0] == path:
@@ -524,6 +537,25 @@ class ProjectController(QObject):
         if record is None or self._supervisor is None:
             self.action_failed.emit(
                 path, f"cannot start {path}: nothing to start it with"
+            )
+            return
+        claimant = self._port_claimed_by(record)
+        if claimant is not None:
+            # ADR-0005: "every later claimant is marked *port claimed by
+            # <other project>* and its Start is refused with that message
+            # until the user re-ports one of them. No silent winner, and no
+            # state where two rows both claim to own one port."
+            #
+            # Checked HERE and not in the supervisor, whose pre-flight asks a
+            # different question: it probes the live socket, so it fires only
+            # when the other project is already running — which is precisely
+            # not the state this rule is about. Two projects configured on one
+            # port, neither running, is the case the ADR describes, and the
+            # records are the only evidence for it (LWSM-1205).
+            self.action_failed.emit(
+                path,
+                f"{record.name}: port {record.effective_port} is claimed by "
+                f"{claimant.name} — change one of their ports first",
             )
             return
         if not record.argv:
