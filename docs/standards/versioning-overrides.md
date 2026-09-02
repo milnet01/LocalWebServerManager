@@ -76,6 +76,11 @@ is claimed by both lists, delivery of a criterion wins** — an `FP09` finding
 that falsifies a criterion blocks `1.0`, one that does not is out with the
 rest of its fold-in.
 
+**`Findings filed in passing` gates nothing**, whatever it holds. That section
+exists so an item found in passing is not mistaken for unclosed phase work
+(user, 2026-08-31), and it is the only part of the roadmap that neither list
+above reaches.
+
 **Out of `1.0`:** `P09`'s shell work, `DS01`'s debt, and every fold-in
 except `FP01` — `FP09` included. All of it has value; none of it is needed
 to use the app for what it is for.

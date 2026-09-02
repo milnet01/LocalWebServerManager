@@ -4447,6 +4447,14 @@ mostly in the measurement behind it.
   from the store and a hand-edit is reverted by the next write. Filed with
   Ants MCP the same day. Whoever picks this up should check whether a move
   or delete op has landed before attempting anything else.
+  Re-checked (2026-09-02), as this bullet asks. STILL BLOCKED: `roadmap_log`'s
+  op enum now runs append, append_batch, flip, flip_batch, annotate,
+  annotate_batch, amend_body, amend_headline, amend_field, create_section,
+  bundle_row, backfill_dates, repair_trailers and render — no op that MOVES or
+  DELETES a section. `create_section` can add one; nothing can re-parent the two
+  `###` blocks or remove them. `render` publishes the store and so cannot help
+  either: the section order it renders is the thing that is wrong.
+  Recorded so the next session does not repeat the check.
   **Layman:** Two groups of finished work appear under the wrong heading in the roadmap, so a reader is told they belong to a different batch.
   Kind: doc-fix.
   Source: in-session-2026-08-31, found while creating the Findings filed in passing section.
