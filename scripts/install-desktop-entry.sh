@@ -50,9 +50,36 @@ install -m 0644 "packaging/$app_id.svg" "$icon_dir/$app_id.svg"
 # Both keys, because they answer different questions: Exec is what runs,
 # TryExec is what the launcher checks before offering the entry at all. Leaving
 # TryExec as the bare name would hide a perfectly working entry.
-sed -e "s|^Exec=.*|Exec=$exec_path|" \
-    -e "s|^TryExec=.*|TryExec=$exec_path|" \
-    "packaging/$app_id.desktop" > "$apps_dir/$app_id.desktop"
+#
+# They are quoted DIFFERENTLY, and that is the spec rather than an oversight.
+# Exec is a command line, so it is parsed and must be quoted; TryExec is a
+# path, compared against the filesystem, and quoting it would make the launcher
+# look for a file whose name begins with a quote.
+#
+# TWO escaping layers, applied in this order, because the spec has two: the
+# quoting rule reserves `"`, backtick, `$` and backslash inside a quoted
+# argument, and the string-value rule then escapes the backslashes that
+# produced. So a literal backslash ends up as FOUR, which the spec states
+# outright and `desktop-file-validate` enforces — a single pass writes
+# `Exec="...back\\slash..."` and the validator rejects it as an unclosed
+# quote.
+#
+# The path is the INPUT to this sed, never its replacement, which is the whole
+# point (LWSM-1209).
+exec_quoted=$(printf '%s' "$exec_path" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g')
+
+# awk via ENVIRON, not `sed s|...|$exec_path|` and not `awk -v`. A path is data
+# and both of those treat it as syntax: in a sed replacement `&` expands to the
+# whole match and `|` closes the s-command, so a checkout under `a&b` wrote
+# `Exec=/home/u/aExec=lwsmb/lwsm` and one under `pipe|x` failed outright; `awk
+# -v` would process backslash escapes in the value. ENVIRON does neither.
+LWSM_EXEC_LINE="Exec=\"$exec_quoted\"" \
+LWSM_TRYEXEC_LINE="TryExec=$exec_path" \
+    awk '
+        /^Exec=/     { print ENVIRON["LWSM_EXEC_LINE"];    next }
+        /^TryExec=/  { print ENVIRON["LWSM_TRYEXEC_LINE"]; next }
+                     { print }
+    ' "packaging/$app_id.desktop" > "$apps_dir/$app_id.desktop"
 chmod 0644 "$apps_dir/$app_id.desktop"
 
 # Validate what was actually written, never the template — the rewrite above is

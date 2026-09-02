@@ -2977,7 +2977,7 @@ has been applied yet — every item in this section is open.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1209] **HIGH: the desktop entry writes Exec= unquoted and through an unescaped sed replacement.**
+- ✅ [LWSM-1209] **HIGH: the desktop entry writes Exec= unquoted and through an unescaped sed replacement.**
   scripts/install-desktop-entry.sh:53-55. The resolved path goes into Exec=
   raw, against the Desktop Entry Spec's quoting requirement, so a checkout
   under "/home/u/My Projects/..." yields an Exec the launcher splits into two
@@ -2988,6 +2988,26 @@ has been applied yet — every item in this section is open.
   with awk -v or a heredoc, and write Exec="<escaped>" escaping " ` $ and
   backslash per the spec. TryExec is a path, not a command line - leave it
   unquoted.
+  Resolved (2026-09-02). Both defects reproduced before any design, with
+  the exact outputs the bullet predicts: `a&b` wrote
+  `Exec=/home/u/aExec=lwsmb/lwsm` because `&` is the whole match in a sed
+  replacement, `pipe|x` made sed exit non-zero, and a path with a space
+  went in unquoted. The script had NO test file at all; there is one now,
+  and it RUNS the installer against seven path shapes rather than reading
+  it - `desktop-file-validate` passes the unquoted form, so a text
+  assertion would have agreed with the defect.
+  ONE THING THE BULLET DID NOT SAY, and the validator taught it: the spec
+  has TWO escaping layers, not one. The quoting rule reserves `"`,
+  backtick, `$` and backslash inside a quoted argument, and the
+  string-value rule then escapes the backslashes that produced - so a
+  literal backslash is FOUR in the file. A single pass wrote
+  `Exec="...back\\slash..."` and `desktop-file-validate` REJECTED it as an
+  unclosed quote. Both layers are applied now, in that order.
+  `awk` via ENVIRON rather than the bullet's `awk -v`, which processes
+  backslash escapes in the value and would have reintroduced the same
+  class one tool along. TryExec stays unquoted, as the bullet says: it is
+  a path compared against the filesystem, and a mutant quoting it is
+  killed. 4/4 mutants killed. Gate green, 1346 tests.
   **Layman:** Install the app from a folder whose name has a space in it and the launcher entry appears but will not start.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.

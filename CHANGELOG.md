@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **The launcher entry works when the app lives in a folder with a space in its name** (LWSM-1209)
+  Installing from somewhere like "My Projects" produced a menu entry that
+  appeared and then would not start, because the path was written without
+  quotes and the launcher split it at the space. A folder containing "&"
+  or "|" corrupted the entry outright. Both are fixed, and the installer
+  now has tests that run it against those names.
+
 - **CONTRIBUTING now describes the checks that actually run** (LWSM-1208)
   Step 5 said a green run on your own machine means a green run in CI, and
   that any documentation change skips the checks. Neither is true: running
