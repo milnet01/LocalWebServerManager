@@ -454,7 +454,13 @@ Four checks, all cheap, all headless:
   accessible name, and every state is exposed as text and not
   only as a colour.
 - **No clipping at 200 %** — the window lays out at the maximum
-  text-size setting with nothing elided or cut off.
+  text-size setting with no cell narrower than the string it
+  renders. A clipped `QLabel` loses its last characters silently.
+  Deliberate elision is a separate matter and is not forbidden
+  here; where a project elides, it owes the full string in a
+  tooltip and in the accessible name. Corrected 2026-09-02: this
+  read "nothing elided or cut off", which described neither the
+  check nor any project running it.
 
 These fail loudly rather than warning. An accessibility
 regression that only warns is an accessibility regression that

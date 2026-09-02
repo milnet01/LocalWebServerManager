@@ -121,8 +121,25 @@ sentence was left describing the world before it.)
 **An in-app text-size control**, independent of the desktop's
 scaling — 100 % to 200 % — because desktop-wide scaling is a
 blunt instrument when only one window needs to be bigger. The
-layout must **reflow** at every step, never clip or truncate; the
-test asserts no text is elided at 200 %.
+layout must **reflow** at every step and must never **clip**: a
+`QLabel` does not elide by default, it cuts, and the missing
+characters leave no trace at all.
+
+**Eliding is a different act, and it is allowed.** The row has a
+width budget — § Everything else holds a row to one lens view — and
+a long project name spends it, so the name and browser cells are
+capped and cut with an ellipsis on purpose. What that costs must be
+recoverable: **where text is elided the whole string stays reachable,
+in a tooltip and in the accessible name.** Elision is a fitting
+concern and must never reach the accessibility tree, so a screen
+reader is read the full name and every control is named from it.
+
+Until 2026-09-02 this said "never clip or truncate", and that the
+200 % test asserted no text was elided. Both were wrong: the app has
+elided deliberately since LWSM-1174, and that test measures each
+cell against the string it actually renders, which is the elided one
+— so it has always been a clipping check and never an elision one.
+The rule the app follows is the one now written above.
 
 **Never colour alone.** The commonest colour blindness is exactly
 red/green. Every state the app can display carries **at least three
@@ -201,7 +218,7 @@ purpose, because an accessibility claim with no test behind it is
 decoration. `docs/standards/testing.md § T8` carries **four** of
 the checks: contrast arithmetic across every theme, keyboard
 reachability of every action, accessible names on every
-interactive widget, and no elided text at 200 %.
+interactive widget, and nothing clipped at 200 %.
 
 The remaining promises above need surfaces T8 does not yet have,
 so LWSM-1032 lands them alongside the four:
@@ -218,6 +235,7 @@ so LWSM-1032 lands them alongside the four:
 | A confirmation raised with the window hidden shows it first | with the window hidden, drive the tray's start path and assert the window is visible before the dialog is shown. **Lands with the tray (P09)**, which is the only surface that can raise one with no window on screen; until then there is no path to drive and the row is stated rather than run |
 | The state word is first in the row | assert the state label's x-position precedes every other cell's |
 | Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window **at 100 % text size**. Deliberately not held at 200 %: the text doubles and the row with it, which is the control doing its job — wrapping the row to preserve the number would put the state and its controls on different lines, which is the pan this budget exists to prevent |
+| Elided text keeps its full string | where a cell renders a cut string, assert its tooltip holds the whole one and the row's accessible name does too — and that **every** control in the row is named from the full text rather than the rendered text. The last clause is the one that failed in practice: the controls read the label back, which has been the elided string since LWSM-1174, so a screen reader was given four identically-truncated names whose whole purpose is telling one project's buttons from another's. A short-named fixture cannot see it, because there the two strings are equal |
 | Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
 | Nothing important is hover-only | assert every action is reachable without a hover event |
 | Focus is never stolen | drive a poll cycle during editing; assert focus did not move |
