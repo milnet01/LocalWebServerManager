@@ -226,15 +226,29 @@ def build_window(
         supervisor.max_log_bytes = log_mib * 1024 * 1024
         window.set_scan_roots(roots)
 
-        try:
-            save_field(poll_interval_ms=poll_ms, log_max_mib=log_mib)
-            save_scan_roots(roots)
-        except (ConfigFileError, OSError, RuntimeError) as exc:
-            # One handler for both files rather than two, because the user's
-            # question is the same either way: was this remembered? Which file
-            # refused is in the message, since `ConfigFileError` carries the
-            # path.
-            window.set_status_message(f"Settings could not be saved: {exc}")
+        # Two files, two attempts, ONE message. Sharing the `try` meant a
+        # refusal of the first skipped the second entirely — and `save_field`
+        # refuses routinely, since any malformed `settings.json` makes the
+        # re-read report the document refused (LWSM-1163). The roots were then
+        # applied in memory, never written, and gone next launch, while the
+        # message spoke only of settings (LWSM-1212).
+        #
+        # The single message is kept deliberately: the user's question is the
+        # same either way — was this remembered? — and which file refused is in
+        # the text, since `ConfigFileError` carries the path.
+        failures: list[str] = []
+        for write in (
+            lambda: save_field(poll_interval_ms=poll_ms, log_max_mib=log_mib),
+            lambda: save_scan_roots(roots),
+        ):
+            try:
+                write()
+            except (ConfigFileError, OSError, RuntimeError) as exc:
+                failures.append(str(exc))
+        if failures:
+            window.set_status_message(
+                "Settings could not be saved: " + "; ".join(failures)
+            )
 
     probe = PortProbe()
     # One probe for both jobs: the poll classifies from it, and the supervisor's

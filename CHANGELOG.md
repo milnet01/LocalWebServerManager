@@ -278,6 +278,14 @@ signaling per
 
 ### Fixed
 
+- **A preferences save that fails no longer throws away your folder list too** (LWSM-1212)
+  The Settings dialog writes two separate files. They shared one attempt,
+  so if the preferences file could not be written — which a single stray
+  comma in it is enough to cause — the folder list was silently skipped
+  and gone by the next launch, while the message mentioned only
+  preferences. Both are written independently now, and anything that
+  fails is named.
+
 - **One failure while quitting no longer skips the rest of the cleanup** (LWSM-1211)
   Quitting runs three cleanup steps. They shared one block, so if the
   first went wrong the other two were skipped — and one of those is what

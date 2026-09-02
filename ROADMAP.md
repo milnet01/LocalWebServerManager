@@ -3061,11 +3061,30 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 1.
 
-- 📋 [LWSM-1212] **MEDIUM: a settings write failure silently skips the healthy scan-roots write.**
+- ✅ [LWSM-1212] **MEDIUM: a settings write failure silently skips the healthy scan-roots write.**
   __main__.py:230-231. Two independent files in one try. save_field raises
   routinely (any malformed settings.json sets document_refused). The roots are
   applied in memory and absent next launch. Fix: two try blocks, collect both
   failures, report both paths.
+  Resolved (2026-09-02). Reproduced with the real trigger the bullet
+  names rather than a patched writer: a single trailing comma in
+  `settings.json` makes the re-read report the document refused
+  (LWSM-1163), `save_field` then refuses, and the scan roots were never
+  written - applied in memory and gone next launch.
+  Fixed as asked - two attempts, both failures collected - but the
+  ORIGINAL comment's decision is kept rather than reversed. It defended
+  ONE message on the grounds that the user's question is the same either
+  way, and that reasoning is about the message, not about the writes; the
+  coupling was the defect. So: two writes, one message, both paths named.
+  THREE mutants survived the first pass and all three were about the
+  MESSAGE, not the writes: never reporting, reporting on success, and
+  reporting only the first failure. That is `settings.py`'s recorded
+  shape - "a mutant logging them and never showing them survived every
+  other test" - reached again from a third direction. Two tests were added
+  for it, including one where BOTH files fail (settings malformed, the
+  scan-roots path a directory), since with only ever one failing
+  `"; ".join(failures)` and `failures[0]` are indistinguishable. 4/4
+  killed after that. Gate green, 1351 tests.
   **Layman:** If preferences cannot be saved, the folder list you just edited is dropped too, and the error only mentions preferences.
   Kind: fix.
   Source: review-code 2026-09-01 lane 1.

@@ -737,6 +737,166 @@ def test_a_settings_file_with_a_typo_is_not_overwritten_with_defaults(
     assert path.read_text(encoding="utf-8") == malformed
 
 
+def test_a_refused_settings_write_still_saves_the_scan_roots(
+    qtbot, monkeypatch, tmp_path
+) -> None:
+    """Two independent files shared one `try`, so one refusal lost both.
+
+    `save_field` raises whenever the re-read refused the whole document, which
+    a single trailing comma is enough to cause (LWSM-1163) — and that is not
+    exotic, it is the state any hand edit can leave. The scan roots were
+    applied in memory, never written, and absent next launch, while the
+    message spoke only of settings (LWSM-1212).
+
+    The malformed file is the real trigger rather than a patched writer: what
+    is under test is that a routine refusal of ONE file does not take the
+    other with it.
+    """
+    from lwsm import settingsdialog as dialog_module
+    from lwsm.__main__ import scan_roots_path
+    from lwsm.settings import default_settings_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    settings_path = default_settings_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.parent.chmod(0o700)
+    # The trailing comma is the whole trigger: `load()` reports the document
+    # refused, and `save_field` then refuses to write a default over it.
+    settings_path.write_text(
+        '{\n  "schema_version": 1,\n  "poll_interval_ms": 2500,\n}\n',
+        encoding="utf-8",
+    )
+
+    chosen = (Path("/srv/alpha"), Path("/srv/beta"))
+
+    class AcceptingDialog:
+        DialogCode = dialog_module.SettingsDialog.DialogCode
+
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def values(self):
+            return chosen, 1500, 7
+
+    monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window._settings_action.trigger()
+    finally:
+        controller.stop()
+
+    assert scan_roots_path().exists(), (
+        "the scan roots were never written: a refused settings write took the "
+        "healthy one with it"
+    )
+    written = scan_roots_path().read_text(encoding="utf-8")
+    assert "/srv/alpha" in written and "/srv/beta" in written, written
+
+    # And the refusal is SHOWN. `settings.py` records the shape: a version
+    # that logged the reason and never displayed it survived every other test.
+    message = window.statusBar().currentMessage()
+    assert "could not be saved" in message, message
+    assert "settings.json" in message, message
+
+
+def test_both_write_failures_are_named_not_just_the_first(
+    qtbot, monkeypatch, tmp_path
+) -> None:
+    """The bullet asks for both to be collected, and one message can hide one.
+
+    With only ever one file failing in a test, `"; ".join(failures)` and
+    `failures[0]` are indistinguishable — a mutant reducing it to the first
+    survived until this existed. Both are made to fail: the settings file by a
+    trailing comma, the scan-roots path by being a directory.
+    """
+    from lwsm import settingsdialog as dialog_module
+    from lwsm.__main__ import scan_roots_path
+    from lwsm.settings import default_settings_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    settings_path = default_settings_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.parent.chmod(0o700)
+    settings_path.write_text(
+        '{\n  "schema_version": 1,\n  "poll_interval_ms": 2500,\n}\n',
+        encoding="utf-8",
+    )
+    # A directory where the file goes: the write cannot succeed, and nothing
+    # about it is exotic — an interrupted sync or a stray mkdir leaves this.
+    roots_path = scan_roots_path()
+    roots_path.parent.mkdir(parents=True, exist_ok=True)
+    roots_path.mkdir()
+
+    class AcceptingDialog:
+        DialogCode = dialog_module.SettingsDialog.DialogCode
+
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def values(self):
+            return (Path("/srv/alpha"),), 1500, 7
+
+    monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window._settings_action.trigger()
+    finally:
+        controller.stop()
+
+    message = window.statusBar().currentMessage()
+    assert "settings.json" in message, message
+    assert "scan-roots" in message, (
+        f"the second failure is not in the message: {message}"
+    )
+
+
+def test_a_settings_save_that_works_says_nothing(qtbot, monkeypatch, tmp_path) -> None:
+    """The other half, and neither holds alone.
+
+    An error banner on a successful save is its own defect, and a test that
+    only ever drives the failing path cannot tell "reported when it failed"
+    from "reported always" — a mutation making the message unconditional
+    survived until this existed.
+    """
+    from lwsm import settingsdialog as dialog_module
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    chosen = (Path("/srv/only"),)
+
+    class AcceptingDialog:
+        DialogCode = dialog_module.SettingsDialog.DialogCode
+
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def values(self):
+            return chosen, 1500, 7
+
+    monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window._settings_action.trigger()
+    finally:
+        controller.stop()
+
+    assert "could not be saved" not in window.statusBar().currentMessage()
+
+
 # --- LWSM-1018: the scan-roots file the dialog edits ---------------------------
 
 
