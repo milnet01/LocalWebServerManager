@@ -1931,6 +1931,73 @@ def test_unhiding_a_project_puts_it_back(qtbot, built, tmp_path) -> None:
     window.shutdown()
 
 
+def test_a_hide_made_while_a_rescan_is_in_flight_is_not_discarded(
+    qtbot, built, tmp_path
+) -> None:
+    """The merge's stored half is snapshotted when the rescan STARTS.
+
+    `set_project_hidden` writes from the controller's records, which are fresh;
+    the rescan then landed carrying a stale copy of the same rows, the write
+    gate saw a difference and saved it, and the hide was gone. The app had
+    already said "gone is hidden" in the status bar.
+
+    The rescan is HELD OPEN inside that window rather than raced for: the scan
+    blocks on an event until the hide has been applied, which is `CLAUDE.md`'s
+    rule for a check-then-act — two calls issued back to back serialise on the
+    GIL often enough that the broken code passes.
+    """
+    import threading
+
+    release = threading.Event()
+    entered = threading.Event()
+    # The SAME project the window already holds, so the merge updates that
+    # row rather than adding a second one: what is under test is the stale
+    # user half landing on top, not discovery.
+    project = Path("/srv/gone")
+
+    def blocking_scan(_roots):
+        entered.set()
+        release.wait(timeout=5)
+        return FakeScanResult(projects=(FakeDetected(project, "gone"),))
+
+    saves: list = []
+
+    def fake_save(path, merged, *, load) -> None:
+        saves.append((path, list(merged), load))
+
+    records = [record("gone", 3001)]
+    controller = build_controller(built, list(records), FakeProbe())
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=blocking_scan,
+        now=lambda: "2026-08-14T09:00:00Z",
+        save=fake_save,
+    )
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        rescan=context,
+        load=LoadResult(records=list(records), reasons=[], rows_refused=0),
+    )
+    qtbot.addWidget(window)
+
+    window._start_rescan()
+    assert entered.wait(timeout=5), "the scan never started"
+    window.set_project_hidden(Path("/srv/gone"), True)
+    release.set()
+    qtbot.waitUntil(lambda: not window._rescan_in_flight, timeout=5000)
+
+    assert [r.hidden for r in controller.records()] == [True], (
+        "the rescan landed on top of a hide the user had already been told was saved"
+    )
+    assert [r.hidden for r in saves[-1][1]] == [True], (
+        "and the last thing written to disk un-hid it"
+    )
+    window.shutdown()
+
+
 def test_hidden_survives_a_rescan(qtbot, built, tmp_path) -> None:
     """`hidden` is a USER field, so a rescan refreshes the detected half around
     it. Asserted rather than assumed — LWSM-1007 INV-1 is what keeps the two
@@ -4546,7 +4613,7 @@ def test_import_restores_the_user_half_saves_it_and_updates_the_controller(
 def test_an_import_is_refused_when_the_profile_had_any_refusal(
     qtbot, built, tmp_path
 ) -> None:
-    """The guarantee `_user_half_applied` rests on, and the reason it needs no
+    """The guarantee `user_half_applied` rests on, and the reason it needs no
     per-field qualifier.
 
     A field refusal keeps the row and drops the field, so a profile with one

@@ -1127,7 +1127,7 @@ def export_profile(
         raise RegistryError(str(exc)) from exc
 
 
-def _user_half_applied(record: ProjectRecord, profile: ProjectRecord) -> ProjectRecord:
+def user_half_applied(record: ProjectRecord, profile: ProjectRecord) -> ProjectRecord:
     """`USER_FIELDS`, taken whole — the mirror of `_detected_half_applied`.
 
     Driven by the set rather than by a field list, so LWSM-1007's INV-1 keeps
@@ -1223,7 +1223,7 @@ def merge_imported(
             continue
 
         current = records[index]
-        restored = _user_half_applied(current, record)
+        restored = user_half_applied(current, record)
         if restored == current:
             counts[UNCHANGED] += 1
             continue

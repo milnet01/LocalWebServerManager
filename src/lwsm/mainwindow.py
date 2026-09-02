@@ -1799,7 +1799,7 @@ class MainWindow(QMainWindow):
         button press with a reason the user can act on — and the alternative is
         writing a silently partial user half over a good one, which is the same
         shape as the merge writing `None` over a stored port. That guarantee is
-        what lets `_user_half_applied` take the user half whole, with no
+        what lets `user_half_applied` take the user half whole, with no
         per-field qualifier.
         """
         if self._rescan is None or self._load is None:
@@ -2406,8 +2406,42 @@ class MainWindow(QMainWindow):
         Split out of `_on_rescan_done` so that slot is nothing but the
         always-finish guard above — a body and its own `finally` in one
         function is where the missing re-enable hid in the first place.
+
+        The user half is re-applied here and NOT inside `_apply_merge`, which
+        an import also goes through: an import's whole purpose is to bring a
+        user half with it, so refreshing it there would undo the import
+        (LWSM-1199).
         """
+        merged = replace(merged, records=self._with_current_user_half(merged.records))
         return self._apply_merge(merged, summarise_merge(merged.counts), "rescan")
+
+    def _with_current_user_half(
+        self, records: list[ProjectRecord]
+    ) -> list[ProjectRecord]:
+        """The detected half from the merge, the user half from right now.
+
+        `merge()` runs on the pool thread against the records as they were when
+        the rescan STARTED, so a hide or a browser choice made while it ran was
+        merged against a stale copy of itself — the write gate then saw a
+        difference and saved the old value back, after the status bar had said
+        the choice was stored (LWSM-1199).
+
+        Blocking those controls for the length of a scan would also have closed
+        it, and is what the import path does; it is the wrong trade here,
+        because hiding a project is a two-second action and a scan is not.
+
+        Driven by `USER_FIELDS` through the registry's own helper, not by a
+        field list written out again here: LWSM-1007's INV-1 keeps that set
+        complete, and a second copy is a second thing to forget to update. A
+        project the merge discovered has no current record and is left alone.
+        """
+        current = {record.path: record for record in self._controller.records()}
+        return [
+            registry.user_half_applied(record, current[record.path])
+            if record.path in current
+            else record
+            for record in records
+        ]
 
     def _apply_merge(self, merged: MergeResult, message: str, source: str) -> str:
         """Write a merge and show it, whichever merge produced it.

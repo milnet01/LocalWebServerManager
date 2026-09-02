@@ -2642,7 +2642,7 @@ has been applied yet — every item in this section is open.
   Kind: review-fix.
   Source: review-code 2026-09-01 lane 11.
 
-- 📋 [LWSM-1199] **HIGH: a rescan in flight silently discards a hide or browser choice made while it ran.**
+- ✅ [LWSM-1199] **HIGH: a rescan in flight silently discards a hide or browser choice made while it ran.**
   mainwindow.py:2292. The merge's `stored` half is snapshotted when the
   rescan STARTS. set_project_hidden and set_project_browser can write while
   it is in flight; the rescan lands, _should_write compares its stale-snapshot
@@ -2651,6 +2651,25 @@ has been applied yet — every item in this section is open.
   started first writes last") and did not apply it to the other two writers.
   Fix: disable both controls while _rescan_in_flight as import already is, OR
   re-apply current USER_FIELDS onto merged.records inside _apply_rescan.
+  Resolved (2026-09-02). Reproduced exactly as filed, with the rescan HELD
+  OPEN inside the window rather than raced for - the scan blocks on an
+  event until the hide has landed. Took the bullet's SECOND option
+  (re-apply the current user half) over the first (disable the controls),
+  because blocking a two-second action for the length of a scan is a
+  workaround for the stale snapshot rather than a fix for it, and
+  `coding.md § 1.2` asks for the root cause. Applied in `_apply_rescan`
+  and deliberately NOT in `_apply_merge`: an import goes through that too,
+  and an import's whole purpose is to bring a user half with it, so
+  refreshing there would undo the import. Reused the registry's own helper
+  - promoted `_user_half_applied` to `user_half_applied` - rather than
+  writing the field list out again, since INV-1 keeps USER_FIELDS
+  complete. 3/4 mutants killed. The fourth SURVIVED and is equivalent by
+  construction: `current.get(path, record)` on a discovered project gives
+  `user_half_applied(record, record)`, which is the no-op the `else`
+  branch already is. Recorded rather than cleared with a contrived
+  fixture. One mutant was discarded before that: it died on a SyntaxError,
+  which is a collection failure and not a test noticing anything. Gate
+  green, 1310 tests.
   **Layman:** Hide a project while a scan is running and your change is thrown away without warning - the app says it saved it.
   Kind: fix.
   Source: review-code 2026-09-01 lane 12.

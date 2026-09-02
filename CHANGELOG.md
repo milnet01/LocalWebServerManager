@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **Hiding a project during a rescan no longer loses the change** (LWSM-1199)
+  A rescan works from the project list as it was when the scan started.
+  Hiding a project, or choosing its browser, while one was running left
+  the finished scan writing the old value back over it — after the status
+  bar had already said the choice was saved. The scan now keeps its own
+  findings and takes your choices as they stand when it lands.
+
 - **"Centre on screen" now says why it is greyed out** (LWSM-1198)
   On a desktop that will not let an application place its own window the
   entry is disabled, and the explanation for that was written into a
