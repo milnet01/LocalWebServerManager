@@ -14,7 +14,9 @@ import enum
 import json
 import os
 from collections.abc import Callable, Sequence
+from dataclasses import MISSING as _NO_DEFAULT
 from dataclasses import dataclass, replace
+from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, TypeGuard
@@ -1219,6 +1221,40 @@ def user_half_applied(record: ProjectRecord, profile: ProjectRecord) -> ProjectR
     return replace(record, **{name: getattr(profile, name) for name in USER_FIELDS})
 
 
+def _detected_half_cleared(record: ProjectRecord) -> ProjectRecord:
+    """`record` with every detected field back at its default, except `path`.
+
+    The mirror of `user_half_applied`, for the branch that APPENDS. That
+    function's own rule — "those describe the machine the profile was exported
+    FROM; this machine's own scan owns them, and a rescan re-derives them for
+    free" — was stated for the branch with a counterpart and not applied to
+    this one, which took the profile's record whole, `argv` included
+    (LWSM-1216). `argv` is the launch command, and a profile is a
+    configuration rather than a delivery mechanism for something to run.
+
+    `path` is exempt because it is the identity: DETECTED_FIELDS classifies it
+    detected while it is the one field no write may resolve.
+
+    Defaults come from the dataclass rather than being written out here, so
+    INV-1 keeps this complete: a field added to `ProjectRecord` and classified
+    detected is cleared without this function being touched.
+    """
+    defaults = {
+        entry.name: (
+            entry.default_factory()
+            # `_NO_DEFAULT`, not `MISSING`: this module defines its own
+            # module-level `MISSING = "missing"` as a merge outcome, which
+            # shadows the dataclasses sentinel and made this comparison
+            # always true.
+            if entry.default_factory is not _NO_DEFAULT
+            else entry.default
+        )
+        for entry in dataclass_fields(ProjectRecord)
+        if entry.name in DETECTED_FIELDS and entry.name != "path"
+    }
+    return replace(record, **defaults)
+
+
 def merge_imported(
     stored: Sequence[ProjectRecord],
     imported: Sequence[ProjectRecord],
@@ -1286,7 +1322,10 @@ def merge_imported(
             # Not on this machine. Appended with the profile's own `path`, not
             # its resolved form, for the reason a merge never rewrites one.
             owner[resolved] = len(records)
-            records.append(record)
+            # The USER half only. The profile's detected fields describe the
+            # machine it came from, and this one has never scanned this path
+            # (LWSM-1216); a rescan derives them here.
+            records.append(_detected_half_cleared(record))
             flag(NEW, f"{quoted(record.name)}: added from the profile")
             continue
 

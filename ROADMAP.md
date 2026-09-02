@@ -3177,11 +3177,28 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
 
-- 📋 [LWSM-1216] **MEDIUM: merge_imported appends an absent-counterpart profile record whole, detected half included.**
+- ✅ [LWSM-1216] **MEDIUM: merge_imported appends an absent-counterpart profile record whole, detected half included.**
   registry.py:1221. Contradicts the rule stated 80 lines above at :1147 -
   "Nothing here touches DETECTED_FIELDS... this machine's own scan owns them."
   argv is the launch command. Fix: append with the detected half cleared
   (port=None, kind=None, argv=(), unit=None) and let a rescan derive it.
+  Resolved (2026-09-02). Reproduced and fixed as prescribed: the append
+  branch now clears the detected half, keeping `path` (the identity a
+  merge may never rewrite) and the user half (what a profile is for).
+  Driven by DETECTED_FIELDS and the dataclass's own defaults rather than
+  the bullet's literal list of four, so INV-1 keeps it complete - a field
+  added later and classified detected is cleared without this function
+  being touched. That is `user_half_applied`'s shape, which is the rule
+  this branch was failing to apply.
+  ONE TRAP WORTH THE NEXT READER'S TIME: `from dataclasses import MISSING`
+  is SHADOWED in this module. `registry.py` defines its own module-level
+  `MISSING = "missing"` as a merge outcome, so the sentinel comparison was
+  against a string, always true, and every field tried to call
+  `_MISSING_TYPE`. Imported as `_NO_DEFAULT` now, with the reason in
+  place. It failed loudly rather than silently, which is the only reason
+  it cost minutes instead of a wrong default.
+  3/3 mutants killed, including clearing the path and clearing the user
+  half. Gate green, 1355 tests.
   **Layman:** Importing a profile can bring in a launch command for a project this machine has never scanned.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.

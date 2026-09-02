@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **An imported profile no longer brings a launch command with it** (LWSM-1216)
+  A profile carries your own choices — names, hidden flags, port
+  overrides. For a project this machine had never scanned, it was also
+  bringing across what the other machine had worked out for itself,
+  including the command used to start the server. Those are rediscovered
+  by a scan here instead.
+
 - **A profile is not exported when one of your own settings could not be read** (LWSM-1215)
   A typo in a hand-edited setting — a port override written as text, say —
   made the app drop just that setting. Exporting a profile then saved it

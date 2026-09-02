@@ -1836,6 +1836,43 @@ def test_an_import_restores_every_user_field_and_no_detected_one() -> None:
     assert merged.counts[registry.CHANGED] == 1
 
 
+def test_an_imported_project_this_machine_has_never_seen_brings_no_launcher() -> None:
+    """The rule `user_half_applied` states, applied to the OTHER branch.
+
+    "Nothing here touches DETECTED_FIELDS, `path` included. Those describe the
+    machine the profile was exported FROM; this machine's own scan owns them,
+    and a rescan re-derives them for free." That holds where a counterpart
+    exists — and the branch that APPENDS a project absent from this machine
+    took the profile's record whole, `argv` and all (LWSM-1216).
+
+    `argv` is the launch command. A profile is a configuration, not a
+    delivery mechanism for something to run, and a path that was never
+    scanned here has no launcher this machine has looked at.
+
+    `path` and the user half survive: the path is the identity a merge may
+    never rewrite, and the user half is what a profile is for.
+    """
+    profile = dataclasses.replace(
+        every_field_record(),
+        path=Path("/srv/elsewhere"),
+        argv=("./start.sh",),
+        kind=registry.LauncherKind.SHELL,
+        port=4321,
+        unit="elsewhere.service",
+        notes="mine",
+    )
+
+    merged = registry.merge_imported([], [profile])
+
+    (added,) = merged.records
+    assert added.path == Path("/srv/elsewhere"), "the identity is kept"
+    assert added.notes == "mine", "the user half is what a profile carries"
+    assert added.argv == (), "a launch command arrived from another machine"
+    assert added.kind is None
+    assert added.port is None
+    assert added.unit is None
+
+
 def test_an_import_clears_a_user_field_the_profile_left_unset() -> None:
     """The stated loss, and the deliberate one.
 
