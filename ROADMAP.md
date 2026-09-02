@@ -3537,7 +3537,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 4.
 
-- 📋 [LWSM-1229] **MEDIUM: the log rotation backup is the one open in supervisor.py not hardened like the others.**
+- ✅ [LWSM-1229] **MEDIUM: the log rotation backup is the one open in supervisor.py not hardened like the others.**
   supervisor.py:599-603. O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW with no
   O_NONBLOCK and no S_ISREG check, while _open_log (:557) and _launcher_bytes
   (:432) both have them. O_NOFOLLOW does not stop a FIFO, so one planted at
@@ -3545,6 +3545,18 @@ has been applied yet — every item in this section is open.
   configfile.py and applog.py were written after measuring. Also the module's
   only diverged-duplication instance. Fix: add O_NONBLOCK + the S_ISREG/link
   check, then set_blocking(out, True).
+  Resolved (2026-09-02): the rotation backup now goes through the same
+  open as the log. Extracted `_open_private_regular` rather than adding
+  a second hardened copy - the two had already diverged, which is
+  coding.md 1.3's case exactly. Beyond the filed fix: the truncation
+  moved OUT of the open flags. O_TRUNC empties the target as part of
+  opening it, so on a hard link planted at the backup path the file was
+  blanked and the refusal arrived too late to matter; `ftruncate` after
+  the check is what makes the refusal worth having. Three mutants, all
+  dead - and the O_NONBLOCK one dies by HANGING to the timeout, which is
+  the defect itself. The caller already contains per-project failures
+  and logs them, so a booby-trapped path now costs one project's
+  rotation instead of every project's.
   **Layman:** A booby-trapped file where the old log goes can freeze the app's status updates forever.
   Kind: fix.
   Source: review-code 2026-09-01 lane 4.
@@ -3888,7 +3900,7 @@ has been applied yet — every item in this section is open.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 10.
 
-- 📋 [LWSM-1254] **MEDIUM: the app elides row text deliberately while design-accessibility.md forbids truncation outright.**
+- ✅ [LWSM-1254] **MEDIUM: the app elides row text deliberately while design-accessibility.md forbids truncation outright.**
   mainwindow.py:731-733 with NAME_COLUMN_CHARS=16 and BROWSER_COLUMN_CHARS=10.
   design-accessibility.md:124-125 says the layout "must REFLOW at every step,
   never clip or truncate; the test asserts no text is elided at 200%". The code
@@ -3908,6 +3920,22 @@ has been applied yet — every item in this section is open.
   when it actually elided). The browser combo does not, and that is
   LWSM-1253 - so LWSM-1253 is what makes the amended rule true
   everywhere, and the two should close together.
+  Resolved (2026-09-02): the document moved, per the user's decision.
+  Clipping stays forbidden and is now distinguished from elision, which
+  is allowed and owes the whole string in a tooltip and in the
+  accessibility tree - by the accessible name for the name cell, by
+  untruncated item text for the browser combo, which is a real
+  difference the first draft got wrong. The check table gained a row;
+  testing.md T8 and coding.md O8 were corrected in the same change,
+  because fixing only this document would have left both saying nothing
+  may be elided. Gated with review-contract, genre adr, capped at 2
+  loops: 14 verified, 14 fixed, 1 dismissed. The record is
+  docs/journal/P04.md rather than a loop-log section, since this
+  document is user-facing, has never carried one, and its standard does
+  not require it. Two findings were caught by the fix pass against its
+  OWN new text - a check row that would have gone red on the filter box,
+  and a 48x48 target promise the app breaks (measured: 98x41 at 200%).
+  Both were written, measured, and corrected before the commit.
   **Layman:** The accessibility doc promises text is never cut off; the app cuts it off on purpose, for a good reason nobody wrote down.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 10.
@@ -4627,6 +4655,52 @@ mostly in the measurement behind it.
   **Layman:** A safety check meant to protect the machine's own settings also blocks edits to this project's standards folder.
   Kind: chore.
   Source: in-session-2026-09-02.
+
+- 📋 [LWSM-1291] **The text-size control's "multiplies, does not replace" promise has no check row.**
+  design-accessibility.md promises an in-app text-size control independent of
+  the desktop's scaling that "multiplies that, it does not replace it". The
+  nearest check row asserts only that no widget pins a font and that an
+  application font change reaches a row. Neither exercises the COMPOSITION of
+  the two scales, so a control that replaced the desktop's scaling would pass.
+  If that is a genuine gap the document's exhaustiveness claim is false, which
+  is the invariant that section rests on.
+  **Layman:** The app's own text-size setting is promised to stack on top of your desktop's, and nothing tests that it does.
+  Kind: doc-fix.
+  Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
+
+- 📋 [LWSM-1292] **The focus-ring promise is checked by contrast arithmetic that passes when no ring renders.**
+  design-accessibility.md promises a thick, high-contrast focus ring on every
+  focusable widget in every theme. Its only check row is contrast arithmetic
+  over focus-ring/background palette PAIRS, which passes on a palette whose
+  ring is never drawn. testing.md T8's keyboard row asserts reachability and
+  tab order, not a visible ring. So the existence half of the promise is
+  covered by nothing - the same shape as LWSM-1136, where a mechanism was
+  correct, tested and called by nothing.
+  **Layman:** Every focusable control is promised a thick visible outline; the test only checks the colour would be visible, not that the outline exists.
+  Kind: doc-fix.
+  Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
+
+- 📋 [LWSM-1293] **Whether setAccessibleDescription is covered by T8's accessible-names check is unstated.**
+  design-accessibility.md requires a description where the name is not
+  self-explanatory, on coding.md O8 clause 1's condition. testing.md T8's
+  accessible-names check names accessible NAMES only. Either the description
+  half has a row somewhere and the document should say which, or it has none
+  and the exhaustiveness claim is false for it.
+  **Layman:** The docs require a longer description on controls whose name is not self-explanatory, and it is unclear whether anything checks it.
+  Kind: doc-fix.
+  Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
+
+- 📋 [LWSM-1294] **The 600 px lens budget names four cells and predates the browser column.**
+  design-accessibility.md fixes the budget at 600 px for "name, state, port and
+  controls", and its check row repeats the same four nouns. The browser combo
+  is a fifth cell added later, and whether it counts inside the budget is not
+  stated - so a row that overflows because of it satisfies the row as written.
+  A mainwindow.py comment measuring 593 px is dated "before a browser column
+  existed at all", which is the evidence the list is stale rather than
+  deliberate.
+  **Layman:** The rule about everything fitting in one magnifier view lists the parts by name, and the browser dropdown was added afterwards and never added to the list.
+  Kind: doc-fix.
+  Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
 
 ### 🐛 Bug fixes
 

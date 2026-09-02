@@ -96,9 +96,17 @@ pans it. Everything below follows from that one fact:
   could start a second project while one is waiting for an answer,
   which is a change to ADR-0007's threat model rather than to this
   section's layout advice.
-- **Nothing important is hover-only.** Hover states are easy to
-  miss at magnification and impossible to discover by keyboard.
-  Every affordance is visible at rest.
+- **Nothing important is hover-only, so nothing is icon-only.**
+  Hover states are easy to miss at magnification and impossible to
+  discover by keyboard. Every affordance is visible at rest — which
+  settles glyph-faced buttons rather than leaving them to taste: a
+  glyph's meaning would live in its tooltip, and a tooltip is the
+  hover this bullet refuses. **If one is ever added it carries both
+  a tooltip and an accessible name.** That is a floor and not a
+  licence; neither gives a magnifier user back what being visible at
+  rest gives them. Folded in here on 2026-09-02 from § Everything
+  else, which is excluded from the exhaustiveness rule below and so
+  was the wrong home for something that obliges anything.
 
 ### The non-negotiables
 
@@ -184,8 +192,11 @@ every focusable widget in every theme — the magnifier user's
 from what the user is reading.
 
 **Contrast.** Every text-on-background pair in **every** theme
-meets **WCAG AA** — 4.5:1 for body text, 3:1 for large text and
-for the non-text indicators that carry state. Contrast is
+meets **WCAG AA** — 4.5:1 for text, and 3:1 for the non-text
+indicators that carry state. No large-text tier: nothing here
+designates a pair as large text, and the check carries the two
+floors and no third, so a 3:1 heading would satisfy this sentence
+and redden the build. Contrast is
 arithmetic, so this is a unit test over the palettes rather than
 a matter of taste, and **a new theme cannot be added without
 passing it.** The adopted finbreak palettes are checked on
@@ -207,19 +218,11 @@ name, and a description (`setAccessibleName` /
 not widen it. Status reaches a screen reader as
 the same text *Never colour alone* already requires, so Orca
 announces "running, project-b, port 5005" rather than an unnamed
-icon — no separate accessibility-only string to drift. A state
-change announces itself once, not on every poll.
-
-**No icon-only button without words behind it.** A button whose
-face is a glyph carries both a tooltip and an accessible name, so
-neither a magnifier user nor a screen-reader user has to recognise
-it by shape. Moved here from § Everything else on 2026-09-02: it
-obliges something, which makes it a promise rather than taste, and
-that section is excluded from the exhaustiveness rule below.
-**Buttons, not every control** — a text input legitimately renders
-no text and is named instead, which is why the row below counts
-buttons and the *Nothing important is hover-only* check counts
-everything clickable.
+icon — no separate accessibility-only string to drift, with the one
+exception § Eliding governs: where a cell renders a cut string the
+announcement keeps the whole one, so there the accessible text is
+deliberately not the rendered text. A state change announces itself
+once, not on every poll.
 
 **Respects the desktop, not our preferences.** System font family
 and size, honouring the desktop's font scaling and high-DPI
@@ -230,7 +233,13 @@ reduce-motion preference.
 
 **Targets.** Clickable targets no smaller than 24×24 logical
 pixels at 100 %, scaling with the text-size setting rather than
-staying fixed while the text around them grows.
+staying fixed while the text around them grows. **Growing is the
+half with teeth**, and it is what the check has to look at: a target
+pinned at 24×24 satisfies "at least 24 at every step", and being
+pinned is precisely what this forbids. Deliberately no second fixed
+number — the rect follows the font metric rather than the
+percentage, so it does not simply double (measured 2026-09-02), and
+a stated 48×48 would be a promise the layout does not keep.
 
 **This is tested, not asserted** — and the list is exhaustive on
 purpose, because an accessibility claim with no test behind it is
@@ -247,7 +256,7 @@ LWSM-1032 landed them alongside the four:
 | Readable in greyscale (never colour alone) | every state's rendered **state cell** differs from every other after a luminance-only transform, thresholded to ink-or-no-ink. Not the whole row: button enablement differs by state, so a whole-row comparison passes without the state cell rendering anything distinct — measured 2026-08-19, and greyscale alone is not enough either, since two colours of different luminance are two different greys |
 | High-contrast pair clears 7:1 | **already covered by `testing.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `contrast-light` / `contrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
 | Focus ring meets contrast in every theme | the same contrast arithmetic, over focus-ring vs background pairs |
-| Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % and 200 % |
+| Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % **and** at 200 %: none below 24×24 at 100 %, and every one strictly larger at 200 % than at 100 %. The second half is the one that can fail — a target pinned at 24×24 passes "≥ 24 at each step", which is the defect the promise names. Not a fixed 200 % threshold: the rect follows the font metric, so it does not double |
 | A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |
 | No animation conveys information, and reduce-motion is honoured | assert no animation object exists across a real state change — there are none to suppress, so both halves hold together, and the row fails the day one is added |
 | Confirmations appear over the list, and are application-modal | assert `windowModality() == ApplicationModal`, and that the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of a list long enough for the dialog to miss them — at one row it passes, which is exactly the fixture size that would have hidden this — and no code change would have made it (LWSM-1032). **The rect half is an assertion about Qt's own centring, taken headless, and cannot speak for the compositor** — under Wayland placement is KWin's (ADR-0007) and degrades honestly. The modality half holds on every platform |
@@ -256,8 +265,7 @@ LWSM-1032 landed them alongside the four:
 | Related information fits one lens view | assert name, state, port and controls all fall inside a 600 px-wide window **at 100 % text size**. Deliberately not held at 200 %: the text doubles and the row with it, which is the control doing its job — wrapping the row to preserve the number would put the state and its controls on different lines, which is the pan this budget exists to prevent |
 | Elided text keeps its full string | where a cell renders a cut string, assert its tooltip holds the whole one, and that the whole string reaches the accessibility tree — by the accessible name where the cell renders into it, and by the control's own untruncated item text where it does not, which is the browser combo's route. And that **every** control in the row is named from the full text rather than the rendered text. The last clause is the one that failed in practice: the controls read the label back, which has been the elided string since LWSM-1174, so a screen reader was given four identically-truncated names whose whole purpose is telling one project's buttons from another's. A short-named fixture cannot see it, because there the two strings are equal |
 | Feedback appears next to its control | assert an error's rect overlaps the row that raised it |
-| Nothing important is hover-only | assert every action is reachable without a hover event |
-| No icon-only button without words behind it | assert every **button** rendering no text carries a non-empty tooltip and a non-empty accessible name. The accessible-name half is already covered for every clickable widget by *Nothing important is hover-only* below; what this adds is the tooltip, and only for buttons. **Stated rather than run today**, like the tray row above: measured 2026-09-02, the only text-less clickable widget is the filter box, which is an input rather than a button — so there is no icon-only button to drive, and the row fails the day one is added, which is what it is for |
+| Nothing important is hover-only, so nothing is icon-only | assert every clickable widget says what it is at rest — visible text or a non-empty accessible name, with no pointer over it — and that every menu entry has text. Stated as what the check RUNS: it was described here as a hover-free *reachability* assertion until 2026-09-02, which is a different test and would have duplicated T8's keyboard row while deleting the only window-wide naming check. This is also where the accessible-name half of the icon-only floor is met; the tooltip half has no assertion because there is nothing to drive — measured 2026-09-02, the only text-less clickable widget is the filter box, an input rather than a button |
 | Focus is never stolen | drive a poll cycle during editing; assert focus did not move |
 | System font and scaling honoured | assert no widget pins a font family or pixel size, **and that a change to the application font reaches a row's labels and buttons** — measured by `fontMetrics()`, the metric the widget paints with, never by a width the row derives from its own font. Not-pinning is not sufficient: QStyleSheetStyle resolves a font onto every descendant, so with a style sheet installed an application font change reaches the window and stops there (`design-look-and-feel.md` § Look and feel) |
 
