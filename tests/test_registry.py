@@ -730,6 +730,99 @@ def test_every_record_field_is_classified() -> None:
     assert not (registry.DETECTED_FIELDS & registry.USER_FIELDS)
 
 
+def test_a_key_this_build_does_not_know_survives_a_round_trip(
+    tmp_path: Path,
+) -> None:
+    """An older build must not delete what a newer one wrote.
+
+    The writer emits a fixed key set and the loader drops what it does not
+    recognise, so any field added INSIDE schema v1 is stripped by a build that
+    predates it. `browser` was added that way by LWSM-1187, correctly and with
+    no bump per INV-5 — so running the older build once, or round-tripping a
+    profile through it, silently destroyed every per-project browser choice
+    (LWSM-1218).
+
+    A future key is stood in for by one this build genuinely does not know,
+    which is the same situation from the other side of time.
+    """
+    path = tmp_path / "projects.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "projects": [
+                    {
+                        "name": "web",
+                        "path": "/srv/web",
+                        "from_a_newer_build": {"nested": [1, 2]},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_projects(path)
+    out = tmp_path / "rewritten.json"
+    registry.save_projects(out, loaded.records, load=loaded)
+
+    rewritten = json.loads(out.read_text(encoding="utf-8"))
+    (entry,) = rewritten["projects"]
+    assert entry["from_a_newer_build"] == {"nested": [1, 2]}, (
+        f"a key this build does not know was dropped on rewrite: {entry}"
+    )
+
+
+def test_importing_an_older_profile_does_not_delete_unknown_keys() -> None:
+    """The same loss as LWSM-1218, reached from the import side.
+
+    `unknown` is classified USER so a rescan PRESERVES it, and
+    `user_half_applied` takes the user half whole — so a profile exported by a
+    build that predates a key would carry none, and importing it would clear
+    what this machine is holding. That is the very deletion the field exists
+    to prevent.
+
+    So `unknown` is the one user field an import does not restore. It is not
+    the user's choice; it is data in transit, and the only safe direction is
+    to keep what is here.
+    """
+    stored = dataclasses.replace(
+        every_field_record(), unknown=(("from_a_newer_build", '{"a":1}'),)
+    )
+    older_profile = dataclasses.replace(stored, unknown=(), notes="from the profile")
+
+    (restored,) = registry.merge_imported([stored], [older_profile]).records
+
+    assert restored.notes == "from the profile", "the user half is still restored"
+    assert restored.unknown == (("from_a_newer_build", '{"a":1}'),), (
+        "an older profile erased a key this machine was keeping"
+    )
+
+
+def test_an_unknown_key_cannot_shadow_a_field_the_writer_owns(
+    tmp_path: Path,
+) -> None:
+    """The carried keys are written LAST, and that ordering is load-bearing.
+
+    The loader cannot produce a collision — it only collects keys the writer
+    does not emit — so this pins a record built any other way: a merge, a
+    future caller, a test. Without the ordering, a record carrying `name`
+    among its unknown keys would rewrite the file with that value instead of
+    its own, and the next load would read a different project.
+    """
+    hostile = dataclasses.replace(
+        every_field_record(), unknown=(("name", '"shadowed"'),)
+    )
+    out = tmp_path / "projects.json"
+
+    registry.save_projects(out, [hostile], load=registry.RegistryMissing("first run"))
+
+    (entry,) = json.loads(out.read_text(encoding="utf-8"))["projects"]
+    assert entry["name"] == hostile.name, (
+        f"an unknown key overwrote the field the writer owns: {entry['name']!r}"
+    )
+
+
 def every_field_record() -> ProjectRecord:
     """One record with every field populated, including a name needing JSON
     escaping — a default-valued field round-trips through a writer that never

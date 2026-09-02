@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **An older version of the app no longer deletes settings it does not recognise** (LWSM-1218)
+  Anything in the project file that a given build did not know about was
+  dropped the next time that build saved. Running an older version once
+  was enough to erase every per-project browser choice, and the same
+  happened to a profile passed through it. Unrecognised entries are now
+  kept and written back untouched.
+
 - **An imported profile no longer brings a launch command with it** (LWSM-1216)
   A profile carries your own choices — names, hidden flags, port
   overrides. For a project this machine had never scanned, it was also

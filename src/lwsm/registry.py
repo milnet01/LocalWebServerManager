@@ -111,6 +111,17 @@ class ProjectRecord:
     # rather than a command: `browsers.py` resolves it against the desktop's
     # own registered handlers, so nothing here is ever executed as text.
     browser: str | None = None
+    # Keys this build does not recognise, kept so it cannot delete what a
+    # newer one wrote. Pairs of (key, canonical JSON text), sorted — the shape
+    # `actions` uses and for its reason: a `dict` here would make the frozen
+    # dataclass unhashable, and a `list` would fail INV-3's `==` round-trip
+    # (LWSM-1218).
+    #
+    # Classified USER below, which is the honest half: a rescan must PRESERVE
+    # these rather than re-derive them, and preserve-vs-refresh is the only
+    # question INV-1's classification answers. It does not claim they came
+    # from the user.
+    unknown: tuple[tuple[str, str], ...] = ()
 
     @property
     def effective_port(self) -> int | None:
@@ -144,6 +155,9 @@ USER_FIELDS: frozenset[str] = frozenset(
         "actions",
         "added",
         "browser",
+        # See `ProjectRecord.unknown`: preserved by a rescan, which is what
+        # this half means. INV-1 requires every field to be in exactly one.
+        "unknown",
     }
 )
 
@@ -330,6 +344,44 @@ def _actions_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str |
         # exceptions that thing raises, and the margin above is a property of
         # CPython's C scanner rather than anything this file guarantees.
         return (), f"{name}: actions {quoted(value)} could not be re-serialised"
+
+
+# Every key this build writes. Anything else in a record is carried through
+# untouched — see `ProjectRecord.unknown`. Derived from the writer rather than
+# retyped, so a key added to `_serialised` cannot be treated as unknown by the
+# loader in the same commit that starts emitting it.
+_BLANK_RECORD_PATH = Path("/")
+
+
+def _known_keys() -> frozenset[str]:
+    return frozenset(_serialised(ProjectRecord(path=_BLANK_RECORD_PATH, name="")))
+
+
+def _unknown_or_reason(
+    entry: dict[str, object], name: str
+) -> tuple[tuple[tuple[str, str], ...], str | None]:
+    """The record's unrecognised keys, as sorted (key, canonical JSON) pairs.
+
+    A build that drops what it does not recognise DELETES data a newer build
+    wrote, silently, on the first save — `browser` was added inside schema v1
+    with no bump, correctly per INV-5, so an older build round-tripping the
+    file erased every per-project browser choice (LWSM-1218).
+
+    Anything that will not re-serialise loses only itself, like every other
+    field here: the row survives and the key is reported. Nothing is
+    interpreted — the point is to hand it back unchanged.
+    """
+    extras = sorted(key for key in entry if key not in _known_keys())
+    if not extras:
+        return (), None
+    try:
+        return tuple(
+            (key, json.dumps(entry[key], sort_keys=True, separators=(",", ":")))
+            for key in extras
+        ), None
+    except (TypeError, ValueError, RecursionError):
+        # `_actions_or_reason`'s guard, and for its reason (LWSM-1217).
+        return (), f"{name}: unrecognised keys could not be kept ({', '.join(extras)})"
 
 
 def _added_or_reason(value: object, name: str) -> tuple[str | None, str | None]:
@@ -584,6 +636,13 @@ def load_projects(path: Path) -> LoadResult:
             browser,
         ) = (value for _field, (value, _reason) in fields_and_reasons)
 
+        # Everything this build has no name for. Serialised to canonical text
+        # here for the same reason `actions` is, and sorted so a rewrite is
+        # byte-stable (LWSM-1218).
+        unknown, unknown_reason = _unknown_or_reason(entry, name)
+        if unknown_reason:
+            note_field("unknown", unknown_reason)
+
         records.append(
             ProjectRecord(
                 path=project_path,
@@ -600,6 +659,7 @@ def load_projects(path: Path) -> LoadResult:
                 actions=actions,
                 added=added,
                 browser=browser,
+                unknown=unknown,
             )
         )
 
@@ -631,7 +691,7 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
     rather than promised against; carrying the raw string would put a second
     field in `ProjectRecord` that no consumer reads.
     """
-    return {
+    payload: dict[str, object] = {
         "path": str(record.path),
         "name": record.name,
         "port": record.port,
@@ -649,6 +709,19 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
         "added": record.added,
         "browser": record.browser,
     }
+    # Written back exactly as they arrived, and never over a key this writer
+    # owns (LWSM-1218). The loader cannot produce a collision — it collects
+    # only keys absent from this payload — so the guard is for a record built
+    # any other way: without it, one carrying `name` would rewrite the file
+    # with that value instead of its own.
+    #
+    # Stated as a condition rather than left to insertion order. Ordering
+    # decides this silently and in the opposite direction to the intuition:
+    # writing them last makes them WIN.
+    for key, encoded in record.unknown:
+        if key not in payload:
+            payload[key] = json.loads(encoded)
+    return payload
 
 
 def _encoded(path: Path, records: Sequence[ProjectRecord]) -> bytes:
@@ -1212,6 +1285,10 @@ def export_profile(
         raise RegistryError(str(exc)) from exc
 
 
+# The one user field an import does not restore. See `user_half_applied`.
+_NOT_RESTORED_BY_IMPORT = frozenset({"unknown"})
+
+
 def user_half_applied(record: ProjectRecord, profile: ProjectRecord) -> ProjectRecord:
     """`USER_FIELDS`, taken whole — the mirror of `_detected_half_applied`.
 
@@ -1219,8 +1296,18 @@ def user_half_applied(record: ProjectRecord, profile: ProjectRecord) -> ProjectR
     it complete: a field added to `ProjectRecord` and classified *user* is
     restored here without this function being touched.
 
-    **Taken whole, with no per-field qualifier, and that is the deliberate
-    difference from its mirror.** `_detected_half_applied` has to qualify
+    **Taken whole but for one field, which is a qualifier this function did
+    not need until LWSM-1218.** `unknown` is classified USER so that a rescan
+    PRESERVES it, and preserve-vs-refresh is the only question that
+    classification answers. Restoring it from a profile is a different
+    question with the opposite answer: a profile exported by a build that
+    predates a key carries none of it, so taking it whole would clear what
+    this machine is holding — the very deletion the field exists to prevent.
+    It is data in transit rather than the user's choice, and the only safe
+    direction is to keep what is here.
+
+    Otherwise taken whole, and that is still the deliberate difference from
+    its mirror.** `_detected_half_applied` has to qualify
     `port`, because a scan's `None` means *unknown* and would write over a
     stored number. A profile's `None` is not unknown — the profile is a
     complete snapshot of the user half at the moment it was saved, and the
@@ -1233,7 +1320,14 @@ def user_half_applied(record: ProjectRecord, profile: ProjectRecord) -> ProjectR
     machine the profile was exported FROM; this machine's own scan owns them,
     and a rescan re-derives them for free.
     """
-    return replace(record, **{name: getattr(profile, name) for name in USER_FIELDS})
+    return replace(
+        record,
+        **{
+            name: getattr(profile, name)
+            for name in USER_FIELDS
+            if name not in _NOT_RESTORED_BY_IMPORT
+        },
+    )
 
 
 def _detected_half_cleared(record: ProjectRecord) -> ProjectRecord:

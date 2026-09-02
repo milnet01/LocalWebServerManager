@@ -3235,12 +3235,34 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
 
-- 📋 [LWSM-1218] **MEDIUM: schema v1 strips unknown keys, so an older build silently destroys the browser field.**
+- ✅ [LWSM-1218] **MEDIUM: schema v1 strips unknown keys, so an older build silently destroys the browser field.**
   registry.py:583-599 with SCHEMA_VERSION = 1. The writer emits a fixed key
   set and the loader drops unknown keys, so any field added INSIDE v1 is
   stripped. browser was added by LWSM-1187 with no bump (correctly, per
   LWSM-1007 INV-5). Same on a profile round-tripped through an older build.
   Fix: carry unrecognised keys per record in an opaque field and re-emit them.
+  Resolved (2026-09-02). Implemented as the bullet prescribes - unknown
+  keys carried per record and re-emitted - with three decisions the bullet
+  left open, all forced by rules already in this file.
+  SHAPE: pairs of (key, canonical JSON), sorted, not a dict. A dict makes
+  the frozen dataclass unhashable and a list fails INV-3's `==`
+  round-trip; that is `actions`' constraint and `actions`' answer.
+  CLASSIFICATION: USER, because INV-1 requires every field to be in
+  exactly one half and the only question that half answers is
+  preserve-vs-refresh - a rescan must preserve these. It does not claim
+  they are the user's choice.
+  IMPORT: and therefore `unknown` is the ONE user field an import does not
+  restore, which cost `user_half_applied` the "no per-field qualifier"
+  boast its docstring made. A profile exported by a build predating a key
+  carries none of it, so taking the half whole would clear what this
+  machine holds - the same deletion, reached from the import side. Found
+  by writing the test, not by reading.
+  MY OWN COMMENT WAS BACKWARDS AND MY OWN TEST CAUGHT IT. I wrote that the
+  carried keys go LAST "so a known key can never be shadowed" - writing
+  them last is precisely what makes them WIN, and a record carrying `name`
+  rewrote the file with it. It is an explicit `if key not in payload` now,
+  because insertion order decides this silently and in the direction
+  opposite to the intuition. 6/6 mutants killed. Gate green, 1360 tests.
   **Layman:** Run an older version of the app once and every per-project browser choice is deleted without warning.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
