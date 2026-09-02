@@ -956,9 +956,30 @@ class ProjectController(QObject):
 
     @staticmethod
     def _classify(record: ProjectRecord, snapshot: PortSnapshot) -> ProjectStatus:
+        """`running` if EITHER port is held, `stopped` only if neither is.
+
+        ADR-0004: "a project's `declared` port is probed as well as its
+        effective one, whenever the two differ". `effective_port` is the
+        override once one is set, so the declared port went unlooked-at and a
+        project that ignored its override read as `stopped` while its server
+        was up — and the ADR names the consequence, that "Start would
+        cheerfully spawn a duplicate" (LWSM-1201).
+
+        Both ports come from the same snapshot, so the second question costs
+        nothing.
+
+        Reported as plain `running`. Which of the two ports is held is the
+        difference between `running (managed)` and `running (wrong port)`,
+        and those are two of the four states P06's model adds; drawing that
+        distinction here would be that item rather than this one. What this
+        owes today is not calling a live project stopped.
+        """
         port = record.effective_port
         if port is None:
             return ProjectStatus.UNKNOWN
-        return (
-            ProjectStatus.RUNNING if snapshot.is_bound(port) else ProjectStatus.STOPPED
-        )
+        if snapshot.is_bound(port):
+            return ProjectStatus.RUNNING
+        declared = record.port
+        if declared is not None and declared != port and snapshot.is_bound(declared):
+            return ProjectStatus.RUNNING
+        return ProjectStatus.STOPPED

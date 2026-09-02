@@ -278,6 +278,14 @@ signaling per
 
 ### Fixed
 
+- **A project that ignores its port override is no longer reported as stopped** (LWSM-1201)
+  Setting an override made the app watch only the new port. A project
+  that pays no attention to it stays on the port it was written with, so
+  the app saw nothing on the override, said "stopped", and Start would
+  have launched a second copy alongside the one already running. Both
+  ports are checked now, which costs nothing — they come from the same
+  reading.
+
 - **Larger text no longer pushes the rows out of reach** (LWSM-1200)
   The smallest size the window would allow was worked out once, when it
   opened. Turning the text size up made the rows wider than that, and

@@ -21,6 +21,7 @@ import threading
 import time
 from collections.abc import Iterator
 from concurrent.futures import Future
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -170,6 +171,35 @@ def test_probe_error_holds_previous_status(qtbot, controllers) -> None:
     # Reporting `stopped` on a failed probe would report a state nobody
     # observed, and it would look like news.
     assert controller.rows()[0].status is ProjectStatus.RUNNING
+
+
+def test_an_overridden_project_still_sitting_on_its_declared_port_reads_running(
+    qtbot, controllers
+) -> None:
+    """ADR-0004: "a project's `declared` port is probed as well as its
+    effective one, whenever the two differ".
+
+    `effective_port` is the override once one is set, so the declared port was
+    never looked at. The ADR spells out this exact consequence: a non-adopting
+    project asked for 5999 is still on its hard-coded 5005, nothing holds 5999,
+    the table says `stopped` — "then Start would cheerfully spawn a duplicate".
+
+    Reported as plain `running`, not as a distinct state: `running (wrong
+    port)` is one of the four states P06's model adds, and inventing it here
+    would be that item rather than this one. Plain `running` is true at
+    today's granularity and is what stops the duplicate.
+    """
+    stubborn = replace(record("a", 5005), port_override=5999)
+    # Only the DECLARED port is held: the project ignored the override.
+    controller = build(controllers, [stubborn], FakeProbe(5005))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.rows()[0].status is ProjectStatus.RUNNING, (
+        "nothing holds the override, so the project read as stopped and Start "
+        "would have spawned a second server beside the one already running"
+    )
 
 
 def test_a_failing_first_poll_still_emits(qtbot, controllers) -> None:

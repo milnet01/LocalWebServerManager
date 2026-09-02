@@ -2712,7 +2712,7 @@ has been applied yet — every item in this section is open.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 13.
 
-- 📋 [LWSM-1201] **HIGH: only the effective port is probed, so a port override lets Start spawn a duplicate server.**
+- ✅ [LWSM-1201] **HIGH: only the effective port is probed, so a port override lets Start spawn a duplicate server.**
   controller.py:959. ADR-0004 rule 3 is explicit that the declared port is
   probed as well as the effective one whenever they differ, and spells out
   this exact consequence: "the whole running (wrong port) case evaporates...
@@ -2720,6 +2720,24 @@ has been applied yet — every item in this section is open.
   effective_port the override when set, so the declared port goes unprobed.
   Both come from the same snapshot, so the ADR notes the fix costs nothing
   extra. Return the wrong-port state when only the declared one is bound.
+  Resolved (2026-09-02). Reproduced exactly as filed and as ADR-0004
+  predicts: override 5999, declared 5005 held, status came back `stopped`.
+  The bullet asks to "return the wrong-port state", and THAT STATE DOES
+  NOT EXIST YET - `ProjectStatus` has five members and `running (wrong
+  port)` is one of the four P06's model adds (LWSM-1011). Inventing it
+  here would be that item. So the fix is the probe alone: `running` if
+  EITHER port is held, `stopped` only if neither is. That is true at
+  today's granularity and it is what stops the duplicate, which is the
+  harm the ADR names. Which port is held stays P06's distinction.
+  Two mutants SURVIVED and both are equivalent by construction, recorded
+  rather than cleared with a fixture: dropping `declared != port` cannot
+  change the outcome, because reaching that line means the effective port
+  is unbound and an equal declared port is the same number; and dropping
+  `declared is not None` is safe because `is_bound(None)` is
+  `None in frozenset[int]`, which is False rather than an error. Both
+  guards state intent, not behaviour. A third mutant was inert - a wrong
+  anchor, no evidence either way - and re-run correctly it was killed.
+  Gate green, 1313 tests.
   **Layman:** If you override a project's port but the project ignores it, the app thinks nothing is running and starts a second copy.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
