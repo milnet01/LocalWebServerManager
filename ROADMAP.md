@@ -3476,13 +3476,33 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 4.
 
-- 📋 [LWSM-1226] **MEDIUM: the group-writable launcher refusal covers the file but not its parent directory.**
+- ✅ [LWSM-1226] **MEDIUM: the group-writable launcher refusal covers the file but not its parent directory.**
   supervisor.py:345. Checks S_IWGRP|S_IWOTH on the file only; a launcher in a
   group-writable directory can be replaced by unlink-and-create, defeating the
   refusal whose docstring says "whoever else can write it changes what they
   vouched for afterwards". Ownership is not checked either. ADR-0003 Trust has
   the same gap, so the DOCUMENT needs the same fix. Fix: refuse a group/other-
   writable parent without the sticky bit, and a st_uid that is neither ours nor 0.
+  Resolved (2026-09-02). Both halves the bullet asks for - a group- or
+  other-writable parent without the sticky bit, and an owner who is
+  neither us nor root - plus ADR-0003 recording them.
+  MEASURED AGAINST THE REAL TREE BEFORE LANDING, which is what made the
+  change safe to make: all seven project directories are `drwxr-xr-x`, so
+  the new refusals cost nothing that works today. That same measurement
+  found something the bullet did not mention and it is filed separately -
+  **Wedding_Site cannot be started right now**, because its `start.sh` is
+  0775 and the PRE-EXISTING file-mode check refuses it. One of the
+  author's own seven projects, refused by a gate that is behaving
+  correctly.
+  The sticky-bit exemption is not a nicety: `/tmp` is 1777 and only its
+  owner may unlink there, so refusing it would reject a legitimate
+  location. Root-owned launchers are allowed for the same class of reason.
+  ADR-0003 is amended rather than gated - rule 14's own named instance,
+  an amendment recording what was actually built, where the build was the
+  review.
+  A mutant showed the root carve-out was written and measured by nothing -
+  narrowing it to `st_uid != getuid()` passed every other test - so it has
+  its own test now. 5/5 killed. Gate green, 1384 tests.
   **Layman:** A launcher in a folder other people can write to can be swapped after you approved it.
   Kind: security.
   Source: review-code 2026-09-01 lane 4.

@@ -838,6 +838,13 @@ signaling per
 
 ### Security
 
+- **A launcher that someone else could swap out is refused** (LWSM-1226)
+  Approving a project's start-up script vouches for what it says. The app
+  checked that the file itself was not writable by others, but replacing a
+  file needs permission on the folder holding it — so a script in a shared
+  folder could be swapped for a different one after you approved it. The
+  folder and the file's owner are now checked too.
+
 - **No directory name can forge the "Run this launcher?" prompt** (LWSM-1196)
   The prompt escaped carriage return and newline only. Qt also breaks a
   line on U+2028 and U+2029, and U+202E reverses the text it draws — so a

@@ -34,10 +34,12 @@ has no referent, and this list stands in its place.
 - **`scan-roots`** — one directory per line, `#` comments, `~` expanded,
   order preserved because it is the walk order. An empty file means *use the
   default*, and that meaning is part of the format (LWSM-1213).
-- **The `PORT` contract (ADR-0002).** The one surface not ours alone: other
-  repositories were changed to read `PORT` from their environment. Changing
-  the variable, its accepted range, or what an absent value means breaks
-  software this project does not own.
+- **The `PORT` contract (ADR-0002).** The one surface not ours alone. For
+  every sibling that has adopted it, changing the variable, its accepted
+  range, or what an absent value means breaks software this project does not
+  own. Written conditionally on purpose: the ADR requires the manager to work
+  with projects that have not adopted it yet, so how many have is a moving
+  number and not this file's to state.
 - **The `lwsm` command** — that it exists, that `--version` and `--help`
   work, and that an unrecognised option exits 2.
 - **The desktop entry id** `io.github.milnet01.LocalWebServerManager`, which
@@ -63,10 +65,16 @@ where someone else can check it.
 security fold-in, plus `P10`'s packaged download.** Agreed with the user on
 2026-08-24; `ROADMAP.md`'s LWSM-1188 holds the reasoning.
 
-The membership rule is fixed — those five criteria, `FP01`, `P10` — so an
-item filed into one of them tomorrow is in scope without renegotiation. The
-criteria are carried by the phases the roadmap labels `criterion 1` …
-`criterion 5`.
+The membership rule is fixed — those five criteria, `FP01`, and `P10`'s
+packaged download — so an item filed against one of them tomorrow is in scope
+without renegotiation. The criteria are carried by the phases the roadmap
+labels `criterion 1` … `criterion 5`.
+
+**`P10` is a phase, not a deliverable**, and only the packaged download is in
+scope: its release-process and update-delivery items are not. **Where an item
+is claimed by both lists, delivery of a criterion wins** — an `FP09` finding
+that falsifies a criterion blocks `1.0`, one that does not is out with the
+rest of its fold-in.
 
 **Out of `1.0`:** `P09`'s shell work, `DS01`'s debt, and every fold-in
 except `FP01` — `FP09` included. All of it has value; none of it is needed
@@ -78,9 +86,17 @@ Inside `0.x` the global standard shifts the levels down one: a breaking
 change bumps the MINOR and resets the PATCH, and everything else — a new
 capability included — bumps the PATCH.
 
+**From `1.0.0` on the shift stops** and the levels are SemVer's own: MAJOR for
+a breaking change, MINOR for a new capability or a deprecation, PATCH
+otherwise. Stated because § 2 plans to cross that boundary, and this file is
+the only one a contributor can open.
+
 **The release meeting § 2's condition is cut as `1.0.0`**, whatever level
 its own changes would otherwise be. That is the only planned version number;
-every other is decided by the change rather than chosen ahead of it.
+every other is decided by the change rather than chosen ahead of it. This is
+not an override: the global standard requires a `0.x` project to state what
+would make it `1.0`, so cutting it when that condition is met is following
+the rule rather than arguing with it.
 
 **Open: the number of the first release.** LWSM-1152 decided `0.1.0` with the
 user on 2026-08-18, before this standard was adopted. The rule above gives
@@ -97,3 +113,4 @@ user's call: keep `0.1.0` and record why the rule is overridden, or cut
 |------|------|-------|----|----|----|----|---------|
 | 1 | 2026-09-02 | 3, cold — genre pinned `standard` | 1 | 5 | 2 | n/a | **Nine verified, nine fixed.** All three lanes independently found that *"the security fold-in"* and *"the older fold-ins"* named no phase, so the exit condition was not checkable by someone else — the one thing § 2 exists to be. The Q1 was mine: `settings.json` was described as *"the same"* as `projects.json`, importing a carry-through carve-out that is false — that reader takes named keys and its writer emits a fixed set. Two lanes raised it as an open question and the source settled it. Four Q2s came from one paragraph of my own: an exclusion list *"so the list bounds rather than sprawls"* beside *"it does not bound the promise"*, with log contents excluded while criterion 5 is precisely that a failed server's output is readable, and palette names excluded while a theme id is stored in `settings.json`. The list is deleted rather than reconciled. Two more Q2s were the ladder: the rule gives `0.0.1` for a first release where LWSM-1152 says `0.1.0`, and *"a milestone version cannot be chosen in advance"* sat beside a `1.0.0` defined by its contents with nothing saying what triggers the MAJOR bump. Both are now stated as decisions in § 3. **The fix was mostly deletion** — the document is shorter than the draft the lanes read. |
 | 2 | 2026-09-02 | 3, cold — identical brief, packet rebuilt from disk | 0 | 3 | 2 | n/a | **Six verified, five fixed, one surfaced. Every finding landed on text loop 1's own fixes wrote**, which is this gate's documented pattern rather than a surprise. **All three lanes found the same one:** § 2 named `FP01` in scope and then excluded *"every fold-in before `FP09`"* — and `FP01` is one, so the section put the same item in and out, while the wording also read `FP09` itself as in scope. The exclusion is now a complement. Two lanes found that the restatement of the `0.x` rule dropped *"and resets the PATCH"*, which matters precisely because this file tells a contributor it is the only copy they need — at `0.2.3` they would have published `0.3.3`. One lane found the `settings.json` bullet described a mechanism and returned no verdict, and that the harm it named is a DOWNGRADE, which the global breaking test does not reach; it now answers the question and points at LWSM-1289. One found that a contributor is told they need only what is restated here while the test for an unlisted surface was never restated. **The sixth is SURFACED, not fixed:** LWSM-1152's `0.1.0` is a delta arguing with the rule, which global § 3 says this file may not carry, and choosing between it and `0.0.1` is the user's. Recorded in § 3 as open, with nothing released until it is settled. |
+| 3 | 2026-09-02 | 3, cold — identical brief, the surfaced first-release question declared | 1 | 1 | 3 | n/a | **Three verified, three fixed. CAP REACHED (3 for a standard); the tail is empty and the run ships.** Two lanes found § 3 restating only the `0.x` mapping while § 2 plans to leave `0.x` — so from `1.0.0` this repository stated no level rule at all, and a contributor told they need only what is restated here would cut a breaking change as `1.1.0`. The Q1 was a claim about the world rather than the code: *"other repositories **were changed** to read `PORT`"*, where ADR-0002 records the change as planned and requires the manager to work with siblings that *"have not adopted it yet"*. It decides a version number — renaming `PORT` is breaking only if something outside this repo reads it — so the bullet is conditional now. Two lanes found `P10` named as a phase in the membership rule and as one deliverable in the exit condition; the roadmap's `P10` holds release-process and update-delivery items that are not the packaged download, so the two readings gave two release dates. One lane also found an `FP09` item that falsifies a criterion is both out-listed and required; criterion delivery now wins explicitly. **The calm-or-violent measure does not discriminate here and says so: the run CREATED this document, so every finding of every loop landed on text the run wrote, and the share is 100% by construction rather than by oscillation.** The signal that matters instead is the trend — nine findings, then six, then three, each loop's fixes smaller than the last. One lane disclosed reading a loop-log headline through an unscoped search and did not use it; the scrubbed copy withholds the log, the repository copy does not. |
