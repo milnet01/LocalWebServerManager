@@ -4028,6 +4028,26 @@ mostly in the measurement behind it.
   Source: in-session-2026-08-31, found while creating the Findings filed in passing section.
   Lanes: docs.
 
+- 📋 [LWSM-1287] **CLAUDE.md's prescribed orphan-killing pattern also matches other sessions' processes.**
+  CLAUDE.md's supervisor-leak trap prescribes `pkill -f 'sleep [3]0'` and
+  warns only that the unbracketed form kills your own session. The
+  bracketed form is a SUBSTRING match, so it also matches `sleep 300` --
+  and this machine runs several Claude Code sessions whose monitoring
+  loops use exactly that. Running it as written on 2026-09-02 killed two
+  `sleep 300` processes belonging to other projects' sessions.
+
+  Match by CWD, not by command line: `tests/conftest.py`'s
+  `_no_orphans_outlive_the_run` (LWSM-1189) does this, scoping to the
+  run's own temp directory, which makes every hit ours by construction.
+  The trap text should say so and drop the pkill recipe, or anchor it.
+
+  Not fixed in passing because CLAUDE.md is a gate input, so editing it is
+  not a docs-only push, and rule 14's test has to be applied to it rather
+  than assumed.
+  **Layman:** The cleanup command our own notes tell you to run can kill unrelated programs on this machine.
+  Kind: doc-fix.
+  Source: in-session-2026-09-02.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
