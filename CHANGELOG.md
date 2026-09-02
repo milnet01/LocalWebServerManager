@@ -278,6 +278,14 @@ signaling per
 
 ### Fixed
 
+- **A profile is not exported when one of your own settings could not be read** (LWSM-1215)
+  A typo in a hand-edited setting — a port override written as text, say —
+  made the app drop just that setting. Exporting a profile then saved it
+  as empty, and importing that profile elsewhere quietly wiped the working
+  value on those machines. Export now refuses and names the setting.
+  Settings the app works out for itself are unaffected: a rescan
+  recreates those.
+
 - **Clearing every scan folder behaves the same before and after a restart** (LWSM-1213)
   Removing all the folders from the Settings dialog stopped the app
   scanning anything for the rest of the session, then quietly went back to

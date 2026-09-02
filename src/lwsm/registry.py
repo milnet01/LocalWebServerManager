@@ -160,6 +160,14 @@ class LoadResult:
     records: list[ProjectRecord]
     reasons: list[str]  # every refusal, row-level and field-level alike
     rows_refused: int  # ROW refusals only; `reasons` is not a proxy for it
+    # Which USER fields were dropped, by name. Carried structurally for the
+    # reason `MergeResult.counts` is a field rather than something a caller
+    # derives: the only other way to answer "was a user field refused?" is to
+    # match words inside `reasons`, which breaks silently the first time an
+    # entry is reworded. `export_profile` is the caller (LWSM-1215) — a
+    # dropped DETECTED field is harmless in a profile because a rescan
+    # re-derives it, and a dropped USER field is the profile's whole point.
+    user_fields_refused: frozenset[str] = frozenset()
 
 
 def default_projects_path() -> Path:
@@ -418,6 +426,7 @@ def load_projects(path: Path) -> LoadResult:
     reasons: list[str] = []
     suppressed = 0
     rows_refused = 0
+    user_fields_refused: set[str] = set()
     seen: set[Path] = set()
 
     def note(reason: str) -> None:
@@ -427,6 +436,18 @@ def load_projects(path: Path) -> LoadResult:
             reasons.append(reason)
         else:
             suppressed += 1
+
+    def note_field(field: str, reason: str) -> None:
+        """A field refusal: the row survives, and the FIELD is named.
+
+        Named rather than inferred from the reason text, so a reworded message
+        cannot quietly stop a gate firing (LWSM-1215). Only `USER_FIELDS` are
+        recorded — a detected field is re-derived by the next scan, so nothing
+        downstream needs to know it was dropped.
+        """
+        note(reason)
+        if field in USER_FIELDS:
+            user_fields_refused.add(field)
 
     def refuse_row(reason: str) -> None:
         """A reason that also DROPS the object.
@@ -497,34 +518,42 @@ def load_projects(path: Path) -> LoadResult:
             entry.get("port"), "port", *DECLARED_PORT_RANGE, name
         )
         if reason:
-            note(reason)
+            note_field("port", reason)
         override, reason = _port_or_reason(
             entry.get("port_override"), "port_override", *OVERRIDE_PORT_RANGE, name
         )
         if reason:
-            note(reason)
+            note_field("port_override", reason)
 
         # The remaining ten keys, each defaulting when absent and each losing
         # only itself when present at the wrong type. Collected through one list
         # so no field can be parsed and then forgotten on the way to the record —
         # the shape an earlier draft of § 4.2 missed `kind` through.
+        # Each pair is TAGGED with its own field name, so a refusal can be
+        # attributed without reading the reason text (LWSM-1215).
         fields_and_reasons = [
-            _kind_or_reason(entry.get("kind"), name),
-            _argv_or_reason(entry.get("argv"), name),
-            _string_or_reason(entry.get("unit"), "unit", name),
-            _bool_or_reason(entry.get("hidden"), "hidden", name),
-            _string_or_reason(
-                entry.get("launcher_override"), "launcher_override", name
+            ("kind", _kind_or_reason(entry.get("kind"), name)),
+            ("argv", _argv_or_reason(entry.get("argv"), name)),
+            ("unit", _string_or_reason(entry.get("unit"), "unit", name)),
+            ("hidden", _bool_or_reason(entry.get("hidden"), "hidden", name)),
+            (
+                "launcher_override",
+                _string_or_reason(
+                    entry.get("launcher_override"), "launcher_override", name
+                ),
             ),
-            _text_or_reason(entry.get("notes"), "notes", name),
-            _bool_or_reason(entry.get("start_at_login"), "start_at_login", name),
-            _actions_or_reason(entry.get("actions"), name),
-            _added_or_reason(entry.get("added"), name),
-            _string_or_reason(entry.get("browser"), "browser", name),
+            ("notes", _text_or_reason(entry.get("notes"), "notes", name)),
+            (
+                "start_at_login",
+                _bool_or_reason(entry.get("start_at_login"), "start_at_login", name),
+            ),
+            ("actions", _actions_or_reason(entry.get("actions"), name)),
+            ("added", _added_or_reason(entry.get("added"), name)),
+            ("browser", _string_or_reason(entry.get("browser"), "browser", name)),
         ]
-        for _value, reason in fields_and_reasons:
+        for field_name, (_value, reason) in fields_and_reasons:
             if reason:
-                note(reason)
+                note_field(field_name, reason)
         (
             kind,
             argv,
@@ -536,7 +565,7 @@ def load_projects(path: Path) -> LoadResult:
             actions,
             added,
             browser,
-        ) = (value for value, _reason in fields_and_reasons)
+        ) = (value for _field, (value, _reason) in fields_and_reasons)
 
         records.append(
             ProjectRecord(
@@ -563,7 +592,12 @@ def load_projects(path: Path) -> LoadResult:
         # problems from one with 524,271.
         reasons.append(f"and {suppressed} more problems in this file, not shown")
 
-    return LoadResult(records=records, reasons=reasons, rows_refused=rows_refused)
+    return LoadResult(
+        records=records,
+        reasons=reasons,
+        rows_refused=rows_refused,
+        user_fields_refused=frozenset(user_fields_refused),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1129,6 +1163,22 @@ def export_profile(
         raise RegistryError(
             f"{quoted(str(path))}: not exporting a profile from a registry that "
             f"could not be loaded ({quoted(str(load))})"
+        )
+    if isinstance(load, LoadResult) and load.user_fields_refused:
+        # A dropped ROW is visibly absent from the profile; a nulled FIELD
+        # looks intentional. It re-loads cleanly, so the window's
+        # refuse-any-refusal gate passes it, and `user_half_applied` then
+        # writes the null over a good stored value on every machine the
+        # profile reaches (LWSM-1215).
+        #
+        # USER fields only. A dropped detected field is harmless here because
+        # the next scan re-derives it, which is what
+        # `test_a_dropped_field_does_not_block_an_export` pins.
+        refused = ", ".join(sorted(load.user_fields_refused))
+        raise RegistryError(
+            f"{quoted(str(path))}: not exporting; the stored value of "
+            f"{refused} was refused at load, and a profile carrying it would "
+            "erase a good one when imported"
         )
     if isinstance(load, LoadResult) and load.rows_refused:
         raise RegistryError(

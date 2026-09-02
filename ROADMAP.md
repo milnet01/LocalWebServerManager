@@ -3145,13 +3145,34 @@ has been applied yet — every item in this section is open.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 1.
 
-- 📋 [LWSM-1215] **MEDIUM: export_profile gates on row refusals, so a bad user field exports as null and later erases a good one.**
+- ✅ [LWSM-1215] **MEDIUM: export_profile gates on row refusals, so a bad user field exports as null and later erases a good one.**
   registry.py:1115. A hand-typed "port_override": "8080" is dropped with
   rows_refused == 0, export succeeds, the profile carries null, it re-loads
   cleanly so the window's refuse-any-refusal gate passes it, and
   _user_half_applied writes the null over a good stored override. A dropped
   ROW is visibly absent; a nulled FIELD looks intentional. Fix: refuse the
   export when any reason names a USER_FIELDS member.
+  Resolved (2026-09-02). Fixed as the bullet asks in EFFECT but not in
+  MECHANISM, and the difference matters. It says "refuse the export when
+  any reason NAMES a USER_FIELDS member", i.e. match the reason text -
+  and this file already argues against exactly that, in `MergeResult`:
+  `counts` is a field rather than something a caller derives because
+  matching outcome words inside `reasons` "breaks silently the first time
+  an entry is reworded". So `LoadResult` carries `user_fields_refused` as
+  a set of NAMES, populated where the refusal happens.
+  The pre-existing `test_a_dropped_field_does_not_block_an_export` still
+  passes and is not in conflict: its example is `port`, a DETECTED field a
+  rescan re-derives. The new gate is narrower than "any reason" - detected
+  fields are filtered out - which is what lets both be true.
+  TWO OF MY OWN TESTS WERE WEAK AND MUTANTS SAID SO. The gate test builds
+  a `LoadResult` by hand, so it passes whether or not the loader ever
+  populates the set - the LWSM-1136 shape - hence a second test that loads
+  a real file. And that one asserted `"port" not in ...`, which cannot
+  fail: `port` reaches `note` by another path, so a mutant deleting the
+  USER_FIELDS filter survived. It asserts on `unit` now, a detected field
+  that does go through `note_field`, and `port` was routed through it too
+  so every field here uses one call. 5/5 killed after that. Gate green,
+  1354 tests.
   **Layman:** A typo in one setting can quietly wipe that setting on every machine you import the profile to.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.

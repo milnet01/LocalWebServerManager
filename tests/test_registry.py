@@ -1652,6 +1652,81 @@ def test_a_dropped_field_does_not_block_an_export(tmp_path: Path) -> None:
     assert load_projects(profile).records == records
 
 
+def test_the_loader_names_the_user_field_it_dropped(tmp_path: Path) -> None:
+    """The wiring, not the gate — and they fail differently.
+
+    The gate test beside this one builds a `LoadResult` by hand, so it passes
+    whether or not `load_projects` ever populates the set. That is the shape
+    LWSM-1136 recorded: a mechanism with a unit test and no caller looks
+    exactly like a working one.
+
+    `port_override` is a USER field, so it is named; `port` is DETECTED, so it
+    is not — asserted together, because "names everything" and "names the
+    right things" are different claims.
+    """
+    path = tmp_path / "projects.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "projects": [
+                    {
+                        "name": "web",
+                        "path": "/srv/web",
+                        "port": "3000",
+                        "port_override": "8080",
+                        "unit": 123,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_projects(path)
+
+    assert loaded.rows_refused == 0, "both are field refusals, not row refusals"
+    assert "port_override" in loaded.user_fields_refused
+    # `unit`, not `port`: both are detected, but `unit` is one of the fields
+    # routed through `note_field`, so it is what can actually distinguish
+    # "records the right fields" from "records every field". Asserting `port`
+    # here proved nothing — it reaches `note` by another path, and a mutant
+    # deleting the USER_FIELDS filter survived because of it.
+    assert "unit" not in loaded.user_fields_refused, (
+        "`unit` is detected — a rescan re-derives it, so a profile missing it "
+        "is not a profile that erases anything"
+    )
+
+
+def test_a_refused_user_field_blocks_an_export(tmp_path: Path) -> None:
+    """The other half of the test above, and the difference is WHOSE field.
+
+    A dropped DETECTED field is harmless in a profile: a rescan re-derives it.
+    A dropped USER field is the opposite — the user half is the entire point
+    of a profile, so a hand-typed `"port_override": "8080"` exports as null,
+    re-loads cleanly, passes the window's refuse-any-refusal gate, and
+    `user_half_applied` then writes that null over a good stored override on
+    every machine the profile reaches (LWSM-1215).
+
+    A dropped ROW is visibly absent. A nulled FIELD looks intentional, which
+    is what makes this worth refusing rather than reporting.
+    """
+    profile = tmp_path / "saved.json"
+    records = [every_field_record()]
+    refused_override = registry.LoadResult(
+        records=records,
+        reasons=["port_override '8080' is not an integer"],
+        rows_refused=0,
+        user_fields_refused=frozenset({"port_override"}),
+    )
+
+    with pytest.raises(RegistryError) as caught:
+        registry.export_profile(profile, records, load=refused_override)
+
+    assert "port_override" in str(caught.value)
+    assert not profile.exists(), "a refused export must leave no file behind"
+
+
 def test_an_export_from_an_unloadable_registry_is_refused(tmp_path: Path) -> None:
     """The state a `reasons`-only gate misses entirely: a raised
     `RegistryError` produces no reasons at all, and the records in hand are
