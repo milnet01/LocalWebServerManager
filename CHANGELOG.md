@@ -278,6 +278,12 @@ signaling per
 
 ### Fixed
 
+- **Every control in the Settings dialog is now big enough to click** (LWSM-1206)
+  The minimum size that keeps a control comfortably clickable was applied
+  to the Add and Remove buttons only. On a machine with a smaller default
+  font the two number boxes and the OK and Cancel buttons came out under
+  it — measured at 19 pixels tall for OK and Cancel against a floor of 24.
+
 - **Stop no longer leaves behind a process that appeared while it was working** (LWSM-1204)
   Stop listed the server's processes once, at the start. Anything that
   appeared afterwards — a shutdown handler that restarts something, a

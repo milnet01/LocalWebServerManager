@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from lwsm.mainwindow import MIN_TARGET_PX
 from lwsm.settings import (
     MAX_LOG_MAX_MIB,
     MAX_POLL_INTERVAL_MS,
@@ -36,6 +37,60 @@ def build(qtbot, roots=(), poll=1000, log=5, chooser=None) -> SettingsDialog:
     )
     qtbot.addWidget(dialog)
     return dialog
+
+
+@pytest.mark.parametrize("base_point_size", [None, 6.0])
+def test_every_control_in_the_dialog_clears_the_target_floor(
+    qtbot, base_point_size
+) -> None:
+    """`design-accessibility.md` puts a 24x24 floor under every clickable
+    target, and only Add and Remove had one — the two spinboxes and the Ok and
+    Cancel buttons had none (LWSM-1206).
+
+    Parametrised over the system font for LWSM-1032's reason, which is the
+    same defect one dialog along: a control's height comes from the style,
+    which derives it from the font, so this machine's default cleared the
+    floor by a single pixel while the CI runner's smaller default did not.
+    The ambient case cannot see that; 6 pt fails on any build with no explicit
+    floor, whatever machine it runs on.
+
+    The application font is restored by conftest's autouse
+    `_restore_application_appearance`, so nothing here has to undo it.
+
+    Ok and Cancel are asked individually and never through the
+    `QDialogButtonBox` holding them. Its own geometry is the container's, and
+    `keyboard_focus_order` already records the sibling trap: the box's own
+    focusPolicy is NoFocus while the buttons inside it are focusable.
+    """
+    from PySide6.QtWidgets import QApplication, QDialogButtonBox
+
+    if base_point_size is not None:
+        app = QApplication.instance()
+        assert app is not None
+        font = app.font()
+        font.setPointSizeF(base_point_size)
+        app.setFont(font)
+
+    dialog = build(qtbot, roots=("/srv/one",))
+    with qtbot.waitExposed(dialog):
+        dialog.show()
+
+    targets = {
+        "Add": dialog._add,
+        "Remove": dialog._remove,
+        "poll interval": dialog._poll,
+        "log cap": dialog._log,
+        "Ok": dialog._buttons.button(QDialogButtonBox.StandardButton.Ok),
+        "Cancel": dialog._buttons.button(QDialogButtonBox.StandardButton.Cancel),
+    }
+
+    too_small = {
+        name: (widget.width(), widget.height())
+        for name, widget in targets.items()
+        if widget.width() < MIN_TARGET_PX or widget.height() < MIN_TARGET_PX
+    }
+
+    assert not too_small, f"below {MIN_TARGET_PX}x{MIN_TARGET_PX}: {too_small}"
 
 
 def test_what_goes_in_comes_back_out_untouched(qtbot) -> None:

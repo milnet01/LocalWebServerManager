@@ -2852,13 +2852,31 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 2.
 
-- 📋 [LWSM-1206] **HIGH: the 24x24 target floor is applied to two of the settings dialog's seven focusable controls.**
+- ✅ [LWSM-1206] **HIGH: the 24x24 target floor is applied to two of the settings dialog's seven focusable controls.**
   settingsdialog.py:96-102. The floor covers _add and _remove only. Ok/Cancel
   (via self._buttons) and both spinboxes get none. LWSM-1032 already measured
   25px here against 22px on the CI runner, so on any machine with a smaller
   font the two most important controls in the dialog are under the floor.
   Ask box.button(StandardButton.Ok), never the box - QDialogButtonBox's own
   focusPolicy is NoFocus, which is the CLAUDE.md container trap.
+  Resolved (2026-09-02). Reproduced as filed, and the numbers are the
+  bullet's own argument: at a 6 pt system font the two spinboxes measured
+  23 px and Ok and Cancel 19 px, against a floor of 24 - while the ambient
+  font on this machine passed. That is LWSM-1032 exactly, one dialog
+  along, which is why the test is PARAMETRISED over the font rather than
+  trusting the one the runner happens to have.
+  Ok and Cancel are asked individually and the floor is set on each
+  button, never on `self._buttons` - the container trap the bullet names
+  and `keyboard_focus_order` already records for focus. A mutant setting
+  it on the box is killed.
+  `_roots` is deliberately not in the set: it is a list several hundred
+  pixels tall, and a 24 px floor under it asserts nothing.
+  3/4 mutants killed. The survivor is the WIDTH floor, which no test can
+  see because all four controls are far wider than 24 px anyway (256 for
+  the spinboxes, 80 for the buttons). Kept for symmetry with the Add and
+  Remove pair above it and with the standard's "24x24" wording, and
+  recorded here as unmeasured rather than dropped or dressed up with a
+  fixture. Gate green, 1319 tests.
   **Layman:** The OK and Cancel buttons can be too small to click comfortably on machines with a smaller default font.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 6.

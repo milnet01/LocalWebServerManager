@@ -113,6 +113,24 @@ class SettingsDialog(QDialog):
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        # The same floor, over every remaining control rather than the two
+        # buttons above (LWSM-1206). A spinbox is dragged and clicked on its
+        # arrows, and Ok and Cancel are the two most important targets in the
+        # dialog; all four were under 24 px at a small system font.
+        #
+        # Asked of each BUTTON, never of `self._buttons`. The box is a
+        # container, and `keyboard_focus_order` already records the same trap
+        # for focus: its own policy is NoFocus while the buttons inside it are
+        # focusable, so a property set or read on the box says nothing about
+        # what the user actually clicks.
+        for target in (
+            self._poll,
+            self._log,
+            self._buttons.button(QDialogButtonBox.StandardButton.Ok),
+            self._buttons.button(QDialogButtonBox.StandardButton.Cancel),
+        ):
+            target.setMinimumHeight(MIN_TARGET_PX)
+            target.setMinimumWidth(MIN_TARGET_PX)
         self._buttons.accepted.connect(self.accept)
         self._buttons.rejected.connect(self.reject)
 
