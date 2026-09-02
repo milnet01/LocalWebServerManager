@@ -1683,6 +1683,55 @@ def test_a_missing_scan_root_does_not_blank_the_result(tmp_path: Path) -> None:
     assert any("gone" in reason for reason in result.skipped)
 
 
+def test_an_unreadable_hop_target_costs_the_port_not_the_project(
+    tmp_path: Path,
+) -> None:
+    """The launcher is readable; only a file it imports is not.
+
+    `_accept_hop` calls `is_symlink()` on the hop target, which re-raises
+    EACCES on 3.13, and nothing contained it below `scan()`'s per-candidate
+    handler — so the whole project was dropped with "cannot be examined"
+    (LWSM-1221). Measured: readable, the project is found with port 8080 from
+    `sub/config.py`; with `sub/` at 0o000 it disappears from the list.
+
+    Losing the project is disproportionate to what failed. The project
+    directory and its launcher are both perfectly readable — the only thing
+    that is not is one file the port might have been in — so the honest result
+    is the project listed with its port unknown.
+
+    That is the containment boundary the class needs, and it is why this is
+    not a fifth guard on a fifth metadata call: the unit being contained is
+    the HOP, not the `is_symlink` inside it.
+    """
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions, so 0o000 plants nothing")
+
+    make_project(
+        tmp_path,
+        "proj",
+        {"serve.py": "import sub.config\n", "sub/config.py": "PORT = 8080\n"},
+        "serve.py",
+    )
+    locked = tmp_path / "proj" / "sub"
+    locked.chmod(0o000)
+    try:
+        result = scanner.scan([tmp_path], units=FakeUnits())
+    finally:
+        locked.chmod(0o755)
+
+    assert [project.name for project in result.projects] == ["proj"], (
+        "a readable project vanished because one file it imports is not"
+    )
+    (project,) = result.projects
+    assert project.port is None, "the port could not be read, so it is unknown"
+    # And it says so. `design.md`: every failure has a visible home — a hop
+    # skipped silently is a port reported unknown for no stated reason, which
+    # is indistinguishable from a project that simply declares none.
+    assert any("cannot be examined" in reason for reason in result.skipped), (
+        f"the unreadable hop was skipped without a word: {result.skipped}"
+    )
+
+
 def _plant_unreadable_directory(root: Path) -> str:
     """A candidate the scanner may list but may not enter.
 

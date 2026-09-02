@@ -3327,7 +3327,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 3.
 
-- 📋 [LWSM-1221] **MEDIUM: an unguarded is_symlink drops a whole project when a hop target is unreadable.**
+- ✅ [LWSM-1221] **MEDIUM: an unguarded is_symlink drops a whole project when a hop target is unreadable.**
   scanner.py:675, and the same class at :605 and :1193. On Python 3.13
   _IGNORED_ERRNOS swallows only ENOENT/ENOTDIR/EBADF/ELOOP - EACCES and
   ENAMETOOLONG are RE-RAISED. Path.resolve() above it is non-strict and
@@ -3335,6 +3335,31 @@ has been applied yet — every item in this section is open.
   catches it before scan()'s per-candidate handler drops the project. Spec 4.3
   requires the project stay listed with only the port unknown. This is the
   project's own measured pathlib trap at a fifth call site - contain per item.
+  Resolved (2026-09-02). Reproduced end to end with a real `chmod 000`:
+  readable, the project is found with port 8080 from `sub/config.py`; with
+  `sub/` unreadable it DISAPPEARS from the list, skipped as "cannot be
+  examined" - while the project directory and its launcher are both
+  perfectly readable.
+  ONE CORRECTION TO THE BULLET: it says "nothing catches it before
+  scan()'s per-candidate handler drops the project", and the class IS
+  already contained - that handler catches it and the batch survives. What
+  is wrong is the BOUNDARY, not the absence of one. Losing the whole
+  project is out of all proportion to one unreadable file the port merely
+  might have been in.
+  So the fix is NOT a guard on `is_symlink`, and that is the point. This
+  project has paid four times for guarding individual metadata calls, and
+  `CLAUDE.md` records the lesson as "contain per item, do not add a fifth
+  guard to a fifth call site". The item here is the HOP; it is contained,
+  the hop is skipped with a reason, and the port stays unknown.
+  The sibling sites at the launcher and `package.json` are deliberately
+  left alone: there the unreadable thing IS the project's own launcher,
+  and the spec's FIFO note says refusing with a reason is right.
+  A mutant showed the skip was unreported, which is a port unknown for no
+  stated reason - indistinguishable from a project that declares none.
+  Pinned. ONE SURVIVOR, equivalent by unreachability: widening the catch
+  to `BaseException` would swallow `_BudgetExpired`, but `_accept_hop`
+  never checks the deadline and so cannot raise it. Recorded rather than
+  cleared. Gate green, 1362 tests.
   **Layman:** One folder the app is not allowed to open makes a working project vanish from the list entirely.
   Kind: fix.
   Source: review-code 2026-09-01 lane 3.

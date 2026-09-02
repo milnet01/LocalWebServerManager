@@ -278,6 +278,13 @@ signaling per
 
 ### Fixed
 
+- **One unreadable folder no longer makes a whole project disappear** (LWSM-1221)
+  If a project's start-up file referred to something inside a folder this
+  app is not allowed to open, the entire project vanished from the list —
+  even though the project folder and its start-up file were both perfectly
+  readable. It stays in the list now, with its port shown as unknown and
+  the reason recorded.
+
 - **A scan that runs out of time says so instead of guessing** (LWSM-1220)
   When the time budget ran out while a scan was following a project's
   imports to find its port, the project was listed with the port shown as

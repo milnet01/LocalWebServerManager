@@ -795,7 +795,27 @@ def _import_hop_port(
                 # Exhausting the hops is not a failure: the walk simply stops
                 # looking, and an unknown port here IS honest.
                 return None
-            target, reason = _accept_hop(specifier, candidate, launcher)
+            try:
+                target, reason = _accept_hop(specifier, candidate, launcher)
+            except OSError as exc:
+                # Contained at the HOP, which is the unit, and deliberately
+                # not at the `is_symlink` inside it — `Path.exists` /
+                # `is_symlink` / `is_file` re-raise EACCES and ENAMETOOLONG on
+                # 3.13, and patching each call site is the fifth-guard-on-a-
+                # fifth-call-site this project has already paid for four times.
+                #
+                # It reached `scan()`'s per-candidate handler, which dropped
+                # the WHOLE PROJECT: measured, a `sub/` directory at 0o000 took
+                # a project whose own directory and launcher are both perfectly
+                # readable out of the list entirely (LWSM-1221). Losing the
+                # project is out of all proportion to one unreadable file that
+                # the port merely might have been in, so the hop is skipped and
+                # the port stays unknown.
+                note(
+                    f"hop target {_quoted(specifier)} cannot be examined "
+                    f"({exc.strerror or exc})"
+                )
+                continue
             if reason is not None:
                 note(reason)
                 continue
