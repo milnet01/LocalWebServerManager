@@ -4472,6 +4472,26 @@ mostly in the measurement behind it.
   Kind: enhancement.
   Source: in-session-2026-09-02.
 
+- 📋 [LWSM-1289] **settings.json still drops keys an older build does not know, as projects.json did.**
+  LWSM-1218 fixed this for `projects.json`: unrecognised keys are kept and
+  written back. `settings.py` was not changed and has the same shape - the
+  reader takes named keys through `document.get(...)` and the writer emits a
+  fixed set - so any preference added inside schema v1 is erased the first
+  time an older build saves.
+
+  Found while gating `docs/standards/versioning-overrides.md`: two review
+  lanes asked whether that file's claim about `settings.json` was true, and
+  the source says it is not. The standard now states the difference rather
+  than papering over it, which is why this is a code item and not a doc one.
+
+  Same fix shape as LWSM-1218, and cheaper now that the pattern exists.
+  Whether the two loaders should share it is the open question - `settings.py`
+  is a core module and deliberately never raises, so it cannot simply import
+  `registry.py`'s parser.
+  **Layman:** Running an older version once can silently erase a preference a newer version added.
+  Kind: fix.
+  Source: in-session-2026-09-02.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
