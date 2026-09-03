@@ -4935,6 +4935,33 @@ mostly in the measurement behind it.
   Kind: fix.
   Source: in-session-2026-09-03 (found while fixing LWSM-1231).
 
+- 📋 [LWSM-1296] **Record the mutation_probe timeout trap in CLAUDE.md's trap cluster.**
+  Measured 2026-09-03. A `mutation_probe` batch returned
+  `Ants MCP transport: timed out` with no envelope. A grep issued
+  immediately afterwards showed a mutation still applied to
+  `src/lwsm/ports.py`; a read seconds later showed the file restored —
+  the server had finished and restored it after the transport gave up
+  waiting. So a timeout means UNKNOWN, and the verb's `restored_clean`
+  can only arrive in an envelope the timeout destroys.
+  Two ways to be wrong, and the second was nearly taken here. Repairing
+  by hand from that one observation double-edits a file the server is
+  about to restore; this session was saved only because the repair
+  anchored on the mutated text and refused when it no longer matched.
+  Running the gate or committing inside the window ships a mutant.
+  The trap belongs beside the existing mutation traps, which already
+  say an inert mutant reported green is worse than no mutant — this is
+  the same false conclusion reached from a third direction. Rule: after
+  a mutation_probe timeout, RE-READ before concluding anything, and
+  never hand-repair from a single observation.
+  Also filed upstream in
+  `/mnt/Games/Scripts/Linux/LocalWebServerManager_Ants_MCP_Feedback.md`
+  (2026-09-03 section, unannotated). Not written into CLAUDE.md inside
+  an unrelated item: that file is gated by global rule 14, and adding a
+  rule a conformer would act on re-arms the cold read.
+  **Layman:** A tool we use a lot can look like it left broken code behind when it did not, and the obvious repair makes it worse.
+  Kind: doc.
+  Source: in-session-2026-09-03.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
