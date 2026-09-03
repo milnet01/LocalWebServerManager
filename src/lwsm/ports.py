@@ -6,11 +6,35 @@ Contract: `docs/specs/LWSM-1005-vertical-slice.md § 4.2`.
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
 import psutil
+
+
+def _answers_localhost(ip: str) -> bool:
+    """Would a connection to `localhost` arrive on a socket bound to `ip`?
+
+    Loopback (the whole 127/8 block, and `::1`) or a wildcard, which accepts
+    on every interface including loopback. A LAN address answers the machine's
+    own name and not `localhost`, which is the URL Open builds (LWSM-1232).
+
+    An address the stdlib cannot parse answers False. That direction is the
+    conservative one for the caller that matters: the row reads `stopped`
+    rather than offering an Open that reaches nothing.
+    """
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    # `::ffff:127.0.0.1` is a v6 object whose loopback test is False, because
+    # `::1` is the v6 loopback. The embedded v4 address is what it answers on.
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        address = mapped
+    return address.is_loopback or address.is_unspecified
 
 
 class ProbeError(Exception):
@@ -37,13 +61,38 @@ class PortSnapshot:
     a stranger's evidence.
     """
 
+    # EVERY listening port, on any address. That is the right answer for
+    # "can this port be bound?", which is what the supervisor's pre-flight
+    # asks: a LAN-only listener still takes the port from a server that wants
+    # to bind the wildcard.
     listening: frozenset[int]
     # Defaulted so every existing fake probe keeps constructing, and so the
     # default is "we do not know who holds this" rather than a claim.
     holders: Mapping[int, int] = field(default_factory=dict)
+    # The subset of `listening` that a connection to `localhost` would reach.
+    # `None` means this snapshot was built with no address information -- every
+    # fake that predates LWSM-1232 -- and answers from `listening`, so a fake
+    # stays exactly as expressive as it was.
+    local: frozenset[int] | None = None
 
     def is_bound(self, port: int) -> bool:
+        """Is anything listening on `port`, on any address?
+
+        The binding question. NOT the question a project's status asks -- see
+        `answers_localhost`, which the two were sharing wrongly (LWSM-1232).
+        """
         return port in self.listening
+
+    def answers_localhost(self, port: int) -> bool:
+        """Would `http://localhost:<port>/` reach something?
+
+        The status question, and the one Open is gated behind. A process on
+        192.168.1.5:5000 made an unrelated project read `running` and offered
+        an Open that reached nothing.
+        """
+        if self.local is None:
+            return port in self.listening
+        return port in self.local
 
     def holder(self, port: int) -> int | None:
         """The pid listening on `port`, or None.
@@ -97,19 +146,34 @@ class PortProbe:
         # AttributeError mid-tick would take the poll down.
         try:
             listening: set[int] = set()
-            holders: dict[int, int] = {}
+            local: set[int] = set()
+            # Every pid seen holding a port on an address `localhost` reaches.
+            # A set rather than one pid, because "two processes" and "one
+            # process on two sockets" have to be told apart below.
+            claimants: dict[int, set[int]] = {}
             for conn in connections:
                 if conn.status != psutil.CONN_LISTEN or not conn.laddr:
                     continue
                 port = conn.laddr.port
                 listening.add(port)
+                if not _answers_localhost(conn.laddr.ip):
+                    continue
+                local.add(port)
                 if conn.pid is not None:
-                    # One port can carry two listening sockets -- an IPv4 and an
-                    # IPv6 -- and in practice both belong to the same process.
-                    # First one wins rather than last, so the answer does not
-                    # depend on the order psutil happens to return them in.
-                    holders.setdefault(port, conn.pid)
-            return PortSnapshot(frozenset(listening), holders)
+                    claimants.setdefault(port, set()).add(conn.pid)
+            # A port normally carries two listening sockets, IPv4 and IPv6,
+            # belonging to one process -- one pid, no ambiguity. Two DIFFERENT
+            # pids on one port is possible on two loopback addresses, and there
+            # nothing here can say which one `localhost` reaches. Taking the
+            # first made the answer depend on psutil's undocumented return
+            # order (LWSM-1232); no answer is ADR-0004's safe direction, the
+            # same one already taken for a holder the kernel will not name.
+            holders = {
+                port: next(iter(pids))
+                for port, pids in claimants.items()
+                if len(pids) == 1
+            }
+            return PortSnapshot(frozenset(listening), holders, frozenset(local))
         except Exception as exc:
             raise ProbeError(
                 f"could not read the socket table: {type(exc).__name__}: {exc}"

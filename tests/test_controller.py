@@ -173,6 +173,45 @@ def test_probe_error_holds_previous_status(qtbot, controllers) -> None:
     assert controller.rows()[0].status is ProjectStatus.RUNNING
 
 
+class LanOnlyProbe:
+    """Something is listening on `port`, but not on an address `localhost`
+    reaches -- a LAN interface. `listening` still carries it, because the port
+    cannot be bound again; `local` is empty, because nothing answers."""
+
+    def __init__(self, *ports: int) -> None:
+        self._ports = frozenset(ports)
+
+    def snapshot(self) -> PortSnapshot:
+        return PortSnapshot(self._ports, {}, frozenset())
+
+
+def test_a_lan_only_listener_does_not_make_a_project_read_running(
+    qtbot, controllers
+) -> None:
+    """Open builds `http://localhost:<port>/`, so a listener that does not
+    answer there is not this project running (LWSM-1232)."""
+    controller = build(controllers, [record("a")], LanOnlyProbe(5005))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.rows()[0].status is ProjectStatus.STOPPED
+
+
+def test_a_lan_only_listener_on_the_declared_port_reads_the_same_way(
+    qtbot, controllers
+) -> None:
+    """The declared-port branch is a second call site, and a fix to one of two
+    call sites is the shape this project has been bitten by before."""
+    overridden = replace(record("a"), port=5005, port_override=6006)
+    controller = build(controllers, [overridden], LanOnlyProbe(5005))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.rows()[0].status is ProjectStatus.STOPPED
+
+
 def test_a_probe_failure_clears_the_managed_flag(qtbot, controllers) -> None:
     """`managed` is a claim about the socket table, so an outage must drop it.
 

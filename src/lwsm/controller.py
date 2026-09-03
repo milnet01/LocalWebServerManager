@@ -1084,10 +1084,19 @@ class ProjectController(QObject):
         port = record.effective_port
         if port is None:
             return ProjectStatus.UNKNOWN
-        if snapshot.is_bound(port):
+        # `answers_localhost`, not `is_bound`: Open builds
+        # `http://localhost:<port>/`, so a listener on a LAN address is not
+        # this project running, however firmly it holds the port. The binding
+        # question is a different one and stays with the supervisor's
+        # pre-flight (LWSM-1232).
+        if snapshot.answers_localhost(port):
             return ProjectStatus.RUNNING
         declared = record.port
-        if declared is not None and declared != port and snapshot.is_bound(declared):
+        if (
+            declared is not None
+            and declared != port
+            and snapshot.answers_localhost(declared)
+        ):
             return ProjectStatus.RUNNING
         # Nobody holds either port. ADR-0004's `starting` row is exactly that
         # plus a live child of ours, and it reads AFTER the two port questions

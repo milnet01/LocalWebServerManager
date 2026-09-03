@@ -286,6 +286,15 @@ signaling per
 
 ### Fixed
 
+- **MEDIUM: the port snapshot discards the listening address, so any interface counts as bound.** (LWSM-1232)
+  A program listening only on your network address no longer makes an
+  unrelated project read as running, and Open no longer offers a link
+  to a port nothing answers on. Starting a server still refuses a port
+  taken on any address, which is a different question and is now asked
+  separately. Where two processes hold one port on different loopback
+  addresses, the app says it does not know who owns it rather than
+  picking one.
+
 - **MEDIUM: the managed flag survives a probe outage, so Open can point at a stranger's server.** (LWSM-1231)
   When the app loses sight of which programs hold which ports, it no
   longer claims a running server is one it started, and the row

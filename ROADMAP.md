@@ -3673,7 +3673,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1232] **MEDIUM: the port snapshot discards the listening address, so any interface counts as bound.**
+- ✅ [LWSM-1232] **MEDIUM: the port snapshot discards the listening address, so any interface counts as bound.**
   ports.py:104 keeps only conn.laddr.port. A process on 192.168.1.5:5000 makes
   is_bound(5000) true, so an unrelated project reads running and Open opens
   http://localhost:5000, which nothing answers. Separately at :111,
@@ -3681,6 +3681,30 @@ has been applied yet — every item in this section is open.
   false for two processes on one port at different addresses - the holder then
   depends on psutil's return order. Fix: key listening and holders on
   (ip, port) and answer for loopback and wildcard.
+  Resolved (2026-09-03): NOT by keying on (ip, port) as filed, and the
+  reason is a second caller the bullet does not mention. is_bound
+  serves two questions — "can this port be bound?" for the supervisor's
+  pre-flight, and "is this project reachable?" for the row status. A
+  rekey answers only the second, and a LAN-only listener really does
+  take the port, so the pre-flight would have stopped seeing a real
+  conflict.
+  So listening keeps every address and PortSnapshot grows a second
+  question, answers_localhost, over a `local` subset. _classify asks it
+  at both call sites; the pre-flight is untouched. `local` defaults to
+  None meaning "built without address information", which answers from
+  listening — so every pre-existing fake probe stays as expressive as
+  it was, and the churn is nil.
+  holders now collects the pids per port and reports one only when
+  there is exactly one. Two processes on two loopback addresses is the
+  case setdefault got wrong, and no answer is ADR-0004's safe direction.
+  A pre-existing test pinned first-one-wins across two pids while its
+  docstring described the dual-stack pair, which is one process and one
+  pid — the fixture never expressed the case it claimed. It is replaced
+  by both cases, each with its own test.
+  Ten mutants, all killed. Live measurement, not just fixtures: a real
+  socket bound to this machine's 192.168.0.214 reads is_bound True,
+  answers_localhost False, holder None.
+  Gate green — 1443 tests, no SKIP, no tool drift, no leaked processes.
   **Layman:** A program listening on your network address makes an unrelated project look like it is running.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
