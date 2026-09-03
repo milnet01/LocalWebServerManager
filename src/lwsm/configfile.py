@@ -184,10 +184,27 @@ def write_json_atomically(path: Path, data: bytes, *, prefix: str) -> None:
     order `save_projects` has always used — this function IS that tail, moved
     so a second config file cannot grow a second, subtly different copy of it.
 
-    `data` is bytes rather than an object to serialise: the caller has to bound
-    the encoded length against its own cap *before* anything is created, and it
-    cannot do that if the encoding happens in here.
+    `data` is bytes rather than an object to serialise, so a caller that wants
+    a domain-specific message can bound the encoded length itself before
+    calling — `registry._encoded` does, and keeps its own wording.
+
+    The cap is enforced HERE as well, and that is the point: it was stated as a
+    caller obligation in this docstring and two of the four callers did not
+    meet it (LWSM-1236). A file written over the cap cannot be read back by
+    `read_bounded`, and a caller that refuses to overwrite a file it cannot
+    read then cannot rewrite it either. Enforced where the data is, so a fifth
+    caller inherits it.
+
+    The check comes before the directory is created and before any temporary
+    exists, so a refusal leaves the previous file and the filesystem untouched
+    (INV-2), like every other refusal here.
     """
+    if len(data) > MAX_FILE_BYTES:
+        raise ConfigFileError(
+            f"{quoted(str(path))}: too large to write: {len(data)} bytes, "
+            f"limit {MAX_FILE_BYTES}; not written"
+        )
+
     directory = path.parent
     try:
         prepare_config_dir(directory)

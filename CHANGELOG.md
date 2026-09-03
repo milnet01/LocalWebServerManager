@@ -286,6 +286,13 @@ signaling per
 
 ### Fixed
 
+- **MEDIUM: the config size cap is a caller obligation that two of four callers do not meet.** (LWSM-1236)
+  The 1 MiB limit on config files is now enforced by the writer rather
+  than asked of each caller, two of which did not check. A long comment
+  block in the scan-roots file could otherwise produce a file too large
+  to read back — and, because the app refuses to overwrite a file it
+  cannot read, one that could never be repaired from inside the app.
+
 - **MEDIUM: a settings schema mismatch permanently blocks every future write.** (LWSM-1235)
   A preferences file whose version line is missing, older or malformed
   is now read as far as it can be and stays writable, instead of losing

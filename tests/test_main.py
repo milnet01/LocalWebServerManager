@@ -1399,3 +1399,34 @@ def test_a_wayland_session_does_not_overwrite_a_stored_position(
     stored = load_settings(default_settings_path()).settings
     assert (stored.x, stored.y) == (305, 255), "Wayland must not overwrite a position"
     assert (stored.width, stored.height) == (820, 600), "the size IS knowable there"
+
+
+# --- LWSM-1236: a header that would cross the cap ------------------------------
+
+
+def test_a_scan_roots_comment_block_that_would_cross_the_cap_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The reachable route the bullet names. `_leading_comment_block` re-emits
+    the user's whole header, which `read_bounded` accepts up to the cap, so
+    header plus body can cross it on WRITE. The file is then unreadable -- and
+    since LWSM-1178 refuses to be overwritten when it cannot be read, it is
+    unwritable as well (LWSM-1236)."""
+    from lwsm.__main__ import save_scan_roots
+    from lwsm.configfile import MAX_FILE_BYTES, ConfigFileError
+
+    # `config` IS the file here, not a directory holding one.
+    path = tmp_path / "scan-roots"
+    header = "# " + "h" * 78 + "\n"
+    comments = header * (MAX_FILE_BYTES // len(header))
+    path.write_text(comments + "/srv/one\n", encoding="utf-8")
+    assert path.stat().st_size <= MAX_FILE_BYTES, "the file must still be READABLE"
+    before = path.read_bytes()
+
+    # Longer roots than the one already there, so it is the WRITE that crosses
+    # the cap and not the read.
+    with pytest.raises(ConfigFileError) as caught:
+        save_scan_roots((Path("/srv/" + "a" * 60), Path("/srv/" + "b" * 60)), path)
+
+    assert "too large" in str(caught.value)
+    assert path.read_bytes() == before, "the previous list survives"

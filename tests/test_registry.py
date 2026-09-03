@@ -2178,3 +2178,42 @@ def test_no_imported_value_is_interpolated_without_the_clip() -> None:
     for reason in merged.reasons:
         assert "\n" not in reason
         assert len(reason) < 5000
+
+
+# --- LWSM-1236: the size cap is the writer's, not each caller's ---------------
+
+
+def test_write_json_atomically_refuses_data_over_the_cap(tmp_path: Path) -> None:
+    """The cap was a CALLER obligation stated in a docstring, and two of the
+    four callers did not meet it (LWSM-1236). A file written over the cap is
+    then unreadable by `read_bounded` -- and, where a caller refuses to
+    overwrite a file it cannot read, unwritable too.
+
+    Enforced where the data is, so a fifth caller inherits it.
+    """
+    from lwsm.configfile import MAX_FILE_BYTES, ConfigFileError, write_json_atomically
+
+    path = tmp_path / "config" / "big.json"
+    with pytest.raises(ConfigFileError) as caught:
+        write_json_atomically(path, b"x" * (MAX_FILE_BYTES + 1), prefix=".big-")
+
+    assert "too large" in str(caught.value)
+    assert not path.exists(), "nothing was created"
+    assert list(tmp_path.glob("config/.big-*")) == [], "no temporary was left"
+
+
+def test_write_json_atomically_leaves_an_existing_file_intact_when_it_refuses(
+    tmp_path: Path,
+) -> None:
+    """The refusal is before the directory work and before mkstemp, so the
+    previous file survives -- the property every other refusal in this writer
+    has (INV-2)."""
+    from lwsm.configfile import MAX_FILE_BYTES, ConfigFileError, write_json_atomically
+
+    path = tmp_path / "keep.json"
+    path.write_text("previous\n", encoding="utf-8")
+
+    with pytest.raises(ConfigFileError):
+        write_json_atomically(path, b"x" * (MAX_FILE_BYTES + 1), prefix=".keep-")
+
+    assert path.read_text(encoding="utf-8") == "previous\n"

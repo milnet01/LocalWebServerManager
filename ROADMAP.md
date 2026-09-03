@@ -3816,13 +3816,31 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 6.
 
-- 📋 [LWSM-1236] **MEDIUM: the config size cap is a caller obligation that two of four callers do not meet.**
+- ✅ [LWSM-1236] **MEDIUM: the config size cap is a caller obligation that two of four callers do not meet.**
   configfile.py:186-189 states the obligation; registry._encoded honours it,
   settings.save and __main__.save_scan_roots do not. Reachable on scan-roots:
   _leading_comment_block re-emits the user's whole leading comment block, which
   read_bounded accepts up to 1MiB, so header+body can cross the cap on write -
   after which the file is unreadable AND, by LWSM-1178's gate, can never be
   rewritten. Fix: enforce inside write_json_atomically, which holds the data.
+  Resolved (2026-09-03): the cap moves into write_json_atomically, as
+  the bullet asks, before the directory work and before any temporary
+  exists — so a refusal leaves the previous file and the filesystem
+  untouched, which is the property every other refusal there has.
+  registry._encoded keeps its own check. It is not now redundant: it
+  runs before the write and phrases the refusal in the caller's own
+  terms, and the writer's check is the backstop a fifth caller
+  inherits. The docstring says which is which.
+  The fixture needed two goes and the first was wrong in a way worth
+  recording. A comment block sized to fill the cap left the file
+  READABLE and the rewrite still under it by 13 bytes, so the test
+  passed against unfixed code — no, it failed to raise, which is what
+  exposed the arithmetic. The header now stays under the cap and the
+  NEW roots are what crosses it, with an assertion that the file is
+  still readable so the test cannot silently become a read-cap test.
+  Two mutants, both killed: drop the check; fire only past twice the
+  cap.
+  Gate green — 1453 tests, no SKIP, no tool drift, no leaked processes.
   **Layman:** A long comment block in the scan-roots file can make it unwritable and unreadable at the same time.
   Kind: fix.
   Source: review-code 2026-09-01 lane 6.
