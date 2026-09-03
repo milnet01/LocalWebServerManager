@@ -32,7 +32,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from lwsm.configfile import (
-    MAX_REASON_CHARS,
     ConfigFileError,
     quoted,
     read_bounded,
@@ -451,4 +450,10 @@ def save(path: Path, settings: Settings) -> None:
     try:
         write_json_atomically(path, data, prefix=".settings-")
     except ConfigFileError as exc:
-        raise SettingsError(str(exc)[:MAX_REASON_CHARS]) from exc
+        # Whole, like `registry`'s sibling converter. The clip that used to be
+        # here bounded nothing hostile — the only attacker-controlled part of a
+        # writer message is the path, and `quoted()` has already bounded that —
+        # while the fixed prefix on the default path runs to about 115 of the
+        # 120 characters, so what the clip removed was the errno saying why the
+        # write failed (LWSM-1237).
+        raise SettingsError(str(exc)) from exc

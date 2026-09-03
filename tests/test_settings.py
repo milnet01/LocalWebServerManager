@@ -673,3 +673,33 @@ def test_a_real_boolean_survives_the_round_trip(tmp_path: Path, stored: bool) ->
 
     assert result.settings.maximized is stored
     assert result.reasons == []
+
+
+# --- LWSM-1237: the clip ate the cause, not the hostile input -----------------
+
+
+def test_a_write_failure_keeps_the_reason_it_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The converter clipped the whole message to 120 characters.
+
+    Nothing hostile is bounded by that clip: the only attacker-controlled part
+    of a writer message is the path, and `quoted()` has already bounded it.
+    What the clip removes is the fixed diagnostic tail -- the errno that says
+    WHY the write failed -- and on the default path the prefix alone is close
+    enough to 120 that the tail always went. The sibling converter in
+    `registry` passes it through whole (LWSM-1237).
+    """
+    from lwsm.configfile import ConfigFileError
+
+    message = "x" * 130 + ": could not be written (No space left on device)"
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise ConfigFileError(message)
+
+    monkeypatch.setattr(settings, "write_json_atomically", boom)
+
+    with pytest.raises(settings.SettingsError) as caught:
+        settings.save(tmp_path / "settings.json", Settings())
+
+    assert str(caught.value) == message, "the cause must survive the conversion"

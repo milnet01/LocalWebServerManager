@@ -286,6 +286,12 @@ signaling per
 
 ### Fixed
 
+- **MEDIUM: the settings error clip removes the cause rather than the hostile input.** (LWSM-1237)
+  When saving preferences fails, the message now says why. It was cut
+  to a fixed length that the file path alone nearly filled, so the part
+  naming the actual cause — disk full, permission denied — was always
+  the part removed.
+
 - **MEDIUM: the config size cap is a caller obligation that two of four callers do not meet.** (LWSM-1236)
   The 1 MiB limit on config files is now enforced by the writer rather
   than asked of each caller, two of which did not check. A long comment

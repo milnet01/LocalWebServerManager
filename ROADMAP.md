@@ -3845,13 +3845,24 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 6.
 
-- 📋 [LWSM-1237] **MEDIUM: the settings error clip removes the cause rather than the hostile input.**
+- ✅ [LWSM-1237] **MEDIUM: the settings error clip removes the cause rather than the hostile input.**
   settings.py:433 clips str(exc) to 120 chars. The attacker-controlled
   fragment is already bounded by quoted(); the clip only eats the fixed
   diagnostic tail. Worked case on the default path: repr(path) is 55 chars and
   the fixed prefix is 60 - 115 of 120 - so on the directory-fsync branch the
   errno text is ALWAYS truncated away. Both sibling converters (registry.py:1127)
   pass it through unclipped. Fix: drop the slice.
+  Resolved (2026-09-03): the slice is gone, matching registry's sibling
+  converter, which has always passed the message through whole. The
+  comment says what the clip did and did not bound, so it is not
+  re-added as a safety measure it never was.
+  One thing beyond the slice: MAX_REASON_CHARS became an unused import
+  in settings.py and ruff caught it. Removed. The module's prose
+  reference to registry.MAX_REASON_CHARS is unaffected — that is about
+  a different bound, on how long each load REASON may be, which still
+  applies.
+  One mutant, killed: re-clip at 120.
+  Gate green — 1454 tests, no SKIP, no tool drift, no leaked processes.
   **Layman:** When saving preferences fails, the part of the message that says why is cut off.
   Kind: fix.
   Source: review-code 2026-09-01 lane 6.
