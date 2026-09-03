@@ -286,6 +286,13 @@ signaling per
 
 ### Fixed
 
+- **MEDIUM: a settings schema mismatch permanently blocks every future write.** (LWSM-1235)
+  A preferences file whose version line is missing, older or malformed
+  is now read as far as it can be and stays writable, instead of losing
+  every value and blocking every future save. Only a file written by a
+  NEWER version is refused, because overwriting that would destroy
+  settings this version cannot read.
+
 - **MEDIUM: design.md's overlay rule contradicts its own next sentence.** (LWSM-1234)
   Documentation only, no behaviour change. The design document gave
   two different answers about when the start/stop indicator

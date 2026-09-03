@@ -3777,7 +3777,7 @@ has been applied yet — every item in this section is open.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1235] **MEDIUM: a settings schema mismatch permanently blocks every future write.**
+- ✅ [LWSM-1235] **MEDIUM: a settings schema mismatch permanently blocks every future write.**
   settings.py:333-345 treats a version mismatch identically to unparsable
   text, and __main__.save_field turns document_refused into a PERMANENT write
   refusal. Three consequences: a hand-written file with no schema_version
@@ -3787,6 +3787,28 @@ has been applied yet — every item in this section is open.
   No migration hook exists. Fix: separate "could not parse" from "parsed,
   version older" - migrate the second forward and keep the refusal only for a
   version NEWER than ours.
+  Resolved (2026-09-03): the refusal narrows to a version NEWER than
+  ours, which is the one case where overwriting destroys preferences we
+  cannot read and where ADR-0005's reasoning actually bites. Older,
+  absent, or not a version at all is read forward with the current field
+  readers, with a reason, and document_refused stays False so the next
+  save replaces the file.
+  No separate migration parser, and none is needed at v1: each field
+  already validates its own value and an unknown key is ignored, so
+  "migrate" is the field reads themselves. The comment names where a
+  real v0 to v1 rename would go.
+  Two type guards, not one, and the second was found by a test rather
+  than by reading. `type(v) is int` keeps a bool out of the NEWER
+  branch — the module's own rule for a hand-editable file. But the
+  equality test needed it too: True == 1, so `"schema_version": true`
+  matched our version exactly and was read with nothing said about it.
+  Five mutants, all killed, including one that turns "newer" back into
+  "different" — the whole of the fix.
+  Two pre-existing test rows moved rather than being edited green: the
+  `schema_version: None` row pinned "an unknown version loses every
+  value", which is the defect. The `2` rows stay where they are, since
+  refusing a newer file is the half that must not change.
+  Gate green — 1451 tests, no SKIP, no tool drift, no leaked processes.
   **Layman:** One bad line in the preferences file can leave the app unable to save any preference ever again.
   Kind: fix.
   Source: review-code 2026-09-01 lane 6.

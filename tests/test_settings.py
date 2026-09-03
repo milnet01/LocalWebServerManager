@@ -115,7 +115,6 @@ def test_a_missing_file_is_the_defaults_and_is_not_a_complaint(tmp_path: Path) -
         ({"schema_version": 1, "theme": ""}, "is not a usable id"),
         ({"schema_version": 1, "theme": "x" * 65}, "is not a usable id"),
         ({"schema_version": 2, "theme": "emerald"}, "schema_version"),
-        ({"schema_version": None, "theme": "emerald"}, "schema_version"),
         ([1, 2, 3], "not an object"),
     ],
 )
@@ -137,6 +136,57 @@ def test_a_hostile_field_yields_the_default_and_a_reason(
     assert result.settings == Settings()
     assert len(result.reasons) == 1
     assert fragment in result.reasons[0]
+
+
+@pytest.mark.parametrize(
+    ("document", "why"),
+    [
+        ({"theme": "emerald"}, "no schema_version at all"),
+        ({"schema_version": 0, "theme": "emerald"}, "an older version"),
+        ({"schema_version": None, "theme": "emerald"}, "not a version at all"),
+        # `type(v) is int` and not `isinstance`, for `_theme_or_reason`'s
+        # reason: the file is hand-editable and `isinstance(True, int)` is True.
+        ({"schema_version": True, "theme": "emerald"}, "a bool, not a version"),
+    ],
+)
+def test_a_document_that_is_not_newer_is_read_forward_and_stays_writable(
+    tmp_path: Path, document: object, why: str
+) -> None:
+    """Refusing everything that is not exactly our version made the NEXT bump
+    self-blocking: every v1 file would be refused, and a refused document
+    blocks the write that would have replaced it with a v2 one. It also lost
+    every value in a hand-written file that simply omits the line (LWSM-1235).
+
+    So the refusal narrows to a version NEWER than ours, which is the one case
+    where overwriting destroys settings we cannot read. Anything else is read
+    with the current field readers -- each of which validates its own value --
+    and says so.
+    """
+    path = write(tmp_path / "settings.json", document)
+
+    result = settings.load(path)
+
+    assert result.settings.theme == "emerald", why
+    assert result.reasons, why
+    assert result.document_refused is False, why
+
+
+@pytest.mark.parametrize("version", [2, 99])
+def test_a_document_newer_than_ours_is_still_refused(
+    tmp_path: Path, version: int
+) -> None:
+    """The half that must NOT change. A newer app wrote this file, so it may
+    have re-used a key (ADR-0005) and overwriting it destroys preferences we
+    cannot understand. Defaults, and no writing over it."""
+    path = write(
+        tmp_path / "settings.json", {"schema_version": version, "theme": "emerald"}
+    )
+
+    result = settings.load(path)
+
+    assert result.settings == Settings()
+    assert result.reasons
+    assert result.document_refused is True
 
 
 def test_a_file_that_is_not_json_yields_the_defaults(tmp_path: Path) -> None:

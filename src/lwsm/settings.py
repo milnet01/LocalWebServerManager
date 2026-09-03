@@ -331,17 +331,38 @@ def load(path: Path) -> LoadResult:
         )
 
     version = document.get("schema_version")
-    if version != SCHEMA_VERSION:
-        # ADR-0005 forbids partially parsing a file whose version we do not
-        # know, and that reasoning does not weaken for preferences: a v2 file
-        # may have re-used a key. Defaults, and say so.
+    # `type(v) is int` and not `isinstance`, for `_theme_or_reason`'s reason:
+    # the file is hand-editable and `isinstance(True, int)` is True.
+    if type(version) is int and version > SCHEMA_VERSION:
+        # The ONE version that must be refused, and ADR-0005 is why: a newer
+        # app wrote this and may have re-used a key, so overwriting it destroys
+        # preferences we cannot read. `document_refused` blocks that write.
         return LoadResult(
             Settings(),
             [
                 f"{quoted(str(path))}: schema_version is {quoted(version)}, "
-                f"not {SCHEMA_VERSION}; using defaults"
+                f"newer than {SCHEMA_VERSION}; using defaults and not writing "
+                "over it"
             ],
             document_refused=True,
+        )
+    # `type(...) is not int` again, and it earns its place a second time here:
+    # `True == 1`, so a hand-written `"schema_version": true` would otherwise
+    # match our version exactly and be read with nothing said about it.
+    if type(version) is not int or version != SCHEMA_VERSION:
+        # Older, absent, or not a version at all: read forward. Refusing these
+        # too made the NEXT bump self-blocking -- every v1 file would be
+        # refused, and a refused document blocks the write that would have
+        # replaced it with a v2 one -- and lost every value in a hand-written
+        # file that simply omits the line (LWSM-1235).
+        #
+        # Reading forward is safe here because each field below validates its
+        # own value and falls back to its default, and an unknown key is
+        # ignored. A real v0 -> v1 rename would go HERE, before the field
+        # reads, rather than in a second parser.
+        reasons.append(
+            f"{quoted(str(path))}: schema_version is {quoted(version)}, "
+            f"not {SCHEMA_VERSION}; read as version {SCHEMA_VERSION}"
         )
 
     settings = Settings()
