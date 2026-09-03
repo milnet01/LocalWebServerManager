@@ -742,11 +742,22 @@ presses Start or Stop, the controller marks that project
 `starting` or `stopping` **immediately**, before the next poll,
 so the button feels responsive. The overlay lives on the
 controller (not in a widget), covers exactly one project, and is
-**discarded the moment a poll returns a derived state for that
-project**. There is no timeout on it: a slow start keeps the
-overlay until a poll disagrees, because nothing here may time out
-into a wrong state (ADR-0004 § Slowness is not failure). It never
-survives a poll it disagrees with: probing always wins.
+**discarded when a poll reports the state the action was heading
+for** — `running` for a start, `stopped` for a stop. Not on any
+derived state: a server that has not finished binding reads as
+`stopped`, so discarding on that would drop a `starting` overlay
+on the very next tick and the button would flicker back.
+
+There is no timeout on it: a slow start keeps the overlay until a
+poll reports it running, because nothing here may time out into a
+wrong state (ADR-0004 § Slowness is not failure).
+
+Three other things end it, and each is an observation rather than
+a timer: the project leaving the list, which a rescan can do; a
+project with no port, which has nothing to wait for and whose
+honest answer `unknown` is already available; and, for a start
+only, the supervisor reporting that the child exited, which is
+ADR-0004's `failed`.
 
 Runtime state is **derived, never remembered across restarts.**
 Closing and reopening the app re-derives every status from the

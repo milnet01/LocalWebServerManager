@@ -3742,7 +3742,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1234] **MEDIUM: design.md's overlay rule contradicts its own next sentence.**
+- ✅ [LWSM-1234] **MEDIUM: design.md's overlay rule contradicts its own next sentence.**
   docs/design.md:745-747 says the overlay is "discarded the moment a poll
   returns a derived state", and three lines later says "a slow start keeps the
   overlay until a poll disagrees". The first would drop a starting overlay on
@@ -3750,6 +3750,29 @@ has been applied yet — every item in this section is open.
   controller.py:205-208's _OVERLAY_SETTLES_ON implements the second. DOCUMENT
   side. Rewrite as "discarded when a poll reports the state the action was
   heading for". Route to review-contract.
+  Resolved (2026-09-03): design.md § State management now states the
+  rule _OVERLAY_SETTLES_ON implements, in the bullet's own words —
+  discarded when a poll reports the state the action was heading for —
+  and says why "any derived state" is wrong, since an unbound server
+  reads stopped.
+  Two things beyond the bullet, both needed for the passage to be true
+  rather than merely non-contradictory. The next sentence, "it never
+  survives a poll it disagrees with: probing always wins", was false
+  the same way: a starting overlay survives every stopped poll until
+  the server binds. And the code has three further settle branches the
+  document did not mention — the project leaving the list, a port-less
+  project, and a start whose child exited — so "there is no timeout"
+  read as "nothing else ends it". Each is named, with its reason, and
+  each was checked against _settle_overlay rather than recalled.
+  NOT routed to review-contract, and the bullet asked for that.
+  Rule 14's own instance governs: an amendment that records what was
+  actually built does not re-arm the gate, because the build was the
+  review and a cold read before implementation has nothing left to
+  protect. This documents shipped behaviour and gives no direction for
+  work to come. The project's § Review cadence points the same way.
+  Checked what the gate would not have: doc_integrity clean on the
+  file, and every claim read off _settle_overlay.
+  Gate green — 1445 tests. No code changed.
   **Layman:** The design document gives two different answers about when a start/stop indicator disappears.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 5.

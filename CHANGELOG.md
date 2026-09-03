@@ -286,6 +286,13 @@ signaling per
 
 ### Fixed
 
+- **MEDIUM: design.md's overlay rule contradicts its own next sentence.** (LWSM-1234)
+  Documentation only, no behaviour change. The design document gave
+  two different answers about when the start/stop indicator
+  disappears, and one of them would have made a slow start flicker.
+  It now states the rule the app actually follows, and the three
+  other things that end the indicator.
+
 - **MEDIUM: abandon_pool retains the pool but not the signaller the abandoned task still holds.** (LWSM-1233)
   A background check the app gave up on can no longer take the app down
   with it as it quits. The object such a worker reports on is now
