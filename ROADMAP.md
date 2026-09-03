@@ -3614,7 +3614,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 4.
 
-- 📋 [LWSM-1230] **MEDIUM: four of ADR-0004's seven derived states are absent from ProjectStatus.**
+- ✅ [LWSM-1230] **MEDIUM: four of ADR-0004's seven derived states are absent from ProjectStatus.**
   controller.py:183-195. Missing: running (wrong port), running (foreign),
   port blocked, failed. ADR-0004 calls its list "exhaustive for states derived
   from observation". A stranger holding the port derives running where the ADR
@@ -3623,6 +3623,22 @@ has been applied yet — every item in this section is open.
   tail. CALIBRATED DOWN from the lane's HIGH: this is P06/LWSM-1011 scope, not
   a regression. Also: ProjectStatus.UNKNOWN appears in no row of ADR-0004's
   table - a doc-side gap worth settling with it.
+  Resolved (2026-09-03): NO CODE CHANGED, and the four states still do
+  not exist. Closed as a finding, not as a fix — the disposition the
+  user chose for calibrated-down items on 2026-09-03.
+  The bullet's own calibration holds: this is LWSM-1011's scope. That
+  item was read rather than assumed and already names running (wrong
+  port), port blocked, the plausibility test for foreign holders,
+  starting with no deadline, and post-flight verification — so nothing
+  is lost by not building it here, and building it here would be P06
+  brought forward.
+  What LWSM-1011 did NOT carry is the doc-side half, and that is now
+  annotated on it: ADR-0004's table has no row for
+  ProjectStatus.UNKNOWN, so the ADR is not exhaustive over the states
+  the code has today. It is deliberately not edited now — that edit
+  changes what an implementer builds and re-arms rule 14's gate on the
+  ADR, which belongs with the work rather than ahead of it.
+  No CHANGELOG entry: nothing changed for a user.
   **Layman:** The app can only say running, stopped or unknown, where the design calls for seven distinct states.
   Kind: feature.
   Source: review-code 2026-09-01 lane 5 (calibrated HIGH -> MEDIUM: P06 scope).
@@ -6987,6 +7003,16 @@ is the contract.
   Source: in-session-2026-08-03.
   Priority: 1.
   Lanes: core, tests.
+  Progress (2026-09-02): LWSM-1230 (FP09 lane 5) confirms this item
+  still carries every state ProjectStatus lacks — running (wrong port),
+  running (foreign), port blocked, failed — and adds one thing this
+  bullet does not say. ADR-0004's table has no row for
+  ProjectStatus.UNKNOWN, which the code has today, so the ADR is not
+  exhaustive over the states that exist. Settle UNKNOWN in the ADR as
+  part of building the classifier: either it is an eighth derived state
+  with its own row, or it is not derived at all and the code should say
+  so. That edit changes what an implementer builds, so it re-arms rule
+  14's gate on ADR-0004 and is deliberately not made ahead of the work.
 
 - 📋 [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
   The first time a project is observed
