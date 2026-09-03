@@ -173,6 +173,60 @@ def test_probe_error_holds_previous_status(qtbot, controllers) -> None:
     assert controller.rows()[0].status is ProjectStatus.RUNNING
 
 
+def test_a_probe_failure_clears_the_managed_flag(qtbot, controllers) -> None:
+    """`managed` is a claim about the socket table, so an outage must drop it.
+
+    Statuses are held through a failed probe (INV-4b) and `_managed` was held
+    with them, having no line of its own. But it gates Open-in-browser, and a
+    stranger can take the port during the outage — which is the
+    localhost-credibility shape ADR-0004 was written to close, reached through
+    staleness rather than `chdir()`. Its safe direction is "a holder we cannot
+    name is not ours" (LWSM-1231).
+
+    The emission is asserted too, not just the flag: `_maybe_emit` compares
+    statuses alone, so a cleared flag nothing repainted would leave the buttons
+    exactly as they were.
+    """
+    our_pid = os.getpid()
+
+    class OurSupervisor:
+        def running(self) -> dict:
+            return {Path("/srv/a"): object()}
+
+        def owns_pid(self, project: Path, pid: int) -> bool:
+            return pid == our_pid
+
+        def exited(self, project: Path) -> bool:
+            return False
+
+        def is_stopping(self, project: Path) -> bool:
+            return False
+
+    class FlakyHolderProbe:
+        def __init__(self) -> None:
+            self.fail = False
+
+        def snapshot(self) -> PortSnapshot:
+            if self.fail:
+                raise ProbeError("gone")
+            return PortSnapshot(frozenset({5005}), {5005: our_pid})
+
+    probe = FlakyHolderProbe()
+    controller = ProjectController([record("a")], probe, OurSupervisor())
+    controllers.append(controller)
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].managed, "our own pid holds the port"
+
+    probe.fail = True
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    row = controller.rows()[0]
+    assert row.status is ProjectStatus.RUNNING, "INV-4b: the status is held"
+    assert not row.managed, "but ownership is not something we can still claim"
+
+
 def test_an_overridden_project_still_sitting_on_its_declared_port_reads_running(
     qtbot, controllers
 ) -> None:

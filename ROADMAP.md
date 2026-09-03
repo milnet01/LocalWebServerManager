@@ -3643,7 +3643,7 @@ has been applied yet — every item in this section is open.
   Kind: feature.
   Source: review-code 2026-09-01 lane 5 (calibrated HIGH -> MEDIUM: P06 scope).
 
-- 📋 [LWSM-1231] **MEDIUM: the managed flag survives a probe outage, so Open can point at a stranger's server.**
+- ✅ [LWSM-1231] **MEDIUM: the managed flag survives a probe outage, so Open can point at a stranger's server.**
   controller.py:851. _managed is recomputed only on a SUCCESSFUL snapshot, so
   it is held through an outage exactly as the statuses are. But managed gates
   Open-in-browser, and ADR-0004's stated safe direction is "a holder we cannot
@@ -3651,6 +3651,24 @@ has been applied yet — every item in this section is open.
   localhost-credibility shape ADR-0004 was written to close, reached through
   staleness rather than chdir(). Fix: clear or mark-unverified in
   _on_probe_error.
+  Resolved (2026-09-03): _on_probe_error clears _managed and emits.
+  The bullet named the clear and not the emit, and the emit is half the
+  fix: _maybe_emit compares statuses alone, and INV-4b makes them
+  identical on a failed probe, so a cleared flag nothing repainted
+  would have left every button exactly as the last good poll set it.
+  Found by writing the test, which timed out waiting for a signal
+  before it ever reached the assertion it was written for.
+  Not a contradiction with INV-4b: a status is what we last OBSERVED,
+  while managed is a claim about ownership right now.
+  Mutants, all killed: drop the block; clear without repainting;
+  repaint without clearing.
+  Gate green — 1433 tests, no SKIP, no tool drift, no leaked processes.
+  Filed in passing as LWSM-1295: Stop and Restart are also gated on
+  managed, so on a machine whose socket table is permanently
+  unreadable the app can start servers it can never stop. Pre-existing
+  rather than introduced here — this item made a transient outage
+  behave like the permanent case, which is what brought it into view.
+  Widening what those controls can do is not this item's scope.
   **Layman:** If the app loses track of who owns a port it keeps saying the server is ours, and Open still offers to visit it.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
@@ -4770,6 +4788,30 @@ mostly in the measurement behind it.
   **Layman:** The rule about everything fitting in one magnifier view lists the parts by name, and the browser dropdown was added afterwards and never added to the list.
   Kind: doc-fix.
   Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
+
+- 📋 [LWSM-1295] **Stop and Restart are unavailable whenever the socket table is unreadable.**
+  mainwindow.py gates Stop and Restart on `row.managed`, which is
+  "the effective port is held by our own child's group". That needs a
+  socket-table snapshot, so on a machine where the table is
+  permanently unreadable — a hardened kernel, a persistent
+  AccessDenied, both named in `_on_probe_error` — `managed` is never
+  populated and the app can start servers it can never stop.
+  Pre-existing, not introduced by LWSM-1231; that item made a
+  transient outage behave like the permanent case, which is what
+  brought it into view.
+  The two controls may not need the same fact. Open must know the
+  port's holder is ours, which is the phishing gate ADR-0004 owns.
+  Stop and Restart only need a live child for the project, which is
+  the supervisor's own bookkeeping and is answerable with no
+  snapshot — the shape `RowView.stopping` already uses. LWSM-1197
+  gated them on `managed` to stop offering controls that could only
+  fail, and that reasoning is untouched by asking the supervisor
+  instead.
+  Not fixed inside LWSM-1231: it widens what a control can do rather
+  than closing the hole that item names.
+  **Layman:** If the app cannot see which programs hold which ports, you lose the ability to stop your own servers from the app.
+  Kind: fix.
+  Source: in-session-2026-09-03 (found while fixing LWSM-1231).
 
 ### 🐛 Bug fixes
 

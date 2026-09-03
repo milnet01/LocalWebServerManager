@@ -286,6 +286,13 @@ signaling per
 
 ### Fixed
 
+- **MEDIUM: the managed flag survives a probe outage, so Open can point at a stranger's server.** (LWSM-1231)
+  When the app loses sight of which programs hold which ports, it no
+  longer claims a running server is one it started, and the row
+  repaints so the buttons follow. Previously the claim survived the
+  outage, and Open would still offer to visit a port a stranger could
+  have taken meanwhile.
+
 - **A booby-trapped file where a rotated log goes could freeze status updates** (LWSM-1229)
   The app caps each project's log and keeps one older copy. The place
   that older copy is written was opened less carefully than the log

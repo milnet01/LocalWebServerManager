@@ -1020,6 +1020,21 @@ class ProjectController(QObject):
         # That was read as the whole of it (LWSM-1203): because this could
         # never report a change, a failure after the first poll reached nobody
         # at all. The news is the failure itself, and it is reported above.
+        # `managed` goes, where the statuses stay. Not a contradiction with
+        # INV-4b: a status is what we last OBSERVED, while `managed` is a claim
+        # we are making about ownership right now — and having lost sight of
+        # the socket table we cannot make it. Holding it lets a stranger take
+        # the port during the outage with Open still offering to visit it,
+        # which is the localhost-credibility shape ADR-0004 was written to
+        # close, reached through staleness rather than `chdir()`. Its safe
+        # direction is "a holder we cannot name is not ours" (LWSM-1231).
+        #
+        # The emit is not optional: `_maybe_emit` compares statuses alone, so
+        # it cannot see this change and the buttons would keep the enablement
+        # the last good poll gave them.
+        if self._managed:
+            self._managed = set()
+            self.projects_changed.emit()
         self._maybe_emit(self._statuses)
 
     def _flush_repeated_error(self) -> None:
