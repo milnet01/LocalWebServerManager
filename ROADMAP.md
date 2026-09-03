@@ -3808,7 +3808,10 @@ has been applied yet — every item in this section is open.
   `schema_version: None` row pinned "an unknown version loses every
   value", which is the defect. The `2` rows stay where they are, since
   refusing a newer file is the half that must not change.
-  Gate green — 1451 tests, no SKIP, no tool drift, no leaked processes.
+  Gate green — 1450 tests, no SKIP, no tool drift, no leaked processes.
+  (The commit message says 1451. That number was written without being
+  measured; the pre-push run reported 1450. Not amendable in the pushed
+  commit without a force-push, which commits.md withholds.)
   **Layman:** One bad line in the preferences file can leave the app unable to save any preference ever again.
   Kind: fix.
   Source: review-code 2026-09-01 lane 6.
