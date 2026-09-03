@@ -286,6 +286,13 @@ signaling per
 
 ### Fixed
 
+- **MEDIUM: abandon_pool retains the pool but not the signaller the abandoned task still holds.** (LWSM-1233)
+  A background check the app gave up on can no longer take the app down
+  with it as it quits. The object such a worker reports on is now
+  released along with the worker, instead of being destroyed underneath
+  it. Applies to both places that give up on a worker — the port poll
+  and the project rescan.
+
 - **MEDIUM: the port snapshot discards the listening address, so any interface counts as bound.** (LWSM-1232)
   A program listening only on your network address no longer makes an
   unrelated project read as running, and Open no longer offers a link

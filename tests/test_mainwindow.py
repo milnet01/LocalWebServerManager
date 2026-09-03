@@ -3188,6 +3188,40 @@ def test_the_rescan_pool_is_unparented_when_the_wait_times_out(
         assert wait_for_abandoned_probes(5000) == 0
 
 
+def test_the_rescan_signaller_is_unparented_with_the_pool(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """The abandoned task emits on this, and it is a child of the window.
+
+    So the window's destructor destroys it, possibly while the pool thread the
+    wait just gave up on is inside `emit()` — a C++ use-after-free, which the
+    task's catch-all cannot see because it is not an exception (LWSM-1233).
+    Parentless, its lifetime follows the Python references the running task
+    holds.
+
+    The pool beside it has had this since LWSM-1139; the signaller did not.
+    Dies on `abandon_pool(pool)` without the signaller.
+    """
+    monkeypatch.setattr(mainwindow, "RESCAN_STOP_WAIT_MS", 50)
+    release = threading.Event()
+    saves: list = []
+    window = blocking_rescan_window(qtbot, built, tmp_path, saves, release)
+    try:
+        window._rescan_button.click()
+        qtbot.waitUntil(lambda: window._rescan_in_flight, timeout=2000)
+        signals = window._rescan_signals
+        assert signals is not None, "the rescan is in flight, so it has one"
+
+        window.shutdown()
+
+        assert signals.parent() is None, (
+            "the window still owns the object an abandoned task emits on"
+        )
+    finally:
+        release.set()
+        assert wait_for_abandoned_probes(5000) == 0
+
+
 # --- LWSM-1040: keyboard-first navigation ------------------------------------
 
 

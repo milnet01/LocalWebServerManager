@@ -212,6 +212,56 @@ def test_a_lan_only_listener_on_the_declared_port_reads_the_same_way(
     assert controller.rows()[0].status is ProjectStatus.STOPPED
 
 
+def test_an_abandoned_probe_keeps_its_signaller_after_the_controller_is_gone(
+    qtbot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`abandon_pool` held the pool and not the object the task emits on.
+
+    `_SnapshotSignals` is a CHILD of the controller, so the controller's own
+    destructor destroys it -- while a pool thread the budget just gave up on
+    may be inside `emit()`. That is a C++ use-after-free, and `run()`'s outer
+    clause cannot catch it: it is not an exception (LWSM-1233).
+
+    The race itself cannot be produced on demand, so what is asserted is the
+    property that forbids it -- the signaller outlives the controller. That is
+    exactly what `setParent(None)` buys, and it is what a pre-fix run does not
+    have.
+
+    Not registered with the `controllers` fixture: this test deletes the
+    controller's C++ object, and the fixture's teardown `stop()` would raise on
+    the dead wrapper. The pool is reaped here instead.
+    """
+    monkeypatch.setattr(controller_module, "STOP_WAIT_MS", 100)
+    gate = threading.Event()
+    entered = threading.Event()
+
+    class GatedProbe:
+        def snapshot(self) -> PortSnapshot:
+            entered.set()
+            gate.wait(timeout=5)
+            return PortSnapshot(frozenset())
+
+    controller = ProjectController([record("a")], GatedProbe())
+    try:
+        controller.poll_once()
+        assert entered.wait(timeout=5), "the probe never reached the gate"
+        signals = controller._signals
+
+        controller.stop()  # bounded at 100 ms, so the pool is abandoned
+        assert isValid(signals), "still alive while the controller is"
+
+        controller.deleteLater()
+        qtbot.wait(50)
+
+        assert isValid(signals), (
+            "the abandoned task emits on this; destroying it under a running "
+            "pool thread is the use-after-free"
+        )
+    finally:
+        gate.set()
+        controller_module.wait_for_abandoned_probes(5000)
+
+
 def test_a_probe_failure_clears_the_managed_flag(qtbot, controllers) -> None:
     """`managed` is a claim about the socket table, so an outage must drop it.
 

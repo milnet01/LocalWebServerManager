@@ -3709,7 +3709,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1233] **MEDIUM: abandon_pool retains the pool but not the signaller the abandoned task still holds.**
+- ✅ [LWSM-1233] **MEDIUM: abandon_pool retains the pool but not the signaller the abandoned task still holds.**
   controller.py:76-77. _SnapshotTask keeps self._signals, which is
   _SnapshotSignals(self) - a CHILD of the controller. _ABANDONED defers the
   pool's destructor to interpreter shutdown, but if the controller is dropped
@@ -3717,6 +3717,27 @@ has been applied yet — every item in this section is open.
   inside emit(). run()'s outer clause covers already-gone, not a destructor
   racing an in-progress emit. Fix: retain the signaller alongside the pool, or
   give an abandoned task a parentless signaller.
+  Resolved (2026-09-03): abandon_pool takes the emitters the abandoned
+  worker still uses and reparents them, which is the bullet's second
+  option. Its first — retain the signaller — does not work on its own:
+  holding a Python reference does not stop ~QObject destroying a CHILD,
+  so reparenting is the part that matters, and the running task already
+  holds a reference of its own.
+  Both call sites, not one: the window's rescan worker has the identical
+  hazard and abandon_pool is shared precisely so a second copy cannot
+  drift.
+  The race cannot be produced on demand, so the tests assert the
+  property that forbids it — the signaller outlives the controller
+  (isValid after deleteLater) and is unparented from the window. The
+  controller test names the exact failure pre-fix: "Internal C++ object
+  (_SnapshotSignals) already deleted".
+  Three mutants, all killed: drop the reparenting; hand over the pool
+  alone from stop(); hand over the pool alone from shutdown().
+  Gate green — 1445 tests, no SKIP, no tool drift, no leaked processes.
+  One self-inflicted slip worth recording: the anchored insert doubled a
+  section banner onto one line, caught by ruff E501 and repaired. The
+  anchor guards this project prescribes check that the anchor is unique,
+  not that the result is well-formed.
   **Layman:** A background check that was given up on can crash the app as it shuts down.
   Kind: fix.
   Source: review-code 2026-09-01 lane 5.

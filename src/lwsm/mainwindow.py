@@ -2532,7 +2532,13 @@ class MainWindow(QMainWindow):
             "a rescan was still running after %d ms; abandoning it so the app can quit",
             RESCAN_STOP_WAIT_MS,
         )
-        abandon_pool(pool)
+        # The signaller goes too: the abandoned task emits on it, and it is a
+        # child of this window, whose destructor would otherwise destroy it
+        # under that thread (LWSM-1233).
+        if self._rescan_signals is not None:
+            abandon_pool(pool, self._rescan_signals)
+        else:
+            abandon_pool(pool)
 
     def _start_rescan(self) -> None:
         """One at a time: two overlapping merges could both write."""

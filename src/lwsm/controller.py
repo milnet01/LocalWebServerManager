@@ -58,7 +58,7 @@ STOP_WAIT_MS = 2000
 _ABANDONED: list[QThreadPool] = []
 
 
-def abandon_pool(pool: QThreadPool) -> None:
+def abandon_pool(pool: QThreadPool, *emitters: QObject) -> None:
     """Give up on a pool whose worker will not finish, without destroying it.
 
     `~QThreadPool` calls `waitForDone()` with NO timeout, so simply dropping the
@@ -68,13 +68,24 @@ def abandon_pool(pool: QThreadPool) -> None:
     `exit_without_waiting_for_abandoned_probes` is the half that actually bounds
     it.
 
+    `emitters` are the objects the abandoned worker still emits on, and they
+    need the same reparenting for a different reason (LWSM-1233). A signaller is
+    a CHILD of the controller or window that made it, so that owner's destructor
+    destroys it — possibly while the pool thread is inside `emit()`. That is a
+    C++ use-after-free rather than an exception, so the task's own catch-all
+    cannot see it; it covers only a signaller that was already gone before the
+    emit began. Parentless, the signaller's lifetime follows the Python
+    references to it, and the running task holds one.
+
     Public because the window's rescan worker is a second pool with the same
-    hazard (LWSM-1139), and a second hand-written copy of this two-line dance is
-    what `coding.md § 1.3` forbids — one that forgot the `setParent(None)` would
+    hazard (LWSM-1139), and a second hand-written copy of this dance is what
+    `coding.md § 1.3` forbids — one that forgot the `setParent(None)` would
     look identical and hang on exit.
     """
     pool.setParent(None)
     _ABANDONED.append(pool)
+    for emitter in emitters:
+        emitter.setParent(None)
 
 
 def wait_for_abandoned_probes(timeout_ms: int = STOP_WAIT_MS) -> int:
@@ -786,7 +797,7 @@ class ProjectController(QObject):
                 "the app can quit",
                 STOP_WAIT_MS,
             )
-            abandon_pool(self._pool)
+            abandon_pool(self._pool, self._signals)
             self._pool = QThreadPool(self)
             self._pool.setMaxThreadCount(1)
 
