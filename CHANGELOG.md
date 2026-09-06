@@ -292,6 +292,13 @@ signaling per
 
 ### Fixed
 
+- **The theme-colour derivation tool no longer prints a failed colour as if it had passed** (LWSM-1246)
+  When no shade cleared the contrast floor, the tool printed its closest
+  miss in exactly the format of a success, counted no shortfall, ended with
+  "0 shortfall(s)" and exited 0 — output meant to be pasted straight into
+  the source. A miss is now labelled, counted, not printed in pasteable
+  form, and the run exits nonzero.
+
 - **A window placement that half-fails no longer leaves a registration inside the window manager** (LWSM-1243)
   Placing the window loads a small script into KWin, runs it and unloads
   it. If the middle step failed, the unload was skipped while the script

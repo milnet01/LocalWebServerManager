@@ -4220,7 +4220,7 @@ has been applied yet — every item in this section is open.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 8.
 
-- 📋 [LWSM-1246] **MEDIUM: derive_state_tokens prints a colour that failed the floor in the exact format of one that passed.**
+- ✅ [LWSM-1246] **MEDIUM: derive_state_tokens prints a colour that failed the floor in the exact format of one that passed.**
   scripts/derive_state_tokens.py:90. When no lightness clears the floor, solve
   returns the closest candidate and main prints it with its contrast ratio like
   any passing token, without incrementing shortfalls - so the run ends
@@ -4229,6 +4229,43 @@ has been applied yet — every item in this section is open.
   the constraints unsatisfiable. The project's own recorded class - a tool that
   analysed nothing looks like a tool that found nothing. Fix: return a cleared
   flag, print # SHORTFALL, count it, and exit nonzero.
+  Resolved (2026-09-06): all four of the bullet's prescriptions. `solve`
+  returns a third element saying whether it cleared; a miss prints
+  `# SHORTFALL ... cleared nothing` INSTEAD of the pasteable line, is counted,
+  and `main` returns nonzero on any shortfall.
+
+  Not printing the pasteable form is the part the bullet does not ask for and
+  the hazard requires: this output is copied into `theme.py`, and a miss
+  printed as `token="#xxxxxx",  # 4.10:1` gets pasted with a comment asserting
+  a ratio the value does not have - which `test_theme.py` recomputes, so the
+  build reddens far from the tool that caused it.
+
+  Verified the tool still reports clean on the real palettes: exit 0, zero
+  SHORTFALL lines, output unchanged in shape.
+
+  **This is the first test file the script has ever had** (`tests/test_derive_state_tokens.py`,
+  imported by path since `scripts/` is not on `sys.path`).
+
+  **Two of my own tests were green for the wrong reason and the probe found
+  both.** The unsolvable fixture is hostile enough that the pre-existing
+  text/accent checks fire on their own, so asserting `# SHORTFALL in out` and
+  a nonzero status passed against a mutant that had removed the state-token
+  branch entirely. Fixed by asserting the message only the new branch emits,
+  and that the pasteable form is absent for a token that failed.
+
+  The count needed a different instrument again: `total >= misses` still could
+  not see a dropped increment, because the other checks pad the total. And a
+  gentler palette cannot isolate it - the floor is taken against the WORST of
+  three surfaces, so any palette where a hue cannot be solved is one where the
+  text tokens cannot be either. Measured as a DIFFERENCE instead: the same
+  palette run with one state and with all of them, where the delta is
+  attributable to nothing else.
+
+  Four mutants, all killed after two rounds of tightening: solver claiming it
+  cleared, miss printed pasteably, shortfall printed but not counted,
+  unconditional zero exit.
+
+  Gate green: 1491 tests, no SKIP, no tool drift.
   **Layman:** The tool that works out theme colours can fail and still print a clean-looking result someone pastes in.
   Kind: fix.
   Source: review-code 2026-09-01 lane 8.

@@ -71,12 +71,19 @@ def hex_of(hue: float, lightness: float, saturation: float) -> str:
 
 def solve(
     hue: float, saturation: float, backgrounds: list[str], floor: float, dark: bool
-) -> tuple[str, float]:
+) -> tuple[str, float, bool]:
     """The first value clearing `floor` against the WORST of `backgrounds`.
 
     Ascending from black on a dark palette, descending from white on a light
     one — away from the surfaces, so the token keeps as much of its hue as the
     floor allows. See the module docstring for what the other direction does.
+
+    **The third element says whether it actually cleared** (LWSM-1246). Where
+    nothing does, the closest miss is still returned — it is the useful thing
+    to look at — but the caller has to be able to tell, and it could not. The
+    floor is taken against the WORST of three surfaces, so a palette spanning
+    both ends of the range makes the constraint unsatisfiable, and this
+    printed the miss in the identical format to a hit.
     """
     steps = range(0, 1001) if dark else range(1000, -1, -1)
     best = ("", 0.0)
@@ -84,10 +91,10 @@ def solve(
         candidate = hex_of(hue, step / 1000, saturation)
         worst = min(contrast_ratio(candidate, bg) for bg in backgrounds)
         if worst >= floor:
-            return candidate, worst
+            return candidate, worst, True
         if worst > best[1]:
             best = (candidate, worst)
-    return best
+    return best[0], best[1], False
 
 
 def main() -> int:
@@ -98,8 +105,22 @@ def main() -> int:
 
         print(f'    "{name}": Theme(')
         for token, (hue, saturation) in STATES.items():
-            value, ratio = solve(hue, saturation, backgrounds, floor, theme.is_dark)
-            print(f'        {token}="{value}",  # {ratio:.2f}:1')
+            value, ratio, cleared = solve(
+                hue, saturation, backgrounds, floor, theme.is_dark
+            )
+            if cleared:
+                print(f'        {token}="{value}",  # {ratio:.2f}:1')
+            else:
+                # Deliberately NOT the pasteable form. This output is copied
+                # into `theme.py`, so a miss that looks like a hit is pasted
+                # like one — and the comment beside it would then assert a
+                # ratio the value does not have, which `test_theme.py`
+                # recomputes and would redden the build far from here.
+                shortfalls += 1
+                print(
+                    f"# SHORTFALL {name}: {token} cleared nothing — "
+                    f"closest {value} at {ratio:.2f} (floor {floor})"
+                )
         print("    ),")
 
         for token in ("text", "muted_text", "attention"):
@@ -128,8 +149,11 @@ def main() -> int:
                 f"(floor {floor}, selected text)"
             )
 
-    print(f"\n# {shortfalls} shortfall(s) in the fixed tokens.")
-    return 0
+    print(f"\n# {shortfalls} shortfall(s).")
+    # Nonzero on any shortfall (LWSM-1246). It returned 0 unconditionally, so
+    # a run that could not solve a token was indistinguishable, to a caller
+    # and to CI, from a clean one.
+    return 1 if shortfalls else 0
 
 
 if __name__ == "__main__":
