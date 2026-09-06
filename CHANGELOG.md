@@ -302,6 +302,11 @@ signaling per
 
 ### Fixed
 
+- **The "do you trust this launcher?" box can no longer appear with nothing in it** (LWSM-1261)
+  In one case the box showed no launcher at all, and saying yes still
+  approved it. It now shows the launcher the app knows about, and refuses
+  to ask at all when there is nothing to show you.
+
 - **Disabled controls now dim under every theme, so a button that does not apply looks like one** (LWSM-1300)
   Applying a theme overwrote the platform's own dimming, so a control the
   app had correctly switched off rendered exactly like a live one. Start

@@ -4663,7 +4663,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 12.
 
-- 📋 [LWSM-1261] **MEDIUM: an operator-precedence bug can render a completely blank trust dialog that still grants trust.**
+- ✅ [LWSM-1261] **MEDIUM: an operator-precedence bug can render a completely blank trust dialog that still grants trust.**
   mainwindow.py:2123. `str(resolved or argv[0] if argv else "")` parses as
   `(resolved or argv[0]) if argv else ""` because a conditional expression
   binds looser than or - so an empty argv DISCARDS the known resolved path and
@@ -4672,6 +4672,23 @@ has been applied yet — every item in this section is open.
   confirmation is not security theatre only if it shows what will actually
   run." Fix: str(resolved or (argv[0] if argv else "")), and refuse outright
   when both are empty rather than showing an empty prompt.
+  Resolved (2026-09-06). Reproduced exactly as filed before designing: with
+  a resolved path and an empty argv, the expression evaluates to the empty
+  string. Both halves of the fold-in bullet were right, which is worth
+  recording given how often a stated cause has not been.
+
+  Two fixes, because the parenthesis alone leaves the empty prompt
+  reachable by another route — a refusal that carries neither a resolved
+  path nor an argv. `launcher` is now parenthesised, and an empty one is
+  refused with a status message instead of being shown. Answering yes to
+  that dialog called `confirm_and_start` with the fingerprint defaulted to
+  "", so it granted trust for a launcher nobody was shown.
+
+  NO WINDOW TEST EXERCISED THIS PATH AT ALL, which is why a dialog that
+  renders nothing survived every gate — `_ask_to_trust` and
+  `confirmation_required` appear nowhere in `test_mainwindow.py` before
+  today. Both mutants are killed: restoring the precedence, and showing
+  the empty prompt again.
   **Layman:** In one case the "do you trust this?" box can appear with nothing filled in, and saying yes still approves it.
   Kind: security.
   Source: review-code 2026-09-01 lane 12.

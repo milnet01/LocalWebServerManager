@@ -2426,7 +2426,24 @@ class MainWindow(QMainWindow):
         resolved = getattr(refusal, "resolved", None)
         argv = getattr(refusal, "argv", ())
         fingerprint = getattr(refusal, "fingerprint", "")
-        if self._confirm(project, str(resolved or argv[0] if argv else ""), argv):
+        # Parenthesised, and that is the whole defect (LWSM-1261): a conditional
+        # expression binds looser than `or`, so the unparenthesised form read
+        # `(resolved or argv[0]) if argv else ""` and an empty argv threw away a
+        # resolved path the app already had.
+        launcher = str(resolved or (argv[0] if argv else ""))
+        if not launcher:
+            # ADR-0003: "the confirmation is not security theatre only if it
+            # shows what will actually run". A prompt naming nothing cannot be
+            # consented to, so it is refused rather than shown — answering yes
+            # to it granted trust with the fingerprint defaulted to "".
+            self.set_status_message(
+                QCoreApplication.translate(
+                    _TR_CONTEXT,
+                    "%1 was not started: there is no launcher to show you",
+                ).replace("%1", project.name)
+            )
+            return
+        if self._confirm(project, launcher, argv):
             self._controller.confirm_and_start(project, fingerprint)
         else:
             self.set_status_message(

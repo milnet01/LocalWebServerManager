@@ -6247,3 +6247,80 @@ def test_a_browser_whose_entry_could_not_be_read_is_not_called_uninstalled(
     assert opened == ["http://localhost:3000/"], "it must still open"
     assert "not installed" not in message, message
     assert "could not be read" in message
+
+
+# --- LWSM-1261: the trust dialog must show what will actually run -------------
+
+
+class Refusal:
+    """A `LauncherUntrusted`-shaped refusal, carrying what the dialog reads."""
+
+    def __init__(self, resolved=None, argv=(), fingerprint="fp") -> None:
+        self.resolved = resolved
+        self.argv = argv
+        self.fingerprint = fingerprint
+
+
+def trust_window(qtbot, built, confirm):
+    """A window whose trust dialog is a spy.
+
+    No window test exercised this path before LWSM-1261, which is the reason a
+    dialog that renders nothing survived every gate.
+    """
+    controller = ProjectController(
+        [record("a", 5005)], FakeProbe(), ManagingSupervisor([])
+    )
+    built.append(controller)
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        confirm=confirm,
+        disclose=lambda path, holder: True,
+    )
+    qtbot.addWidget(window)
+    return window, controller
+
+
+def test_the_trust_dialog_shows_the_launcher_when_the_argv_is_empty(
+    qtbot, built
+) -> None:
+    """ADR-0003: "the confirmation is not security theatre only if it shows what
+    will actually run".
+
+    `str(resolved or argv[0] if argv else "")` parses as
+    `(resolved or argv[0]) if argv else ""`, because a conditional expression
+    binds looser than `or` — so an empty argv discards a resolved path the app
+    already knows and the dialog reads "This will execute:" followed by nothing.
+    """
+    shown: list = []
+    window, _ = trust_window(
+        qtbot, built, lambda p, resolved, argv: shown.append(resolved) or False
+    )
+
+    window._ask_to_trust(Path("/srv/a"), Refusal(resolved=Path("/srv/a/start.sh")))
+
+    assert shown == ["/srv/a/start.sh"], (
+        "the dialog discarded a launcher path the app already had"
+    )
+
+
+def test_a_trust_prompt_with_nothing_to_show_is_refused_rather_than_shown(
+    qtbot, built
+) -> None:
+    """An empty prompt cannot be consented to, so it must not be offered.
+
+    Answering yes to it called `confirm_and_start` with the fingerprint
+    defaulted to "" — trust granted on a dialog that named nothing.
+    """
+    shown: list = []
+    granted: list = []
+    window, controller = trust_window(
+        qtbot, built, lambda p, resolved, argv: shown.append(resolved) or True
+    )
+    controller.confirm_and_start = lambda path, fingerprint: granted.append(path)
+
+    window._ask_to_trust(Path("/srv/a"), Refusal(resolved=None, argv=()))
+
+    assert shown == [], "a dialog naming nothing was put in front of the user"
+    assert granted == [], "trust was granted for a launcher nobody was shown"
