@@ -4183,7 +4183,7 @@ has been applied yet — every item in this section is open.
   Kind: feature.
   Source: review-code 2026-09-01 lane 8 (calibrated HIGH -> MEDIUM: unbuilt promise).
 
-- 📋 [LWSM-1245] **MEDIUM: the shipped high-contrast theme ids do not match the ids every document gives.**
+- ✅ [LWSM-1245] **MEDIUM: the shipped high-contrast theme ids do not match the ids every document gives.**
   theme.py:340,362 ship highcontrast-light and highcontrast-dark;
   design-look-and-feel.md:64-65 and design-accessibility.md:108,212 all say
   contrast-light and contrast-dark. The id is what is persisted in
@@ -4191,6 +4191,31 @@ has been applied yet — every item in this section is open.
   to the documented id gets midnight with no error, no log line and no status
   message. CODE side is right - the ids are shipped and stored, so renaming
   them breaks live settings files. Fix the DOCUMENTS. Route to review-contract.
+  Resolved (2026-09-06): four sites corrected to the shipped ids -
+  `design-look-and-feel.md`'s theme table and its Follow-system paragraph,
+  `design-accessibility.md`'s high-contrast paragraph and its § 11 coverage
+  row. Documents fixed, code untouched, as the bullet directs: the ids are
+  what `settings.json` persists, so renaming them would break live files.
+
+  Reproduced before editing: `theme_for_id("contrast-dark")` returns Midnight,
+  the default, with no error - so following the documents to set a
+  high-contrast theme by hand silently gives the ordinary dark one. The
+  shipped keys are ledger, parchment, mint, midnight, graphite, emerald,
+  highcontrast-light, highcontrast-dark.
+
+  NOT routed to `review-contract`, and the bullet's suggestion to is declined
+  under rule 14's own test: no conformer writes anything different, because
+  the instruction is unchanged and only a name was misspelled. That is the
+  exemption list's "corrected provenance / a reworded example" case. Recorded
+  in the commit body as the rule requires.
+
+  A drift guard was attempted and BACKED OUT - filed as LWSM-1299 with the
+  measurement. Asserting against these two files means adding them to
+  `test_docs.GOVERNED`, which the `pre-push` hook reads for its docs-only
+  exemption; doing that alone makes
+  `test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against`
+  fail, exactly as designed. Closing it needs an edit to the push gate and to
+  CONTRIBUTING, which is outside a doc-fix.
   **Layman:** Follow the docs to set a high-contrast theme by hand and you silently get the default one instead.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 8.
@@ -5273,6 +5298,30 @@ mostly in the measurement behind it.
   Gate green: 1484 tests, no SKIP, no tool drift.
   **Layman:** Clicking a button shows nothing while it is held down, so there is no sign the app noticed.
   Source: user-request-2026-09-06.
+
+- 📋 [LWSM-1299] **LOW: no test holds the design documents to the theme ids the code actually ships.**
+  LWSM-1245 corrected `contrast-light` / `contrast-dark` to the shipped
+  `highcontrast-light` / `highcontrast-dark` in `design-look-and-feel.md` and
+  `design-accessibility.md`. Nothing stops that drifting again, and the
+  failure is silent by design: `theme_for_id` falls back to the default, so
+  following the docs gives Midnight with no error and no log line.
+
+  The guard is one test - the ids in the design table equal `THEMES`' keys,
+  which catches drift in BOTH directions.
+
+  **Its real cost was measured while shipping LWSM-1245, and that is why this
+  is a separate item.** Asserting against those two files means adding them to
+  `test_docs.GOVERNED`, because the `pre-push` hook reads that list to decide
+  its docs-only exemption. Doing only that makes
+  `test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against` fail
+  by design - it caught the hazard immediately - so `docs_only()` in the hook
+  and CONTRIBUTING's description of the exemption both have to change with it.
+
+  That is an edit to the push gate, which this project treats as load-bearing,
+  and is well outside a doc-fix. Filed rather than folded in.
+  Kind: test.
+  **Layman:** The fix for the wrong theme names in the docs is not protected against drifting wrong again.
+  Source: in-session-2026-09-06.
 
 ### 🐛 Bug fixes
 

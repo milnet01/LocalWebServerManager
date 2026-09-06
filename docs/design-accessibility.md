@@ -113,7 +113,7 @@ pans it. Everything below follows from that one fact:
 **A high-contrast theme ships as a first-class option**, beyond
 the six aesthetic ones: maximum-contrast text, heavy borders, a
 thick focus ring, no decorative subtlety. Available in light and
-dark — `contrast-light` and `contrast-dark` in
+dark — `highcontrast-light` and `highcontrast-dark` in
 `design-look-and-feel.md` § Look and feel's table. This is an
 assistive tool, not a seventh colour scheme, and it is not allowed
 to regress: these two clear **7:1** (WCAG AAA)
@@ -254,7 +254,7 @@ LWSM-1032 landed them alongside the four:
 | Promise | How it is checked |
 |---|---|
 | Readable in greyscale (never colour alone) | every state's rendered **state cell** differs from every other after a luminance-only transform, thresholded to ink-or-no-ink. Not the whole row: button enablement differs by state, so a whole-row comparison passes without the state cell rendering anything distinct — measured 2026-08-19, and greyscale alone is not enough either, since two colours of different luminance are two different greys |
-| High-contrast pair clears 7:1 | **already covered by `testing.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `contrast-light` / `contrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
+| High-contrast pair clears 7:1 | **already covered by `testing.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `highcontrast-light` / `highcontrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
 | Focus ring meets contrast in every theme | the same contrast arithmetic, over focus-ring vs background pairs |
 | Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % **and** at 200 %: none below 24×24 at 100 %, and every one strictly larger at 200 % than at 100 %. The second half is the one that can fail — a target pinned at 24×24 passes "≥ 24 at each step", which is the defect the promise names. Not a fixed 200 % threshold: the rect follows the font metric, so it does not double |
 | A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |

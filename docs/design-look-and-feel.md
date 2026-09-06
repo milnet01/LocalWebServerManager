@@ -61,12 +61,12 @@ token set, same contrast test, same picker.
 | **ledger** *(default light)* | light | Warm paper ground, muted gold accent. |
 | **parchment** | light | Warmer still, softer contrast. |
 | **mint** | light | Cool light ground, green accent. |
-| **contrast-dark** | dark | Maximum-contrast text, heavy borders, thick focus ring, no decorative subtlety. |
-| **contrast-light** | light | The same, on a light ground. |
+| **highcontrast-dark** | dark | Maximum-contrast text, heavy borders, thick focus ring, no decorative subtlety. |
+| **highcontrast-light** | light | The same, on a light ground. |
 
 Plus **Follow system**, which tracks the desktop's light/dark
 preference. It resolves to `midnight` or `ledger` normally, and to
-`contrast-dark` or `contrast-light` when the desktop reports a
+`highcontrast-dark` or `highcontrast-light` when the desktop reports a
 high-contrast preference — so a user who has already told their
 desktop they need contrast does not have to tell this app too.
 Dark is the default, per the user's stated preference.
