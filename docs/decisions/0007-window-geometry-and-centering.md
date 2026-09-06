@@ -77,8 +77,27 @@ centre, so there is one code path and one set of failure modes.
   skips transients so it never places a dialog instead of the
   main window, and sets `frameGeometry`. The target is either the
   remembered `x`/`y` or the centre of
-  `workspace.clientArea(workspace.PlacementArea, c)` — the usable
-  area, so it respects panels either way.
+  `workspace.clientArea(KWin.PlacementArea, c)` — the usable
+  area, so it respects panels.
+- **The enum is on the `KWin` global, not on `workspace`.** This
+  read `workspace.PlacementArea` until LWSM-1241 measured it
+  against Plasma 6: that expression is `undefined`, and the call
+  worked only because `undefined` coerces to 0 and
+  `PlacementArea` happens to be 0. `KWin.PlacementArea` is 0 and
+  `KWin.MaximizeArea` is 2, read off a probe script.
+- **Only the Wayland branch asks, and that asymmetry is measured.**
+  X11 hands Qt a panel-aware `availableGeometry` — 3840x2114 on
+  this desktop, the 46 px its panel reserves — so the caller's own
+  centre is already right there. Under Wayland Qt reports the whole
+  screen, 3840x2160, because no protocol gives a client the work
+  area; a window centred from it sits low by half the panel.
+  Inside the script `clientArea` returned 3840x2114, matching X11
+  exactly. Verified behaviourally on 2026-09-06: a 700x528 frame
+  centred through this path landed at 1570,793, the centre of the
+  usable area, where the old arithmetic gave y=816.
+- **Restoring a remembered position never centres.** That
+  coordinate is one the user chose, and re-centring it into the
+  work area would discard it silently.
 - **Every value reaching the KWin script is parsed as a number
   first** (security review, 2026-08-03). `loadScript` takes a file
   path, so the app writes JavaScript with the target coordinates

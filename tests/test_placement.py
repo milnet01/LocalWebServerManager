@@ -258,8 +258,8 @@ def test_placement_is_available_on_wayland_with_dbus_send_and_always_on_x11() ->
 def test_the_script_carries_the_target_position_and_our_own_pid() -> None:
     script = kwin_script(Rect(300, 400, 800, 600), pid=4242)
 
-    assert "x: 300," in script
-    assert "y: 400," in script
+    assert "var x = 300;" in script
+    assert "var y = 400;" in script
     assert "c.pid !== 4242" in script
     # Transients skipped, so a dialog that happens to come first is never
     # placed instead of the main window.
@@ -283,8 +283,8 @@ def test_the_script_sends_the_size_and_lets_kwin_add_the_decoration() -> None:
     """
     script = kwin_script(Rect(0, 0, 800, 600), pid=1)
 
-    assert "width: 800 + dw" in script
-    assert "height: 600 + dh" in script
+    assert "var fw = 800 + dw" in script
+    assert "fh = 600 + dh" in script
     # The fallback matters: a KWin with no `clientGeometry` must still place
     # the window, with the size unconverted rather than with a crash.
     assert "if (c.clientGeometry)" in script
@@ -314,8 +314,8 @@ def test_a_float_coordinate_is_truncated_rather_than_interpolated() -> None:
     literal that KWin would then have to parse."""
     script = kwin_script(Rect(x=1.9, y=-2.9, width=1, height=1), pid=1)  # type: ignore[arg-type]
 
-    assert "x: 1," in script
-    assert "y: -2," in script
+    assert "var x = 1;" in script
+    assert "var y = -2;" in script
 
 
 # --- The D-Bus call -------------------------------------------------------
@@ -515,7 +515,7 @@ def test_on_wayland_the_compositor_is_asked_and_move_is_never_called(
 
     assert asked == Rect(300, 400, 800, 600)
     assert moved == []
-    assert "x: 300," in run.scripts[0]
+    assert "var x = 300;" in run.scripts[0]
     assert "c.pid !== 99" in run.scripts[0]
 
 
@@ -626,3 +626,89 @@ def test_a_call_is_refused_once_the_deadline_has_passed(
         f"the deadline was spent and a further call was made anyway: {len(run.calls)}"
     )
     assert "KWin" in caplog.text
+
+
+# --- LWSM-1241: centring asks KWin for the usable area -----------------------
+
+
+def test_centring_lets_kwin_compute_the_spot_from_the_usable_area() -> None:
+    """Only KWin knows the work area on Wayland, so only KWin can centre there.
+
+    Measured on this machine's Plasma 6 Wayland session, 2026-09-06: Qt's
+    `availableGeometry()` equals `geometry()` under the wayland platform
+    (3840x2160 both), while the same screen under xcb reports 3840x2114 — the
+    46 px the panel reserves. So `_screens()` being panel-aware, which it is,
+    buys nothing on Wayland, and a window centred from it sits low by half the
+    panel and can land under it.
+
+    `workspace.clientArea` returned 3840x2114 to a probe script, matching X11
+    exactly, so the work area IS reachable from inside the script.
+
+    The enum is read off the `KWin` global, NOT off `workspace`. ADR-0007
+    specifies `workspace.PlacementArea` verbatim and that is `undefined` in
+    Plasma 6 — measured — which coerces to 0 and works only because
+    `PlacementArea` happens to BE 0. `KWin.PlacementArea` is the real one.
+    """
+    js = kwin_script(Rect(300, 400, 800, 600), pid=99, centre=True)
+
+    assert "clientArea" in js, "centring did not ask KWin for the usable area"
+    assert "KWin.PlacementArea" in js, (
+        "the enum was read off `workspace`, where it is undefined"
+    )
+    # The interpolated x/y must not decide the spot on this path.
+    assert "var x = 300;" not in js
+
+
+def test_restoring_a_remembered_position_still_sends_it_verbatim() -> None:
+    """The other job is unchanged, and must stay so.
+
+    A remembered position is an absolute coordinate the user put the window
+    at; centring it into the work area instead would silently discard it.
+    """
+    js = kwin_script(Rect(300, 400, 800, 600), pid=99)
+
+    assert "var x = 300;" in js
+    assert "clientArea" not in js
+
+
+def test_the_centred_script_still_interpolates_only_integers() -> None:
+    """The injection guard covers the new branch too.
+
+    `kwin_script`'s whole docstring is about a string reaching KWin's scripting
+    engine. A second template is a second place for that to stop being true,
+    which is why this asserts against the centring branch by name.
+    """
+    js = kwin_script(Rect(1, 2, 3, 4), pid=99, centre=True)
+
+    assert "0); " not in js
+    for fragment in ("99", "3", "4"):
+        assert fragment in js
+
+
+def test_place_window_carries_the_centre_flag_into_the_script(tmp_path: Path) -> None:
+    """The WIRING, not the template — they fail separately.
+
+    Added because a mutant dropping `centre=centre` from `place_window`'s call
+    survived the whole file: every other test here builds the script itself, so
+    the one line joining the caller's flag to it was measured by nothing. That
+    is `CLAUDE.md`'s LWSM-1136 shape — a mechanism whose value is being CALLED,
+    asserted only by calling it directly.
+    """
+    run = FakeRun()
+
+    asked = place_window(
+        Rect(300, 400, 800, 600),
+        screens=[LEFT],
+        pid=99,
+        move=lambda x, y: None,
+        state_dir=tmp_path,
+        environ=WAYLAND,
+        which=lambda _name: "/usr/bin/dbus-send",
+        run=run,
+        centre=True,
+    )
+
+    assert asked is not None
+    assert "clientArea" in run.scripts[0], (
+        "the flag did not reach the script KWin was handed"
+    )

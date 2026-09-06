@@ -4002,13 +4002,51 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.
 
-- 📋 [LWSM-1241] **MEDIUM: the KWin script never calls clientArea, so centring ignores panels.**
+- ✅ [LWSM-1241] **MEDIUM: the KWin script never calls clientArea, so centring ignores panels.**
   placement.py:269-288. ADR-0007 requires the target be "the centre of
   workspace.clientArea(workspace.PlacementArea, c) - the usable area, so it
   respects panels either way". The shipped script only assigns frameGeometry
   from numbers the app interpolated; the centre is computed app-side by
   centre_in. The one place that can ask KWin for the work area does not. Fix:
   let the script compute the centre when centring.
+  Resolved (2026-09-06): `kwin_script(..., centre=True)` computes the spot
+  inside the script from `workspace.clientArea`, threaded through
+  `place_window` and `_place_at`, and `centre_on_screen` asks for it.
+
+  MEASURED, and the measurement is the whole item. Qt under wayland reports
+  `availableGeometry() == geometry()` (3840x2160); the same screen under xcb
+  reports 3840x2114, the 46 px this desktop's panel reserves. So `_screens()`
+  being panel-aware is true and buys nothing on Wayland. Inside the script
+  `clientArea` returned 3840x2114, matching X11 exactly.
+
+  **ADR-0007 was WRONG about the API and the bullet inherited it.** Both
+  specify `workspace.PlacementArea`; probed against Plasma 6 that is
+  `undefined`, and the call works only because `undefined` coerces to 0 and
+  `PlacementArea` IS 0. The enum is on the `KWin` global -
+  `KWin.PlacementArea` 0, `KWin.MaximizeArea` 2. Read from `KWin` with a
+  literal fallback. ADR amended, recording what was built, so no gate.
+
+  Only the Wayland branch changed: X11's work area is already correct, and
+  centring it through KWin would be a change with no defect behind it.
+
+  VERIFIED BEHAVIOURALLY against real KWin, which is what ADR-0007 requires
+  and what a fake runner cannot give: a 700x528 frame centred through this
+  path landed at 1570,793 - exactly the centre of 3840x2114. The old
+  arithmetic gives y=816, 23 px low, half the panel.
+
+  One mutant SURVIVED the first probe and found a real gap: dropping
+  `centre=centre` from `place_window`'s call to `kwin_script` was measured by
+  nothing, because every other test built the script itself - the LWSM-1136
+  shape. `test_place_window_carries_the_centre_flag_into_the_script` closes
+  it; six mutants across both files now, all killed.
+
+  Nine pre-existing assertions parsed the emitted JS by its literal shape and
+  were updated, not weakened: `x: 300,` is now `var x = 300;` because the
+  frame size is named once and used by both branches. One interpolation site
+  kept rather than two templates - a second is a second place for the
+  injection guard to stop being true.
+
+  Gate green: 1468 tests, no SKIP, no tool drift.
   **Layman:** Centre on screen can put the window under the taskbar instead of in the usable area.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.

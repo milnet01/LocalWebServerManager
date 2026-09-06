@@ -286,6 +286,14 @@ signaling per
 
 ### Fixed
 
+- **Centre on screen now respects panels on Wayland instead of centring on the whole display** (LWSM-1241)
+  Wayland gives an application no way to learn the usable area, so the
+  window was centred on the full screen and sat low by half the height of
+  the panel. The window manager is now asked for the usable area and picks
+  the spot. X11 was already correct and is unchanged. Measured on a
+  3840x2160 display with a 46-pixel panel: a window that landed at y=816
+  now lands at y=793.
+
 - **A wedged window manager can no longer freeze startup for nine seconds** (LWSM-1240)
   Placing the window asks KWin three times, and the three-second deadline
   applied to each call rather than to the exchange. The three calls now

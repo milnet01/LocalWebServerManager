@@ -4899,7 +4899,7 @@ def wayland_place(applied: list[Rect]):
         for arg in argv:
             if arg.startswith("string:") and arg.endswith(".js"):
                 script = Path(arg[len("string:") :]).read_text()
-                found = dict(re.findall(r"([xy]): (-?\d+),", script))
+                found = dict(re.findall(r"var ([xy]) = (-?\d+);", script))
                 applied.append(Rect(int(found["x"]), int(found["y"]), 0, 0))
         # A KWin that accepted the call — `run_kwin_script` reads the status
         # since LWSM-1170, so a stand-in that returned `None` would raise.
@@ -5054,8 +5054,8 @@ def test_kwin_is_asked_for_the_size_the_window_actually_is(qtbot, built) -> None
         for arg in argv:
             if arg.startswith("string:") and arg.endswith(".js"):
                 script = Path(arg[len("string:") :]).read_text()
-                found = dict(re.findall(r"(width|height): (\d+) \+", script))
-                asked.append((int(found["width"]), int(found["height"])))
+                found = dict(re.findall(r"(fw|fh) = (\d+) \+", script))
+                asked.append((int(found["fw"]), int(found["fh"])))
         return subprocess.CompletedProcess(argv, 0, b"", b"")
 
     window = geometry_window(
@@ -6117,3 +6117,29 @@ def test_an_enabled_control_does_not_claim_to_be_disabled(qtbot, button_name) ->
 
     assert button.isEnabled(), "precondition: ours and running"
     assert "did not start" not in button.toolTip()
+
+
+def test_centre_on_screen_asks_kwin_for_the_usable_area(qtbot, built) -> None:
+    """Centring must reach the compositor as a CENTRING request, not a position.
+
+    The seam is what this asserts, because the difference is invisible in the
+    rectangle: `centre_on_screen` computes a spot either way, and on Wayland
+    that spot is centred on the whole screen — `availableGeometry()` there
+    reports no work area (measured 2026-09-06, 3840x2160 against xcb's
+    3840x2114). Only the flag tells `place_window` to let KWin decide.
+
+    Restoring a remembered position must NOT carry it, or an absolute
+    coordinate the user chose would be re-centred away.
+    """
+    flags: list[object] = []
+
+    def spy(target, **kwargs):
+        flags.append(kwargs.get("centre"))
+        return target
+
+    window = geometry_window(qtbot, built, two_rows(), place=spy)
+    flags.clear()
+
+    window.centre_on_screen()
+
+    assert flags == [True], f"centring did not ask KWin to place it: {flags}"

@@ -251,7 +251,7 @@ def placement_available(
     return bool((shutil.which if which is None else which)("dbus-send"))
 
 
-def kwin_script(target: Rect, pid: int) -> str:
+def kwin_script(target: Rect, pid: int, centre: bool = False) -> str:
     """The one-shot script KWin runs, with `target` interpolated as numbers.
 
     **Every value reaching this template is an `int` before it arrives**, which
@@ -293,7 +293,38 @@ def kwin_script(target: Rect, pid: int) -> str:
     that happens to come first is never placed instead of the main window.
     `clientList` is Plasma 5's spelling and `windowList` Plasma 6's; OneUp
     claims both and calls only the second.
+
+    **`centre=True` lets KWin choose the spot, and only KWin can.** Under
+    Wayland Qt reports no work area at all — measured 2026-09-06 on Plasma 6,
+    `availableGeometry()` equalled `geometry()` at 3840x2160, while the same
+    screen under xcb reported 3840x2114, the 46 px this desktop's panel
+    reserves. So `_screens()` being panel-aware buys nothing there and a
+    centred window sits low by half the panel (LWSM-1241). Inside the script
+    `workspace.clientArea` returned 3840x2114, matching X11 exactly.
+
+    **The enum is on the `KWin` global, not on `workspace`.** ADR-0007
+    specifies `workspace.PlacementArea` verbatim; that is `undefined` in
+    Plasma 6 (measured), and the call works only because `undefined` coerces
+    to 0 and `PlacementArea` is 0. Read from `KWin` with a fallback to the
+    literal, so a KWin without the global still gets the right area rather
+    than an accident.
+
+    Restoring a remembered position never takes this branch: that is an
+    absolute coordinate the user chose, and re-centring it would discard it.
     """
+    if centre:
+        # `Math.round`, so an odd leftover pixel goes the same way every time
+        # rather than depending on the engine's truncation.
+        spot = """\
+    var pa = (typeof KWin !== "undefined") ? KWin.PlacementArea : 0;
+    var area = workspace.clientArea(pa, c);
+    var x = area.x + Math.round((area.width - (fw)) / 2);
+    var y = area.y + Math.round((area.height - (fh)) / 2);"""
+    else:
+        spot = f"""\
+    var x = {int(target.x)};
+    var y = {int(target.y)};"""
+
     return f"""\
 var wins = (workspace.windowList ? workspace.windowList()
                                  : workspace.clientList());
@@ -305,12 +336,9 @@ for (var i = 0; i < wins.length; i++) {{
         dw = c.frameGeometry.width - c.clientGeometry.width;
         dh = c.frameGeometry.height - c.clientGeometry.height;
     }}
-    c.frameGeometry = {{
-        x: {int(target.x)},
-        y: {int(target.y)},
-        width: {int(target.width)} + dw,
-        height: {int(target.height)} + dh
-    }};
+    var fw = {int(target.width)} + dw, fh = {int(target.height)} + dh;
+{spot}
+    c.frameGeometry = {{ x: x, y: y, width: fw, height: fh }};
     break;
 }}
 """
@@ -440,6 +468,7 @@ def place_window(
     environ: dict[str, str] | None = None,
     which: Callable[[str], str | None] | None = None,
     run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
+    centre: bool = False,
 ) -> Rect | None:
     """Ask for `target`, and return the rectangle actually asked for.
 
@@ -454,13 +483,23 @@ def place_window(
     `move` is the X11 half, injected because performing it needs `QtWidgets`
     and this module may not import it (`coding.md § O1`). It is a seam in the
     testing sense too — `place_window` is then drivable with no window at all.
+
+    `centre=True` changes the WAYLAND branch only, and the asymmetry is the
+    measurement rather than an oversight: X11 gives Qt a panel-aware
+    `availableGeometry`, so the caller's own centre is already right there,
+    while Wayland gives it the whole screen and only KWin knows the work area
+    (LWSM-1241). On that one path the returned rectangle's x and y are what
+    was COMPUTED rather than where the window lands — KWin decides that from
+    the work area, and this module cannot read a position back under Wayland
+    anyway. The size and the not-`None` are what the caller uses.
     """
     if not placement_available(environ, which):
         return None
     asked = clamp_to_screens(target, screens)
     if on_wayland(environ):
         runner = subprocess.run if run is None else run
-        if not run_kwin_script(kwin_script(asked, pid), state_dir, runner):
+        script = kwin_script(asked, pid, centre=centre)
+        if not run_kwin_script(script, state_dir, runner):
             return None
     else:
         move(asked.x, asked.y)

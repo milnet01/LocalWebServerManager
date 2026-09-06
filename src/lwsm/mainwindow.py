@@ -2858,7 +2858,7 @@ class MainWindow(QMainWindow):
             )
         ]
 
-    def _place_at(self, target: Rect) -> Rect | None:
+    def _place_at(self, target: Rect, *, centre: bool = False) -> Rect | None:
         """Ask for `target` — a frame corner and a CLIENT size; `None` if the
         ask could not be made.
 
@@ -2884,6 +2884,7 @@ class MainWindow(QMainWindow):
             pid=os.getpid(),
             move=self.move,
             state_dir=state_dir,
+            centre=centre,
         )
 
     def centre_on_screen(self) -> None:
@@ -2906,7 +2907,14 @@ class MainWindow(QMainWindow):
         frame = self.frameGeometry()
         spot = centre_in(area, frame.width(), frame.height())
         target = Rect(spot.x, spot.y, self.width(), self.height())
-        if self._place_at(target) is None:
+        # `centre=True` so the WAYLAND branch asks KWin for the work area
+        # rather than trusting `spot`. `_screens()` is panel-aware through
+        # `availableGeometry`, which is true on X11 and empty on Wayland — that
+        # platform reports no work area at all, so `spot` there is a centre of
+        # the whole screen and puts the window half a panel too low
+        # (LWSM-1241). `spot` is still computed and still used on X11, and is
+        # the fallback if KWin cannot answer.
+        if self._place_at(target, centre=True) is None:
             self.set_status_message(
                 QCoreApplication.translate(
                     _TR_CONTEXT, "This desktop would not let the window be moved."
