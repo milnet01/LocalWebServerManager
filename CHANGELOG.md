@@ -286,6 +286,13 @@ signaling per
 
 ### Fixed
 
+- **A Wayland session with no XDG_SESSION_TYPE is no longer mistaken for X11** (LWSM-1239)
+  Window placement picked its strategy from one environment variable that
+  is routinely absent — under a systemd user unit, a scrubbed environment
+  or a session manager setting it to "tty". Absent read as X11, so the app
+  moved the window, Wayland discarded the move, and the app reported
+  success. A non-empty WAYLAND_DISPLAY now names a Wayland session too.
+
 - **Stop, Restart and Open now say why they are disabled on a running project this manager did not start** (LWSM-1297)
   The three buttons are gated on the server being one this app started, a
   security rule from ADR-0004. Nothing said so, so clicking Open on a

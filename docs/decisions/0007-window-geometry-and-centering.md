@@ -95,8 +95,20 @@ centre, so there is one code path and one set of failure modes.
   app's own state directory at 0600, loaded, unloaded, deleted. A
   predictable path is a symlink-replacement target in the window
   between writing it and KWin reading it.
-- Platform is detected by `XDG_SESSION_TYPE == "wayland"`, the
-  same test OneUp uses (`updater.py:541`).
+- Platform is detected by `XDG_SESSION_TYPE == "wayland"`, **or by
+  `WAYLAND_DISPLAY` being set to a non-empty value**. This started as
+  the single test OneUp uses (`updater.py:541`); amended after
+  LWSM-1239 measured that one variable is not enough. It is routinely
+  absent — this project's own `conftest.py` pins it *because* the CI
+  runner has it unset — and absent read as X11, so a `systemd --user`
+  unit, a scrubbed environment or an `XDG_SESSION_TYPE=tty` took the
+  X11 branch on a real Wayland session and produced this ADR's own
+  *worst possible failure shape*: a placement reported as done that
+  the compositor discarded. The two signals are OR-ed rather than
+  ranked, because the errors do not cost the same — a wrong False is
+  that silent success, while a wrong True asks KWin, which either
+  works (KWin scripts run on KDE X11 too) or fails and degrades
+  honestly down the path below.
 - The KWin call is **deferred by one event-loop tick** after the
   window is shown, because KWin can only move a window it already
   knows about. This is why the restore happens after `show()`
@@ -115,6 +127,13 @@ OneUp's window opens in the wrong place — the failure this ADR
 exists to avoid. OneUp's own suite shows the shape to follow:
 `OneUp/tests/gui-smoke.py:282-305` drives both session types by
 setting `XDG_SESSION_TYPE` and asserts the resulting geometry.
+
+**Driving one variable is not sufficient, and LWSM-1239 is why.**
+A verification that sets `XDG_SESSION_TYPE` alone leaves the second
+signal to whatever the machine exports, so it asserts one branch on a
+Wayland desktop and the other on the runner. Both signals are pinned
+in `tests/conftest.py`, and a test that means to drive a session type
+clears the other itself.
 
 ## Consequences
 

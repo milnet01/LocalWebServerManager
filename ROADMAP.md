@@ -3910,7 +3910,7 @@ has been applied yet — every item in this section is open.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 6+8.
 
-- 📋 [LWSM-1239] **MEDIUM: on_wayland tests one environment variable, so a real Wayland session can take the X11 branch.**
+- ✅ [LWSM-1239] **MEDIUM: on_wayland tests one environment variable, so a real Wayland session can take the X11 branch.**
   placement.py:194 tests XDG_SESSION_TYPE alone, which is routinely absent -
   the project's own conftest.py pins it because "the CI runner has it unset".
   A systemd --user unit or a shell that scrubbed the environment takes the
@@ -3919,6 +3919,42 @@ has been applied yet — every item in this section is open.
   "the worst possible failure shape". The code conforms to the ADR, so the
   ADR's test is not sufficient either - amend both. Fix: also accept
   WAYLAND_DISPLAY being set.
+  Resolved (2026-09-06): `on_wayland` returns True for
+  `XDG_SESSION_TYPE == "wayland"` OR a non-empty `WAYLAND_DISPLAY`.
+  ADR-0007 amended in the same commit to record it, both the platform-test
+  bullet and the verification paragraph - an amendment recording what was
+  built, so rule 14's gate does not re-arm.
+
+  The bullet's own scenario did NOT reproduce on this machine: both
+  variables are set here, `systemd --user show-environment` included. The
+  evidence is the project's own `conftest.py`, which pins
+  `XDG_SESSION_TYPE` because the CI runner has it unset - so a process CAN
+  be on Wayland with nothing in that variable.
+
+  Diverged from the bullet on one point and it is the reason, not the code:
+  the bullet says "also accept WAYLAND_DISPLAY being set" and gives no
+  account of the `XDG_SESSION_TYPE=x11` + `WAYLAND_DISPLAY` case it
+  creates. OR-ing is still right, but because the errors cost differently -
+  a wrong False is the silent success ADR-0007 calls the worst possible
+  failure shape, while a wrong True asks KWin, which works on KDE X11 or
+  degrades honestly. Truthiness rather than membership, so an
+  exported-but-blank variable names no display.
+
+  TWO pre-existing tests reddened and neither change was wrong.
+  `test_the_session_type_is_the_only_platform_test` asserted the limit in
+  its NAME; renamed, its three assertions kept unchanged and all still
+  holding, with the reason recorded in the docstring rather than edited
+  away. `test_closing_remembers_the_frame_corner_and_the_client_size`
+  exposed the real companion defect the bullet does not mention:
+  `conftest.py` pins `XDG_SESSION_TYPE` precisely against the
+  two-machines-one-gate split, and the second signal was left ambient - so
+  the suite would have passed on the runner and failed on any Wayland
+  desktop. `WAYLAND_DISPLAY` is now pinned beside it.
+
+  Three mutants, all killed against a green baseline: fallback removed,
+  membership instead of truthiness, XDG branch dropped.
+
+  Gate green: 1461 tests, no SKIP, no tool drift, 0 leaked processes.
   **Layman:** On some Wayland setups the app moves the window, the system ignores it, and the app reports success anyway.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.

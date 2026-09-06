@@ -184,14 +184,36 @@ def clamp_to_screens(target: Rect, screens: Sequence[Rect]) -> Rect:
 
 
 def on_wayland(environ: dict[str, str] | None = None) -> bool:
-    """The one platform test, `XDG_SESSION_TYPE`, as ADR-0007 specifies.
+    """Two platform signals, OR-ed: `XDG_SESSION_TYPE`, or a `WAYLAND_DISPLAY`.
+
+    ADR-0007 specified `XDG_SESSION_TYPE` alone. That variable is routinely
+    absent — this project's own `conftest.py` pins it *because* the CI runner
+    has it unset — and absent then read as X11 (LWSM-1239). A `systemd --user`
+    unit, a shell that scrubbed its environment, or an `XDG_SESSION_TYPE=tty`
+    under a session manager therefore took the X11 branch on a real Wayland
+    session, where the compositor discards the move and `place_window` still
+    returns the rectangle it asked for: ADR-0007's own "worst possible failure
+    shape", a placement reported as done that never happened.
+
+    **OR-ed rather than ranked, because the two errors do not cost the same.**
+    A wrong False is that silent success. A wrong True asks KWin, which either
+    works — KWin scripts run on KDE X11 too — or fails and degrades honestly
+    down the path this ADR already specifies. So the permissive combination is
+    the safe one here, which is the same reasoning `appearance.py` uses to
+    answer False on every failure, pointed the other way because its costs
+    point the other way.
 
     `environ` is injected so a test can drive both session types without
     mutating the process it runs in — which is what ADR-0007 asks the
     verification to do.
     """
     env = os.environ if environ is None else environ
-    return env.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+    if env.get("XDG_SESSION_TYPE", "").lower() == "wayland":
+        return True
+    # Truthiness, not membership: an exported-but-blank variable names no
+    # display, and reading it as one would put every scrubbed environment on
+    # the Wayland branch rather than only the Wayland ones.
+    return bool(env.get("WAYLAND_DISPLAY", ""))
 
 
 def placement_available(

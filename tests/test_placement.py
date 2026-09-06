@@ -197,11 +197,43 @@ def test_a_position_can_be_set_under_wayland_but_never_read() -> None:
 # --- Which platform, and whether we can ask -------------------------------
 
 
-def test_the_session_type_is_the_only_platform_test() -> None:
-    """ADR-0007 specifies `XDG_SESSION_TYPE`, matched case-insensitively."""
+def test_the_session_type_names_wayland_case_insensitively() -> None:
+    """ADR-0007's original test, matched case-insensitively.
+
+    Renamed at LWSM-1239. It read `..._is_the_only_platform_test` and asserted
+    exactly that, which stopped being true when `WAYLAND_DISPLAY` joined it —
+    a test can encode a limit that has since stopped being one, and editing it
+    silently to go green is the failure `CLAUDE.md` records both ways round.
+    Its three assertions are unchanged and all still hold: an explicit
+    `x11` is still not Wayland, and an empty environment still is not.
+    """
     assert on_wayland({"XDG_SESSION_TYPE": "Wayland"})
     assert not on_wayland(X11)
     assert not on_wayland({})
+
+
+def test_wayland_display_alone_is_enough_to_name_a_wayland_session() -> None:
+    """`XDG_SESSION_TYPE` is routinely absent, and absent must not read as X11.
+
+    This project's own `conftest.py` pins the variable *because* the CI runner
+    has it unset, which is the measurement: a process can be on Wayland with
+    nothing in `XDG_SESSION_TYPE` at all — a `systemd --user` unit, a shell
+    that scrubbed its environment, `XDG_SESSION_TYPE=tty` under a session
+    manager. Taking the X11 branch there produces ADR-0007's *worst possible
+    failure shape*: Wayland discards the move and `place_window` returns the
+    rectangle it asked for, reporting a placement that never happened.
+
+    The two signals are OR-ed rather than ranked, and the asymmetry is the
+    reason. A wrong False is that silent success. A wrong True asks KWin,
+    which either works — KWin scripts run on KDE X11 too — or fails and
+    degrades honestly through the path the ADR already specifies. Same
+    argument `appearance.py` makes for answering False on every failure,
+    pointed the other way because the costs here point the other way.
+    """
+    assert on_wayland({"WAYLAND_DISPLAY": "wayland-0"})
+    assert on_wayland({"XDG_SESSION_TYPE": "tty", "WAYLAND_DISPLAY": "wayland-0"})
+    # Empty is not set: an exported-but-blank variable names no display.
+    assert not on_wayland({"WAYLAND_DISPLAY": ""})
 
 
 def test_placement_is_unavailable_on_wayland_without_dbus_send() -> None:
@@ -509,6 +541,10 @@ def test_the_real_environment_is_read_when_none_is_injected(
     """`environ=None` is the production path, and every other test here injects
     one — so without this the default argument is never exercised and a
     `place_window` that ignored the real session would pass the file."""
+    # Both signals are cleared first, because since LWSM-1239 `on_wayland`
+    # reads two. Leaving the second to the ambient environment is what makes a
+    # test pass on the runner and fail on a developer's Wayland desktop.
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
     assert on_wayland()
     monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
@@ -516,3 +552,9 @@ def test_the_real_environment_is_read_when_none_is_injected(
     monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
     assert not on_wayland()
     assert os.environ.get("XDG_SESSION_TYPE") is None
+
+    # And the second signal reaches the default argument too, or the fallback
+    # branch is the one line of this function no test exercises in production
+    # shape.
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert on_wayland()

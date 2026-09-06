@@ -60,6 +60,11 @@ def _isolated_config_home(tmp_path_factory, monkeypatch):
     """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
     monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    # Its companion since LWSM-1239: `on_wayland` reads this too, so an
+    # unpinned one reintroduces the very split the paragraph above pins the
+    # first against. This machine exports it and the runner does not, so a
+    # test asserting either branch would pass on one and fail on the other.
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     empty = tmp_path_factory.mktemp("xdg-data")
     monkeypatch.setenv("XDG_DATA_HOME", str(empty))
     monkeypatch.setenv("XDG_DATA_DIRS", str(empty))
