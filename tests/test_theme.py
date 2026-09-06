@@ -9,6 +9,8 @@ its acceptance criterion is met: **every** theme, **every** text token,
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 # tests/ has no __init__.py, so pytest puts it on sys.path itself and this is a
@@ -365,3 +367,43 @@ def test_an_unresolved_follow_system_falls_back_to_dark_rather_than_raising() ->
     resolve reaches `theme_for_id` with it. A `KeyError` there is a window that
     does not open; the default is the one outcome that is certainly usable."""
     assert theme_for_id(FOLLOW_SYSTEM) is PALETTES[DEFAULT_THEME]
+
+
+# --- LWSM-1298: a pressed control confirms the click --------------------------
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_style_sheet_gives_a_pressed_button_its_own_colours(theme: Theme) -> None:
+    """A click that shows nothing is a click the user cannot tell landed.
+
+    Reported 2026-09-06. Pressed rendering was entirely the platform style's:
+    strong under Fusion (2175 of 2400 pixels change), invisible on the
+    reporter's Breeze desktop with a dark palette. So no test could have seen
+    it, and no palette was ever held to a floor for it — the same root cause as
+    LWSM-1238's missing focus styling.
+    """
+    sheet = theme.style_sheet()
+
+    assert "QPushButton:pressed" in sheet, "no theme confirms a press"
+    assert theme.accent in sheet
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_pressed_button_label_stays_readable(theme: Theme) -> None:
+    """The pressed pair is a text pair, so it owes § T8's text floor.
+
+    Asserted by recomputing rather than by trusting the choice, and read OUT
+    OF THE SHEET rather than off the palette. A mutant swapping the pressed
+    text to `text` survived the palette-only form: that asserted a property
+    of two tokens and never that the rule uses them, which is the
+    mechanism-not-the-wiring shape recorded throughout `CLAUDE.md`.
+    """
+    rule = next(
+        line
+        for line in theme.style_sheet().splitlines()
+        if "QPushButton:pressed" in line
+    )
+    background = re.search(r"background-color:\s*(#[0-9a-fA-F]{6})", rule)
+    foreground = re.search(r"[^-]color:\s*(#[0-9a-fA-F]{6})", rule)
+    assert background and foreground, rule
+    assert contrast_ratio(foreground.group(1), background.group(1)) >= floor_for(theme)

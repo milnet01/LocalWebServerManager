@@ -149,11 +149,45 @@ class Theme:
         means the sheet is a constant of the theme: it is set once on the window,
         and a row changing state sets a property instead of composing CSS.
         """
-        return "\n".join(
+        rules = [
             f'QLabel[{self.STATE_PROPERTY}="{status.value}"] '
             f"{{ color: {self.state_token(status)}; }}"
             for status in ProjectStatus
+        ]
+        # A pressed button confirms the click landed (LWSM-1298). Left to the
+        # platform this is whatever the style decides: strong under Fusion,
+        # invisible on the reporter's Breeze desktop with a dark palette — so
+        # it was held to none of § T8's floors and no test could see it.
+        #
+        # **Background and colour, no border — and the reason is narrower than
+        # it first looks.** Measured 2026-09-06: a `border` on an
+        # UNCONDITIONAL or `:focus` selector switches the widget to
+        # `QStyleSheetStyle` box sizing and shrinks its height hint from 25 to
+        # 21, at rest and permanently, which would breach the 24 px target
+        # floor and eat the width `_align_columns` fixes. A border on
+        # `:pressed` alone does NOT — the hint stays 80x25. So the ban is on
+        # the resting box, not on the word `border`, and that distinction is
+        # LWSM-1238's whole problem: the focus ring is the one that costs.
+        # Nothing here needs a border, so nothing here pays it.
+        #
+        # A test was written for this and then DELETED as vacuous, which is
+        # worth recording rather than repeating: an unconditional border was
+        # mutated in and the assertion held, because `_apply_text_metrics`
+        # already pins the width with `setFixedWidth` and floors the height at
+        # `MIN_TARGET_PX`. The source absorbs the shrink, so a size comparison
+        # cannot fail — `CLAUDE.md`'s "an assertion that holds whether or not
+        # the rule does". What a border would actually cost here is the
+        # CONTENT width inside that fixed box, i.e. a clipped label, and that
+        # is the thing to measure if anyone adds one.
+        #
+        # `accent` on `base` rather than a new token: it is a text pair, and
+        # that pair already clears the text floor on all eight palettes
+        # because the accent has to prove itself against `base` anyway.
+        rules.append(
+            f"QPushButton:pressed {{ background-color: {self.accent}; "
+            f"color: {self.base}; }}"
         )
+        return "\n".join(rules)
 
     def to_palette(self) -> QPalette:
         """Tokens expand into a QPalette so native widgets follow the theme.

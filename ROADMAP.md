@@ -5149,6 +5149,66 @@ mostly in the measurement behind it.
   Kind: accessibility.
   Source: user-report-2026-09-06.
 
+- ✅ [LWSM-1298] **MEDIUM: a clicked button gives no pressed feedback, so the app never confirms the click landed.**
+  Reported 2026-09-06: "when a button is clicked, can it have a pressed
+  status before returning back to a normal state? Currently, there is no
+  feedback to a button being pressed."
+
+  No theme emits any state rule for a control - `style_sheet()` carries only
+  `QLabel[lwsmState=...]` colours - so pressed rendering is entirely the
+  platform style's. Under offscreen Fusion it is strong (2175 of 2400 pixels
+  change), which is why no test could ever have seen this; on the reporter's
+  Breeze desktop with a dark palette it is evidently not visible. The same
+  root cause as LWSM-1238: every control state this app shows is whatever the
+  platform decided, held to none of the contrast floors the palettes are
+  built against.
+
+  Measured, and it decides the fix: a BACKGROUND-only rule leaves geometry
+  untouched (a 95x25 button stays 95x25), where any `border` rule switches
+  the widget to `QStyleSheetStyle` box sizing and shrinks it to 95x21 - the
+  hazard recorded on LWSM-1238. So pressed can be fixed with no geometry
+  risk at all, independently of the focus ring.
+
+  `accent` on `base` already clears the 4.5:1 text floor in all eight
+  palettes (worst 4.51, both assistive over 11), so it needs no new token.
+  Kind: accessibility.
+  Resolved (2026-09-06): `style_sheet()` emits
+  `QPushButton:pressed { background-color: <accent>; color: <base>; }`.
+  Sixteen tests - every palette asserted to carry the rule, and every
+  palette's pressed pair recomputed against § T8's floor.
+
+  **A claim in the filed bullet was mine and it was WRONG, corrected here
+  rather than left standing.** The bullet says any `border` rule re-boxes
+  the widget. Measured properly: an UNCONDITIONAL or `:focus` border drops
+  the height hint from 25 to 21 at rest, and a `:pressed` border does not
+  touch it (hint stays 80x25). The ban is on the resting box, not on the
+  word border. That distinction is LWSM-1238's whole problem and not this
+  item's.
+
+  Two mutants survived the first probe and both were real:
+  `color: {self.base}` swapped to `{self.text}` passed, because the
+  contrast test asserted a property of two TOKENS and never that the rule
+  uses them - the mechanism-not-the-wiring shape. It now parses the
+  colours out of the emitted rule. The second survivor is the correction
+  above.
+
+  **A test was written and then DELETED as vacuous**, which is recorded in
+  `theme.py` rather than repeated: a guard asserting the sheet does not
+  resize a button held with an unconditional border mutated in, because
+  `_apply_text_metrics` already pins the width and floors the height at
+  `MIN_TARGET_PX`. The source absorbs the shrink, so the assertion could
+  not fail. What a border would really cost inside that fixed box is a
+  clipped label, and that is what to measure if one is ever added.
+
+  Not reproducible under test on any platform available here - offscreen
+  Fusion already changes 2175 of 2400 pixels on press. That is the point:
+  the rendering was the platform's, held to none of this project's floors,
+  and is now the theme's in all eight palettes.
+
+  Gate green: 1484 tests, no SKIP, no tool drift.
+  **Layman:** Clicking a button shows nothing while it is held down, so there is no sign the app noticed.
+  Source: user-request-2026-09-06.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**

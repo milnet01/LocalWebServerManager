@@ -23,6 +23,12 @@ signaling per
 
 ### Added
 
+- **A pressed button now shows it, in every theme** (LWSM-1298)
+  Holding a button down gave no feedback at all on some desktops, because
+  the app left pressed rendering entirely to the platform. Every theme now
+  paints a pressed button in its accent, and the pair is checked against
+  the same contrast floor as the rest of the palette.
+
 - **Follow system, a theme that tracks the desktop** (LWSM-1244)
   Picks a light or dark palette from the desktop's own setting, and an
   assistive one where the desktop asks for higher contrast — so someone
