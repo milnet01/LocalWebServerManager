@@ -3874,6 +3874,38 @@ has been applied yet — every item in this section is open.
   LWSM-1032 lands. Related: focus_ring_color() returns accent, which is
   2.85:1 against alt_base in ledger - below the 3:1 non-text floor. Fix: emit
   a *:focus rule from style_sheet() and add a focus token to Theme.
+  Progress (2026-09-06): reproduced, and the bullet is right in one half and
+  wrong in the other.
+
+  TRUE: no `:focus` rule exists anywhere in src/ - `style_sheet()` emits only
+  the `QLabel[lwsmState=...]` colour rules.
+
+  FALSE: "focus_ring_color() returns accent, which is 2.85:1 against alt_base
+  in ledger". Measured with tests/contrast.py over all eight palettes, accent
+  against window/base/alt_base: worst pair is graphite 3.57, ledger is 3.81
+  (not 2.85), and both assistive palettes clear 7.0 (10.02 / 17.16). Every
+  palette clears its own non-text floor. So no new focus token is needed and
+  `focus_ring_color`'s docstring reasoning stands - the fix is the rule, not
+  the colour.
+
+  MEASURED HAZARD the bullet does not mention, and it decides the design: any
+  `:focus` border rule switches a `QPushButton` to `QStyleSheetStyle` box
+  sizing PERMANENTLY, not only while focused. A bare 80x25 button became 32x21
+  under `*:focus { border: 2px solid ... }` - the height breaching the 24 px
+  target floor LWSM-1032 and LWSM-1206 established. In the app itself the
+  floor holds anyway, because `_apply_text_metrics` sets `setFixedWidth` and
+  `setMinimumHeight(MIN_TARGET_PX)` in the source - which is `CLAUDE.md`'s
+  "a floor belongs in the SOURCE" paying off. What is NOT protected is the
+  LOOK: the button loses its native fill and renders flat.
+
+  `outline` is not the escape - measured, Qt ignores it on `QPushButton`
+  (0 changed pixels) while honouring it on `QLineEdit` (900).
+
+  So there is a real fork: stylesheet the controls (small, changes the app's
+  look), or paint the ring as `ProjectRow` already does (preserves the look,
+  more code). Blocked on one observation the offscreen platform cannot give -
+  what the real desktop style draws today on a focused button. Offscreen
+  Fusion drew nothing at all on midnight.
   **Layman:** There is no visible outline showing which control the keyboard is on, in any colour theme.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 6+8.
@@ -4961,6 +4993,54 @@ mostly in the measurement behind it.
   **Layman:** A tool we use a lot can look like it left broken code behind when it did not, and the obvious repair makes it worse.
   Kind: doc.
   Source: in-session-2026-09-03.
+
+- ✅ [LWSM-1297] **MEDIUM: a disabled Open button explains nothing, so a running project the app did not start reads as broken.**
+  Reported live 2026-09-06: two running projects would not open, "nothing
+  happened when I clicked Open".
+
+  Diagnosed from app.log, not from reading: the session started 15:48 and
+  the supervisor started nothing; the last managed start was LottoTracker
+  on 2026-09-03. So `row.managed` is False for both, `_apply_button_state`
+  sets `open_button.setEnabled(running and row.managed)` False, and Qt
+  swallows the click silently. The browser path is NOT at fault -
+  `browsers.open_url` on the same project's URL opened the tab, confirmed
+  by the reporter.
+
+  The gate itself is correct and stays (ADR-0004:84-86, user decision
+  2026-08-15; LWSM-1154 carries the disclosure dialog). What is missing is
+  that the disabled state says why. `coding.md § O8` clause 1 wants a
+  widget to be self-explanatory, and the app already uses a disabled-state
+  tooltip on menu entries.
+
+  Fix: a tooltip on the disabled Open naming the reason - the server is
+  running but this manager did not start it. A tooltip shows on a disabled
+  widget where a click does not. Note the CLAUDE.md trap: an empty string
+  does not clear a tooltip, so the enabled state needs its own text rather
+  than "".
+  Resolved (2026-09-06): `_apply_button_state` sets a tooltip on Stop,
+  Restart and Open naming the reason whenever the project is running and
+  `row.managed` is False. All three, not Open alone — one gate, one cause,
+  and fixing one copy is the failure this project keeps recording.
+
+  Scoped to the managed gate deliberately: a control disabled because the
+  project is stopped needs no explanation, and a tooltip on every disabled
+  state is noise that teaches the user to ignore the one carrying a reason.
+
+  The channel was measured before it was used, not assumed:
+  `QApplication.widgetAt` returns a DISABLED child and the `ToolTip` event
+  is delivered to it, where a click is not.
+
+  Six tests, parametrised over the three buttons — one pair asserting the
+  disabled state names the reason, one asserting an enabled button does not
+  claim to be disabled (the tooltip-set-once-never-cleared failure). Five
+  mutants, all killed against a green baseline: gate forced False, forced
+  True, the `managed` half dropped, Open dropped from the gated set, and
+  the reason removed from the text.
+
+  Gate green: 1460 tests, no SKIP, no tool drift, 0 leaked processes.
+  **Layman:** Clicking Open on a server the app did not start does nothing at all, with no message saying why.
+  Kind: accessibility.
+  Source: user-report-2026-09-06.
 
 ### 🐛 Bug fixes
 

@@ -6050,3 +6050,70 @@ def test_a_browser_name_that_fits_carries_no_tooltip(qtbot, built, tmp_path) -> 
         "precondition: this one fits"
     )
     assert box.toolTip() == ""
+
+
+# --- LWSM-1297: a disabled control says why ----------------------------------
+
+
+def running_row(*, managed: bool):
+    """A running project, ours or a stranger's — the only difference that matters."""
+    from lwsm.controller import RowView
+
+    return RowView(
+        path=Path("/srv/a"),
+        name="a",
+        effective_port=5005,
+        status=ProjectStatus.RUNNING,
+        managed=managed,
+    )
+
+
+@pytest.mark.parametrize(
+    "button_name", ["open_button", "stop_button", "restart_button"]
+)
+def test_a_control_disabled_by_the_managed_gate_says_why(qtbot, button_name) -> None:
+    """A running project this manager did not start offers three dead buttons.
+
+    Reported live 2026-09-06: two running projects "did nothing when I clicked
+    Open". Diagnosed from `app.log` — the supervisor had started neither, so
+    `row.managed` was False, the button was disabled, and Qt swallows a click
+    on a disabled widget in silence. The gate itself is correct and stays
+    (ADR-0004, user decision 2026-08-15); what was missing is that it says so.
+
+    A tooltip is the channel because it is the one that still reaches a
+    DISABLED widget: measured 2026-09-06, `QApplication.widgetAt` returns a
+    disabled child and the `ToolTip` event is delivered to it, where a click
+    is not.
+
+    Asserted on all three buttons the `managed` gate disables, not on Open
+    alone — one cause, and fixing one copy of it is what `CLAUDE.md` records
+    going wrong repeatedly.
+    """
+    row = ProjectRow(running_row(managed=False), Theme.default())
+    qtbot.addWidget(row)
+    button = getattr(row, button_name)
+
+    assert not button.isEnabled(), "precondition: the managed gate disables this"
+    tip = button.toolTip()
+    assert tip, f"{button_name} is disabled and explains nothing"
+    assert "did not start" in tip, (
+        f"{button_name}'s tooltip does not name the reason it is disabled: {tip!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "button_name", ["open_button", "stop_button", "restart_button"]
+)
+def test_an_enabled_control_does_not_claim_to_be_disabled(qtbot, button_name) -> None:
+    """The explanation belongs to the disabled state alone.
+
+    Its own test rather than a second assertion above, because the failure it
+    catches is a tooltip set once and never cleared — which leaves a working
+    button telling the user it cannot be used.
+    """
+    row = ProjectRow(running_row(managed=True), Theme.default())
+    qtbot.addWidget(row)
+    button = getattr(row, button_name)
+
+    assert button.isEnabled(), "precondition: ours and running"
+    assert "did not start" not in button.toolTip()

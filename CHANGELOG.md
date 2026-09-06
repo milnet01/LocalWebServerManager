@@ -286,6 +286,13 @@ signaling per
 
 ### Fixed
 
+- **Stop, Restart and Open now say why they are disabled on a running project this manager did not start** (LWSM-1297)
+  The three buttons are gated on the server being one this app started, a
+  security rule from ADR-0004. Nothing said so, so clicking Open on a
+  running project did nothing at all and looked broken. Each now carries a
+  tooltip naming the reason — the one channel that still reaches a disabled
+  widget, where a click does not.
+
 - **MEDIUM: the settings error clip removes the cause rather than the hostile input.** (LWSM-1237)
   When saving preferences fails, the message now says why. It was cut
   to a fixed length that the file path alone nearly filled, so the part

@@ -990,6 +990,32 @@ class ProjectRow(QFrame):
         # browser would open on nothing and the user would blame the app rather
         # than the wait.
         self.open_button.setEnabled(running and row.managed)
+        # A disabled button swallows a click in SILENCE, and the `managed`
+        # gate is the one reason a user cannot guess from the row: the project
+        # is running and the row says so. Reported live 2026-09-06 as "nothing
+        # happened when I clicked Open" on two running projects the supervisor
+        # had not started (LWSM-1297).
+        #
+        # A tooltip is the channel because it is the one that still reaches a
+        # DISABLED widget — measured 2026-09-06: `QApplication.widgetAt`
+        # returns a disabled child and the `ToolTip` event is delivered to it,
+        # where a click is not.
+        #
+        # Narrow to the gate on purpose. A control disabled because the project
+        # is stopped needs no explanation — the row already reads "stopped" —
+        # and a tooltip on every disabled state is noise that teaches the user
+        # to ignore the one that carries a reason.
+        foreign = running and not row.managed
+        for gated in (self.stop_button, self.restart_button, self.open_button):
+            gated.setToolTip(
+                QCoreApplication.translate(
+                    _TR_CONTEXT,
+                    "%1 is running, but this manager did not start it, so it "
+                    "cannot be controlled or opened from here.",
+                ).replace("%1", self._name_display)
+                if foreign
+                else ""
+            )
         # An accessible name of its own on each, because the label alone reads
         # as "Start" three times over in a list of three projects (`§ O8`).
         for button, verb in (
