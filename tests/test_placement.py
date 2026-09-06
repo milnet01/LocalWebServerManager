@@ -758,3 +758,47 @@ def test_a_failed_load_still_attempts_the_unload(tmp_path: Path) -> None:
     assert run_kwin_script("// js", tmp_path, run=run) is False
 
     assert run.calls[-1][5] == "org.kde.kwin.Scripting.unloadScript"
+
+
+# --- LWSM-1242: who applies the size, and on which platform ------------------
+
+
+def test_on_x11_the_clamped_size_comes_back_for_the_caller_to_apply(
+    tmp_path: Path,
+) -> None:
+    """The X11 branch positions and does not resize — by design, pinned here.
+
+    The two branches are genuinely asymmetric: Wayland sends width and height
+    into the KWin script because KWin's geometry write is authoritative, while
+    X11 only moves. Nothing said so, which is the real half of LWSM-1242.
+
+    It is not a lost clamp. `_restore_geometry` applies
+    `_bounded_to_screen`, at `SCREEN_FRACTION` of the screen, BEFORE calling
+    placement and on every platform — so ADR-0007's "sized larger than the
+    current display" case is already closed, and more tightly than
+    `clamp_to_screens` would close it. Adding a resize here would duplicate
+    that and need a seam the module deliberately does not have.
+
+    What this locks is the contract that makes the above safe: the returned
+    rectangle carries the CLAMPED size, so a caller that has not already
+    bounded its own has been told what to apply. Dies on returning `target`
+    rather than `asked`.
+    """
+    moved: list[tuple[int, int]] = []
+    oversized = Rect(50, 60, LEFT.width * 3, LEFT.height * 3)
+
+    asked = place_window(
+        oversized,
+        screens=[LEFT],
+        pid=1,
+        move=lambda x, y: moved.append((x, y)),
+        state_dir=tmp_path,
+        environ=X11,
+        which=lambda _name: "/usr/bin/dbus-send",
+    )
+
+    assert asked is not None
+    assert moved == [(asked.x, asked.y)], "the position applied was not the clamped one"
+    assert (asked.width, asked.height) == (LEFT.width, LEFT.height), (
+        "the caller was handed back the unclamped size it asked for"
+    )

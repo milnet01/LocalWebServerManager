@@ -514,6 +514,22 @@ def place_window(
     and this module may not import it (`coding.md § O1`). It is a seam in the
     testing sense too — `place_window` is then drivable with no window at all.
 
+    **The caller applies the SIZE, on every platform; this applies only the
+    position.** The Wayland branch does send width and height into the KWin
+    script, because KWin's geometry write is authoritative and a script that
+    did not carry the size would have KWin impose its own — but that is how
+    the position gets applied there, not a second job. The X11 branch moves
+    and nothing else, and there is deliberately no `resize` seam beside
+    `move` (LWSM-1242).
+
+    That is not a lost clamp. `_restore_geometry` applies
+    `_bounded_to_screen` — `SCREEN_FRACTION` of the screen — before calling
+    here and on every platform, so ADR-0007's "sized larger than the current
+    display" case is already closed, and closed more tightly than
+    `clamp_to_screens` would close it. What makes that safe is the return
+    value: the rectangle handed back carries the CLAMPED size, so a caller
+    that has not bounded its own has been told what to apply.
+
     `centre=True` changes the WAYLAND branch only, and the asymmetry is the
     measurement rather than an oversight: X11 gives Qt a panel-aware
     `availableGeometry`, so the caller's own centre is already right there,

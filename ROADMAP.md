@@ -4051,13 +4051,45 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.
 
-- 📋 [LWSM-1242] **MEDIUM: the X11 placement branch applies the clamped position and drops the clamped size.**
+- ✅ [LWSM-1242] **MEDIUM: the X11 placement branch applies the clamped position and drops the clamped size.**
   placement.py:417 and :423. The Wayland branch sends clamped width and height
   into the script; the X11 branch applies only the position. place_window's own
   docstring claims "one code path and one set of failure modes". ADR-0007
   requires a geometry larger than the display be clamped rather than restored
   off-screen. Fix: resize on the X11 branch, or state in the docstring that the
   caller must apply the returned size on every platform.
+  Resolved (2026-09-06): took the bullet's SECOND option - state who applies
+  the size - and not its first. No resize was added, and the reason is a
+  measurement rather than a preference.
+
+  **The clamp is not lost.** `_restore_geometry` applies
+  `_bounded_to_screen` before it calls placement and on every platform, at
+  `SCREEN_FRACTION = 0.9` of the screen. `clamp_to_screens` bounds with
+  `min(target.width, home.width)`, so against a size already at 90% of the
+  screen that `min` can never bite. ADR-0007's "sized larger than the current
+  display" case is therefore already closed on X11, and closed more tightly
+  than this function would close it. Adding a resize here would duplicate
+  that and need a `resize` seam beside `move` that the module deliberately
+  does not have.
+
+  **The bullet misquotes the docstring.** It cites "one code path and one set
+  of failure modes"; the actual sentence is "One path for both jobs ADR-0007
+  names - restoring a remembered position and centring - because they differ
+  only in how the target was computed", which is about the two JOBS and not
+  the two PLATFORMS. So the contradiction as stated is not there.
+
+  What IS real and was undocumented: the two branches are asymmetric, and
+  nothing said so or said who owns the size. Both now stated, with why the
+  Wayland branch carries width and height (KWin's geometry write is
+  authoritative) and why that is part of applying the position rather than a
+  second job.
+
+  Pinned by a test rather than left as prose: an oversized target on X11
+  moves to the CLAMPED position and returns the CLAMPED size for the caller
+  to apply. Two mutants killed - returning `target` instead of `asked`, and
+  moving to the unclamped position.
+
+  Gate green: 1487 tests, no SKIP, no tool drift.
   **Layman:** A window remembered as bigger than the current screen is moved to fit but not resized to fit.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.
