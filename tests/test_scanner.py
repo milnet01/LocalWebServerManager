@@ -487,15 +487,15 @@ def test_the_unit_name_validator_accepts_only_adr_0003_names(
     """The escaped form is the only one `systemctl` accepts, and ADR-0003's
     class as written has no backslash — so a real escaped unit could never
     reach an argv and the unescaping step was dead code."""
-    assert scanner._valid_unit_name(name) is valid
+    assert scanner.valid_unit_name(name) is valid
 
 
 def test_the_unit_name_validator_bounds_length() -> None:
     """Asserted against the validator directly: `NAME_MAX` is 255, so no
     candidate directory can carry a 292-character stem and a `scan()`-level
     case would stay green with the `{1,255}` bound deleted."""
-    assert scanner._valid_unit_name("a" * 250 + ".service") is True
-    assert scanner._valid_unit_name("a" * 300 + ".service") is False
+    assert scanner.valid_unit_name("a" * 250 + ".service") is True
+    assert scanner.valid_unit_name("a" * 300 + ".service") is False
 
 
 def test_the_show_argv_separates_options_from_the_name() -> None:

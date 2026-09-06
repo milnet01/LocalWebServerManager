@@ -971,7 +971,7 @@ UNIT_PROPERTIES = (
 UNIT_NAME = re.compile(r"^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)$")
 
 
-def _valid_unit_name(name: str) -> bool:
+def valid_unit_name(name: str) -> bool:
     """A name beginning with `-` is consumed by `systemctl` as an option —
     `--host=`, `-M` and `--machine=` all redirect which manager is driven, and
     such a name exits 0 with an empty record, so this is the guard rather than a
@@ -1185,7 +1185,7 @@ def _match_systemd(
         stem = listed.rsplit(".", 1)[0]
         if _unescape_unit_name(stem) != raw_name:
             continue
-        if not _valid_unit_name(listed):
+        if not valid_unit_name(listed):
             note(f"{quoted}: unit {_quoted(listed)} is not a usable unit name")
             continue
         props = units.properties(listed)

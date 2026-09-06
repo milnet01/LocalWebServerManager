@@ -33,6 +33,7 @@ CORE_MODULES = [
     "configfile.py",
     "controller.py",
     "placement.py",
+    "service.py",
     "ports.py",
     "registry.py",
     "scanner.py",
