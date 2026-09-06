@@ -1075,6 +1075,17 @@ sides. The inverse of the LWSM-1136 trap above — there a test asserted a
 mechanism nothing called, here one asserted a mechanism that was no longer
 wanted.
 
+**Trap: a fold-in bullet's LINE NUMBERS go stale while its reasoning stays
+exact — search for the expression, never open the cited line.** Every FP09
+bullet closed on 2026-09-06 cited lines that had since moved, and every one of
+them described its defect correctly, down to the Qt call responsible. Opening
+the cited line reads as "the bullet is wrong" and is the fastest way to dismiss
+a real finding. Grep for the code it quotes instead. **And count the sites
+before fixing one**: two of those bullets named a single location where the
+identical expression appeared twice in the same file, and in both cases the
+unnamed twin was the one no test covered. The corollary to the trap below —
+the bullet is usually right about the mechanism and unreliable about where.
+
 **Trap: a fold-in bullet's stated CAUSE is a reading, not a measurement, and it
 has now been wrong six times.** LWSM-1184 was filed as "the launcher uses an
 ordinary import rather than the relative form the walk follows" — and
