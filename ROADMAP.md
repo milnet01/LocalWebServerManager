@@ -4650,7 +4650,7 @@ has been applied yet — every item in this section is open.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 12.
 
-- 📋 [LWSM-1260] **MEDIUM: sequential %1/%2 substitution lets a project name capture the second placeholder.**
+- ✅ [LWSM-1260] **MEDIUM: sequential %1/%2 substitution lets a project name capture the second placeholder.**
   mainwindow.py:2394-2398 and :2230-2232 do
   .replace("%1", message).replace("%2", str(exc)), where message ALREADY
   carries a project name taken from a scanned directory. A project named %2
@@ -4659,6 +4659,23 @@ has been applied yet — every item in this section is open.
   relocated to the status bar, and the one-pass fix is already in this file -
   _TRUST_FIELD.sub at :2102. Fix: route both through a single re.sub over
   %[12] with a field map.
+  Resolved (2026-09-06). Both chained sites now go through `_filled`, a
+  one-pass `re.sub` over the placeholders — the fix the bullet proposed,
+  and the shape `_TRUST_FIELD.sub` already used.
+
+  The bullet's line numbers were STALE and its diagnosis was exact. The
+  two chains were found by searching for the pattern across newlines
+  rather than by opening the cited lines, which is worth repeating: a
+  fold-in bullet's location ages, its reasoning usually does not.
+
+  A placeholder with no value is left as written rather than raising.
+  These are status-bar paths and one of them is already reporting a save
+  failure, so a template that outlives its caller's argument list must not
+  turn a reported failure into an unreported crash.
+
+  Proved by mutation rather than by a red run: `_filled` did not exist
+  before, so the test could not be written against the old code. Reverting
+  it to the chained form kills the test.
   **Layman:** A project named %2 can swallow an error message into its own name in the status bar.
   Kind: security.
   Source: review-code 2026-09-01 lane 12.

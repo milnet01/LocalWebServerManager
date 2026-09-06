@@ -174,6 +174,26 @@ _TR_CONTEXT = "ProjectRow"
 # one pass (LWSM-1181). Sequential `.replace` calls let the first value land in
 # a template that still held the other two.
 _TRUST_FIELD = re.compile(r"%[123]")
+
+
+def _filled(template: str, *values: str) -> str:
+    """Substitute `%1`, `%2`, ... in ONE pass.
+
+    Chained `.replace()` calls rescan what they just wrote, so a value holding
+    `%2` captures the next substitution into itself. That was LWSM-1181 in the
+    trust dialog and LWSM-1260 in the status bar, both fed by names taken from
+    a scanned directory. `re.sub` never rescans its own output.
+
+    A placeholder with no value is left as written rather than raising: these
+    are status-bar paths, and several of them are already reporting a failure.
+    """
+    fields = {f"%{index}": value for index, value in enumerate(values, start=1)}
+    return _PLACEHOLDER.sub(
+        lambda match: fields.get(match.group(), match.group()), template
+    )
+
+
+_PLACEHOLDER = re.compile(r"%[1-9]")
 # The disclosure fields, same shape and same reason as `_TRUST_FIELD`.
 _DISCLOSE_FIELD = re.compile(r"%[1-6]")
 
@@ -2647,9 +2667,11 @@ class MainWindow(QMainWindow):
         name = next((r.name for r in records if r.path == path), path.name)
         chosen = browsers.by_id(self._browsers, entry_id)
         message = (
-            QCoreApplication.translate(_TR_CONTEXT, "%1 opens in %2")
-            .replace("%1", name)
-            .replace("%2", chosen.name)
+            _filled(
+                QCoreApplication.translate(_TR_CONTEXT, "%1 opens in %2"),
+                name,
+                chosen.name,
+            )
             if chosen is not None
             else QCoreApplication.translate(
                 _TR_CONTEXT, "%1 opens in the default browser"
@@ -2851,10 +2873,10 @@ class MainWindow(QMainWindow):
                 self._rescan.save(self._rescan.projects_path, records, load=self._load)
             except RegistryError as exc:
                 log.warning("the %s could not be saved: %s", source, exc)
-                message = (
-                    QCoreApplication.translate(_TR_CONTEXT, "%1 — not saved: %2")
-                    .replace("%1", message)
-                    .replace("%2", str(exc))
+                message = _filled(
+                    QCoreApplication.translate(_TR_CONTEXT, "%1 — not saved: %2"),
+                    message,
+                    str(exc),
                 )
             else:
                 # The next write, of any kind, compares against what is now on

@@ -6324,3 +6324,38 @@ def test_a_trust_prompt_with_nothing_to_show_is_refused_rather_than_shown(
 
     assert shown == [], "a dialog naming nothing was put in front of the user"
     assert granted == [], "trust was granted for a launcher nobody was shown"
+
+
+# --- LWSM-1260: one-pass substitution in the status bar -----------------------
+
+
+def test_a_project_named_like_a_placeholder_cannot_capture_the_next_field(
+    qtbot, built
+) -> None:
+    """`.replace("%1", ...).replace("%2", ...)` rescans what it just wrote.
+
+    A project name comes from a scanned directory, so it is somebody else's
+    text. Named `%2`, it lands in the template on the first pass and the second
+    pass substitutes the error into the attacker's name — LWSM-1181's defect in
+    the trust dialog, relocated to the status bar.
+
+    Asserted on the composed string rather than on the call, because the defect
+    is what the user ends up reading.
+    """
+    from lwsm.mainwindow import _filled
+
+    hostile = "%2"
+    filled = _filled("%1 — not saved: %2", hostile, "disk full")
+
+    assert filled == "%2 — not saved: disk full"
+    assert filled.count("disk full") == 1, (
+        "the error text was substituted into the project's own name"
+    )
+
+
+def test_a_placeholder_with_no_value_is_left_alone(qtbot, built) -> None:
+    """A template naming more fields than the caller supplies must not raise in
+    a status-bar path — the message is the thing reporting a failure."""
+    from lwsm.mainwindow import _filled
+
+    assert _filled("%1 and %2", "one") == "one and %2"
