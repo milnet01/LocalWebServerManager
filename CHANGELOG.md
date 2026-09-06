@@ -292,6 +292,12 @@ signaling per
 
 ### Fixed
 
+- **Disabled controls now dim under every theme, so a button that does not apply looks like one** (LWSM-1300)
+  Applying a theme overwrote the platform's own dimming, so a control the
+  app had correctly switched off rendered exactly like a live one. Start
+  stayed bright on a running server. The palette now sets its disabled
+  colours explicitly, for buttons, labels and text fields alike.
+
 - **The browser list now honours the desktop's own mimeapps.list** (LWSM-1248)
   A browser removed from the http handlers is no longer offered, and one
   added there is now offered even if its desktop entry declares no

@@ -5559,7 +5559,7 @@ mostly in the measurement behind it.
   **Layman:** The fix for the wrong theme names in the docs is not protected against drifting wrong again.
   Source: in-session-2026-09-06.
 
-- 💭 [LWSM-1300] **MEDIUM: a disabled button is indistinguishable from an enabled one, so correct enablement reads as broken.**
+- ✅ [LWSM-1300] **MEDIUM: a disabled button is indistinguishable from an enabled one, so correct enablement reads as broken.**
   Reported 2026-09-06: "please disable buttons that aren't relevant to a
   server's state - if it is running then Start is irrelevant".
 
@@ -5627,6 +5627,37 @@ mostly in the measurement behind it.
   One correction landed rather than being reverted with the rest: `test_theme.py`
   no longer repeats the changed-pixel claim from LWSM-1298, and now records that
   pressed must not be generalised into a rule about platform states.
+  Resolved (2026-09-06). REOPENED and fixed after the reporter sent a
+  screenshot: two projects reading `running` with every control looking
+  live. The headline was right all along.
+
+  The fault is in `theme.to_palette`, not in `style_sheet`. Every
+  `setColor` there is the TWO-argument form, which writes one colour into
+  Active, Inactive AND Disabled alike — so applying a theme overwrote the
+  platform's own dimming and a disabled control rendered identically to an
+  enabled one. The Disabled group is now set explicitly for `WindowText`,
+  `Text` and `ButtonText`, blended from `text` toward `window` by
+  `DISABLED_TEXT_BLEND`.
+
+  BOTH earlier readings were wrong, in opposite directions, and that is
+  the finding worth keeping. The filing measured a hand-built
+  `QStyleOptionButton`. The closure measured a real widget with NO theme
+  applied, where the stock Disabled group survives and dimming is real —
+  so it looked like a refutation and was a different question. Neither
+  touched the app as it runs.
+
+  The backed-out `:disabled` style-sheet rule stays backed out and this
+  does not reinstate it: a rule there OVERRIDES the palette, which is why
+  `muted_text` came out brighter than what it replaced.
+
+  Covered by `test_a_disabled_control_looks_disabled`, which renders a real
+  button, label and text field per palette and asserts two properties
+  neither of which implies the other: enabled and disabled labels differ as
+  a contrast ratio, and the disabled label sits at or under half the
+  enabled label's contrast against its own fill. Mutants that remove the
+  group, zero or nudge the blend, aim at the wrong colour group, or drop
+  any single role are all killed. Confirmed by the reporter in the running
+  app.
   **Layman:** Buttons that do not apply right now are switched off, but they look exactly the same as the ones that work.
   Kind: accessibility.
   Source: user-request-2026-09-06.

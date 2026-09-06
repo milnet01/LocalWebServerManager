@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QWidget
 
 # tests/ has no __init__.py, so pytest puts it on sys.path itself and this is a
 # flat import rather than `tests.contrast`.
@@ -381,10 +385,12 @@ def test_the_style_sheet_gives_a_pressed_button_its_own_colours(theme: Theme) ->
     held to none of the floors the palettes are built against.
 
     **Pressed is not a general rule about platform states, and LWSM-1300 is
-    the counter-example.** The platform leaves a press invisible on a dark
-    palette and dims a DISABLED control perfectly well, so a `:disabled` rule
-    written by analogy with this one made the two states harder to tell apart.
-    Measure the state you are about to style; do not reason from this test.
+    the counter-example twice over.** A `:disabled` rule written by analogy with
+    this one made the two states harder to tell apart, because disabled dimming
+    belongs to the palette and a style-sheet rule overrides it. That the theme
+    was suppressing the dimming altogether is a separate fault, fixed in
+    `to_palette`. Measure the state you are about to style; do not reason from
+    this test.
 
     **This docstring twice said something false and both halves are corrected
     here.** It called the platform's pressed rendering "strong under Fusion
@@ -471,3 +477,104 @@ def test_the_stored_default_names_a_theme_that_exists() -> None:
 
     assert Settings().theme in PALETTES
     assert theme_for_id(Settings().theme) is PALETTES[DEFAULT_THEME]
+
+
+# --- LWSM-1300: a disabled control has to LOOK disabled -----------------------
+
+# Enabled and disabled labels must be this far apart as a contrast ratio. A
+# themed palette produced 1.00 — identical — in every one of the palettes.
+DISABLED_LABEL_DELTA = 2.0
+# And the disabled label must sit at or under this share of the enabled label's
+# contrast against its own fill, so "dimmer" is a drop rather than a nudge.
+DISABLED_CONTRAST_SHARE = 0.5
+
+
+def _fill_and_label(widget: QWidget) -> tuple[str, str]:
+    """A rendered button's own fill, and the colour furthest from it: its label.
+
+    Read off a REAL widget in a REAL state. `CLAUDE.md` records why: a hand-built
+    `QStyleOption` with `State_Enabled` cleared does not reproduce the disabled
+    path, and reading one produced both this item's wrong filing and its wrong
+    closure. Contrast, never a changed-pixel count, for the same reason.
+    """
+    image = widget.grab().toImage()
+    seen: dict[str, int] = {}
+    for y in range(image.height()):
+        for x in range(image.width()):
+            name = image.pixelColor(x, y).name()
+            seen[name] = seen.get(name, 0) + 1
+    fill = max(seen, key=lambda name: seen[name])
+    return fill, max(seen, key=lambda name: contrast_ratio(name, fill))
+
+
+# Three roles carry disabled text and each reaches a different control: a
+# button's label, a menu entry or plain label, and a text field. Covered
+# separately because setting one and not the others is a mutation that survives.
+WIDGETS = ["button", "label", "field"]
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("kind", WIDGETS)
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_disabled_control_looks_disabled(
+    theme: Theme, kind: str, qtbot, qapp
+) -> None:
+    """Enablement the user cannot see is enablement that reads as broken.
+
+    `_apply_button_state` has always disabled the controls a state does not
+    offer. Reported 2026-09-06 as buttons that all look alike, with a screenshot
+    of two running projects whose Start looked as live as their neighbours'.
+
+    The palette is the layer, not the style sheet. `to_palette` writes every
+    token through the two-argument `setColor`, which fills Active, Inactive AND
+    Disabled with one colour — so a theme overwrote the platform's dimming with
+    full-strength text. A `:disabled` style-sheet rule was tried first and
+    backed out: `muted_text` is tuned to stay readable, so it came out brighter
+    than what it replaced.
+
+    Both halves are asserted because neither implies the other: two labels can
+    differ while both stay bright, and a dim label proves nothing if the enabled
+    one is dim too.
+    """
+    from PySide6.QtWidgets import (
+        QLabel,
+        QLineEdit,
+        QPushButton,
+        QVBoxLayout,
+        QWidget,
+    )
+
+    makers = {
+        "button": lambda parent: QPushButton("Start", parent),
+        "label": lambda parent: QLabel("Centre on screen", parent),
+        "field": lambda parent: QLineEdit("Filter", parent),
+    }
+    make = makers[kind]
+    original = qapp.palette()
+    try:
+        qapp.setPalette(theme.to_palette())
+        holder = QWidget()
+        qtbot.addWidget(holder)
+        holder.setStyleSheet(theme.style_sheet())
+        layout = QVBoxLayout(holder)
+        enabled = make(holder)
+        disabled = make(holder)
+        layout.addWidget(enabled)
+        layout.addWidget(disabled)
+        disabled.setEnabled(False)
+        holder.resize(200, 80)
+        holder.show()
+        qapp.processEvents()
+        on_fill, on_label = _fill_and_label(enabled)
+        off_fill, off_label = _fill_and_label(disabled)
+    finally:
+        qapp.setPalette(original)
+
+    assert contrast_ratio(on_label, off_label) >= DISABLED_LABEL_DELTA, (
+        f"disabled label {off_label} against enabled {on_label}"
+    )
+    on_contrast = contrast_ratio(on_label, on_fill)
+    off_contrast = contrast_ratio(off_label, off_fill)
+    assert off_contrast <= on_contrast * DISABLED_CONTRAST_SHARE, (
+        f"disabled {off_contrast:.2f}:1 against enabled {on_contrast:.2f}:1"
+    )

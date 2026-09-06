@@ -1236,11 +1236,17 @@ diagnoses in one session (2026-09-06). Rendering `CE_PushButton` with
 focus indication on **`State_KeyboardFocusChange`**, so a correct style draws
 nothing without it, and LWSM-1238 sat blocked for days on that reading. Hours
 later, clearing `State_Enabled` reported a disabled button as pixel-identical
-to an enabled one; a real `setEnabled(False)` widget dims plainly in all eight
-palettes, and the fix built on the false reading made the two states *harder*
-to tell apart. **Render a real widget in the real state — `setEnabled(False)`,
-`setDown(True)`, `setFocus()` — and grab it.** A hand-built option is for
-asking a style a question you have already checked another way.
+to an enabled one, and the fix built on that reading made the two states
+*harder* to tell apart. **The correction was wrong too, and that is the more
+useful half**: "a real `setEnabled(False)` widget dims plainly" was measured
+with no theme applied. Under one it did not dim at all, because `to_palette`'s
+two-argument `setColor` wrote every token into the Disabled colour group as
+well — the user's own screenshot is what settled it (LWSM-1300). **Render a
+real widget in the real state AND the real context — `setEnabled(False)`,
+`setDown(True)`, `setFocus()`, with the application palette and the window's
+style sheet applied — and grab it.** A hand-built option is for asking a style
+a question you have already checked another way; an unthemed widget answers
+about an app nobody is running.
 
 **Trap: a changed-pixel count is not visibility, and it reads as rigour.**
 LWSM-1298 was filed and closed on "2175 of 2400 pixels change"; measured as

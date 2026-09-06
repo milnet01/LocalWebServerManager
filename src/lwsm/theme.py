@@ -25,6 +25,16 @@ from PySide6.QtGui import QColor, QPalette
 from lwsm.controller import ProjectStatus
 from lwsm.settings import DEFAULT_THEME as _SETTINGS_DEFAULT_THEME
 
+# How far a disabled label moves from `text` toward `window`. Solved as a blend
+# rather than a ninth token, so it cannot drift from the text it dims and adding
+# a palette costs no extra colour. Chosen against Fusion's own dimming, which a
+# themed palette overwrites: on the light palettes this lands the disabled label
+# roughly where the platform put it, and on the dark ones it stays further clear
+# because their text starts further from the surface. `tests/test_theme.py`
+# recomputes the result for every palette, so a value that stops working is a
+# failing build.
+DISABLED_TEXT_BLEND = 0.55
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -204,20 +214,17 @@ class Theme:
             f"QPushButton:pressed {{ background-color: {self.accent}; "
             f"color: {self.base}; }}"
         )
-        # NO `:disabled` rule, and that is a decision rather than an omission
-        # (LWSM-1300). The platform ALREADY dims a disabled button's label
-        # through the palette's Disabled colour group, visibly, in all eight
-        # palettes — verified by rendering genuinely disabled widgets and
-        # looking at them.
+        # NO `:disabled` rule here, and that is still a decision — but not for
+        # the reason this comment gave until 2026-09-06. Disabled dimming is the
+        # PALETTE's, and `to_palette` is where this theme sets it. A rule here
+        # would override that: a `color: muted_text` draft did, and was backed
+        # out for coming out BRIGHTER than what it replaced, `muted_text` being
+        # tuned to stay readable.
         #
-        # A `color: muted_text` rule was written here and backed out: it
-        # OVERRIDES that dimming with a token tuned to stay readable, so the
-        # disabled label came out BRIGHTER than the platform's and the two
-        # states moved closer together. The measurement that motivated it was
-        # taken from a hand-built `QStyleOptionButton` with `State_Enabled`
-        # cleared, which does not reproduce the real disabled path — the same
-        # broken instrument that produced LWSM-1238's "Fusion draws no focus
-        # ring". Render a real widget before adding a state rule here.
+        # The claim that stood here — that the platform dims a disabled button
+        # unaided — was measured with no theme applied. Under one it does not,
+        # because every `setColor` in `to_palette` writes the Disabled group too.
+        # Render a real widget, themed, before adding a state rule here.
         return "\n".join(rules)
 
     def to_palette(self) -> QPalette:
@@ -244,6 +251,34 @@ class Theme:
         palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.base))
         palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(self.base))
         palette.setColor(QPalette.ColorRole.ToolTipText, QColor(self.text))
+        # Every `setColor` above is the TWO-argument form, which writes one colour
+        # into Active, Inactive AND Disabled alike. So applying a theme overwrote
+        # the platform's dimming with full-strength text and a disabled control
+        # rendered identically to a live one in every palette — correct enablement
+        # that reads as broken (LWSM-1300). The Disabled group has to be said out
+        # loud.
+        #
+        # The PALETTE is the layer. A `QPushButton:disabled` style-sheet rule was
+        # tried first and backed out: it took `muted_text`, which is tuned to stay
+        # READABLE, so it replaced the dimming with something brighter. A disabled
+        # label is meant to fall below the reading floors, not to clear them.
+        text, ground = QColor(self.text), QColor(self.window)
+        dim = QColor(
+            *(
+                round(near + (far - near) * DISABLED_TEXT_BLEND)
+                for near, far in (
+                    (text.red(), ground.red()),
+                    (text.green(), ground.green()),
+                    (text.blue(), ground.blue()),
+                )
+            )
+        )
+        for role in (
+            QPalette.ColorRole.WindowText,
+            QPalette.ColorRole.Text,
+            QPalette.ColorRole.ButtonText,
+        ):
+            palette.setColor(QPalette.ColorGroup.Disabled, role, dim)
         return palette
 
 
