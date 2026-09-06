@@ -10,6 +10,7 @@ its acceptance criterion is met: **every** theme, **every** text token,
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -407,3 +408,55 @@ def test_a_pressed_button_label_stays_readable(theme: Theme) -> None:
     foreground = re.search(r"[^-]color:\s*(#[0-9a-fA-F]{6})", rule)
     assert background and foreground, rule
     assert contrast_ratio(foreground.group(1), background.group(1)) >= floor_for(theme)
+
+
+# --- LWSM-1247: one default, in one place ------------------------------------
+
+
+def test_the_default_theme_id_is_written_once() -> None:
+    """`settings.DEFAULT_THEME` and `theme.DEFAULT_THEME` were two literals.
+
+    Both read `"midnight"`, in two files, with nothing tying them — while
+    `CLAUDE.md` records the aliasing pattern existing *precisely* so "the
+    file's default and the code's default cannot drift". The rule was stated
+    for `POLL_INTERVAL_MS` and `MAX_LOG_BYTES` and not applied here.
+
+    `settings.py` is core and may not import `theme.py` (`§ O1`), so the alias
+    goes the other way: the UI layer names the core module's value.
+
+    **Asserted against the SOURCE, because the obvious runtime check cannot
+    fail.** `theme.DEFAULT_THEME is settings.DEFAULT_THEME` passes with two
+    independent literals, since CPython interns a short string constant — so
+    that assertion measures interning and reports it as aliasing. Read the
+    import instead, the way `test_layering.py` reads source for the rules a
+    runtime check cannot see.
+    """
+    from lwsm import settings, theme
+
+    assert theme.DEFAULT_THEME == settings.DEFAULT_THEME
+
+    source = Path(theme.__file__).read_text(encoding="utf-8")
+    assert "DEFAULT_THEME" in source
+    assert re.search(r"^DEFAULT_THEME\s*=\s*[\"']", source, re.MULTILINE) is None, (
+        "theme.py defines its own DEFAULT_THEME literal beside settings.py's"
+    )
+    takes_it_from_settings = re.search(
+        r"^from lwsm\.settings import .*DEFAULT_THEME", source, re.MULTILINE
+    )
+    assert takes_it_from_settings, (
+        "theme.py does not take the default from the module that owns it"
+    )
+
+
+def test_the_stored_default_names_a_theme_that_exists() -> None:
+    """The property a user actually feels, asserted end to end.
+
+    This is what a drift between the two literals would have broken: a fresh
+    `Settings()` carries the id, `theme_for_id` resolves it, and a mismatch
+    would silently return the fallback — which is the same silent shape
+    LWSM-1245 found in the documents.
+    """
+    from lwsm.settings import Settings
+
+    assert Settings().theme in PALETTES
+    assert theme_for_id(Settings().theme) is PALETTES[DEFAULT_THEME]

@@ -4270,7 +4270,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 8.
 
-- 📋 [LWSM-1247] **MEDIUM: Theme.default has no caller and DEFAULT_THEME is written as two independent literals.**
+- ✅ [LWSM-1247] **MEDIUM: Theme.default has no caller and DEFAULT_THEME is written as two independent literals.**
   theme.py:76-93. Theme.default() has zero non-test callers and its docstring
   claims "what a first run gets", while __main__.py:251 actually calls
   theme_for_id(settings.theme), defaulted at settings.py:52 by a SECOND
@@ -4280,6 +4280,42 @@ has been applied yet — every item in this section is open.
   invert it or delete Theme.default(). Also fold in: accent_soft and attention
   (theme.py:46-47) have ZERO readers - my first false-positive dismissal of
   those two was wrong and is corrected in .ants_review_falsepos.jsonl.
+  Resolved (2026-09-06): all three parts, and none of them by deletion.
+
+  **The two literals are one.** `theme.py` imports `DEFAULT_THEME` from
+  `settings.py` and re-exports it, so `theme.DEFAULT_THEME` still resolves for
+  every existing caller. The alias runs UI to core because it cannot run the
+  other way - `settings.py` is core and may not import `theme.py` (§ O1),
+  which is the same constraint that makes it store the id opaquely.
+
+  **`Theme.default()` KEPT, its docstring corrected.** It has 36 callers, all
+  in tests, and none in `src/`. The docstring claimed "what a first run gets
+  with no settings file", which is true of the PALETTE and not of the method:
+  `__main__` calls `theme_for_id(settings.theme)`, and a first run lands on
+  this palette because `Settings.theme` defaults to the same id. Deleting it
+  would churn 36 test sites to remove a useful accessor; the defect was the
+  sentence.
+
+  **`accent_soft` and `attention` KEPT, and recorded.** They are part of
+  `design-look-and-feel.md`'s documented base nine, so deleting them
+  contradicts a document, and re-adding a token later means re-opening all
+  eight palettes to tune it - the reason already recorded for the four unbound
+  state tokens. `attention` is in `test_theme.py`'s `TEXT_TOKENS` and IS held
+  to the text floor. `accent_soft` is held to none, which the comment names as
+  a gap rather than a decision; LWSM-1278 carries the unchecked-pairs work.
+
+  **My first test was a FALSE GREEN and the trap is worth keeping.**
+  `theme.DEFAULT_THEME is settings.DEFAULT_THEME` passed against two
+  independent literals, because CPython interns a short string constant - so
+  it measured interning and reported it as aliasing. The assertion reads the
+  SOURCE instead, the way `test_layering.py` does for rules a runtime check
+  cannot see, plus an end-to-end test that a fresh `Settings().theme` resolves
+  to a shipped palette.
+
+  Two mutants, both killed: theme.py defining its own literal again, and the
+  two defaults drifting apart.
+
+  Gate green: 1493 tests, no SKIP, no tool drift.
   **Layman:** The default theme is spelled out twice in two files, so the two can drift apart.
   Kind: fix.
   Source: review-code 2026-09-01 lane 8 + check-code vulture.

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from PySide6.QtGui import QColor, QPalette
 
 from lwsm.controller import ProjectStatus
+from lwsm.settings import DEFAULT_THEME as _SETTINGS_DEFAULT_THEME
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,14 @@ class Theme:
     text: str
     muted_text: str
     accent: str
+    # `accent_soft` and `attention` are DEFINED and not painted by any widget
+    # yet (LWSM-1247, via check-code's vulture). They stay, for the reason the
+    # four unbound state tokens below stay: they are part of
+    # `design-look-and-feel.md`'s base nine, so deleting them would contradict
+    # a document, and re-adding a token later means re-opening all eight
+    # palettes to tune it against three surfaces. `attention` is already held
+    # to the text floor by `test_theme.py`'s `TEXT_TOKENS`; `accent_soft` is
+    # held to none, which is a gap rather than a decision.
     accent_soft: str
     attention: str
     border: str
@@ -75,7 +84,15 @@ class Theme:
 
     @classmethod
     def default(cls) -> Theme:
-        """What a first run gets with no settings file — **dark** (LWSM-1147).
+        """The palette named by `DEFAULT_THEME` — **dark** (LWSM-1147).
+
+        **No production caller, and the docstring used to imply one.** It read
+        "what a first run gets with no settings file", which is true of the
+        PALETTE and not of this method: `__main__` calls
+        `theme_for_id(settings.theme)`, and a first run gets this palette
+        because `Settings.theme` defaults to the same id, not because anything
+        calls here (LWSM-1247). Kept as the tests' accessor and as a
+        back-stop, now that the id it reads is written in one place.
 
         LWSM-1031 resolves follow-system to midnight or ledger; the user asked
         for dark unconditionally, which is a different rule, because
@@ -417,9 +434,18 @@ THEMES: dict[str, Theme] = {
     ),
 }
 
-# LWSM-1147. `Theme.default` explains why this is a dark theme rather than
-# follow-system.
-DEFAULT_THEME = "midnight"
+
+# The default palette's id — taken from `settings.py`, never spelled again
+# here (LWSM-1247). It was a second `"midnight"` literal in this file, with
+# nothing tying the two: `CLAUDE.md` records the aliasing pattern existing
+# precisely so "the file's default and the code's default cannot drift", and
+# it had been applied to `POLL_INTERVAL_MS` and `MAX_LOG_BYTES` but not here.
+#
+# The alias runs UI → core because it cannot run the other way: `settings.py`
+# is a core module and may not import this one (`§ O1`), which is also why
+# that module stores the id opaquely and leaves resolving it to
+# `theme_for_id`.
+DEFAULT_THEME = _SETTINGS_DEFAULT_THEME
 
 
 def theme_for_id(theme_id: str) -> Theme:
