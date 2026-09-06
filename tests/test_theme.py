@@ -377,11 +377,22 @@ def test_an_unresolved_follow_system_falls_back_to_dark_rather_than_raising() ->
 def test_the_style_sheet_gives_a_pressed_button_its_own_colours(theme: Theme) -> None:
     """A click that shows nothing is a click the user cannot tell landed.
 
-    Reported 2026-09-06. Pressed rendering was entirely the platform style's:
-    strong under Fusion (2175 of 2400 pixels change), invisible on the
-    reporter's Breeze desktop with a dark palette. So no test could have seen
-    it, and no palette was ever held to a floor for it — the same root cause as
-    LWSM-1238's missing focus styling.
+    Reported 2026-09-06. Pressed rendering was entirely the platform style's,
+    held to none of the floors the palettes are built against.
+
+    **Pressed is not a general rule about platform states, and LWSM-1300 is
+    the counter-example.** The platform leaves a press invisible on a dark
+    palette and dims a DISABLED control perfectly well, so a `:disabled` rule
+    written by analogy with this one made the two states harder to tell apart.
+    Measure the state you are about to style; do not reason from this test.
+
+    **This docstring twice said something false and both halves are corrected
+    here.** It called the platform's pressed rendering "strong under Fusion
+    (2175 of 2400 pixels change)"; measured as contrast that same rendering is
+    1.08:1 on `midnight` — invisible, every pixel having moved by a couple of
+    RGB units. A changed-pixel count is not visibility. And it named "the
+    reporter's Breeze desktop": PySide6 ships its own Qt, so the system Breeze
+    plugin cannot bind to it and this app resolves to Fusion.
     """
     sheet = theme.style_sheet()
 

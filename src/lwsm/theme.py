@@ -204,6 +204,20 @@ class Theme:
             f"QPushButton:pressed {{ background-color: {self.accent}; "
             f"color: {self.base}; }}"
         )
+        # NO `:disabled` rule, and that is a decision rather than an omission
+        # (LWSM-1300). The platform ALREADY dims a disabled button's label
+        # through the palette's Disabled colour group, visibly, in all eight
+        # palettes — verified by rendering genuinely disabled widgets and
+        # looking at them.
+        #
+        # A `color: muted_text` rule was written here and backed out: it
+        # OVERRIDES that dimming with a token tuned to stay readable, so the
+        # disabled label came out BRIGHTER than the platform's and the two
+        # states moved closer together. The measurement that motivated it was
+        # taken from a hand-built `QStyleOptionButton` with `State_Enabled`
+        # cleared, which does not reproduce the real disabled path — the same
+        # broken instrument that produced LWSM-1238's "Fusion draws no focus
+        # ring". Render a real widget before adding a state rule here.
         return "\n".join(rules)
 
     def to_palette(self) -> QPalette:

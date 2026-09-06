@@ -5559,6 +5559,78 @@ mostly in the measurement behind it.
   **Layman:** The fix for the wrong theme names in the docs is not protected against drifting wrong again.
   Source: in-session-2026-09-06.
 
+- 💭 [LWSM-1300] **MEDIUM: a disabled button is indistinguishable from an enabled one, so correct enablement reads as broken.**
+  Reported 2026-09-06: "please disable buttons that aren't relevant to a
+  server's state - if it is running then Start is irrelevant".
+
+  THE ENABLEMENT ALREADY EXISTS AND IS CORRECT. `_apply_button_state`
+  disables Start while running, and Stop and Restart while not running,
+  and both overlay states disable all three. So the request is already
+  implemented and the report is still true: the user cannot SEE it.
+
+  Measured 2026-09-06, rendering a real button through the resolved style
+  per palette, enabled against disabled:
+
+  - The disabled fill is BYTE-IDENTICAL to the enabled fill in all eight
+    palettes.
+  - The label shifts by about one RGB unit - midnight `#252c3c` to
+    `#252c3d`. Disabled label against fill lands near 1.0:1 in every
+    palette.
+  - On `highcontrast-dark`, ZERO pixels differ: a disabled button is
+    pixel-identical to an enabled one. The palette that exists for
+    legibility carries the least state signal of the eight.
+
+  THIRD INSTANCE OF ONE CLASS, and worth naming as such rather than fixing
+  a third time in isolation: every control STATE this app shows is
+  whatever the platform decided, held to none of the floors the palettes
+  are built against. Pressed was LWSM-1298, focus is LWSM-1238, disabled
+  is this. `style_sheet()` emits `QLabel[lwsmState=...]` colours and one
+  `QPushButton:pressed` rule and nothing else.
+
+  The fix is the same shape and carries the same measured geometry
+  guarantee: a BACKGROUND-and-COLOUR rule on `:disabled` leaves the
+  resting box alone, where any unconditional or `:focus` border re-boxes
+  the widget (LWSM-1238).
+  FALSIFIED the same day it was filed, by me, and closed as NOT A DEFECT
+  (2026-09-06). No code changed. The headline above is wrong; this note is the
+  record.
+
+  **The platform already dims a disabled button, visibly, in all eight
+  palettes.** Verified by rendering genuinely disabled widgets and LOOKING at
+  them: the disabled label is plainly greyer than the enabled one in every
+  palette, `highcontrast-dark` included.
+
+  THE MEASUREMENT BEHIND THE FILING WAS TAKEN WITH A BROKEN INSTRUMENT. It built
+  a `QStyleOptionButton` by hand and cleared `State_Enabled`, which does not
+  reproduce the real disabled path — so it reported a one-RGB-unit label shift
+  and zero differing pixels on `highcontrast-dark`. That is the SAME broken
+  instrument that produced LWSM-1238's "Fusion draws no focus ring", which was
+  corrected earlier the same day. Making the identical mistake twice in one
+  session, hours apart, is the finding worth keeping.
+
+  A `QPushButton:disabled { color: muted_text; }` rule was written, tested across
+  eight palettes, mutation-probed with five mutants all killed, and BACKED OUT —
+  because rendering it showed it made things WORSE: `muted_text` is tuned to stay
+  readable, so it overrode the platform's dimming with something brighter and
+  moved the two states closer together. **A green suite, a killed mutant set and
+  a passing contrast floor all agreed on a change that was visibly wrong.** The
+  only thing that caught it was looking at the picture.
+
+  WHAT REMAINS TRUE AND UNANSWERED: the user asked for this, so something is
+  wrong for them. `_apply_button_state` is correct in code and the rendering is
+  correct here, which leaves the build they are running, or a state the app is
+  not detecting. Their `projects.json` was stale with no port for two projects
+  the same day, and a running server whose port is unknown classifies as
+  stopped - which offers Start and disables Stop. That is the next thing to ask,
+  not another theme rule.
+
+  One correction landed rather than being reverted with the rest: `test_theme.py`
+  no longer repeats the changed-pixel claim from LWSM-1298, and now records that
+  pressed must not be generalised into a rule about platform states.
+  **Layman:** Buttons that do not apply right now are switched off, but they look exactly the same as the ones that work.
+  Kind: accessibility.
+  Source: user-request-2026-09-06.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
