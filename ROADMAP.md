@@ -4605,7 +4605,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 10.
 
-- 📋 [LWSM-1256] **MEDIUM: pointSizeF returns -1 under a pixel-sized desktop font, making the text-size control a silent no-op.**
+- ✅ [LWSM-1256] **MEDIUM: pointSizeF returns -1 under a pixel-sized desktop font, making the text-size control a silent no-op.**
   mainwindow.py:1227 captures app.font().pointSizeF(), which is -1 when the
   font was set with setPixelSize, so the guard at :1547 is false and
   set_text_scale changes nothing - while :1553 still ticks the checkmark and
@@ -4613,6 +4613,26 @@ has been applied yet — every item in this section is open.
   non-negotiable. Fix: resolve through QFontInfo(app.font()).pointSizeF(),
   which converts pixels to points; if still <= 0, report via set_status_message
   rather than returning silently.
+  Resolved (2026-09-06). Measured against the pinned PySide6 before
+  designing: for one font set with `setPixelSize`, `QFont.pointSizeF()`
+  answers -1.0 while `QFontInfo(font).pointSizeF()` answers 12.0. The
+  bullet was exact on both the cause and the fix.
+
+  The base size now resolves through `QFontInfo`, which reports the font
+  as it will actually be rendered.
+
+  The second half matters more than the conversion. An unscalable desktop
+  no longer ticks the menu, no longer records the scale, and no longer
+  writes it to disk — it says so instead. Ticking and persisting is
+  precisely how the user was told a no-op had worked, and
+  `design-accessibility.md` makes this control a non-negotiable.
+
+  Reported only for a user action: construction restores a stored choice
+  with `remember=False`, so a startup message about a control nobody
+  touched would be noise.
+
+  Three mutants killed — reading the base from `QFont` again, ticking and
+  saving anyway, and refusing in silence.
   **Layman:** On some desktops choosing a bigger text size ticks the menu and saves the choice while nothing gets bigger.
   Kind: fix.
   Source: review-code 2026-09-01 lane 11.

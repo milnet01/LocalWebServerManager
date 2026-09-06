@@ -41,6 +41,7 @@ from PySide6.QtGui import (
     QActionGroup,
     QCloseEvent,
     QDesktopServices,
+    QFontInfo,
     QKeyEvent,
     QKeySequence,
     QPainter,
@@ -1461,7 +1462,15 @@ class MainWindow(QMainWindow):
         # window is built, which holds because `build_window` runs once per
         # process and applies the stored scale through this window.
         app = QApplication.instance()
-        self._base_point_size = app.font().pointSizeF() if app is not None else 0.0
+        # Through `QFontInfo`, never `QFont.pointSizeF()` (LWSM-1256): a font set
+        # with `setPixelSize` — an ordinary desktop configuration — answers -1
+        # there, which made the guard in `set_text_scale` false and the whole
+        # control a silent no-op. `QFontInfo` resolves the font as it will
+        # actually be rendered and converts pixels to points. Measured against
+        # the pinned PySide6: -1.0 against 12.0 for one font.
+        self._base_point_size = (
+            QFontInfo(app.font()).pointSizeF() if app is not None else 0.0
+        )
         self._text_scale = MIN_TEXT_SCALE
         # QCoreApplication.translate under the file's one context, not
         # `self.tr(...)` — tr resolves under the *class*, so this string landed
@@ -1809,12 +1818,29 @@ class MainWindow(QMainWindow):
         raised — a settings file that cannot be written must not undo a change
         the user can already see.
         """
-        self._text_scale = percent
         app = QApplication.instance()
-        if app is not None and self._base_point_size > 0:
-            font = app.font()
-            font.setPointSizeF(self._base_point_size * percent / 100)
-            app.setFont(font)
+        if app is None or self._base_point_size <= 0:
+            # Nothing was scaled, so nothing below may claim it was: ticking the
+            # menu and writing the choice to disk is how the user came to be
+            # told a silent no-op had worked. `design-accessibility.md` makes
+            # the text-size control a non-negotiable, so an honest refusal beats
+            # a tick over an unchanged window.
+            #
+            # Reported only for a user action: construction restores a stored
+            # choice with `remember=False`, and a startup message about a
+            # control nobody touched is noise.
+            if remember:
+                self.set_status_message(
+                    QCoreApplication.translate(
+                        _TR_CONTEXT,
+                        "The text size cannot be changed on this desktop",
+                    )
+                )
+            return
+        self._text_scale = percent
+        font = app.font()
+        font.setPointSizeF(self._base_point_size * percent / 100)
+        app.setFont(font)
         action = self._text_size_actions.get(percent)
         if action is not None:
             action.setChecked(True)

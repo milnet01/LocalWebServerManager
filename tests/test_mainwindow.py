@@ -6410,3 +6410,78 @@ def test_every_verb_gets_its_own_sentence(qtbot, built, verb: str) -> None:
     controller.action_done.emit(Path("/srv/a"), verb)
 
     assert verb in window.statusBar().currentMessage().lower()
+
+
+# --- LWSM-1256: the text-size control under a pixel-sized desktop font --------
+
+
+def scaling_window(qtbot, built):
+    controller = ProjectController(
+        [record("a", 5005)], FakeProbe(5005), ManagingSupervisor([])
+    )
+    built.append(controller)
+    window = MainWindow(
+        controller, Theme.default(), [], disclose=lambda path, holder: True
+    )
+    qtbot.addWidget(window)
+    return window
+
+
+def test_the_text_size_control_works_under_a_pixel_sized_desktop_font(
+    qtbot, built, monkeypatch
+) -> None:
+    """`QFont.pointSizeF()` is -1 for a font set with `setPixelSize`.
+
+    A desktop that sizes its font in pixels is ordinary, and there the captured
+    base was -1, the guard was false, and the font never changed — while the
+    menu ticked the new size and the choice was written to disk. The user was
+    told it worked.
+
+    Measured against the pinned PySide6: `pointSizeF()` returns -1.0 where
+    `QFontInfo(font).pointSizeF()` returns 12.0 for the same font.
+    """
+    from PySide6.QtGui import QFont, QFontInfo
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    original = app.font()
+    try:
+        pixel_font = QFont(original)
+        pixel_font.setPixelSize(16)
+        app.setFont(pixel_font)
+        window = scaling_window(qtbot, built)
+        assert window._base_point_size > 0, (
+            "the base size was not resolved, so nothing below can scale"
+        )
+        before = QFontInfo(app.font()).pointSizeF()
+
+        window.set_text_scale(200, remember=False)
+
+        after = QFontInfo(app.font()).pointSizeF()
+        assert after > before, f"the font did not grow: {before} -> {after}"
+    finally:
+        app.setFont(original)
+
+
+def test_a_scale_that_cannot_be_applied_is_not_reported_as_applied(
+    qtbot, built
+) -> None:
+    """Ticking the menu and saving the choice is telling the user it worked.
+
+    `design-accessibility.md` calls the text-size control a non-negotiable, so a
+    silent no-op is worse than an honest refusal.
+    """
+    window = scaling_window(qtbot, built)
+    saved: list = []
+    window._save_text_scale = saved.append
+    window._base_point_size = 0.0
+    before = window._text_scale
+
+    window.set_text_scale(200)
+
+    assert saved == [], "a scale that did nothing was written to disk"
+    assert window._text_scale == before, "the window recorded a scale it never applied"
+    action = window._text_size_actions.get(200)
+    if action is not None:
+        assert not action.isChecked(), "the menu ticked a size nothing was set to"
+    assert window.statusBar().currentMessage(), "the failure was silent"
