@@ -12,6 +12,13 @@ surface, which is the surface ADR-0003's trust model exists to gate. A
 free-text command would have needed that gate; reading the handler list avoids
 needing it at all.
 
+**Registered means resolved, not merely claimed** (LWSM-1248). An entry's own
+`MimeType` starts the association and the desktop's `mimeapps.list` settles it,
+so `[Removed Associations]` takes a browser back out of this list and
+`[Added Associations]` puts one in. Reading the `MimeType` alone offered a
+browser the user had explicitly removed, which is why that claim is load-bearing
+rather than descriptive.
+
 Everything read here belongs to somebody else — entries installed by packages,
 or dropped into the user's own `~/.local/share/applications`. So every read
 goes through `configfile.read_bounded`, and **every entry is parsed inside its
@@ -78,6 +85,28 @@ class Browser:
     argv: tuple[str, ...]
 
 
+def _under_home(*parts: str) -> str | None:
+    """`~/<parts>`, or `None` when this process has no home directory.
+
+    `Path.home()` RAISES rather than returning something falsy when `HOME` is
+    unset, and both callers below reach it only as a fallback for an unset XDG
+    variable — so the failure arrives in the rare configuration and never in
+    the one anybody develops against.
+
+    It must not propagate. These lookups run inside `MainWindow.__init__`, and
+    an exception there leaves a half-built window whose every later event
+    raises on an attribute that was never assigned: the visible failure is then
+    a Qt `changeEvent` traceback naming neither the home directory nor this
+    module. Answering `None` drops one search root, which is what a machine
+    with no home directory actually has.
+    """
+    try:
+        return str(Path.home().joinpath(*parts))
+    except RuntimeError:
+        log.info("no home directory; skipping its desktop-entry search root")
+        return None
+
+
 def entry_dirs() -> tuple[Path, ...]:
     """`applications/` under XDG_DATA_HOME then XDG_DATA_DIRS, in precedence order.
 
@@ -85,10 +114,93 @@ def entry_dirs() -> tuple[Path, ...]:
     it override the system ones — a locally-installed browser entry shadowing a
     packaged one of the same id is the case that matters.
     """
-    home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    home = os.environ.get("XDG_DATA_HOME") or _under_home(".local", "share")
     system = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
     parts = [home, *system.split(":")]
     return tuple(Path(p) / "applications" for p in parts if p)
+
+
+def mimeapps_paths() -> tuple[Path, ...]:
+    """The `mimeapps.list` files, highest precedence first (LWSM-1248).
+
+    The MIME Applications Associations spec's search order: config dirs before
+    data dirs, and within each a `$desktop-mimeapps.list` before the plain one.
+    `XDG_CURRENT_DESKTOP` is a colon-separated list, most specific first.
+
+    `[Default Applications]` is only honoured in the config dirs; this module
+    reads associations alone, so that distinction costs nothing here.
+    """
+    config_home = os.environ.get("XDG_CONFIG_HOME") or _under_home(".config")
+    config_dirs = os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg"
+    desktops = [
+        part.strip().lower()
+        for part in (os.environ.get("XDG_CURRENT_DESKTOP") or "").split(":")
+        if part.strip()
+    ]
+    names = [*(f"{d}-mimeapps.list" for d in desktops), "mimeapps.list"]
+
+    roots = [Path(p) for p in [config_home, *config_dirs.split(":")] if p]
+    # The data-dir copies are deprecated by the spec but still shipped — this
+    # machine's own KDE association file is one of them.
+    roots += [d for d in entry_dirs()]
+    return tuple(root / name for root in roots for name in names)
+
+
+def _groups(text: str) -> dict[str, dict[str, str]]:
+    """Every group's keys, for a file whose groups all matter.
+
+    `_entry_fields` deliberately reads one group; a `mimeapps.list` is several
+    and the caller needs each by name.
+    """
+    groups: dict[str, dict[str, str]] = {}
+    current: dict[str, str] | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current = groups.setdefault(stripped[1:-1], {})
+            continue
+        if current is None or "=" not in stripped or stripped.startswith("#"):
+            continue
+        key, _, value = stripped.partition("=")
+        current.setdefault(key.strip(), value.strip())
+    return groups
+
+
+def _associations(paths: tuple[Path, ...]) -> tuple[dict[str, bool], list[str]]:
+    """Which entry ids the desktop adds to, or removes from, the http handlers.
+
+    Returns `{entry_id: added}` and the reasons for any file that could not be
+    read. **First mention of an id wins**, across files and within one: the
+    spec resolves per entry id rather than per file, so a user config that adds
+    an entry beats a system list that removes it. `Added` is read before
+    `Removed` in the same file, which the spec leaves undefined.
+
+    Every file here belongs to somebody else, so each is read inside its own
+    `try` for the module docstring's reason.
+    """
+    state: dict[str, bool] = {}
+    reasons: list[str] = []
+    for path in paths:
+        try:
+            groups = _groups(read_bounded(path).decode("utf-8"))
+        except FileNotFoundError:
+            # Absent is the normal case, not a failure: the spec lists many
+            # candidate paths and a desktop writes few of them.
+            continue
+        except (ConfigFileError, OSError, UnicodeDecodeError, ValueError) as exc:
+            reasons.append(f"{quoted(path.name)}: {quoted(exc)}")
+            log.info("ignoring %s: %s", path, exc)
+            continue
+        for group, added in (
+            ("Added Associations", True),
+            ("Removed Associations", False),
+        ):
+            keys = groups.get(group, {})
+            for handler in HTTP_HANDLERS:
+                for entry_id in keys.get(handler, "").split(";"):
+                    if entry_id.strip():
+                        state.setdefault(entry_id.strip(), added)
+    return state, reasons
 
 
 def parse_exec(value: str) -> tuple[str, ...]:
@@ -178,8 +290,15 @@ def _entry_fields(text: str) -> dict[str, str]:
     return fields
 
 
-def _browser_from(path: Path) -> Browser | None:
-    """One desktop entry, or `None` if it is not a browser we can launch."""
+def _browser_from(path: Path, *, mime_required: bool = True) -> Browser | None:
+    """One desktop entry, or `None` if it is not a browser we can launch.
+
+    `mime_required` is `False` for an entry the desktop's own `mimeapps.list`
+    adds to the http handlers (LWSM-1248): declaring no `MimeType` is exactly
+    why such an entry cannot be found by the `MimeType` test. Every other
+    refusal below still applies to it — an added entry that is hidden, or whose
+    binary is gone, is no more launchable than any other.
+    """
     fields = _entry_fields(read_bounded(path).decode("utf-8"))
 
     if fields.get("Type", "Application") != "Application":
@@ -190,7 +309,7 @@ def _browser_from(path: Path) -> Browser | None:
         return None
 
     mime = fields.get("MimeType", "")
-    if not any(handler in mime for handler in HTTP_HANDLERS):
+    if mime_required and not any(handler in mime for handler in HTTP_HANDLERS):
         return None
 
     # `TryExec` is the spec's own "is this actually installed" key. Honouring it
@@ -244,19 +363,32 @@ class LoadResult:
     refused: frozenset[str] = frozenset()
 
 
-def installed(dirs: tuple[Path, ...] | None = None) -> LoadResult:
-    """Every browser the desktop registers, first definition of an id winning.
+def installed(
+    dirs: tuple[Path, ...] | None = None,
+    *,
+    mimeapps: tuple[Path, ...] | None = None,
+) -> LoadResult:
+    """Every browser the desktop would hand a link to, first definition winning.
 
-    `dirs` defaults to `None` and is resolved in the body rather than in the
-    signature: a default bound to `entry_dirs()` would be evaluated once at
-    import and could never be monkeypatched, which is the trap LWSM-1033 paid a
-    cycle for and nearly paid a second.
+    **The desktop's answer, not the entries' own claim** (LWSM-1248). An entry's
+    `MimeType` is where the association starts, and `mimeapps.list` is where the
+    user settles it: `[Removed Associations]` takes a browser back out, and
+    `[Added Associations]` puts one in that never declared the handler. Reading
+    the `MimeType` alone was both too wide and too narrow, and the wide half is
+    the one that matters — it offered a browser the user had explicitly removed.
+
+    `dirs` and `mimeapps` default to `None` and are resolved in the body rather
+    than in the signature: a default bound to a function would be evaluated once
+    at import and could never be monkeypatched, which is the trap LWSM-1033 paid
+    a cycle for and nearly paid a second.
 
     Sorted by name so the dropdown does not reorder itself between runs on
     directory-iteration order.
     """
+    associations, reasons = _associations(
+        mimeapps_paths() if mimeapps is None else mimeapps
+    )
     found: dict[str, Browser] = {}
-    reasons: list[str] = []
     refused: set[str] = set()
     for directory in entry_dirs() if dirs is None else dirs:
         try:
@@ -272,8 +404,14 @@ def installed(dirs: tuple[Path, ...] | None = None) -> LoadResult:
         for path in entries:
             if path.name in found:
                 continue
+            association = associations.get(path.name)
+            if association is False:
+                # Explicitly removed by the desktop. Skipped before the read,
+                # because a removed entry is not offered from any directory and
+                # its file is one this module then has no reason to open.
+                continue
             try:
-                browser = _browser_from(path)
+                browser = _browser_from(path, mime_required=association is not True)
             except (ConfigFileError, OSError, UnicodeDecodeError, ValueError) as exc:
                 # Per entry, deliberately. See the module docstring: one hostile
                 # file costs its own entry and nothing else.

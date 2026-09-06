@@ -511,3 +511,190 @@ def test_a_refusal_reaches_the_log(tmp_path: Path, caplog) -> None:
         browsers.installed((tmp_path,))
 
     assert "broken.desktop" in caplog.text
+
+
+# --------------------------------------------------------------------------
+# mimeapps.list — the associations the desktop actually resolves (LWSM-1248)
+# --------------------------------------------------------------------------
+
+
+def mimeapps(directory: Path, name: str = "mimeapps.list", **groups: str) -> Path:
+    """A mimeapps.list with the named groups, e.g. removed="firefox.desktop;"."""
+    titles = {
+        "added": "Added Associations",
+        "removed": "Removed Associations",
+        "default": "Default Applications",
+    }
+    body = "\n\n".join(
+        f"[{titles[key]}]\n"
+        f"x-scheme-handler/http={value}\n"
+        f"x-scheme-handler/https={value}"
+        for key, value in groups.items()
+    )
+    return write(directory, name, body + "\n")
+
+
+def test_a_removed_association_is_not_offered(tmp_path: Path) -> None:
+    """The defect: a browser the user told the desktop not to use for links.
+
+    `firefox.desktop` declares the handler itself, so the MimeType test alone
+    offers it. The spec resolves it away, and that refusal is the whole item.
+    """
+    apps = tmp_path / "applications"
+    write(apps, "firefox.desktop", FIREFOX)
+    lists = mimeapps(tmp_path / "config", removed="firefox.desktop;")
+
+    result = browsers.installed((apps,), mimeapps=(lists,))
+
+    assert [b.entry_id for b in result.browsers] == []
+
+
+def test_an_added_association_is_offered_without_its_own_mimetype(
+    tmp_path: Path,
+) -> None:
+    """The other half: an entry the desktop was told to use, that never says so.
+
+    Declaring no `MimeType` is exactly why the MimeType test cannot see it.
+    """
+    apps = tmp_path / "applications"
+    write(apps, "kiosk.desktop", entry(Name="Kiosk", MimeType=""))
+    lists = mimeapps(tmp_path / "config", added="kiosk.desktop;")
+
+    result = browsers.installed((apps,), mimeapps=(lists,))
+
+    assert [b.entry_id for b in result.browsers] == ["kiosk.desktop"]
+
+
+def test_the_first_file_to_mention_an_id_wins(tmp_path: Path) -> None:
+    """Precedence is per entry id, not per file (the MIME apps spec's rule).
+
+    A user config that adds an entry must beat a system list that removes it,
+    and the loser must not be re-applied afterwards.
+    """
+    apps = tmp_path / "applications"
+    write(apps, "firefox.desktop", FIREFOX)
+    high = mimeapps(tmp_path / "high", added="firefox.desktop;")
+    low = mimeapps(tmp_path / "low", removed="firefox.desktop;")
+
+    result = browsers.installed((apps,), mimeapps=(high, low))
+
+    assert [b.entry_id for b in result.browsers] == ["firefox.desktop"]
+
+
+def test_a_removal_applies_only_to_the_type_it_names(tmp_path: Path) -> None:
+    """A removal for an unrelated type must not reach the browser list."""
+    apps = tmp_path / "applications"
+    write(apps, "firefox.desktop", FIREFOX)
+    lists = write(
+        tmp_path / "config",
+        "mimeapps.list",
+        "[Removed Associations]\nimage/png=firefox.desktop;\n",
+    )
+
+    result = browsers.installed((apps,), mimeapps=(lists,))
+
+    assert [b.entry_id for b in result.browsers] == ["firefox.desktop"]
+
+
+def test_an_unreadable_mimeapps_list_costs_only_itself(tmp_path: Path) -> None:
+    """Somebody else's file, so the containment rule is the module's own.
+
+    A list that cannot be read must not take the browser list with it, and it
+    must still be reported rather than swallowed.
+    """
+    apps = tmp_path / "applications"
+    write(apps, "firefox.desktop", FIREFOX)
+    lists = tmp_path / "config" / "mimeapps.list"
+    lists.parent.mkdir(parents=True)
+    lists.mkdir()  # a directory where a file is expected
+
+    result = browsers.installed((apps,), mimeapps=(lists,))
+
+    assert [b.entry_id for b in result.browsers] == ["firefox.desktop"]
+    assert any("mimeapps.list" in reason for reason in result.reasons)
+
+
+def test_a_missing_mimeapps_list_is_not_an_error(tmp_path: Path) -> None:
+    apps = tmp_path / "applications"
+    write(apps, "firefox.desktop", FIREFOX)
+
+    result = browsers.installed((apps,), mimeapps=(tmp_path / "nope.list",))
+
+    assert [b.entry_id for b in result.browsers] == ["firefox.desktop"]
+    assert result.reasons == ()
+
+
+def test_mimeapps_paths_puts_the_user_config_first(monkeypatch) -> None:
+    """Config dirs before data dirs, and a desktop-specific file before the plain
+    one, per the MIME apps spec's search order."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/cfg")
+    monkeypatch.setenv("XDG_CONFIG_DIRS", "/etc/xdg")
+    monkeypatch.setenv("XDG_DATA_HOME", "/data")
+    monkeypatch.setenv("XDG_DATA_DIRS", "/usr/share")
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
+
+    paths = [str(p) for p in browsers.mimeapps_paths()]
+
+    assert paths.index("/cfg/kde-mimeapps.list") < paths.index("/cfg/mimeapps.list")
+    assert paths.index("/cfg/mimeapps.list") < paths.index("/etc/xdg/mimeapps.list")
+    assert paths.index("/etc/xdg/mimeapps.list") < paths.index(
+        "/data/applications/mimeapps.list"
+    )
+
+
+def test_mimeapps_paths_handles_a_multi_name_desktop(monkeypatch) -> None:
+    """`XDG_CURRENT_DESKTOP` is a colon-separated list, most specific first."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/cfg")
+    monkeypatch.setenv("XDG_CONFIG_DIRS", "/etc/xdg")
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE:X-Generic")
+
+    paths = [str(p) for p in browsers.mimeapps_paths()]
+
+    assert paths.index("/cfg/kde-mimeapps.list") < paths.index(
+        "/cfg/x-generic-mimeapps.list"
+    )
+
+
+def test_a_process_with_no_home_directory_still_lists_browsers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An unresolvable home must drop one search root, never raise.
+
+    `Path.home()` RAISES rather than returning something falsy, and both
+    lookups run inside `MainWindow.__init__` — so the raise aborted
+    construction and left a window whose every later event failed on an
+    attribute that was never assigned, surfacing as a Qt `changeEvent`
+    traceback naming neither the home directory nor this module.
+
+    Patched rather than driven by unsetting `HOME`, which is not enough:
+    `expanduser` falls back to the passwd entry, so the guard survived a
+    mutation probe against a test that only deleted the variable. This is
+    `test_applog.py`'s and `test_registry.py`'s pattern for the same reason.
+
+    The paths are asserted WHOLE, not merely non-empty: a guard that answered
+    some placeholder instead of dropping the root would also survive.
+    """
+
+    def no_home() -> Path:
+        raise RuntimeError("Could not determine home directory")
+
+    monkeypatch.setattr(Path, "home", staticmethod(no_home))
+    for name in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("XDG_CONFIG_DIRS", "/etc/xdg")
+    monkeypatch.setenv("XDG_DATA_DIRS", "/usr/share")
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
+
+    apps = tmp_path / "applications"
+    write(apps, "firefox.desktop", FIREFOX)
+
+    assert browsers.entry_dirs() == (Path("/usr/share/applications"),)
+    assert browsers.mimeapps_paths() == (
+        Path("/etc/xdg/kde-mimeapps.list"),
+        Path("/etc/xdg/mimeapps.list"),
+        Path("/usr/share/applications/kde-mimeapps.list"),
+        Path("/usr/share/applications/mimeapps.list"),
+    )
+    assert [b.entry_id for b in browsers.installed((apps,)).browsers] == [
+        "firefox.desktop"
+    ]

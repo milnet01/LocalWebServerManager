@@ -292,6 +292,12 @@ signaling per
 
 ### Fixed
 
+- **The browser list now honours the desktop's own mimeapps.list** (LWSM-1248)
+  A browser removed from the http handlers is no longer offered, and one
+  added there is now offered even if its desktop entry declares no
+  MimeType. The list previously read each entry's own claim, which was
+  both too wide and too narrow.
+
 - **A browser whose desktop entry cannot be read is no longer reported as not installed** (LWSM-1250)
   An unreadable desktop entry was skipped in silence, so a browser that is
   installed looked exactly like one that is absent — and the app told the

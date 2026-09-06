@@ -3906,6 +3906,39 @@ has been applied yet — every item in this section is open.
   more code). Blocked on one observation the offscreen platform cannot give -
   what the real desktop style draws today on a focused button. Offscreen
   Fusion drew nothing at all on midnight.
+  Progress (2026-09-06): NO LONGER BLOCKED. The observation this item
+  waited on is available after all, and it reverses the bullet.
+
+  THE APP DOES NOT RUN BREEZE. PySide6 ships its own Qt, so the system
+  /usr/lib64/qt6/plugins/styles/breeze6.so cannot bind to it:
+  QStyleFactory.keys() is ['Windows', 'Fusion'] and the resolved style is
+  fusion, on the venv interpreter AND on the system one. Every claim on
+  this item and on LWSM-1298 about "the reporter's Breeze desktop" is
+  about a style the app never loads. Fusion IS the real desktop style
+  here, so the blocking observation costs a render, not a screenshot.
+
+  FUSION DRAWS A FOCUS RING, in all eight palettes - 402 pixels, channel
+  deltas to 255. The earlier "offscreen Fusion drew nothing at all on
+  midnight" is an INSTRUMENT ARTIFACT reproduced and then corrected here:
+  Qt gates focus indication on State_KeyboardFocusChange, set when focus
+  arrives from the keyboard. Render State_HasFocus alone and a correct
+  style draws nothing. A second artifact was found in the same pass - a
+  fill sample taken from the button's interior cannot see a ring drawn at
+  its border, and reported 1.00:1 for every palette.
+
+  Ring against resting fill: midnight 8.35, highcontrast-dark 19.14,
+  parchment 6.15, mint 6.04, highcontrast-light 5.95, ledger 5.91,
+  emerald 3.39 - and GRAPHITE 2.23, the only palette below the 3:1
+  non-text floor.
+
+  SO THE SCOPE COLLAPSES. This is not "no theme emits any focus styling"
+  needing a fork between stylesheeting the controls and painting the ring
+  by hand. Seven palettes already pass on the platform's own ring. What
+  is left is one palette whose accent is too close to its button fill.
+  The QStyleSheetStyle box-sizing hazard recorded above is not paid at
+  all on that reading, because no new border rule is needed.
+
+  Re-file or re-scope before building; do not build the fork.
   **Layman:** There is no visible outline showing which control the keyboard is on, in any colour theme.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 6+8.
@@ -4320,7 +4353,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 8 + check-code vulture.
 
-- 📋 [LWSM-1248] **MEDIUM: installed() never reads mimeapps.list, so Removed Associations is ignored.**
+- ✅ [LWSM-1248] **MEDIUM: installed() never reads mimeapps.list, so Removed Associations is ignored.**
   browsers.py:190 tests a substring of the entry's own MimeType. The MIME
   Applications Associations spec resolves handlers through mimeapps.list with
   [Added], [Default] and [Removed] Associations. Measured on this machine:
@@ -4330,6 +4363,48 @@ has been applied yet — every item in this section is open.
   NARROWER (an [Added]-only handler never appears). BOTH sides need fixing: the
   module docstring and registry.py:111-112 overclaim; ignoring [Removed] is a
   code defect.
+  Resolved (2026-09-06): `installed()` resolves associations through
+  `mimeapps.list` before offering anything. New `mimeapps_paths()` walks the
+  spec's search order, `_groups()` parses a multi-group file, and
+  `_associations()` reduces the Added and Removed groups to one verdict per
+  entry id, first mention winning. `_browser_from` takes `mime_required`, so an
+  added entry that declares no `MimeType` is reachable while every other refusal
+  still applies to it. Both bullet halves closed: the code defect, and the
+  docstring claim, which is now true rather than hedged.
+
+  REPRODUCED FIRST, and the measurement narrowed the item. This machine has no
+  `[Removed Associations]` anywhere, and its `[Added]` entry names a browser that
+  already declares the handler - so the live verdict is IDENTICAL before and
+  after (Brave, Firefox, Chrome). The defect is real and was simply not biting
+  here, which is why the tests are fixture-driven and why the live-tree diff was
+  worth taking.
+
+  THE PROBE EARNED ITS KEEP, on my own test. A first version drove the
+  missing-home case by deleting `HOME`, and all three guard mutants SURVIVED:
+  `expanduser` falls back to the passwd entry, so the condition never occurred.
+  Rewritten to patch `Path.home` - `test_applog.py`'s existing pattern - and to
+  assert the path set WHOLE, since a guard answering a placeholder root would
+  otherwise survive too. Ten mutants across both passes, all killed, one failing
+  test each rather than a NameError cascade.
+
+  A DEFECT I INTRODUCED AND THE SUITE CAUGHT, worth recording because the
+  symptom named nothing useful. `Path.home()` RAISES when home is unresolvable,
+  and both this lookup and `entry_dirs()` reach it as an XDG fallback. Inside
+  `MainWindow.__init__` that aborted construction and left a window whose every
+  later event failed on an attribute never assigned - surfacing as recursive Qt
+  `changeEvent` tracebacks in unrelated font and geometry tests, naming neither
+  the home directory nor this module. Closed as a CLASS with one shared
+  `_under_home` helper rather than a guard at the new call site, per the module's
+  own containment rule.
+
+  Two readings of mine were wrong on the way and are corrected here rather than
+  left standing. I reported the suite as order-randomised: `pytest-randomly` is
+  NOT in either venv, and the `pip list` that said so was reading another
+  interpreter. And a throwaway worktree reported three failures at HEAD that my
+  tree did not have - its venv was incompletely provisioned, and those three pass
+  in both trees once that is accounted for. HEAD was never broken.
+
+  Gate green: 1509 tests, no SKIP, no tool drift.
   **Layman:** A browser you explicitly told your desktop not to use for links is still offered in the picker.
   Kind: security.
   Source: review-code 2026-09-01 lane 9.
@@ -5436,6 +5511,27 @@ mostly in the measurement behind it.
   and is now the theme's in all eight palettes.
 
   Gate green: 1484 tests, no SKIP, no tool drift.
+  Progress (2026-09-06): the shipped fix is confirmed VISIBLE, and the
+  method this item was filed and closed under was WRONG. Both matter.
+
+  CHANGED-PIXEL COUNT IS A LYING METRIC and this item is the proof. The
+  bullet argued the platform's pressed rendering was "strong under
+  offscreen Fusion (2175 of 2400 pixels change), which is why no test
+  could ever have seen this". Re-measured as a WCAG ratio between the
+  resting fill and the pressed fill, bare Fusion on midnight is
+  1.08:1 - invisible. Every one of those pixels moved by a couple of RGB
+  units. So the count said STRONG where the truth was INVISIBLE, and the
+  sentence explaining why no test could see it was itself the reason the
+  report looked wrong. Measure a colour CHANGE as contrast, never as a
+  population of moved pixels.
+
+  With the shipped rule, pressed against rest per palette: midnight 6.34,
+  emerald 5.40, mint 3.87, graphite 3.82, ledger 3.79, parchment 3.75,
+  highcontrast-light 6.99, highcontrast-dark 16.04. All eight clear the
+  3:1 non-text floor; bare Fusion ranged 1.00 to 1.30. The fix works and
+  is strongly visible - a relaunch is all that was needed to see it.
+
+  The premise about the desktop style is also wrong; see LWSM-1238.
   **Layman:** Clicking a button shows nothing while it is held down, so there is no sign the app noticed.
   Source: user-request-2026-09-06.
 
