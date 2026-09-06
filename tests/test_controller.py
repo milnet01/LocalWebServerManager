@@ -2168,3 +2168,60 @@ def test_a_failed_verb_clears_the_overlay_and_says_why(
 
     assert "Unit not loaded." in caught.args[1]
     assert controller.rows()[0].status is not ProjectStatus.STOPPING
+
+
+# --- LWSM-1302: a successful verb has to say so ------------------------------
+
+
+def test_a_successful_verb_reports_that_it_happened(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """Reported on the first real use of LWSM-1012: the restart worked and the
+    app said nothing.
+
+    Stop and Start are covered by the row changing state. A RESTART is `running`
+    before and `running` after, so there is nothing to see — and a systemd
+    restart beats the poll interval, so the `starting` overlay is gone before
+    the next render. Without this signal the user's only evidence was the
+    restarted app's own version banner.
+    """
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "ants-stats.service")
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    with qtbot.waitSignal(controller.action_done, timeout=2000) as caught:
+        controller.restart_project(Path("/srv/a"))
+
+    assert caught.args[0] == Path("/srv/a")
+    assert caught.args[1] == "restart", "the window composes the sentence, not this"
+
+
+def test_a_failed_verb_reports_the_failure_and_no_success(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """Both channels firing would put a success and a failure on screen for one
+    click, and the user would believe whichever arrived last."""
+    drive = RecordingDrive(ok=False, reason="Unit not loaded.")
+    adopted(monkeypatch, drive, "ants-stats.service")
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    done: list = []
+    controller.action_done.connect(lambda path, verb: done.append(verb))
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000):
+        controller.stop_project(Path("/srv/a"))
+
+    assert done == []

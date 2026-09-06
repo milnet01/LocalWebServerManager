@@ -420,6 +420,15 @@ class ProjectController(QObject):
     # rather than recovered from the text, which would be string-matching a
     # project name back out of a sentence.
     action_failed = Signal(object, str)
+    # An action that COMPLETED, carrying the verb rather than a sentence: the
+    # window composes the wording, so the string stays translatable and this
+    # stays a fact — the same split `confirmation_required` already uses.
+    #
+    # Needed because a successful action is not always visible (LWSM-1302). A
+    # Stop or a Start changes the row's state and that stands in as feedback; a
+    # RESTART is `running` before and after, so without this the user is told
+    # nothing at all.
+    action_done = Signal(object, str)  # path, verb
     # A launcher that has never been confirmed (ADR-0003 § Trust). Carries the
     # `LauncherUntrusted` refusal, which holds the resolved path, the exact argv
     # and the fingerprint — "not security theatre only if it shows what will
@@ -806,6 +815,11 @@ class ProjectController(QObject):
                 self.action_failed.emit(
                     path, f"could not {outcome.verb} {path.name}: {outcome.reason}"
                 )
+            elif isinstance(outcome, UnitOutcome):
+                # Exclusive with the failure above: one click must not put a
+                # success and a failure on screen together, since the user would
+                # believe whichever arrived last.
+                self.action_done.emit(path, outcome.verb)
         finally:
             self.projects_changed.emit()
 

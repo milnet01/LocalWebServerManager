@@ -6359,3 +6359,54 @@ def test_a_placeholder_with_no_value_is_left_alone(qtbot, built) -> None:
     from lwsm.mainwindow import _filled
 
     assert _filled("%1 and %2", "one") == "one and %2"
+
+
+# --- LWSM-1302: the window says a verb happened ------------------------------
+
+
+def test_a_completed_verb_reaches_the_status_bar(qtbot, built) -> None:
+    """The user restarted a server, it worked, and the app said nothing.
+
+    The status bar rather than the row, deliberately. A row message is cleared
+    by the row's STATE changing, with no timer — and a restart leaves the state
+    identical, so a note there would never expire. Failures keep the row
+    placement `design.md § Accessibility` argues for; a transient confirmation
+    needs a transient channel.
+    """
+    controller = ProjectController(
+        [record("a", 5005)], FakeProbe(5005), ManagingSupervisor([])
+    )
+    built.append(controller)
+    window = MainWindow(
+        controller, Theme.default(), [], disclose=lambda path, holder: True
+    )
+    qtbot.addWidget(window)
+
+    controller.action_done.emit(Path("/srv/a"), "restart")
+
+    message = window.statusBar().currentMessage()
+    assert "a" in message
+    assert "restart" in message.lower(), (
+        f"the status bar does not say what happened: {message!r}"
+    )
+
+
+@pytest.mark.parametrize("verb", ["start", "stop", "restart"])
+def test_every_verb_gets_its_own_sentence(qtbot, built, verb: str) -> None:
+    """One sentence per verb, not a generic "done".
+
+    A shared message would read "the action finished" after a Stop, which tells
+    the user less than the row already showed them.
+    """
+    controller = ProjectController(
+        [record("a", 5005)], FakeProbe(5005), ManagingSupervisor([])
+    )
+    built.append(controller)
+    window = MainWindow(
+        controller, Theme.default(), [], disclose=lambda path, holder: True
+    )
+    qtbot.addWidget(window)
+
+    controller.action_done.emit(Path("/srv/a"), verb)
+
+    assert verb in window.statusBar().currentMessage().lower()

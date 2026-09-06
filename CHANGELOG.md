@@ -302,6 +302,11 @@ signaling per
 
 ### Fixed
 
+- **Starting, stopping or restarting a server now says so** (LWSM-1302)
+  A restart left no trace: the row reads "running" before and after, so
+  there was nothing to see and no message either. The app now confirms
+  what happened along the bottom of the window.
+
 - **The "do you trust this launcher?" box can no longer appear with nothing in it** (LWSM-1261)
   In one case the box showed no launcher at all, and saying yes still
   approved it. It now shows the launcher the app knows about, and refuses

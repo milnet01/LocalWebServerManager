@@ -5128,6 +5128,52 @@ has been applied yet — every item in this section is open.
   Kind: chore.
   Source: review-code 2026-09-01 synthesis part 5.
 
+- ✅ [LWSM-1302] **MEDIUM: a successful restart reports nothing, so the user cannot tell it happened.**
+  Reported by the user on the first real use of LWSM-1012: they confirmed
+  the disclosure, the restart worked, and the app said nothing. They knew
+  it had worked only because the restarted app's own "you are running an
+  old version" warning went away.
+
+  `action_failed` is the only outbound message channel the controller has,
+  and `_on_service_done` emits on failure alone. For Stop and Start the
+  row's state changes and stands in as feedback. For RESTART the row is
+  `running` before and `running` after, so there is nothing to see: the
+  `starting` overlay settles on the next poll, and a systemd restart beats
+  the poll interval.
+
+  This is LWSM-1298's principle — "a click that shows nothing is a click
+  the user cannot tell landed" — reaching the action rather than the
+  button, and it applies to the managed path too the moment a restart is
+  fast enough.
+
+  Fix: a success channel. The controller emits the completed verb, the
+  window composes the sentence, so the string stays translatable and the
+  controller keeps emitting facts rather than prose — which is how
+  `action_failed` and `confirmation_required` are already split.
+  Resolved (2026-09-06), same day it was reported. `action_done` carries
+  the completed verb; the window composes the sentence and puts it in the
+  status bar. Rendered and looked at: "Ants_Projects_Hub restarted".
+
+  THE STATUS BAR, not the row, and that is the opposite of where
+  `_report_failure` puts a message — so the reason is recorded rather than
+  left to look like an oversight. A row message is cleared by that row's
+  state changing and by nothing else, with no timer, deliberately. A
+  restart leaves the state identical, so a note there would sit under the
+  row for the rest of the session, and a confirmation that never expires
+  stops being read. Failures keep the row placement `design.md
+  § Accessibility` argues for.
+
+  The two emissions are mutually exclusive. One click putting both a
+  success and a failure on screen would leave the user believing whichever
+  arrived last, and a mutant changing the `elif` to an `if` is killed.
+
+  One sentence per verb rather than a shared "done": after a Stop, "the
+  action finished" tells the user less than the row already showed them.
+  **Layman:** Restarting a server gave no sign it had worked; the only clue came from the other app.
+  Kind: fix.
+  Source: user-report-2026-09-06 (LWSM-1012 residual).
+  Lanes: core, ui, tests.
+
 ## Findings filed in passing
 
 Findings noticed while doing something else and not fixed on the spot — a

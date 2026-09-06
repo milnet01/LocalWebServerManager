@@ -1598,6 +1598,7 @@ class MainWindow(QMainWindow):
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
         controller.action_failed.connect(self._report_failure)
+        controller.action_done.connect(self._report_done)
         controller.confirmation_required.connect(self._ask_to_trust)
 
         if notices:
@@ -2364,6 +2365,31 @@ class MainWindow(QMainWindow):
             self._align_columns()
             # And the window's own floor follows the columns (LWSM-1200).
             self._schedule_size_floor()
+
+    def _report_done(self, path: Path, verb: str) -> None:
+        """Say that an action finished, in the status bar (LWSM-1302).
+
+        The STATUS BAR and not the row, which is the opposite of where
+        `_report_failure` puts a message, so the reason matters. A row message
+        is cleared by that row's state changing and by nothing else — no timer,
+        deliberately — and a restart leaves the state identical, so a note there
+        would sit under the row for the rest of the session. A confirmation that
+        never expires stops being read.
+
+        One sentence per verb rather than a shared "done": after a Stop, "the
+        action finished" tells the user less than the row already showed them.
+        The verb arrives as a fact and the wording is composed here, so it stays
+        translatable.
+        """
+        wording = {
+            "start": QCoreApplication.translate(_TR_CONTEXT, "%1 started"),
+            "stop": QCoreApplication.translate(_TR_CONTEXT, "%1 stopped"),
+            "restart": QCoreApplication.translate(_TR_CONTEXT, "%1 restarted"),
+        }
+        template = wording.get(
+            verb, QCoreApplication.translate(_TR_CONTEXT, "%1: %2 finished")
+        )
+        self.set_status_message(_filled(template, path.name, verb))
 
     def _report_failure(self, path: Path, message: str) -> None:
         """A failure goes to the row it is about, and to the status bar if
