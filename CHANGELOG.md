@@ -302,6 +302,16 @@ signaling per
 
 ### Fixed
 
+- **Jumping to a project with a number key now scrolls it into view** (LWSM-1259)
+  The highlight could land on a row below the bottom of the window, so
+  pressing Enter acted on a project you could not see. Enter in the filter
+  box had the same problem.
+
+- **Choosing a bigger text size now actually enlarges the text on every desktop** (LWSM-1256)
+  On a desktop whose font is sized in pixels the setting did nothing at
+  all, while the menu ticked your choice and saved it. Where the size
+  genuinely cannot be changed the app now says so instead of pretending.
+
 - **Starting, stopping or restarting a server now says so** (LWSM-1302)
   A restart left no trace: the row reads "running" before and after, so
   there was nothing to see and no message either. The app now confirms

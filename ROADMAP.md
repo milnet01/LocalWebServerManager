@@ -4658,7 +4658,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 12.
 
-- 📋 [LWSM-1259] **MEDIUM: keyboard jump moves focus to a row without scrolling it into view.**
+- ✅ [LWSM-1259] **MEDIUM: keyboard jump moves focus to a row without scrolling it into view.**
   mainwindow.py:1949 and :1895. QScrollArea calls ensureWidgetVisible only
   from its focusNextPrevChild override, i.e. for Tab - a programmatic setFocus
   does not scroll. ensureWidgetVisible appears ZERO times under src/. With
@@ -4666,6 +4666,26 @@ has been applied yet — every item in this section is open.
   acts on a row the user cannot see. WCAG 2.4.7, and design-accessibility.md's
   "the magnifier user's 'where am I?' depends on it entirely". Fix:
   self._scroll.ensureWidgetVisible(row) after both setFocus calls.
+  Resolved (2026-09-06). Both jumps call `_reveal`, which is
+  `ensureWidgetVisible` on the scroll area. The bullet was exact: that
+  method appeared zero times under `src/`, and `QScrollArea` calls it only
+  from its `focusNextPrevChild` override — so it scrolls for Tab and not
+  for a programmatic `setFocus`.
+
+  TWO call sites, and covering one was not enough: with only the
+  number-key test, a mutant removing the reveal from `_focus_first_match`
+  SURVIVED. That is the half-fix shape this project keeps recording, caught
+  here by probing rather than by reading. Both mutants are killed now, as
+  is one making `_reveal` a no-op.
+
+  The second test scrolls to the bottom rather than filtering. Filtering
+  hides the other rows and shrinks the content until the first match is on
+  screen anyway, so the assertion would have held whether or not the rule
+  did — the vacuous-geometry-test shape.
+
+  `isVisible()` cannot express this: a row scrolled out of the viewport is
+  still visible in Qt's sense, which is why the defect passed every
+  existing test. The helper compares the row's rect against the viewport's.
   **Layman:** Press a number key to jump to a project and the highlight can land somewhere you cannot see.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 12.

@@ -2241,6 +2241,22 @@ class MainWindow(QMainWindow):
         shown = self._visible_rows()
         if shown:
             shown[0].setFocus(Qt.FocusReason.ShortcutFocusReason)
+            self._reveal(shown[0])
+
+    def _reveal(self, row: ProjectRow) -> None:
+        """Scroll a row the keyboard just moved to into view (LWSM-1259).
+
+        `QScrollArea` calls `ensureWidgetVisible` from its `focusNextPrevChild`
+        override and nowhere else — so it scrolls for Tab, and a programmatic
+        `setFocus` moves the caret while the view stays put. With a short window
+        the user pressed a number, saw nothing move, and Enter then acted on a
+        row they could not see. WCAG 2.4.7, and `design-accessibility.md`: "the
+        magnifier user's 'where am I?' depends on it entirely".
+
+        A helper rather than two call sites, because both jumps need it and one
+        copy of a fix is how this project keeps finding the other half missing.
+        """
+        self._scroll.ensureWidgetVisible(row)
 
     def _apply_filter(self) -> None:
         """Hide the rows the filter excludes (LWSM-1040).
@@ -2295,6 +2311,7 @@ class MainWindow(QMainWindow):
             index = key - Qt.Key.Key_1
             if index < len(shown):
                 shown[index].setFocus(Qt.FocusReason.ShortcutFocusReason)
+                self._reveal(shown[index])
                 event.accept()
                 return
         super().keyPressEvent(event)

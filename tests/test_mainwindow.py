@@ -6485,3 +6485,77 @@ def test_a_scale_that_cannot_be_applied_is_not_reported_as_applied(
     if action is not None:
         assert not action.isChecked(), "the menu ticked a size nothing was set to"
     assert window.statusBar().currentMessage(), "the failure was silent"
+
+
+# --- LWSM-1259: a jump the user can see --------------------------------------
+
+
+def within_viewport(scroll, widget) -> bool:
+    """Whether any of `widget` is inside the scroll area's visible region.
+
+    `isVisible()` cannot answer this: a row scrolled out of the viewport is
+    still visible in Qt's sense, which is why the defect passed every existing
+    test.
+    """
+    from PySide6.QtCore import QPoint, QRect
+
+    corner = widget.mapTo(scroll.viewport(), QPoint(0, 0))
+    return scroll.viewport().rect().intersects(QRect(corner, widget.size()))
+
+
+def test_a_number_key_scrolls_the_row_it_jumps_to_into_view(qtbot, built) -> None:
+    """`QScrollArea` scrolls for Tab and for nothing else.
+
+    `ensureWidgetVisible` is called from its `focusNextPrevChild` override only,
+    so a programmatic `setFocus` moves the caret without moving the view. With
+    a short window the user then presses a number, sees nothing move, and Enter
+    acts on a row they cannot see. WCAG 2.4.7, and `design-accessibility.md`:
+    "the magnifier user's 'where am I?' depends on it entirely".
+    """
+    window, _controller = keyboard_window(
+        qtbot, built, [f"p{i}" for i in range(9)], show=True
+    )
+    window.resize(window.width(), 260)
+    qtbot.waitExposed(window)
+    rows = window._visible_rows()
+    target = rows[8]
+    assert not within_viewport(window._scroll, target), (
+        "precondition: the ninth row must start off-screen for this to mean anything"
+    )
+
+    qtbot.keyClick(window, Qt.Key.Key_9)
+
+    assert target.hasFocus() or window.focusWidget() is target
+    assert within_viewport(window._scroll, target), (
+        "focus moved to a row the user cannot see"
+    )
+
+
+def test_enter_in_the_filter_scrolls_the_first_match_into_view(qtbot, built) -> None:
+    """The other jump, and it needed its own test.
+
+    A mutant removing the reveal from `_focus_first_match` survived the
+    number-key test above: two call sites, one cause, and covering one of them
+    is the half-fix `CLAUDE.md` records this project finding repeatedly.
+
+    Scrolled to the bottom rather than filtered, because filtering hides the
+    other rows and shrinks the content until the first match is on screen
+    anyway — which would make the assertion hold whether or not the rule does.
+    """
+    window, _controller = keyboard_window(
+        qtbot, built, [f"p{i}" for i in range(9)], show=True
+    )
+    window.resize(window.width(), 260)
+    qtbot.waitExposed(window)
+    bar = window._scroll.verticalScrollBar()
+    bar.setValue(bar.maximum())
+    first = window._visible_rows()[0]
+    assert not within_viewport(window._scroll, first), (
+        "precondition: the first row must be scrolled off the top"
+    )
+
+    window._focus_first_match()
+
+    assert within_viewport(window._scroll, first), (
+        "Enter in the filter moved focus to a row above the viewport"
+    )
