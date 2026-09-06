@@ -7944,7 +7944,7 @@ is the contract.
   Priority: 2.
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1012] **P06: foreign-server adoption and guarded stop.**
+- 🚧 [LWSM-1012] **P06: foreign-server adoption and guarded stop.**
   A server started outside the app shows as running and
   labelled; Stop enumerates the holder's descendants, names them
   in a confirmation dialog, and signals exactly that set — never
@@ -7957,6 +7957,33 @@ is the contract.
   Source: in-session-2026-08-03.
   Priority: 2.
   Lanes: core, ui, tests.
+  Progress (2026-09-06). The service-managed half ships; the signalling
+  half does not, so this stays open rather than being ticked.
+
+  SHIPPED. A server started at logon is adopted by reading its systemd
+  unit off the holder's own cgroup — the kernel's answer, not a match, and
+  it had to be: `ProjectRecord.unit` is None for every project on the
+  reporting machine, so an adoption built on the registry would have
+  adopted nothing. Stop, Restart and Open are offered for any running row
+  and each goes through the disclosure first (LWSM-1154). Stop and Restart
+  drive `systemctl --user`; Restart is one verb per ADR-0003's table.
+  Start drives the remembered unit rather than spawning a rival.
+
+  Stopping does not disable: `disable` and `mask` are absent from
+  `service.VERBS`, so the module cannot regress the start-at-logon the
+  user asked to keep, and a test pins that.
+
+  NOT SHIPPED, and it is the acceptance criterion above: "Stop enumerates
+  the holder's descendants, names them in a confirmation dialog, and
+  signals exactly that set". A holder with no unit is refused with a
+  reason rather than signalled. The dialog exists and names the holder;
+  what is missing is the descendant enumeration and the signal, which is
+  the only part still needing ADR-0004's re-enumeration after confirming.
+
+  The dependency on LWSM-1011 was never real for this half — see
+  LWSM-1154's note. The seven-state classifier remains worth having for
+  `running (wrong port)` and `port blocked`, which are states this did not
+  need.
 
 - 📋 [LWSM-1054] **P06: cover the sibling that respawns itself detached.**
   project-e's settings page has a Restart button that
@@ -7986,7 +8013,7 @@ is the contract.
 
 ---
 
-- 📋 [LWSM-1154] **P06: the foreign-server disclosure dialog Open still owes.**
+- ✅ [LWSM-1154] **P06: the foreign-server disclosure dialog Open still owes.**
   ADR-0004:84-86 requires that Open-in-browser on a `running (foreign)` row
   "carries the same disclosure the Stop path does: the holder's executable
   path, uid, cmdline and start time, shown before anything opens."
@@ -8007,10 +8034,66 @@ is the contract.
   no dialog. The `confirm` seam is the shape to reuse — it already exists for
   ADR-0003's trust gate and is injected for exactly this reason.
   Dependencies: LWSM-1011.
+  Resolved (2026-09-06). Open is offered for a `running (foreign)` row and
+  carries ADR-0004's disclosure — executable path, uid, cmdline, start
+  time, plus the systemd unit — shown before anything opens, with No as
+  the default button.
+
+  The stated blocker was WRONG and cost this item weeks. It read "blocked
+  on a state model that can tell foreign from managed: `_classify` still
+  returns three states". `_classify` does, but `RowView.managed` has
+  answered exactly that question since LWSM-1141, and
+  `_apply_button_state` already computed `foreign = running and not
+  row.managed` for its tooltip. The seven-state classifier adds richer
+  states; it was never what this needed. Another instance of the trap
+  `CLAUDE.md` records: a bullet's stated cause is a reading, not a
+  measurement.
+
+  The dialog is a seam of its own (`disclose`) rather than a second use of
+  `confirm`: the trust gate asks whether a launcher in the project may
+  run, this asks whether a process the app did not start is really the
+  user's server.
+
+  A holder the kernel will not name still gets the dialog, carrying None —
+  waving that case through would act on the one holder we know least
+  about. Every field goes through `_no_layout_forgery` on a `PlainText`
+  box, because a newline in a foreign cmdline would otherwise forge a
+  second heading naming a different program.
   **Layman:** When the app can tell a server it started from one it did not, Open should come back for foreign servers — behind a dialog that first shows you exactly what is holding that port.
   Kind: security.
   Source: in-session-2026-08-19 (LWSM-1141 residual).
   Lanes: ui, tests.
+
+- 📋 [LWSM-1301] **P06: stop a foreign server that is not a systemd unit.**
+  LWSM-1012 shipped the service-managed half: a holder with a systemd unit
+  is driven by name, which needs no signalling and so breaks none of
+  ADR-0003's rules. A holder WITHOUT one — a server started by hand in a
+  terminal — is refused with a reason instead.
+
+  What is left is LWSM-1012's own acceptance criterion: "Stop enumerates
+  the holder's descendants, names them in a confirmation dialog, and
+  signals exactly that set — never a process group the app did not
+  create." The disclosure dialog exists and already names the holder
+  (LWSM-1154); what is missing is the descendant enumeration, the signal,
+  and ADR-0004's re-enumeration of that set after the user confirms,
+  since a set gathered before a dialog is stale by the time it is
+  answered.
+
+  Two hazards to design against, both already recorded. ADR-0003 forbids
+  signalling a bare PID, and the handle trick that makes it safe on the
+  managed path — a `psutil.Process` captured at spawn, with its
+  `create_time` — is unavailable here, because the process was not
+  spawned by us. So PID reuse between the enumeration and the signal is
+  the risk this item has to answer. And `killpg` on a group we did not
+  create would reach processes the user never saw named, which is exactly
+  what the criterion's "exactly that set" rules out.
+
+  Not urgent: every server on the reporting machine is a systemd unit, so
+  nothing a user has actually asked for is blocked on this.
+  **Layman:** Stopping a server you started by hand in a terminal, rather than one that starts at logon.
+  Kind: implement.
+  Source: in-session-2026-09-06 (LWSM-1012 residual).
+  Lanes: core, ui, tests.
 
 ## P07 — Ports (criterion 4)
 

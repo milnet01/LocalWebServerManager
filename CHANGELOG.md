@@ -23,6 +23,16 @@ signaling per
 
 ### Added
 
+- **Acting on a server the app did not start now shows you what is holding the port first** (LWSM-1154)
+  The program, who it runs as, its full command, when it started, and its
+  service name if it has one. Nothing happens until you agree, and the
+  default is no.
+
+- **Stop, Restart and Open now work for servers started at logon, not just ones the app launched** (LWSM-1012)
+  A server systemd starts at login is driven through systemd, so stopping
+  it from here does not stop it coming back at the next logon. Starting it
+  again uses the same service rather than launching a second copy.
+
 - **A pressed button now shows it, in every theme** (LWSM-1298)
   Holding a button down gave no feedback at all on some desktops, because
   the app left pressed rendering entirely to the platform. Every theme now
