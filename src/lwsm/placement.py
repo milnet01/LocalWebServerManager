@@ -52,7 +52,8 @@ log = applog.get_logger(__name__)
 DBUS_TIMEOUT_S = 3.0
 
 # The name the script is loaded under. Constant rather than generated: it is
-# unloaded in the same call, and a stale entry from a crashed run is then
+# unloaded in the same call — on every path since LWSM-1243, where it had been
+# true only when nothing failed — and a stale entry from a crashed run is then
 # replaced rather than accumulating.
 KWIN_SCRIPT_NAME = "lwsm_place"
 
@@ -408,20 +409,14 @@ def run_kwin_script(
         # `scanner.Deadline` carries a scan's own budget accounting and would
         # be a dependency for arithmetic.
         deadline = time.monotonic() + DBUS_TIMEOUT_S
-        for call in (
-            [
-                *base,
-                "org.kde.kwin.Scripting.loadScript",
-                f"string:{name}",
-                f"string:{KWIN_SCRIPT_NAME}",
-            ],
-            [*base, "org.kde.kwin.Scripting.start"],
-            [
-                *base,
-                "org.kde.kwin.Scripting.unloadScript",
-                f"string:{KWIN_SCRIPT_NAME}",
-            ],
-        ):
+        unload = [
+            *base,
+            "org.kde.kwin.Scripting.unloadScript",
+            f"string:{KWIN_SCRIPT_NAME}",
+        ]
+
+        def issue(call: list[str]) -> bool:
+            """One D-Bus call inside the shared budget. False if it did not land."""
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 # Refused rather than given a fresh budget: restarting the
@@ -444,6 +439,41 @@ def run_kwin_script(
                     or f"exit status {result.returncode}",
                 )
                 return False
+            return True
+
+        for call in (
+            [
+                *base,
+                "org.kde.kwin.Scripting.loadScript",
+                f"string:{name}",
+                f"string:{KWIN_SCRIPT_NAME}",
+            ],
+            [*base, "org.kde.kwin.Scripting.start"],
+        ):
+            if not issue(call):
+                # Unload anyway. The name is a CONSTANT, so a registration left
+                # behind here outlives the file the `finally` is about to
+                # delete, and the next run replaces a stale entry rather than
+                # meeting a clean slate (LWSM-1243). Nearly free: `unloadScript`
+                # for a name that was never registered exits 0, re-measured
+                # against real KWin on 2026-09-06.
+                #
+                # Attempted even when the LOAD is what failed, and that is
+                # deliberate: a nonzero status says the CALL did not land and
+                # says nothing about what KWin registered — this module's own
+                # measurement is that a `loadScript` naming a missing file
+                # exits 0. "It failed, so nothing is registered" is not a
+                # conclusion available here.
+                issue(unload)
+                return False
+
+        # Checked like the other two, unchanged. A failure reaching only this
+        # call cannot happen in the mode the docstring describes — off KWin
+        # the session bus answers `ServiceUnknown` to all three — so treating
+        # it as a failed exchange stays honest, and loosening it would be
+        # scope this item does not have.
+        if not issue(unload):
+            return False
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         log.warning("could not ask KWin to place the window: %s", exc)
         return False

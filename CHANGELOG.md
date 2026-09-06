@@ -292,6 +292,13 @@ signaling per
 
 ### Fixed
 
+- **A window placement that half-fails no longer leaves a registration inside the window manager** (LWSM-1243)
+  Placing the window loads a small script into KWin, runs it and unloads
+  it. If the middle step failed, the unload was skipped while the script
+  file was still deleted, leaving KWin holding a registration that pointed
+  at nothing. The unload is now attempted on every path, which costs
+  nothing: unloading a name that was never registered succeeds.
+
 - **Centre on screen now respects panels on Wayland instead of centring on the whole display** (LWSM-1241)
   Wayland gives an application no way to learn the usable area, so the
   window was centred on the full screen and sat low by half the height of

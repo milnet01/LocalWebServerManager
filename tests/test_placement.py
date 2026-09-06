@@ -712,3 +712,49 @@ def test_place_window_carries_the_centre_flag_into_the_script(tmp_path: Path) ->
     assert "clientArea" in run.scripts[0], (
         "the flag did not reach the script KWin was handed"
     )
+
+
+# --- LWSM-1243: the registration is cleaned up even when the ask fails -------
+
+
+def test_a_failed_start_still_unloads_the_script(tmp_path: Path) -> None:
+    """A half-finished exchange must not leave a registration behind.
+
+    The loop returned on the FIRST nonzero status, so a `loadScript` that
+    succeeded followed by a `start` that failed left the script registered
+    under the constant name `lwsm_place` while the `finally` deleted the file
+    it was loaded from — a registration pointing at nothing, and
+    `KWIN_SCRIPT_NAME`'s own comment ("it is unloaded in the same call") true
+    only on the success path.
+
+    Cleanup is unconditional because it is nearly free: `unloadScript` for a
+    name that was never registered exits 0, re-measured against real KWin on
+    2026-09-06.
+    """
+    run = FakeRun(rc_on=1)  # loadScript accepted, start refused
+
+    assert run_kwin_script("// js", tmp_path, run=run) is False
+
+    verbs = [argv[5] for argv in run.calls]
+    assert verbs == [
+        "org.kde.kwin.Scripting.loadScript",
+        "org.kde.kwin.Scripting.start",
+        "org.kde.kwin.Scripting.unloadScript",
+    ], f"the registration was left behind: {verbs}"
+
+
+def test_a_failed_load_still_attempts_the_unload(tmp_path: Path) -> None:
+    """Even the first call failing gets the cleanup, and that is deliberate.
+
+    A `loadScript` reporting nonzero says the CALL did not land, which this
+    module's own docstring records as saying nothing about whether KWin
+    registered anything — measured, a `loadScript` naming a file that does not
+    exist exits 0. So "it failed, therefore nothing is registered" is not a
+    conclusion available here, and the cheap unload is preferred to the
+    assumption.
+    """
+    run = FakeRun(rc_on=0)
+
+    assert run_kwin_script("// js", tmp_path, run=run) is False
+
+    assert run.calls[-1][5] == "org.kde.kwin.Scripting.unloadScript"

@@ -4062,7 +4062,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.
 
-- 📋 [LWSM-1243] **MEDIUM: a partial KWin failure leaves the script registered while its file is deleted.**
+- ✅ [LWSM-1243] **MEDIUM: a partial KWin failure leaves the script registered while its file is deleted.**
   placement.py:350-375 returns False on the FIRST nonzero status, so a
   successful loadScript followed by a failing start leaves the script
   registered under the constant name lwsm_place while the finally deletes the
@@ -4070,6 +4070,39 @@ has been applied yet — every item in this section is open.
   in the same call", true only on the success path. The module's own measured
   note says unloadScript for an unregistered name exits 0, so unloading is
   nearly free. Fix: attempt the unload unconditionally in cleanup.
+  Resolved (2026-09-06): the loop now covers loadScript and start only, and
+  `unloadScript` is issued on both exits - after a failure and after success.
+  The per-call work moved into an `issue()` closure so the two paths cannot
+  drift; LWSM-1240's shared deadline still bounds all of them.
+
+  Premise re-measured against real KWin before building on it, not taken from
+  the note: `unloadScript` for a name never registered exits 0.
+
+  Attempted even when the LOAD is what failed, which the bullet does not say
+  and the module's own measurement requires: a nonzero status means the CALL
+  did not land and says nothing about what KWin registered - a `loadScript`
+  naming a missing file exits 0. So "it failed, therefore nothing is
+  registered" is not available here.
+
+  **Scope held back from where I first took it.** A third test asserted that
+  a failed unload should NOT turn a landed placement into False. That
+  contradicts a pre-existing parametrised test with a stated rationale - off
+  KWin the bus answers ServiceUnknown to all three calls, so a failure
+  reaching only the unload cannot occur in the real mode - and the bullet
+  asks only for the cleanup, not for new return semantics. Test dropped,
+  behaviour left as it was.
+
+  `KWIN_SCRIPT_NAME`'s comment claimed the script "is unloaded in the same
+  call", which the bullet correctly called true only on the success path. It
+  is now true on every path and the comment says which.
+
+  Two tests - a refused start and a refused load each still reach the unload.
+  Two meaningful mutants killed (cleanup dropped on the failure path,
+  cleanup dropped on the success path). A third reported `survived` and was
+  my own no-op: it only introduced an unused variable, the "a mutation YOU
+  write can be inert" trap from the other side.
+
+  Gate green: 1486 tests, no SKIP, no tool drift.
   **Layman:** If placing the window half-fails, a leftover registration stays inside the window manager.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.
