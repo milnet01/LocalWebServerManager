@@ -4334,13 +4334,49 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 9.
 
-- 📋 [LWSM-1249] **MEDIUM: a .desktop Name is unbounded and unsanitised and drives a column width.**
+- ✅ [LWSM-1249] **MEDIUM: a .desktop Name is unbounded and unsanitised and drives a column width.**
   browsers.py:204. Name is untrusted, up to configfile.MAX_FILE_BYTES (1MiB),
   with neither the 4096 per-line cap nor control-character stripping, and is
   consumed at mainwindow.py:581 in a horizontalAdvance() column-width
   computation. design.md calls 4096 "the canonical per-line limit... one number
   governs every untrusted string the app reads or displays". Fix: truncate and
   elide at 4096 and strip control characters in _browser_from.
+  Resolved (2026-09-06): `_browser_from` passes the name through
+  `configfile.display_text`, which strips C0/C1 controls to U+FFFD and clips.
+  The `path.stem` fallback goes through it too - on Linux a FILENAME may hold
+  a newline, and that branch needs no valid key to reach.
+
+  **The bullet's stated CONSEQUENCE does not occur, and the defect is real
+  anyway.** It says the name drives a column width; `_apply_text_metrics`
+  takes `min(widest, cap)` and caps the browser column at
+  `BROWSER_COLUMN_CHARS`, so no name can stretch it. The real cost is
+  measuring the string: 2026-09-06, `horizontalAdvance` on a 1 MiB name took
+  **106 ms**, on the GUI thread, per row, re-run on every font change - so a
+  text-size change across a project list freezes for a multiple of that.
+  0.52 ms at the display limit. Plus the control characters, which reach a
+  combo item, a tooltip and an accessible name whatever the width does.
+
+  **Diverged from the bullet's 4096.** That is `MAX_SOURCE_LINE_CHARS`, the
+  per-line bound for scanning somebody else's source. A name shown in the UI
+  is the display-name case, which this project already bounds at
+  `MAX_DISPLAY_NAME_CHARS` with this exact sanitiser, for a project's name.
+  One case, one number.
+
+  **Reused rather than copied**, which cost a small move: `_display` and its
+  `_CONTROL` pattern were private to `scanner.py`, and both modules already
+  import `configfile`. The sanitiser was written after a measured
+  forged-log-record defect (LWSM-1078), so a second weaker copy is what
+  `coding.md § 1.3` forbids and is the reason `configfile.py` exists at all
+  (LWSM-1031). It now lives there as `display_text`; `scanner._display` is an
+  alias so no call site changed, and `scanner.MAX_DISPLAY_NAME_CHARS` is
+  re-exported through `__all__` because two tests and
+  `docs/specs/LWSM-1007-registry-persistence.md` cite it by that path.
+
+  Three tests - clipping, control characters, and the stem fallback. Two
+  mutants killed: sanitiser removed entirely, and applied to the `Name` key
+  but not the fallback.
+
+  Gate green: 1496 tests, no SKIP, no tool drift.
   **Layman:** One bad browser entry on your machine can stretch a column wider than the screen.
   Kind: security.
   Source: review-code 2026-09-01 lane 9.

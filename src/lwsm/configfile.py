@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import stat
 import tempfile
 from pathlib import Path
@@ -42,6 +43,33 @@ MAX_FILE_BYTES = 1 << 20
 # in it is hand-edited text. Long enough to identify a project, short enough
 # that a hostile file cannot flood either.
 MAX_REASON_CHARS = 120
+
+# A separate constant because it bounds a *display* string under a different
+# sanitiser: a name reaches the UI as a row label or a picker entry, so
+# `repr`'s escaping would put something on screen literally named
+# `'my project'`, quotes included.
+MAX_DISPLAY_NAME_CHARS = 120
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
+
+
+def display_text(text: str) -> str:
+    """A name or a source, safe to put in a log record and on a widget.
+
+    Sanitised and not escaped: it is a *display* string, so `repr` would render
+    a row's provenance as `'lib/launcher.py'`, quotes included. A filename may
+    still contain a newline, which is the forged-log-record defect LWSM-1078
+    closed — so every C0 and C1 control character becomes U+FFFD, and the
+    result is clipped.
+
+    **Lives here rather than in `scanner.py`, where it was written.** LWSM-1249
+    needed the identical treatment for a `.desktop` file's `Name`, which is
+    untrusted in exactly the same way and reaches a combo item, a tooltip and
+    an accessible name. A second, weaker copy of a sanitiser written after a
+    measured defect is what `coding.md § 1.3` forbids, and it is the reason
+    this module exists at all — see the module docstring on LWSM-1031.
+    """
+    return _CONTROL.sub("\ufffd", text)[:MAX_DISPLAY_NAME_CHARS]
 
 
 def quoted(value: object) -> str:

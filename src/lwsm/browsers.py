@@ -30,7 +30,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from lwsm.configfile import ConfigFileError, read_bounded
+from lwsm.configfile import ConfigFileError, display_text, read_bounded
 
 # The two MIME types that make an application a browser as far as the desktop
 # is concerned. An entry claiming either is one the session would hand a link
@@ -201,7 +201,23 @@ def _browser_from(path: Path) -> Browser | None:
     if not argv:
         return None
 
-    name = fields.get("Name", "") or path.stem
+    # Sanitised and clipped, because a `.desktop` file belongs to whoever put
+    # it on the machine (LWSM-1249). The name reaches a combo item, a tooltip
+    # and an accessible name, and a `Name` may carry a newline — the
+    # forged-log-record shape LWSM-1078 closed for scan roots. It also lands
+    # in a `horizontalAdvance()` call per row on every font change: measured
+    # 2026-09-06, a 1 MiB name costs 106 ms there against 0.5 ms at the
+    # display limit.
+    #
+    # The DISPLAY limit rather than the bullet's 4096, which is
+    # `MAX_SOURCE_LINE_CHARS` — the per-line bound for scanning somebody's
+    # source. This is a name shown in the UI, which is the case this project
+    # already bounds at `MAX_DISPLAY_NAME_CHARS`, with this same sanitiser,
+    # for a project's name.
+    #
+    # The `path.stem` fallback is sanitised too: on Linux a FILENAME may hold
+    # a newline, and that branch needs no valid key to reach.
+    name = display_text(fields.get("Name", "") or path.stem)
     return Browser(entry_id=path.name, name=name, argv=argv)
 
 

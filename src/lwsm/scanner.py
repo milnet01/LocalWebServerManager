@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Protocol
 
 import lwsm
+from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, display_text
 from lwsm.registry import DECLARED_PORT_RANGE, LauncherKind
 
 # Re-exported deliberately. `LauncherKind` moved to `registry.py` with LWSM-1007
@@ -37,7 +38,12 @@ from lwsm.registry import DECLARED_PORT_RANGE, LauncherKind
 # cycle that stops the package importing at all. Every consumer still spells it
 # `scanner.LauncherKind`, and `__all__` keeps ruff from calling the import
 # unused.
-__all__ = ["LauncherKind"]
+# `MAX_DISPLAY_NAME_CHARS` joins `LauncherKind` here for the same reason: it
+# moved to `configfile.py` with the sanitiser that reads it (LWSM-1249), and
+# `scanner.MAX_DISPLAY_NAME_CHARS` is cited by two tests and by
+# `docs/specs/LWSM-1007-registry-persistence.md`, so the name stays resolvable
+# from here. Listed in `__all__` because a re-export is what it is.
+__all__ = ["MAX_DISPLAY_NAME_CHARS", "LauncherKind"]
 
 # 256 KB for a sibling's source, against `registry.py`'s 1 MiB for a config
 # file this app owns. Named MAX_SOURCE_* rather than reusing that constant
@@ -52,10 +58,6 @@ MAX_SOURCE_LINE_CHARS = 4096
 # since it bounds the same thing for the same reason.
 MAX_REASON_CHARS = 120
 
-# A separate constant because it bounds a *display* string under a different
-# sanitiser: `name` reaches the UI as a row label, so `repr`'s escaping would
-# put a project on screen literally named `'my project'`, quotes included.
-MAX_DISPLAY_NAME_CHARS = 120
 
 # Clipping each reason bounds how LONG they are and nothing bounds how MANY.
 # `registry.py` shipped the first half and needed LWSM-1115 for the second,
@@ -233,19 +235,10 @@ class _BudgetExpired(Exception):
 # on stderr — so the app keeps running and the evidence is gone — while a
 # `json.dumps(...).encode()` raises outright, which is what LWSM-1007 will do to
 # persist this list.
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
-
-
-def _display(text: str) -> str:
-    """A name or a source, safe to put in a log record and on a row.
-
-    Sanitised and not escaped: it is a *display* string, so `repr` would render
-    a row's provenance as `'lib/launcher.py'`, quotes included. A filename may
-    still contain a newline, which is the forged-log-record defect LWSM-1078
-    closed — so every C0 and C1 control character becomes U+FFFD, and the result
-    is clipped.
-    """
-    return _CONTROL.sub("�", text)[:MAX_DISPLAY_NAME_CHARS]
+# `configfile.display_text` under this module's own name, so the call sites
+# below are unchanged. It moved there for LWSM-1249, which needed the same
+# treatment for a `.desktop` file's `Name` — see that function's docstring.
+_display = display_text
 
 
 def _quoted(value: object) -> str:

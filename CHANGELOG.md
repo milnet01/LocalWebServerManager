@@ -292,6 +292,13 @@ signaling per
 
 ### Fixed
 
+- **A browser's name from a desktop file is now bounded and stripped of control characters** (LWSM-1249)
+  Desktop entries are not written by this app, and their name went straight
+  to the browser picker, its tooltip and its accessible name — unbounded and
+  with control characters intact. A very long name also made the app spend
+  real time measuring it on every text-size change. The name is now clipped
+  and sanitised by the same rule a project name already gets.
+
 - **The theme-colour derivation tool no longer prints a failed colour as if it had passed** (LWSM-1246)
   When no shade cleared the contrast floor, the tool printed its closest
   miss in exactly the format of a success, counted no shortfall, ended with

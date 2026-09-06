@@ -14,7 +14,7 @@ import pytest
 
 from lwsm import browsers
 from lwsm.browsers import Browser, BrowserError
-from lwsm.configfile import MAX_FILE_BYTES
+from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, MAX_FILE_BYTES
 
 FIREFOX = """\
 [Desktop Entry]
@@ -407,3 +407,59 @@ def test_open_url_reports_a_launch_failure_rather_than_raising_oserror(
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     with pytest.raises(BrowserError, match="could not launch"):
         browsers.open_url(Browser("b.desktop", "B", ("/gone", "%u")), "http://x/")
+
+
+# --- LWSM-1249: a .desktop Name is untrusted and reaches the UI --------------
+
+
+def test_a_browser_name_is_clipped_to_the_display_limit(tmp_path: Path) -> None:
+    """`Name` is attacker-supplied and lands in a `horizontalAdvance()` call.
+
+    The bullet's stated consequence — a column wider than the screen — does
+    NOT occur: `_apply_text_metrics` takes `min(widest, cap)` and caps the
+    browser column at `BROWSER_COLUMN_CHARS`. The real cost is what computing
+    the width of that string takes. Measured 2026-09-06: a 1 MiB name costs
+    **106 ms** in `horizontalAdvance`, on the GUI thread, per row, re-run on
+    every font change — so a text-size change on a list of projects freezes
+    for a multiple of that. At the display limit it is 0.5 ms.
+    """
+    write(tmp_path, "b.desktop", entry(Name="W" * 20_000))
+
+    found = browsers.installed((tmp_path,))
+
+    assert len(found) == 1
+    assert len(found[0].name) <= MAX_DISPLAY_NAME_CHARS
+
+
+def test_control_characters_in_a_browser_name_are_replaced(tmp_path: Path) -> None:
+    """Same sanitiser as a project name, for the same measured reason.
+
+    A `.desktop` file is not owned by this app, and a `Name` may carry a
+    newline — the forged-log-record shape LWSM-1078 closed for scan roots.
+    The name also reaches a combo item, a tooltip and an accessible name.
+    """
+    write(tmp_path, "b.desktop", entry(Name="Evil\nBrowser\x07"))
+
+    found = browsers.installed((tmp_path,))
+
+    assert len(found) == 1
+    assert "\n" not in found[0].name
+    assert "\x07" not in found[0].name
+    assert "Evil" in found[0].name
+
+
+def test_a_name_falling_back_to_the_file_stem_is_sanitised_too(
+    tmp_path: Path,
+) -> None:
+    """The fallback is a FILENAME, which on Linux may itself hold a newline.
+
+    Sanitising only the `Name=` value would leave the one branch that reads
+    from the filesystem unguarded — and that is the branch whose input the
+    author of the entry does not even have to write a valid key to reach.
+    """
+    write(tmp_path, "ev\nil.desktop", entry(Name=""))
+
+    found = browsers.installed((tmp_path,))
+
+    assert len(found) == 1
+    assert "\n" not in found[0].name
