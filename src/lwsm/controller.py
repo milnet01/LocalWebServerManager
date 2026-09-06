@@ -21,6 +21,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
 from lwsm.registry import ProjectRecord, port_claims
+from lwsm.service import UnitOutcome, drive_unit, unit_for_pid
 from lwsm.settings import DEFAULT_POLL_INTERVAL_MS
 from lwsm.supervisor import (
     LauncherUntrusted,
@@ -270,6 +271,12 @@ class RowView:
     # else started reads `running` exactly like one of ours. Open-in-browser is
     # gated on it (LWSM-1141).
     managed: bool = False
+    # The PID holding this project's effective port, when the kernel will name
+    # it. `managed` says whether that holder is OURS; this says who it is at
+    # all, which is what a foreign Stop needs to resolve a unit from and what
+    # ADR-0004's disclosure is built out of (LWSM-1012). None when nothing holds
+    # the port, or when the holder belongs to another user and cannot be named.
+    holder_pid: int | None = None
     # Whether a stop is in flight for this project. Start is gated on it
     # (LWSM-1191): the supervisor refuses a Start issued inside that window, so
     # offering one produces an error from a control that looked available.
@@ -366,6 +373,42 @@ class _ActionSignals(QObject):
     stopped = Signal(object, object)  # path, StopOutcome | Exception
 
 
+class _ServiceSignals(QObject):
+    """A `systemctl` verb finishing on a worker thread, delivered to the GUI."""
+
+    done = Signal(object, object)  # path, UnitOutcome
+
+
+class _ServiceTask(QRunnable):
+    """One `systemctl --user` verb, off the GUI thread.
+
+    ADR-0003 keeps a five-second stop grace off the UI thread; this can wait out
+    a unit's whole `TimeoutStopSec`, so the same rule applies with more reason.
+
+    The body is wrapped whole because PySide6 SWALLOWS an exception escaping
+    `run()` and emits nothing (`CLAUDE.md`) — which here would leave the overlay
+    set for the rest of the session, the shape LWSM-1069 records.
+    """
+
+    def __init__(
+        self, path: Path, verb: str, unit: str, signals: _ServiceSignals
+    ) -> None:
+        super().__init__()
+        self._path = path
+        self._verb = verb
+        self._unit = unit
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            outcome = drive_unit(self._verb, self._unit)
+        except BaseException as exc:
+            outcome = UnitOutcome(
+                ok=False, verb=self._verb, unit=self._unit, reason=str(exc)
+            )
+        self._signals.done.emit(self._path, outcome)
+
+
 class ProjectController(QObject):
     projects_changed = Signal()
     # A Start or Stop that could not even be attempted — no launcher, a bound
@@ -409,6 +452,15 @@ class ProjectController(QObject):
         # first poll completes, which is the honest answer: nothing has looked
         # at the socket table yet, so nothing is known to be ours.
         self._managed: set[Path] = set()
+        # port holder PIDs from the same snapshot, so a foreign server can be
+        # named. Cleared with `_managed` when a probe fails, for its reason.
+        self._holders: dict[Path, int] = {}
+        # Units this session has adopted, remembered so Start works after a
+        # Stop: once the unit is stopped nothing holds its port, so the holder
+        # PID that named it is gone. In memory only — a restart of the app with
+        # the server already stopped falls back to the project's own launcher,
+        # which is the honest limit of adopting from a live process.
+        self._adopted_units: dict[Path, str] = {}
         self._statuses: dict[Path, ProjectStatus] = {
             record.path: ProjectStatus.UNKNOWN for record in records
         }
@@ -437,10 +489,18 @@ class ProjectController(QObject):
         # rather than queued, so a second is never needed.
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(1)
+        # Its own pool, never the snapshot pool: that one is capped at a single
+        # thread so polls cannot overlap, and a stop waiting out a unit's
+        # shutdown would hold the poll for the whole of it.
+        self._service_signals = _ServiceSignals(self)
+        self._service_signals.done.connect(self._on_service_done)
+        self._service_pool = QThreadPool(self)
+        self._service_pool.setMaxThreadCount(2)
 
     def rows(self) -> list[RowView]:
         """File order, so rows do not jump between polls."""
         managed = self._managed
+        holders = self._holders
         supervisor = self._supervisor
         return [
             RowView(
@@ -449,6 +509,7 @@ class ProjectController(QObject):
                 effective_port=record.effective_port,
                 status=self._status_of(record.path),
                 managed=record.path in managed,
+                holder_pid=holders.get(record.path),
                 # Asked at render time, unlike `managed`. That one has to come
                 # from the poll's own snapshot (LWSM-1167) because it is a fact
                 # about the socket table; this is the supervisor's own
@@ -515,6 +576,27 @@ class ProjectController(QObject):
                 managed.add(record.path)
         return managed
 
+    def _holder_pids(self, snapshot: PortSnapshot) -> dict[Path, int]:
+        """Who holds each project's effective port, ours or not.
+
+        Separate from `_managed_paths` because it answers a different question:
+        that one asks whether the holder is OUR child, and returns nothing at
+        all for a stranger — which is exactly the case a foreign Stop needs.
+
+        Partial for the same reason `PortSnapshot.holders` is, and safely so: a
+        holder the kernel will not name simply cannot be adopted, so the row
+        keeps the refusal it has today rather than acting on a guess.
+        """
+        holders: dict[Path, int] = {}
+        for record in self._records:
+            port = record.effective_port
+            if port is None:
+                continue
+            holder = snapshot.holder(port)
+            if holder is not None:
+                holders[record.path] = holder
+        return holders
+
     def _port_claimed_by(self, record: ProjectRecord) -> ProjectRecord | None:
         """The project that registered this record's port first, if any.
 
@@ -569,6 +651,17 @@ class ProjectController(QObject):
                 f"{claimant.name} — change one of their ports first",
             )
             return
+        unit = self._adopted_units.get(path)
+        if unit is not None:
+            # ADR-0003's amendment: a project systemd already owns is started
+            # through systemd. Spawning its launcher here would put a second
+            # server on the port that systemd knows nothing about, which is
+            # what that amendment was written to prevent — and it is checked
+            # before `argv`, because such a project need not have a launcher
+            # recorded at all.
+            self._set_overlay(path, ProjectStatus.STARTING)
+            self._run_service_verb(path, "start", unit)
+            return
         if not record.argv:
             # An honest refusal rather than a guess. The launcher is a detected
             # field, so the answer is a rescan, and saying so is more use than
@@ -610,13 +703,10 @@ class ProjectController(QObject):
             return
         if path not in self._supervisor.running():
             # A `running (foreign)` project — this manager did not spawn it, so
-            # it has no handle to signal through, and ADR-0003 forbids
-            # signalling a bare PID. The foreign-stop path is a separate item.
-            self.action_failed.emit(
-                path,
-                f"{record.name} was not started by this manager, so it cannot "
-                "be stopped from here yet",
-            )
+            # there is no handle to signal through, and ADR-0003 forbids
+            # signalling a bare PID. Its systemd unit is an identity rather than
+            # a handle, and driving that breaks no rule (LWSM-1012).
+            self._stop_foreign(path, record)
             return
         self._set_overlay(path, ProjectStatus.STOPPING)
         future = self._supervisor.stop_async(path)
@@ -633,6 +723,16 @@ class ProjectController(QObject):
             self._restarting.add(path)
             self.stop_project(path)
             return
+        unit = self._holder_unit(path)
+        if unit is not None:
+            # One verb, not a stop chained into a start: ADR-0003's table gives
+            # service-managed restart its own row, and systemd sequences the
+            # two itself — which is the thing the managed path has to hand-roll
+            # because a spawn before the port is released would be refused.
+            self._adopted_units[path] = unit
+            self._set_overlay(path, ProjectStatus.STARTING)
+            self._run_service_verb(path, "restart", unit)
+            return
         self.start_project(path)
 
     def confirm_and_start(self, path: Path, fingerprint: str) -> None:
@@ -641,6 +741,73 @@ class ProjectController(QObject):
             return
         self._supervisor.trust.confirm(path, fingerprint)
         self.start_project(path)
+
+    def _holder_unit(self, path: Path) -> str | None:
+        """The systemd unit holding this project's port, if any.
+
+        Resolved from the live holder PID first, then from what this session has
+        already adopted — in that order, because a unit that has been restarted
+        since has a new PID and the live answer is the current one.
+        """
+        pid = self._holders.get(path)
+        if pid is not None:
+            unit = unit_for_pid(pid)
+            if unit is not None:
+                return unit
+        return self._adopted_units.get(path)
+
+    def _stop_foreign(self, path: Path, record: ProjectRecord) -> None:
+        """Stop a server this manager did not start.
+
+        Nothing is signalled here. The holder's unit is resolved from its own
+        cgroup and `systemctl` is asked to stop it BY NAME, so a PID recycled
+        between the poll and the click cannot be signalled by mistake — which is
+        the hazard ADR-0003's bare-PID ban is about.
+
+        A holder with no unit is refused with a reason rather than signalled.
+        Signalling a process set this app did not create is LWSM-1012's other
+        half and needs the enumeration-and-confirm ADR-0004 describes.
+        """
+        unit = self._holder_unit(path)
+        if unit is None:
+            self.action_failed.emit(
+                path,
+                f"{record.name} was not started by this manager and is not a "
+                "systemd user service, so it cannot be stopped from here",
+            )
+            return
+        # Remembered before the verb runs, not after: once the unit stops,
+        # nothing holds its port and the PID that named it is gone, so a Start
+        # afterwards would have nothing left to resolve.
+        self._adopted_units[path] = unit
+        self._set_overlay(path, ProjectStatus.STOPPING)
+        self._run_service_verb(path, "stop", unit)
+
+    def _run_service_verb(self, path: Path, verb: str, unit: str) -> None:
+        self._service_pool.start(_ServiceTask(path, verb, unit, self._service_signals))
+
+    def _on_service_done(self, path: Path, outcome: object) -> None:
+        """Report a failure; let the next poll decide what the row now says.
+
+        Nothing here sets a status. An exit code of 0 means systemd accepted the
+        verb and no more, so the socket table stays the authority — ADR-0004's
+        rule, and the same one the managed stop already follows.
+
+        The emit is unconditional and in a `finally` for `_on_stopped`'s reason:
+        the overlay this cleared is not something `_maybe_emit` can see, so
+        without it the row keeps a transition that has already finished.
+        """
+        if self._stopped:
+            return
+        try:
+            self._restarting.discard(path)
+            if isinstance(outcome, UnitOutcome) and not outcome.ok:
+                self._clear_overlay(path)
+                self.action_failed.emit(
+                    path, f"could not {outcome.verb} {path.name}: {outcome.reason}"
+                )
+        finally:
+            self.projects_changed.emit()
 
     def _report_stop(self, path: Path, done: Future[StopOutcome]) -> None:
         """Runs on the WORKER thread. Emits, and does nothing else.
@@ -801,6 +968,21 @@ class ProjectController(QObject):
             self._pool = QThreadPool(self)
             self._pool.setMaxThreadCount(1)
 
+        # The same two lines for the service pool, and it needs them more: a
+        # `systemctl stop` waits out the unit's own shutdown, so this is the
+        # pool most likely to still be busy at teardown. Logging and returning
+        # would leave it parented, and `~QThreadPool` then runs the unbounded
+        # join anyway — the claim LWSM-1139 found false for a day.
+        if not self._service_pool.waitForDone(STOP_WAIT_MS):
+            log.warning(
+                "a systemctl verb was still running after %d ms; abandoning it "
+                "so the app can quit",
+                STOP_WAIT_MS,
+            )
+            abandon_pool(self._service_pool, self._service_signals)
+            self._service_pool = QThreadPool(self)
+            self._service_pool.setMaxThreadCount(2)
+
     def close_supervisor(self) -> None:
         """Release the supervisor's descriptors and threads, if there is one.
 
@@ -927,6 +1109,7 @@ class ProjectController(QObject):
         # -- the answer has to come from the socket table, and this is the only
         # scope that holds one.
         self._managed = self._managed_paths(snapshot)
+        self._holders = self._holder_pids(snapshot)
         if self._settle_overlay():
             # Probing always wins, so a settled overlay is a visible change even
             # when the derived map happens to match the previous one.
@@ -1043,8 +1226,9 @@ class ProjectController(QObject):
         # The emit is not optional: `_maybe_emit` compares statuses alone, so
         # it cannot see this change and the buttons would keep the enablement
         # the last good poll gave them.
-        if self._managed:
+        if self._managed or self._holders:
             self._managed = set()
+            self._holders = {}
             self.projects_changed.emit()
         self._maybe_emit(self._statuses)
 

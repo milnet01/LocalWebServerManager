@@ -2175,7 +2175,7 @@ def test_start_stays_disabled_while_a_stop_is_still_running(qtbot, built) -> Non
 
 
 def opening_window(
-    qtbot, built, records, probe, opened: list, managed=None
+    qtbot, built, records, probe, opened: list, managed=None, disclose=None
 ) -> MainWindow:
     """A window whose `openUrl` is a spy — a test must never launch a browser.
 
@@ -2191,6 +2191,11 @@ def opening_window(
         Theme.default(),
         [],
         open_url=lambda url: opened.append(url) or True,
+        # Answers yes unless a test says otherwise. A real dialog would block
+        # the run with nothing to click it, which is `confirm`'s reason
+        # (`CLAUDE.md`), and a default of no would make every foreign-server
+        # test pass by refusing rather than by acting.
+        disclose=disclose if disclose is not None else (lambda path, holder: True),
     )
     qtbot.addWidget(window)
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
@@ -2935,6 +2940,7 @@ def test_open_is_refused_when_a_stranger_holds_the_registered_port(
     one-row-fixture trap.
     """
     opened: list = []
+    asked: list = []
     window = opening_window(
         qtbot,
         built,
@@ -2942,24 +2948,30 @@ def test_open_is_refused_when_a_stranger_holds_the_registered_port(
         FakeProbe(5005, 6006, holders={5005: OUR_PID, 6006: 9999}),
         opened,
         managed=[Path("/srv/ours"), Path("/srv/theirs")],
+        disclose=lambda path, holder: asked.append(path) or True,
     )
     ours, theirs = rows_of(window)
 
     assert ours.open_button.isEnabled()
-    assert not theirs.open_button.isEnabled(), (
+    theirs.open_button.click()
+    assert asked == [Path("/srv/theirs")], (
         "the supervisor holds an entry for this project, but a stranger holds "
-        "its port -- an entry is not evidence about who is listening"
+        "its port -- an entry is not evidence about who is listening, so this "
+        "is exactly the row that owes a disclosure"
     )
 
 
-def test_open_is_refused_when_the_holder_cannot_be_named(qtbot, built) -> None:
+def test_a_holder_that_cannot_be_named_still_owes_a_disclosure(qtbot, built) -> None:
     """`psutil` reports no pid for another user's socket unless we are root.
 
-    Unknown must read as not-ours. The opposite default would hand Open to any
-    process this app cannot see, which is strictly worse than the defect being
-    fixed -- so `holders` being partial is load-bearing rather than sloppy.
+    Unknown must read as not-ours. This asserted a refusal until 2026-09-06;
+    now the action is offered, so the same reasoning lands on the dialog
+    instead — waving this case through would act on the one holder we know
+    LEAST about, which is worse than the refusal it replaced and the opposite
+    of a disclosure. `holders` being partial stays load-bearing.
     """
     opened: list = []
+    seen: list = []
     window = opening_window(
         qtbot,
         built,
@@ -2967,27 +2979,34 @@ def test_open_is_refused_when_the_holder_cannot_be_named(qtbot, built) -> None:
         FakeProbe(5005, holder=None),
         opened,
         managed=[Path("/srv/ours")],
+        disclose=lambda path, holder: seen.append(holder) or False,
     )
 
-    assert not rows_of(window)[0].open_button.isEnabled()
+    rows_of(window)[0].open_button.click()
+
+    assert seen == [None], "an unnameable holder was acted on with no dialog"
+    assert opened == []
 
 
-def test_open_is_refused_for_a_server_this_manager_did_not_start(qtbot, built) -> None:
-    """ADR-0004's threat model, and it governs (user decision, 2026-08-15).
+def test_open_on_a_foreign_server_discloses_the_holder_first(qtbot, built) -> None:
+    """ADR-0004's actual requirement, which is disclosure and not refusal.
 
-    `chdir()` is free, so any local process can bind a project's port and be
-    classified `running` — indistinguishably from one of ours, because ADR-0004
-    derives state from the socket table and not from ownership. Opening a
-    browser on it is localhost phishing with this app's credibility behind it.
-    The ADR's full mitigation is a disclosure dialog, which needs P06's state
-    model; restricting Open to what the supervisor actually spawned is the
-    interim the roadmap scopes.
+    `chdir()` is free, so any local process can bind a project's port and read
+    as `running`. What the ADR asks is that Open "carries the same disclosure
+    the Stop path does: the holder's executable path, uid, cmdline and start
+    time, shown before anything opens" — never that Open be withheld.
 
-    Two rows, both `running`, differing only in ownership. A one-row fixture
-    could not tell "Open is disabled for a foreign server" from "Open is
-    disabled" — `CLAUDE.md`'s one-row-fixture trap, applied to a two-member set.
+    Restricting Open to what the supervisor spawned was LWSM-1141's INTERIM, and
+    this test asserted it. It is replaced rather than deleted: the app exists to
+    manage servers started at logon as much as ones it launched (user decision,
+    2026-09-06), and a manager that cannot reach them manages only itself.
+
+    Two rows, both `running`, differing only in ownership — a one-row fixture
+    could not tell "the dialog fires for a stranger" from "the dialog always
+    fires", which is `CLAUDE.md`'s one-row-fixture trap.
     """
     opened: list = []
+    asked: list = []
     window = opening_window(
         qtbot,
         built,
@@ -2995,29 +3014,77 @@ def test_open_is_refused_for_a_server_this_manager_did_not_start(qtbot, built) -
         FakeProbe(5005, 6006),
         opened,
         managed=[Path("/srv/ours")],
+        disclose=lambda path, holder: asked.append(path) or True,
     )
     ours, theirs = rows_of(window)
 
     assert ours.open_button.isEnabled()
-    assert not theirs.open_button.isEnabled(), (
-        "Open was offered on a port held by a process this manager did not start"
+    assert theirs.open_button.isEnabled(), (
+        "a foreign server the user does want to open was unreachable from the app"
     )
 
+    ours.open_button.click()
+    assert asked == [], "the app started this one, so there is nothing to disclose"
 
-def test_stop_and_restart_are_not_offered_for_a_server_we_did_not_start(
+    theirs.open_button.click()
+    assert asked == [Path("/srv/theirs")]
+    assert len(opened) == 2
+
+
+def test_declining_the_disclosure_opens_nothing(qtbot, built) -> None:
+    """ "Shown before anything opens" is only true if declining stops it."""
+    opened: list = []
+    window = opening_window(
+        qtbot,
+        built,
+        [record("theirs", 6006)],
+        FakeProbe(6006),
+        opened,
+        managed=[],
+        disclose=lambda path, holder: False,
+    )
+
+    rows_of(window)[0].open_button.click()
+
+    assert opened == []
+
+
+def test_the_disclosure_carries_what_the_adr_names(qtbot, built) -> None:
+    """The four fields are the point of the dialog. A confirmation that says
+    only "are you sure?" is the security theatre `_confirm_dialog` refuses."""
+    opened: list = []
+    seen: list = []
+    window = opening_window(
+        qtbot,
+        built,
+        [record("theirs", 6006)],
+        FakeProbe(6006, holders={6006: OUR_PID}),
+        opened,
+        managed=[],
+        disclose=lambda path, holder: seen.append(holder) or False,
+    )
+
+    rows_of(window)[0].open_button.click()
+
+    assert len(seen) == 1
+    holder = seen[0]
+    for field in ("exe", "uid", "cmdline", "started", "unit"):
+        assert hasattr(holder, field), field
+
+
+def test_stop_and_restart_are_offered_for_a_server_we_did_not_start(
     qtbot, built
 ) -> None:
-    """Open carried the ownership gate and the two buttons that signal did not.
+    """The reported case: servers started at logon, which the app must manage.
 
-    `stop_project` already refuses a project the supervisor has no handle for,
-    so nothing foreign was ever signalled — the filed security claim does not
-    hold. What was real is that both buttons were offered and could only ever
-    fail, and Restart quietly became a Start, which the pre-flight then refused
-    for a different reason. A control that cannot work should say so by being
-    disabled.
+    This asserted the opposite until 2026-09-06, and the reason it gave was
+    sound at the time — both buttons were offered and could only ever fail, so
+    disabling them made the control honest. What changed is that they can now
+    succeed: a holder's systemd unit is an identity rather than a handle, and
+    driving it breaks none of ADR-0003's rules about signalling a bare PID.
 
     Two rows, both `running`, differing only in ownership: a one-row fixture
-    cannot tell "disabled for a stranger" from "disabled".
+    cannot tell "enabled for a stranger" from "enabled".
     """
     opened: list = []
     window = opening_window(
@@ -3032,14 +3099,12 @@ def test_stop_and_restart_are_not_offered_for_a_server_we_did_not_start(
 
     assert ours.stop_button.isEnabled()
     assert ours.restart_button.isEnabled()
-    assert not theirs.stop_button.isEnabled(), (
-        "Stop was offered for a server this manager did not start"
+    assert theirs.stop_button.isEnabled(), (
+        "a server started at logon could not be stopped from the manager"
     )
-    assert not theirs.restart_button.isEnabled(), (
-        "Restart was offered for a server this manager did not start"
-    )
-    # The row still reads `running`, and must: this restricts the ACTION, it
-    # does not make the app lie about what it observed (ADR-0004).
+    assert theirs.restart_button.isEnabled()
+    # The row still reads `running`, and must: what changed is the ACTION, and
+    # the app never lied about what it observed (ADR-0004).
     assert "running" in theirs.accessibleName()
 
 
@@ -3074,7 +3139,10 @@ def test_ownership_alone_is_not_re_announced_to_a_screen_reader(
 
     row.update_from(dataclasses.replace(view, managed=False))
 
-    assert not row.open_button.isEnabled(), "the row did not take the new view"
+    # `managed` no longer renders as enablement (LWSM-1012), so the tooltip is
+    # what proves the row took the new view. The subject is unchanged: a field
+    # that alters no rendered TEXT must not reach a screen reader.
+    assert row.open_button.toolTip(), "the row did not take the new view"
     assert row.accessibleName() == announced_before
     assert announcements == [], (
         "a change no screen reader can hear was announced to one"
@@ -6074,33 +6142,33 @@ def running_row(*, managed: bool):
 @pytest.mark.parametrize(
     "button_name", ["open_button", "stop_button", "restart_button"]
 )
-def test_a_control_disabled_by_the_managed_gate_says_why(qtbot, button_name) -> None:
+def test_a_control_acting_on_a_foreign_server_says_so(qtbot, button_name) -> None:
     """A running project this manager did not start offers three dead buttons.
 
     Reported live 2026-09-06: two running projects "did nothing when I clicked
     Open". Diagnosed from `app.log` — the supervisor had started neither, so
-    `row.managed` was False, the button was disabled, and Qt swallows a click
-    on a disabled widget in silence. The gate itself is correct and stays
-    (ADR-0004, user decision 2026-08-15); what was missing is that it says so.
+    `row.managed` was False and the button was disabled, and Qt swallows a click
+    on a disabled widget in silence.
 
-    A tooltip is the channel because it is the one that still reaches a
-    DISABLED widget: measured 2026-09-06, `QApplication.widgetAt` returns a
-    disabled child and the `ToolTip` event is delivered to it, where a click
-    is not.
+    The GATE is gone since LWSM-1012: these servers are manageable, and the
+    tooltip now says whose they are rather than why nothing happens. The
+    sentence it must carry is unchanged, which is why this test survived the
+    change with one assertion flipped.
 
-    Asserted on all three buttons the `managed` gate disables, not on Open
-    alone — one cause, and fixing one copy of it is what `CLAUDE.md` records
-    going wrong repeatedly.
+    Asserted on all three buttons, not on Open alone — one cause, and fixing
+    one copy of it is what `CLAUDE.md` records going wrong repeatedly.
     """
     row = ProjectRow(running_row(managed=False), Theme.default())
     qtbot.addWidget(row)
     button = getattr(row, button_name)
 
-    assert not button.isEnabled(), "precondition: the managed gate disables this"
+    assert button.isEnabled(), (
+        "precondition: a foreign server is manageable since LWSM-1012"
+    )
     tip = button.toolTip()
-    assert tip, f"{button_name} is disabled and explains nothing"
+    assert tip, f"{button_name} says nothing about acting on a stranger's server"
     assert "did not start" in tip, (
-        f"{button_name}'s tooltip does not name the reason it is disabled: {tip!r}"
+        f"{button_name}'s tooltip does not say whose server this is: {tip!r}"
     )
 
 

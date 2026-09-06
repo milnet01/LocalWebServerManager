@@ -1389,6 +1389,8 @@ class FakeSupervisor:
         self.exited_projects: set[Path] = set()
         # A stop the supervisor has reserved but not finished (LWSM-1191).
         self.stopping_projects: set[Path] = set()
+        # PID per project, for `owns_pid`. Empty means nothing here is ours.
+        self.child_pids: dict[Path, int] = {}
 
     def start(self, project, name, argv, port):
         if self.refusal is not None:
@@ -1406,6 +1408,15 @@ class FakeSupervisor:
 
     def running(self):
         return dict(self._running)
+
+    def owns_pid(self, project, pid):
+        """Whether our own child for this project is that PID.
+
+        False for anything this supervisor did not start, which is what makes a
+        holder foreign — the state LWSM-1012 manages. Empty unless a test says
+        otherwise, so a holder is foreign by default rather than by accident.
+        """
+        return self.child_pids.get(project) == pid
 
     def exited(self, project):
         return project in self.exited_projects
@@ -1982,3 +1993,178 @@ def test_the_poll_interval_changes_without_stopping_the_timer(controllers) -> No
 
     assert controller._timer.interval() == 5000
     assert controller._timer.isActive(), "changing the cadence stopped the poll loop"
+
+
+# --- LWSM-1012: managing a server this manager did not start ------------------
+
+
+class HoldingProbe:
+    """A probe that also says who holds each port.
+
+    `PortSnapshot.holders` is what makes a foreign server nameable, so a probe
+    that only reports `listening` cannot express this item's subject at all.
+    """
+
+    def __init__(self, holders: dict[int, int]) -> None:
+        self.holders = dict(holders)
+
+    def snapshot(self) -> PortSnapshot:
+        return PortSnapshot(frozenset(self.holders), holders=dict(self.holders))
+
+
+class RecordingDrive:
+    """Stands in for `systemctl`, recording the verb and unit it was given."""
+
+    def __init__(self, ok: bool = True, reason: str = "") -> None:
+        self.ok = ok
+        self.reason = reason
+        self.calls: list[tuple[str, str]] = []
+
+    def __call__(self, verb: str, unit: str, **kwargs: object):
+        self.calls.append((verb, unit))
+        from lwsm.service import UnitOutcome
+
+        return UnitOutcome(ok=self.ok, verb=verb, unit=unit, reason=self.reason)
+
+
+def adopted(monkeypatch, drive: RecordingDrive, unit: str | None) -> None:
+    monkeypatch.setattr(controller_module, "drive_unit", drive)
+    monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: unit)
+
+
+def test_a_foreign_holder_is_named_on_the_row(qtbot, controllers) -> None:
+    """`managed` says whether the holder is ours; this says who it is at all.
+
+    Without it a foreign Stop has no PID to resolve a unit from, and ADR-0004's
+    disclosure has nothing to describe.
+    """
+    controller = build(controllers, [record("a", 5005)], HoldingProbe({5005: 4242}))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.rows()[0].holder_pid == 4242
+
+
+def test_stopping_a_logon_started_server_drives_its_unit(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """The reported case: a server started at logon, which the app must manage.
+
+    Nothing is signalled. ADR-0003 forbids signalling a bare PID, and the unit
+    name sidesteps it — systemd resolves the name itself, so a PID recycled
+    between the poll and the click cannot be signalled by mistake.
+    """
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "ants-stats.service")
+    supervisor = FakeSupervisor()
+    controller = supervised(
+        controllers, [startable("a", 4321)], HoldingProbe({4321: 1290}), supervisor
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    controller.stop_project(Path("/srv/a"))
+    # The verb runs on a worker, so the overlay's own emit arrives first and
+    # waiting for a signal here would assert before systemctl was ever called.
+    qtbot.waitUntil(lambda: bool(drive.calls), timeout=2000)
+
+    assert drive.calls == [("stop", "ants-stats.service")]
+    assert supervisor.stopped == [], "a foreign server has no handle to signal"
+
+
+def test_a_foreign_holder_with_no_unit_is_refused_rather_than_signalled(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """Signalling a process set this app did not create needs the enumeration
+    and confirmation ADR-0004 describes, which is LWSM-1012's other half. Until
+    then the refusal says why rather than acting on a PID."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, None)
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000) as caught:
+        controller.stop_project(Path("/srv/a"))
+
+    assert drive.calls == []
+    assert "systemd user service" in caught.args[1]
+
+
+def test_start_after_a_service_stop_uses_the_remembered_unit(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """Once the unit stops, nothing holds its port and the PID that named it is
+    gone — so a Start that resolved only from the live holder would fall back to
+    spawning a rival server systemd knows nothing about."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "ants-stats.service")
+    supervisor = FakeSupervisor()
+    controller = supervised(
+        controllers, [startable("a", 4321)], HoldingProbe({4321: 1290}), supervisor
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    controller.stop_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: bool(drive.calls), timeout=2000)
+
+    monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: None)
+    controller._holders = {}
+    controller.start_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: len(drive.calls) > 1, timeout=2000)
+
+    assert drive.calls[-1] == ("start", "ants-stats.service")
+    assert supervisor.started == [], "systemd owns this project, so we do not spawn"
+
+
+def test_restarting_a_service_project_is_one_verb(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """ADR-0003's table gives service-managed restart its own row. systemd
+    sequences the stop and start itself, which is what the managed path has to
+    hand-roll because a spawn before the port is released would be refused."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "ants-stats.service")
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    controller.restart_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: bool(drive.calls), timeout=2000)
+
+    assert drive.calls == [("restart", "ants-stats.service")]
+
+
+def test_a_failed_verb_clears_the_overlay_and_says_why(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """An overlay left set by a failure is a row stuck mid-transition that no
+    poll can correct — `starting` and `stopping` are not states probing can
+    disagree with."""
+    drive = RecordingDrive(ok=False, reason="Unit not loaded.")
+    adopted(monkeypatch, drive, "ants-stats.service")
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000) as caught:
+        controller.stop_project(Path("/srv/a"))
+
+    assert "Unit not loaded." in caught.args[1]
+    assert controller.rows()[0].status is not ProjectStatus.STOPPING

@@ -84,6 +84,7 @@ from lwsm.controller import (
 )
 from lwsm.placement import Rect, centre_in
 from lwsm.registry import LoadResult, MergeResult, ProjectRecord, RegistryError
+from lwsm.service import describe_holder
 from lwsm.settings import MAX_TEXT_SCALE, MIN_TEXT_SCALE
 from lwsm.theme import (
     DEFAULT_THEME,
@@ -173,6 +174,8 @@ _TR_CONTEXT = "ProjectRow"
 # one pass (LWSM-1181). Sequential `.replace` calls let the first value land in
 # a template that still held the other two.
 _TRUST_FIELD = re.compile(r"%[123]")
+# The disclosure fields, same shape and same reason as `_TRUST_FIELD`.
+_DISCLOSE_FIELD = re.compile(r"%[1-6]")
 
 
 # Characters that change how the trust prompt is laid out rather than adding a
@@ -973,8 +976,14 @@ class ProjectRow(QFrame):
         # port. What was wrong is that both were offered and could only fail,
         # so the gate makes the control say what it can do rather than adding
         # a defence.
-        self.stop_button.setEnabled(running and row.managed)
-        self.restart_button.setEnabled(running and row.managed)
+        # Running is the whole condition, ours or not (LWSM-1012). The
+        # `row.managed` gate that used to sit here was an INTERIM: ADR-0004 asks
+        # for disclosure before acting on a foreign server, never for the action
+        # to be withheld, and the app exists to manage servers started at logon
+        # as much as ones it launched (user decision, 2026-09-06). The dialog is
+        # `MainWindow._may_act_on`, which every one of these three goes through.
+        self.stop_button.setEnabled(running)
+        self.restart_button.setEnabled(running)
         # Running AND ours. ADR-0004 carries the threat model and governs here
         # (user decision, 2026-08-15): `chdir()` is free, so any local process
         # can bind a project's port and be classified `running`, and opening a
@@ -989,7 +998,7 @@ class ProjectRow(QFrame):
         # **Not** enabled while starting: there is no bound port yet, so the
         # browser would open on nothing and the user would blame the app rather
         # than the wait.
-        self.open_button.setEnabled(running and row.managed)
+        self.open_button.setEnabled(running)
         # A disabled button swallows a click in SILENCE, and the `managed`
         # gate is the one reason a user cannot guess from the row: the project
         # is running and the row says so. Reported live 2026-09-06 as "nothing
@@ -1010,8 +1019,8 @@ class ProjectRow(QFrame):
             gated.setToolTip(
                 QCoreApplication.translate(
                     _TR_CONTEXT,
-                    "%1 is running, but this manager did not start it, so it "
-                    "cannot be controlled or opened from here.",
+                    "%1 is running, but this manager did not start it. You will "
+                    "be shown what is holding the port before anything happens.",
                 ).replace("%1", self._name_display)
                 if foreign
                 else ""
@@ -1248,6 +1257,7 @@ class MainWindow(QMainWindow):
         rescan: RescanContext | None = None,
         load: LoadResult | RegistryError | None = None,
         confirm: Callable[[Path, str, tuple[str, ...]], bool] | None = None,
+        disclose: Callable[[Path, object], bool] | None = None,
         open_url: Callable[[QUrl], bool] | None = None,
         list_browsers: Callable[[], browsers.LoadResult] | None = None,
         open_settings: Callable[[], None] | None = None,
@@ -1288,6 +1298,11 @@ class MainWindow(QMainWindow):
         # in a test blocks the event loop with nothing to click it, which is a
         # hang rather than a failure.
         self._confirm = confirm if confirm is not None else self._confirm_dialog
+        # ADR-0004's disclosure, injected for `confirm`'s reason. A separate
+        # seam rather than a second use of that one: the trust gate asks "may
+        # this launcher run?" about a file in the project, and this asks "is
+        # this really your server?" about a process the app did not start.
+        self._disclose = disclose if disclose is not None else self._disclose_dialog
         # Injected for the same reason as `confirm`: a test that reached
         # `QDesktopServices.openUrl` would launch the developer's browser.
         self._open_url = open_url if open_url is not None else QDesktopServices.openUrl
@@ -2420,6 +2435,88 @@ class MainWindow(QMainWindow):
                 )
             )
 
+    def _disclose_dialog(self, project: Path, holder: object) -> bool:
+        """ADR-0004's disclosure, on screen.
+
+        "the holder's executable path, uid, cmdline and start time, shown
+        before anything opens" — and before anything is stopped or restarted,
+        which is the same requirement reached from the Stop path.
+
+        Every field describes a process this app did not start, so all of them
+        go through `_no_layout_forgery` and the box is `PlainText`, for the
+        reasons `_confirm_dialog` records: a newline in a cmdline would
+        otherwise forge a second heading naming a different program.
+        """
+        from datetime import datetime
+
+        started = getattr(holder, "started", None)
+        unit = getattr(holder, "unit", None)
+        fields = {
+            "%1": project.name,
+            "%2": unit or QCoreApplication.translate(_TR_CONTEXT, "(not a service)"),
+            "%3": str(getattr(holder, "exe", None) or "?"),
+            "%4": str(getattr(holder, "uid", None) if holder is not None else "?"),
+            "%5": getattr(holder, "cmdline", "") or "?",
+            "%6": datetime.fromtimestamp(started).isoformat(" ", "seconds")
+            if started
+            else "?",
+        }
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setWindowTitle(
+            QCoreApplication.translate(_TR_CONTEXT, "This server was not started here")
+        )
+        box.setText(
+            _DISCLOSE_FIELD.sub(
+                lambda match: _no_layout_forgery(fields[match.group()]),
+                QCoreApplication.translate(
+                    _TR_CONTEXT,
+                    "%1's port is held by a server this manager did not start."
+                    "\n\nService:\n%2\n\nProgram:\n%3\n\nRunning as uid:\n%4"
+                    "\n\nCommand:\n%5\n\nStarted:\n%6\n\nContinue?",
+                ),
+            )
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def _may_act_on(self, path: Path) -> bool:
+        """True when the action may proceed: ours, or the user has been shown
+        whose it is and said yes.
+
+        A managed server never asks — this app started it, so there is nothing
+        to disclose, and a dialog on every Stop is how a confirmation stops
+        being read.
+        """
+        view = next((row for row in self._controller.rows() if row.path == path), None)
+        if view is None or view.managed:
+            return True
+        if view.status is not ProjectStatus.RUNNING:
+            # Nothing holds the port, so there is no foreign server to describe.
+            # ADR-0004's disclosure is about `running (foreign)`; firing it on an
+            # idle row would be a dialog with every field empty.
+            return True
+        # A holder the kernel will not name still gets a dialog, carrying None.
+        # Waving that case through would open a browser on, or signal, the one
+        # holder we know least about — strictly worse than the interim refusal
+        # this replaced, and the opposite of a disclosure.
+        holder = (
+            describe_holder(view.holder_pid) if view.holder_pid is not None else None
+        )
+        return bool(self._disclose(path, holder))
+
+    def _stop_project(self, path: Path) -> None:
+        if self._may_act_on(path):
+            self._controller.stop_project(path)
+
+    def _restart_project(self, path: Path) -> None:
+        if self._may_act_on(path):
+            self._controller.restart_project(path)
+
     def _open_project(self, path: Path) -> None:
         """Open the running server in the desktop's browser.
 
@@ -2428,6 +2525,8 @@ class MainWindow(QMainWindow):
         move it, and opening a stale port is the confidently-wrong failure
         ADR-0003 records a sibling project having shipped.
         """
+        if not self._may_act_on(path):
+            return
         view = next((row for row in self._controller.rows() if row.path == path), None)
         if view is None or view.effective_port is None:
             self.set_status_message(
@@ -2799,10 +2898,10 @@ class MainWindow(QMainWindow):
                     lambda _checked=False, p=path: self._controller.start_project(p)
                 )
                 widget.stop_button.clicked.connect(
-                    lambda _checked=False, p=path: self._controller.stop_project(p)
+                    lambda _checked=False, p=path: self._stop_project(p)
                 )
                 widget.restart_button.clicked.connect(
-                    lambda _checked=False, p=path: self._controller.restart_project(p)
+                    lambda _checked=False, p=path: self._restart_project(p)
                 )
                 widget.open_button.clicked.connect(
                     lambda _checked=False, p=path: self._open_project(p)
