@@ -76,7 +76,7 @@ from lwsm import (
     registry,
     scanner,
 )
-from lwsm.configfile import ConfigFileError
+from lwsm.configfile import ConfigFileError, quoted
 from lwsm.controller import (
     ProjectController,
     ProjectStatus,
@@ -447,7 +447,16 @@ class _RescanTask(QRunnable):
                 )
             except BaseException as exc:
                 log.exception("the rescan failed")
-                self.signals.failed.emit(f"{type(exc).__name__}: {exc}")
+                # `quoted`, never an f-string (LWSM-1255). This lands in
+                # `showMessage`, which neither escapes nor clips, and `exc`
+                # interpolates a path or launcher name from somebody else's
+                # tree — so a newline in one forged a second line of output and
+                # a huge name produced a huge status string. `repr` already
+                # names the exception type, so the old prefix was redundant as
+                # well as unsafe. LWSM-1131 INV-10 is the same rule one surface
+                # over, and LWSM-1078, 1102 and 1114 closed this class one call
+                # site at a time; the twin below is fixed with it.
+                self.signals.failed.emit(quoted(exc))
             else:
                 self.signals.done.emit(merged)
         except BaseException:
@@ -2856,9 +2865,10 @@ class MainWindow(QMainWindow):
             message = self._apply_rescan(merged)
         except BaseException as exc:
             log.exception("the rescan could not be applied")
-            message = QCoreApplication.translate(
-                _TR_CONTEXT, "Rescan failed: %1"
-            ).replace("%1", f"{type(exc).__name__}: {exc}")
+            message = _filled(
+                QCoreApplication.translate(_TR_CONTEXT, "Rescan failed: %1"),
+                quoted(exc),
+            )
         finally:
             self._finish_rescan(message)
 

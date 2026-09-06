@@ -6559,3 +6559,73 @@ def test_enter_in_the_filter_scrolls_the_first_match_into_view(qtbot, built) -> 
     assert within_viewport(window._scroll, first), (
         "Enter in the filter moved focus to a row above the viewport"
     )
+
+
+# --- LWSM-1255: foreign text reaching the status bar --------------------------
+
+
+HOSTILE = "line one\nRescan: 12 new\n" + "x" * 4000
+
+
+def test_a_rescan_failure_is_escaped_and_clipped_before_it_is_shown(
+    qtbot, built, tmp_path
+) -> None:
+    """`showMessage` neither escapes nor clips, and `exc` interpolates a path or
+    launcher name from somebody else's tree.
+
+    LWSM-1131 INV-10 states the rule for the neighbouring surface — "no value
+    read from the file or from a scan reaches a merge report entry without
+    passing `_quoted`" — and LWSM-1078, 1102 and 1114 closed this class one call
+    site at a time. This is a fourth, and the second site below is a fifth.
+    """
+    from lwsm.configfile import MAX_REASON_CHARS
+    from lwsm.mainwindow import RescanContext, _RescanSignals, _RescanTask
+
+    emitted: list[str] = []
+    signals = _RescanSignals()
+    signals.failed.connect(emitted.append)
+
+    def exploding_scan(roots):
+        raise RuntimeError(HOSTILE)
+
+    context = RescanContext(
+        roots=[tmp_path],
+        scan=exploding_scan,
+        save=lambda *a, **k: None,
+        projects_path=tmp_path / "projects.json",
+    )
+    _RescanTask(context, [], signals).run()
+
+    assert len(emitted) == 1
+    message = emitted[0]
+    assert "\n" not in message, "a newline can forge a second line of output"
+    assert len(message) <= MAX_REASON_CHARS + 1, f"unclipped: {len(message)}"
+
+
+def test_a_failed_rescan_apply_is_escaped_and_clipped_too(qtbot, built) -> None:
+    """The second site, which the fold-in bullet did not name.
+
+    Same expression, same surface, same file. Fixing the one that was reported
+    and leaving its twin is the half-fix `CLAUDE.md` records repeatedly.
+    """
+    from lwsm.configfile import MAX_REASON_CHARS
+
+    controller = ProjectController(
+        [record("a", 5005)], FakeProbe(5005), ManagingSupervisor([])
+    )
+    built.append(controller)
+    window = MainWindow(
+        controller, Theme.default(), [], disclose=lambda path, holder: True
+    )
+    qtbot.addWidget(window)
+
+    def explode(merged):
+        raise RuntimeError(HOSTILE)
+
+    window._apply_rescan = explode
+    window._on_rescan_done(object())
+
+    message = window.statusBar().currentMessage()
+    assert message
+    assert "\n" not in message
+    assert len(message) <= MAX_REASON_CHARS + 40, f"unclipped: {len(message)}"

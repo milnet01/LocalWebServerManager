@@ -4593,7 +4593,7 @@ has been applied yet — every item in this section is open.
   Kind: doc-fix.
   Source: review-code 2026-09-01 lane 10.
 
-- 📋 [LWSM-1255] **MEDIUM: the rescan failure message reaches the status bar unclipped and unquoted.**
+- ✅ [LWSM-1255] **MEDIUM: the rescan failure message reaches the status bar unclipped and unquoted.**
   mainwindow.py:377 emits f"{type(exc).__name__}: {exc}" straight to
   set_status_message, which is showMessage with no clip and no escape. exc can
   carry a path or launcher name from a scanned tree. LWSM-1131 INV-10 states
@@ -4601,6 +4601,24 @@ has been applied yet — every item in this section is open.
   a scan reaches a merge report entry without passing _quoted" - and names
   LWSM-1078/1102/1114 as three call sites where this class was closed one at a
   time. This is a fourth. configfile.MAX_REASON_CHARS already exists.
+  Resolved (2026-09-06). Both sites now emit `quoted(exc)`. `repr` already
+  names the exception type, so the old `f"{type(exc).__name__}: {exc}"`
+  prefix was redundant as well as unsafe.
+
+  TWO SITES, and the bullet named one. The worker's `signals.failed.emit`
+  and the apply failure in `_on_rescan_done` built the identical
+  expression, on the same surface, in the same file. Fixing the reported
+  one and leaving its twin is the half-fix this project keeps recording —
+  and LWSM-1078, 1102 and 1114 already closed this class one call site at
+  a time, which is the pattern the bullet itself cites.
+
+  Reproduced before fixing with an exception message carrying a newline
+  and four thousand characters: the forged line "Rescan: 12 new" appeared
+  in the test's own failure output, which is the defect exactly as INV-10
+  describes it.
+
+  The apply site also moved onto `_filled`, since it was doing a
+  `.replace` on a template with foreign text.
   **Layman:** Text from someone else's project files can reach the status bar without being cleaned up first.
   Kind: security.
   Source: review-code 2026-09-01 lane 10.
