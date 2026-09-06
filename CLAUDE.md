@@ -1229,6 +1229,41 @@ asserting an icon resolves by theme name fails in the suite and in CI for a
 reason that says nothing about the icon.** Assert the file is installed where
 the theme expects it, or inject the icon; do not assert `fromTheme`.
 
+**Trap: a hand-built `QStyleOption` does not reproduce the state it names, and
+it will tell you a control is unstyled when it is not.** This cost two wrong
+diagnoses in one session (2026-09-06). Rendering `CE_PushButton` with
+`State_HasFocus` set reported that no palette draws a focus ring — Qt gates
+focus indication on **`State_KeyboardFocusChange`**, so a correct style draws
+nothing without it, and LWSM-1238 sat blocked for days on that reading. Hours
+later, clearing `State_Enabled` reported a disabled button as pixel-identical
+to an enabled one; a real `setEnabled(False)` widget dims plainly in all eight
+palettes, and the fix built on the false reading made the two states *harder*
+to tell apart. **Render a real widget in the real state — `setEnabled(False)`,
+`setDown(True)`, `setFocus()` — and grab it.** A hand-built option is for
+asking a style a question you have already checked another way.
+
+**Trap: a changed-pixel count is not visibility, and it reads as rigour.**
+LWSM-1298 was filed and closed on "2175 of 2400 pixels change"; measured as
+contrast that same rendering is 1.08:1 on `midnight` — invisible, every pixel
+having moved by a couple of RGB units. Measure a colour change as a **contrast
+ratio between the two states**, never as a population of moved pixels, and
+sample the region the change lives in: a fill sample taken from a button's
+interior cannot see a ring drawn at its border, which was the second half of
+the same wrong answer.
+
+**Trap: the app never loads Breeze — it resolves to Fusion.** PySide6 ships its
+own Qt, so the system `breeze6.so` cannot bind to it: `QStyleFactory.keys()` is
+`['Windows', 'Fusion']` on the venv interpreter and the system one alike.
+Measured 2026-09-06. Any reasoning about "how this looks on the user's Breeze
+desktop" is about a style this app does not use.
+
+**Trap: a green suite, a full set of killed mutants and a passing contrast
+floor can all agree on a change that is visibly wrong.** LWSM-1300's `:disabled`
+rule had eight-palette coverage, five mutants all killed, and cleared every
+floor — and rendering it showed it made the defect worse. It was backed out.
+**For anything whose whole value is how it LOOKS, the last step is to render it
+and look**; the suite can only hold the properties someone thought to assert.
+
 **Trap: the desktop's light/dark scheme cannot be driven from a test at all —
 `QStyleHints.setColorScheme` is ignored under `offscreen`.** Measured 2026-09-02
 while shipping LWSM-1244: the setter returns without error, `colorScheme()`
