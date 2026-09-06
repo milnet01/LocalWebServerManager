@@ -292,6 +292,13 @@ signaling per
 
 ### Fixed
 
+- **A browser whose desktop entry cannot be read is no longer reported as not installed** (LWSM-1250)
+  An unreadable desktop entry was skipped in silence, so a browser that is
+  installed looked exactly like one that is absent — and the app told the
+  user to reinstall it. Entries that cannot be read are now recorded and
+  logged, and the message says the entry could not be read rather than that
+  the browser is missing.
+
 - **A browser's name from a desktop file is now bounded and stripped of control characters** (LWSM-1249)
   Desktop entries are not written by this app, and their name went straight
   to the browser picker, its tooltip and its accessible name — unbounded and

@@ -4381,7 +4381,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 9.
 
-- 📋 [LWSM-1250] **MEDIUM: per-entry .desktop failures are silent, producing a message that tells the user something false.**
+- ✅ [LWSM-1250] **MEDIUM: per-entry .desktop failures are silent, producing a message that tells the user something false.**
   browsers.py:232-235 and :224-226. The per-entry containment is correct and
   the exception tuple is complete, but no reason is collected and the module
   imports no logger, against design.md's "Every failure has a visible home...
@@ -4390,6 +4390,37 @@ has been applied yet — every item in this section is open.
   user at reinstalling a browser that IS installed. Fix: return
   (browsers, reasons) in the LoadResult shape this project already uses, log at
   INFO, and let _open_project distinguish absent from refused.
+  Resolved (2026-09-06): all three of the bullet's prescriptions.
+  `installed()` returns a `LoadResult` in the shape `registry` and `settings`
+  already use; the module gained a logger and reports each refusal at INFO;
+  and `_open_project` now tells a browser that is ABSENT from one whose entry
+  is present and unparseable.
+
+  `refused` carries the entry IDS rather than a count, and that is what makes
+  the second half possible: `by_id` answers None for both cases, so an id set
+  is the only thing that separates them where the message is written.
+
+  The unreadable-DIRECTORY path got a reason too, which the bullet does not
+  mention. It records no id, deliberately - nothing there names a browser, so
+  there is nothing a caller could match against.
+
+  The `list_browsers` seam's contract changed with it. Cheap, as measured
+  before starting: two references in tests, one of them a docstring.
+
+  Four tests - a refused entry is named and the readable ones survive, a clean
+  scan stays quiet, the refusal reaches the log, and the window says "could
+  not be read" rather than "not installed". Three mutants killed: the refused
+  set never consulted, every fallback claiming unreadable, and the ids dropped
+  at construction.
+
+  **Two self-inflicted repairs worth recording.** A regex updating 16 call
+  sites to `.browsers` mangled two multi-argument calls into
+  `installed((a, b).browsers)` - the anchored-edit hazard `CLAUDE.md` records,
+  reached from a third direction: the anchor matched, the result was
+  ill-formed. Both were caught by the suite immediately, which is the argument
+  for running it between mechanical passes rather than after them.
+
+  Gate green: 1500 tests, no SKIP, no tool drift.
   **Layman:** If your chosen browser's entry becomes unreadable the app says it is not installed, and it is.
   Kind: fix.
   Source: review-code 2026-09-01 lane 9.

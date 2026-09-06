@@ -6,6 +6,7 @@ every rule here is exercised with no display and no `qtbot`.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -163,7 +164,7 @@ def test_expand_unescapes_a_literal_percent() -> None:
 
 def test_an_http_handler_is_offered(tmp_path: Path) -> None:
     write(tmp_path, "firefox.desktop", FIREFOX)
-    found = browsers.installed((tmp_path,))
+    found = browsers.installed((tmp_path,)).browsers
     assert [b.entry_id for b in found] == ["firefox.desktop"]
     assert found[0].name == "Firefox"
     assert found[0].argv == ("/usr/bin/firefox", "%u")
@@ -171,23 +172,23 @@ def test_an_http_handler_is_offered(tmp_path: Path) -> None:
 
 def test_an_entry_that_handles_no_http_scheme_is_not_a_browser(tmp_path: Path) -> None:
     write(tmp_path, "editor.desktop", entry(MimeType="text/plain;"))
-    assert browsers.installed((tmp_path,)) == ()
+    assert browsers.installed((tmp_path,)).browsers == ()
 
 
 @pytest.mark.parametrize("key", ["NoDisplay", "Hidden"])
 def test_an_entry_the_desktop_hides_is_not_offered(tmp_path: Path, key: str) -> None:
     write(tmp_path, "b.desktop", entry(**{key: "true"}))
-    assert browsers.installed((tmp_path,)) == ()
+    assert browsers.installed((tmp_path,)).browsers == ()
 
 
 def test_a_non_application_entry_is_not_offered(tmp_path: Path) -> None:
     write(tmp_path, "b.desktop", entry(Type="Link"))
-    assert browsers.installed((tmp_path,)) == ()
+    assert browsers.installed((tmp_path,)).browsers == ()
 
 
 def test_an_entry_with_no_exec_is_not_offered(tmp_path: Path) -> None:
     write(tmp_path, "b.desktop", entry(Exec=""))
-    assert browsers.installed((tmp_path,)) == ()
+    assert browsers.installed((tmp_path,)).browsers == ()
 
 
 def test_a_desktop_action_group_cannot_supply_the_exec(tmp_path: Path) -> None:
@@ -204,7 +205,7 @@ def test_a_desktop_action_group_cannot_supply_the_exec(tmp_path: Path) -> None:
         entry()
         + "\n[Desktop Action new-private-window]\nExec=/usr/bin/wrong --private\n",
     )
-    (found,) = browsers.installed((tmp_path,))
+    (found,) = browsers.installed((tmp_path,)).browsers
     assert found.argv == ("/usr/bin/testbrowser", "%u")
 
 
@@ -231,7 +232,7 @@ def test_an_action_groups_mimetype_cannot_make_an_entry_a_browser(
         "[Desktop Action open-link]\n"
         "MimeType=x-scheme-handler/http;\n",
     )
-    assert browsers.installed((tmp_path,)) == ()
+    assert browsers.installed((tmp_path,)).browsers == ()
 
 
 def test_an_entry_whose_tryexec_binary_is_gone_is_not_offered(tmp_path: Path) -> None:
@@ -241,7 +242,7 @@ def test_an_entry_whose_tryexec_binary_is_gone_is_not_offered(tmp_path: Path) ->
     which reads as the app being broken rather than the entry being stale.
     """
     write(tmp_path, "b.desktop", entry(TryExec="/nonexistent/definitely-not-here"))
-    assert browsers.installed((tmp_path,)) == ()
+    assert browsers.installed((tmp_path,)).browsers == ()
 
 
 def test_the_user_directory_shadows_a_system_entry_of_the_same_id(
@@ -251,7 +252,7 @@ def test_the_user_directory_shadows_a_system_entry_of_the_same_id(
     user, system = tmp_path / "user", tmp_path / "system"
     write(user, "firefox.desktop", entry(Name="Mine", Exec="/mine %u"))
     write(system, "firefox.desktop", entry(Name="Packaged", Exec="/packaged %u"))
-    (found,) = browsers.installed((user, system))
+    (found,) = browsers.installed((user, system)).browsers
     assert found.name == "Mine"
     assert found.argv == ("/mine", "%u")
 
@@ -264,7 +265,8 @@ def test_the_list_is_sorted_by_name(tmp_path: Path) -> None:
     """
     write(tmp_path, "z.desktop", entry(Name="Alpha"))
     write(tmp_path, "a.desktop", entry(Name="Zulu"))
-    assert [b.name for b in browsers.installed((tmp_path,))] == ["Alpha", "Zulu"]
+    found = browsers.installed((tmp_path,)).browsers
+    assert [b.name for b in found] == ["Alpha", "Zulu"]
 
 
 def test_entry_dirs_puts_the_user_directory_first(monkeypatch) -> None:
@@ -295,7 +297,7 @@ def test_a_hostile_entry_costs_only_its_own_row(tmp_path: Path) -> None:
     (tmp_path / "huge.desktop").write_bytes(b"#" * (MAX_FILE_BYTES + 1))
     (tmp_path / "a-directory.desktop").mkdir()
 
-    assert [b.name for b in browsers.installed((tmp_path,))] == ["Good"]
+    assert [b.name for b in browsers.installed((tmp_path,)).browsers] == ["Good"]
 
 
 def test_an_unreadable_directory_costs_only_that_directory(tmp_path: Path) -> None:
@@ -311,13 +313,14 @@ def test_an_unreadable_directory_costs_only_that_directory(tmp_path: Path) -> No
     try:
         if os.access(blocked, os.R_OK):  # pragma: no cover - running as root
             pytest.skip("cannot make a directory unreadable as this user")
-        assert [b.name for b in browsers.installed((blocked, good))] == ["Good"]
+        found = browsers.installed((blocked, good)).browsers
+        assert [b.name for b in found] == ["Good"]
     finally:
         blocked.chmod(0o700)
 
 
 def test_a_missing_directory_is_not_an_error(tmp_path: Path) -> None:
-    assert browsers.installed((tmp_path / "nope",)) == ()
+    assert browsers.installed((tmp_path / "nope",)).browsers == ()
 
 
 # --------------------------------------------------------------------------
@@ -425,7 +428,7 @@ def test_a_browser_name_is_clipped_to_the_display_limit(tmp_path: Path) -> None:
     """
     write(tmp_path, "b.desktop", entry(Name="W" * 20_000))
 
-    found = browsers.installed((tmp_path,))
+    found = browsers.installed((tmp_path,)).browsers
 
     assert len(found) == 1
     assert len(found[0].name) <= MAX_DISPLAY_NAME_CHARS
@@ -440,7 +443,7 @@ def test_control_characters_in_a_browser_name_are_replaced(tmp_path: Path) -> No
     """
     write(tmp_path, "b.desktop", entry(Name="Evil\nBrowser\x07"))
 
-    found = browsers.installed((tmp_path,))
+    found = browsers.installed((tmp_path,)).browsers
 
     assert len(found) == 1
     assert "\n" not in found[0].name
@@ -459,7 +462,52 @@ def test_a_name_falling_back_to_the_file_stem_is_sanitised_too(
     """
     write(tmp_path, "ev\nil.desktop", entry(Name=""))
 
-    found = browsers.installed((tmp_path,))
+    found = browsers.installed((tmp_path,)).browsers
 
     assert len(found) == 1
     assert "\n" not in found[0].name
+
+
+# --- LWSM-1250: a refused entry is reported, not swallowed -------------------
+
+
+def test_an_unreadable_entry_is_reported_and_named(tmp_path: Path) -> None:
+    """`design.md`: "Every failure has a visible home... Nothing is swallowed".
+
+    The per-entry containment was already right — one hostile file costs its
+    own entry and nothing else — but no reason was collected and this module
+    imported no logger. So a browser that IS installed and whose entry cannot
+    be parsed became indistinguishable from one that is absent, and the window
+    then told the user to reinstall something already present.
+
+    The id is carried as well as the reason, because only the id lets a caller
+    tell "refused" from "never there".
+    """
+    write(tmp_path, "good.desktop", entry(Name="Good"))
+    (tmp_path / "broken.desktop").write_bytes(b"[Desktop Entry]\nName=\xff\xfe\n")
+
+    result = browsers.installed((tmp_path,))
+
+    assert [b.name for b in result.browsers] == ["Good"], "the readable one was lost"
+    assert "broken.desktop" in result.refused
+    assert any("broken.desktop" in reason for reason in result.reasons)
+
+
+def test_a_clean_scan_reports_no_reasons(tmp_path: Path) -> None:
+    """The quiet path stays quiet — a reason for every entry is noise."""
+    write(tmp_path, "good.desktop", entry(Name="Good"))
+
+    result = browsers.installed((tmp_path,))
+
+    assert result.reasons == ()
+    assert result.refused == frozenset()
+
+
+def test_a_refusal_reaches_the_log(tmp_path: Path, caplog) -> None:
+    """Logged, because the reasons alone reach only a caller that asks."""
+    (tmp_path / "broken.desktop").write_bytes(b"[Desktop Entry]\nName=\xff\xfe\n")
+
+    with caplog.at_level(logging.INFO, logger="lwsm.browsers"):
+        browsers.installed((tmp_path,))
+
+    assert "broken.desktop" in caplog.text

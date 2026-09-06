@@ -22,7 +22,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QPalette, QShowEvent
 from PySide6.QtWidgets import QApplication
 
-from lwsm import __version__, mainwindow, placement, registry, scanner
+from lwsm import __version__, browsers, mainwindow, placement, registry, scanner
 from lwsm.__main__ import build_window
 from lwsm.browsers import Browser
 from lwsm.controller import (
@@ -1476,6 +1476,7 @@ def rescan_window(
     load=None,
     saves: list | None = None,
     browsers_available: tuple = (),
+    browsers_refused: frozenset[str] = frozenset(),
 ) -> tuple[MainWindow, ProjectController]:
     """A window with a Rescan context whose scan and writer are both fakes.
 
@@ -1504,7 +1505,9 @@ def rescan_window(
         # Injected, never scanned: conftest points XDG_DATA_DIRS at an empty
         # directory so the real scan finds nothing, and a test that wants
         # browsers says which (`§ T1`).
-        list_browsers=lambda: browsers_available,
+        list_browsers=lambda: browsers.LoadResult(
+            browsers=browsers_available, refused=browsers_refused
+        ),
     )
     qtbot.addWidget(window)
     return window, controller
@@ -6143,3 +6146,36 @@ def test_centre_on_screen_asks_kwin_for_the_usable_area(qtbot, built) -> None:
     window.centre_on_screen()
 
     assert flags == [True], f"centring did not ask KWin to place it: {flags}"
+
+
+def test_a_browser_whose_entry_could_not_be_read_is_not_called_uninstalled(
+    qtbot, built, tmp_path
+) -> None:
+    """Two routes reach `by_id` returning None, and they need different words.
+
+    The browser may be absent, or it may be installed with a desktop entry
+    this app could not parse. Both fall back to the default, and the second
+    was being told "not installed" — sending the user to reinstall something
+    that is already there (LWSM-1250).
+
+    Driven through the `refused` set the scan now carries, which is the only
+    thing that distinguishes them at the point the message is written.
+    """
+    opened: list = []
+    window, controller = rescan_window(
+        qtbot,
+        built,
+        [with_browser("a", 3000, "broken.desktop")],
+        tmp_path,
+        FakeScanResult(projects=()),
+        browsers_available=BROWSERS,
+        browsers_refused=frozenset({"broken.desktop"}),
+    )
+    window._open_url = lambda url: opened.append(url.toString()) or True
+
+    window._open_project(controller.records()[0].path)
+
+    message = window.statusBar().currentMessage()
+    assert opened == ["http://localhost:3000/"], "it must still open"
+    assert "not installed" not in message, message
+    assert "could not be read" in message

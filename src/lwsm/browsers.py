@@ -30,7 +30,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from lwsm.configfile import ConfigFileError, display_text, read_bounded
+from lwsm import applog
+from lwsm.configfile import ConfigFileError, display_text, quoted, read_bounded
+
+log = applog.get_logger(__name__)
 
 # The two MIME types that make an application a browser as far as the desktop
 # is concerned. An entry claiming either is one the session would hand a link
@@ -221,7 +224,27 @@ def _browser_from(path: Path) -> Browser | None:
     return Browser(entry_id=path.name, name=name, argv=argv)
 
 
-def installed(dirs: tuple[Path, ...] | None = None) -> tuple[Browser, ...]:
+@dataclass(frozen=True)
+class LoadResult:
+    """What the scan found, and what it had to skip to say so (LWSM-1250).
+
+    `registry.LoadResult`'s shape, for `settings.LoadResult`'s reason: the
+    browsers are always usable, and `reasons` says what was ignored to get
+    them. The scan never raises — one hostile entry costs its own entry.
+
+    **`refused` carries the entry IDS and not just a count**, and that is the
+    whole point of the item. `by_id` returns `None` for an id that was never
+    there and for one whose file could not be parsed, so without this the
+    window told a user their chosen browser "is not installed" about a browser
+    that is installed, pointing them at reinstalling it.
+    """
+
+    browsers: tuple[Browser, ...]
+    reasons: tuple[str, ...] = ()
+    refused: frozenset[str] = frozenset()
+
+
+def installed(dirs: tuple[Path, ...] | None = None) -> LoadResult:
     """Every browser the desktop registers, first definition of an id winning.
 
     `dirs` defaults to `None` and is resolved in the body rather than in the
@@ -233,25 +256,45 @@ def installed(dirs: tuple[Path, ...] | None = None) -> tuple[Browser, ...]:
     directory-iteration order.
     """
     found: dict[str, Browser] = {}
+    reasons: list[str] = []
+    refused: set[str] = set()
     for directory in entry_dirs() if dirs is None else dirs:
         try:
             entries = sorted(directory.glob("*.desktop"))
-        except OSError:
+        except OSError as exc:
             # An unreadable applications directory is one directory's worth of
-            # browsers lost, never the whole list.
+            # browsers lost, never the whole list — but it is still a failure
+            # with a home (LWSM-1250). No id is recorded: nothing here names a
+            # browser, so there is nothing a caller could match against.
+            reasons.append(f"{quoted(str(directory))}: {quoted(exc)}")
+            log.info("ignoring applications directory %s: %s", directory, exc)
             continue
         for path in entries:
             if path.name in found:
                 continue
             try:
                 browser = _browser_from(path)
-            except (ConfigFileError, OSError, UnicodeDecodeError, ValueError):
+            except (ConfigFileError, OSError, UnicodeDecodeError, ValueError) as exc:
                 # Per entry, deliberately. See the module docstring: one hostile
                 # file costs its own entry and nothing else.
+                #
+                # Reported rather than swallowed (LWSM-1250). `design.md` —
+                # "Every failure has a visible home... Nothing is swallowed" —
+                # and the id is kept so a caller can tell a refused entry from
+                # an absent one.
+                refused.add(path.name)
+                reasons.append(f"{quoted(path.name)}: {quoted(exc)}")
+                log.info("ignoring desktop entry %s: %s", path.name, exc)
                 continue
             if browser is not None:
                 found[path.name] = browser
-    return tuple(sorted(found.values(), key=lambda b: (b.name.lower(), b.entry_id)))
+    return LoadResult(
+        browsers=tuple(
+            sorted(found.values(), key=lambda b: (b.name.lower(), b.entry_id))
+        ),
+        reasons=tuple(reasons),
+        refused=frozenset(refused),
+    )
 
 
 def by_id(browsers: tuple[Browser, ...], entry_id: str | None) -> Browser | None:

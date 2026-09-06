@@ -1249,7 +1249,7 @@ class MainWindow(QMainWindow):
         load: LoadResult | RegistryError | None = None,
         confirm: Callable[[Path, str, tuple[str, ...]], bool] | None = None,
         open_url: Callable[[QUrl], bool] | None = None,
-        list_browsers: Callable[[], tuple[browsers.Browser, ...]] | None = None,
+        list_browsers: Callable[[], browsers.LoadResult] | None = None,
         open_settings: Callable[[], None] | None = None,
         save_theme: Callable[[str], None] | None = None,
         theme_id: str | None = None,
@@ -1298,9 +1298,13 @@ class MainWindow(QMainWindow):
         # Scanned ONCE, here. It reads every desktop entry on the machine (381
         # of them as measured 2026-08-24), so doing it per row or per poll would
         # put a directory walk on the once-a-second path.
-        self._browsers = (
-            browsers.installed if list_browsers is None else list_browsers
-        )()
+        found = (browsers.installed if list_browsers is None else list_browsers)()
+        self._browsers = found.browsers
+        # The ids whose entry could not be parsed (LWSM-1250). `by_id` answers
+        # `None` for those and for an id that was never on the machine, and
+        # `_open_project` has to tell the user which — "not installed" about a
+        # browser that IS installed sends them to reinstall it.
+        self._browsers_refused = found.refused
         # The third injected seam, and the reason LWSM-1146 could land without
         # LWSM-1018: this item owns the BAR, not the dialog. The dialog arrives
         # as an argument rather than as an edit to `_build_menus`.
@@ -2441,8 +2445,21 @@ class MainWindow(QMainWindow):
                 # reading "Default browser" is not that message -- it looks
                 # identical to a project nobody ever set one for, which is the
                 # silent failure the criterion names.
+                #
+                # Two reasons reach `by_id` returning None, and they need
+                # different sentences (LWSM-1250): the browser is not on the
+                # machine, or its desktop entry is here and could not be read.
+                # Telling the second user to reinstall sends them to fix
+                # something that is not broken.
+                refused = view.browser in self._browsers_refused
                 self.set_status_message(
                     QCoreApplication.translate(
+                        _TR_CONTEXT,
+                        "%1's browser is installed but its desktop entry could "
+                        "not be read - opening in the default",
+                    ).replace("%1", view.name)
+                    if refused
+                    else QCoreApplication.translate(
                         _TR_CONTEXT,
                         "%1's chosen browser is not installed - opening in the default",
                     ).replace("%1", view.name)
