@@ -286,6 +286,12 @@ signaling per
 
 ### Fixed
 
+- **A wedged window manager can no longer freeze startup for nine seconds** (LWSM-1240)
+  Placing the window asks KWin three times, and the three-second deadline
+  applied to each call rather than to the exchange. The three calls now
+  share one deadline, so the wait is bounded by three seconds however many
+  calls it takes.
+
 - **A Wayland session with no XDG_SESSION_TYPE is no longer mistaken for X11** (LWSM-1239)
   Window placement picked its strategy from one environment variable that
   is routinely absent — under a systemd user unit, a scrubbed environment

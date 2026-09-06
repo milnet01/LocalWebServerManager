@@ -30,6 +30,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,10 +40,15 @@ from lwsm import applog
 log = applog.get_logger(__name__)
 
 
-# Every D-Bus call is given a deadline. KWin is normally instant, but this runs
-# on the GUI thread during startup, and a compositor that has wedged must not
-# take the window with it — the app opening in the wrong place beats the app
-# not opening.
+# The budget for asking KWin — for the WHOLE exchange, not for each call in it.
+# KWin is normally instant, but this runs on the GUI thread during startup, and
+# a compositor that has wedged must not take the window with it: the app opening
+# in the wrong place beats the app not opening.
+#
+# Per call it was three seconds each across three calls, so the sentence above
+# bought nine (LWSM-1240). That is not the rare case it reads as — an absent
+# service is the FAST one, answering `ServiceUnknown` immediately, so the slow
+# path is precisely the wedged compositor the deadline exists for.
 DBUS_TIMEOUT_S = 3.0
 
 # The name the script is loaded under. Constant rather than generated: it is
@@ -369,6 +375,11 @@ def run_kwin_script(
             "--print-reply",
             "/Scripting",
         ]
+        # One deadline for the three calls below. Computed here rather than
+        # threaded through a helper: it is two lines used in one loop, where
+        # `scanner.Deadline` carries a scan's own budget accounting and would
+        # be a dependency for arithmetic.
+        deadline = time.monotonic() + DBUS_TIMEOUT_S
         for call in (
             [
                 *base,
@@ -383,8 +394,18 @@ def run_kwin_script(
                 f"string:{KWIN_SCRIPT_NAME}",
             ],
         ):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # Refused rather than given a fresh budget: restarting the
+                # clock per call is what the shared deadline exists to stop.
+                log.warning(
+                    "KWin did not answer within %.1fs; gave up before %s",
+                    DBUS_TIMEOUT_S,
+                    call[len(base)],
+                )
+                return False
             # An argument vector, never a shell string (`coding.md § O4`).
-            result = runner(call, capture_output=True, timeout=DBUS_TIMEOUT_S)
+            result = runner(call, capture_output=True, timeout=remaining)
             if result.returncode != 0:
                 # `dbus-send` puts the reason on stderr, which is why the calls
                 # capture output they otherwise never read.

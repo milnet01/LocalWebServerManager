@@ -3959,12 +3959,45 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.
 
-- 📋 [LWSM-1240] **MEDIUM: the D-Bus timeout is per call inside a three-call loop, giving a 9 second GUI block.**
+- ✅ [LWSM-1240] **MEDIUM: the D-Bus timeout is per call inside a three-call loop, giving a 9 second GUI block.**
   placement.py:46 and :365. The comment justifies the deadline as "a
   compositor that has wedged must not take the window with it", but 3.0s is
   per call across three iterations. An ABSENT service returns immediately
   (ServiceUnknown), so the slow case is precisely the wedged one the comment is
   for. Fix: compute one deadline and pass the remaining budget, or state 3x3s.
+  Resolved (2026-09-06): one `deadline = time.monotonic() + DBUS_TIMEOUT_S`
+  before the loop; each call is handed `remaining`, and a spent budget
+  refuses the next call with a warning rather than restarting the clock.
+  Took the bullet's first option - compute one deadline - rather than its
+  second, since "state 3x3s" documents the nine seconds instead of
+  removing them.
+
+  `scanner.Deadline` was considered for reuse and declined: it carries a
+  scan's own budget accounting, and this is two lines in one loop.
+
+  The constant's comment was the thing that made the defect invisible, so
+  it was rewritten rather than left - it justified the deadline by the
+  wedged compositor, which is exactly the case that cost three times what
+  the sentence implied. An absent service is the FAST path
+  (`ServiceUnknown` returns at once).
+
+  One pre-existing test locked the per-call shape:
+  `..._is_an_argument_vector_with_a_timeout` asserted
+  `kwargs["timeout"] == DBUS_TIMEOUT_S` on every call. Its stated claim -
+  every call is bounded - is unchanged and still asserted, as
+  `0 < timeout <= DBUS_TIMEOUT_S`; the amount each gets is now
+  `test_the_three_kwin_calls_share_one_deadline`'s. Read before edited,
+  per the pre-existing-test trap.
+
+  Two tests: budgets strictly shrink across the three calls (which a
+  per-call constant cannot produce), and a call after the deadline is
+  refused - the constant lowered to 0.05 and the first call overrun,
+  rather than waiting nine seconds. Three mutants, all killed against a
+  green baseline.
+
+  Gate green: 1463 tests, no SKIP, no tool drift. Zero leaked processes
+  from this suite - the one `sleep 30` on the machine belonged to another
+  project's session, recorded on LWSM-1189.
   **Layman:** If the window manager hangs, the app can freeze for nine seconds at startup instead of three.
   Kind: fix.
   Source: review-code 2026-09-01 lane 7.
@@ -8560,6 +8593,22 @@ program actually running.
   named both tests by their tmpdir. No changelog entry - the leak was on
   the developer's machine, not in the shipped app; LWSM-1204 carries the
   user-facing half.
+  Progress (2026-09-06): the counting recipe gives FALSE POSITIVES, and one
+  fired today. `pgrep -af 'sleep' | grep -cE '(^| )sleep 30$'` is
+  machine-wide, not project-scoped: it returned 1 after a clean gate run,
+  and the process belonged to a different Claude Code session in
+  `Games_Hub` running `until [ ... ] = completed ]; do sleep 30; done` to
+  poll a GitHub Actions run. Nothing this suite started.
+
+  That matters because the count is read as evidence and a wrong 1 is
+  indistinguishable from a real leak, which sends the next session hunting
+  a defect that is not there - the same shape as the tools that "analysed
+  nothing" elsewhere in CLAUDE.md.
+
+  Check the PARENT before believing a hit:
+  `ps -o pid,ppid,lstart,args -p <pid>`. A leak from this suite has been
+  reparented to init (ppid 1) and its pytest tmpdir is already gone; the
+  false positive had a live bash parent in another project's tree.
   **Layman:** Running the tests leaves two stray background processes behind every time, which build up until you notice and kill them.
   Kind: test.
   Source: in-session-2026-08-24.

@@ -16,11 +16,13 @@ import logging
 import os
 import stat
 import subprocess
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from lwsm import placement
 from lwsm.placement import (
     DBUS_TIMEOUT_S,
     KWIN_SCRIPT_NAME,
@@ -396,7 +398,15 @@ def test_the_three_dbus_calls_are_argument_vectors_with_a_deadline(
     tmp_path: Path,
 ) -> None:
     """`coding.md § O4` — an argument vector, never a shell string. The timeout
-    is what stops a wedged compositor taking the window with it."""
+    is what stops a wedged compositor taking the window with it.
+
+    The timeout assertion was `== DBUS_TIMEOUT_S` until LWSM-1240, which is
+    the per-call shape that made a wedged compositor cost nine seconds rather
+    than three. The claim in the sentence above is unchanged and is what this
+    still asserts — every call is bounded — while HOW MUCH each is given is
+    now the remaining budget, asserted by
+    `test_the_three_kwin_calls_share_one_deadline`.
+    """
     run = FakeRun()
 
     assert run_kwin_script("// script", tmp_path, run)
@@ -409,7 +419,7 @@ def test_the_three_dbus_calls_are_argument_vectors_with_a_deadline(
     ]
     for argv, kwargs in zip(run.calls, run.kwargs, strict=True):
         assert argv[0] == "dbus-send"
-        assert kwargs["timeout"] == DBUS_TIMEOUT_S
+        assert 0 < float(kwargs["timeout"]) <= DBUS_TIMEOUT_S
     assert f"string:{KWIN_SCRIPT_NAME}" in run.calls[0]
     assert f"string:{KWIN_SCRIPT_NAME}" in run.calls[2]
 
@@ -558,3 +568,61 @@ def test_the_real_environment_is_read_when_none_is_injected(
     # shape.
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
     assert on_wayland()
+
+
+# --- LWSM-1240: the deadline bounds the whole exchange, not each call --------
+
+
+def test_the_three_kwin_calls_share_one_deadline(tmp_path: Path) -> None:
+    """`DBUS_TIMEOUT_S` is a budget for asking KWin, not a budget per call.
+
+    Its comment justifies itself by the wedged compositor — "must not take the
+    window with it" — and that is precisely the case where every call is slow,
+    so three calls at 3.0s each blocked the GUI thread for nine seconds during
+    startup. An ABSENT service is the fast case: the bus answers
+    `ServiceUnknown` immediately.
+
+    Asserted as a strictly shrinking budget rather than by waiting nine
+    seconds. Each call is handed what remains, so the second can never be
+    granted as much as the first — which a per-call timeout cannot produce,
+    since it hands every call the identical constant.
+    """
+    run = FakeRun()
+
+    assert run_kwin_script("// js", tmp_path, run=run)
+
+    budgets = [float(kw["timeout"]) for kw in run.kwargs]  # type: ignore[arg-type]
+    assert len(budgets) == 3, "precondition: load, start, unload"
+    assert budgets[0] <= DBUS_TIMEOUT_S
+    assert budgets[0] > budgets[1] > budgets[2], (
+        f"each call was handed its own full budget, not the remainder: {budgets}"
+    )
+
+
+def test_a_call_is_refused_once_the_deadline_has_passed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """A budget already spent must refuse the next call, not restart it.
+
+    The constant is lowered rather than waiting it out, and the first call is
+    made to overrun it — so the second is reached with nothing left. Without
+    the deadline this returns True having made all three calls; with it, the
+    exchange stops and says so.
+    """
+    monkeypatch.setattr(placement, "DBUS_TIMEOUT_S", 0.05)
+
+    class SlowFirst(FakeRun):
+        def __call__(self, argv, **kwargs):
+            if not self.calls:
+                time.sleep(0.1)
+            return super().__call__(argv, **kwargs)
+
+    run = SlowFirst()
+    with caplog.at_level(logging.WARNING):
+        asked = run_kwin_script("// js", tmp_path, run=run)
+
+    assert asked is False
+    assert len(run.calls) == 1, (
+        f"the deadline was spent and a further call was made anyway: {len(run.calls)}"
+    )
+    assert "KWin" in caplog.text
