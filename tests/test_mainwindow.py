@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import json
+import logging
 import re
 import socket
 import subprocess
@@ -6629,3 +6630,72 @@ def test_a_failed_rescan_apply_is_escaped_and_clipped_too(qtbot, built) -> None:
     assert message
     assert "\n" not in message
     assert len(message) <= MAX_REASON_CHARS + 40, f"unclipped: {len(message)}"
+
+
+# --- LWSM-1251: what the outer catch-all leaves in the log --------------------
+
+
+class RaisingSignal:
+    """Stands in for a signal that cannot deliver — the outer clause's trigger."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    def emit(self, *args: object) -> None:
+        raise self._exc
+
+
+class RaisingSignals:
+    def __init__(self, exc: BaseException) -> None:
+        self.done = RaisingSignal(exc)
+        self.failed = RaisingSignal(exc)
+
+
+def run_rescan_whose_emit_raises(exc: BaseException, tmp_path: Path) -> None:
+    """A rescan that succeeds and then cannot report it."""
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=lambda _roots: FakeScanResult(),
+        now=lambda: "2026-09-07T09:00:00Z",
+        save=lambda *_a, **_k: None,
+    )
+    mainwindow._RescanTask(context, [], RaisingSignals(exc)).run()
+
+
+def test_a_rescan_that_never_reports_is_logged_above_the_shipped_level(
+    caplog, tmp_path
+) -> None:
+    """`design.md` sets the app log to INFO, so DEBUG left no record at all.
+
+    This clause is wider than a dead signaller — anything between the inner
+    `except` and the `emit` lands here — and per LWSM-1131 § 6 the consequence
+    is that Rescan stays disabled for the life of the process. That is the one
+    residual instance of the failure both layers exist to prevent, so it is the
+    one that may not be silent.
+    """
+    with caplog.at_level(logging.DEBUG, logger="lwsm.mainwindow"):
+        run_rescan_whose_emit_raises(ValueError("boom"), tmp_path)
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING], [
+        (r.levelname, r.getMessage()) for r in caplog.records
+    ]
+
+
+def test_a_rescan_abandoned_at_shutdown_stays_below_it(caplog, tmp_path) -> None:
+    """The expected case keeps its DEBUG line, or every quit warns.
+
+    `shutdown()` abandons a pool whose task then emits into a destroyed
+    signaller — `RuntimeError: Signal source has been deleted`. There is nobody
+    left to report to, and a warning class that fires in normal operation is one
+    people learn to read past.
+    """
+    with caplog.at_level(logging.DEBUG, logger="lwsm.mainwindow"):
+        run_rescan_whose_emit_raises(
+            RuntimeError("Signal source has been deleted"), tmp_path
+        )
+
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], [
+        (r.levelname, r.getMessage()) for r in caplog.records
+    ]
+    assert any("no live signaller" in r.getMessage() for r in caplog.records)

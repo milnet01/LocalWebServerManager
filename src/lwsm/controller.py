@@ -350,7 +350,7 @@ class _SnapshotTask(QRunnable):
                 self.signals.failed.emit(failure)
             else:
                 self.signals.done.emit(snapshot)
-        except BaseException:
+        except RuntimeError:
             # A task abandoned by stop() outlives the QApplication that owned
             # every other QObject, so by the time it finishes its signaller can
             # be destroyed and `emit` raises `RuntimeError: Signal source has
@@ -358,6 +358,13 @@ class _SnapshotTask(QRunnable):
             # clause exists to prevent — because the emits sat outside it.
             # There is nobody left to report to, so this is a debug line.
             log.debug("port probe ended with no live signaller", exc_info=True)
+        except BaseException:
+            # Anything else is the residual failure both layers exist to
+            # prevent: the in-flight guard stays set and the poll freezes for
+            # the life of the process. `design.md` sets the app log to INFO, so
+            # at DEBUG that had no record at all (LWSM-1251, the rescan task's
+            # twin — the same clause, the same argument).
+            log.warning("the port probe ended without reporting", exc_info=True)
 
 
 class _ActionSignals(QObject):

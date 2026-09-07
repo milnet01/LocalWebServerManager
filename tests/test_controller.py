@@ -2225,3 +2225,56 @@ def test_a_failed_verb_reports_the_failure_and_no_success(
         controller.stop_project(Path("/srv/a"))
 
     assert done == []
+
+
+# --- LWSM-1251: what the outer catch-all leaves in the log --------------------
+
+
+class RaisingSignal:
+    """Stands in for a signal that cannot deliver — the outer clause's trigger."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    def emit(self, *args: object) -> None:
+        raise self._exc
+
+
+class RaisingSignals:
+    def __init__(self, exc: BaseException) -> None:
+        self.done = RaisingSignal(exc)
+        self.failed = RaisingSignal(exc)
+
+
+def run_probe_whose_emit_raises(exc: BaseException) -> None:
+    from lwsm.controller import _SnapshotTask
+
+    _SnapshotTask(FakeProbe(5005), RaisingSignals(exc)).run()
+
+
+def test_a_probe_that_never_reports_is_logged_above_the_shipped_level(
+    caplog,
+) -> None:
+    """The rescan task's twin (LWSM-1251), and the same argument.
+
+    The clause is wider than a dead signaller, `design.md` sets the app log to
+    INFO, and the consequence here is the in-flight guard never clearing — a
+    poll loop frozen for the life of the process, showing plausible data.
+    """
+    with caplog.at_level(logging.DEBUG, logger="lwsm.controller"):
+        run_probe_whose_emit_raises(ValueError("boom"))
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING], [
+        (r.levelname, r.getMessage()) for r in caplog.records
+    ]
+
+
+def test_a_probe_abandoned_at_teardown_stays_below_it(caplog) -> None:
+    """The expected case keeps its DEBUG line, or every quit warns."""
+    with caplog.at_level(logging.DEBUG, logger="lwsm.controller"):
+        run_probe_whose_emit_raises(RuntimeError("Signal source has been deleted"))
+
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], [
+        (r.levelname, r.getMessage()) for r in caplog.records
+    ]
+    assert any("no live signaller" in r.getMessage() for r in caplog.records)

@@ -459,8 +459,18 @@ class _RescanTask(QRunnable):
                 self.signals.failed.emit(quoted(exc))
             else:
                 self.signals.done.emit(merged)
-        except BaseException:
+        except RuntimeError:
+            # The expected case: `shutdown()` abandons a pool whose task then
+            # emits into a destroyed signaller. Nobody is left to report to, and
+            # a warning class that fires on a normal quit is one people read
+            # past — so this one stays below the shipped level.
             log.debug("rescan ended with no live signaller", exc_info=True)
+        except BaseException:
+            # Anything else is the residual failure both layers exist to
+            # prevent: the in-flight flag stays set and Rescan never re-enables
+            # (LWSM-1131 § 6). `design.md` sets the app log to INFO, so at DEBUG
+            # the one outcome nothing else can catch had no record (LWSM-1251).
+            log.warning("the rescan ended without reporting", exc_info=True)
 
 
 class ProjectRow(QFrame):

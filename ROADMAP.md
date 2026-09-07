@@ -4500,13 +4500,23 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 9.
 
-- 📋 [LWSM-1251] **MEDIUM: the rescan outer catch-all logs at DEBUG, below the shipped level.**
+- ✅ [LWSM-1251] **MEDIUM: the rescan outer catch-all logs at DEBUG, below the shipped level.**
   mainwindow.py:381. design.md sets the app log to INFO by default, so at the
   shipped level this path leaves no record at all. It catches more than a dead
   signaller - any failure between the except at :375 and the emit at :377 -
   and per LWSM-1131 section 6 the consequence is "Rescan stays disabled
   forever". The one residual instance of the failure the two layers exist to
   prevent is the one with no observable record. Fix: log.warning.
+  Resolved (2026-09-07): split the clause rather than raising all of
+  it. `RuntimeError` — an abandoned task emitting into a destroyed
+  signaller, which happens on a normal quit — keeps its DEBUG line, so
+  the warning class does not fire in ordinary operation; every other
+  outcome, the residual failure that leaves Rescan disabled, now logs
+  at WARNING. `_SnapshotTask.run` in controller.py is the same clause
+  with the same consequence for the poll loop and was fixed with it;
+  `_on_stop_done` already had the split and needed nothing. Four
+  mutants killed — each level lowered, each expected case widened.
+  The filed line number was stale, the reasoning exact.
   **Layman:** The one failure that can disable Rescan forever leaves no trace in the log people actually read.
   Kind: fix.
   Source: review-code 2026-09-01 lane 10.
