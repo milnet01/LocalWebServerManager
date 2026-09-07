@@ -302,6 +302,13 @@ signaling per
 
 ### Fixed
 
+- **A desktop entry that fails validation is no longer left in the launcher** (LWSM-1267)
+  `install-desktop-entry.sh` checked the entry after writing it into
+  ~/.local/share, so a malformed one had already appeared in the
+  application menu and the script then exited leaving it there. It is
+  now written beside the target, validated, and only then renamed into
+  place — so it appears whole or not at all.
+
 - **Jumping to a project with a number key now scrolls it into view** (LWSM-1259)
   The highlight could land on a row below the bottom of the window, so
   pressing Enter acted on a project you could not see. Enter in the filter

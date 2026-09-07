@@ -4875,13 +4875,26 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1267] **MEDIUM: the desktop entry is validated after it is already installed into the live directory.**
+- ✅ [LWSM-1267] **MEDIUM: the desktop entry is validated after it is already installed into the live directory.**
   scripts/install-desktop-entry.sh:60-64. desktop-file-validate runs after the
   entry and icon are in ~/.local/share, under set -e with no cleanup, so a
   failure exits having left a broken entry visible in the launcher. The comment
   above it is right about WHAT and wrong about WHERE. Fix: sed to a temp file,
   validate that, then mv into place - the same atomic discipline
   configfile.write_json_atomically holds on the Python side.
+  Resolved (2026-09-07): written to a temporary file in the destination
+  directory, validated there, then renamed into place — so the publish
+  is atomic as well as ordered, and a failure removes the temporary
+  through a trap covering the awk, the chmod and the validation alike.
+  One thing had to be measured: desktop-file-validate refuses any
+  filename not ending in `.desktop`, so the first temporary name failed
+  the check it exists to run. The mktemp template ends in the suffix,
+  and the code says why. Two tests driving the script with a stub
+  validator — the escaping LWSM-1209 fixed makes a genuinely invalid
+  entry hard to produce, and the property here is the ORDER — with the
+  second asserting a valid entry still gets published. Three mutants
+  killed. Run end to end against the real validator in a scratch
+  XDG_DATA_HOME: entry published, no temporary left behind.
   **Layman:** If the launcher entry turns out to be malformed, it has already been put where your desktop can see it.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.

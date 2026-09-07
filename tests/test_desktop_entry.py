@@ -150,3 +150,71 @@ def test_a_path_with_a_space_is_one_argument_to_the_launcher(tmp_path: Path) -> 
 def test_the_written_entry_still_validates(tmp_path: Path) -> None:
     """The quoting must not buy correctness at the cost of a valid file."""
     install(tmp_path, "My Projects/lwsm")
+
+
+# --- LWSM-1267: validate before publishing, not after -------------------------
+
+
+def run_installer(
+    tmp_path: Path, *, validator: str
+) -> subprocess.CompletedProcess[str]:
+    """Run the installer with a `desktop-file-validate` that answers as told.
+
+    A stub, because the escaping LWSM-1209 fixed is what makes a genuinely
+    invalid entry hard to produce — and the property under test is the ORDER of
+    write, validate and publish, not what the validator thinks.
+    """
+    target = tmp_path / "lwsm"
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+
+    shims = tmp_path / "bin"
+    shims.mkdir()
+    stub = shims / "desktop-file-validate"
+    stub.write_text(f"#!/bin/sh\nexit {0 if validator == 'passes' else 1}\n")
+    stub.chmod(0o755)
+
+    return subprocess.run(
+        [str(SCRIPT), str(target)],
+        cwd=REPO,
+        env={
+            "PATH": f"{shims}:/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_an_entry_that_fails_validation_never_reaches_the_launcher(
+    tmp_path: Path,
+) -> None:
+    """The rewrite is the step that can produce an invalid file (LWSM-1267).
+
+    Validating it in place means a malformed entry has already appeared in the
+    launcher, and `set -e` then exits leaving it there for the user to find.
+    Write to a temporary file beside the target, validate that, and only then
+    rename — the discipline `configfile.write_json_atomically` holds in Python.
+    """
+    done = run_installer(tmp_path, validator="fails")
+
+    assert done.returncode != 0, "a failed validation was not reported at all"
+    apps = tmp_path / "data" / "applications"
+    assert not (apps / f"{APP_ID}.desktop").exists(), (
+        "a malformed entry was left where the launcher reads it"
+    )
+    assert list(apps.glob("*")) == [], (
+        f"the installer left files behind: {[p.name for p in apps.glob('*')]}"
+    )
+
+
+def test_an_entry_that_validates_is_published(tmp_path: Path) -> None:
+    """The other half: an installer that never publishes would pass the above."""
+    done = run_installer(tmp_path, validator="passes")
+
+    assert done.returncode == 0, done.stderr
+    entry = tmp_path / "data" / "applications" / f"{APP_ID}.desktop"
+    assert entry.exists(), done.stderr
+    assert entry.stat().st_mode & 0o777 == 0o644, oct(entry.stat().st_mode)

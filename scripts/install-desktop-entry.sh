@@ -73,22 +73,43 @@ exec_quoted=$(printf '%s' "$exec_path" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/
 # whole match and `|` closes the s-command, so a checkout under `a&b` wrote
 # `Exec=/home/u/aExec=lwsmb/lwsm` and one under `pipe|x` failed outright; `awk
 # -v` would process backslash escapes in the value. ENVIRON does neither.
+# Written here, published only once it has validated. The trap covers the awk,
+# the chmod and the validation alike — any of them can leave through `set -e`.
+# The name must still END in `.desktop`: desktop-file-validate refuses any other
+# extension outright, so a plain mktemp template fails the check it exists to
+# run. Measured 2026-09-07.
+entry_tmp=$(mktemp "$apps_dir/.$app_id.XXXXXX.desktop")
+trap 'rm -f "$entry_tmp"' EXIT
+
 LWSM_EXEC_LINE="Exec=\"$exec_quoted\"" \
 LWSM_TRYEXEC_LINE="TryExec=$exec_path" \
     awk '
         /^Exec=/     { print ENVIRON["LWSM_EXEC_LINE"];    next }
         /^TryExec=/  { print ENVIRON["LWSM_TRYEXEC_LINE"]; next }
                      { print }
-    ' "packaging/$app_id.desktop" > "$apps_dir/$app_id.desktop"
-chmod 0644 "$apps_dir/$app_id.desktop"
+    ' "packaging/$app_id.desktop" > "$entry_tmp"
+chmod 0644 "$entry_tmp"
 
 # Validate what was actually written, never the template — the rewrite above is
 # the step that can produce an invalid file.
+#
+# And validate it BEFORE it is published (LWSM-1267). Checking the live file
+# means a malformed entry has already appeared in the launcher, and `set -e`
+# then exits leaving it there for the user to find. The temporary file sits in
+# the destination directory so the publish below is a rename within one
+# filesystem — atomic, so nothing sees a half-written entry either. Same
+# discipline as configfile.write_json_atomically on the Python side.
 if command -v desktop-file-validate >/dev/null 2>&1; then
-    desktop-file-validate "$apps_dir/$app_id.desktop"
+    desktop-file-validate "$entry_tmp"
 else
     echo "note: desktop-file-validate not installed; entry written unchecked." >&2
 fi
+
+# Publish. `mv` within one directory is a rename, so the entry appears whole or
+# not at all, and replacing an existing one is not a window in which the
+# launcher can read a truncated file.
+mv "$entry_tmp" "$apps_dir/$app_id.desktop"
+trap - EXIT
 
 # Cache refreshes. Each is best-effort: a missing tool means the desktop
 # environment picks the entry up on its own schedule instead, which is slower
