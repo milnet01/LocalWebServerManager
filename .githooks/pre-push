@@ -59,6 +59,42 @@ docs_only() {
     return 0
 }
 
+# What to diff this ref against, or refusal when the push adds nothing.
+#
+# Scoped to the remote being pushed to, never to every remote at once
+# (LWSM-1269). Asked of `--remotes`, a commit sitting on a backup or a fork
+# answers "already published" — so the ref contributed nothing to `changed`,
+# added no tip, and the hook could reach "nothing to check" with the gate never
+# run, while those commits reach GitHub for the first time. Reproduced with a
+# two-remote repo on 2026-09-07.
+#
+# An empty result now means what it says: the target remote already holds this
+# content under some other ref name, so the push sends no commits and there is
+# nothing for the gate to check. That is the one exemption here. The unknown
+# range the header speaks of is the ROOT-COMMIT case below, which falls back to
+# the empty tree rather than skipping.
+#
+# A push to a bare URL rather than a named remote matches no refs/remotes/*,
+# so every commit reads as new and the gate runs. That is the safe direction.
+push_base() {
+    local local_sha=$1 remote_sha=$2 remote=$3 oldest base
+
+    if [[ $remote_sha != "$ZERO" ]]; then
+        printf '%s' "$remote_sha"
+        return 0
+    fi
+
+    oldest=$(git rev-list "$local_sha" --not "--remotes=$remote" | tail -n 1)
+    [[ -z $oldest ]] && return 1
+
+    base="$oldest^"
+    git rev-parse --verify --quiet "$base" >/dev/null || base=$(git hash-object -t tree /dev/null)
+    printf '%s' "$base"
+}
+
+# git names the remote in $1 — the whole point of the scoping above.
+REMOTE=${1:-origin}
+
 # git feeds one line per ref: <local ref> <local sha> <remote ref> <remote sha>
 changed=""
 tips=()
@@ -66,20 +102,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     # Deleting a ref pushes no content.
     [[ $local_sha == "$ZERO" ]] && continue
 
-    if [[ $remote_sha == "$ZERO" ]]; then
-        # A branch the remote has never seen: there is no "since" to diff
-        # against, so ask which commits are not already on some remote and
-        # diff from the oldest one's parent. If that cannot be resolved we
-        # run the gate — an unknown range is not an exemption.
-        oldest=$(git rev-list "$local_sha" --not --remotes | tail -n 1)
-        if [[ -z $oldest ]]; then
-            continue
-        fi
-        base="$oldest^"
-        git rev-parse --verify --quiet "$base" >/dev/null || base=$(git hash-object -t tree /dev/null)
-    else
-        base="$remote_sha"
-    fi
+    base=$(push_base "$local_sha" "$remote_sha" "$REMOTE") || continue
 
     changed+=$(git diff --name-only "$base" "$local_sha")$'\n'
     tips+=("$local_sha")

@@ -613,3 +613,161 @@ def test_every_file_the_gate_depends_on_is_committed(path) -> None:
         f"{rel} is read by the gate but is not tracked by git — CI will not "
         f"see it. Check .gitignore."
     )
+
+
+# --- LWSM-1269: which remote decides that a push adds nothing -----------------
+
+
+def _hook_push_base(repo: Path, local_sha: str, remote_sha: str, remote: str) -> str:
+    """Run the hook's OWN `push_base()` in `repo`, and report what it resolved.
+
+    Executed rather than read, for `_hook_says_docs_only`'s reason: the property
+    under test is which commits the function decides are new, and no amount of
+    reading the text answers that.
+
+    Returns the base it printed, or "" when it reported that the push adds
+    nothing to that remote.
+    """
+    text = HOOK.read_text()
+    body = re.search(r"^push_base\(\) \{.*?^\}$", text, re.S | re.M)
+    assert body, "the hook has no push_base() to run"
+
+    zero = re.search(r"^ZERO=(\S+)$", text, re.M)
+    assert zero, "the hook declares no ZERO"
+
+    done = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"set -Eeuo pipefail\nZERO={zero.group(1)}\n{body.group(0)}\n"
+            f'push_base "$1" "$2" "$3"',
+            "_",
+            local_sha,
+            remote_sha,
+            remote,
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode in (0, 1), (
+        f"push_base() neither resolved nor refused: {done.returncode} {done.stderr}"
+    )
+    return done.stdout if done.returncode == 0 else ""
+
+
+def _two_remote_repo(tmp_path: Path) -> tuple[Path, str]:
+    """A commit that `backup` has and `origin` has never seen."""
+
+    def run(*argv: str, cwd: Path) -> str:
+        return subprocess.run(
+            argv, cwd=cwd, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    for bare in ("origin.git", "backup.git"):
+        run("git", "init", "-q", "--bare", bare, cwd=tmp_path)
+    work = tmp_path / "work"
+    run("git", "init", "-q", "work", cwd=tmp_path)
+    # A real source file, not an empty commit: the diff has to be non-empty and
+    # outside the docs-only exemption, or every case below ends at "nothing to
+    # check" for a reason unrelated to the remote.
+    (work / "src").mkdir()
+    (work / "src" / "thing.py").write_text("x = 1\n")
+    run("git", "add", "-A", cwd=work)
+    run(
+        "git",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "-m",
+        "first",
+        cwd=work,
+    )
+    run("git", "remote", "add", "origin", str(tmp_path / "origin.git"), cwd=work)
+    run("git", "remote", "add", "backup", str(tmp_path / "backup.git"), cwd=work)
+    # `-c core.hooksPath=` — this repo's own hook must not run inside its test.
+    run(
+        "git",
+        "-c",
+        "core.hooksPath=",
+        "push",
+        "-q",
+        "backup",
+        "HEAD:refs/heads/main",
+        cwd=work,
+    )
+    run("git", "fetch", "-q", "backup", cwd=work)
+    return work, run("git", "rev-parse", "HEAD", cwd=work)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
+def test_a_second_remote_cannot_exempt_a_first_push_to_origin(tmp_path) -> None:
+    """The question is what THIS remote is missing, not what any remote has.
+
+    Asked of every remote at once, a commit sitting on a backup or a fork
+    answers "already published" — so the hook contributed nothing to `changed`,
+    added no tip, and could reach "nothing to check" with the gate never run.
+    Those commits reach GitHub for the first time all the same.
+    """
+    repo, sha = _two_remote_repo(tmp_path)
+    zero = "0" * 40
+
+    assert _hook_push_base(repo, sha, zero, "origin"), (
+        "a commit origin has never seen was treated as adding nothing"
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
+def test_content_the_target_remote_already_has_adds_nothing(tmp_path) -> None:
+    """The other half, deliberately in the same file: the exemption is real.
+
+    Pushing a new ref NAME at content the remote already holds sends no new
+    commits, so there is nothing for the gate to check. Without this, the test
+    above is satisfied by a hook that simply always runs.
+    """
+    repo, sha = _two_remote_repo(tmp_path)
+    zero = "0" * 40
+
+    assert _hook_push_base(repo, sha, zero, "backup") == "", (
+        "content the target remote already holds was treated as new"
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
+def test_the_hook_asks_about_the_remote_git_named(tmp_path) -> None:
+    """Scoping the question is worth nothing if the hook hard-codes the answer.
+
+    Driven through the whole hook rather than through `push_base`, because $1
+    is picked up outside it — a mutant replacing `${1:-origin}` with `origin`
+    survives every test that calls the function directly.
+
+    Neither case runs the gate: the scratch repo has no `scripts/local-ci.sh`,
+    so "would have run it" shows up as a failure to launch, which is precisely
+    the distinction under test.
+    """
+    repo, sha = _two_remote_repo(tmp_path)
+    line = f"refs/heads/main {sha} refs/heads/main {'0' * 40}\n"
+
+    def run_hook(remote: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(HOOK), remote, str(tmp_path / f"{remote}.git")],
+            cwd=repo,
+            input=line,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    backup = run_hook("backup")
+    assert backup.returncode == 0, backup.stderr
+    assert "nothing to check" in backup.stderr, backup.stderr
+
+    origin = run_hook("origin")
+    assert "nothing to check" not in origin.stderr, (
+        "the hook ignored the remote git named it and exempted a push origin "
+        "has never seen"
+    )

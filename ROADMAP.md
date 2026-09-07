@@ -4872,7 +4872,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1269] **MEDIUM: the pre-push hook skips a ref whose range it cannot resolve, against its own stated rule.**
+- ✅ [LWSM-1269] **MEDIUM: the pre-push hook skips a ref whose range it cannot resolve, against its own stated rule.**
   .githooks/pre-push:71-77. The comment says "If that cannot be resolved we run
   the gate - an unknown range is not an exemption"; four lines later
   `oldest=$(git rev-list "$local_sha" --not --remotes | tail -n 1)` followed by
@@ -4882,6 +4882,22 @@ has been applied yet — every item in this section is open.
   backup or a fork) can exempt a first push to origin. The comment may be about
   the root-commit fallback at :79 instead - settle which, then either run the
   gate on the empty case or state why the exemption is safe.
+  Resolved (2026-09-07): settled as the bullet asked. The comment does
+  belong to the root-commit fallback below it, and the empty case was a
+  separate defect — asked of every remote at once, a commit sitting on
+  a backup or a fork answers "already published". Reproduced in a
+  two-remote repo: `--not --remotes` came back empty for a commit
+  origin had never seen, while `--not --remotes=origin` named it.
+  The question is now scoped to the remote git passes in $1, so an
+  empty result means the target remote already holds this content and
+  the push sends no commits — the one exemption, stated in the hook.
+  A push to a bare URL matches no refs/remotes/*, so everything reads
+  as new and the gate runs. Range resolution moved into `push_base()`
+  so a test can run it, the way `docs_only()` already is. Three mutants
+  killed; the third only after adding a whole-hook test, since every
+  test calling the function directly survived hard-coding the remote.
+  Exercised for real by pushing a new ref to a scratch remote: base
+  resolved, gate ran, passed.
   **Layman:** In one case the push check quietly decides there is nothing to check and lets the push through.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
