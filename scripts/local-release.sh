@@ -177,6 +177,58 @@ fi
 
 # --- 0d: what is already published -------------------------------------------
 
+# What is already published under this tag: `block` on a real collision, `skip`
+# where a question could not be answered, `ok` only when all three were.
+#
+# A FAILED query is not an absent tag (LWSM-1265). `git ls-remote` against an
+# unreachable remote, and `gh` without credentials, both print nothing and exit
+# non-zero — which reads exactly like "no such tag" when only the output is
+# examined. The verdict could then say the version was free, the one thing the
+# split at the top of this file forbids: a check that did not run must not print
+# like one that came back clean.
+tag_status() {
+    local tag=$1 remote_tag clear=1
+
+    if [[ -n $(git tag -l "$tag") ]]; then
+        block "local tag $tag already exists"
+        clear=0
+    fi
+
+    # No origin at all is an ANSWER, not a failed query — there is no remote tag
+    # to collide with. releases.md § 4 treats a remote-less repository as a
+    # legitimate state whose local tag is the end of the release.
+    if git remote get-url origin >/dev/null 2>&1; then
+        if remote_tag=$(git ls-remote --tags origin "$tag" 2>/dev/null); then
+            if [[ -n $remote_tag ]]; then
+                block "tag $tag is already on the remote — people may have fetched it"
+                clear=0
+            fi
+        else
+            skip "remote tag existence (origin could not be reached)"
+            clear=0
+        fi
+    fi
+
+    if ! command -v gh >/dev/null 2>&1; then
+        skip "release existence (gh is not installed)"
+        clear=0
+    elif gh release view "$tag" >/dev/null 2>&1; then
+        block "release $tag is already published"
+        clear=0
+    elif ! gh release list --limit 1 >/dev/null 2>&1; then
+        # `release view` exits non-zero for an absent release and for a gh that
+        # cannot reach the repository alike; this second query is what separates
+        # them, and it is only reached when the first has already said no.
+        skip "release existence (gh could not reach the repository)"
+        clear=0
+    fi
+
+    if ((clear)); then
+        ok "$tag is free — no local tag, no remote tag, no release"
+    fi
+    return 0
+}
+
 step "0d  Already published"
 if [[ -z $TARGET ]]; then
     skip "tag and release existence (needs a target version)"
@@ -188,15 +240,7 @@ print(recipe.get('tag','').replace('{NEW}','$TARGET'))")
     if [[ -z $TAG ]]; then
         ok "recipe has no tag template — nothing to check"
     else
-        if [[ -n $(git tag -l "$TAG") ]]; then
-            block "local tag $TAG already exists"
-        elif [[ -n $(git ls-remote --tags origin "$TAG" 2>/dev/null) ]]; then
-            block "tag $TAG is already on the remote — people may have fetched it"
-        elif gh release view "$TAG" >/dev/null 2>&1; then
-            block "release $TAG is already published"
-        else
-            ok "$TAG is free — no local tag, no remote tag, no release"
-        fi
+        tag_status "$TAG"
     fi
 fi
 

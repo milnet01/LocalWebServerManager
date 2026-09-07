@@ -4814,13 +4814,26 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1265] **MEDIUM: the release pre-flight turns a failed tag query into an all-clear.**
+- ✅ [LWSM-1265] **MEDIUM: the release pre-flight turns a failed tag query into an all-clear.**
   scripts/local-release.sh:191-199. Both `git ls-remote --tags` and
   `gh release view` turn FAILURE into ABSENCE, then fall through to
   "$TAG is free - no local tag, no remote tag, no release". An unreachable
   remote (SSH agent not loaded) with a working gh gives a false all-clear and
   no SKIP, so the verdict can read READY - the one thing the file's own comment
   at :73-75 forbids. Fix: branch on exit status; non-zero is skip, not ok.
+  Resolved (2026-09-07): the three questions now branch on exit status,
+  in a `tag_status()` a test can run. An unreachable origin and a gh
+  that cannot reach the repository are each a SKIP, so the verdict
+  cannot read READY on a question nobody answered. `gh release view`
+  exits non-zero for an absent release and for an unusable gh alike, so
+  a second `gh release list` query separates them; having no origin at
+  all stays an ANSWER rather than a skip, since releases.md § 4 makes a
+  remote-less repository a legitimate state. This script had no tests
+  at all — the first four are in tests/test_local_release.py, with a
+  `gh` stub because both sides of that ambiguity have to be drivable,
+  and they include the all-clear case so a function that skipped
+  unconditionally would not satisfy them. Four mutants killed. Verified
+  against the live remote and a real gh too: `0.1.0` reports free.
   **Layman:** If the release script cannot reach the server it says the version number is free, instead of saying it could not check.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
@@ -5837,6 +5850,19 @@ mostly in the measurement behind it.
   **Layman:** Buttons that do not apply right now are switched off, but they look exactly the same as the ones that work.
   Kind: accessibility.
   Source: user-request-2026-09-06.
+
+- 📋 [LWSM-1303] **CLAUDE.md's test-file list has fallen behind the tests directory.**
+  Noticed while adding tests/test_local_release.py, which is why it is
+  filed rather than half-fixed: appending one name to a list already
+  missing several makes it no more trustworthy. Several test modules
+  present in tests/ appear nowhere in the § Module map "Tests:"
+  paragraph, and contrast.py is a helper it does not mention either.
+  Compare the directory against the paragraph and decide whether the
+  list should be exhaustive or should say it is not — an incomplete
+  list that reads as complete is the defect. Gates nothing.
+  **Layman:** The project notes list the test files, and that list no longer matches what is there.
+  Kind: doc-fix.
+  Source: in-session-2026-09-07.
 
 ### 🐛 Bug fixes
 
