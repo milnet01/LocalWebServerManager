@@ -177,3 +177,95 @@ def test_a_tag_that_exists_blocks(tmp_path) -> None:
 
     assert any(v.startswith("BLOCK") for v in verdicts), verdicts
     assert not any(v.startswith("OK") for v in verdicts), verdicts
+
+
+# --- LWSM-1264: the dry bump has to unwind from anywhere ----------------------
+
+
+def _bump_repo(tmp_path: Path, *, second_writable: bool) -> Path:
+    """Two version-bearing files and a recipe naming both, in that order."""
+    work = tmp_path / "bump"
+    work.mkdir()
+    _run("git", "init", "-q", ".", cwd=work)
+    (work / "first.txt").write_text('version = "0.1.0"\n')
+    (work / "second.txt").write_text('version = "0.1.0"\n')
+    (work / "recipe.json").write_text(
+        '{"version_source": "first.txt", "version_pattern": "x", "files": ['
+        '{"path": "first.txt", "pattern": "version = \\"{OLD}\\"",'
+        ' "replace": "version = \\"{NEW}\\""},'
+        '{"path": "second.txt", "pattern": "version = \\"{OLD}\\"",'
+        ' "replace": "version = \\"{NEW}\\""}]}'
+    )
+    _run("git", "add", "-A", cwd=work)
+    _run(
+        "git",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "-m",
+        "first",
+        cwd=work,
+    )
+    if not second_writable:
+        (work / "second.txt").chmod(0o444)
+    return work
+
+
+def _dry_bump(repo: Path) -> subprocess.CompletedProcess[str]:
+    body = re.search(r"^dry_bump\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M)
+    assert body, "the release script has no dry_bump() to run"
+
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    script = (
+        "set -Eeuo pipefail\n"
+        'fail() { printf "FAILED %s\\n" "$1" >&2; exit 1; }\n'
+        "trap 'fail \"dry bump\"' ERR\n"
+        'block() { printf "BLOCK %s\\n" "$1"; }\n'
+        'skip()  { printf "SKIP %s\\n" "$1"; }\n'
+        'ok()    { printf "OK %s\\n" "$1"; }\n'
+        f"{body.group(0)}\n"
+        "dry_bump 0.1.0 0.2.0 recipe.json"
+    )
+    return subprocess.run(
+        [bash, "-c", script], cwd=repo, capture_output=True, text=True, check=False
+    )
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores the read-only bit")
+def test_a_write_that_fails_part_way_still_puts_the_tree_back(tmp_path) -> None:
+    """The write loop runs under the ERR trap (LWSM-1264).
+
+    A failure on the second of two files leaves through `fail`, so a revert
+    placed after the loop never runs and the first file stays bumped — a
+    half-applied version, which is the one state a dry run must never leave
+    behind. Armed on EXIT before the first write, it unwinds from anywhere.
+    """
+    repo = _bump_repo(tmp_path, second_writable=False)
+
+    done = _dry_bump(repo)
+
+    assert done.returncode != 0, "an unwritable file was not reported at all"
+    assert (repo / "first.txt").read_text() == 'version = "0.1.0"\n', (
+        "the tree was left half-bumped"
+    )
+
+
+def test_a_successful_dry_bump_reverts_and_says_so(tmp_path) -> None:
+    """The other half: the normal path must still revert and report.
+
+    Without this, a `dry_bump` that failed before writing anything would
+    satisfy the test above.
+    """
+    repo = _bump_repo(tmp_path, second_writable=True)
+
+    done = _dry_bump(repo)
+
+    assert done.returncode == 0, done.stderr
+    assert "bumped first.txt" in done.stdout, done.stdout
+    assert "OK reverted 2 file(s) to 0.1.0" in done.stdout, done.stdout
+    for name in ("first.txt", "second.txt"):
+        assert (repo / name).read_text() == 'version = "0.1.0"\n', name

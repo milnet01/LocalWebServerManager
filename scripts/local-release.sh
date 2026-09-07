@@ -330,13 +330,31 @@ fi
 
 # --- optional: prove the bump applies and post_check passes ------------------
 
-if ((DRY_BUMP)); then
-    step "Dry bump (writes, then reverts)"
-    if ((TREE_CLEAN == 0)); then
-        fail "--dry-bump refuses on a dirty tree: the revert is a git checkout, and it would destroy the uncommitted work listed above"
-    fi
-    [[ -n $TARGET ]] || fail "--dry-bump needs a target version"
-    python3 - "$RECIPE" "$OLD" "$TARGET" <<'PY'
+# Apply the recipe's bump, run its post_check, and ALWAYS put the tree back.
+#
+# The revert is armed on EXIT before the first write (LWSM-1264). The write loop
+# runs under the ERR trap, so a failure part way through — an unwritable file, a
+# recipe path that has moved — leaves through `fail` and never reaches a revert
+# placed after it, leaving the tree half-bumped: the exact state this exercise
+# exists to avoid. A Ctrl-C unwinds the same way. The reasoning below about
+# post_check was already right and covered one of the two windows.
+#
+# BUMPED_PATHS is global rather than `local`, and the reason is narrower than it
+# looks: measured 2026-09-07, bash still sees a function's locals in an EXIT
+# trap that fires from inside it, so `local` passes every test here. What it
+# would not survive is the trap firing after this function has been left, where
+# the name is gone and `set -u` turns the expansion into an error inside a trap
+# — which nothing reports.
+dry_bump() {
+    local old=$1 new=$2 recipe=$3 post_check bump_failed=0
+
+    # Revert only the recipe's own paths, never `git checkout -- .`.
+    mapfile -t BUMPED_PATHS < <(python3 -c "
+import json
+for e in json.loads(open('$recipe').read())['files']: print(e['path'])")
+    trap 'git checkout -- "${BUMPED_PATHS[@]}" 2>/dev/null || true' EXIT
+
+    python3 - "$recipe" "$old" "$new" <<'PY'
 import json, sys
 recipe = json.loads(open(sys.argv[1]).read())
 old, new = sys.argv[2], sys.argv[3]
@@ -348,14 +366,12 @@ for entry in recipe["files"]:
     open(path, "w").write(text.replace(pattern, replace, 1))
     print(f"  bumped {path}")
 PY
+
     post_check=$(python3 -c "
 import json
-print(json.loads(open('$RECIPE').read()).get('post_check',''))")
-    bump_failed=0
+print(json.loads(open('$recipe').read()).get('post_check',''))")
     if [[ -n $post_check ]]; then
-        # Not under the ERR trap: the revert below MUST run even when this
-        # fails, or the preflight leaves the tree bumped — the exact
-        # half-applied state the whole exercise exists to avoid.
+        # Not under the ERR trap: the revert MUST run even when this fails.
         if eval "$post_check"; then
             ok "post_check passed on the bumped tree"
         else
@@ -364,13 +380,24 @@ print(json.loads(open('$RECIPE').read()).get('post_check',''))")
     else
         skip "post_check (the recipe defines none)"
     fi
-    # Revert only the recipe's own paths, never `git checkout -- .`.
-    mapfile -t paths < <(python3 -c "
-import json
-for e in json.loads(open('$RECIPE').read())['files']: print(e['path'])")
-    git checkout -- "${paths[@]}"
-    ok "reverted ${#paths[@]} file(s) to $OLD"
-    ((bump_failed == 0)) || block "post_check failed on the bumped tree"
+
+    git checkout -- "${BUMPED_PATHS[@]}"
+    trap - EXIT
+    ok "reverted ${#BUMPED_PATHS[@]} file(s) to $old"
+
+    if ((bump_failed)); then
+        block "post_check failed on the bumped tree"
+    fi
+    return 0
+}
+
+if ((DRY_BUMP)); then
+    step "Dry bump (writes, then reverts)"
+    if ((TREE_CLEAN == 0)); then
+        fail "--dry-bump refuses on a dirty tree: the revert is a git checkout, and it would destroy the uncommitted work listed above"
+    fi
+    [[ -n $TARGET ]] || fail "--dry-bump needs a target version"
+    dry_bump "$OLD" "$TARGET" "$RECIPE"
 fi
 
 # --- verdict -----------------------------------------------------------------

@@ -4803,13 +4803,26 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 13.
 
-- 📋 [LWSM-1264] **MEDIUM: the --dry-bump write loop runs under the ERR trap, so a mid-loop failure leaves the tree half-bumped.**
+- ✅ [LWSM-1264] **MEDIUM: the --dry-bump write loop runs under the ERR trap, so a mid-loop failure leaves the tree half-bumped.**
   scripts/local-release.sh:295-306. If the write fails on the third of four
   files, fail exits 1 and the revert at :327 never runs. The author reasoned
   about exactly this for post_check ("Not under the ERR trap: the revert below
   MUST run even when this fails", :312-314) and covered one of the two windows.
   Fix: record the bumped paths and revert from a trap ... EXIT armed before the
   first write, so an exception or a Ctrl-C also unwinds.
+  Resolved (2026-09-07): the revert is armed on EXIT before the first
+  write, so a failure inside the write loop, an unwritable file or a
+  Ctrl-C all unwind. The block moved into `dry_bump()` so a test can
+  run it, the third function extracted for that reason this session.
+  Two tests: an unwritable second file must leave the first unbumped,
+  and the ordinary path must still revert and report — without the
+  second, a `dry_bump` that failed before writing anything would pass
+  the first. Three mutants: two killed, and the third earned its keep
+  by surviving. It made the path list `local`, which the comment said
+  could not work; measured, bash does still see a function's locals in
+  an EXIT trap firing from inside it, so the comment was wrong and is
+  corrected rather than kept. The list stays global for the narrower
+  case the tests do not reach.
   **Layman:** The release dry-run can fail part way through and leave version numbers half-changed.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
