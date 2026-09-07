@@ -4899,7 +4899,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1268] **MEDIUM: the release script counts workflow triggers and then prints an unconditional sentence about them.**
+- ✅ [LWSM-1268] **MEDIUM: the release script counts workflow triggers and then prints an unconditional sentence about them.**
   scripts/local-release.sh:279-285 counts the PRESENCE of trigger keys, then
   prints "$runs workflow run(s) would fire: no tag trigger and no release
   trigger means the release commit's push is the only one". The number and the
@@ -4907,6 +4907,17 @@ has been applied yet — every item in this section is open.
   would fire: no tag trigger". Also `^\s+release:` matches a JOB named release.
   Fix: derive the sentence from runs, or block when a tag/release trigger
   appears.
+  Resolved (2026-09-07): the count is gone rather than repaired. It
+  tallied trigger KEYS and was never a number of runs, so a sentence
+  derived from it would still have been wrong; what the reader needs is
+  which triggers exist. `release_triggers()` names them and the
+  sentence follows from that, so adding a `tags:` trigger changes both
+  together. The search is scoped to the `on:` block by awk, which is
+  what stops a JOB named `release` reading as a release trigger. Three
+  tests — a job named release, a real tag trigger, and this project's
+  own push-only shape so the reassuring sentence stays earned. Three
+  mutants killed, including one restoring the whole-file grep. Live
+  run: "release-relevant triggers declared: branch push".
   **Layman:** The release check will claim no tag trigger exists even after someone adds one.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.

@@ -314,18 +314,55 @@ fi
 
 # --- 0g: what a release would cost -------------------------------------------
 
+# Which release-relevant triggers the workflows in `$1` DECLARE, comma-joined,
+# empty for none.
+#
+# The `on:` block only. Grepping whole files counts a JOB named `release` as a
+# release trigger, and a job may legitimately be called that (LWSM-1268).
+#
+# No count is emitted. The old line printed a tally of trigger keys and then a
+# fixed sentence saying there was no tag or release trigger — so adding one
+# moved the number and left the words denying it. What the caller needs is which
+# triggers exist, and the sentence is now derived from that.
+release_triggers() {
+    local dir=$1 on_block found=""
+
+    on_block=$(awk '
+        FNR == 1 { inside = 0 }
+        /^on:/ { inside = 1; next }
+        /^[^[:space:]]/ { inside = 0 }
+        inside
+    ' "$dir"/*.yml 2>/dev/null || true)
+
+    if grep -qE '^[[:space:]]+branches:' <<<"$on_block"; then
+        found="branch push"
+    fi
+    if grep -qE '^[[:space:]]+tags:' <<<"$on_block"; then
+        found="${found:+$found, }tag push"
+    fi
+    if grep -qE '^[[:space:]]+release:' <<<"$on_block"; then
+        found="${found:+$found, }release published"
+    fi
+
+    printf '%s' "$found"
+    return 0
+}
+
 step "0g  Visibility and CI cost"
 VISIBILITY=$(gh repo view --json visibility -q .visibility 2>/dev/null || true)
 if [[ -z $VISIBILITY ]]; then
     skip "visibility (no gh, no remote, or not authenticated)"
 else
     ok "$VISIBILITY"
-    runs=0
-    grep -qE '^\s+branches:' .github/workflows/*.yml && runs=$((runs + 1))
-    grep -qE '^\s+tags:' .github/workflows/*.yml && runs=$((runs + 1))
-    grep -qE '^\s+release:' .github/workflows/*.yml && runs=$((runs + 1))
-    ok "$runs workflow run(s) would fire: no tag trigger and no release trigger means"
-    ok "the release commit's push is the only one"
+    triggers=$(release_triggers .github/workflows)
+    ok "release-relevant triggers declared: ${triggers:-none}"
+    if [[ $triggers == *"tag push"* || $triggers == *"release published"* ]]; then
+        ok "the tag push or the published release fires a run of its own, on top"
+        ok "of the release commit's push"
+    else
+        ok "no tag trigger and no release trigger, so the release commit's push"
+        ok "is the only run"
+    fi
 fi
 
 # --- optional: prove the bump applies and post_check passes ------------------

@@ -269,3 +269,93 @@ def test_a_successful_dry_bump_reverts_and_says_so(tmp_path) -> None:
     assert "OK reverted 2 file(s) to 0.1.0" in done.stdout, done.stdout
     for name in ("first.txt", "second.txt"):
         assert (repo / name).read_text() == 'version = "0.1.0"\n', name
+
+
+# --- LWSM-1268: the trigger list and the sentence about it -------------------
+
+
+WORKFLOW_PUSH_ONLY = """\
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+"""
+
+WORKFLOW_WITH_TAGS = """\
+name: CI
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+"""
+
+WORKFLOW_JOB_NAMED_RELEASE = """\
+name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+"""
+
+
+def _release_triggers(tmp_path: Path, workflow: str) -> str:
+    body = re.search(
+        r"^release_triggers\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M
+    )
+    assert body, "the release script has no release_triggers() to run"
+
+    workflows = tmp_path / "workflows"
+    workflows.mkdir(exist_ok=True)
+    (workflows / "ci.yml").write_text(workflow)
+
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    done = subprocess.run(
+        [
+            bash,
+            "-c",
+            f'set -Eeuo pipefail\n{body.group(0)}\nrelease_triggers "$1"',
+            "_",
+            str(workflows),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout
+
+
+def test_a_job_named_release_is_not_a_release_trigger(tmp_path) -> None:
+    """`^\\s+release:` matches a JOB called release (LWSM-1268).
+
+    A job may legitimately be named that, and reading it as a trigger tells the
+    author a release will cost a CI run it will not cost. Only the `on:` block
+    answers the question being asked.
+    """
+    assert "release" not in _release_triggers(tmp_path, WORKFLOW_JOB_NAMED_RELEASE)
+
+
+def test_a_tag_trigger_is_reported_once_it_exists(tmp_path) -> None:
+    """The count and the sentence were unrelated: adding a `tags:` trigger
+    moved the number and left the words saying there was no tag trigger."""
+    assert "tag push" in _release_triggers(tmp_path, WORKFLOW_WITH_TAGS)
+
+
+def test_a_push_only_workflow_declares_no_tag_or_release_trigger(tmp_path) -> None:
+    """This project's own shape, so the reassuring sentence is still earned."""
+    triggers = _release_triggers(tmp_path, WORKFLOW_PUSH_ONLY)
+
+    assert "branch push" in triggers
+    assert "tag push" not in triggers
+    assert "release published" not in triggers
