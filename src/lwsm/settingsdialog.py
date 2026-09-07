@@ -55,7 +55,9 @@ from lwsm.settings import (
     MIN_POLL_INTERVAL_MS,
 )
 
-_TR_CONTEXT = "SettingsDialog"
+# Every user-visible string here goes through the one context "SettingsDialog",
+# repeated as a literal because `pyside6-lupdate` skips a call whose context is
+# not one — see mainwindow.py's note (LWSM-1304).
 
 # The spinbox step for the poll interval. A quarter of a second, so the arrows
 # walk the range in a sane number of presses rather than one millisecond at a
@@ -170,24 +172,24 @@ class SettingsDialog(QDialog):
         keyboard-reachable without a mouse: Alt+S lands in the list, Alt+P and
         Alt+L in the two spinboxes.
         """
-        self.setWindowTitle(QCoreApplication.translate(_TR_CONTEXT, "Preferences"))
+        self.setWindowTitle(QCoreApplication.translate("SettingsDialog", "Preferences"))
         self._roots_label.setText(
-            QCoreApplication.translate(_TR_CONTEXT, "&Scan these folders:")
+            QCoreApplication.translate("SettingsDialog", "&Scan these folders:")
         )
         self._poll_label.setText(
-            QCoreApplication.translate(_TR_CONTEXT, "Check &how often:")
+            QCoreApplication.translate("SettingsDialog", "Check &how often:")
         )
         self._log_label.setText(
-            QCoreApplication.translate(_TR_CONTEXT, "Keep at most this much &log:")
+            QCoreApplication.translate("SettingsDialog", "Keep at most this much &log:")
         )
-        self._add.setText(QCoreApplication.translate(_TR_CONTEXT, "&Add..."))
-        self._remove.setText(QCoreApplication.translate(_TR_CONTEXT, "&Remove"))
+        self._add.setText(QCoreApplication.translate("SettingsDialog", "&Add..."))
+        self._remove.setText(QCoreApplication.translate("SettingsDialog", "&Remove"))
         # A suffix rather than a unit baked into the label, so the value and
         # its unit are announced together by a screen reader.
-        self._poll.setSuffix(QCoreApplication.translate(_TR_CONTEXT, " ms"))
-        self._log.setSuffix(QCoreApplication.translate(_TR_CONTEXT, " MiB"))
+        self._poll.setSuffix(QCoreApplication.translate("SettingsDialog", " ms"))
+        self._log.setSuffix(QCoreApplication.translate("SettingsDialog", " MiB"))
         self._roots.setAccessibleName(
-            QCoreApplication.translate(_TR_CONTEXT, "Folders to scan for projects")
+            QCoreApplication.translate("SettingsDialog", "Folders to scan for projects")
         )
 
     def changeEvent(self, event: QEvent) -> None:
@@ -198,7 +200,8 @@ class SettingsDialog(QDialog):
     def _pick_directory(self) -> str | None:
         """The real folder chooser, used whenever nothing was injected."""
         chosen = QFileDialog.getExistingDirectory(
-            self, QCoreApplication.translate(_TR_CONTEXT, "Choose a folder to scan")
+            self,
+            QCoreApplication.translate("SettingsDialog", "Choose a folder to scan"),
         )
         return chosen or None
 

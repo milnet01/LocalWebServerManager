@@ -164,12 +164,20 @@ STATE_GLYPHS = {
 }
 
 
-# Every user-visible string in this file goes through this context, so a future
-# translator has one place to look (LWSM-1081, `coding.md § 5.2`). Deliberately
-# NOT applied to log messages, which are read by whoever is debugging and want
-# to match the source, nor to the argparse text in __main__ — translating that
-# needs Qt imported before argparse runs, which INV-14 forbids.
-_TR_CONTEXT = "ProjectRow"
+# Every user-visible string in this file goes through the one context
+# "ProjectRow", so a future translator has one place to look (LWSM-1081,
+# `coding.md § 5.2`). Deliberately NOT applied to log messages, which are read
+# by whoever is debugging and want to match the source, nor to the argparse text
+# in __main__ — translating that needs Qt imported before argparse runs, which
+# INV-14 forbids.
+#
+# The context is REPEATED as a literal rather than held in a `_TR_CONTEXT`
+# constant, which is what it was until LWSM-1304. `pyside6-lupdate` skips any
+# call whose context is not a string literal, so the constant made every string
+# in this file invisible to the extractor — measured at "Found 0 source
+# text(s)". Naming it once was worth less than the strings being extractable at
+# all, and `test_every_translated_string_uses_one_context` holds the one-context
+# rule the constant used to hold by construction.
 
 # The trust prompt's placeholders, matched so all three can be substituted on
 # one pass (LWSM-1181). Sequential `.replace` calls let the first value land in
@@ -252,11 +260,11 @@ def state_word(status: ProjectStatus) -> str:
     own value (LWSM-1082).
     """
     return {
-        ProjectStatus.RUNNING: QCoreApplication.translate(_TR_CONTEXT, "running"),
-        ProjectStatus.STOPPED: QCoreApplication.translate(_TR_CONTEXT, "stopped"),
-        ProjectStatus.UNKNOWN: QCoreApplication.translate(_TR_CONTEXT, "unknown"),
-        ProjectStatus.STARTING: QCoreApplication.translate(_TR_CONTEXT, "starting"),
-        ProjectStatus.STOPPING: QCoreApplication.translate(_TR_CONTEXT, "stopping"),
+        ProjectStatus.RUNNING: QCoreApplication.translate("ProjectRow", "running"),
+        ProjectStatus.STOPPED: QCoreApplication.translate("ProjectRow", "stopped"),
+        ProjectStatus.UNKNOWN: QCoreApplication.translate("ProjectRow", "unknown"),
+        ProjectStatus.STARTING: QCoreApplication.translate("ProjectRow", "starting"),
+        ProjectStatus.STOPPING: QCoreApplication.translate("ProjectRow", "stopping"),
     }.get(status, str(status))
 
 
@@ -267,14 +275,14 @@ def port_text(effective_port: int | None) -> str:
     number leaves a listener with something unlabelled.
     """
     if effective_port is None:
-        return QCoreApplication.translate(_TR_CONTEXT, "no port")
+        return QCoreApplication.translate("ProjectRow", "no port")
     # Qt's own %1 placeholder, substituted with str.replace rather than
     # str.format. A translation is data from outside the program: one that
     # dropped or misspelled a `{port}` field would raise KeyError or IndexError
     # here, inside a signal handler, which is the LWSM-1082 crash class
     # arriving by a new route. `replace` cannot raise whatever comes back — a
     # bad translation loses the number instead of taking the window down.
-    return QCoreApplication.translate(_TR_CONTEXT, "port %1").replace(
+    return QCoreApplication.translate("ProjectRow", "port %1").replace(
         "%1", str(effective_port)
     )
 
@@ -285,7 +293,7 @@ def hidden_name(name: str) -> str:
     Translated at call time like every other cell, so a language change reaches
     a row that already exists (LWSM-1107).
     """
-    return QCoreApplication.translate(_TR_CONTEXT, "%1 (hidden)").replace("%1", name)
+    return QCoreApplication.translate("ProjectRow", "%1 (hidden)").replace("%1", name)
 
 
 def project_url(port: int) -> QUrl:
@@ -355,7 +363,7 @@ def _merge_parts(counts: dict[str, int]) -> list[str]:
     """
 
     parts = [
-        QCoreApplication.translate(_TR_CONTEXT, template).replace("%1", str(count))
+        QCoreApplication.translate("ProjectRow", template).replace("%1", str(count))
         for outcome, template in (
             (registry.NEW, "%1 new"),
             (registry.CHANGED, "%1 changed"),
@@ -384,8 +392,8 @@ def summarise_merge(counts: dict[str, int]) -> str:
     """
     parts = _merge_parts(counts)
     if not parts:
-        return QCoreApplication.translate(_TR_CONTEXT, "Rescan: no changes")
-    return QCoreApplication.translate(_TR_CONTEXT, "Rescan: %1").replace(
+        return QCoreApplication.translate("ProjectRow", "Rescan: no changes")
+    return QCoreApplication.translate("ProjectRow", "Rescan: %1").replace(
         "%1", ", ".join(parts)
     )
 
@@ -399,8 +407,8 @@ def summarise_import(counts: dict[str, int]) -> str:
     """
     parts = _merge_parts(counts)
     if not parts:
-        return QCoreApplication.translate(_TR_CONTEXT, "Import: no changes")
-    return QCoreApplication.translate(_TR_CONTEXT, "Import: %1").replace(
+        return QCoreApplication.translate("ProjectRow", "Import: no changes")
+    return QCoreApplication.translate("ProjectRow", "Import: %1").replace(
         "%1", ", ".join(parts)
     )
 
@@ -988,10 +996,10 @@ class ProjectRow(QFrame):
         pre-flight check with a reason, while stopping something nobody has
         observed has nothing to signal.
         """
-        self.start_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Start"))
-        self.stop_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Stop"))
-        self.restart_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Restart"))
-        self.open_button.setText(QCoreApplication.translate(_TR_CONTEXT, "Open"))
+        self.start_button.setText(QCoreApplication.translate("ProjectRow", "Start"))
+        self.stop_button.setText(QCoreApplication.translate("ProjectRow", "Stop"))
+        self.restart_button.setText(QCoreApplication.translate("ProjectRow", "Restart"))
+        self.open_button.setText(QCoreApplication.translate("ProjectRow", "Open"))
         status = row.status
         in_transition = status in (ProjectStatus.STARTING, ProjectStatus.STOPPING)
         running = status is ProjectStatus.RUNNING
@@ -1058,7 +1066,7 @@ class ProjectRow(QFrame):
         for gated in (self.stop_button, self.restart_button, self.open_button):
             gated.setToolTip(
                 QCoreApplication.translate(
-                    _TR_CONTEXT,
+                    "ProjectRow",
                     "%1 is running, but this manager did not start it. You will "
                     "be shown what is holding the port before anything happens.",
                 ).replace("%1", self._name_display)
@@ -1077,7 +1085,7 @@ class ProjectRow(QFrame):
                 # `_name_display`, never the label: since LWSM-1174 the label
                 # holds an ELIDED name, and "Start customer-dash…" is not a
                 # control anybody can identify by ear.
-                QCoreApplication.translate(_TR_CONTEXT, verb).replace(
+                QCoreApplication.translate("ProjectRow", verb).replace(
                     "%1", self._name_display
                 )
             )
@@ -1182,9 +1190,9 @@ class ProjectRow(QFrame):
         self._name_display = hidden_name(row.name) if row.hidden else row.name
         self._elide_name()
         self.hide_action.setText(
-            QCoreApplication.translate(_TR_CONTEXT, "&Show this project")
+            QCoreApplication.translate("ProjectRow", "&Show this project")
             if row.hidden
-            else QCoreApplication.translate(_TR_CONTEXT, "&Hide this project")
+            else QCoreApplication.translate("ProjectRow", "&Hide this project")
         )
         self._port.setText(port_text(row.effective_port))
 
@@ -1195,7 +1203,7 @@ class ProjectRow(QFrame):
         # disk activity was noticed.
         with QSignalBlocker(self.browser_box):
             self.browser_box.setItemText(
-                0, QCoreApplication.translate(_TR_CONTEXT, "Default browser")
+                0, QCoreApplication.translate("ProjectRow", "Default browser")
             )
             index = self.browser_box.findData(row.browser or "")
             # -1 means the stored browser is not installed any more. Fall back to
@@ -1209,7 +1217,7 @@ class ProjectRow(QFrame):
         # takes focus.
         self.browser_box.setAccessibleName(
             # The full name, for the buttons' reason above.
-            QCoreApplication.translate(_TR_CONTEXT, "Browser for %1").replace(
+            QCoreApplication.translate("ProjectRow", "Browser for %1").replace(
                 "%1", self._name_display
             )
         )
@@ -1495,7 +1503,7 @@ class MainWindow(QMainWindow):
         # `self.tr(...)` — tr resolves under the *class*, so this string landed
         # in "MainWindow" (and Qt then walked QMainWindow, QWidget, QObject and
         # QPaintDevice looking for it) while every other string in this file is
-        # in `_TR_CONTEXT`. § 4.4 asks for one place for a translator to look.
+        # in `"ProjectRow"`. § 4.4 asks for one place for a translator to look.
         self.setWindowTitle(self._window_title())
         # On the APPLICATION, not on `self`. `setStyleSheet` below installs
         # QStyleSheetStyle, and that re-resolves every descendant's palette from
@@ -1851,7 +1859,7 @@ class MainWindow(QMainWindow):
             if remember:
                 self.set_status_message(
                     QCoreApplication.translate(
-                        _TR_CONTEXT,
+                        "ProjectRow",
                         "The text size cannot be changed on this desktop",
                     )
                 )
@@ -1870,7 +1878,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "The text size could not be saved: %1"
+                    "ProjectRow", "The text size could not be saved: %1"
                 ).replace("%1", str(exc))
             )
 
@@ -1879,30 +1887,30 @@ class MainWindow(QMainWindow):
         `self.tr(...)`, which resolves under the *class* (LWSM-1107). The `&`
         stays inside the translated string so a translator can move the
         mnemonic to a letter that exists in their language."""
-        self._file_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&File"))
+        self._file_menu.setTitle(QCoreApplication.translate("ProjectRow", "&File"))
         if self._rescan_action is not None:
             self._rescan_action.setText(
-                QCoreApplication.translate(_TR_CONTEXT, "&Rescan projects")
+                QCoreApplication.translate("ProjectRow", "&Rescan projects")
             )
         if self._export_action is not None:
             self._export_action.setText(
-                QCoreApplication.translate(_TR_CONTEXT, "&Export profile...")
+                QCoreApplication.translate("ProjectRow", "&Export profile...")
             )
         if self._import_action is not None:
             self._import_action.setText(
-                QCoreApplication.translate(_TR_CONTEXT, "&Import profile...")
+                QCoreApplication.translate("ProjectRow", "&Import profile...")
             )
-        self._quit_action.setText(QCoreApplication.translate(_TR_CONTEXT, "&Quit"))
-        self._view_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&View"))
+        self._quit_action.setText(QCoreApplication.translate("ProjectRow", "&Quit"))
+        self._view_menu.setTitle(QCoreApplication.translate("ProjectRow", "&View"))
         # The disabled entry says so in its own label, not only in the tooltip
         # below it: `design-accessibility.md` puts nothing important behind a
         # hover, which cannot be discovered by keyboard and is easy to miss at
         # magnification. The label carries the fact, the tooltip the detail.
         self._centre_action.setText(
-            QCoreApplication.translate(_TR_CONTEXT, "&Centre on screen")
+            QCoreApplication.translate("ProjectRow", "&Centre on screen")
             if self._centre_action.isEnabled()
             else QCoreApplication.translate(
-                _TR_CONTEXT, "&Centre on screen (unavailable on this desktop)"
+                "ProjectRow", "&Centre on screen (unavailable on this desktop)"
             )
         )
         # Only the disabled case gets an explanation — the whole point of it is
@@ -1919,33 +1927,33 @@ class MainWindow(QMainWindow):
             self._centre_action.text().replace("&", "")
             if self._centre_action.isEnabled()
             else QCoreApplication.translate(
-                _TR_CONTEXT,
+                "ProjectRow",
                 "This desktop does not let an application place its own "
                 "window, and KDE's window manager could not be reached.",
             )
         )
         self._show_hidden_action.setText(
-            QCoreApplication.translate(_TR_CONTEXT, "Show &hidden projects")
+            QCoreApplication.translate("ProjectRow", "Show &hidden projects")
         )
         self._settings_menu.setTitle(
-            QCoreApplication.translate(_TR_CONTEXT, "&Settings")
+            QCoreApplication.translate("ProjectRow", "&Settings")
         )
         # The submenu's TITLE is translated; the entries inside it are theme
         # labels, which are data and are not.
-        self._theme_menu.setTitle(QCoreApplication.translate(_TR_CONTEXT, "&Theme"))
+        self._theme_menu.setTitle(QCoreApplication.translate("ProjectRow", "&Theme"))
         # Set here rather than at construction, so `LanguageChange` has one
         # place to go — the rule every other menu label in this method follows.
         # Translated, where the palette names below it are not: this one names
         # a behaviour, not a palette.
         self._theme_actions[FOLLOW_SYSTEM].setText(
-            QCoreApplication.translate(_TR_CONTEXT, "&Follow system")
+            QCoreApplication.translate("ProjectRow", "&Follow system")
         )
         # These entries ARE translated, unlike the theme labels beside them:
         # a percentage is written differently in different locales, and the
         # placeholder is what lets a translator move the sign to the other side
         # of the number.
         self._text_size_menu.setTitle(
-            QCoreApplication.translate(_TR_CONTEXT, "Te&xt size")
+            QCoreApplication.translate("ProjectRow", "Te&xt size")
         )
         for percent, action in self._text_size_actions.items():
             # Qt's own %1 with `str.replace`, never `str.format` — `port_text`
@@ -1955,12 +1963,12 @@ class MainWindow(QMainWindow):
             # out of `changeEvent`, which left every window in the process
             # half-retranslated. The rule is the file's, not that function's.
             action.setText(
-                QCoreApplication.translate(_TR_CONTEXT, "%1 %").replace(
+                QCoreApplication.translate("ProjectRow", "%1 %").replace(
                     "%1", str(percent)
                 )
             )
         self._settings_action.setText(
-            QCoreApplication.translate(_TR_CONTEXT, "&Preferences...")
+            QCoreApplication.translate("ProjectRow", "&Preferences...")
         )
 
     def _resolved_theme_id(self, theme_id: str) -> str:
@@ -2036,7 +2044,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "The theme could not be saved: %1"
+                    "ProjectRow", "The theme could not be saved: %1"
                 ).replace("%1", str(exc))
             )
 
@@ -2053,16 +2061,16 @@ class MainWindow(QMainWindow):
         about why. The status bar is already this window's notice channel.
         """
         self.set_status_message(
-            QCoreApplication.translate(_TR_CONTEXT, "Settings are not available yet.")
+            QCoreApplication.translate("ProjectRow", "Settings are not available yet.")
         )
 
     def _pick_profile_to_save(self) -> str | None:
         """The real Save dialog. Injected past in every test."""
         chosen, _filter = QFileDialog.getSaveFileName(
             self,
-            QCoreApplication.translate(_TR_CONTEXT, "Export profile"),
+            QCoreApplication.translate("ProjectRow", "Export profile"),
             "lwsm-profile.json",
-            QCoreApplication.translate(_TR_CONTEXT, "Profiles (*.json)"),
+            QCoreApplication.translate("ProjectRow", "Profiles (*.json)"),
         )
         return chosen or None
 
@@ -2070,9 +2078,9 @@ class MainWindow(QMainWindow):
         """The real Open dialog. Injected past in every test."""
         chosen, _filter = QFileDialog.getOpenFileName(
             self,
-            QCoreApplication.translate(_TR_CONTEXT, "Import profile"),
+            QCoreApplication.translate("ProjectRow", "Import profile"),
             "",
-            QCoreApplication.translate(_TR_CONTEXT, "Profiles (*.json)"),
+            QCoreApplication.translate("ProjectRow", "Profiles (*.json)"),
         )
         return chosen or None
 
@@ -2091,12 +2099,12 @@ class MainWindow(QMainWindow):
             log.warning("the profile could not be exported: %s", exc)
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "Profile not saved: %1"
+                    "ProjectRow", "Profile not saved: %1"
                 ).replace("%1", str(exc))
             )
             return
         self.set_status_message(
-            QCoreApplication.translate(_TR_CONTEXT, "Profile saved to %1").replace(
+            QCoreApplication.translate("ProjectRow", "Profile saved to %1").replace(
                 "%1", chosen
             )
         )
@@ -2139,7 +2147,7 @@ class MainWindow(QMainWindow):
     def _refuse_import(self, detail: str) -> None:
         log.warning("the profile could not be imported: %s", detail)
         self.set_status_message(
-            QCoreApplication.translate(_TR_CONTEXT, "Profile not loaded: %1").replace(
+            QCoreApplication.translate("ProjectRow", "Profile not loaded: %1").replace(
                 "%1", detail
             )
         )
@@ -2204,10 +2212,10 @@ class MainWindow(QMainWindow):
         `setAccessibleName("")` trap from the other direction.
         """
         self._filter.setPlaceholderText(
-            QCoreApplication.translate(_TR_CONTEXT, "Filter…")
+            QCoreApplication.translate("ProjectRow", "Filter…")
         )
         self._filter.setAccessibleName(
-            QCoreApplication.translate(_TR_CONTEXT, "Filter projects by name")
+            QCoreApplication.translate("ProjectRow", "Filter projects by name")
         )
         if self._rescan_button is not None:
             self._rescan_button.setText(self._rescan_label())
@@ -2346,7 +2354,7 @@ class MainWindow(QMainWindow):
         string, so the version survives a language switch.
         """
         return QCoreApplication.translate(
-            _TR_CONTEXT, "Local Web Server Manager %1"
+            "ProjectRow", "Local Web Server Manager %1"
         ).replace("%1", __version__)
 
     @staticmethod
@@ -2362,7 +2370,7 @@ class MainWindow(QMainWindow):
         first = notices[0]
         if len(notices) == 1:
             return first
-        extra = QCoreApplication.translate(_TR_CONTEXT, " (+%1 more)").replace(
+        extra = QCoreApplication.translate("ProjectRow", " (+%1 more)").replace(
             "%1", str(len(notices) - 1)
         )
         return f"{first}{extra}"
@@ -2444,12 +2452,12 @@ class MainWindow(QMainWindow):
         translatable.
         """
         wording = {
-            "start": QCoreApplication.translate(_TR_CONTEXT, "%1 started"),
-            "stop": QCoreApplication.translate(_TR_CONTEXT, "%1 stopped"),
-            "restart": QCoreApplication.translate(_TR_CONTEXT, "%1 restarted"),
+            "start": QCoreApplication.translate("ProjectRow", "%1 started"),
+            "stop": QCoreApplication.translate("ProjectRow", "%1 stopped"),
+            "restart": QCoreApplication.translate("ProjectRow", "%1 restarted"),
         }
         template = wording.get(
-            verb, QCoreApplication.translate(_TR_CONTEXT, "%1: %2 finished")
+            verb, QCoreApplication.translate("ProjectRow", "%1: %2 finished")
         )
         self.set_status_message(_filled(template, path.name, verb))
 
@@ -2505,7 +2513,7 @@ class MainWindow(QMainWindow):
         box.setIcon(QMessageBox.Icon.Warning)
         box.setTextFormat(Qt.TextFormat.PlainText)
         box.setWindowTitle(
-            QCoreApplication.translate(_TR_CONTEXT, "Run this launcher?")
+            QCoreApplication.translate("ProjectRow", "Run this launcher?")
         )
         fields = {
             "%1": project.name,
@@ -2516,7 +2524,7 @@ class MainWindow(QMainWindow):
             _TRUST_FIELD.sub(
                 lambda match: _no_layout_forgery(fields[match.group()]),
                 QCoreApplication.translate(
-                    _TR_CONTEXT,
+                    "ProjectRow",
                     "%1 has not been run from here before.\n\n"
                     "This will execute:\n%2\n\nwith arguments:\n%3",
                 ),
@@ -2546,7 +2554,7 @@ class MainWindow(QMainWindow):
             # to it granted trust with the fingerprint defaulted to "".
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT,
+                    "ProjectRow",
                     "%1 was not started: there is no launcher to show you",
                 ).replace("%1", project.name)
             )
@@ -2555,7 +2563,7 @@ class MainWindow(QMainWindow):
             self._controller.confirm_and_start(project, fingerprint)
         else:
             self.set_status_message(
-                QCoreApplication.translate(_TR_CONTEXT, "%1 was not started").replace(
+                QCoreApplication.translate("ProjectRow", "%1 was not started").replace(
                     "%1", project.name
                 )
             )
@@ -2578,7 +2586,7 @@ class MainWindow(QMainWindow):
         unit = getattr(holder, "unit", None)
         fields = {
             "%1": project.name,
-            "%2": unit or QCoreApplication.translate(_TR_CONTEXT, "(not a service)"),
+            "%2": unit or QCoreApplication.translate("ProjectRow", "(not a service)"),
             "%3": str(getattr(holder, "exe", None) or "?"),
             "%4": str(getattr(holder, "uid", None) if holder is not None else "?"),
             "%5": getattr(holder, "cmdline", "") or "?",
@@ -2590,13 +2598,13 @@ class MainWindow(QMainWindow):
         box.setIcon(QMessageBox.Icon.Warning)
         box.setTextFormat(Qt.TextFormat.PlainText)
         box.setWindowTitle(
-            QCoreApplication.translate(_TR_CONTEXT, "This server was not started here")
+            QCoreApplication.translate("ProjectRow", "This server was not started here")
         )
         box.setText(
             _DISCLOSE_FIELD.sub(
                 lambda match: _no_layout_forgery(fields[match.group()]),
                 QCoreApplication.translate(
-                    _TR_CONTEXT,
+                    "ProjectRow",
                     "%1's port is held by a server this manager did not start."
                     "\n\nService:\n%2\n\nProgram:\n%3\n\nRunning as uid:\n%4"
                     "\n\nCommand:\n%5\n\nStarted:\n%6\n\nContinue?",
@@ -2656,7 +2664,7 @@ class MainWindow(QMainWindow):
         if view is None or view.effective_port is None:
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "%1 has no port to open"
+                    "ProjectRow", "%1 has no port to open"
                 ).replace("%1", path.name)
             )
             return
@@ -2678,13 +2686,13 @@ class MainWindow(QMainWindow):
                 refused = view.browser in self._browsers_refused
                 self.set_status_message(
                     QCoreApplication.translate(
-                        _TR_CONTEXT,
+                        "ProjectRow",
                         "%1's browser is installed but its desktop entry could "
                         "not be read - opening in the default",
                     ).replace("%1", view.name)
                     if refused
                     else QCoreApplication.translate(
-                        _TR_CONTEXT,
+                        "ProjectRow",
                         "%1's chosen browser is not installed - opening in the default",
                     ).replace("%1", view.name)
                 )
@@ -2706,7 +2714,7 @@ class MainWindow(QMainWindow):
         if not opened:
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "Could not open a browser for %1"
+                    "ProjectRow", "Could not open a browser for %1"
                 ).replace("%1", path.name)
             )
 
@@ -2730,7 +2738,7 @@ class MainWindow(QMainWindow):
             self._write_records(
                 records,
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "%1 is hidden" if hidden else "%1 is shown again"
+                    "ProjectRow", "%1 is hidden" if hidden else "%1 is shown again"
                 ).replace("%1", name),
                 "hide",
             )
@@ -2756,20 +2764,20 @@ class MainWindow(QMainWindow):
         chosen = browsers.by_id(self._browsers, entry_id)
         message = (
             _filled(
-                QCoreApplication.translate(_TR_CONTEXT, "%1 opens in %2"),
+                QCoreApplication.translate("ProjectRow", "%1 opens in %2"),
                 name,
                 chosen.name,
             )
             if chosen is not None
             else QCoreApplication.translate(
-                _TR_CONTEXT, "%1 opens in the default browser"
+                "ProjectRow", "%1 opens in the default browser"
             ).replace("%1", name)
         )
         self.set_status_message(self._write_records(records, message, "browser"))
 
     @staticmethod
     def _rescan_label() -> str:
-        return QCoreApplication.translate(_TR_CONTEXT, "Rescan")
+        return QCoreApplication.translate("ProjectRow", "Rescan")
 
     def shutdown(self) -> None:
         """Delivery refused, then a bounded wait for the rescan worker.
@@ -2839,7 +2847,7 @@ class MainWindow(QMainWindow):
             return
         log.warning("rescan failed: %s", detail)
         self._finish_rescan(
-            QCoreApplication.translate(_TR_CONTEXT, "Rescan failed: %1").replace(
+            QCoreApplication.translate("ProjectRow", "Rescan failed: %1").replace(
                 "%1", detail
             )
         )
@@ -2876,7 +2884,7 @@ class MainWindow(QMainWindow):
         except BaseException as exc:
             log.exception("the rescan could not be applied")
             message = _filled(
-                QCoreApplication.translate(_TR_CONTEXT, "Rescan failed: %1"),
+                QCoreApplication.translate("ProjectRow", "Rescan failed: %1"),
                 quoted(exc),
             )
         finally:
@@ -2963,7 +2971,7 @@ class MainWindow(QMainWindow):
             except RegistryError as exc:
                 log.warning("the %s could not be saved: %s", source, exc)
                 message = _filled(
-                    QCoreApplication.translate(_TR_CONTEXT, "%1 — not saved: %2"),
+                    QCoreApplication.translate("ProjectRow", "%1 — not saved: %2"),
                     message,
                     str(exc),
                 )
@@ -3161,7 +3169,7 @@ class MainWindow(QMainWindow):
         if self._place_at(target, centre=True) is None:
             self.set_status_message(
                 QCoreApplication.translate(
-                    _TR_CONTEXT, "This desktop would not let the window be moved."
+                    "ProjectRow", "This desktop would not let the window be moved."
                 )
             )
 

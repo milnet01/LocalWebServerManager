@@ -1358,7 +1358,9 @@ def test_every_translated_string_uses_one_context(qtbot, built) -> None:
         app.removeTranslator(translator)
 
     assert seen, "no string was routed through a translator at all"
-    assert set(seen) == {mainwindow._TR_CONTEXT}, sorted(set(seen))
+    # The literal, not a constant: LWSM-1304 removed `_TR_CONTEXT` because
+    # lupdate cannot see through it. This test is now what holds the rule.
+    assert set(seen) == {"ProjectRow"}, sorted(set(seen))
 
 
 def test_a_broken_translation_loses_the_number_not_the_window(qtbot, built) -> None:

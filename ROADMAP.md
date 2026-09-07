@@ -5320,6 +5320,53 @@ has been applied yet — every item in this section is open.
   Source: user-report-2026-09-06 (LWSM-1012 residual).
   Lanes: core, ui, tests.
 
+- ✅ [LWSM-1304] **HIGH: translate()'s CONTEXT argument is a variable, so the extractor finds no strings at all.**
+  Found while starting LWSM-1252, by running the extractor rather than
+  reading the code. `pyside6-lupdate` over mainwindow.py reports "Found
+  0 source text(s)". Measured against a two-line probe: it extracts a
+  call whose context is a string LITERAL and ignores one whose context
+  is a variable, so `_TR_CONTEXT` defeats every `translate()` call in
+  mainwindow.py and settingsdialog.py alike.
+
+  This sits in FRONT of LWSM-1252 and LWSM-1258. Both are real on their
+  own terms — a loop variable and a conditional each block their own
+  strings even with the context fixed — but neither delivers a
+  translatable string while this stands, so fix this one first.
+
+  Latent today: no .ts file is generated and no QTranslator is
+  installed, so nobody is reading a missing translation. What is lost
+  is the premise of the translate() calls themselves.
+
+  The constant cannot be kept: the extractor needs a literal, so the
+  fix is the literal at every call site, and § 4.4's one-context rule
+  is then held by a test rather than by a name.
+  `test_every_translated_string_uses_one_context` already checks the
+  runtime context and keeps working.
+  Resolved (2026-09-07): the context is the literal at every call site
+  in both modules, and the constant is gone — the extractor needs a
+  literal and there is no form that keeps both. Measured either side:
+  "Found 0 source text(s)" before, 82 after.
+
+  tests/test_translatable.py is new and runs `pyside6-lupdate` itself,
+  which is the only thing in the gate that can ask this question: ruff,
+  the type checker and every runtime test pass on a call the extractor
+  silently ignores. Three tests — that extraction finds anything, that
+  exactly two contexts come back, and an AST check that every call's
+  context argument is a literal.
+
+  Each of the three was earned by a mutant rather than guessed. The
+  first two both survived at first: a stray second context is only
+  visible to the existing runtime test if the window happens to render
+  that string, and a single call regressing to a variable is invisible
+  to any test that only asks whether extraction works at all. One of my
+  own mutants was ineffective too — it declared a constant nothing
+  used, which applies cleanly and changes nothing.
+
+  LWSM-1252 and LWSM-1258 remain open and are now deliverable.
+  **Layman:** Not one of the app's texts can be handed to a translator, including the ones two other items are about.
+  Kind: fix.
+  Source: in-session-2026-09-07.
+
 ## Findings filed in passing
 
 Findings noticed while doing something else and not fixed on the spot — a
