@@ -104,9 +104,13 @@ jobs:
           . scripts/ci-tools.env
           dir="shellcheck-v${SHELLCHECK_VERSION}"
           base=https://github.com/koalaman/shellcheck/releases/download
-          curl -fsSL --retry 3 \
-            "$base/v${SHELLCHECK_VERSION}/$dir.linux.x86_64.tar.xz" \
-            | tar -xJ -C /tmp
+          # To a FILE, then verify, then extract. Piping the download straight
+          # into `tar` executes it before anything can check it, which is what
+          # SHA-pinning the actions above exists to prevent (LWSM-1266).
+          curl -fsSL --retry 3 -o "/tmp/$dir.tar.xz" \
+            "$base/v${SHELLCHECK_VERSION}/$dir.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  /tmp/$dir.tar.xz" | sha256sum -c -
+          tar -xJf "/tmp/$dir.tar.xz" -C /tmp
           sudo install -m 0755 "/tmp/$dir/shellcheck" /usr/local/bin/shellcheck
           uv tool install "yamllint==${YAMLLINT_VERSION}"
           actionlint=github.com/rhysd/actionlint/cmd/actionlint

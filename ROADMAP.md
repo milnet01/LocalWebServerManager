@@ -4825,7 +4825,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1266] **MEDIUM: CI downloads and executes a shellcheck tarball that is pinned but never verified.**
+- ✅ [LWSM-1266] **MEDIUM: CI downloads and executes a shellcheck tarball that is pinned but never verified.**
   .github/workflows/ci.yml:107-110. curl | tar -xJ then sudo install to
   /usr/local/bin, executed over the checkout - in a job that SHA-pins its two
   actions precisely to protect against this. zizmor does not read run: payloads,
@@ -4833,6 +4833,18 @@ has been applied yet — every item in this section is open.
   credential (contents: read, public repo, no secrets), which is why this is
   MEDIUM. Fix: pin the SHA256 beside the version in scripts/ci-tools.env and
   sha256sum -c before extracting.
+  Resolved (2026-09-07): the tarball is downloaded to a file, checked
+  against `SHELLCHECK_SHA256` in scripts/ci-tools.env, and only then
+  extracted. Piping into `tar` was the defect itself — a stream cannot
+  be verified by anything — so the contract test asserts the pipe form
+  is absent as well as asserting the digest is interpolated.
+  `test_the_pin_file_declares_every_tool_the_gate_verifies` compared
+  every key against local-ci.sh's `check_version` calls, so it is now
+  scoped to `_VERSION` keys; a mutant adding an unverified version pin
+  confirms that narrowing kept its teeth. The exact new sequence was
+  run end to end here: digest OK, shellcheck 0.11.0. Four mutants
+  killed. actionlint and yamllint were not in scope — the Go module
+  proxy and PyPI verify their own downloads.
   **Layman:** The build downloads a tool over the internet and runs it without checking it is the real one.
   Kind: security.
   Source: review-code 2026-09-01 lane 14.

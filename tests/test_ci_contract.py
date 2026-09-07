@@ -73,7 +73,10 @@ def test_the_pin_file_declares_every_tool_the_gate_verifies() -> None:
     undefined variable would abort the gate under `set -u` — after the tests
     have already passed, which is the worst place to find out.
     """
-    declared = set(pins())
+    # Version pins only. A checksum is not a version and `local-ci.sh` has no
+    # `check_version` for one — it verifies the tool it FOUND, where the
+    # workflow verifies the artifact it DOWNLOADS (LWSM-1266).
+    declared = {key for key in pins() if key.endswith("_VERSION")}
     verified = set(re.findall(r'check_version \w+ "\$(\w+)"', LOCAL_CI.read_text()))
 
     assert verified, "local-ci.sh verifies no tool versions at all"
@@ -109,6 +112,31 @@ def test_the_workflow_installs_the_pinned_version(key: str, pattern: str) -> Non
     )
     assert ". scripts/ci-tools.env" in text, (
         "the workflow interpolates the pins without sourcing ci-tools.env"
+    )
+
+
+def test_the_workflow_verifies_the_shellcheck_tarball() -> None:
+    """A pinned version is not a pinned artifact (LWSM-1266).
+
+    The tarball is fetched over the network and then executed over the
+    checkout, in a job that SHA-pins its two actions precisely to stop that.
+    `zizmor` does not read `run:` payloads, so no tool asks this question.
+
+    The third assertion is the load-bearing one: a stream piped straight into
+    `tar` cannot be verified by anything, so the checksum has to be checked
+    against a file on disk.
+    """
+    text = WORKFLOW.read_text()
+
+    assert "SHELLCHECK_SHA256" in pins(), (
+        "scripts/ci-tools.env pins no checksum for the shellcheck tarball"
+    )
+    assert "${SHELLCHECK_SHA256}" in text, (
+        "the workflow does not verify the tarball against the pinned checksum"
+    )
+    assert "| tar -xJ" not in text, (
+        "the tarball is extracted straight out of the pipe, so nothing can "
+        "have verified it"
     )
 
 
