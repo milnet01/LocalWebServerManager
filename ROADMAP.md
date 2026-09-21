@@ -5119,7 +5119,7 @@ has been applied yet — every item in this section is open.
   Kind: chore.
   Source: review-code 2026-09-01 lane 6.
 
-- 📋 [LWSM-1277] **LOW batch (placement): three small defects from lane 7.**
+- ✅ [LWSM-1277] **LOW batch (placement): three small defects from lane 7.**
   placement.py:420 - clamp_to_screens and kwin_script are evaluated OUTSIDE any
   handler, so a Rect whose fields are not integers raises straight out of
   place_window, against run_kwin_script's promise that "a traceback out of a
@@ -5129,6 +5129,19 @@ has been applied yet — every item in this section is open.
   all. :366-375 - a failing unloadScript (the third call, after the window has
   almost certainly already moved) returns False, so place_window returns None
   and the caller reports a placement that DID happen as failed.
+  Resolved (2026-09-21): all three, in commit following this flip.
+
+  1. The clamp and the script build now sit inside a handler. `clamp_to_screens`, `kwin_script` and `move` all did arithmetic or formatting on `target`'s fields outside any try, so a Rect carrying a non-integer raised straight out of a startup path - against `run_kwin_script`'s own standard that \"a window in the wrong place is a nuisance, and a traceback out of a startup path is not\". Narrow catch, `TypeError` and `ValueError` only: a wider one would hide a real bug in arithmetic that is ADR-0007's security boundary. Still defensive rather than reachable, exactly as the bullet said.
+
+  2. A failed unlink now logs. It was a bare `except OSError: pass`, so a `place-*.js` accumulating on every launch had no line anywhere explaining it. Still never raised - it is a `finally` on a startup path.
+
+  3. A failing `unloadScript` no longer fails the placement. THE BULLET'S ARGUMENT IS EXACTLY RIGHT and the code's own comment had declined this change on a premise that turns out to argue for it: it said a failure reaching only the third call cannot happen off KWin, where the bus answers ServiceUnknown to all three. True - and that case returns False at the loop and never reaches the unload. So the only route to a failed unload is a KWin that accepted the first two calls, which means the script ran and the window has almost certainly already moved. Returning False there told the caller a placement that DID happen did not.
+
+  A PRE-EXISTING TEST REDDENED and it was the test that needed changing, which CLAUDE.md's trap says to check before assuming the change is wrong. `test_a_dbus_call_that_reports_an_error_is_a_false` was parametrised over all three calls. Reading its docstring, its claim is LWSM-1170's - that every call is CHECKED, because a status nobody reads leaves the Centre action offered and doing nothing. It says nothing about the third call being fatal. CHECKED and FATAL are different properties and the one test was asserting both, so it is now parametrised over the first two, and `test_a_failed_unload_still_reports_the_placement` holds the third: returns True, still logs, still cleans up.
+
+  Coverage added for the other two as well - `test_a_failed_unlink_reaches_the_log` and `test_a_rect_that_is_not_integers_is_refused`.
+
+  Mutants, all three killed: making the unload fatal again, silencing the unlink again, and narrowing the new guard to an exception the code cannot raise.
   **Layman:** Smaller issues in the code that positions the window.
   Kind: chore.
   Source: review-code 2026-09-01 lane 7.

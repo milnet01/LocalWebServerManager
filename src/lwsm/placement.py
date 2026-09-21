@@ -467,13 +467,26 @@ def run_kwin_script(
                 issue(unload)
                 return False
 
-        # Checked like the other two, unchanged. A failure reaching only this
-        # call cannot happen in the mode the docstring describes — off KWin
-        # the session bus answers `ServiceUnknown` to all three — so treating
-        # it as a failed exchange stays honest, and loosening it would be
-        # scope this item does not have.
-        if not issue(unload):
-            return False
+        # Checked like the other two, but NOT fatal (LWSM-1277). Reaching this
+        # line means `loadScript` and `start` were both accepted, so the
+        # placement has been asked for and the window has almost certainly
+        # already moved — reporting failure here tells the caller a placement
+        # that DID happen did not, and `place_window`'s caller then shows the
+        # user an error about a window sitting exactly where they wanted it.
+        #
+        # This is what the previous comment here declined to change, on the
+        # grounds that a failure reaching ONLY this call cannot happen off KWin
+        # — where the bus answers `ServiceUnknown` to all three. That is true
+        # and it is the argument for the change rather than against it: the
+        # all-three case returns False at the loop above and never gets here,
+        # so the only way to reach a failed unload is a KWin that took the
+        # first two calls. That is not a failed placement.
+        #
+        # `issue` has already logged the reason. What is lost is the cleanup,
+        # not the placement: the script name is a CONSTANT, so a registration
+        # left behind is replaced by the next run rather than accumulating
+        # (LWSM-1243), and the temporary file is still deleted by the `finally`.
+        issue(unload)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         log.warning("could not ask KWin to place the window: %s", exc)
         return False
@@ -483,8 +496,15 @@ def run_kwin_script(
         if name is not None:
             try:
                 os.unlink(name)
-            except OSError:
-                pass
+            except OSError as exc:
+                # Logged rather than swallowed (LWSM-1277). Never raised: this
+                # is a `finally` on a startup path, and a leaked temporary file
+                # must not become a traceback. But silence meant a `place-*.js`
+                # accumulating in the state directory on every launch with
+                # nothing anywhere to say why — and these are files the
+                # compositor executes, so the directory filling up is worth a
+                # line even though the file itself is 0600 in a 0700 tree.
+                log.warning("could not delete the KWin script %s: %s", name, exc)
     return True
 
 
@@ -522,7 +542,7 @@ def place_window(
     and nothing else, and there is deliberately no `resize` seam beside
     `move` (LWSM-1242).
 
-    That is not a lost clamp. `_restore_geometry` applies
+    That is not a lost clamp. `MainWindow._restore_size_and_state` applies
     `_bounded_to_screen` — `SCREEN_FRACTION` of the screen — before calling
     here and on every platform, so ADR-0007's "sized larger than the current
     display" case is already closed, and closed more tightly than
@@ -541,12 +561,31 @@ def place_window(
     """
     if not placement_available(environ, which):
         return None
-    asked = clamp_to_screens(target, screens)
-    if on_wayland(environ):
-        runner = subprocess.run if run is None else run
-        script = kwin_script(asked, pid, centre=centre)
-        if not run_kwin_script(script, state_dir, runner):
-            return None
-    else:
-        move(asked.x, asked.y)
+    # Guarded (LWSM-1277). `clamp_to_screens` and `kwin_script` do arithmetic
+    # and formatting on `target`'s fields, and `move` is a Qt call — none of
+    # which was inside a handler, so a `Rect` whose fields are not integers
+    # raised straight out of a startup path. `run_kwin_script`'s own docstring
+    # sets the standard this broke: "a window in the wrong place is a nuisance,
+    # and a traceback out of a startup path is not."
+    #
+    # Reachable only one caller away rather than today: `settings` coerces
+    # stored coordinates through `_bounded_int_or_reason`, so the remembered
+    # path cannot deliver a bad Rect. A centre target is computed here from
+    # screen geometry, and a future third caller has nothing warning it.
+    #
+    # Narrow on purpose — `TypeError` and `ValueError` are what a non-integer
+    # field raises. A wider catch here would hide a real bug in the arithmetic,
+    # which is ADR-0007's security boundary.
+    try:
+        asked = clamp_to_screens(target, screens)
+        if on_wayland(environ):
+            runner = subprocess.run if run is None else run
+            script = kwin_script(asked, pid, centre=centre)
+            if not run_kwin_script(script, state_dir, runner):
+                return None
+        else:
+            move(asked.x, asked.y)
+    except (TypeError, ValueError) as exc:
+        log.warning("could not compute a placement for %r: %s", target, exc)
+        return None
     return asked

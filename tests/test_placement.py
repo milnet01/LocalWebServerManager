@@ -433,7 +433,7 @@ def test_a_failed_dbus_call_is_a_false_and_still_cleans_up(tmp_path: Path) -> No
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("failing_call", [0, 1, 2])
+@pytest.mark.parametrize("failing_call", [0, 1])
 def test_a_dbus_call_that_reports_an_error_is_a_false(
     tmp_path: Path, failing_call: int, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -449,6 +449,13 @@ def test_a_dbus_call_that_reports_an_error_is_a_false(
     does an `unloadScript` for a name never registered. So the status says the
     CALL did not land and nothing else, and checking the first alone would leave
     the other two exactly as silent as they were.
+
+    **`loadScript` and `start` only, since LWSM-1277.** The unload was a third
+    case here and is now its own test below, because CHECKED and FATAL are
+    different properties and this one was asserting both. LWSM-1170 is about
+    the first: a status nobody reads. Nothing in it asks for the third call to
+    fail the placement, and making it do so reported a window that had already
+    moved as unplaced.
     """
     run = FakeRun(rc_on=failing_call)
 
@@ -458,6 +465,107 @@ def test_a_dbus_call_that_reports_an_error_is_a_false(
     # The reason reaches the log, not only the return value — `dbus-send` puts
     # it on stderr, which `capture_output` is already collecting.
     assert "ServiceUnknown" in caplog.text
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_failed_unlink_reaches_the_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch
+) -> None:
+    """A leaked script file said nothing at all (LWSM-1277).
+
+    The `finally` swallowed every `OSError` from `os.unlink`, so a `place-*.js`
+    accumulating in the state directory on each launch had no line anywhere
+    explaining it. These are files the compositor executes, so the directory
+    filling up is worth saying out loud even though each is 0600 in a 0700 tree.
+
+    Still not raised: this is a `finally` on a startup path, and a leaked
+    temporary file must not become a traceback. So the placement is still
+    reported as asked.
+    """
+    real_unlink = os.unlink
+
+    def refuse(path, *args, **kwargs):
+        if str(path).endswith(".js"):
+            raise OSError(13, "Permission denied")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "unlink", refuse)
+    run = FakeRun()
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.placement"):
+        assert run_kwin_script("// script", tmp_path, run)
+
+    assert "could not delete" in caplog.text, (
+        "a leaked KWin script must reach the log; silence is what left the "
+        "state directory filling up with no explanation"
+    )
+
+
+def test_a_rect_that_is_not_integers_is_refused(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`place_window` is a startup path, so it reports rather than raising.
+
+    `Rect`'s own docstring says "the annotations are documentation, not a
+    guard", and `clamp_to_screens`, `kwin_script` and `move` all sat outside any
+    handler — so a Rect carrying a non-integer raised straight out of a startup
+    path, against `run_kwin_script`'s standard that "a window in the wrong place
+    is a nuisance, and a traceback out of a startup path is not" (LWSM-1277).
+
+    Defensive rather than reachable today: `settings` coerces stored coordinates
+    through `_bounded_int_or_reason`, so the remembered path cannot deliver one.
+    Asserted anyway because it is one caller away, and a third caller would have
+    nothing warning it.
+
+    Driven on the X11 branch, where `move` is a seam and no compositor is
+    needed; the failure is in the arithmetic above the branch, which both share.
+    """
+    with caplog.at_level(logging.WARNING, logger="lwsm.placement"):
+        asked = place_window(
+            Rect(None, 0, 800, 600),  # type: ignore[arg-type]
+            screens=[LEFT],
+            pid=1,
+            move=lambda x, y: None,
+            state_dir=tmp_path,
+            environ=X11,
+            which=lambda _name: "/usr/bin/dbus-send",
+        )
+
+    assert asked is None, "a Rect that cannot be clamped must not report success"
+    assert "could not compute a placement" in caplog.text
+
+
+def test_a_failed_unload_still_reports_the_placement(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The third call is cleanup, so its failure is logged and not fatal.
+
+    Reaching the unload means `loadScript` and `start` were both accepted, so
+    the script has run and the window has almost certainly already moved.
+    Returning `False` there made `place_window` return `None`, and its caller
+    shows the user a placement failure about a window sitting exactly where
+    they asked for it (LWSM-1277).
+
+    **The off-KWin case cannot reach here, and that is the argument.** Nothing
+    owns `org.kde.KWin`, so all three calls fail, the loop returns `False` at
+    the first one, and this line is never reached. The only way to a failed
+    unload is a KWin that accepted the first two — which is not a failed
+    placement.
+
+    Still LOGGED, and still cleaned up: the registration is left behind, and
+    the script name is a constant so the next run replaces it rather than
+    accumulating (LWSM-1243). The temporary file is the `finally`'s job either
+    way.
+    """
+    run = FakeRun(rc_on=2)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.placement"):
+        assert run_kwin_script("// script", tmp_path, run)
+
+    assert "unloadScript" in caplog.text, (
+        "a failed unload must still reach the log — it leaves a registration "
+        "behind, and silence is what LWSM-1170 was filed about"
+    )
     assert list(tmp_path.iterdir()) == []
 
 
