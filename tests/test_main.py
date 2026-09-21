@@ -775,6 +775,12 @@ def test_a_refused_settings_write_still_saves_the_scan_roots(
         def __init__(self, **_kwargs) -> None:
             pass
 
+        # A real QDialog has this and these did not, which is what let a
+        # leaked dialog go unnoticed (LWSM-1276). A double that is missing
+        # the method under test cannot fail the test.
+        def deleteLater(self) -> None:
+            pass
+
         def exec(self):
             return self.DialogCode.Accepted
 
@@ -802,6 +808,61 @@ def test_a_refused_settings_write_still_saves_the_scan_roots(
     message = window.statusBar().currentMessage()
     assert "could not be saved" in message, message
     assert "settings.json" in message, message
+
+
+@pytest.mark.parametrize("accepted", [True, False])
+def test_the_settings_dialog_is_released_on_both_paths(
+    qtbot, monkeypatch, tmp_path, accepted: bool
+) -> None:
+    """A parented dialog that is never deleted lives for the whole session.
+
+    `SettingsDialog` is parented to the window and `exec()`d, so without a
+    `deleteLater` every Preferences open leaves a dialog and its entire widget
+    tree alive until the app exits (LWSM-1276). This is the one window a user
+    opens repeatedly while trying a setting out.
+
+    **Both paths, because Cancel returns early** and a `deleteLater` written
+    after that return covers only the accepted one — which is the shape the fix
+    has to avoid and the reason it is a `try/finally`.
+
+    Not `WA_DeleteOnClose`, the usual answer: `values()` is read after `exec()`
+    returns, and that attribute would destroy the widgets holding those values
+    first.
+    """
+    from lwsm import settingsdialog as dialog_module
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    released: list[bool] = []
+
+    class CountingDialog:
+        DialogCode = dialog_module.SettingsDialog.DialogCode
+
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def deleteLater(self) -> None:
+            released.append(True)
+
+        def exec(self):
+            return self.DialogCode.Accepted if accepted else self.DialogCode.Rejected
+
+        def values(self):
+            return (), 1500, 7
+
+    monkeypatch.setattr(dialog_module, "SettingsDialog", CountingDialog)
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window._settings_action.trigger()
+        window._settings_action.trigger()
+    finally:
+        controller.stop()
+
+    assert released == [True, True], (
+        f"{len(released)} of 2 dialogs were released with accepted={accepted}; "
+        "a parented dialog that is not deleted outlives every later one"
+    )
 
 
 def test_both_write_failures_are_named_not_just_the_first(
@@ -836,6 +897,12 @@ def test_both_write_failures_are_named_not_just_the_first(
         DialogCode = dialog_module.SettingsDialog.DialogCode
 
         def __init__(self, **_kwargs) -> None:
+            pass
+
+        # A real QDialog has this and these did not, which is what let a
+        # leaked dialog go unnoticed (LWSM-1276). A double that is missing
+        # the method under test cannot fail the test.
+        def deleteLater(self) -> None:
             pass
 
         def exec(self):
@@ -887,6 +954,12 @@ def test_clearing_every_scan_root_means_the_same_thing_after_a_restart(
         def __init__(self, **_kwargs) -> None:
             pass
 
+        # A real QDialog has this and these did not, which is what let a
+        # leaked dialog go unnoticed (LWSM-1276). A double that is missing
+        # the method under test cannot fail the test.
+        def deleteLater(self) -> None:
+            pass
+
         def exec(self):
             return self.DialogCode.Accepted
 
@@ -925,6 +998,12 @@ def test_a_settings_save_that_works_says_nothing(qtbot, monkeypatch, tmp_path) -
         DialogCode = dialog_module.SettingsDialog.DialogCode
 
         def __init__(self, **_kwargs) -> None:
+            pass
+
+        # A real QDialog has this and these did not, which is what let a
+        # leaked dialog go unnoticed (LWSM-1276). A double that is missing
+        # the method under test cannot fail the test.
+        def deleteLater(self) -> None:
             pass
 
         def exec(self):

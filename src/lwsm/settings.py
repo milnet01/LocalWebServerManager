@@ -419,6 +419,23 @@ def save(path: Path, settings: Settings) -> None:
     needed at all, on the grounds that a refusal here drops no data. That
     holds for a refused FIELD and fails completely for a refused DOCUMENT,
     which is every value in the file at once.
+
+    **LAST WRITER WINS ACROSS PROCESSES, and that is a stated limit rather than
+    a defect** (LWSM-1276). Every caller read-modify-writes: it loads the file,
+    changes a field, and hands the whole `Settings` back here, where
+    `write_json_atomically` replaces the file. So two instances of the app that
+    both have preferences open will each write the whole document, and the
+    loser's change disappears with no message.
+
+    It is NOT an ADR-0005 breach — that decision is about never inventing a
+    project, and no project list is involved. The exposure is a preference,
+    the window is the seconds between two dialogs being open at once, and the
+    recovery is to set it again. Locking would mean a lock file with its own
+    staleness problem on a value nobody loses twice.
+
+    `projects.json` is the file where this WOULD matter, and it is guarded
+    differently: `registry.save_projects` is gated on the `LoadResult` the
+    caller read, so a write built on a refused read is refused.
     """
     payload = {
         "schema_version": SCHEMA_VERSION,

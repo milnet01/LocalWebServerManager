@@ -213,9 +213,22 @@ def build_window(
             log_max_mib=current.log_max_mib,
             parent=window,
         )
-        if dialog.exec() != SettingsDialog.DialogCode.Accepted:
-            return
-        roots, poll_ms, log_mib = dialog.values()
+        # `deleteLater`, on BOTH paths (LWSM-1276). The dialog is parented to
+        # the window, so without this every Preferences open leaves a dialog and
+        # its whole widget tree alive for the rest of the session — and this is
+        # the one window a user opens repeatedly while trying a setting out.
+        #
+        # Not `WA_DeleteOnClose`, which is the usual answer and is wrong here:
+        # `values()` is read AFTER `exec()` returns, and that attribute would
+        # have destroyed the widgets holding those values first. `deleteLater`
+        # is deferred to the event loop, so it is safe to schedule before the
+        # read and is scheduled after it anyway.
+        try:
+            if dialog.exec() != SettingsDialog.DialogCode.Accepted:
+                return
+            roots, poll_ms, log_mib = dialog.values()
+        finally:
+            dialog.deleteLater()
 
         # Applied BEFORE the save, and applied even if the save then fails. A
         # setting the user can watch working is worth more than one that only

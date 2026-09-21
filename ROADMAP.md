@@ -5103,7 +5103,7 @@ has been applied yet — every item in this section is open.
   Kind: chore.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1276] **LOW batch (settings + dialog): four small defects from lane 6.**
+- ✅ [LWSM-1276] **LOW batch (settings + dialog): four small defects from lane 6.**
   __main__.py:210-216 - the settings dialog is parented and exec()'d with no
   deleteLater(), so every Preferences open leaks a dialog and its widget tree
   for the window's lifetime (WA_DeleteOnClose is wrong here - values() is read
@@ -5115,6 +5115,19 @@ has been applied yet — every item in this section is open.
   ADR-0005 breach. DOC: design.md:768-773 lists four settings.json keys that
   are false (scan roots, slow-start threshold, log-buffer size, tray behaviour)
   and omits log_max_mib, which IS stored.
+  Resolved (2026-09-21): two of the four were real and are fixed. THE OTHER TWO WERE ALREADY CLOSED by later work, which is a different kind of staleness from LWSM-1282's - these were true when filed on 2026-09-01 and have since been fixed by items that did not know they were closing them.
+
+  1. FIXED - the settings dialog leaked. It is parented to the window and `exec()`d with no `deleteLater`, so every Preferences open left a dialog and its whole widget tree alive for the session, on the one window a user opens repeatedly while trying a setting out. Now a `try/finally`, so BOTH paths release it - a `deleteLater` written after the Cancel early-return would cover only the accepted path. Deliberately NOT `WA_DeleteOnClose`, which is the usual answer and is wrong here: `values()` is read after `exec()` returns and that attribute would destroy the widgets holding those values first. The bullet said so and was right.
+
+  2. ALREADY FIXED - partial success reported as total failure. `__main__` now attempts both writes independently and collects failures into one message; a refusal of the first no longer skips the second. Closed by LWSM-1212 with LWSM-1163, whose comment at the site records the same reasoning. Verified by reading the current code, not assumed.
+
+  3. FIXED as a STATED LIMIT, which is what the bullet asked for. `settings.save` read-modify-writes, so two instances both write the whole document and the loser's change vanishes silently. Nothing anywhere said so. Now in `save`'s docstring, with why it is accepted rather than locked: it is not an ADR-0005 breach (that decision is about never inventing a PROJECT, and no project list is involved), the exposure is one preference, the window is the seconds between two dialogs being open, and the recovery is to set it again. It also names `projects.json` as the file where this WOULD matter and points at the gate that guards it.
+
+  4. ALREADY FIXED - design.md's settings.json key list. It now reads \"poll interval, log cap, theme choice, text-size percentage, and the window geometry keys width / height / x / y / maximized\". The four false keys are gone and `log_max_mib` is there as \"log cap\". Verified by reading § Persistence.
+
+  A TEST DOUBLE HID THIS. Four stand-ins for `SettingsDialog` in `test_main.py` were plain Python objects with no `deleteLater`, so the method under test did not exist on the thing the tests exercised - a double missing the method cannot fail the test. All four now carry it, with the reason at the first.
+
+  Mutants: removing `deleteLater` entirely, and moving it outside the `finally` so only the accepted path releases. Both killed; the second only by the Cancel case, which is what earns the parametrisation.
   **Layman:** Smaller issues in the preferences window and the files behind it.
   Kind: chore.
   Source: review-code 2026-09-01 lane 6.
