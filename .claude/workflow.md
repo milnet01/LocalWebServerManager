@@ -12,8 +12,11 @@
 
 ## §1a. Session handoff — 2026-09-21
 
-**Tree clean, `main` in sync with `origin/main` at `b9e2b40`, gate green
-(`./scripts/local-ci.sh`, no SKIP, no tool drift). Nothing is uncommitted.**
+**Tree clean, `main` in sync with `origin/main`, gate green
+(`./scripts/local-ci.sh`, no SKIP, no tool drift). Nothing is uncommitted, and
+`roadmap_log op:"render"` writes nothing — the store and `ROADMAP.md` agree.**
+No commit SHA is pinned here on purpose: one went stale within the same session
+last time, and `git_state` answers the question in one call.
 
 **The roadmap store is the source of truth and was already the backend** — it
 has been for some time; `roadmap_query` answers `source: "store"`. What was
