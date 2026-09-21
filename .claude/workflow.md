@@ -31,11 +31,24 @@ clean all of 2026-09-21, so this is history rather than a live problem; check
 
 ### Shipped today
 
-All five remaining FP09 MEDIUMs. `LWSM-1252` and `LWSM-1258` translated
-strings the extractor could not see, `LWSM-1262` a window floor clamped below
-its own content, `LWSM-1257` margins that did not follow the text size,
-`LWSM-1263` size and maximised state riding the deferred placement path. Read
-each bullet's own `Resolved` note — they carry the measurements, not this file.
+Every FP09 MEDIUM, plus five LOW items. The MEDIUMs: `LWSM-1252` and
+`LWSM-1258` translated strings the extractor could not see, `LWSM-1262` a
+window floor clamped below its own content, `LWSM-1257` margins that did not
+follow the text size, `LWSM-1263` size and maximised state riding the deferred
+placement path. The LOWs: `LWSM-1270` a reserved symbol reading as dead,
+`LWSM-1277` placement, `LWSM-1283` window geometry, `LWSM-1282` interaction,
+`LWSM-1276` the settings dialog. Read each bullet's own `Resolved` note — they
+carry the measurements, not this file.
+
+**Three kinds of wrong bullet turned up, and they need different handling.**
+`LWSM-1282`'s fourth claim was FALSE and always had been — `_align_columns`
+reads every row, visible or not, so unhiding cannot leave a column stale;
+measured, backed out, reasoning left at the site. `LWSM-1276`'s second and
+fourth were TRUE WHEN FILED and have since been closed by other items that did
+not know they were closing them; verified by reading the current code rather
+than assumed. Only the rest were live as described. **Check which of the three
+you are looking at before writing a fix** — the second kind wastes a fix pass,
+the first ships churn.
 
 **Three of the five turned out bigger than filed, all three found by an
 instrument rather than by reading.** `LWSM-1252` named one call site and an AST
@@ -49,10 +62,14 @@ Measured under real KWin; invisible to the suite, and no test is claimed for it.
 
 ### Next action, no questions needed
 
-**Every FP09 MEDIUM is shipped. What is left in FP09 is `LWSM-1238`, the LOW
-batches `LWSM-1270`–`1284`, and the two INFO items `LWSM-1285`/`1286`.** Read
-the live figure rather than any number written here, with `roadmap_query
-mode="section_index" query="fp09"`.
+**Every FP09 MEDIUM is shipped, and five LOW items with them. What is left is
+`LWSM-1238`, nine LOW batches, and the two INFO items `LWSM-1285`/`1286`.**
+Read the live figure rather than any number written here — and read it the
+CHEAP way, which was established today: `roadmap_query mode="headline_only"
+section="<slug>" status="planned"` returns that section's open ids and nothing
+else. `mode="section_index"` gives counts without ids; an unscoped
+`headline_only` gives every id in the project. The three-argument form is the
+one to use and is not obvious from either mode alone.
 
 **Start with the LOW batches, not with `LWSM-1238`.** That is not severity
 order and the reason is in CLAUDE.md's trap cluster: `LWSM-1238` (no theme
