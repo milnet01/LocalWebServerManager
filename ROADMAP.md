@@ -6181,6 +6181,35 @@ mostly in the measurement behind it.
 
   Found while measuring an unrelated draft tool for another
   session, which is why the roadmap had nothing on it.
+  Progress (2026-09-21): the SYMBOL half is closed in a4eabe8 and
+  this item is now the what-checks-this half only.
+
+  Closed: eight stale `file.py::symbol` citations in LWSM-1006,
+  plus two in `scanner.py`'s own docstring and comment, all from
+  LWSM-1031 moving `_read_bounded`, `_quoted` and
+  `MAX_REASON_CHARS` into `configfile.py`. § 8's rejected
+  alternative now records that LWSM-1031 partly reversed it and
+  that the decision still holds for the scanner.
+  `registry.py::MAX_REASONS` was checked and is correct.
+
+  Open: the 24 what-checks-this citations. A first heuristic pass
+  puts roughly half against a clear equivalent — the `§ 4.1`
+  import-cycle row against
+  `test_registry_never_imports_the_scanner`, the unlistable-root
+  row against `test_an_unlistable_root_marks_nothing_missing_
+  under_it`, the raising-worker row against
+  `test_a_rescan_that_raises_re_enables_the_button` — and leaves
+  the rest needing the test read rather than its name matched.
+  Do not close one on name similarity alone. Two that look like
+  renames are traps: `test_rescan_is_disabled_while_a_merge_is_
+  in_flight` scores highest against
+  `test_import_is_disabled_while_a_rescan_is_in_flight`, which is
+  a different rule entirely, and the wrong-typed-field family in
+  LWSM-1007 has three cited names competing for one real test.
+
+  Unblocked by anything; the sweep that produced the list is
+  reproducible by parsing the catcher cells and resolving each
+  against `def test_` in `tests/`.
   **Layman:** Four specs claim their rules are covered by tests, naming tests that are not in the project. The claim of coverage may be the only thing missing, or the coverage may be too.
   Kind: doc-fix.
   Source: in-session-2026-09-21.
