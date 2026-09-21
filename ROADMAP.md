@@ -5255,7 +5255,7 @@ has been applied yet — every item in this section is open.
   Kind: chore.
   Source: review-code 2026-09-01 lane 12.
 
-- 📋 [LWSM-1283] **LOW batch (mainwindow geometry): three small defects from lane 13.**
+- ✅ [LWSM-1283] **LOW batch (mainwindow geometry): three small defects from lane 13.**
   mainwindow.py:2573-2575 - `area = self._screen_area(); if area is None:
   return` is a user-invoked menu action that does nothing and says nothing,
   while every other Centre failure reports at :2582-2587 and ADR-0007 forbids
@@ -5268,6 +5268,21 @@ has been applied yet — every item in this section is open.
   the available area" - if the 10% margin is not justified at its definition
   (line 109), a user who sizes the window to fill the screen gets it shrunk by
   10% on the next launch.
+  Resolved (2026-09-21): all three, including the one the bullet left OPEN.
+
+  1. Centre on screen now reports when no screen answers. `_screen_area()` returning None made the menu action return silently - reachable on a monitor hot-unplug, and ADR-0007 forbids the action \"being offered and doing nothing\". The target computation is split into `_centre_target`, so the failure to COMPUTE a target and the failure to APPLY one reach one report site rather than two branches where only one had a message. One message rather than two: the user's question is whether the window moved, and the cause goes to the log.
+
+  2. The two `handle` cases in `showEvent` are separated. `isExposed()` means the Expose has been and gone, so 0 ms is right; `handle is None` means one is still coming, and 0 ms is the delay that method's own docstring records as MEASURED-FAILING under Wayland. The None case now waits `PLACEMENT_FALLBACK_MS = 50`, the shortest measured to work on 2026-08-21. Still defensive - a top-level widget has a handle by then.
+
+  3. THE OPEN QUESTION, ANSWERED: the margin was not justified for a restore, so it no longer applies to one. SCREEN_FRACTION was serving two jobs through one call - a taste judgement about how much screen a FIRST run fills, and ADR-0007's guard against a size recorded on a bigger monitor. The guard wants the whole available area, which is what the ADR says; the taste judgement shrank a window the user had dragged out to fill the screen by a tenth on every launch. `_bounded_to_screen` now takes `fraction`, defaulting to the whole area, and only the default-size path passes SCREEN_FRACTION. Maximising was never affected - it is stored as a flag.
+
+  A REAL COVERAGE GAP FOUND BY MUTATING, and it is the more useful half. TWO places apply a remembered size, and which runs LAST depends on when rows arrive: `__init__` calls `_sync_rows`, so a controller built with records reaches `_apply_default_geometry` before `show()` and `_restore_size_and_state` wins - while in the real app the scan is asynchronous, rows land after the window is up, and `_apply_default_geometry` wins. Every fixture that remembered a size also handed its rows over at construction, so passing SCREEN_FRACTION in `_apply_default_geometry` survived the whole suite. That is CLAUDE.md's one-row-fixture trap one level up: the fixtures could not reach the ordering, so the ordering was untested. Closed with `test_rows_arriving_after_show_do_not_shrink_a_remembered_size`, which drives the real first-run path; `rescan_window` gained a `size` passthrough for it.
+
+  The default-size half asserts the CALL rather than the window, and that is the only observable rather than a weaker test: the content cannot exceed nine tenths of the screen, because DEFAULT_VISIBLE_ROWS caps the height and NAME_COLUMN_CHARS caps and elides the widest column, so the clamp never bites and the window looks identical either way. Stated in the test.
+
+  Mutants, five, all killed and each by a named test: Centre silent again, the handle cases merged at 0 ms, SCREEN_FRACTION on the remembered size at EITHER site, and the default path dropping the fraction.
+
+  Filed in passing: LWSM-1306, two comments in the same constant block that describe the wrong constant.
   **Layman:** Smaller issues in window sizing and the Centre on screen action.
   Kind: chore.
   Source: review-code 2026-09-01 lane 13.
@@ -6053,6 +6068,33 @@ mostly in the measurement behind it.
   **Layman:** Our project rulebook says the machine-wide rule demands something it stopped demanding, so the exception we wrote for ourselves is half unnecessary.
   Kind: doc-fix.
   Source: in-session-2026-09-21, cross-checked with the ~/.claude session.
+
+- 📋 [LWSM-1306] **Two comments in mainwindow.py's constant block describe the wrong constant.**
+  In `mainwindow.py`'s module-level constant block, two comments have
+  drifted away from what they describe.
+
+  The comment beginning "How long to wait for a rescan worker at
+  teardown" sits immediately above the `PlaceWindow` type alias, with
+  `RESCAN_STOP_WAIT_MS` further down. The comment beginning "How many rows
+  the window shows before the list starts scrolling" sits above
+  `TEXT_SIZE_STEPS`, with `DEFAULT_VISIBLE_ROWS` and `MIN_VISIBLE_ROWS`
+  below it.
+
+  Both read as authoritative and both are wrong about their subject, which
+  is the class this project has hit repeatedly - a comment stating
+  something as a fact where the fact belongs to a different symbol. The
+  `PlaceWindow` case is the worse of the two, because that alias HAS its
+  own explanation and it now reads as the second paragraph of a comment
+  about a timeout.
+
+  Noticed while working on LWSM-1283, which changed `SCREEN_FRACTION` in
+  the same block. Filed rather than fixed there: moving a comment does not
+  trace to that item's reason for being in the file (`coding.md § 1.7`).
+
+  No behaviour is affected. Gates nothing.
+  **Layman:** Two explanatory notes in the code sit above the wrong setting, so each explains something it is not next to.
+  Kind: doc-fix.
+  Source: in-session-2026-09-21.
 
 ### 🐛 Bug fixes
 

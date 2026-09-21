@@ -121,10 +121,27 @@ menu cannot come to offer a size the settings file would refuse to store.
 
 DEFAULT_VISIBLE_ROWS = 8
 MIN_VISIBLE_ROWS = 3
-# The largest fraction of a screen this window opens at. Not a pixel size
-# (`§ O7`): the point is that it is relative to whatever display is attached
-# now, which is the one thing a size recorded on a different monitor is not.
+# The largest fraction of a screen this window opens at BY DEFAULT — that is,
+# when no size was remembered. Not a pixel size (`§ O7`): the point is that it
+# is relative to whatever display is attached now, which is the one thing a size
+# recorded on a different monitor is not.
+#
+# **It is deliberately NOT applied to a size the user chose** (LWSM-1283). It
+# was, and a window dragged out to fill the screen came back a tenth smaller on
+# every launch, compounding nothing but annoying reliably. ADR-0007 asks for a
+# restored geometry "clamped to the available area", and the available area is
+# the whole of it — this margin is a taste judgement about a FIRST run, which
+# has no business overriding a size the user set on purpose. Maximising was
+# never affected, because that is stored as a flag and restored as one.
 SCREEN_FRACTION = 0.9
+
+# How long to wait before placing a window whose `QWindow` handle does not exist
+# yet, so no `Expose` can be watched for (LWSM-1283). The shortest delay
+# MEASURED to work against real KWin on 2026-08-21: 0 ms fails, 50 / 150 / 400
+# all work. `showEvent`'s docstring carries the full measurement. Not reached
+# today — a top-level widget has a handle by then — so this is the value that
+# would be used rather than one that has been.
+PLACEMENT_FALLBACK_MS = 50
 
 # Decorative only. One of the three signals design.md § Accessibility requires,
 # and excluded from the accessible name — a screen reader announcing "black
@@ -3169,28 +3186,47 @@ class MainWindow(QMainWindow):
         are part of what has to fit, and centring the client area leaves a
         window sitting low by the height of its own decoration.
         """
-        area = self._screen_area()
-        if area is None:
-            return
-        # Centred on the FRAME extents, because the title bar and border are
-        # part of what has to fit — but sent as the CLIENT size, which is the
-        # unit `place_window` takes and the decoration KWin adds back.
-        frame = self.frameGeometry()
-        spot = centre_in(area, frame.width(), frame.height())
-        target = Rect(spot.x, spot.y, self.width(), self.height())
+        # ONE report site for both ways this can fail (LWSM-1283). A missing
+        # screen returned silently, so the menu action did nothing and said
+        # nothing — reachable on a monitor hot-unplug, and ADR-0007 forbids the
+        # action "being offered and doing nothing" in as many words. Merged
+        # rather than given a second message: the user's question is whether the
+        # window moved, and the answer is no either way. The cause goes to the
+        # log, which is where a cause belongs.
         # `centre=True` so the WAYLAND branch asks KWin for the work area
-        # rather than trusting `spot`. `_screens()` is panel-aware through
-        # `availableGeometry`, which is true on X11 and empty on Wayland — that
-        # platform reports no work area at all, so `spot` there is a centre of
-        # the whole screen and puts the window half a panel too low
-        # (LWSM-1241). `spot` is still computed and still used on X11, and is
-        # the fallback if KWin cannot answer.
-        if self._place_at(target, centre=True) is None:
+        # rather than trusting the computed spot. `_screens()` is panel-aware
+        # through `availableGeometry`, which is true on X11 and empty on
+        # Wayland — that platform reports no work area at all, so the spot there
+        # is a centre of the whole screen and puts the window half a panel too
+        # low (LWSM-1241). It is still computed, still used on X11, and is the
+        # fallback if KWin cannot answer.
+        target = self._centre_target()
+        if target is None or self._place_at(target, centre=True) is None:
             self.set_status_message(
                 QCoreApplication.translate(
                     "ProjectRow", "This desktop would not let the window be moved."
                 )
             )
+
+    def _centre_target(self) -> Rect | None:
+        """Where the window would go to be centred, or `None` if unanswerable.
+
+        Split out of `centre_on_screen` by LWSM-1283 so the failure to compute
+        a target and the failure to apply one reach the same report.
+
+        Sized from `frameGeometry`, not `geometry`: the title bar and border are
+        part of what has to fit, and centring the client area leaves a window
+        sitting low by the height of its own decoration. Returned as the CLIENT
+        size, which is the unit `place_window` takes and the decoration KWin
+        adds back.
+        """
+        area = self._screen_area()
+        if area is None:
+            log.warning("cannot centre the window: no screen reports an area")
+            return None
+        frame = self.frameGeometry()
+        spot = centre_in(area, frame.width(), frame.height())
+        return Rect(spot.x, spot.y, self.width(), self.height())
 
     def showEvent(self, event: QShowEvent) -> None:
         """Arm the restore: first EXPOSE, then one event-loop tick.
@@ -3236,9 +3272,21 @@ class MainWindow(QMainWindow):
         if self._remembered_maximized or self._remembered_pos is None:
             return
         handle = self.windowHandle()
-        # Already exposed, or no handle to watch: there is no Expose still to
-        # come, so waiting for one would mean never restoring at all.
-        if handle is None or handle.isExposed():
+        # Two different cases, separated by LWSM-1283 — they were one branch
+        # firing at 0 ms, and 0 ms is the delay this method's own docstring
+        # records as MEASURED-FAILING under Wayland.
+        if handle is None:
+            # No handle to install a filter on, so the Expose cannot be
+            # watched — but one is still coming, which is exactly the case 0 ms
+            # was measured to be too early for. Falls back to the shortest
+            # delay measured to work rather than to the one measured to fail.
+            # Defensive: a top-level widget has a handle by the time `showEvent`
+            # runs, so this is unreached today.
+            QTimer.singleShot(PLACEMENT_FALLBACK_MS, self._restore_position)
+            return
+        if handle.isExposed():
+            # Genuinely nothing to wait for: the Expose has already been and
+            # gone, so waiting for another would mean never restoring at all.
             QTimer.singleShot(0, self._restore_position)
             return
         handle.installEventFilter(self)
@@ -3430,16 +3478,22 @@ class MainWindow(QMainWindow):
         self._geometry_applied = True
 
         width, chrome, row_height = self._content_metrics(rows)
-        want = (
-            QSize(*self._remembered_size)
-            if self._remembered_size is not None
-            else QSize(
-                width, chrome + min(len(rows), DEFAULT_VISIBLE_ROWS) * row_height
+        # The two sizes are clamped differently, which is LWSM-1283: a size the
+        # user chose is bounded only by ADR-0007's guard — the whole available
+        # area — while the size WE choose keeps `SCREEN_FRACTION`'s margin, so a
+        # first run does not open filling the screen.
+        if self._remembered_size is not None:
+            want = self._bounded_to_screen(QSize(*self._remembered_size))
+        else:
+            want = self._bounded_to_screen(
+                QSize(
+                    width, chrome + min(len(rows), DEFAULT_VISIBLE_ROWS) * row_height
+                ),
+                fraction=SCREEN_FRACTION,
             )
-        )
 
         self._apply_size_floor()
-        self.resize(self._bounded_to_screen(want))
+        self.resize(want)
 
     def _content_metrics(self, rows: list[ProjectRow]) -> tuple[int, int, int]:
         """The width the list needs, the height everything else takes, one row.
@@ -3556,8 +3610,16 @@ class MainWindow(QMainWindow):
         width, chrome, row_height = self._content_metrics(rows)
         self.setMinimumSize(QSize(width, chrome + MIN_VISIBLE_ROWS * row_height))
 
-    def _bounded_to_screen(self, size: QSize) -> QSize:
+    def _bounded_to_screen(self, size: QSize, *, fraction: float = 1.0) -> QSize:
         """`size`, never bigger than the screen this window is on.
+
+        **`fraction` defaults to the WHOLE available area, and only the default
+        size passes `SCREEN_FRACTION`** (LWSM-1283). One constant was serving
+        two jobs: a taste judgement about how much of the screen to fill on a
+        first run, and ADR-0007's guard against restoring a size recorded on a
+        bigger monitor. The guard wants the whole available area — that is what
+        the ADR says — and applying the taste judgement to a remembered size
+        shrank a window the user had sized on purpose by a tenth, every launch.
 
         ADR-0007 requires a restored geometry to be validated against the
         CURRENT screens and names "sized larger than the current display" as
@@ -3580,10 +3642,7 @@ class MainWindow(QMainWindow):
             return size
         room = screen.availableGeometry()
         return size.boundedTo(
-            QSize(
-                int(room.width() * SCREEN_FRACTION),
-                int(room.height() * SCREEN_FRACTION),
-            )
+            QSize(int(room.width() * fraction), int(room.height() * fraction))
         )
 
     def _align_columns(self) -> None:

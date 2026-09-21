@@ -19,7 +19,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QPalette, QShowEvent
 from PySide6.QtWidgets import QApplication
 
@@ -1480,6 +1480,7 @@ def rescan_window(
     saves: list | None = None,
     browsers_available: tuple = (),
     browsers_refused: frozenset[str] = frozenset(),
+    size: tuple[int, int] | None = None,
 ) -> tuple[MainWindow, ProjectController]:
     """A window with a Rescan context whose scan and writer are both fakes.
 
@@ -1504,6 +1505,7 @@ def rescan_window(
         Theme.default(),
         [],
         rescan=context,
+        size=size,
         load=load if load is not None else RegistryMissing("first run"),
         # Injected, never scanned: conftest points XDG_DATA_DIRS at an empty
         # directory so the real scan finds nothing, and a test that wants
@@ -5214,6 +5216,235 @@ def test_a_maximised_window_reopens_maximised_and_is_not_placed(qtbot, built) ->
 
     assert window.isMaximized()
     assert asked == []
+
+
+def test_a_remembered_size_is_not_shrunk_by_the_default_margin(qtbot, built) -> None:
+    """A size the user chose is bounded by the screen, not by SCREEN_FRACTION.
+
+    One constant was serving two jobs (LWSM-1283): a taste judgement about how
+    much of the screen to fill on a FIRST run, and ADR-0007's guard against
+    restoring a size recorded on a bigger monitor. Applied to a remembered size,
+    the taste judgement shrank a window the user had dragged out to fill the
+    screen by a tenth on every launch. ADR-0007 asks for "clamped to the
+    available area", and the available area is the whole of it.
+
+    Asked with the full available area as the remembered size, because that is
+    the case the margin used to cut and any smaller size cannot see the
+    difference. Maximising was never affected — it is stored as a flag.
+    """
+    room = QApplication.primaryScreen().availableGeometry()
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        size=(room.width(), room.height()),
+        place=wayland_place([]),
+    )
+
+    assert window.width() == room.width(), (
+        f"the remembered width {room.width()} came back as {window.width()}; "
+        "SCREEN_FRACTION is still being applied to a size the user chose"
+    )
+
+
+def test_the_screen_margin_still_exists_and_is_opt_in(qtbot, built) -> None:
+    """The other half, or the change above would read as deleting the margin.
+
+    Both fractions asked of `_bounded_to_screen` directly, against a size larger
+    than the screen so the clamp actually bites. The pair is the property and
+    neither half holds alone: the default must NOT clamp to SCREEN_FRACTION, and
+    SCREEN_FRACTION must still clamp when asked for.
+
+    The WIRING for an unremembered size is
+    `test_the_default_size_asks_for_the_screen_margin` below, and it has to
+    assert the CALL rather than the window: the content cannot get wider than
+    nine tenths of the screen, because `DEFAULT_VISIBLE_ROWS` caps the height at
+    eight rows and `NAME_COLUMN_CHARS` caps and elides the widest column. A
+    window-level assertion would therefore pass whether or not the fraction were
+    passed — the vacuous shape LWSM-1149's geometry tests were rewritten to
+    avoid.
+    """
+    window = geometry_window(qtbot, built, two_rows(), place=wayland_place([]))
+    room = QApplication.primaryScreen().availableGeometry()
+    huge = QSize(room.width() * 3, room.height() * 3)
+
+    assert window._bounded_to_screen(huge).width() == room.width(), (
+        "the default clamp must be the whole available area — that is what "
+        "ADR-0007 asks for"
+    )
+    assert window._bounded_to_screen(
+        huge, fraction=mainwindow.SCREEN_FRACTION
+    ).width() == int(room.width() * mainwindow.SCREEN_FRACTION), (
+        "SCREEN_FRACTION must still clamp when it is asked for, or a first run "
+        "opens filled to the edges"
+    )
+
+
+def test_centre_reports_when_no_screen_answers(qtbot, built, monkeypatch) -> None:
+    """A user-invoked action that does nothing must not also say nothing.
+
+    `_screen_area` returned `None` and `centre_on_screen` returned silently, so
+    the menu entry did nothing with no message anywhere — reachable on a monitor
+    hot-unplug, and ADR-0007 forbids the action "being offered and doing
+    nothing" in as many words (LWSM-1283).
+
+    Patched on the INSTANCE, which works because `MainWindow` is a Python class
+    and `self._screen_area()` finds the instance attribute first. The class-level
+    route would not: PySide6 binds Qt virtuals at construction, which is the trap
+    CLAUDE.md records for `paintEvent`.
+    """
+    window = geometry_window(qtbot, built, two_rows(), place=wayland_place([]))
+    monkeypatch.setattr(window, "_screen_area", lambda: None)
+
+    window.centre_on_screen()
+
+    assert window.statusBar().currentMessage(), (
+        "Centre on screen found no screen and reported nothing at all"
+    )
+
+
+def test_no_window_handle_waits_rather_than_firing_at_zero(
+    qtbot, built, monkeypatch
+) -> None:
+    """The `handle is None` case took the delay measured to FAIL.
+
+    `if handle is None or handle.isExposed()` merged two opposite cases
+    (LWSM-1283). `isExposed()` means the Expose has already been and gone, so
+    firing at 0 ms is right. `handle is None` means one is still coming, and 0 ms
+    is the delay `showEvent`'s own docstring records as measured-failing against
+    real KWin. Now it waits `PLACEMENT_FALLBACK_MS`, the shortest measured to
+    work.
+
+    Defensive: a top-level widget has a handle by the time `showEvent` runs, so
+    this asserts the value that WOULD be used. The observable is the delay the
+    timer is armed with, captured at `QTimer.singleShot`.
+    """
+    armed: list[int] = []
+    controller = build_controller(built, two_rows(), FakeProbe(5005))
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        position=(300, 400),
+        size=(640, 480),
+        place=wayland_place([]),
+    )
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "windowHandle", lambda: None)
+    monkeypatch.setattr(
+        mainwindow.QTimer,
+        "singleShot",
+        staticmethod(lambda ms, _fn: armed.append(ms)),
+    )
+
+    window.show()
+
+    assert armed == [mainwindow.PLACEMENT_FALLBACK_MS], (
+        f"with no window handle the placement was armed at {armed} ms; 0 ms is "
+        "the delay measured to fail under Wayland"
+    )
+
+
+def test_the_default_size_asks_for_the_screen_margin(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """A size WE choose keeps SCREEN_FRACTION, so a first run is not edge to edge.
+
+    The counterpart to the two remembered-size tests: they assert the margin is
+    NOT applied to a size the user chose, and without this one that change reads
+    as having deleted the margin outright.
+
+    **Asserts the call, not the window, and that is not a weaker test here — it
+    is the only observable.** The content-derived size cannot exceed nine tenths
+    of the screen, so the clamp never bites and the window looks identical either
+    way. What can be observed is which fraction the default path asks for.
+
+    Driven through the real first-run path — empty registry, shown, rows
+    delivered by a rescan — so it is the wiring under test and not the helper.
+    """
+    asked: list[float] = []
+    real = MainWindow._bounded_to_screen
+
+    def spy(self, size, *, fraction=1.0):
+        asked.append(fraction)
+        return real(self, size, fraction=fraction)
+
+    monkeypatch.setattr(MainWindow, "_bounded_to_screen", spy)
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [],
+        tmp_path,
+        FakeScanResult(
+            projects=(
+                FakeDetected(
+                    path=tmp_path / "found", name="found", port=FakePortFinding(5005)
+                ),
+            )
+        ),
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    run_rescan(qtbot, window)
+
+    assert mainwindow.SCREEN_FRACTION in asked, (
+        f"the default size path asked for {asked}; with nothing remembered it "
+        "must keep SCREEN_FRACTION's margin so a first run does not open "
+        "filling the screen"
+    )
+
+
+def test_rows_arriving_after_show_do_not_shrink_a_remembered_size(
+    qtbot, built, tmp_path
+) -> None:
+    """The OTHER ordering, which is the one the real app has.
+
+    Two places apply a remembered size and which runs last depends on when rows
+    arrive. `__init__` calls `_sync_rows`, so a controller built with records
+    reaches `_apply_default_geometry` BEFORE `show()`, and
+    `_restore_size_and_state` then wins. In the real app the scan is
+    asynchronous, rows land after the window is up, and
+    `_apply_default_geometry` is the one that runs last.
+
+    **Both sites need the fix and only this ordering tests the second.** Measured
+    while mutating LWSM-1283: passing SCREEN_FRACTION in
+    `_apply_default_geometry`'s remembered branch survived the whole suite,
+    because every fixture that remembered a size also handed its rows over at
+    construction. That is the one-row-fixture trap from CLAUDE.md one level up —
+    the fixtures could not reach the ordering, so the ordering was untested.
+
+    A first run with an empty registry, shown, then given rows through the real
+    rescan path, which is the sequence
+    `test_the_geometry_waits_for_the_rows_a_first_run_has_not_scanned_yet`
+    already pins.
+    """
+    room = QApplication.primaryScreen().availableGeometry()
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [],
+        tmp_path,
+        FakeScanResult(
+            projects=(
+                FakeDetected(
+                    path=tmp_path / "found", name="found", port=FakePortFinding(5005)
+                ),
+            )
+        ),
+        size=(room.width(), room.height()),
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    assert not window._geometry_applied, "nothing to measure with no rows"
+
+    run_rescan(qtbot, window)
+
+    assert window._geometry_applied, "the first rows must set the opening size"
+    assert window.width() == room.width(), (
+        f"the remembered width {room.width()} came back as {window.width()} "
+        "once rows arrived; SCREEN_FRACTION is being applied to a size the user "
+        "chose on the path the real app takes"
+    )
 
 
 def test_a_maximised_window_is_maximised_before_any_tick(qtbot, built) -> None:
