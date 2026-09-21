@@ -1,4 +1,5 @@
 <!-- ants-roadmap-format: 1 -->
+<!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
 # LocalWebServerManager — Roadmap
 
 > **Current version:** 0.0.0 (scaffolded 2026-08-03). See
@@ -28,6 +29,7 @@
 - 🚧 In progress (being tackled now)
 - ✅ Done (shipped)
 - 💭 Considered (research phase; scope or feasibility uncertain)
+- 🚫 Dropped (closed, not done)
 
 **Themes** (per `docs/standards/roadmap-format.md § 3.4`)
 
@@ -5828,8 +5830,8 @@ mostly in the measurement behind it.
 
   That is an edit to the push gate, which this project treats as load-bearing,
   and is well outside a doc-fix. Filed rather than folded in.
-  Kind: test.
   **Layman:** The fix for the wrong theme names in the docs is not protected against drifting wrong again.
+  Kind: test.
   Source: in-session-2026-09-06.
 
 - ✅ [LWSM-1300] **MEDIUM: a disabled button is indistinguishable from an enabled one, so correct enablement reads as broken.**
