@@ -10,59 +10,95 @@
 | **Last update** | 2026-09-07 (**The FP09 items named in § 1a below all shipped, each its own commit, gate green and pushed; tip 29e80d9.** LWSM-1251, 1266, 1269, 1265, 1264, 1267, 1268, and LWSM-1304 which was found mid-item. See § 1a below for what is open and what to do next.) Was: 2026-09-06 (**LWSM-1300 REOPENED and SHIPPED. The original headline was right and both of the day's earlier readings were wrong.** The user asked for buttons irrelevant to a server's state to be disabled. `_apply_button_state` had always done that; nothing dimmed, so it read as broken. The fault was in `theme.to_palette`, whose two-argument `setColor` calls write one colour into the Active, Inactive AND Disabled groups alike — so applying a theme overwrote the platform's dimming. The Disabled group is now set for `WindowText`, `Text` and `ButtonText`. |
 
 
-## §1a. Session handoff — 2026-09-07
+## §1a. Session handoff — 2026-09-21
 
-**Tree clean, `main` in sync with `origin/main` at `29e80d9`, gate green
+**Tree clean, `main` in sync with `origin/main` at `b9e2b40`, gate green
 (`./scripts/local-ci.sh`, no SKIP, no tool drift). Nothing is uncommitted.**
 
-**`gh`'s active account switched to `18down` mid-session and pushes started
-failing with a 403.** Fixed with `gh auth switch --user milnet01` (the user
-approved it). If a push is rejected again, check `gh auth status` first — the
-repo is `milnet01/LocalWebServerManager` and only that account can write.
+**The roadmap store is the source of truth and was already the backend** — it
+has been for some time; `roadmap_query` answers `source: "store"`. What was
+stale was the published `ROADMAP.md`, which sat behind the canonical render
+until `roadmap_log op:"render"` republished it. **A render's `dry_run` cannot
+tell you whether it would change the file**: `would_discard_external_edits`
+means no hand edit would be lost, not that the bytes match. Reported to the
+Ants MCP maintainer session and logged in this project's feedback file.
+
+**`gh`'s active account switched to `18down` on 2026-09-07 and pushes failed
+with a 403.** Fixed then with `gh auth switch --user milnet01`. Pushes were
+clean all of 2026-09-21, so this is history rather than a live problem; check
+`gh auth status` first if one is rejected again. Only `milnet01` can write to
+`milnet01/LocalWebServerManager`.
 
 ### Shipped today
 
-`LWSM-1251` DEBUG catch-all, `1266` unverified shellcheck tarball, `1269`
-pre-push remote scoping, `1265` release pre-flight all-clear, `1264` dry-bump
-unwind, `1267` desktop entry validated before publishing, `1268` release
-trigger sentence, `1304` translate() context. Read each bullet's own
-`Resolved` note — they carry the measurements, not this file.
+All five remaining FP09 MEDIUMs. `LWSM-1252` and `LWSM-1258` translated
+strings the extractor could not see, `LWSM-1262` a window floor clamped below
+its own content, `LWSM-1257` margins that did not follow the text size,
+`LWSM-1263` size and maximised state riding the deferred placement path. Read
+each bullet's own `Resolved` note — they carry the measurements, not this file.
+
+**Three of the five turned out bigger than filed, all three found by an
+instrument rather than by reading.** `LWSM-1252` named one call site and an AST
+scan found a second in the same file, again the one with no test. `LWSM-1262`
+had a second half inside its own test, which excluded the only scale that could
+see the defect and called the exclusion a legitimate limit. `LWSM-1263` had a
+second defect nobody filed: on the deferred path `normalGeometry` ended at the
+maximised size, and `closeEvent` stores `normalGeometry()`, so one maximised
+session overwrote the user's remembered window size with the screen size.
+Measured under real KWin; invisible to the suite, and no test is claimed for it.
 
 ### Next action, no questions needed
 
-**`LWSM-1252`, then `LWSM-1258`.** Both were blocked by `LWSM-1304` and are now
-deliverable. `LWSM-1304` removed `_TR_CONTEXT` from `mainwindow.py` and
-`settingsdialog.py`; the context is the literal at every call site and
-`tests/test_translatable.py` runs `pyside6-lupdate` to prove it.
+**Every FP09 MEDIUM is shipped. What is left in FP09 is `LWSM-1238`, the LOW
+batches `LWSM-1270`–`1284`, and the two INFO items `LWSM-1285`/`1286`.** Read
+the live figure rather than any number written here, with `roadmap_query
+mode="section_index" query="fp09"`.
 
-- `LWSM-1252` — `_merge_parts` passes a LOOP VARIABLE as translate()'s second
-  argument, so its six fragments are still unextractable. Fix: make each
-  literal the direct argument. **A parametrised test asserting all six was
-  written and deliberately held back** so it lands with the fix; re-add it to
-  `tests/test_translatable.py` as `test_a_summary_fragment_is_extractable`,
-  parametrised over `("ProjectRow", "%1 new")` and the other five, asserting
-  `source in extracted[context]`.
-- `LWSM-1258` — the hide/show messages put a CONDITIONAL inside translate().
-  Same class. **With both fixed, close the class rather than the instances**:
-  extend `test_every_translate_call_names_its_context_as_a_literal` to check
-  `node.args[1]` the same way it checks `args[0]`. It cannot go in before both
-  fixes, because it fails on either one alone.
+**Start with the LOW batches, not with `LWSM-1238`.** That is not severity
+order and the reason is in CLAUDE.md's trap cluster: `LWSM-1238` (no theme
+emits focus styling) sat blocked for days on a measurement that was wrong
+twice, and `LWSM-1300`, the fix built on the second wrong reading, was shipped
+and then BACKED OUT because rendering it showed it made the defect worse. It
+needs a real widget rendered in the real state with the real palette and style
+sheet applied, and then a human look at it — the suite cannot answer it and a
+changed-pixel count is not visibility. It is the most expensive item in the
+section and the least suited to being picked up cold.
 
-Then the remaining MEDIUMs by severity: `LWSM-1262` (window minimum bounded to
-the screen, so content can be clipped — `LWSM-1200` has SHIPPED, so the
-bullet's "fix together with LWSM-1200, one edit" no longer applies and it is a
-standalone change at `_apply_size_floor`), `LWSM-1263` (maximised state applied
-on the deferred path — **the bullet says verify under real KWin, not the
-suite**), `LWSM-1257` (margins computed once, so they do not grow with the text
-size). Then the LOW batches `LWSM-1270`–`1284`.
+The LOW batches are fourteen lanes' worth of small defects, one batch per lane,
+and they are independent of each other. `LWSM-1270` (`TrustStore.revoke` has no
+caller anywhere) is the single cheapest thing in FP09 and is the one finding
+that survived `check-code`'s eleven tools.
+
+**Two habits that paid for themselves on every item closed on 2026-09-21, both
+already in CLAUDE.md and both worth re-reading before starting a batch.**
+
+- **Count the sites before fixing one, with an instrument.** Three of five
+  bullets understated their own scope, and in each case the unnamed site was
+  the one no test covered. An AST scan or a live-tree verdict diff finds them;
+  reading the cited line does not, and the cited lines are stale anyway.
+- **When a change reddens or excludes a pre-existing test, read what the test
+  CLAIMS before assuming the change is wrong.** `LWSM-1262`'s test excluded the
+  only scale that could see the defect and its docstring explained the
+  exclusion as a legitimate limit. It was the defect.
 
 ### Filed in passing today
 
+- `LWSM-1305` — this project's `CLAUDE.md` § Review cadence rests on "Global
+  rule 14 still mandates loop-to-convergence", which global rule 14 no longer
+  says: it hands convergence to `review-contract` and caps at 2 for a spec or
+  plan, 3 for a standard or ADR. So half of the documented divergence is not a
+  divergence. Worse, global rule 14 lets a project cancel the gate but not
+  change the cap, and our section states a cap without distinguishing genre —
+  so its 2 silently applies to an ADR, where global says 3, and `docs/design.md`
+  is gated as an ADR. **Filed, not fixed: the correction changes what a
+  conformer does and re-arms rule 14's gate on our own `CLAUDE.md`.** Found by
+  cross-checking with the `~/.claude` session, which is rewriting rule 14 and
+  owes us the settled cap wording. Gates nothing.
 - `LWSM-1303` — CLAUDE.md's `Tests:` list in § Module map has fallen behind the
-  directory; `tests/test_local_release.py` and `tests/test_translatable.py` are
-  both new today and neither is in it. Filed rather than half-fixed, because
-  appending one name to a list already missing several makes it no more
-  trustworthy. Gates nothing.
+  directory. Still open, and now further behind: `tests/test_translatable.py`
+  grew `_offences` and four new tests on 2026-09-21. Filed rather than
+  half-fixed, because appending one name to a list already missing several makes
+  it no more trustworthy. Gates nothing.
 
 ### Two things worth carrying forward
 
