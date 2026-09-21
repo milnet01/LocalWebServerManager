@@ -127,6 +127,26 @@ already in CLAUDE.md and both worth re-reading before starting a batch.**
   grew `_offences` and four new tests on 2026-09-21. Filed rather than
   half-fixed, because appending one name to a list already missing several makes
   it no more trustworthy. Gates nothing.
+- `LWSM-1307` — the `| Rule | What catches a breach |` tables in all four specs
+  cite tests by name, and 24 of those names are defined nowhere in `tests/`.
+  LWSM-1007 and LWSM-1131 carry all but two, and both are `**Status:**
+  implemented` with a commit hash. **The symbol half is CLOSED (a4eabe8,
+  9293b4f) and the 24 test rows are OPEN** — see the item's own progress note
+  for the list. Do not close a row on name similarity:
+  `test_rescan_is_disabled_while_a_merge_is_in_flight` scores highest against
+  `test_import_is_disabled_while_a_rescan_is_in_flight`, which is a different
+  rule, and three cited names in LWSM-1007 compete for one real test.
+  Repointing a row at a test that does not assert its rule writes a false
+  coverage claim into a shipped spec, which is worse than the dangling name.
+  **Two of our own checks came back clean on this and neither is a pass:**
+  `spec_lint` reports `skipped: [test_surface_absent, …]` because it resolves
+  a test surface only in `tests/features/<name>/` shape, and `doc_citations`
+  reported `unresolved: 0` while leaving citations `unchecked`. Gates nothing.
+- The cold-eyes loop logs in LWSM-1006, LWSM-1007 and LWSM-1131 had one header
+  carrying the retired CRIT/HIGH/MED/LOW columns above rows that had moved to a
+  per-question tally, so those rows rendered shifted. Split into two tables
+  each in a4eabe8; no landed row edited. Found by a draft `check-doc.py` from
+  the `~/.claude` session, whose measurement is what produced LWSM-1307 too.
 
 ### Two things worth carrying forward
 
