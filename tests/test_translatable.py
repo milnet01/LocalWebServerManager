@@ -89,23 +89,120 @@ def _translate_calls(path: Path) -> list[ast.Call]:
     ]
 
 
+def test_the_walk_sees_a_planted_offence(tmp_path: Path) -> None:
+    """The guard below reports nothing on a clean tree, and on a broken walk.
+
+    `_translate_calls` matches one spelling — an attribute named `translate` on
+    a bare `QCoreApplication`. A refactor to `QtCore.QCoreApplication.translate`
+    or a wrapper, or an `ast.parse` that raises, makes it match nothing, and a
+    check that finds no offenders is exactly what a clean tree looks like. So
+    the walk is asked to find one that is definitely there.
+
+    Contributed by the finbreak session, 2026-09-21, which hit this class
+    independently and had the leg this file was missing. It also measured the
+    shape checked here as one of four rather than three: a call routed through
+    a helper extracts nothing while reading as a literal at every call site.
+    That shape is absent here — no function in `src/lwsm/` passes a parameter
+    to `translate()` — so this file does not test for it. Add the case with the
+    wrapper, not before it.
+    """
+    planted = tmp_path / "planted.py"
+    planted.write_text(
+        "from PySide6.QtCore import QCoreApplication\n"
+        "\n"
+        "def f(source: str) -> str:\n"
+        '    return QCoreApplication.translate("Ctx", source)\n',
+        encoding="utf-8",
+    )
+
+    calls = _translate_calls(planted)
+    assert len(calls) == 1, f"the walk found no translate() call to judge: {calls}"
+
+    offenders = [
+        index for index in (0, 1) if not isinstance(calls[0].args[index], ast.Constant)
+    ]
+    assert offenders == [1], (
+        "the walk must flag a non-literal source argument; it reported "
+        f"{offenders} for a call whose source is a parameter"
+    )
+
+
+# Every fragment LWSM-1252 and LWSM-1258 recovered, with the context it belongs
+# to. Named here rather than counted, so a fragment that stops being extracted
+# fails under its own id instead of moving a total.
+RECOVERED = [
+    ("ProjectRow", "%1 new"),
+    ("ProjectRow", "%1 changed"),
+    ("ProjectRow", "%1 port no longer detected"),
+    ("ProjectRow", "%1 override differs"),
+    ("ProjectRow", "%1 duplicate"),
+    ("ProjectRow", "%1 missing"),
+    ("ProjectRow", "%1 is hidden"),
+    ("ProjectRow", "%1 is shown again"),
+    ("ProjectRow", "Start %1"),
+    ("ProjectRow", "Stop %1"),
+    ("ProjectRow", "Restart %1"),
+    ("ProjectRow", "Open %1 in a browser"),
+]
+
+
+@pytest.mark.parametrize(("context", "source"), RECOVERED, ids=lambda v: v)
+def test_a_recovered_fragment_is_extractable(extracted, context, source) -> None:
+    """The strings LWSM-1252 and LWSM-1258 made visible to a translator.
+
+    Asked of the EXTRACTOR, not of the AST, because that is the property the
+    user gets: `test_every_translate_call_passes_literals_for_context_and_source`
+    below holds the shape, and this holds the outcome. Both are wanted — a
+    future call could satisfy the shape and still be dropped for a reason
+    neither of us has met yet.
+
+    Split across three defects that read as one: a loop variable in
+    `_merge_parts` and again in the accessible-name loop (LWSM-1252), and a
+    conditional inside the call in `set_project_hidden` (LWSM-1258).
+    """
+    assert source in extracted.get(context, set()), (
+        f"lupdate did not extract {source!r} under {context!r}; "
+        f"it is a user-visible string no translator can reach"
+    )
+
+
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: p.name)
-def test_every_translate_call_names_its_context_as_a_literal(path: Path) -> None:
+def test_every_translate_call_passes_literals_for_context_and_source(
+    path: Path,
+) -> None:
     """One regressed call site is invisible to the tests above (LWSM-1304).
 
     They ask whether extraction works at all and which contexts came back —
-    neither notices one string out of eighty going missing, which a mutant
-    routing a single call through a variable confirmed. Parsed rather than
-    grepped, for `test_layering.py`'s reason: the property is what the argument
-    IS, and a substring search cannot tell a literal from a name.
+    neither notices one string going missing, which a mutant routing a single
+    call through a variable confirmed. Parsed rather than grepped, for
+    `test_layering.py`'s reason: the property is what the argument IS, and a
+    substring search cannot tell a literal from a name.
+
+    **Both arguments, since LWSM-1252/1258 closed the class.** The context
+    argument was the whole check while `_TR_CONTEXT` was the only known way to
+    lose a string. The source argument fails identically and did, three times
+    in one file — twice through a loop variable and once through a conditional
+    written inside the call. Checking one and not the other left half the
+    defect uncovered, and no linter reports either.
     """
     offenders = [
-        (node.lineno, ast.unparse(node.args[0]))
+        (node.lineno, index, ast.unparse(node.args[index]))
         for node in _translate_calls(path)
-        if not node.args or not isinstance(node.args[0], ast.Constant)
+        for index in (0, 1)
+        if len(node.args) > index and not isinstance(node.args[index], ast.Constant)
+    ]
+    short = [
+        (node.lineno, len(node.args))
+        for node in _translate_calls(path)
+        if len(node.args) < 2
     ]
 
     assert not offenders, (
-        f"{path.name}: lupdate skips a call whose context is not a literal, so "
-        f"these strings would silently stop being extractable: {offenders}"
+        f"{path.name}: lupdate skips a call whose context or source is not a "
+        f"literal, so these strings would silently stop being extractable: "
+        f"{offenders}"
+    )
+    assert not short, (
+        f"{path.name}: a translate() call needs both a context and a source "
+        f"literal; these pass too few arguments: {short}"
     )

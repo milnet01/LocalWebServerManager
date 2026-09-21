@@ -363,14 +363,23 @@ def _merge_parts(counts: dict[str, int]) -> list[str]:
     """
 
     parts = [
-        QCoreApplication.translate("ProjectRow", template).replace("%1", str(count))
-        for outcome, template in (
-            (registry.NEW, "%1 new"),
-            (registry.CHANGED, "%1 changed"),
-            (registry.NOT_REOBSERVED, "%1 port no longer detected"),
-            (registry.OVERRIDE_DIFFERS, "%1 override differs"),
-            (registry.DUPLICATE_IDENTITY, "%1 duplicate"),
-            (registry.MISSING, "%1 missing"),
+        text.replace("%1", str(count))
+        for outcome, text in (
+            (registry.NEW, QCoreApplication.translate("ProjectRow", "%1 new")),
+            (registry.CHANGED, QCoreApplication.translate("ProjectRow", "%1 changed")),
+            (
+                registry.NOT_REOBSERVED,
+                QCoreApplication.translate("ProjectRow", "%1 port no longer detected"),
+            ),
+            (
+                registry.OVERRIDE_DIFFERS,
+                QCoreApplication.translate("ProjectRow", "%1 override differs"),
+            ),
+            (
+                registry.DUPLICATE_IDENTITY,
+                QCoreApplication.translate("ProjectRow", "%1 duplicate"),
+            ),
+            (registry.MISSING, QCoreApplication.translate("ProjectRow", "%1 missing")),
         )
         if (count := counts.get(outcome, 0))
     ]
@@ -1075,20 +1084,22 @@ class ProjectRow(QFrame):
             )
         # An accessible name of its own on each, because the label alone reads
         # as "Start" three times over in a list of three projects (`§ O8`).
-        for button, verb in (
-            (self.start_button, "Start %1"),
-            (self.stop_button, "Stop %1"),
-            (self.restart_button, "Restart %1"),
-            (self.open_button, "Open %1 in a browser"),
+        for button, accessible in (
+            (self.start_button, QCoreApplication.translate("ProjectRow", "Start %1")),
+            (self.stop_button, QCoreApplication.translate("ProjectRow", "Stop %1")),
+            (
+                self.restart_button,
+                QCoreApplication.translate("ProjectRow", "Restart %1"),
+            ),
+            (
+                self.open_button,
+                QCoreApplication.translate("ProjectRow", "Open %1 in a browser"),
+            ),
         ):
-            button.setAccessibleName(
-                # `_name_display`, never the label: since LWSM-1174 the label
-                # holds an ELIDED name, and "Start customer-dash…" is not a
-                # control anybody can identify by ear.
-                QCoreApplication.translate("ProjectRow", verb).replace(
-                    "%1", self._name_display
-                )
-            )
+            # `_name_display`, never the label: since LWSM-1174 the label holds
+            # an ELIDED name, and "Start customer-dash…" is not a control
+            # anybody can identify by ear.
+            button.setAccessibleName(accessible.replace("%1", self._name_display))
         # Last, because it measures the labels this method has just set.
         self._fit_buttons()
 
@@ -2737,8 +2748,10 @@ class MainWindow(QMainWindow):
         self.set_status_message(
             self._write_records(
                 records,
-                QCoreApplication.translate(
-                    "ProjectRow", "%1 is hidden" if hidden else "%1 is shown again"
+                (
+                    QCoreApplication.translate("ProjectRow", "%1 is hidden")
+                    if hidden
+                    else QCoreApplication.translate("ProjectRow", "%1 is shown again")
                 ).replace("%1", name),
                 "hide",
             )
