@@ -4818,7 +4818,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 13.
 
-- 📋 [LWSM-1263] **MEDIUM: maximised state is applied on the deferred placement path rather than directly.**
+- ✅ [LWSM-1263] **MEDIUM: maximised state is applied on the deferred placement path rather than directly.**
   mainwindow.py:2680-2682. ADR-0007 divides the work explicitly: "Size and
   maximised state are applied directly on every platform - resize() is honoured
   under Wayland; only placement is refused", and only "The KWin call is
@@ -4827,6 +4827,22 @@ has been applied yet — every item in this section is open.
   too, where nothing needed deferring. Fix: apply resize + showMaximized at the
   top of showEvent and defer only _place_at. VERIFY UNDER REAL KWIN, not the
   suite.
+  Resolved (2026-09-21): `showEvent` now calls `_restore_size_and_state` directly and defers only `_restore_position`. `_restore_geometry` split in two along that line; `eventFilter` arms the placement half. `setWindowState` rather than `showMaximized()`, which is that call plus a `show()` - re-entering `show()` from inside `showEvent` is a recursion `_geometry_restored` would catch and should not have to. A maximised window arms no filter and no timer at all, because it is never placed.
+
+  VERIFIED UNDER REAL KWIN as the bullet required - Plasma 6 Wayland, this machine, the real `build_window` against an isolated XDG_CONFIG_HOME holding maximized=true and 640x480. Sampled at show() and at +0/50/200/600/1200 ms.
+
+    after the fix:  maximised=True at show(), size 640x480, then 3840x2086 by +50 ms; normal stays 640x480 throughout.
+    before the fix: maximised=False at show(), size 239x188 - the undecorated minimum; maximised=True at +0 ms; 3840x2086 by +50 ms.
+
+  So KWin DOES honour setWindowState(WindowMaximized) applied inside showEvent, unlike the placement call it refuses that early. That was the risk the bullet flagged and it is now measured rather than assumed. The visible flash was real: the window appeared at 239x188, not at its remembered size.
+
+  A SECOND AND WORSE DEFECT, found by the instrument and not named in the bullet. Before the fix `normalGeometry` ended at 3840x2086 - the maximised size - rather than 640x480. `closeEvent` stores `normalGeometry()`, so a single maximised session overwrote the user's remembered window size with the screen size, permanently. Un-maximising would not have given back the window they had. After the fix it stays 640x480.
+
+  That half is INVISIBLE TO THE SUITE and I am not claiming a test for it: the corruption comes from the compositor's configure ack, which the offscreen platform does not perform. `test_closing_a_maximised_window_remembers_the_flag_and_the_normal_size` passes against the defect for that reason. ADR-0007's own rule applies - a green suite is not evidence for anything the compositor owns.
+
+  Coverage for the half that IS testable: `test_a_maximised_window_is_maximised_before_any_tick` asserts the state with no `qtbot.wait` and no `waitExposed`, because `geometry_window` waits for exposure, which is past the tick. `test_a_maximised_window_arms_no_deferred_placement` holds the no-placement half before exposure rather than after.
+
+  Mutant: putting size and state back on a `QTimer.singleShot` kills the new test and leaves the three pre-existing maximised tests green - measured by name, which is the evidence that none of them could see this.
   **Layman:** Leave the window maximised and it reopens small, then jumps to maximised a moment later, every launch.
   Kind: fix.
   Source: review-code 2026-09-01 lane 13.

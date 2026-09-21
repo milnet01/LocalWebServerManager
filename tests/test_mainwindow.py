@@ -4991,13 +4991,13 @@ def test_the_profile_entries_retranslate(qtbot, built, tmp_path) -> None:
 def geometry_window(qtbot, built, records, **kwargs) -> MainWindow:
     """A window built with LWSM-1033's seams and actually shown.
 
-    Shown, because `_restore_geometry` runs off the first `showEvent` and a
+    Shown, because the restore runs off the first `showEvent` and a
     window that is never shown restores nothing. `waitExposed` is what makes
     the deferred single-shot actually fire.
 
     **And polled, in that order, because the real app does both.** Without the
     poll no rows ever arrive, so `_apply_default_geometry` returns early and
-    every test here silently measures `_restore_geometry` alone — which is
+    every test here silently measures the restore alone — which is
     what a mutation of the remembered-size preference proved on 2026-08-21 by
     surviving the whole suite. A fixture that cannot reach half the mechanism
     reads exactly like a mechanism that is untested.
@@ -5216,6 +5216,81 @@ def test_a_maximised_window_reopens_maximised_and_is_not_placed(qtbot, built) ->
     assert asked == []
 
 
+def test_a_maximised_window_is_maximised_before_any_tick(qtbot, built) -> None:
+    """Size and maximised state are applied directly, not on the deferred path.
+
+    ADR-0007 divides the work: "Size and maximised state are applied directly
+    on every platform — `resize()` is honoured under Wayland; only placement is
+    refused", and only the KWin call is deferred. Both rode the deferred path
+    until LWSM-1263, so a remembered-maximised window opened at its normal size
+    and jumped to maximised a tick later — on X11 too, where nothing needed
+    deferring.
+
+    **No `qtbot.wait` and no `waitExposed`, deliberately.** `geometry_window`
+    waits for exposure, which is past the tick, so every existing test here
+    passes whichever path applies the state and none of them can see this. The
+    property is that `show()` alone is enough: `showEvent` is delivered
+    synchronously, so the state must be on when it returns.
+
+    Asserts the SIZE as well, because both moved together and a fix that
+    reached only the maximised flag would look right. A maximised window keeps
+    its normal size underneath so un-maximising gives back the window the user
+    had, which is why `normalGeometry` is the thing to read.
+    """
+    controller = build_controller(built, two_rows(), FakeProbe(5005))
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        position=(300, 400),
+        size=(640, 480),
+        maximized=True,
+        place=wayland_place([]),
+    )
+    qtbot.addWidget(window)
+
+    window.show()
+
+    assert window.isMaximized(), (
+        "the window was not maximised when showEvent returned, so the state is "
+        "still being applied on the deferred placement path"
+    )
+    assert window.normalGeometry().size().toTuple() == (640, 480), (
+        f"the normal size is {window.normalGeometry().size().toTuple()}, not "
+        "the remembered 640x480, so un-maximising would not give back the "
+        "window the user had"
+    )
+
+
+def test_a_maximised_window_arms_no_deferred_placement(qtbot, built) -> None:
+    """Nothing to place means nothing to wait for (LWSM-1263).
+
+    `showEvent` returns before installing a filter or arming a timer when the
+    window is maximised or has no remembered position. The observable is that
+    the compositor is never asked — the same assertion
+    `test_a_maximised_window_reopens_maximised_and_is_not_placed` makes after
+    exposure, made here before it, so a placement that fires early is caught
+    too.
+    """
+    asked: list[Rect] = []
+    controller = build_controller(built, two_rows(), FakeProbe(5005))
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        position=(300, 400),
+        size=(640, 480),
+        maximized=True,
+        place=wayland_place(asked),
+    )
+    qtbot.addWidget(window)
+
+    window.show()
+    qtbot.wait(20)
+
+    assert asked == [], f"a maximised window was placed at {asked}"
+
+
 def test_a_position_from_an_unplugged_monitor_lands_on_a_screen(qtbot, built) -> None:
     """The clamp, observed on the window rather than on the arithmetic — a
     `place_window` wired up without `clamp_to_screens` would put the window
@@ -5236,7 +5311,7 @@ def test_a_position_from_an_unplugged_monitor_lands_on_a_screen(qtbot, built) ->
 
 
 def test_nothing_remembered_leaves_the_window_where_it_was_put(qtbot, built) -> None:
-    """A first run. `_restore_geometry` must not place a window at (0, 0)
+    """A first run. `_restore_position` must not place a window at (0, 0)
     because that is what an unset coordinate defaults to — which is why
     `Settings` stores `None` rather than `0`."""
     asked: list[Rect] = []

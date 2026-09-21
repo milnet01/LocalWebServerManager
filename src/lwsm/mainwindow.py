@@ -3223,11 +3223,23 @@ class MainWindow(QMainWindow):
         if self._geometry_restored:
             return
         self._geometry_restored = True
+        # Size and maximised state go on NOW, not on the deferred path
+        # (LWSM-1263). ADR-0007 divides the work: "Size and maximised state are
+        # applied directly on every platform — `resize()` is honoured under
+        # Wayland; only placement is refused." Only the KWin call needs the
+        # surface to exist, so only the KWin call waits for it.
+        self._restore_size_and_state()
+        # A maximised window is not placed at all — its position is the
+        # screen's, and asking KWin for the stored coordinates would
+        # un-maximise it to honour them. With nothing to place there is nothing
+        # to wait for, so no filter is installed and no timer armed.
+        if self._remembered_maximized or self._remembered_pos is None:
+            return
         handle = self.windowHandle()
         # Already exposed, or no handle to watch: there is no Expose still to
         # come, so waiting for one would mean never restoring at all.
         if handle is None or handle.isExposed():
-            QTimer.singleShot(0, self._restore_geometry)
+            QTimer.singleShot(0, self._restore_position)
             return
         handle.installEventFilter(self)
 
@@ -3245,11 +3257,47 @@ class MainWindow(QMainWindow):
             and self.windowHandle().isExposed()
         ):
             watched.removeEventFilter(self)
-            QTimer.singleShot(0, self._restore_geometry)
+            QTimer.singleShot(0, self._restore_position)
         return super().eventFilter(watched, event)
 
-    def _restore_geometry(self) -> None:
-        """Size first, then position — and neither if there is nothing stored.
+    def _restore_size_and_state(self) -> None:
+        """The half that needs no compositor: size, then maximised state.
+
+        Applied directly from `showEvent` on every platform, per ADR-0007 —
+        `resize()` is honoured under Wayland and only placement is refused. It
+        rode along on the deferred placement path until LWSM-1263, which meant
+        a remembered-maximised window opened at its normal size and jumped to
+        maximised a tick later, on X11 too, where nothing needed deferring at
+        all.
+
+        `setWindowState` rather than `showMaximized()`, which is that call plus
+        a `show()` — re-entering `show()` from inside `showEvent` is a recursion
+        `_geometry_restored` would catch and should not have to.
+
+        The size is applied here as well as in `_apply_default_geometry`, which
+        is not a duplicate: that method returns early when there are no rows,
+        and a user whose project list is empty still closed the window at a
+        size they chose.
+
+        A maximised window still gets its normal size applied first, so
+        un-maximising later gives back the window they had.
+        """
+        if self._remembered_size is not None:
+            # Bounded, because a size is restored on every platform while
+            # placement can be refused — so this is the only guard ADR-0007's
+            # "sized larger than the current display" case ever gets.
+            self.resize(self._bounded_to_screen(QSize(*self._remembered_size)))
+        if self._remembered_maximized:
+            self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+
+    def _restore_position(self) -> None:
+        """The half the compositor owns: placement, and nothing else.
+
+        Deferred behind Expose plus one event-loop tick, because KWin can only
+        move a window it already knows about and on Wayland the surface is not
+        committed while `showEvent` runs. Since LWSM-1263 this is the ONLY thing
+        that waits — size and maximised state are applied directly, which is
+        what ADR-0007 asks for.
 
         **The order is load-bearing, but not for the reason this said.** An
         early version of the KWin script preserved the window's current size by
@@ -3260,33 +3308,22 @@ class MainWindow(QMainWindow):
         constraint that survived — KWin's geometry write is authoritative, so
         the script must carry the size — is stated there rather than here.
 
-        What keeps the order today is LWSM-1172: the placement call below is
-        given the window's OWN size rather than the remembered one, and that
-        reads correctly only once the bounded resize has happened.
+        What keeps the order today is LWSM-1172: the call below is given the
+        window's OWN size rather than the remembered one, and that reads
+        correctly only once `_restore_size_and_state` has run. It always has:
+        `showEvent` calls it before arming this, on both routes.
 
         Whether any ordering hazard remains under a live compositor has not
         been re-measured since the script stopped reading the size back, and a
         green suite is not evidence for anything the compositor owns.
 
-        The size is applied here as well as in `_apply_default_geometry`,
-        which is not a duplicate: that method returns early when there are no
-        rows, and a user whose project list is empty still closed the window
-        at a size they chose.
-
-        A maximised window is restored maximised and not placed. Its position
-        is the screen's, so asking KWin for the stored coordinates would
-        un-maximise it to honour them — but its normal size is still applied
-        first, so that un-maximising later gives back the window they had.
+        A maximised window is never placed — its position is the screen's, so
+        asking KWin for the stored coordinates would un-maximise it to honour
+        them. `showEvent` does not arm this at all in that case; the guard
+        below is kept because a caller could reach it by another route and the
+        cost of being wrong is a window that un-maximises itself.
         """
-        if self._remembered_size is not None:
-            # Bounded, because a size is restored on every platform while
-            # placement can be refused — so this is the only guard ADR-0007's
-            # "sized larger than the current display" case ever gets.
-            self.resize(self._bounded_to_screen(QSize(*self._remembered_size)))
-        if self._remembered_maximized:
-            self.showMaximized()
-            return
-        if self._remembered_pos is None:
+        if self._remembered_maximized or self._remembered_pos is None:
             return
         # The window's OWN size, not the remembered one: where a size was
         # remembered the resize above has already applied it bounded, and
