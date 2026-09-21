@@ -5239,7 +5239,7 @@ has been applied yet — every item in this section is open.
   Kind: chore.
   Source: review-code 2026-09-01 lane 11.
 
-- 📋 [LWSM-1282] **LOW batch (mainwindow interaction): four small defects from lane 12.**
+- ✅ [LWSM-1282] **LOW batch (mainwindow interaction): four small defects from lane 12.**
   mainwindow.py:1942-1945 - the jump shortcut requires NoModifier, so on
   layouts where digits are shifted (AZERTY, several QWERTZ) Key_1 always
   arrives with ShiftModifier and the feature is silently unavailable. Tab still
@@ -5251,6 +5251,19 @@ has been applied yet — every item in this section is open.
   the one dialog that must not misrepresent; configfile.quoted() exists.
   :2185-2188 - _set_show_hidden calls only _apply_filter, so unhiding a row
   that introduces a wider cell leaves columns stale until the next _sync_rows.
+  Resolved (2026-09-21): three of the four fixed. The FOURTH IS WRONG and was measured rather than argued.
+
+  1. The jump shortcut is layout-independent. It required NoModifier, so on AZERTY and several QWERTZ layouts - where a digit is the shifted position - Key_1 always arrived with ShiftModifier and the feature was silently unavailable. Now matched on `event.text()`, which is what the layout actually produced, so it is right on every layout without enumerating any. Ctrl, Alt and Meta are still excluded because those are real shortcut space; Shift is allowed, which is the whole point.
+
+  2. `_write_records` no longer returns before `set_records`. `if self._rescan is None: return message` sat above it, so on a window with no rescan context `set_project_hidden` and `set_project_browser` changed nothing and handed back the success message. Only the SAVE needs a rescan context. Same family as LWSM-1136 and the semgrep note in CLAUDE.md - a mechanism that did nothing looks exactly like one that found nothing to do.
+
+  3. The trust dialog quotes each argument. `\" \".join(argv)` renders `[\"./s.sh\", \"a b\"]` and `[\"./s.sh\", \"a\", \"b\"]` identically, in the one dialog ADR-0003 says is security theatre unless it shows what will actually run. `configfile.quoted` was already the project's answer for an attacker-editable value reaching the UI.
+
+  4. NOT DONE - the bullet's claim is false. It asked for `_align_columns` in `_set_show_hidden`, because unhiding a row can introduce a wider cell and leave the columns stale. It cannot: `_align_columns` iterates `self._rows.values()`, every row, visible or not, so a hidden row's cell is already in the maximum. MEASURED across a hide and an unhide with the long-named row as the one hidden - natural widths identical at all three points. I had already written the fix before checking; adding it would recompute the same numbers on every View-menu toggle. Backed out, and the reasoning is now a comment at `_set_show_hidden` so the next reader does not re-file it. This is the SEVENTH time a fold-in bullet's stated cause has been wrong in this project.
+
+  MY OWN FIX HAD A BUG AND THIS ITEM'S OWN TEST CAUGHT IT on the first run. `_JUMP_KEYS` was the string \"123456789\", and `\"\" in \"123456789\"` is True - the empty string is a substring of every string - so every key producing no text (Tab, an arrow, a bare modifier) entered the jump branch and `int(\"\")` raised straight out of `keyPressEvent`. Now a frozenset, with the trap recorded at the constant.
+
+  Five mutants, all killed, each by a named test: NoModifier restored, modifiers ignored entirely, the early return restored, the unquoted join restored, and `_JUMP_KEYS` back to a string.
   **Layman:** Smaller issues in filtering, keyboard shortcuts and the trust prompt.
   Kind: chore.
   Source: review-code 2026-09-01 lane 12.

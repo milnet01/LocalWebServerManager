@@ -6640,6 +6640,120 @@ def trust_window(qtbot, built, confirm):
     return window, controller
 
 
+def test_the_trust_dialog_quotes_each_argument(qtbot, built, monkeypatch) -> None:
+    """ADR-0003: the confirmation is security theatre unless it shows what runs.
+
+    `" ".join(argv)` renders `["./s.sh", "a b"]` and `["./s.sh", "a", "b"]`
+    identically, in the one dialog whose whole job is not misrepresenting a
+    command (LWSM-1282). `configfile.quoted` is already this project's answer
+    for an attacker-editable value reaching the UI, and applying it per argument
+    keeps the two apart.
+
+    `_confirm_dialog` ends in a blocking `exec()`, which is why the `confirm`
+    seam exists — so the real method is driven here against a stubbed
+    `QMessageBox` that records its text and answers No. That exercises the
+    substitution under test rather than a copy of it.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    texts: list[str] = []
+
+    class StubBox(QMessageBox):
+        """The real box with the blocking call removed.
+
+        Subclassed rather than faked: `_confirm_dialog` reads `QMessageBox.Icon`
+        and `QMessageBox.StandardButton` off the CLASS, which an instance-level
+        `__getattr__` never sees. Everything but `exec` stays real, so the text
+        under test is built by the real code path.
+        """
+
+        def setText(self, value):
+            texts.append(value)
+            super().setText(value)
+
+        def exec(self):
+            return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(mainwindow, "QMessageBox", StubBox)
+    window, _ = window_for(qtbot, built, [record("a", 3000)], FakeProbe())
+
+    window._confirm_dialog(Path("/srv/a"), "/srv/a/s.sh", ("./s.sh", "a b"))
+    window._confirm_dialog(Path("/srv/a"), "/srv/a/s.sh", ("./s.sh", "a", "b"))
+
+    assert texts[0] != texts[1], (
+        "one argument containing a space renders identically to two arguments; "
+        "the dialog cannot be trusted to show what will actually run"
+    )
+
+
+def test_the_jump_shortcut_works_where_digits_are_shifted(qtbot, built) -> None:
+    """AZERTY and several QWERTZ layouts put the digits on the shifted row.
+
+    The shortcut required `NoModifier`, so `Key_1` arriving with
+    `ShiftModifier` — which is how those layouts deliver a 1 — never matched and
+    the feature was silently unavailable to those users (LWSM-1282). Tab still
+    reaches every row, so it was never a `§ 2.1.1` failure; it was a feature
+    that did not exist for them.
+
+    Matching `event.text()` is right on every layout without enumerating any,
+    which is why the fix is not a list of modifiers per keyboard.
+    """
+    window, _ = window_for(
+        qtbot, built, [record("a", 3000), record("b", 3001)], FakeProbe()
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+
+    qtbot.keyClick(window, Qt.Key.Key_2, Qt.KeyboardModifier.ShiftModifier)
+
+    assert rows_of(window)[1].hasFocus(), (
+        "a shifted digit did not reach the jump shortcut, so the feature is "
+        "unavailable on any layout whose digits are shifted"
+    )
+
+
+def test_a_jump_key_with_control_held_is_left_alone(qtbot, built) -> None:
+    """The counterpart, or the fix above reads as accepting every modifier.
+
+    Ctrl and Alt are real shortcut space and Qt does hand `text()` back for some
+    of those combinations, so allowing Shift must not mean allowing everything.
+    Without this the fix could be "match the character, ignore modifiers", which
+    would take Ctrl+1 away from anything that wanted it.
+    """
+    window, _ = window_for(
+        qtbot, built, [record("a", 3000), record("b", 3001)], FakeProbe()
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    window._filter.clearFocus()
+
+    qtbot.keyClick(window, Qt.Key.Key_2, Qt.KeyboardModifier.ControlModifier)
+
+    assert not rows_of(window)[1].hasFocus(), "Ctrl+2 was swallowed by the jump"
+
+
+def test_hiding_a_project_applies_without_a_rescan_context(qtbot, built) -> None:
+    """A window with no rescan context changed nothing and reported success.
+
+    `_write_records` returned at `if self._rescan is None` — BEFORE
+    `set_records` — so hiding a project or choosing its browser was a no-op that
+    handed back the success message anyway (LWSM-1282). Only the SAVE needs a
+    rescan context; the in-memory update never did.
+
+    Same family as LWSM-1136 and the `semgrep` note in CLAUDE.md: a mechanism
+    that did nothing is indistinguishable from one that found nothing to do.
+    """
+    records = [record("a", 3000), record("b", 3001)]
+    window, controller = window_for(qtbot, built, records, FakeProbe())
+    assert window._rescan is None, "this fixture must have no rescan context"
+
+    window.set_project_hidden(records[0].path, True)
+
+    assert [r.hidden for r in controller.records()] == [True, False], (
+        "the hide was reported as done and never reached the controller"
+    )
+
+
 def test_the_trust_dialog_shows_the_launcher_when_the_argv_is_empty(
     qtbot, built
 ) -> None:

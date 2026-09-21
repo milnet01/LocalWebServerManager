@@ -143,6 +143,22 @@ SCREEN_FRACTION = 0.9
 # would be used rather than one that has been.
 PLACEMENT_FALLBACK_MS = 50
 
+# The characters that jump to a row, and the modifiers that must NOT be held
+# (LWSM-1282). Matched against `QKeyEvent.text()` rather than a key code, so a
+# layout where digits are shifted still reaches the feature. Shift is absent
+# from the blocked set deliberately — it is the modifier those layouts require.
+# A frozenset, never the string "123456789": `"" in "123456789"` is True,
+# because the empty string is a substring of every string — so every key that
+# produces no text (Tab, an arrow, a bare modifier) entered the jump branch and
+# `int("")` raised straight out of `keyPressEvent`. Caught by this item's own
+# test on the first run.
+_JUMP_KEYS = frozenset("123456789")
+_JUMP_BLOCKED_MODIFIERS = (
+    Qt.KeyboardModifier.ControlModifier
+    | Qt.KeyboardModifier.AltModifier
+    | Qt.KeyboardModifier.MetaModifier
+)
+
 # Decorative only. One of the three signals design.md § Accessibility requires,
 # and excluded from the accessible name — a screen reader announcing "black
 # circle, running" is noise wearing the costume of redundancy.
@@ -2357,12 +2373,21 @@ class MainWindow(QMainWindow):
             self._filter.clear()
             event.accept()
             return
-        if (
-            Qt.Key.Key_1 <= key <= Qt.Key.Key_9
-            and event.modifiers() == Qt.KeyboardModifier.NoModifier
-        ):
+        # The CHARACTER typed, not the key code plus NoModifier (LWSM-1282).
+        # On AZERTY and several QWERTZ layouts a digit is the shifted position,
+        # so `Key_1` always arrives with `ShiftModifier` and the requirement
+        # made the whole feature silently unavailable to those users. Tab still
+        # reaches every row, so it was never a `§ 2.1.1` failure — it was a
+        # feature that did not exist for them.
+        #
+        # `text()` is what the layout actually produced, so it is right on every
+        # layout without enumerating any. Ctrl, Alt and Meta are still excluded,
+        # because those are real shortcut space and Qt does hand `text()` back
+        # for some of those combinations; Shift is allowed, which is the point.
+        typed = event.text()
+        if typed in _JUMP_KEYS and not (event.modifiers() & _JUMP_BLOCKED_MODIFIERS):
             shown = self._visible_rows()
-            index = key - Qt.Key.Key_1
+            index = int(typed) - 1
             if index < len(shown):
                 shown[index].setFocus(Qt.FocusReason.ShortcutFocusReason)
                 self._reveal(shown[index])
@@ -2552,7 +2577,12 @@ class MainWindow(QMainWindow):
         fields = {
             "%1": project.name,
             "%2": resolved,
-            "%3": " ".join(argv),
+            # Quoted per argument, never `" ".join(argv)` (LWSM-1282). This is
+            # the one dialog that must not misrepresent what is about to run,
+            # and joining on a space renders `["./s.sh", "a b"]` and
+            # `["./s.sh", "a", "b"]` identically. `quoted` is already the
+            # project's answer for an attacker-editable value reaching the UI.
+            "%3": " ".join(quoted(argument) for argument in argv),
         }
         box.setText(
             _TRUST_FIELD.sub(
@@ -2756,6 +2786,15 @@ class MainWindow(QMainWindow):
         """The View menu toggle (LWSM-1185)."""
         self._show_hidden = showing
         self._apply_filter()
+        # No `_align_columns()` here, and that is a MEASURED answer rather than
+        # an omission (LWSM-1282). The bullet asked for one on the grounds that
+        # unhiding a row can introduce a wider cell and leave the columns stale.
+        # It cannot: `_align_columns` reads `self._rows.values()`, every row,
+        # visible or not — so a hidden row's cell is already in the maximum.
+        # Measured 2026-09-21 across a hide and an unhide, with the long-named
+        # row being the one hidden: the natural widths were identical at all
+        # three points. Adding the call would recompute the same numbers on
+        # every View-menu toggle.
 
     def set_project_hidden(self, path: Path, hidden: bool) -> None:
         """Hide or unhide one project, and remember the choice.
@@ -2999,9 +3038,13 @@ class MainWindow(QMainWindow):
         LWSM-1166 was that refresh being read from the wrong place, and a
         second copy of this would be a second place to make that mistake.
         """
-        if self._rescan is None:
-            return message
-        if self._should_write(records):
+        # The SAVE is what needs a rescan context, not the in-memory update
+        # (LWSM-1282). This returned here, before `set_records` below, so on a
+        # window built without one `set_project_hidden` and `set_project_browser`
+        # changed nothing at all and still reported success — the shape this
+        # project has now met several times, where a mechanism that did nothing
+        # is indistinguishable from one that found nothing to do.
+        if self._rescan is not None and self._should_write(records):
             try:
                 self._rescan.save(self._rescan.projects_path, records, load=self._load)
             except RegistryError as exc:
