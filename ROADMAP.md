@@ -4672,13 +4672,22 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 11.
 
-- 📋 [LWSM-1257] **MEDIUM: layout margins are computed once, so they behave exactly like the pixel constant O7 forbids.**
+- ✅ [LWSM-1257] **MEDIUM: layout margins are computed once, so they behave exactly like the pixel constant O7 forbids.**
   mainwindow.py:1266-1268. gap = fontMetrics().height() is computed once,
   before set_text_scale runs at :1353, and outer is a LOCAL that nothing keeps
   a reference to. changeEvent's FontChange branch pushes the font to every
   descendant and re-runs _align_columns, and re-computes no margin. The comment
   above the line states the rule it breaks. Fix: bind self._outer and re-run
   both setters from the FontChange branch beside _align_columns.
+  Resolved (2026-09-21): the central layout's margin and spacing are re-derived from the font by a new `_apply_window_metrics`, called from `__init__` and from `changeEvent`'s FontChange branch beside `_align_columns`. `self._outer` now holds the layout, which a local could not.
+
+  Derived from the current font each time, never added to the margin already set - `ProjectRow._apply_text_metrics` keeps `_base_margins` for exactly that reason and adding to the current value compounds per call.
+
+  This is LWSM-1101 one layer up: there the glyph column and the widened left margin were computed once under a docstring saying they were not, here the window margin was computed once under a comment saying "never a pixel constant". Worth noting as a pattern rather than two incidents - a comment stating an intention as a fact is now the fourth found in this file, after LWSM-1071, LWSM-1101 and LWSM-1119.
+
+  Coverage: test_the_window_margin_grows_with_the_text_size drives the text-size ACTION rather than calling the new method, because the defect was the missing call and a test that invokes the method directly passes against a version nothing calls - the LWSM-1136 trap. Asserts margin and spacing separately, since both come from one value and a fix reaching only the margin would look right.
+
+  Mutants: removing the FontChange call turns it red; setting spacing to 0 while keeping the margin correct also turns it red.
   **Layman:** Raise the text size and the text grows but the spacing around it does not.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 11.
@@ -4790,7 +4799,7 @@ has been applied yet — every item in this section is open.
   Kind: security.
   Source: review-code 2026-09-01 lane 12.
 
-- 📋 [LWSM-1262] **MEDIUM: _bounded_to_screen is applied to the content floor, withdrawing the guarantee stated two lines above.**
+- ✅ [LWSM-1262] **MEDIUM: _bounded_to_screen is applied to the content floor, withdrawing the guarantee stated two lines above.**
   mainwindow.py:2828. The comment at :2823-2825 says "the floor is the content
   itself", and _bounded_to_screen caps at SCREEN_FRACTION of availableGeometry,
   so whenever content exceeds 90% of the screen the floor drops below it.
@@ -4798,6 +4807,13 @@ has been applied yet — every item in this section is open.
   rows, so one long sibling directory name sets it for everyone. Fix: bound
   want only, leave floor at the content width. Fix together with LWSM-1200 -
   one edit.
+  Resolved (2026-09-21): `_apply_size_floor` sets the minimum from the content directly; `_bounded_to_screen` no longer touches the floor. `_apply_default_geometry` still bounds the size it ASKS for, which is correct - that is a remembered size and may have come from a bigger display - and Qt honours whichever of the two is larger.
+
+  Why unbounding is safe rather than merely faithful to the docstring: a floor below the content does not make the window usable, it makes the overflow unreachable, because horizontal scrolling is ScrollBarAlwaysOff since LWSM-1200. A window wider than the screen is visibly wrong and can be moved; one that silently clips is not. And the content has a ceiling of its own - NAME_COLUMN_CHARS caps the name column and elides past it - so the floor is bounded in practice.
+
+  THE SECOND DEFECT WAS IN THE TEST, and it is the more instructive half. test_the_window_minimum_keeps_up_with_the_text_size asserted at 150 % and its docstring explained why it skipped 200 %: the offscreen screen is 800 px wide, 200 % needs 801, and the resulting screen clamp was "a different and legitimate limit". It was not a different limit - the clamp WAS the clipping, because the floor was what got clamped. So the one scale that could see this defect was the one the fixture excluded, and the exclusion read as rigour. Now parametrised over 150 and 200.
+
+  Mutant: restoring `_bounded_to_screen` on the floor fails the 200 % case at 805 px needed against 686 available, and leaves 150 % green - which is the measurement that the excluded case was the only one with sight of it. Same family as the project-e fixture in CLAUDE.md's trap cluster: a green test encoding a limit that had stopped being one.
   **Layman:** On a small screen the window is allowed to be narrower than its own contents, so the columns collide.
   Kind: fix.
   Source: review-code 2026-09-01 lane 13.

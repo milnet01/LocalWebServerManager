@@ -3728,7 +3728,49 @@ def test_choosing_a_size_enlarges_the_text_the_user_reads(
     assert all(after[part] > before[part] for part in before), (before, after)
 
 
-def test_the_window_minimum_keeps_up_with_the_text_size(qtbot, built, app_font) -> None:
+def test_the_window_margin_grows_with_the_text_size(qtbot, built, app_font) -> None:
+    """The margin and spacing are text metrics, and were computed once.
+
+    `__init__` derived both from `fontMetrics().height()` under a comment
+    saying "never a pixel constant (`§ O7`)", and `changeEvent`'s FontChange
+    branch re-ran `_align_columns` and re-computed no margin — so the text grew
+    and the space around it did not, which is the behaviour the comment
+    forbids. The same defect LWSM-1101 fixed one layer down (LWSM-1257).
+
+    Driven through the text-size action rather than by calling
+    `_apply_window_metrics`, because the defect WAS the missing call: a test
+    that invokes the method asserts the method and passes against a version
+    nothing calls. That is the LWSM-1136 trap, where a correct
+    `rotate_if_needed` shipped with no production caller and a green unit test
+    over it.
+
+    Both properties, because they are set from one value and a fix that
+    reached only the margin would look right: `setContentsMargins` is the space
+    around the chrome, `setSpacing` the gap between the strip and the list.
+    """
+    window, _ = scaled_window(qtbot, built)
+    with qtbot.waitExposed(window):
+        window.show()
+
+    before_margin = window._outer.contentsMargins().top()
+    before_spacing = window._outer.spacing()
+
+    window._text_size_actions[200].trigger()
+    qtbot.wait(50)
+
+    assert window._outer.contentsMargins().top() > before_margin, (
+        f"the margin stayed at {before_margin} px through a change to 200 %, "
+        "so the text grew and the space around it did not"
+    )
+    assert window._outer.spacing() > before_spacing, (
+        f"the spacing stayed at {before_spacing} px through a change to 200 %"
+    )
+
+
+@pytest.mark.parametrize("scale", [150, 200])
+def test_the_window_minimum_keeps_up_with_the_text_size(
+    qtbot, built, app_font, scale
+) -> None:
     """`_align_columns` re-runs on a font change and the floor did not.
 
     `apply_column_widths` sets FIXED widths, so the rows grow past a minimum
@@ -3738,11 +3780,18 @@ def test_the_window_minimum_keeps_up_with_the_text_size(qtbot, built, app_font) 
     off-screen: `design-accessibility.md` requires a reflow at every step and
     no clipping.
 
-    Measured before the fix at 200 %: the rows needed 801 px against a 461 px
-    viewport, with the floor still reading 495. Asserted at 150 % rather than
-    200 % because the offscreen screen is 800 px wide and 200 % needs 801, so
-    ADR-0007's screen clamp — a different and legitimate limit — would decide
-    the result instead of the mechanism under test.
+    Measured before the first fix at 200 %: the rows needed 801 px against a
+    461 px viewport, with the floor still reading 495.
+
+    **200 % is the case this test used to exclude, and the exclusion was the
+    second defect** (LWSM-1262). The docstring named the offscreen screen's
+    800 px width and called the resulting screen clamp "a different and
+    legitimate limit", so the case was dropped and 150 % asserted instead. It
+    was not a different limit — `_apply_size_floor` applied
+    `_bounded_to_screen` to the FLOOR, so the clamp WAS the clipping, and the
+    one scale that could see it was the one being skipped. An honest limit
+    written into a fixture outlives the thing that made it honest; the floor is
+    no longer bounded, so 200 % is now assertable and is asserted.
 
     The observable is the VIEWPORT, not the host: the scroll area is
     `widgetResizable`, so the host is always given at least its own size hint
@@ -3753,15 +3802,15 @@ def test_the_window_minimum_keeps_up_with_the_text_size(qtbot, built, app_font) 
     with qtbot.waitExposed(window):
         window.show()
 
-    window._text_size_actions[150].trigger()
+    window._text_size_actions[scale].trigger()
     qtbot.wait(50)
     window.resize(window.minimumSize())
     qtbot.wait(20)
 
     needed = window._rows_host.sizeHint().width()
     assert window._scroll.viewport().width() >= needed, (
-        f"the rows need {needed} px and the window's own minimum leaves "
-        f"{window._scroll.viewport().width()} px, with no horizontal "
+        f"at {scale} % the rows need {needed} px and the window's own minimum "
+        f"leaves {window._scroll.viewport().width()} px, with no horizontal "
         "scrollbar to reach the rest"
     )
 

@@ -1551,12 +1551,11 @@ class MainWindow(QMainWindow):
 
         central = QWidget(self)
         outer = QVBoxLayout(central)
-        # Margins and gaps from the text metric, never a pixel constant
-        # (`§ O7`): the window that reads as comfortable at 100 % is cramped at
-        # 200 %, which is exactly the setting LWSM-1032's control offers.
-        gap = self.fontMetrics().height()
-        outer.setContentsMargins(gap, gap, gap, gap)
-        outer.setSpacing(gap)
+        # Kept, because `_apply_window_metrics` re-derives the margin and the
+        # spacing from the font on every change and a local would be gone by
+        # then (LWSM-1257).
+        self._outer = outer
+        self._apply_window_metrics()
         # ONE strip carrying both controls (LWSM-1040), not one strip each.
         # Every row of chrome is a row the list does not get, and this window
         # is read through a magnifier — so the filter box joins the strip
@@ -2441,6 +2440,13 @@ class MainWindow(QMainWindow):
             # whose font is now explicitly set, measured at the same 33 px.
             for widget in self.findChildren(QWidget):
                 widget.setFont(self.font())
+            # The window's OWN margin and spacing are text metrics too, and
+            # were computed once in `__init__` while the comment above them
+            # claimed otherwise (LWSM-1257) — the same defect LWSM-1101 fixed
+            # one layer down, where the glyph column and the widened left
+            # margin were also computed once under a docstring saying they
+            # were not.
+            self._apply_window_metrics()
             # `setFont` delivers FontChange to the row synchronously, so every
             # floor has already been re-derived by the time this runs.
             self._align_columns()
@@ -3445,6 +3451,28 @@ class MainWindow(QMainWindow):
         """
         QTimer.singleShot(0, self._apply_size_floor)
 
+    def _apply_window_metrics(self) -> None:
+        """The central layout's margin and spacing, from the text metric.
+
+        Never a pixel constant (`§ O7`): the window that reads as comfortable
+        at 100 % is cramped at 200 %, which is exactly the setting LWSM-1032's
+        control offers.
+
+        Re-applied from `changeEvent`'s `FontChange` branch rather than
+        computed once, which is what `ProjectRow._apply_text_metrics` already
+        does one layer down. Computed once, it behaved exactly like the pixel
+        constant the comment said it was not (LWSM-1257): the text grew and the
+        space around it did not, so 200 % was tighter than 100 % rather than
+        proportional to it.
+
+        Derived from the current font each time, never from the margin already
+        set — `ProjectRow._apply_text_metrics` keeps `_base_margins` for that
+        reason, and adding to the current value compounds on every call.
+        """
+        gap = self.fontMetrics().height()
+        self._outer.setContentsMargins(gap, gap, gap, gap)
+        self._outer.setSpacing(gap)
+
     def _apply_size_floor(self) -> None:
         """The smallest window that does not clip the list.
 
@@ -3464,13 +3492,32 @@ class MainWindow(QMainWindow):
         The columns are fixed-width, so there is no narrower window in which
         they do not collide: the floor is the content itself, and only the
         height is negotiable.
+
+        **And the floor is deliberately NOT bounded to the screen** (LWSM-1262).
+        `_bounded_to_screen` caps at `SCREEN_FRACTION` of the display, so
+        applying it here withdrew the guarantee the paragraph above states
+        exactly when content outgrows the screen — which is the case the
+        guarantee is for. Reachable from ordinary input, because the name
+        column takes the widest cell across ALL rows and one long sibling
+        directory name sets it for every row.
+
+        A floor below the content does not make the window usable; it makes
+        the overflow unreachable, since horizontal scrolling is
+        `ScrollBarAlwaysOff` (LWSM-1200). A window wider than the screen is
+        visibly wrong and can be moved. A window that silently clips is not.
+        The content has a ceiling of its own — the name column is capped and
+        elided — so this is bounded in practice by `NAME_COLUMN_CHARS`, not
+        unbounded.
+
+        `_apply_default_geometry` still bounds the size it ASKS for; Qt then
+        honours whichever is larger. Bounding the request is right: that is a
+        remembered size which may have come from a bigger display.
         """
         rows = list(self._rows.values())
         if not rows:
             return
         width, chrome, row_height = self._content_metrics(rows)
-        floor = QSize(width, chrome + MIN_VISIBLE_ROWS * row_height)
-        self.setMinimumSize(self._bounded_to_screen(floor))
+        self.setMinimumSize(QSize(width, chrome + MIN_VISIBLE_ROWS * row_height))
 
     def _bounded_to_screen(self, size: QSize) -> QSize:
         """`size`, never bigger than the screen this window is on.
