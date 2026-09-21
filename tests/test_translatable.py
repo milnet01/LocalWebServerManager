@@ -127,6 +127,89 @@ def test_the_walk_sees_a_planted_offence(tmp_path: Path) -> None:
     )
 
 
+def _offences(call: ast.Call) -> list[str]:
+    """Why lupdate would skip `call`, or an empty list if it would not.
+
+    The single place the rule lives, so the probes below measure the guard
+    rather than a copy of it that can drift away from the guard.
+
+    Two offences, and the second is not a special case of the first. A
+    non-literal argument is the shape the review found. Too FEW positional
+    arguments is the shape a keyword call takes — `translate("Ctx",
+    sourceText=...)` presents an empty positional list, so an index-based
+    check examines nothing and reports clean. It is an offence even when the
+    keyword's value is a literal, because lupdate reads position, not name.
+    """
+    offences = [
+        f"argument {index} is not a literal: {ast.unparse(call.args[index])}"
+        for index in (0, 1)
+        if len(call.args) > index and not isinstance(call.args[index], ast.Constant)
+    ]
+    if len(call.args) < 2:
+        offences.append(
+            f"only {len(call.args)} positional argument(s); lupdate reads "
+            f"position, so a keyword argument is invisible to it"
+        )
+    return offences
+
+
+# Call shapes lupdate cannot read, each of which must reach an offender list.
+# A keyword argument is the one that reads as innocent: `sourceText="hello"` is
+# a literal, and lupdate still extracts nothing, so accepting it because the
+# value is a literal would encode a false allowance. Contributed by the
+# finbreak session, 2026-09-21, which measured its own walk skipping all three
+# — it bound-checked the positional list and never read `node.keywords`, so a
+# keyword call was not examined at all.
+INVISIBLE_SHAPES = [
+    'QCoreApplication.translate("Ctx", var)',
+    'QCoreApplication.translate("Ctx", sourceText=var)',
+    "QCoreApplication.translate(context=CTX, sourceText=var)",
+    'QCoreApplication.translate("Ctx", sourceText="hello")',
+]
+
+
+@pytest.mark.parametrize("expression", INVISIBLE_SHAPES)
+def test_an_unextractable_shape_reaches_an_offender_list(
+    tmp_path: Path, expression: str
+) -> None:
+    """Arity is its own offender, so a keyword call cannot pass quietly.
+
+    The literal check indexes the positional arguments. A call that passes
+    them by keyword has an empty positional list, so every index is skipped
+    and a walk that only checks literals examines nothing — which is why the
+    arity assertion is a separate list rather than a `continue`. Deleting it
+    lets the last three of these through.
+    """
+    probe = tmp_path / "probe.py"
+    probe.write_text(f"def f(var, CTX):\n    return {expression}\n", encoding="utf-8")
+
+    calls = _translate_calls(probe)
+    assert len(calls) == 1, f"the walk did not find the call to judge: {calls}"
+
+    assert _offences(calls[0]), (
+        f"lupdate extracts nothing from {expression!r}, and the guard raised "
+        f"no offence against it"
+    )
+
+
+def test_a_clean_call_raises_nothing(tmp_path: Path) -> None:
+    """The reverse of the case above, or the guard could pass by always failing.
+
+    Four shapes that must be caught prove nothing on their own — a check
+    hard-coded to object satisfies every one of them. This is the case that
+    must come back empty.
+    """
+    probe = tmp_path / "clean.py"
+    probe.write_text(
+        'def f():\n    return QCoreApplication.translate("Ctx", "hello")\n',
+        encoding="utf-8",
+    )
+
+    calls = _translate_calls(probe)
+    assert len(calls) == 1
+    assert _offences(calls[0]) == []
+
+
 # Every fragment LWSM-1252 and LWSM-1258 recovered, with the context it belongs
 # to. Named here rather than counted, so a fragment that stops being extracted
 # fails under its own id instead of moving a total.
@@ -186,23 +269,12 @@ def test_every_translate_call_passes_literals_for_context_and_source(
     defect uncovered, and no linter reports either.
     """
     offenders = [
-        (node.lineno, index, ast.unparse(node.args[index]))
+        (node.lineno, offence)
         for node in _translate_calls(path)
-        for index in (0, 1)
-        if len(node.args) > index and not isinstance(node.args[index], ast.Constant)
-    ]
-    short = [
-        (node.lineno, len(node.args))
-        for node in _translate_calls(path)
-        if len(node.args) < 2
+        for offence in _offences(node)
     ]
 
     assert not offenders, (
-        f"{path.name}: lupdate skips a call whose context or source is not a "
-        f"literal, so these strings would silently stop being extractable: "
-        f"{offenders}"
-    )
-    assert not short, (
-        f"{path.name}: a translate() call needs both a context and a source "
-        f"literal; these pass too few arguments: {short}"
+        f"{path.name}: lupdate would skip these calls, so their strings are "
+        f"not extractable and no translator can reach them: {offenders}"
     )

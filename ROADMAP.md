@@ -4523,13 +4523,18 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 10.
 
-- 📋 [LWSM-1252] **MEDIUM: summarise_merge passes a loop variable to translate, so all six summary fragments are unextractable.**
+- ✅ [LWSM-1252] **MEDIUM: summarise_merge passes a loop variable to translate, so all six summary fragments are unextractable.**
   mainwindow.py:285. template is a loop variable, so lupdate cannot extract
   "%1 new", "%1 changed", "%1 port no longer detected", "%1 override differs",
   "%1 duplicate" or "%1 missing". The function's own docstring states the rule
   it breaks. Fix: call translate() on each literal inside the tuple and keep
   .replace("%1", ...) on the result. NO LINTER CATCHES THIS - see the tool-gap
   item.
+  Resolved (2026-09-21): each fragment is now the direct literal argument, in commit 92452c4. Measured with the tool rather than read: pyside6-lupdate over mainwindow.py and settingsdialog.py reports 82 source texts before and 94 after, and all six fragments are present under ProjectRow.
+
+  The bullet named one site and there were two. An AST scan for the class - not opening the cited line - found the accessible-name loop in ProjectRow passing its loop variable `verb` the same way, costing "Start %1", "Stop %1", "Restart %1" and "Open %1 in a browser". Fixed here rather than filed, being the same defect in the same file. This is CLAUDE.md's "count the sites before fixing one" landing for the third time, and again the unnamed twin was the one no test covered.
+
+  Coverage: test_a_recovered_fragment_is_extractable names all twelve strings and asks the extractor. test_every_translate_call_names_its_context_as_a_literal is renamed to ..._passes_literals_for_context_and_source and now checks args[1] as well as args[0] - checking the context alone left half the class uncovered, which is how three sites survived. Mutants: reverting _merge_parts and reverting the accessible-name loop each turn the suite red.
   **Layman:** Every word of the rescan and import summary can never be translated.
   Kind: fix.
   Source: review-code 2026-09-01 lane 10.
@@ -4678,12 +4683,17 @@ has been applied yet — every item in this section is open.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 11.
 
-- 📋 [LWSM-1258] **MEDIUM: the hide/show messages put a conditional inside translate(), so neither is extractable.**
+- ✅ [LWSM-1258] **MEDIUM: the hide/show messages put a conditional inside translate(), so neither is extractable.**
   mainwindow.py:2204-2206. The conditional is INSIDE translate(), whose second
   argument lupdate/pylupdate require to be a string literal. The identical
   defect _notice_summary's own docstring records as LWSM-1107. Every other
   branch in the slice does it correctly (:2229-2237). Fix: hoist the
   conditional out so each literal is the direct argument.
+  Resolved (2026-09-21): the conditional is hoisted out of the call in set_project_hidden, so each branch passes its own literal, in commit 92452c4. "%1 is hidden" and "%1 is shown again" both extract; verified with pyside6-lupdate, not by reading.
+
+  Closed as a CLASS rather than as an instance, which is what the workflow note asked for and needed both fixes to be in place first: the literal check now covers translate()'s source argument, so a conditional, a loop variable or any other non-literal fails the suite wherever it is written. AST-scanned afterwards - zero non-literal translate arguments anywhere in src/lwsm/.
+
+  Mutant: putting the conditional back inside the call turns three tests red.
   **Layman:** The "project is hidden" and "project is shown again" messages can never be translated.
   Kind: fix.
   Source: review-code 2026-09-01 lane 12.
@@ -5949,6 +5959,46 @@ mostly in the measurement behind it.
   **Layman:** The project notes list the test files, and that list no longer matches what is there.
   Kind: doc-fix.
   Source: in-session-2026-09-07.
+
+- 📋 [LWSM-1305] **§ Review cadence rests on a claim about global rule 14 that is no longer true.**
+  CLAUDE.md § Review cadence states "Global rule 14 still mandates
+  loop-to-convergence and has NOT been changed", and builds the
+  documented divergence on it. Global rule 14 does not say that. It says
+  `review-contract` owns what converged means, and that the skill caps at
+  2 loops for a spec or plan and 3 for a standard or ADR, with "at the cap,
+  file the tail and ship - do not loop again" and "a spec hitting its cap
+  is therefore normal and is not a failure".
+
+  So § Review cadence rule 2's "cap the gate at 2 loops, never
+  loop-to-convergence" is not a divergence at all for a spec or a plan -
+  it is what the global rule already prescribes. Two consequences, and
+  they point opposite ways, which is why this is filed rather than
+  patched in passing.
+
+  The divergence that REMAINS is real and should be kept: build-first as
+  the default, spec-first only where code creates a durable artifact.
+  Nothing global says that, and the measured yield behind it stands.
+
+  The divergence that has EVAPORATED is the cap, and leaving the claim in
+  place costs more than tidiness. Global rule 14 permits a project file to
+  cancel the gate but says it "may not change the scope test, the genre,
+  the cap or who reviews". A reader comparing the two documents today sees
+  this project asserting a cap override the global rule forbids, when in
+  fact the numbers agree for a spec. The one place they could still part
+  is a standard or an ADR, where global caps at 3 and this section says 2
+  without distinguishing genre - and this project gates its design document
+  as an ADR, so the case is live rather than hypothetical.
+
+  Fix is to rewrite the premise sentence and make rule 2 genre-aware, or
+  drop the cap clause and cite the global rule. Not done here: CLAUDE.md is
+  a contract document, the edit changes what a conformer does, and rule 14
+  therefore re-arms the gate on it. Same reason known-issue-036 left
+  spec-format.md alone.
+
+  Gates nothing.
+  **Layman:** Our project rulebook says the machine-wide rule demands something it stopped demanding, so the exception we wrote for ourselves is half unnecessary.
+  Kind: doc-fix.
+  Source: in-session-2026-09-21, cross-checked with the ~/.claude session.
 
 ### 🐛 Bug fixes
 
