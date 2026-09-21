@@ -226,7 +226,7 @@ def _port_or_reason(
     if value is None:
         return None, None
     if not _is_int(value) or not low <= value <= high:
-        # _quoted, not {value!r}: repr escapes but does not clip, and a 200 KB
+        # quoted, not {value!r}: repr escapes but does not clip, and a 200 KB
         # string in `port` produced a 200,038-character reason (LWSM-1102).
         return None, f"{name}: {field} {quoted(value)} is not an integer {low}-{high}"
     return value, None
@@ -474,7 +474,7 @@ def load_projects(path: Path) -> LoadResult:
 
     version = data.get("schema_version")
     if not _is_int(version) or version != SCHEMA_VERSION:
-        # _quoted, not {version!r}, for the reason `_port_or_reason` records —
+        # quoted, not {version!r}, for the reason `_port_or_reason` records —
         # and this was the last call site still carrying the defect after
         # LWSM-1078 fixed name/path and LWSM-1102 fixed the port fields. It is
         # the worst of the three: this string is raised, so it reaches both the
