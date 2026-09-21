@@ -95,7 +95,16 @@ def _prepare_state_dir(directory: Path) -> None:
             break
         probe = probe.parent
     for path in reversed(missing):
-        path.mkdir(mode=0o700)
+        # `exist_ok=True` because this is a check-then-act (LWSM-1271): two
+        # first-run copies of the app both build `missing`, and the loser used
+        # to raise `FileExistsError` out of startup.
+        #
+        # It does not weaken the mode guarantee. A path only reaches this list
+        # because it did NOT exist at the check, so anything there now was
+        # created inside the window — by the other copy of this loop, at 0700.
+        # A pre-existing directory at a looser mode was filtered out above and
+        # is not silently accepted here.
+        path.mkdir(mode=0o700, exist_ok=True)
 
     fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -222,22 +231,35 @@ def configure_logging(
     # twice. Normalise both sides the same way.
     target = Path(os.path.abspath(log_path))
 
+    # EVERY handler that is not the one we are keeping, which is what
+    # `configure_stderr_logging` already does (LWSM-1271). This skipped past
+    # anything that was not a `RotatingFileHandler`, so a stderr fallback
+    # attached by that function survived a later successful `configure_logging`
+    # and duplicated every record. Latent — no caller reaches the fallback and
+    # then retries — and the asymmetry is the kind that stops being latent
+    # silently.
+    #
+    # Two cases send a ROTATING handler here, and both mean it has to go.
+    # Reconfigured to a different directory: keeping it would fan every record
+    # out to every previous location and make the returned path only half true.
+    # Same path but a different inode: the file was deleted or replaced
+    # underneath us, so keeping it would append into an unlinked inode forever,
+    # silently (reproduced 2026-08-06).
+    keep: RotatingFileHandler | None = None
     for existing in list(logger.handlers):
-        if not isinstance(existing, RotatingFileHandler):
-            continue
-        if Path(existing.baseFilename) == target and _handler_stream_is_current(
-            existing, target
+        if (
+            isinstance(existing, RotatingFileHandler)
+            and Path(existing.baseFilename) == target
+            and _handler_stream_is_current(existing, target)
         ):
-            existing.setLevel(level)
-            return log_path
-        # Two cases land here, and both mean the handler has to go. Reconfigured
-        # to a different directory: keeping it would fan every record out to
-        # every previous location and make the returned path only half true.
-        # Same path but a different inode: the file was deleted or replaced
-        # underneath us, so keeping it would append into an unlinked inode
-        # forever, silently (reproduced 2026-08-06).
+            keep = existing
+            continue
         logger.removeHandler(existing)
         existing.close()
+
+    if keep is not None:
+        keep.setLevel(level)
+        return log_path
 
     handler = _NoFollowRotatingFileHandler(
         target,

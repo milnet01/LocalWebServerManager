@@ -487,3 +487,64 @@ def test_a_pre_existing_permissive_state_dir_is_tightened(tmp_path: Path):
         f"a pre-existing world-writable state dir stayed at {oct(mode)}; the log "
         "records the user's whole project inventory and directory layout"
     )
+
+
+def test_a_stderr_fallback_is_removed_when_the_file_log_comes_back(tmp_path) -> None:
+    """`configure_logging` skipped every handler that was not a rotating one.
+
+    `configure_stderr_logging` attaches a `StreamHandler` when the file log
+    cannot be opened, and removes ALL handlers to do it. `configure_logging` only
+    ever considered `RotatingFileHandler`s, so a later successful call left the
+    stderr handler attached beside the new file handler and every record was
+    written twice (LWSM-1271).
+
+    Latent — no caller falls back and then retries in one process — and the
+    asymmetry between two functions that both own the same handler list is the
+    kind that stops being latent without anyone deciding it should.
+    """
+    applog.configure_stderr_logging()
+    logger = applog.get_logger()
+    assert any(type(h) is logging.StreamHandler for h in logger.handlers), (
+        "the fallback did not attach, so this test cannot see the defect"
+    )
+
+    applog.configure_logging(state_dir=tmp_path / "state")
+
+    kinds = [type(h).__name__ for h in logger.handlers]
+    assert not any(type(h) is logging.StreamHandler for h in logger.handlers), (
+        f"the stderr fallback survived and will duplicate every record: {kinds}"
+    )
+    assert len(logger.handlers) == 1, kinds
+
+
+def test_preparing_a_state_dir_survives_a_racing_first_run(
+    tmp_path, monkeypatch
+) -> None:
+    """Two first-run copies both build the missing list; the loser raised.
+
+    `_prepare_state_dir` walks up collecting components that do not exist, then
+    creates each one. Between the check and the create, another copy of the app
+    can create the same component — and `mkdir(mode=0o700)` without `exist_ok`
+    raised `FileExistsError` straight out of startup (LWSM-1271).
+
+    The racer is simulated by creating the directory inside the first `mkdir`
+    call, which is the window itself rather than an approximation of it: a bare
+    second call would only prove idempotence, which was never in doubt.
+    """
+    target = tmp_path / "outer" / "state"
+    real_mkdir = Path.mkdir
+    raced = {"done": False}
+
+    def racing_mkdir(self, *args, **kwargs):
+        if not raced["done"]:
+            raced["done"] = True
+            real_mkdir(self, mode=0o700, parents=True, exist_ok=True)
+        return real_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", racing_mkdir)
+
+    applog._prepare_state_dir(target)
+
+    assert raced["done"], "the race was never triggered, so nothing was tested"
+    assert target.is_dir()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o700

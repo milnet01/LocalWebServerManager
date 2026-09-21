@@ -5017,7 +5017,7 @@ has been applied yet — every item in this section is open.
   Kind: chore.
   Source: check-code --tree 2026-09-01.
 
-- 📋 [LWSM-1271] **LOW batch (entrypoint + logging): five small defects from lane 1.**
+- ✅ [LWSM-1271] **LOW batch (entrypoint + logging): five small defects from lane 1.**
   __main__.py:69 - notices aliases LoadResult.reasons, so settings reasons are
   appended into the registry load record (harmless today, both gates key on
   rows_refused). :151 - save_field refuses a whole-document refusal but not a
@@ -5027,6 +5027,19 @@ has been applied yet — every item in this section is open.
   quoted() exists. applog.py:225-227 - configure_logging removes only rotating
   handlers where configure_stderr_logging removes all, so a stderr fallback
   could survive and duplicate every record (latent, no caller reaches it).
+  Resolved (2026-09-21): all five, and the second was real data loss rather than a LOW.
+
+  1. `notices` no longer aliases `LoadResult.reasons`. `build_window` appends the SETTINGS reasons to `notices`, so the registry's own load record was being mutated with complaints about a different file. Harmless today - both write gates key on `rows_refused` / `document_refused`, not on `reasons` - and asserted anyway, because a mutation of somebody else's value that happens not to matter is one nobody re-examines when it starts to.
+
+  2. THE SERIOUS ONE. `save_field` refused a whole-document refusal and wrote happily through a FIELD refusal, so a hand-typed `\"text_scale\": \"150\"` came back defaulted and was replaced with 100 on the next write - and `save_geometry` fires on every window close, so it happened while the user was doing something else. That is LWSM-1163's own argument at a smaller scale: the malformed text the user could have fixed goes with it. Now refuses on ANY reason. The cost is accepted and stated at the site: with one bad field every write refuses until the file is corrected. Refusing is recoverable and overwriting is not. LWSM-1289 is the fuller answer - preserving values this build cannot use rather than defaulting them - and stays filed.
+
+  3. `_prepare_state_dir` no longer races. It walks up collecting components that do not exist and then creates each, so two first-run copies both built the list and the loser raised FileExistsError out of startup. `exist_ok=True`, and it does NOT weaken the mode guarantee: a path is in that list only because it did not exist at the check, so anything there now was created inside the window by the other copy of this same loop, at 0700.
+
+  4. The startup log line goes through `quoted`. The path derives from the environment, so a newline in it could forge a second line of output. COVERED BY NO TEST, and that is where it sits rather than an omission: the line is in `main()`, past the `build_window` seam and before the blocking `app.exec()`, so no in-process test reaches it - which is DS01 / LWSM-1056. I wrote a test, found it was asserting `quoted`'s behaviour rather than this call site, and removed it. Recorded in a comment instead of faked.
+
+  5. `configure_logging` now removes EVERY handler it is not keeping, which is what `configure_stderr_logging` already did. It skipped anything that was not a RotatingFileHandler, so a stderr fallback attached by that function survived a later successful call and duplicated every record. Latent - no caller falls back and retries in one process - and an asymmetry between two functions owning the same handler list is the kind that stops being latent without anyone deciding it should.
+
+  Mutants: five run, four killed by named tests (field refusal ignored, mkdir without exist_ok, non-rotating handlers skipped, notices aliased). The fifth - printing the path raw - survives and cannot be killed from in-process, per 4 above.
   **Layman:** A handful of smaller issues in the app's startup and logging code.
   Kind: chore.
   Source: review-code 2026-09-01 lane 1.

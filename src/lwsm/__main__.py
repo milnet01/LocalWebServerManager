@@ -66,7 +66,13 @@ def build_window(
             projects_path = default_projects_path()
         loaded = load_projects(projects_path)
         load = loaded
-        records, notices = loaded.records, loaded.reasons
+        # `list(...)`, not the list itself (LWSM-1271). `notices` is appended
+        # to below with the SETTINGS reasons, and aliasing meant those were
+        # pushed into the registry `LoadResult`'s own record. Harmless today —
+        # both write gates key on `rows_refused` and `document_refused`, not on
+        # `reasons` — and harmless is not a reason to keep a mutation of
+        # somebody else's value.
+        records, notices = loaded.records, list(loaded.reasons)
     except RegistryError as exc:
         # Not fatal: a missing projects.json is a first run, not a crash, for
         # the same reason an unwritable log does not stop startup. No other
@@ -143,7 +149,22 @@ def build_window(
         if settings_path is None:
             raise SettingsError("there is no writable configuration directory")
         current = load_settings(settings_path)
-        if current.document_refused:
+        # ANY reason at all, not just a whole-document refusal (LWSM-1271).
+        # `document_refused` catches a file nobody can parse. A file that parses
+        # with one bad FIELD comes back with that field defaulted and a reason,
+        # and writing it out destroyed the user's text — a hand-typed
+        # `"text_scale": "150"` became `100` on the next window close, which is
+        # this docstring's own argument at a smaller scale: "the malformed text
+        # the user could have fixed gone with it".
+        #
+        # The cost is real and accepted: with one bad field, every write refuses
+        # until the file is corrected, and `save_geometry` fires on every close.
+        # LWSM-1163 already took that trade for the document case. Refusing is
+        # recoverable and overwriting is not.
+        #
+        # LWSM-1289 is the fuller answer — preserving values this build cannot
+        # use instead of defaulting them — and is filed separately.
+        if current.reasons:
             raise SettingsError(
                 "refusing to overwrite the settings file with defaults: "
                 + "; ".join(current.reasons)
@@ -605,7 +626,25 @@ def main(argv: list[str] | None = None) -> int:
 
     # Printed before the window so a user who cannot see the window still
     # learns where to look.
-    print(f"Logging to {log_path}" if log_path else "Not logging to a file.")
+    # Imported here, like every other import in `main`, so `--version` and
+    # `--help` need no more of the package than argparse (INV-14). `configfile`
+    # pulls in no Qt, so this costs nothing either way.
+    from lwsm.configfile import quoted
+
+    # `quoted`, because this reaches a terminal (LWSM-1271). The path is
+    # derived from the environment, so a newline in it could forge a second
+    # line of output, and `quoted` is already the project's answer for a value
+    # from outside reaching a human.
+    #
+    # **Covered by no test, and that is a property of where it sits.** This line
+    # is in `main()`, past the `build_window` seam and before the blocking
+    # `app.exec()`, so an in-process test cannot reach it — which is DS01 /
+    # LWSM-1056, `main()` being a shipped entry point with no test. Asserting it
+    # via `quoted` directly would test `quoted`, which is already tested, and
+    # would say nothing about this call site. Recorded rather than faked.
+    print(
+        f"Logging to {quoted(str(log_path))}" if log_path else "Not logging to a file."
+    )
 
     # Imported here, not at module scope, so `--version` and `--help` — which
     # argparse handles above — need no Qt and therefore no display (INV-14).

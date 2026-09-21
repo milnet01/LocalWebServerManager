@@ -810,6 +810,92 @@ def test_a_refused_settings_write_still_saves_the_scan_roots(
     assert "settings.json" in message, message
 
 
+def test_the_registry_load_record_is_not_given_the_settings_reasons(
+    qtbot, monkeypatch, tmp_path
+) -> None:
+    """`notices` aliased the registry `LoadResult`'s own list.
+
+    `records, notices = loaded.records, loaded.reasons` handed out the list
+    itself, and `build_window` then appends the SETTINGS reasons to `notices` —
+    so a settings complaint ended up inside the record describing the project
+    file (LWSM-1271).
+
+    Harmless today, and asserted anyway: both write gates key on `rows_refused`
+    and `document_refused` rather than on `reasons`, so nothing acts on the
+    contamination. A mutation of somebody else's value that happens not to
+    matter is one nobody will re-examine when it starts to.
+    """
+    from lwsm.settings import default_settings_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    settings_path = default_settings_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.parent.chmod(0o700)
+    # One refused FIELD, so `load()` returns a reason for the settings file.
+    settings_path.write_text(
+        '{\n  "schema_version": 1,\n  "text_scale": "150"\n}\n', encoding="utf-8"
+    )
+    # A clean project list, so the registry's own record has nothing in it.
+    projects = tmp_path / "projects.json"
+    projects.write_text('{"schema_version": 1, "projects": []}\n', encoding="utf-8")
+
+    window, controller = build_window(projects)
+    qtbot.addWidget(window)
+    try:
+        assert window._load.reasons == [], (
+            "a settings reason was appended into the registry load record: "
+            f"{window._load.reasons}"
+        )
+    finally:
+        controller.stop()
+
+
+def test_a_refused_field_is_not_overwritten_with_its_default(
+    qtbot, monkeypatch, tmp_path
+) -> None:
+    """A parseable file with one bad FIELD was silently corrected by destroying it.
+
+    `save_field` refused to write when the re-read reported the whole DOCUMENT
+    refused, and wrote happily when it reported a single field refused
+    (LWSM-1271). A hand-typed `"text_scale": "150"` — a string where an int
+    belongs — comes back defaulted with a reason, so the next write replaced the
+    user's text with `100` and the thing they could have fixed was gone.
+
+    That is this code's own argument at a smaller scale: LWSM-1163 refused the
+    document case because "the malformed text the user could have fixed" goes
+    with it. A field is the same loss, narrower.
+
+    Driven through the window close, because `save_geometry` fires there and is
+    the write the user is least likely to be expecting — so it is the one that
+    would have destroyed the value while they were doing something else.
+    """
+    from lwsm.settings import default_settings_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    settings_path = default_settings_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.parent.chmod(0o700)
+    # Parses as JSON; `text_scale` is the wrong TYPE. The document is fine and
+    # one field is not, which is the case that had no guard.
+    settings_path.write_text(
+        '{\n  "schema_version": 1,\n  "theme": "midnight",\n  "text_scale": "150"\n}\n',
+        encoding="utf-8",
+    )
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window.close()
+    finally:
+        controller.stop()
+
+    written = settings_path.read_text(encoding="utf-8")
+    assert '"150"' in written, (
+        "the user's text_scale was replaced by a default, so the value they "
+        f"could have corrected is gone: {written}"
+    )
+
+
 @pytest.mark.parametrize("accepted", [True, False])
 def test_the_settings_dialog_is_released_on_both_paths(
     qtbot, monkeypatch, tmp_path, accepted: bool
