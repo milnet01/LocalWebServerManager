@@ -235,6 +235,28 @@ class TrustStore:
             return self._confirmed.get(Path(project).resolve()) == fingerprint
 
     def revoke(self, project: Path) -> None:
+        """Forget that this project's launcher was confirmed.
+
+        **Reserved for LWSM-1046's UI half, which is unshipped — so it has no
+        caller and that is not a defect.** Recorded in `docs/known-issues.md`
+        under the Supervisor group, which is where a finding that is real but
+        blocked by a missing feature belongs (`docs/audit-allowlist.md` § The
+        bar rules out allowlisting one). Said here as well because the symbol
+        is where a reviewer and a `vulture` triager look, and a method with no
+        caller and no docstring is indistinguishable from one that was
+        forgotten — `check-code` re-filed it as LWSM-1270 on exactly that
+        reading.
+
+        Not `start()`'s path. A launcher whose CONTENT changes is re-refused on
+        its own, because `launcher_fingerprint` hashes it and the stored
+        confirmation names the old digest. This is the other question — the
+        user withdrawing trust from a project whose launcher has not changed —
+        and nothing but a person can answer it, which is why it waits on a UI
+        rather than on a caller somewhere in here.
+
+        Idempotent: revoking a project that was never confirmed is not an
+        error, so a UI need not ask first.
+        """
         with self._lock:
             self._confirmed.pop(Path(project).resolve(), None)
 

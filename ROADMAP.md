@@ -4996,7 +4996,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1270] **LOW: TrustStore.revoke has no caller anywhere - the one finding that survived check-code's eleven tools.**
+- ✅ [LWSM-1270] **LOW: TrustStore.revoke has no caller anywhere - the one finding that survived check-code's eleven tools.**
   supervisor.py:210, vulture 60% confidence, verified by search: zero
   references in src/ and zero in tests/. Same family as LWSM-1136, which
   CLAUDE.md records - a method whose whole value is being called from
@@ -5004,6 +5004,15 @@ has been applied yet — every item in this section is open.
   dimension-2b zombie: no contract promises a revoke surface, so it is a dead
   symbol rather than a broken promise. Decide: wire it to a UI affordance, or
   delete it.
+  Resolved (2026-09-21): NEITHER of the two dispositions the bullet offered. `TrustStore.revoke` is not dead and is not wired - it is RESERVED for LWSM-1046's unshipped UI half, and `docs/known-issues.md` already said so under the Supervisor group before check-code re-filed it.
+
+  So the finding was correct about the facts and the project had already answered it. What was missing is why it kept coming back: the method had no docstring, and a method with no caller and no docstring is indistinguishable from one that was forgotten. The reservation is now stated at the symbol, which is where a reviewer and a `vulture` triager actually look.
+
+  `docs/audit-allowlist.md` was considered and RULED OUT by its own bar, which names this exact case: \"Findings that are real but blocked by a missing feature. Those go in `docs/known-issues.md` with the named dependency.\" Adding an allowlist entry would have been the wrong home and would have hidden a live dependency behind a suppression. Recording that because reaching for the allowlist is the obvious move here and it is the wrong one.
+
+  The docstring also separates the two questions, which is the part that was genuinely unclear and made the symbol look redundant: a launcher whose CONTENT changes is re-refused without any help from `revoke`, because `is_confirmed` compares the stored fingerprint against the current one (verified by reading it, not assumed). Revoke answers the other question - the user withdrawing trust from a launcher that has not changed - which nothing but a person can answer. That is why it waits on a UI rather than on a caller somewhere in the supervisor.
+
+  No test added: there is nothing new to assert, the method's behaviour is unchanged, and its existing behaviour is already covered.
   **Layman:** There is a piece of code for forgetting a trusted project that nothing ever calls.
   Kind: chore.
   Source: check-code --tree 2026-09-01.
