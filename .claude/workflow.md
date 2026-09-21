@@ -37,7 +37,15 @@ window floor clamped below its own content, `LWSM-1257` margins that did not
 follow the text size, `LWSM-1263` size and maximised state riding the deferred
 placement path. The LOWs: `LWSM-1270` a reserved symbol reading as dead,
 `LWSM-1277` placement, `LWSM-1283` window geometry, `LWSM-1282` interaction,
-`LWSM-1276` the settings dialog. Read each bullet's own `Resolved` note — they
+`LWSM-1276` the settings dialog, `LWSM-1271` startup and logging.
+
+**One of those LOW items was data loss and was not LOW.** `LWSM-1271`'s second
+defect: `save_field` refused a whole-document refusal and wrote happily through
+a FIELD refusal, so a hand-typed `"text_scale": "150"` was replaced with the
+default on the next write — and `save_geometry` fires on every window close, so
+it happened while the user was doing something else. **Read a LOW batch's body
+before believing its severity**; the batches are grouped by lane, not by
+consequence. Read each bullet's own `Resolved` note — they
 carry the measurements, not this file.
 
 **Three kinds of wrong bullet turned up, and they need different handling.**
@@ -62,8 +70,8 @@ Measured under real KWin; invisible to the suite, and no test is claimed for it.
 
 ### Next action, no questions needed
 
-**Every FP09 MEDIUM is shipped, and five LOW items with them. What is left is
-`LWSM-1238`, nine LOW batches, and the two INFO items `LWSM-1285`/`1286`.**
+**Every FP09 MEDIUM is shipped, and six LOW items with them. What is left is
+`LWSM-1238`, eight LOW batches, and the two INFO items `LWSM-1285`/`1286`.**
 Read the live figure rather than any number written here — and read it the
 CHEAP way, which was established today: `roadmap_query mode="headline_only"
 section="<slug>" status="planned"` returns that section's open ids and nothing
