@@ -6135,6 +6135,56 @@ mostly in the measurement behind it.
   Kind: doc-fix.
   Source: in-session-2026-09-21.
 
+- 📋 [LWSM-1307] **Spec what-checks-this rows cite tests that do not exist.**
+  Measured 2026-09-21 by parsing every `| Rule | What catches a
+  breach |` table in `docs/specs/` and resolving each catcher cell
+  against the `def test_` inventory in `tests/`. Of 111 rows, 88
+  name a test and 105 test citations resolve to 24 names that are
+  defined nowhere in the tree. LWSM-1007 and LWSM-1131 carry all
+  but two, and both are `**Status:** implemented` with a commit
+  hash.
+
+  The INV-1..INV-10 rows resolve. What has rotted is the `§ 4.x`
+  rows below them in both documents.
+
+  Separately, LWSM-1006 cites `registry.py::_read_bounded` in
+  three places. LWSM-1031 extracted that function into
+  `configfile.py` and it is `read_bounded` there; `registry.py`
+  imports it and defines nothing of either name.
+
+  FIRST JOB, before any edit: decide per row whether an equivalent
+  test exists under another name (a citation to repoint) or the
+  invariant has no test at all (a test to write). A first pass
+  suggests roughly half have a clear equivalent — `INV-11`'s
+  catcher in LWSM-1131 against
+  `test_an_unlistable_root_marks_nothing_missing_under_it`, the
+  `§ 4.1` import-cycle row against
+  `test_registry_never_imports_the_scanner` — and the rest need
+  reading. Do not assume rename: a row repointed at a test that
+  does not assert the rule writes a false coverage claim back into
+  the spec, which is worse than the dangling name.
+
+  This is LWSM-1136's shape one layer up. There a method nothing
+  called looked exactly like a working one; here a row naming a
+  test nobody wrote looks exactly like coverage.
+
+  Why the existing checks did not catch it, both worth knowing
+  before trusting either again. `spec_lint` reports
+  `skipped: [test_surface_absent, test_surface_unresolved,
+  test_surface_unwired]` on this project — it resolves a test
+  surface only in `tests/features/<name>/` shape, which this
+  project does not use, so its silence about test names is not a
+  pass. `doc_citations` on LWSM-1006 reports `unresolved: 0` while
+  leaving citations `unchecked`, and the three `_read_bounded`
+  citations fall in that bucket; its own description warns that a
+  zero there is not a passed check.
+
+  Found while measuring an unrelated draft tool for another
+  session, which is why the roadmap had nothing on it.
+  **Layman:** Four specs claim their rules are covered by tests, naming tests that are not in the project. The claim of coverage may be the only thing missing, or the coverage may be too.
+  Kind: doc-fix.
+  Source: in-session-2026-09-21.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**

@@ -54,7 +54,7 @@ MAX_SOURCE_LINE_CHARS = 4096
 
 # A rejection reason reaches the app log and the status bar, and the name in it
 # is a scan-root subdirectory name — attacker-supplied, and a Linux filename may
-# contain a newline. Same name and value as `registry.py::MAX_REASON_CHARS`,
+# contain a newline. Same name and value as `configfile.py::MAX_REASON_CHARS`,
 # since it bounds the same thing for the same reason.
 MAX_REASON_CHARS = 120
 
@@ -244,8 +244,8 @@ _display = display_text
 def _quoted(value: object) -> str:
     """Escape and clip a value before it reaches a log or the UI.
 
-    `registry.py::_quoted`'s rule, reimplemented rather than imported for the
-    reason § 8 records about `_read_bounded`. Escape first, then clip: clipping
+    `configfile.py::quoted`'s rule, reimplemented rather than imported for the
+    reason § 8 records about `read_bounded`. Escape first, then clip: clipping
     the input bounds the wrong string, because `repr` expands a non-printable
     astral character to a ten-character sequence (LWSM-1111).
     """
