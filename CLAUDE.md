@@ -903,6 +903,15 @@ sibling; do not blank its name. **Assert against the AT tree's
 children**, not only the parent's accessible name, or the test cannot
 see this.
 
+**Trap: a `QComboBox` ignores `setAccessibleName` altogether.** Its
+accessibility interface reports the CURRENT TEXT as its name, and ignores
+the item's `AccessibleTextRole` too; the description is the field it passes
+through. Measured 2026-09-25 (LWSM-1315): "Browser for <project>" had never
+reached a screen reader, while a test reading `box.accessibleName()` stayed
+green. **Assert on `QAccessible.queryAccessibleInterface(widget).text(...)`,
+never on the widget property** — the property is what you set, not what is
+announced.
+
 **Trap: a stale `.pyc` can make a green run report on code that is not
 on disk.** Python's default bytecode invalidation compares only the source's
 **mtime and size**, so a same-second edit-and-revert whose replacement text is
