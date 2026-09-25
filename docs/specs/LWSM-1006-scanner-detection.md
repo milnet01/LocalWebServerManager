@@ -951,6 +951,17 @@ something.
 The stripper is shared by both port rules and by rule 3's evidence scan, so a
 framework identified from a commented-out import cannot happen either.
 
+**A Python docstring is blanked before the port rules see a `.py` file**
+(LWSM-1308, `_without_docstrings`). A docstring documents how to override a
+port, and line-major scanning let that example win: LottoTracker's module
+docstring reads `PORT=5000 python3 serve.py` above `DEFAULT_PORT = 4322`, and
+was detected as 5000 (measured 2026-09-25). That invented a port claim which
+refused another project's Start. A docstring here is a bare string
+*statement*: a string bound to a name is still read. A file that does not
+parse keeps every line, so the filter can hide a port but never lose one the
+old scan found. Rule 3's import scan does not use it. An `import` cannot sit
+inside a docstring and still run.
+
 **A negative number is not a port.** Rule 2's digit pattern is
 `(?<![0-9-])\d{1,5}(?![0-9])`, excluding a preceding `-` as well as a digit:
 without it `PORT = -1` yields **1** (measured), inventing a plausible port from

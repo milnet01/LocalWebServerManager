@@ -1513,6 +1513,93 @@ def test_a_finding_reports_the_rule_that_matched(
     assert (found.port, found.rule, found.source) == (port, rule, source)
 
 
+# LWSM-1308 — LottoTracker's real `serve.py`, reduced: a usage example in the
+# module docstring sits above the real default, and line-major scanning let the
+# example win. Measured live 2026-09-25, where it invented a port conflict that
+# refused RetroDB's Start.
+_USAGE_DOCSTRING = '''"""Serve the app.
+
+    python3 serve.py            # http://127.0.0.1:4322
+    PORT=5000 python3 serve.py  # $PORT wins
+"""
+import os
+
+DEFAULT_PORT = 4322
+'''
+
+
+@pytest.mark.parametrize(
+    ("files", "executable", "source"),
+    [
+        ({"serve.py": _USAGE_DOCSTRING}, (), "serve.py"),
+        (
+            {
+                "start.sh": "#!/bin/sh\nexec python3 lib/app.py\n",
+                "lib/app.py": _USAGE_DOCSTRING,
+            },
+            ("start.sh",),
+            "lib/app.py",
+        ),
+        (
+            {
+                "serve.py": (
+                    "def main():\n"
+                    '    """Run it: `localhost:5000` by default."""\n'
+                    "    return 1\n"
+                    "\n"
+                    "PORT = 4322\n"
+                )
+            },
+            (),
+            "serve.py",
+        ),
+    ],
+    ids=["module-docstring", "one-hop", "function-docstring"],
+)
+def test_a_python_docstring_is_prose_and_names_no_port(
+    tmp_path: Path, files: dict[str, str], executable: tuple[str, ...], source: str
+) -> None:
+    """A docstring documents how to override a port; it does not set one."""
+    make_project(tmp_path, "proj", files, *executable)
+
+    found = by_name(scan_root(tmp_path))["proj"].port
+
+    assert found is not None
+    assert (found.port, found.source) == (4322, source)
+
+
+def test_a_string_that_is_not_a_docstring_is_still_read(tmp_path: Path) -> None:
+    """Only a bare string STATEMENT is prose. A string bound to a name is data
+    a program can use, so the filter must not widen to every string literal."""
+    make_project(tmp_path, "proj", {"serve.py": 'x = 1\nURL = """localhost:6001"""\n'})
+
+    found = by_name(scan_root(tmp_path))["proj"].port
+
+    assert found is not None
+    assert found.port == 6001
+
+
+@pytest.mark.parametrize(
+    "tail",
+    ["def broken(:\n", "x = (1\n" + "+1\n" * 60000 + ")\n"],
+    ids=["syntax-error", "too-deep"],
+)
+def test_a_python_file_that_does_not_parse_is_still_scanned(
+    tmp_path: Path, tail: str
+) -> None:
+    """The docstring filter needs a parse; a file it cannot parse keeps the
+    old line scan rather than losing its port, and must not end the batch.
+    A long enough expression raises `RecursionError`, not `SyntaxError`, and
+    is the case a narrower catch would let escape. (A NUL byte is NOT that
+    case on 3.13, where `ast.parse` reports it as a `SyntaxError`.)"""
+    make_project(tmp_path, "proj", {"serve.py": "PORT = 8123\n" + tail})
+
+    found = by_name(scan_root(tmp_path))["proj"].port
+
+    assert found is not None
+    assert found.port == 8123
+
+
 def test_the_wrapped_walk_is_bounded_at_one_invocation_and_one_import(
     corpus_tree: Path,
 ) -> None:

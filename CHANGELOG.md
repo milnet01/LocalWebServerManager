@@ -302,6 +302,12 @@ signaling per
 
 ### Fixed
 
+- **A usage example in a Python docstring is no longer detected as the project's port** (LWSM-1308)
+  A project whose help text showed `PORT=5000 python3 serve.py` was
+  detected on 5000 instead of its real default. That invented a port
+  conflict, and another project's Start was refused. Rescan to pick up
+  the corrected port.
+
 - **A desktop entry that fails validation is no longer left in the launcher** (LWSM-1267)
   `install-desktop-entry.sh` checked the entry after writing it into
   ~/.local/share, so a malformed one had already appeared in the

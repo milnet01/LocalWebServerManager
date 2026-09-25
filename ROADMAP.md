@@ -3941,6 +3941,12 @@ has been applied yet — every item in this section is open.
   all on that reading, because no new border rule is needed.
 
   Re-file or re-scope before building; do not build the fork.
+  Decision (user, 2026-09-25): RESCOPED to the one palette below the
+  floor. Fix graphite's ring against its button fill (measured 2.23:1,
+  below the 3:1 non-text floor). Do not build the custom-outline fork.
+  Before closing, render a focused button in all eight themes, with the
+  application palette and the window's style sheet applied, and show the
+  user the screenshots. The suite cannot judge how it looks.
   **Layman:** There is no visible outline showing which control the keyboard is on, in any colour theme.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 6+8.
@@ -6104,6 +6110,17 @@ mostly in the measurement behind it.
   spec-format.md alone.
 
   Gates nothing.
+  Progress (2026-09-25): answered by the ~/.claude session (claude-19), cited as it asked.
+  The cap lives in `~/.claude/skills/review-contract/SKILL.md` § At the cap:
+  2 for a spec or a plan, 3 for a standard or an ADR. Capping an ADR at 2 is
+  a redefinition that rule 14 forbids. The clean route is to cancel the gate
+  for named documents and record "no gate". It noted that the cap is a
+  backstop, not a quota. Rule 3's skepticism filter is a grey area it
+  flagged and did NOT settle. Rule 14's forbidden list does not name
+  "every verified finding is fixed". It named the built-in materiality
+  test ("would a conformer build something different?") as the
+  better-aimed filter. It already lives in the skill. Put to the user as a
+  decision.
   **Layman:** Our project rulebook says the machine-wide rule demands something it stopped demanding, so the exception we wrote for ourselves is half unnecessary.
   Kind: doc-fix.
   Source: in-session-2026-09-21, cross-checked with the ~/.claude session.
@@ -6213,6 +6230,57 @@ mostly in the measurement behind it.
   **Layman:** Four specs claim their rules are covered by tests, naming tests that are not in the project. The claim of coverage may be the only thing missing, or the coverage may be too.
   Kind: doc-fix.
   Source: in-session-2026-09-21.
+
+- ✅ [LWSM-1308] **Scanner reads a port from a usage example in a docstring, inventing a port conflict.**
+  Reported by the user 2026-09-25 with a screenshot. RetroDB's Start
+  was refused with "port 5000 is claimed by LottoTracker", although
+  LottoTracker was stopped and does not use 5000.
+
+  Measured with `scanner.scan` over the live tree: LottoTracker comes back
+  as `PortFinding(port=5000, rule=EXPLICIT, source='serve.py')`. Its
+  `serve.py` defaults to 4322 (`DEFAULT_PORT = 4322`). The 5000 comes from
+  the module docstring's usage lines, `PORT=5000 python3 serve.py`, which
+  document how to OVERRIDE the port. So a documentation example became
+  the detected port, and ADR-0005's claim rule then refused a real project
+  on the strength of it.
+
+  The refusal itself is correct per ADR-0005; the input is wrong.
+  Resolved (2026-09-25): `scanner._without_docstrings` blanks every bare
+  string statement in a `.py` source before the port rules run. Applied in
+  `_scan_source`, so the launcher, the one hop, the import hops and the
+  named files all get it. A file that does not parse keeps its lines.
+  Live-tree verdict diff: exactly one project moved, LottoTracker
+  5000 (EXPLICIT) -> 4322 (ASSIGNMENT, serve.py). Tests: three docstring
+  shapes (module, one-hop, function), a non-docstring string still read,
+  and two unparseable files (syntax error, too-deep nesting). Four mutants,
+  all killed. The narrow-catch mutant survived the first NUL-byte fixture:
+  on 3.13 `ast.parse` reports a NUL as `SyntaxError`, so that fixture could
+  not tell the catches apart. It was replaced with a 60,000-term expression
+  that raises `RecursionError`. Spec LWSM-1006 amended to match.
+  Rescan in the app to pick up 4322.
+  **Layman:** The app mistook an example in another project's help text for its real port, and then blocked a different project from starting.
+  Kind: fix.
+  Source: user-report-2026-09-25.
+  Lanes: scanner.
+
+- 📋 [LWSM-1309] **A port stored from an older, wrong detection survives every rescan once detection says unknown.**
+  Seen in the user's screenshot 2026-09-25: MAME_Curator shows "port 1024".
+  Today's `scanner.scan` over the live tree returns `port=None` for it.
+  LWSM-1190 stopped rule 2 reading 1024 out of a validation message
+  ("expected an integer in 1024-65535"). The stored value predates that fix.
+  The rescan merge treats a scan's `None` as "unknown, keep what is stored".
+  That rule is right for a port that was genuinely detected. For one that
+  was never true, it means a wrong value outlives the scanner fix that
+  exposed it. The user has no way to clear it but editing projects.json.
+  Decide: record the detection's rule and source beside the stored port, so
+  a rescan can tell "was detected, now unreadable" from "was wrong"; or
+  clear a stored DETECTED port on a `None` scan when the scanner version
+  moved. Not fixed in passing: the None-preserving merge is a deliberate
+  LWSM-1007 rule that was reviewed in loop 2.
+  **Layman:** A wrong port number the app guessed long ago keeps showing even after the app learned not to guess it.
+  Kind: fix.
+  Source: user-report-2026-09-25.
+  Lanes: registry, scanner.
 
 ### 🐛 Bug fixes
 
@@ -9430,6 +9498,12 @@ is why it sits after the app works.
   distribution channel and 0.1.0 is a source/tag release; do not let
   packaging block the version.
   Confirmed (2026-08-19): the user was asked directly whether to re-gate this — 69 entries sit unreleased and nothing has ever shipped — and chose to HOLD as filed. 0.1.0 stays gated on P04 closing. The reasoning was that the app is not yet keyboard- or magnifier-usable, which is P04's whole purpose, so shipping first means a first release the primary user cannot drive. **Do not re-open this as though the user had gone quiet** — the question was put and answered. What would change it is P04 closing, not the changelog growing further.
+  Decision (user, 2026-09-25): 0.1.0 now waits on FP09 AND FP01 (LWSM-1046,
+  LWSM-1047, LWSM-1049). Reason: the repository is public, so the first real
+  release should not ship with known security items open. The rest of the
+  review backlog (findings filed in passing, DS01, FP02) follows 0.1.0.
+  This supersedes "cut when P04 closes" and is not a reopening of the
+  2026-08-19 hold.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.

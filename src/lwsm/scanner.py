@@ -15,6 +15,7 @@ Where a project says nothing about its port, it comes back honestly *unknown*.
 
 from __future__ import annotations
 
+import ast
 import enum
 import errno
 import json
@@ -554,6 +555,39 @@ _RULE_1_ONLY: tuple[tuple[Callable[[str], int | None], PortRule], ...] = (
 )
 
 
+def _without_docstrings(lines: Sequence[str]) -> Sequence[str]:
+    """`lines` with every Python docstring blanked, line count unchanged.
+
+    LWSM-1308: a docstring documents how to override a port —
+    `PORT=5000 python3 serve.py` — and line-major scanning let that example
+    beat the real `DEFAULT_PORT = 4322` below it. A docstring here is any
+    bare string STATEMENT, which covers module, class and function docstrings
+    and nothing a program can read; a string bound to a name is still data.
+
+    A file that does not parse keeps its lines, because losing a port is
+    worse than the old behaviour. The catch is wider than `SyntaxError` on
+    purpose (CLAUDE.md's per-item containment trap): a long expression raises
+    `RecursionError` or `MemoryError` (measured on 3.13), and `ValueError`
+    is kept for interpreters that report a NUL byte that way.
+    """
+    try:
+        tree = ast.parse("\n".join(lines))
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return lines
+    blank: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+            and node.end_lineno is not None
+        ):
+            blank.update(range(node.lineno - 1, node.end_lineno))
+    if not blank:
+        return lines
+    return ["" if index in blank else line for index, line in enumerate(lines)]
+
+
 def _scan_source(
     name: str,
     lines: Sequence[str],
@@ -569,6 +603,8 @@ def _scan_source(
     launcher holding `SERVER_PORT = 3000` above `exec node serve.js --port
     8080`, line-major returns 3000 and rule-major returns 8080.
     """
+    if strip and name.endswith(".py"):
+        lines = _without_docstrings(lines)
     for line in lines:
         text = strip_comment(line) if strip else line
         for rule, produced_by in rules:
