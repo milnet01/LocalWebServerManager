@@ -58,16 +58,27 @@ badge in the Roadmap dialog footer.
 | Level | Use | Example |
 |-------|-----|---------|
 | `#` | File title (one per file) | `# MyProject — Roadmap` |
-| `##` | Release block (post-1.0) **or** phase block (pre-1.0) | `## 0.7.0 — shell integration` / `## P01 — Bootstrap` |
+| `##` | Release block; or a phase block where the project cannot yet say which release an item lands in | `## 0.7.0 — shell integration` / `## P01 — Bootstrap` |
 | `###` | Theme group within a release/phase | `### 🎨 Features` |
 | `####` | Optional subgroup | `#### Tier 1 — ship-this-week` |
 
 The Roadmap dialog treats `##` as a top-level boundary (release
 or phase), `###` as the theme filter, `####` as a fold-out.
-Pre-1.0 projects use phase blocks (`## P01 — Bootstrap`) since
-there's no real version to anchor to yet; phase blocks promote
-naturally to release blocks once the project ships 1.0 (the work
-under `P01` becomes the body of `## 1.0.0 — initial release`).
+**A release block is the default at every version, pre-1.0 included.**
+Name the version the work will ship in — `## 0.1.0 — Looks finished` —
+so the roadmap answers *what is still needed for the next release*, which
+a phase number cannot.
+
+**A phase block stays available where a project cannot yet place its
+items in a release.** At 1.0, every phase block still in the file merges
+into its `## 1.0.0` block, closed ones included. Where the file has none,
+create it as `## 1.0.0 — initial release`; where it already names one,
+keep that title.
+
+This section said *pre-1.0 projects use phase blocks* until 2026-09-25.
+It now follows the global standard's § 3.2 (CFG-0321, user decision
+2026-09-06), and this project's roadmap moved to release blocks the same
+day (LWSM-1311).
 
 **Headings are addressable.** The viewer auto-generates anchor
 names of the form `roadmap-toc-N` from each heading's *position*

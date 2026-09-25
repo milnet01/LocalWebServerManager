@@ -34,10 +34,26 @@ rule-14 questions. It logged our finding that gate lanes see the
 session-start copy of `CLAUDE.md`, not the disk copy, as CFG-0593.
 **A `CLAUDE.md` gate brief must tell lanes to read the subject from disk.**
 
-**Next:** finish LWSM-1311 (regroup the roadmap by version; its bullet holds
-the steps and the full id-to-version mapping, nothing moved yet). Then the
-FP09 LOW batches (LWSM-1272–1284), then FP01's three items, then 0.1.0.
-LWSM-1238 waits on the user's look at the focus-ring screenshots.
+**Later the same day:** the user accepted LWSM-1238's screenshots, so it is
+shipped. LWSM-1311 is done: ROADMAP.md is grouped by version (`## 0.1.0` to
+`## After 1.0.0`), open items above shipped ones. LWSM-1195 closed with it.
+`docs/standards/roadmap-format.md § 3.2` now says release blocks pre-1.0.
+Filed LWSM-1312 (§ 3.7 still requires a target date) and LWSM-1313 (the
+legend still says "this phase", and no roadmap_log op reaches it).
+
+**Three roadmap_log traps found doing it:**
+- `set_intro` does not replace a section's table. A table is its own element,
+  so the old one stays and the new text lands above it. Delete and recreate
+  the section, then rebuild the table with `bundle_row`.
+- `amend_field field:"section"` to the section an item is already in moves
+  nothing (`moved_count: 0`). To push items to the bottom, move them to
+  another section and back.
+- `delete_section` refuses a parent with sub-sections, so delete those
+  first. I went bottom-up in case numbered slugs (`features-2`) renumber;
+  whether they do was not tested.
+
+**Next:** the FP09 LOW batches (LWSM-1272–1284), then FP01's three items,
+then 0.1.0 (LWSM-1152).
 
 ## §1a. Session handoff — 2026-09-21
 
