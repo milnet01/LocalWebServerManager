@@ -75,11 +75,12 @@ Two rules, in force for this project:
    migration rather than an edit.
 
 **Rule 1 is a deliberate local departure from global rule 14's "run before
-implementation"** (user, 2026-08-13; kept local 2026-08-15). Global rule 14
-lets a project cancel the gate for documents it names, so this project names
-them: **a spec written or corrected after the build, to record what was
-built, is no gate**, and the commit body says so. A spec written first under
-rule 2 is gated before building, as rule 14 says.
+implementation"** (user, 2026-08-13; kept local 2026-08-15). It cancels no
+gate. A spec corrected after the build falls under rule 14's own exception
+for a document brought into line with verified code. A spec first written
+after the build is put to rule 14's trigger like any other document; where
+nothing will be built from it, that is the No branch, recorded in one line in
+the commit body. A spec written first under rule 2 is gated before building.
 
 **When the gate runs, it runs as global rule 14 and `review-contract` define
 it — this project sets no cap and no finding filter of its own** (user,

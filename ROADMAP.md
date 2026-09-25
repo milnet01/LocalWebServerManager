@@ -6282,6 +6282,27 @@ mostly in the measurement behind it.
   Source: user-report-2026-09-25.
   Lanes: registry, scanner.
 
+- 📋 [LWSM-1310] **CLAUDE.md names QProcess as the launcher and its module map omits browsers.py and service.py.**
+  Filed from review-contract loop 2 on CLAUDE.md (2026-09-25, LWSM-1305). Both
+  findings fall outside the change that gate covered, so they exit the loop.
+  Both verified by the orchestrator.
+
+  1. § Tech stack says "`QProcess` for launching and supervising servers, so
+     status, live log output and exit signals share one source of truth".
+     Nothing in `src/` uses `QProcess`. `supervisor.py` launches with
+     `subprocess.Popen` and imports no Qt, as § Module map says. A conformer
+     following § Tech stack would bring Qt into a Qt-free core module.
+  2. § Module map says "The modules below are the list", and
+     `src/lwsm/browsers.py` and `src/lwsm/service.py` appear nowhere in it.
+     A conformer editing either gets no statement of its layer.
+     Sibling of LWSM-1303 (the Tests list has fallen behind).
+
+  Editing CLAUDE.md changes what a conformer does, so the fix owes its own
+  rule-14 gate.
+  **Layman:** The project rulebook describes a way of starting servers the app does not use, and leaves two parts of the program off its map.
+  Kind: doc-fix.
+  Source: review-contract-2026-09-25 CLAUDE.md loop 2.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
