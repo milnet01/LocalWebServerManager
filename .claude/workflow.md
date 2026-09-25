@@ -58,8 +58,12 @@ re-checked first, since the cited line numbers have all moved: search for
 the quoted code. A scanner change also gets the live-tree diff (CLAUDE.md
 trap), run from a temporary `git worktree` of HEAD.
 
-**Next:** LWSM-1274 (supervisor), 1275, 1278, 1279, 1280, 1281, 1284, then
-FP01's three items, then 0.1.0 (LWSM-1152).
+LWSM-1274 (supervisor) closed too. LWSM-1315 (browser label "Default", user
+decision) shipped; pictures and a wordmark went to the Ants Projects Hub
+website session and are live. `scripts/take-screenshots.sh` re-shoots them.
+
+**Next:** LWSM-1275, 1278, 1279, 1280, 1281, 1284, then FP01's three items
+(LWSM-1046 now also owns persisting trust), then 0.1.0 (LWSM-1152).
 
 ## §1a. Session handoff — 2026-09-21
 
