@@ -55,7 +55,7 @@ written through it does not need the review invoked separately.
 review findings, audit findings, a fix-pass — and it owns the
 blast-radius sweep that catches what a fix moved elsewhere.
 
-## Review cadence — measured and capped (user, 2026-08-13)
+## Review cadence — build first (user, 2026-08-13; revised 2026-09-25)
 
 **Build first and fold the spec back afterwards; spec-first is the exception,
 not the default.** Decided after measuring `review-contract`'s yield across four
@@ -64,7 +64,7 @@ was a defect implementation would not have caught**, and about a third were the
 review's own collateral — loop 2 of each document landed almost entirely in text
 loop 1's fixes had added.
 
-Three rules, in force for this project:
+Two rules, in force for this project:
 
 1. **Default: build it, then correct the spec to match what was built.**
    `/write-spec` Step 8 already describes this fold-back; it is now the normal
@@ -72,45 +72,49 @@ Three rules, in force for this project:
    (`spec-format.md § 1`).
 2. **Spec-first only when code creates durable artifacts** — an on-disk format,
    a wire protocol, anything another item binds to. There, coding first means a
-   migration rather than an edit. **Cap the gate at 2 loops**, never
-   loop-to-convergence. Not 1: the best finding of the whole exercise — the
-   merge writing `None` over a stored port, because `port` is in
-   `DETECTED_FIELDS` and the replacement rule was unqualified — arrived in
-   **loop 2**.
-3. **Skepticism filter on every finding: *would the first test run have caught
-   this?*** If yes, it is not worth a fix pass — note it and let implementation
-   find it. Applied to that session's 42 findings this filter would have left
-   about 12. A circular import announces itself with a traceback; a wrong
-   on-disk format does not.
+   migration rather than an edit.
 
-**The rationale, because it is the part that generalises:** global rule 14
-assumes the spec is handed to a *different* implementer, so "a wrong contract
-makes the implementation wrong by construction". When the author and the
-implementer are the same agent, that premise is much weaker — the contract's
-errors surface while coding. What survives is the narrow class where correct
-code faithfully implements a wrong contract **and the tests pass**.
+**When the gate runs, it runs as global rule 14 and `review-contract` define
+it — this project sets no cap and no finding filter of its own** (user,
+2026-09-25, LWSM-1305). Two earlier rules here are withdrawn:
 
-**Global rule 14 still mandates loop-to-convergence and has NOT been changed —
-and that is now a decision rather than an unanswered question.** Asked on
-2026-08-13, **answered 2026-08-15: keep the divergence local.** The global rule
-stands for every other project; this section governs here, and the gap is
-deliberate. Nothing further is pending — a later session should not re-open it
-as though the user had gone quiet.
+- **"Cap the gate at 2 loops" is gone.** The cap is `review-contract`'s: 2 for
+  a spec or a plan, 3 for a standard or an ADR (its § At the cap). Global rule
+  14 forbids a project changing the cap. `docs/design.md` is gated as an ADR,
+  so it gets 3. The cap is a backstop, not a quota — a run stops at the first
+  loop with no verified finding. The best finding of the 2026-08-13 exercise
+  arrived in loop 2, which is why 1 was never the answer.
+- **The "would the first test run have caught this?" filter is gone.** Every
+  verified finding is fixed, as global rule 14 says. The filter to use is the
+  one `review-contract` already applies: *would a conformer build something
+  different?* The old filter let a known-wrong contract ship because a test
+  would catch the fallout after the work was done.
 
-**One piece of evidence arrived after the decision and cuts against this
-section, so it is recorded here rather than left in a journal.** The P03b close
+Both corrections came from the `~/.claude` session (2026-09-25). It ruled that
+capping an ADR at 2 is a redefinition. It flagged the finding filter as a grey
+area and did not settle it; the user chose the built-in test.
+
+**The rationale for rule 1, because it is the part that generalises:** global
+rule 14 assumes the spec is handed to a *different* implementer, so "a wrong
+contract makes the implementation wrong by construction". When the author and
+the implementer are the same agent, that premise is much weaker — the
+contract's errors surface while coding. What survives is the narrow class where
+correct code faithfully implements a wrong contract **and the tests pass**.
+
+**One piece of evidence arrived after the decision and cuts against rule 1, so
+it is recorded here rather than left in a journal.** The P03b close
 (2026-08-15) found 55 defects in five items built under the build-first default,
 including three CRITICALs — one of which, `_launcher_path` refusing three of the
 four launcher kinds, meant the app did not do what the roadmap said it did for a
-full day. **That is not yet an argument for reverting**, and the reason is the
-skepticism filter in rule 3 above: *would the first test run have caught this?*
-For the launcher bug the honest answer is **yes, if a test had used any argv but
-`./start.sh`** — so it is a fixture-coverage failure, not a missing-contract
-failure, and a spec would not have caught it either. The same is true of the
-unbounded overlay: no fixture had a port-less project.
+full day. **That is not yet an argument for reverting.** Ask of each such
+defect: *would a test have caught it?* For the launcher bug the honest answer
+is **yes, if a test had used any argv but `./start.sh`** — so it is a
+fixture-coverage failure, not a missing-contract failure, and a spec would not
+have caught it either. The same is true of the unbounded overlay: no fixture
+had a port-less project.
 **What to watch on the next close is the class, not the count.** If a defect
 turns up that a *contract* would have caught and a test could not have, that is
-the signal this cadence is wrong. So far none has.
+the signal rule 1 is wrong. So far none has.
 
 ## Before pushing
 
