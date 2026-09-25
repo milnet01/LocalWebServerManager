@@ -3869,7 +3869,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 6.
 
-- 🚧 [LWSM-1238] **MEDIUM: no theme emits any focus styling, so the focus ring is whatever the platform gives.**
+- ✅ [LWSM-1238] **MEDIUM: no theme emits any focus styling, so the focus ring is whatever the platform gives.**
   theme.py:152-156. style_sheet() returns only QLabel[state=...] colour rules.
   design-accessibility.md requires "a thick, high-contrast focus ring on every
   focusable widget in every theme", and the check table lists it as a row
@@ -3965,6 +3965,8 @@ has been applied yet — every item in this section is open.
   First draft trap: `qtbot.waitActive` must be the context manager around
   `activateWindow()`. Called after it, the window never activated, no ring
   was drawn, and every palette failed alike.
+  Resolved (2026-09-25): the user reviewed the before and after renders
+  and accepted the graphite ring as shipped.
   **Layman:** There is no visible outline showing which control the keyboard is on, in any colour theme.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 6+8.
