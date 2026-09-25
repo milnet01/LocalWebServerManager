@@ -189,7 +189,7 @@ O8` forbids retrofitting that.
   LWSM-1141, which takes the interim restriction. The rest of this bullet still
   waits on LWSM-1011.
 
-- 📋 [LWSM-1272] **LOW batch (registry): six small defects from lane 2.**
+- ✅ [LWSM-1272] **LOW batch (registry): six small defects from lane 2.**
   registry.py:357,363,372,374,389,395,407,414 - the loader interpolates path
   RAW at eight sites while the writer half quotes every time, and since
   LWSM-1148 path is USER-CHOSEN (mainwindow.py:1757), so a filename with a
@@ -201,6 +201,17 @@ O8` forbids retrofitting that.
   is appended to and never read. :1104 - docstring describes an implementation
   that :1110 contradicts. start_at_login and launcher_override have zero
   readers (deferred by LWSM-1131, not zombies).
+  Closed (2026-09-25), each finding re-checked against current source
+  first. Fixed: the loader now quotes the path at all eight sites; the
+  save payload is built inside `_encoded`'s handler, so bad stored text
+  raises RegistryError; the identity pass is one shared
+  `_identity_owners`, so an import now flags a stored duplicate as a
+  rescan does (the three docstring rules already held; the drift was the
+  missing flag); the unread `resolved_of` is gone; export_profile's
+  docstring now says RegistryMissing is let through. Each fix has a
+  regression test proved red first. Dismissed: start_at_login /
+  launcher_override having no readers is deliberate (LWSM-1131 spec, and
+  the review's own words); start_at_login is LWSM-1027's.
   **Layman:** Smaller issues in the code that stores and merges the project list.
   Kind: chore.
   Source: review-code 2026-09-01 lane 2.
@@ -9917,6 +9928,17 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Lanes: core.
 
 ---
+
+- 💭 [LWSM-1314] **`launcher_override` is stored and round-tripped, and no item builds the feature that would read it.**
+  ADR-0005 lists a launcher override among the user-owned fields, and
+  the registry stores it. The LWSM-1131 spec § 4.3 keeps it inert on
+  purpose. Unlike `start_at_login` (LWSM-1027), no roadmap item builds
+  the feature, so the field has no owner. Decide: build it, or drop it
+  from the schema.
+  **Layman:** A saved setting for choosing a project's start command exists, but nothing uses it yet and nothing is planned to.
+  Kind: investigate.
+  Source: in-session-2026-09-25, closing LWSM-1272 finding 6.
+  Lanes: registry.
 
 ## Retired IDs
 

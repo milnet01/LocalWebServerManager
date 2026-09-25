@@ -108,6 +108,34 @@ def test_unusable_files_are_refused(tmp_path: Path) -> None:
         load_projects(write(tmp_path, {"schema_version": 1, "projects": {}}))
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,  # absent
+        "{oh dear",  # not JSON
+        "[1, 2, 3]",  # top level not an object
+        '{"schema_version": 2, "projects": []}',  # wrong version
+        '{"schema_version": 1, "projects": {}}',  # projects not a list
+    ],
+)
+def test_a_refusal_quotes_the_path_it_names(
+    tmp_path: Path, payload: str | None
+) -> None:
+    """LWSM-1272: since LWSM-1148 the path is one the user chose in a file
+    dialog, so a name carrying a newline must not reach the status bar or the
+    log raw. The writer half always quoted it; the loader did not.
+    """
+    folder = tmp_path / "evil\nname"
+    folder.mkdir()
+    path = folder / "projects.json"
+    if payload is not None:
+        path.write_text(payload, encoding="utf-8")
+    with pytest.raises(RegistryError) as caught:
+        load_projects(path)
+    assert "\n" not in str(caught.value)
+    assert "evil\\nname" in str(caught.value)
+
+
 # --- INV-2: a bad record is skipped; the rest still load ----------------------
 
 
@@ -821,6 +849,28 @@ def test_an_unknown_key_cannot_shadow_a_field_the_writer_owns(
     assert entry["name"] == hostile.name, (
         f"an unknown key overwrote the field the writer owns: {entry['name']!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("actions", ("{not json",)), ("unknown", (("extra", "{not json"),))],
+)
+def test_stored_text_that_is_not_json_is_refused_as_a_registry_error(
+    tmp_path: Path, field: str, value: tuple
+) -> None:
+    """LWSM-1272: `_serialised` decodes the stored JSON text of actions and
+    carried keys, and it ran outside `_encoded`'s handler — so a record built
+    any way but the loader escaped `save_projects` as a bare `ValueError`,
+    which `except RegistryError` does not catch. Nothing is written either way.
+    """
+    record = dataclasses.replace(every_field_record(), **{field: value})
+    out = tmp_path / "projects.json"
+
+    with pytest.raises(RegistryError, match="cannot be serialised"):
+        registry.save_projects(
+            out, [record], load=registry.RegistryMissing("first run")
+        )
+    assert not out.exists()
 
 
 def every_field_record() -> ProjectRecord:
@@ -2143,6 +2193,23 @@ def test_a_second_profile_entry_for_one_directory_is_ignored() -> None:
     assert len(merged.records) == 1
     assert merged.records[0].notes == "kept"
     assert merged.counts[registry.DUPLICATE_IDENTITY] == 1
+
+
+def test_an_import_reports_a_duplicate_in_the_stored_list() -> None:
+    """LWSM-1272: `merge()` flags a second stored record for one directory; the
+    import's copy of that pass kept the first and said nothing, so the loser
+    silently missed the restore. Both now share one identity pass.
+    """
+    owner = ProjectRecord(path=Path("/srv/a"), name="owner")
+    loser = ProjectRecord(path=Path("/srv/a"), name="loser", notes="untouched")
+    profile = ProjectRecord(path=Path("/srv/a"), name="a", notes="restored")
+
+    merged = registry.merge_imported([owner, loser], [profile])
+
+    assert merged.records[0].notes == "restored", "the first in file order owns it"
+    assert merged.records[1] == loser, "the loser is written back unchanged"
+    assert merged.counts[registry.DUPLICATE_IDENTITY] == 1
+    assert any("'loser'" in reason and "'owner'" in reason for reason in merged.reasons)
 
 
 def test_the_import_report_is_bounded() -> None:

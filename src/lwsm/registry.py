@@ -431,13 +431,15 @@ def load_projects(path: Path) -> LoadResult:
         # run into "unreadable" and leave a clean machine permanently unable to
         # persist anything — the write gate would refuse to create the very file
         # whose absence it is reading.
-        raise RegistryMissing(f"{path}: does not exist yet") from exc
+        raise RegistryMissing(f"{quoted(str(path))}: does not exist yet") from exc
     except OSError as exc:
         # Any OSError, not just FileNotFoundError: a directory at that path, a
         # permission denial, a FIFO or an oversized file must all arrive as
         # RegistryError, because that is the only exception `build_window`
         # tolerates. `exc.strerror` rather than `exc` keeps the reason readable.
-        raise RegistryError(f"{path}: cannot be read ({exc.strerror or exc})") from exc
+        raise RegistryError(
+            f"{quoted(str(path))}: cannot be read ({exc.strerror or exc})"
+        ) from exc
 
     try:
         # utf-8-sig, not utf-8: an editor-added BOM is invisible in that
@@ -446,9 +448,9 @@ def load_projects(path: Path) -> LoadResult:
         data = json.loads(raw.decode("utf-8-sig"))
     except UnicodeDecodeError as exc:
         # Not a JSONDecodeError, so it has to be caught by name.
-        raise RegistryError(f"{path}: not valid UTF-8 ({exc})") from exc
+        raise RegistryError(f"{quoted(str(path))}: not valid UTF-8 ({exc})") from exc
     except json.JSONDecodeError as exc:
-        raise RegistryError(f"{path}: not valid JSON ({exc})") from exc
+        raise RegistryError(f"{quoted(str(path))}: not valid JSON ({exc})") from exc
     except (ValueError, RecursionError) as exc:
         # Both reproduced, and neither is a JSONDecodeError, so both escaped as
         # themselves past a caller that tolerates only RegistryError — the app
@@ -463,13 +465,13 @@ def load_projects(path: Path) -> LoadResult:
         # KeyboardInterrupt (LWSM-1108). JSONDecodeError is matched above
         # because it subclasses ValueError and its message is more useful.
         raise RegistryError(
-            f"{path}: cannot be parsed ({type(exc).__name__}: {exc})"
+            f"{quoted(str(path))}: cannot be parsed ({type(exc).__name__}: {exc})"
         ) from exc
 
     # json.loads happily returns a list or a string; nothing raises for these.
     if not isinstance(data, dict):
         raise RegistryError(
-            f"{path}: top level is {type(data).__name__}, not an object"
+            f"{quoted(str(path))}: top level is {type(data).__name__}, not an object"
         )
 
     version = data.get("schema_version")
@@ -481,14 +483,14 @@ def load_projects(path: Path) -> LoadResult:
         # log and the status bar with no per-reason bound anywhere in its path
         # (LWSM-1114).
         raise RegistryError(
-            f"{path}: schema_version {quoted(version)} is not {SCHEMA_VERSION}; "
-            "refusing to guess at its contents"
+            f"{quoted(str(path))}: schema_version {quoted(version)} "
+            f"is not {SCHEMA_VERSION}; refusing to guess at its contents"
         )
 
     projects = data.get("projects")
     if not isinstance(projects, list):
         raise RegistryError(
-            f"{path}: 'projects' is {type(projects).__name__}, not a list"
+            f"{quoted(str(path))}: 'projects' is {type(projects).__name__}, not a list"
         )
 
     records: list[ProjectRecord] = []
@@ -735,11 +737,15 @@ def _encoded(path: Path, records: Sequence[ProjectRecord]) -> bytes:
     `path` is a parameter only so the refusals can name the file. Nothing here
     touches it.
     """
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "projects": [_serialised(record) for record in records],
-    }
     try:
+        # Inside the handler (LWSM-1272): `_serialised` decodes each record's
+        # stored JSON text, and a record built any way but the loader can hold
+        # text that does not decode — a bare `ValueError` here escaped the
+        # `RegistryError` contract.
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "projects": [_serialised(record) for record in records],
+        }
         # ensure_ascii=False so a non-Latin project name stays readable in the
         # file the user is invited to hand-edit; the bound below is on the
         # encoded bytes, which is what the reader's cap measures.
@@ -1037,26 +1043,7 @@ def merge(
     # permission-denied run, which is the one branch this field exists for.
     unlistable = [_resolve_or_lexical(Path(root))[0] for root in scan.unlistable_roots]
 
-    # --- identity: first in FILE ORDER owns it ----------------------------
-    owner: dict[Path, int] = {}
-    resolved_of: list[Path] = []
-    for index, record in enumerate(stored):
-        resolved, failure = _resolve_or_lexical(record.path)
-        if failure:
-            note(failure)
-        resolved_of.append(resolved)
-        if resolved in owner:
-            # Kept and written back unchanged, never deleted: the loser holds a
-            # user-owned half — notes, an override, an `added` — that no rescan
-            # could reconstruct, and ADR-0005 makes removal a user action so an
-            # unmounted drive cannot destroy the list.
-            flag(
-                DUPLICATE_IDENTITY,
-                f"{quoted(record.name)}: duplicate identity of "
-                f"{quoted(stored[owner[resolved]].name)}",
-            )
-            continue
-        owner[resolved] = index
+    owner = _identity_owners(stored, note, flag)
 
     scanned = {project.path: project for project in scan.projects}
     merged = list(stored)
@@ -1126,6 +1113,37 @@ def merge(
         reasons.append(f"and {suppressed} more merge notes, not shown")
 
     return MergeResult(records=merged, reasons=reasons, counts=counts)
+
+
+def _identity_owners(
+    stored: Sequence[ProjectRecord],
+    note: Callable[[str], None],
+    flag: Callable[[str, str], None],
+) -> dict[Path, int]:
+    """Each resolved path's owning index: the first record in FILE ORDER.
+
+    Shared by `merge()` and `merge_imported()` (LWSM-1272). The import once
+    kept its own copy, which took the first record and flagged nothing, so a
+    stored duplicate silently missed the restore.
+    """
+    owner: dict[Path, int] = {}
+    for index, record in enumerate(stored):
+        resolved, failure = _resolve_or_lexical(record.path)
+        if failure:
+            note(failure)
+        if resolved in owner:
+            # Kept and written back unchanged, never deleted: the loser holds a
+            # user-owned half — notes, an override, an `added` — that no rescan
+            # could reconstruct, and ADR-0005 makes removal a user action so an
+            # unmounted drive cannot destroy the list.
+            flag(
+                DUPLICATE_IDENTITY,
+                f"{quoted(record.name)}: duplicate identity of "
+                f"{quoted(stored[owner[resolved]].name)}",
+            )
+            continue
+        owner[resolved] = index
+    return owner
 
 
 def _note_if_missing(
@@ -1243,9 +1261,9 @@ def export_profile(
     saved missing the rows the load refused. So a row refusal refuses the
     export by naming the count, rather than quietly exporting the survivors.
 
-    `RegistryMissing` is not special-cased the way it is for the registry:
-    first run has nothing to export, and the empty check below already says so
-    in the words the user needs.
+    `RegistryMissing` is let through, as the registry's gate lets it through.
+    On first run there is usually nothing to export, and the empty check that
+    opens the body refuses that in the words the user needs.
     """
     if not records:
         raise RegistryError(f"{quoted(str(path))}: there are no projects to export")
@@ -1399,13 +1417,8 @@ def merge_imported(
 
     records = list(stored)
 
-    # First in FILE ORDER owns the identity, exactly as `merge()` decides it.
-    owner: dict[Path, int] = {}
-    for index, record in enumerate(records):
-        resolved, failure = _resolve_or_lexical(record.path)
-        if failure:
-            note(failure)
-        owner.setdefault(resolved, index)
+    # First in FILE ORDER owns the identity, by the pass `merge()` uses.
+    owner = _identity_owners(records, note, flag)
 
     claimed_by_profile: set[Path] = set()
     for record in imported:
