@@ -1856,6 +1856,103 @@ def _rotatable(supervisor, project):
     return managed
 
 
+def test_a_short_write_during_rotation_loses_no_bytes(
+    supervisor, project, monkeypatch
+) -> None:
+    """LWSM-1274: the copy ignored `os.write`'s return. A regular file can take
+    fewer bytes than offered — a nearly full disk does it — and the rest were
+    dropped, after which `ftruncate` emptied the original. So the backup must
+    hold every byte the log held before the log is emptied.
+    """
+    managed = _rotatable(supervisor, project)
+    original = os.pread(managed.log_fd, 1 << 20, 0)
+    real_write = os.write
+
+    def short_write(fd: int, data: bytes) -> int:
+        return real_write(fd, bytes(data[:1000]))
+
+    try:
+        monkeypatch.setattr(os, "write", short_write)
+        assert supervisor.rotate_if_needed(project) is True
+        monkeypatch.setattr(os, "write", real_write)
+        backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
+        assert backup.read_bytes() == original
+    finally:
+        monkeypatch.setattr(os, "write", real_write)
+        supervisor.stop(project, grace=0.5)
+
+
+def test_a_child_that_outlasts_the_kill_wait_is_still_reaped(
+    supervisor, project, monkeypatch
+) -> None:
+    """LWSM-1274: `_reap` gave up after `KILL_TIMEOUT_SECONDS`, and the entry
+    was already popped, so nothing ever waited on the child again — a
+    permanent zombie. The bounded wait is simulated as timing out; the child
+    must still be collected once it does exit."""
+    import subprocess
+
+    write_launcher(project, "sleep 30\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    real_wait = managed.popen.wait
+
+    def bounded_wait_times_out(timeout: float | None = None) -> int:
+        if timeout is not None:
+            raise subprocess.TimeoutExpired(managed.popen.args, timeout)
+        return real_wait()
+
+    monkeypatch.setattr(managed.popen, "wait", bounded_wait_times_out)
+    outcome = supervisor.stop(project, grace=0.5)
+
+    assert outcome.exit_code is None, "precondition: the bounded wait gave up"
+    deadline = time.monotonic() + 5
+    while managed.popen.returncode is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert managed.popen.returncode is not None, "the child was never reaped"
+
+
+def test_refusing_to_signal_our_own_group_keeps_the_project_managed(
+    supervisor, project, monkeypatch
+) -> None:
+    """LWSM-1274: the self-group refusal fired after `stop()` had popped the
+    entry, so the child was forgotten and its log descriptor leaked. Nothing
+    was signalled, so the project must still be managed afterwards."""
+    from lwsm.supervisor import SupervisorError
+
+    write_launcher(project, "sleep 30\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+    try:
+        monkeypatch.setattr(os, "getpgrp", lambda: managed.pid)
+        with pytest.raises(SupervisorError, match="our own"):
+            supervisor.stop(project, grace=0.5)
+        monkeypatch.undo()
+        assert project.resolve() in supervisor.running(), "the child was forgotten"
+        os.fstat(managed.log_fd)  # raises if the descriptor was closed
+    finally:
+        monkeypatch.undo()
+        supervisor.stop(project, grace=0.5)
+
+
+def test_a_write_that_takes_nothing_refuses_rotation_and_keeps_the_log(
+    supervisor, project, monkeypatch
+) -> None:
+    """The retry loop above must not spin the poll thread on a write that
+    makes no progress: it refuses, and the original log is left whole."""
+    managed = _rotatable(supervisor, project)
+    size = os.fstat(managed.log_fd).st_size
+
+    try:
+        monkeypatch.setattr(os, "write", lambda fd, data: 0)
+        with pytest.raises(OSError, match="no progress"):
+            supervisor.rotate_if_needed(project)
+    finally:
+        monkeypatch.undo()
+        assert os.fstat(managed.log_fd).st_size == size, "the log was emptied"
+        supervisor.stop(project, grace=0.5)
+
+
 def test_a_fifo_planted_where_the_rotated_log_goes_refuses_instead_of_hanging(
     supervisor, project
 ) -> None:

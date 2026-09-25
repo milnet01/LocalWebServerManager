@@ -1282,3 +1282,6 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** each item's owning phase, when that phase touches
   the file
 - **Logged:** 2026-08-15
+- **Partly resolved:** 2026-09-25. The unchecked `os.write` in rotation by
+  **LWSM-1274**; the payload comprehension outside the `try` by
+  **LWSM-1272**. The rest of this entry stands.

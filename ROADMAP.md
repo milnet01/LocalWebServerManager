@@ -114,6 +114,13 @@ O8` forbids retrofitting that.
   A symlink that stays **inside** the project is deliberately allowed: the
   ordinary `start.sh -> scripts/start.sh` arrangement, and a rule that fires on
   the legitimate case is a rule that gets switched off.
+  Owed here (2026-09-25, routed from LWSM-1274 finding 1): TrustStore is
+  in-memory, so ADR-0003's one-time confirmation is asked again every
+  session and gets clicked through. The module docstring deferred
+  persistence "until LWSM-1007's writer exists"; it now exists.
+  Persisting confirmations (where, in what format, and what re-arms
+  them) is a design choice, so it belongs to this item rather than a LOW
+  batch.
 
 - 🚧 [LWSM-1047] **FP01: signal process objects, never bare PIDs.**
   ADR-0003 escalates to `SIGKILL` when "anything is alive **or**
@@ -249,7 +256,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: review-code 2026-09-01 lane 3.
 
-- 📋 [LWSM-1274] **LOW batch (supervisor): seven small defects from lane 4.**
+- ✅ [LWSM-1274] **LOW batch (supervisor): seven small defects from lane 4.**
   supervisor.py:18 - the trust store defers persistence to "until LWSM-1007's
   writer exists", which now exists (registry.save_projects), so ADR-0003's
   "one-time per-project confirmation" re-asks every session and gets clicked
@@ -265,6 +272,18 @@ O8` forbids retrofitting that.
   `npm run dev --port 3000` fall through to \0nofile\0, so scripts.start is
   never hashed. :696-698 - full argv logged, so a hand-edited argv carrying a
   token lands in the log unredacted.
+  Closed (2026-09-25), eight findings, each re-checked first. Fixed with
+  a red-first test each: rotation now writes until every byte is taken,
+  and refuses a write that makes no progress; a child that outlasts the
+  kill wait is reaped by a daemon thread when it exits; the self-group
+  refusal puts the entry back, so the child is not forgotten and its log
+  is not leaked. Queued: persisting trust confirmations is LWSM-1046's
+  (noted there); the docstring now says so. Dismissed: stop() during a
+  start (latent, the UI disables Stop then); Quit waiting for an
+  in-flight stop (the wait finishes the stop the user asked for); the
+  npm fingerprint gap (start() refuses those shapes since LWSM-1228);
+  argv in the log (a private 0600 file holding the user's own registry
+  entry). known-issue-056 marked partly resolved.
   **Layman:** Smaller issues in the code that launches and stops servers.
   Kind: chore.
   Source: review-code 2026-09-01 lane 4.

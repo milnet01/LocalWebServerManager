@@ -15,12 +15,15 @@ environment is an allowlist).
 **What this module does NOT do.** It does not show the confirmation dialog
 (LWSM-1010 owns the UI), does not drive systemd units (LWSM-1028), does not
 tail the log into a `LogBuffer` (LWSM-1011), and does not persist a
-confirmation across restarts — `TrustStore` is in-memory until LWSM-1007's
-writer exists to hold it. Each of those is a named item, not an oversight.
+confirmation across restarts — `TrustStore` is in-memory, so ADR-0003's
+one-time confirmation is asked again each session. LWSM-1007's writer now
+exists; persisting trust through it is LWSM-1046's (LWSM-1274). Each of those
+is a named item, not an oversight.
 """
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -715,7 +718,19 @@ class Supervisor:
                     if not chunk:
                         break
                     offset += len(chunk)
-                    os.write(out, chunk)
+                    # Until every byte is taken (LWSM-1274): a regular file may
+                    # accept fewer than offered, and the original is emptied
+                    # below, so a dropped remainder would be gone for good.
+                    pending = memoryview(chunk)
+                    while pending:
+                        written = os.write(out, pending)
+                        if written == 0:
+                            # Never spin the poll thread on a write that takes
+                            # nothing; refuse and leave the original alone.
+                            raise OSError(
+                                errno.ENOSPC, "rotation copy made no progress"
+                            )
+                        pending = pending[written:]
             finally:
                 os.close(out)
             os.ftruncate(fd, 0)
@@ -907,6 +922,13 @@ class Supervisor:
 
         try:
             return self._stop_sequence(managed, grace, _on_wait)
+        except SupervisorError:
+            # The self-group refusal fires before anything is signalled, and
+            # the entry was popped above. Put it back, or the child is
+            # forgotten and its log descriptor leaks (LWSM-1274).
+            with self._registry.lock:
+                self._registry.processes[key] = managed
+            raise
         finally:
             with self._registry.lock:
                 self._registry.stopping.discard(key)
@@ -1118,9 +1140,17 @@ class Supervisor:
         try:
             exit_code = managed.popen.wait(timeout=KILL_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
+            # Handed to a daemon thread rather than abandoned (LWSM-1274): the
+            # entry is already popped, so nothing else will ever wait on this
+            # child, and a process stuck past SIGKILL still exits eventually.
+            # Without the thread it then stays a zombie for the session.
             log.warning(
-                "%s did not exit after SIGKILL; leaving it unreaped", managed.name
+                "%s did not exit after SIGKILL; reaping it when it does",
+                managed.name,
             )
+            threading.Thread(
+                target=managed.popen.wait, name="lwsm-late-reap", daemon=True
+            ).start()
             exit_code = None
         # No registry pop here: both callers took the entry first — `stop()`
         # before it signalled anything (LWSM-1138), `reap_exited` before it
