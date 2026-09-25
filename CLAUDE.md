@@ -19,7 +19,7 @@ Read these in order on every session start:
 4. **`docs/specs/<active-id>.md`** — the contract for the
    currently-active roadmap item.
 5. **`docs/audit-allowlist.md`** — read **additionally** before
-   invoking `/audit` or `/code-quality-review` so already-confirmed
+   invoking `check-code` or `review-code` so already-confirmed
    project-specific false positives aren't re-flagged. The
    allowlist is the closed-loop memory for this project — see
    the app-workflow skill (`~/.claude/skills/app-workflow/SKILL.md`, local to the author's machine)
@@ -36,7 +36,7 @@ and the point is the pitfalls the skill already knows about:
 | Writing a spec or plan | **`/write-spec`** |
 | Reviewing a spec, design, ADR or standard | **`review-contract`** |
 | Deterministic doc checks alone (links, citations, counts) | **`check-doc-facts`** |
-| Applying fixes a review produced | **`/apply-fixes`** |
+| Applying fixes a review produced | **`close-findings`** |
 | Writing or editing source code | **`/write-code`** |
 
 **`/cold-eyes` and `/doc-lint` no longer exist** — the documentation
@@ -51,7 +51,7 @@ correcting it re-arms rule 14's gate and it was not swept here.
 
 `/write-spec` carries the `review-contract` gate itself, so a spec
 written through it does not need the review invoked separately.
-`/apply-fixes` is for closing a list someone else produced —
+`close-findings` is for closing a list someone else produced —
 review findings, audit findings, a fix-pass — and it owns the
 blast-radius sweep that catches what a fix moved elsewhere.
 
@@ -74,6 +74,13 @@ Two rules, in force for this project:
    a wire protocol, anything another item binds to. There, coding first means a
    migration rather than an edit.
 
+**Rule 1 is a deliberate local departure from global rule 14's "run before
+implementation"** (user, 2026-08-13; kept local 2026-08-15). Global rule 14
+lets a project cancel the gate for documents it names, so this project names
+them: **a spec written or corrected after the build, to record what was
+built, is no gate**, and the commit body says so. A spec written first under
+rule 2 is gated before building, as rule 14 says.
+
 **When the gate runs, it runs as global rule 14 and `review-contract` define
 it — this project sets no cap and no finding filter of its own** (user,
 2026-09-25, LWSM-1305). Two earlier rules here are withdrawn:
@@ -81,8 +88,8 @@ it — this project sets no cap and no finding filter of its own** (user,
 - **"Cap the gate at 2 loops" is gone.** The cap is `review-contract`'s: 2 for
   a spec or a plan, 3 for a standard or an ADR (its § At the cap). Global rule
   14 forbids a project changing the cap. `docs/design.md` is gated as an ADR,
-  so it gets 3. The cap is a backstop, not a quota — a run stops at the first
-  loop with no verified finding. The best finding of the 2026-08-13 exercise
+  so it gets 3. The cap is a backstop, not a quota: a run ends when
+  `review-contract` says it has converged. The best finding of the 2026-08-13 exercise
   arrived in loop 2, which is why 1 was never the answer.
 - **The "would the first test run have caught this?" filter is gone.** Every
   verified finding is fixed, as global rule 14 says. The filter to use is the
@@ -213,7 +220,7 @@ phase rather than when someone remembers:
 
 **Agents are permitted where they genuinely help and are token-
 efficient** (user, 2026-08-03). Reviews are the clearest case —
-`review-contract`, `/audit` and `/code-quality-review` all depend on a
+`review-contract` and `review-code` both depend on a
 fresh pair of eyes that has not been reading along, so the rule-14
 gate runs its reviewers here without asking first. Broad
 "where is X used across the tree" searches are the other case.
