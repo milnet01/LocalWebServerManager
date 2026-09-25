@@ -304,6 +304,10 @@ O8` forbids retrofitting that.
   itself (checked independently this run; the emitted ratios are correct).
   DOC: four citations to design.md section "Tokens, not colours", which moved
   to design-look-and-feel.md on 2026-08-20.
+  Seen (2026-09-25) in docs/screenshots/high-contrast.png: on
+  highcontrast-dark the filter box and every row outline are
+  near-invisible on black, so the unchecked border finding reaches the
+  high-contrast palettes too, where it matters most.
   **Layman:** Smaller colour and contrast issues, plus some colours nothing ever checks.
   Kind: chore.
   Source: review-code 2026-09-01 lane 8.
@@ -8838,6 +8842,17 @@ O8` forbids retrofitting that.
   **Layman:** Group the to-do list by which version each item ships in, like the UT_Ants roadmap, instead of by internal work phase.
   Kind: chore.
   Source: user-request-2026-09-25.
+
+- 📋 [LWSM-1315] **The per-row browser picker is too narrow to show its own label.**
+  Every row's picker shows "Default b" followed by the arrow, in every
+  theme and at every window width tried, including 1280 px. So its width
+  is fixed below what its longest label needs. Size it to its contents,
+  as _align_columns does for the text columns.
+  **Layman:** The drop-down for choosing a browser cuts off its own text, so it reads "Default b" instead of "Default browser".
+  Kind: fix.
+  Source: in-session-2026-09-25, seen in docs/screenshots/ while supplying pictures for the project page.
+  Lanes: mainwindow.
+  Evidence: docs/screenshots/main-window.png, docs/screenshots/light-theme.png
 
 ## 0.2.0 — Find and run
 
