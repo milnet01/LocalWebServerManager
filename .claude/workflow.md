@@ -10,6 +10,33 @@
 | **Last update** | 2026-09-07 (**The FP09 items named in § 1a below all shipped, each its own commit, gate green and pushed; tip 29e80d9.** LWSM-1251, 1266, 1269, 1265, 1264, 1267, 1268, and LWSM-1304 which was found mid-item. See § 1a below for what is open and what to do next.) Was: 2026-09-06 (**LWSM-1300 REOPENED and SHIPPED. The original headline was right and both of the day's earlier readings were wrong.** The user asked for buttons irrelevant to a server's state to be disabled. `_apply_button_state` had always done that; nothing dimmed, so it read as broken. The fault was in `theme.to_palette`, whose two-argument `setColor` calls write one colour into the Active, Inactive AND Disabled groups alike — so applying a theme overwrote the platform's dimming. The Disabled group is now set for `WindowText`, `Text` and `ButtonText`. |
 
 
+## §1a0. Session handoff — 2026-09-25 (read first; § 1a below is older)
+
+**Decisions taken with the user today, each recorded on its bullet:**
+- **0.1.0 now waits on FP09 AND FP01** (LWSM-1046, 1047, 1049), not on P04
+  alone (LWSM-1152). The rest of the review backlog follows 0.1.0.
+- **LWSM-1238 rescoped to graphite only.** Built and pushed. It stays 🚧
+  until the user has looked at the screenshots; then flip it.
+- **LWSM-1305 closed.** § Review cadence no longer sets a cap or a finding
+  filter, and cancels no gate. Its loop log lives in
+  `docs/reviews/claude-md-loop-log.md`.
+
+**Shipped:** LWSM-1308, the scanner reading a port from a Python docstring,
+reported by the user. It had invented a RetroDB/LottoTracker port conflict.
+The user needs to press **Rescan** to pick up LottoTracker's real port.
+
+**Filed:** LWSM-1309 (a stale stored port survives every rescan: MAME_Curator
+shows 1024). LWSM-1310 (CLAUDE.md names `QProcess`; its module map omits
+`browsers.py` and `service.py`).
+
+**Cross-session:** the `~/.claude` session (`claude-19`) answered the
+rule-14 questions. It logged our finding that gate lanes see the
+session-start copy of `CLAUDE.md`, not the disk copy, as CFG-0593.
+**A `CLAUDE.md` gate brief must tell lanes to read the subject from disk.**
+
+**Next:** the FP09 LOW batches (LWSM-1272–1284), then FP01's three items,
+then 0.1.0.
+
 ## §1a. Session handoff — 2026-09-21
 
 **Tree clean, `main` in sync with `origin/main`, gate green
