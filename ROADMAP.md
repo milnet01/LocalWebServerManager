@@ -3869,7 +3869,7 @@ has been applied yet — every item in this section is open.
   Kind: fix.
   Source: review-code 2026-09-01 lane 6.
 
-- 📋 [LWSM-1238] **MEDIUM: no theme emits any focus styling, so the focus ring is whatever the platform gives.**
+- 🚧 [LWSM-1238] **MEDIUM: no theme emits any focus styling, so the focus ring is whatever the platform gives.**
   theme.py:152-156. style_sheet() returns only QLabel[state=...] colour rules.
   design-accessibility.md requires "a thick, high-contrast focus ring on every
   focusable widget in every theme", and the check table lists it as a row
@@ -3947,6 +3947,24 @@ has been applied yet — every item in this section is open.
   Before closing, render a focused button in all eight themes, with the
   application palette and the window's style sheet applied, and show the
   user the screenshots. The suite cannot judge how it looks.
+  Progress (2026-09-25): built, and waiting only on the user's look at the
+  screenshots, as the rescoping decision requires.
+
+  Measured on real widgets with the application palette and window style
+  sheet applied, focus moved by a real Backtab: the drawn ring against its
+  two neighbours (the button fill inside, the window outside). Graphite was
+  2.26 and 2.75; every other palette cleared 3:1 on both (emerald lowest,
+  3.43). The existing `test_the_focus_ring_clears_the_indicator_floor` could
+  not see this: it holds the accent TOKEN against the window, and Fusion
+  draws the ring in a DARKENED accent.
+
+  Fix: graphite accent #6285b8 -> #8ca6cb (same hue and saturation). Drawn
+  ring 4.40 and 5.34; selected text rises from 4.5 to 6.85. New test
+  `test_the_ring_fusion_draws_clears_the_indicator_floor` renders the ring
+  per palette. It failed on graphite alone before the fix and passes after.
+  First draft trap: `qtbot.waitActive` must be the context manager around
+  `activateWindow()`. Called after it, the window never activated, no ring
+  was drawn, and every palette failed alike.
   **Layman:** There is no visible outline showing which control the keyboard is on, in any colour theme.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 6+8.
@@ -6074,7 +6092,7 @@ mostly in the measurement behind it.
   Kind: doc-fix.
   Source: in-session-2026-09-07.
 
-- 📋 [LWSM-1305] **§ Review cadence rests on a claim about global rule 14 that is no longer true.**
+- ✅ [LWSM-1305] **§ Review cadence rests on a claim about global rule 14 that is no longer true.**
   CLAUDE.md § Review cadence states "Global rule 14 still mandates
   loop-to-convergence and has NOT been changed", and builds the
   documented divergence on it. Global rule 14 does not say that. It says
@@ -6121,6 +6139,14 @@ mostly in the measurement behind it.
   test ("would a conformer build something different?") as the
   better-aimed filter. It already lives in the skill. Put to the user as a
   decision.
+  Resolved (2026-09-25): § Review cadence rewritten on the user's two
+  decisions. The project cap is withdrawn (review-contract's 2/3 by genre
+  applies; design.md gets 3), and the test-would-catch-it filter is
+  withdrawn in favour of review-contract's materiality test. Build-first
+  (rules 1 and 2) is kept and restated as a deliberate departure that
+  cancels no gate. Gated by review-contract, genre standard: loop 1 found
+  3 and fixed 3; loop 2 found 3, fixed 1, and filed 2 as LWSM-1310. Log in
+  docs/reviews/claude-md-loop-log.md. Commits a6f4564, 800d739, 46a59a1.
   **Layman:** Our project rulebook says the machine-wide rule demands something it stopped demanding, so the exception we wrote for ourselves is half unnecessary.
   Kind: doc-fix.
   Source: in-session-2026-09-21, cross-checked with the ~/.claude session.

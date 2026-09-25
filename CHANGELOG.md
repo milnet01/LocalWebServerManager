@@ -302,6 +302,10 @@ signaling per
 
 ### Fixed
 
+- **The Graphite theme's keyboard focus outline is now clearly visible** (LWSM-1238)
+  The outline around a focused button was too faint against Graphite's dark
+  buttons. Graphite's accent colour is now a lighter blue of the same hue.
+
 - **A usage example in a Python docstring is no longer detected as the project's port** (LWSM-1308)
   A project whose help text showed `PORT=5000 python3 serve.py` was
   detected on 5000 instead of its real default. That invented a port

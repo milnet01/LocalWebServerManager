@@ -80,6 +80,77 @@ def test_the_focus_ring_clears_the_indicator_floor(theme: Theme) -> None:
     )
 
 
+def _rendered_button_ring(qtbot, theme: Theme) -> tuple[str, str]:
+    """The ring Fusion DRAWS on a keyboard-focused button, and its inside fill.
+
+    Real widgets, the application palette and the window style sheet, and
+    focus moved by a real Backtab: Qt draws a focus ring only when
+    `WA_KeyboardFocusChange` is set, which `setFocus` alone never sets
+    (CLAUDE.md's `QStyleOption` trap). The ring is the pixels that change
+    when focus arrives, sampled at mid-height on the left edge.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
+
+    app = QApplication.instance()
+    previous = app.palette()
+    app.setPalette(theme.to_palette())
+    try:
+        window = QWidget()
+        qtbot.addWidget(window)
+        window.setStyleSheet(theme.style_sheet())
+        layout = QHBoxLayout(window)
+        target, other = QPushButton("Start"), QPushButton("Stop")
+        layout.addWidget(target)
+        layout.addWidget(other)
+        with qtbot.waitExposed(window):
+            window.show()
+        with qtbot.waitActive(window):
+            window.activateWindow()
+        other.setFocus()
+        plain = target.grab().toImage()
+        qtbot.keyClick(other, Qt.Key.Key_Backtab)
+        assert target.hasFocus()
+        focused = target.grab().toImage()
+    finally:
+        app.setPalette(previous)
+    row = focused.height() // 2
+    changed = [
+        x
+        for x in range(focused.width())
+        if focused.pixel(x, row) != plain.pixel(x, row)
+    ]
+    assert changed, "no focus ring was drawn at all"
+    edge = changed[0]
+    while edge + 1 in changed:
+        edge += 1
+
+    def hexed(pixel: int) -> str:
+        return f"#{pixel & 0xFFFFFF:06x}"
+
+    return hexed(focused.pixel(changed[0], row)), hexed(focused.pixel(edge + 3, row))
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_ring_fusion_draws_clears_the_indicator_floor(qtbot, theme: Theme) -> None:
+    """LWSM-1238. The test above holds the accent TOKEN against the window, and
+    that is not what reaches the screen: Fusion draws a button's ring in a
+    darkened accent. Graphite's token cleared 3:1 while its drawn ring was
+    2.26:1 against the button and 2.75:1 against the window.
+
+    Held against both neighbours of the ring, the button's own fill inside it
+    and the window outside it (WCAG 1.4.11's adjacent colours).
+    """
+    ring, inside = _rendered_button_ring(qtbot, theme)
+
+    for name, neighbour in (("the button fill", inside), ("the window", theme.window)):
+        ratio = contrast_ratio(ring, neighbour)
+        assert ratio >= INDICATOR_FLOOR, (
+            f"the drawn focus ring {ring} is {ratio:.2f}:1 against {name} "
+            f"{neighbour}, below § T8's {INDICATOR_FLOOR}:1"
+        )
+
+
 # --- LWSM-1075: every token that renders as TEXT clears the text floor --------
 
 # The state tokens colour the state *word*, not just the glyph, so they are

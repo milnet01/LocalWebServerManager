@@ -400,7 +400,11 @@ THEMES: dict[str, Theme] = {
         # Diverged from finbreak's #8a9099: that is 4.18:1 on this
         # palette's alt_base, under § T8's 4.5:1. 4.51:1 here, hue kept.
         muted_text="#90969e",
-        accent="#6285b8",  # graphite: 4.5:1 on base (LWSM-1207)
+        # LWSM-1238: lightened from #6285b8, same hue and saturation. Fusion
+        # draws a focused button's ring in a DARKENED accent, which was 2.26:1
+        # against the button fill; this draws #839bbd, 4.40:1. Base on accent
+        # (selected text) rises from 4.5:1 to 6.85:1.
+        accent="#8ca6cb",
         accent_soft="#34435c",
         attention="#e2775c",
         border="#3a3f47",
