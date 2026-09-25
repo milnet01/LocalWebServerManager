@@ -8843,11 +8843,29 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: user-request-2026-09-25.
 
-- 📋 [LWSM-1315] **The per-row browser picker is too narrow to show its own label.**
+- ✅ [LWSM-1315] **The per-row browser picker is too narrow to show its own label.**
   Every row's picker shows "Default b" followed by the arrow, in every
   theme and at every window width tried, including 1280 px. So its width
   is fixed below what its longest label needs. Size it to its contents,
   as _align_columns does for the text columns.
+  Owed on closing (2026-09-25): the four pictures are live on
+  antsprojectshub.co.za/p/local-web-server-manager.html, and the
+  main-window description there mentions the cut-off label. After the
+  fix, run scripts/take-screenshots.sh and send the four
+  docs/screenshots/*.png paths to the Ants Projects Hub website session
+  (export_slug ants-projects-hub-website, via session_message if no live
+  session) so it can swap the pictures and drop that clause.
+  Fixed (2026-09-25), by the user's choice of a shorter label rather
+  than a wider column: widening would have pushed Open past the ~600 px
+  magnifier band that BROWSER_COLUMN_CHARS protects, so the body's "size
+  it to its contents" was the wrong fix. The entry reads "Default" and
+  its tooltip always says "Default browser". Found while fixing it: Qt's
+  combo reports its current text as its accessible name and ignores
+  setAccessibleName, so "Browser for <project>" never reached a screen
+  reader; it is now the accessible description, which Qt passes through
+  (asserted on the accessibility interface). Whether Orca speaks the
+  description is unverified here. Screenshots retaken and sent to the
+  website session.
   **Layman:** The drop-down for choosing a browser cuts off its own text, so it reads "Default b" instead of "Default browser".
   Kind: fix.
   Source: in-session-2026-09-25, seen in docs/screenshots/ while supplying pictures for the project page.

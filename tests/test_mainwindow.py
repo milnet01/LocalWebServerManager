@@ -459,8 +459,8 @@ def test_the_row_exposes_its_cells_and_its_buttons(qtbot, built) -> None:
         # LWSM-1187's browser picker. A control, so it carries its own name
         # rather than joining the row's announcement -- and it is present on
         # every row whether or not any browser is installed, because the
-        # "Default browser" entry always exists.
-        "Default browser",
+        # "Default" entry always exists (LWSM-1315 shortened it).
+        "Default",
         "Start a",
         "Stop a",
         "Restart a",
@@ -6014,7 +6014,7 @@ def test_the_picker_offers_the_default_and_every_installed_browser(
     box = row_named(window, "a").browser_box
 
     assert [box.itemText(i) for i in range(box.count())] == [
-        "Default browser",
+        "Default",
         "Firefox",
         "Brave",
     ]
@@ -6242,7 +6242,7 @@ def test_every_control_in_the_row_is_named_with_the_FULL_project_name(
         row.stop_button.accessibleName(),
         row.restart_button.accessibleName(),
         row.open_button.accessibleName(),
-        row.browser_box.accessibleName(),
+        row.browser_box.accessibleDescription(),
     ] == [
         f"Start {long_name}",
         f"Stop {long_name}",
@@ -6445,23 +6445,42 @@ def test_the_browser_picker_clears_the_target_floor_with_nothing_installed(
     assert box.height() >= mainwindow.MIN_TARGET_PX
 
 
-def test_a_cut_browser_name_is_readable_from_its_tooltip(
+def test_the_default_entry_fits_and_its_tooltip_names_it(
     qtbot, built, tmp_path
 ) -> None:
-    """The default entry reads "Default browser" inside a ten-character
-    column, so it is cut on every row on every machine — while the name label
-    beside it has carried a full-text tooltip in that situation all along."""
+    """LWSM-1315: the default entry read "Default browser" inside a
+    ten-character column and showed as "Default b" on every row. Widening the
+    column would push the row's buttons out of the magnifier band, so the entry
+    reads "Default" and the tooltip keeps the full words (user, 2026-09-25)."""
     from PySide6.QtWidgets import QStyle
 
     window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
     box = row_named(window, "a").browser_box
 
-    assert box.currentText() == "Default browser", "precondition: the long entry"
+    assert box.currentText() == "Default"
     arrow = box.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
-    assert box.fontMetrics().horizontalAdvance(box.currentText()) > (
+    assert box.fontMetrics().horizontalAdvance(box.currentText()) <= (
         box.width() - arrow
-    ), "precondition: it really does not fit"
+    ), "the default entry is cut"
     assert box.toolTip() == "Default browser"
+
+
+def test_a_screen_reader_hears_which_project_a_browser_picker_is_for(
+    qtbot, built, tmp_path
+) -> None:
+    """LWSM-1315: Qt's combo box reports its CURRENT TEXT as its accessible
+    name and ignores `setAccessibleName` (measured 2026-09-25), so "Browser for
+    a" never reached a screen reader and every row's picker announced only a
+    browser name. The description is the field Qt passes through. Asserted on
+    the accessibility interface, not the widget property, which is what let
+    the dead name pass."""
+    from PySide6.QtGui import QAccessible
+
+    window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    box = row_named(window, "a").browser_box
+    spoken = QAccessible.queryAccessibleInterface(box)
+
+    assert spoken.text(QAccessible.Text.Description) == "Browser for a"
 
 
 def test_a_browser_name_that_fits_carries_no_tooltip(qtbot, built, tmp_path) -> None:

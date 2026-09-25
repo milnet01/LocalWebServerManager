@@ -32,7 +32,7 @@ an unpinned test would build its dropdown from whichever browsers the author
 happens to have installed — 3 on this machine, an unknown number on the runner
 — and would also walk 381 files per window for an answer it does not use.
 Pointed at an empty directory, so the default is a machine with no browsers and
-every window gets the "Default browser" entry alone. A test that wants browsers
+every window gets the "Default" entry alone. A test that wants browsers
 injects them through `MainWindow`'s `list_browsers` seam, which is what `§ T1`
 asks for.
 """

@@ -790,15 +790,15 @@ class ProjectRow(QFrame):
     def _apply_browser_tooltip(self) -> None:
         """The full browser name in a tooltip whenever the combo cuts it.
 
-        `_elide_name`'s rule applied to the one other control that elides. It
-        is not an edge case here: the entry at index 0 reads "Default browser"
-        inside a ten-character column, so it is cut on every row on every
-        machine, and the name label beside it has carried a tooltip in exactly
-        this situation all along (LWSM-1253).
+        `_elide_name`'s rule applied to the one other control that elides, as
+        the name label beside it has done all along (LWSM-1253). A browser name
+        longer than the ten-character column is cut, and its tooltip carries it.
 
         Empty when the text fits, because a tooltip repeating what is already
         on screen is noise — and on a `QWidget`, unlike a `QAction`, an empty
-        string really does remove it.
+        string really does remove it. The one exception is the default entry,
+        shortened to "Default" so it fits, whose tooltip always says "Default
+        browser" (LWSM-1315).
 
         The combo elides when it PAINTS and its item text stays whole, so a
         screen reader already reads the full name. This is for the sighted
@@ -811,6 +811,13 @@ class ProjectRow(QFrame):
         fits = self.browser_box.fontMetrics().horizontalAdvance(text) <= (
             self.browser_box.width() - arrow
         )
+        if self.browser_box.currentIndex() == 0:
+            # The default entry is shortened to "Default" to fit, so its tooltip
+            # always carries the words it gave up (LWSM-1315).
+            self.browser_box.setToolTip(
+                QCoreApplication.translate("ProjectRow", "Default browser")
+            )
+            return
         self.browser_box.setToolTip("" if fits else text)
 
     def _fit_buttons(self) -> None:
@@ -1246,20 +1253,29 @@ class ProjectRow(QFrame):
         # read -- a write loop that would look like nothing at all until the
         # disk activity was noticed.
         with QSignalBlocker(self.browser_box):
+            # "Default", not "Default browser": the long form showed as
+            # "Default b" on every row, and widening the column would push the
+            # buttons out of the magnifier band. The tooltip carries the full
+            # words (LWSM-1315, user decision 2026-09-25).
             self.browser_box.setItemText(
-                0, QCoreApplication.translate("ProjectRow", "Default browser")
+                0, QCoreApplication.translate("ProjectRow", "Default")
             )
             index = self.browser_box.findData(row.browser or "")
             # -1 means the stored browser is not installed any more. Fall back to
             # the default entry; the id stays in the file, so reinstalling the
             # browser restores the choice (`browsers.by_id` takes the same view).
             self.browser_box.setCurrentIndex(index if index >= 0 else 0)
-        # Its own accessible name, for the same reason each button has one: the
-        # visible label reads as "Firefox" three times over in a list of three
-        # projects (`§ O8`). Not folded into the row's announcement below, which
-        # is built from the CELL strings -- a control announces itself when it
-        # takes focus.
-        self.browser_box.setAccessibleName(
+        # Which project this picker is for, for the same reason each button
+        # names its project: the visible label reads as "Firefox" three times
+        # over in a list of three projects (`§ O8`). Not folded into the row's
+        # announcement below, which is built from the CELL strings -- a control
+        # announces itself when it takes focus.
+        #
+        # The DESCRIPTION, not the name (LWSM-1315): Qt's combo box reports its
+        # current text as its accessible name and ignores `setAccessibleName`,
+        # measured 2026-09-25, so this never reached a screen reader while it
+        # was set as the name.
+        self.browser_box.setAccessibleDescription(
             # The full name, for the buttons' reason above.
             QCoreApplication.translate("ProjectRow", "Browser for %1").replace(
                 "%1", self._name_display
@@ -2738,7 +2754,7 @@ class MainWindow(QMainWindow):
             if view.browser is not None:
                 # LWSM-1055's third acceptance criterion: an uninstalled browser
                 # falls back to the default WITH a visible message. The picker
-                # reading "Default browser" is not that message -- it looks
+                # reading "Default" is not that message -- it looks
                 # identical to a project nobody ever set one for, which is the
                 # silent failure the criterion names.
                 #

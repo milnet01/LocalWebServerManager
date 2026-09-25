@@ -49,7 +49,7 @@ signaling per
 
 - **Pick which browser each project opens in** (LWSM-1187)
   Every project's row has a browser dropdown beside its port. Leave it on
-  "Default browser" and Open behaves as before; pick Firefox for one
+  "Default" and Open behaves as before; pick Firefox for one
   project and Chrome for another and each opens where you chose. The list
   is the browsers already installed on your machine, so there is no
   command to type. If you later uninstall a browser you had picked, that
