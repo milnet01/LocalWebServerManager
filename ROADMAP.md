@@ -6329,6 +6329,56 @@ mostly in the measurement behind it.
   Kind: doc-fix.
   Source: review-contract-2026-09-25 CLAUDE.md loop 2.
 
+- 🚧 [LWSM-1311] **Organise the roadmap by version instead of by phase.**
+  User request 2026-09-25, with a screenshot of UT_Ants' version-grouped
+  roadmap. The global roadmap-format standard already made a release block
+  the default at every version, pre-1.0 included (CFG-0321, 2026-09-06).
+  This project's copy of the standard still says phase blocks pre-1.0.
+
+  Decisions (user, 2026-09-25):
+  - One version per success criterion. 0.1.0 Looks finished (FP09 + FP01
+    security). 0.2.0 Find and run (P03b + P05). 0.3.0 The full state
+    model (P06). 0.4.0 Ports (P07). 0.5.0 Logs (P08). 1.0.0 A download
+    for other people (P10). After 1.0.0: P09 shell, DS01, FP02.
+    Considered stays as it is.
+  - The open "findings filed in passing" are sorted into versions now,
+    each to the version whose area it touches.
+  - Every already-shipped item goes into 0.1.0 as done, since nothing
+    has been released and all of it ships there.
+  Plan (2026-09-25), nothing moved yet. Section intros are saved verbatim in
+  docs/roadmap/phase-sections-2026-09-25.md.
+  Steps: (1) create_section level 2, chained after
+  `success-criteria-coverage`: "0.1.0 — Looks finished", "0.2.0 — Find and
+  run", "0.3.0 — The full state model", "0.4.0 — Ports", "0.5.0 — Logs",
+  "1.0.0 — A download for other people", "After 1.0.0". Carry each old
+  phase's contract line into its intro: P03 design.md § Detection rules, P05
+  ADR-0003, P06 ADR-0004, P07 ADR-0002, P10 theme. (2) Move with
+  amend_field field:"section" and locators[] of {id}. Move the open items
+  before the shipped ones, so open work sits on top. (3) delete_section on
+  each emptied phase or fold-in section. It refuses while one still holds
+  an item. (4) set_intro on success-criteria-coverage: its table's Phase
+  column becomes Version. (5) Update docs/standards/roadmap-format.md, whose
+  § 3.2 still says phase blocks pre-1.0, to match the global standard
+  (CFG-0321). That edit owes a rule-14 line.
+  Mapping:
+  - 0.1.0: every ✅ item; FP09 open (1238 1272 1273 1274 1275 1278 1279
+    1280 1281 1284 1285 1286); FP01 (1046 1047 1049); LWSM-1152; findings
+    1192 1193 1195 1287 1289 1290 1291 1292 1293 1294 1296 1299 1303 1306
+    1307 1310 1311.
+  - 0.2.0: 1039 1008 1121 1028 1295 1309.
+  - 0.3.0: 1011 1038 1034 1054 1301 1012 1194.
+  - 0.4.0: 1013 1041 1037 1014 1288.
+  - 0.5.0: 1015 1036.
+  - 1.0.0: 1021 1043 1052 1022 1188.
+  - After 1.0.0: P09 (1017 1035 1029 1030 1042 1027 1053), DS01 (1056 1059
+    1060 1061 1062 1063 1161), FP02 (1065 1066).
+  - Considered: unchanged.
+  Asked ut-ants-a5 how they did the same move. Its answer may arrive in
+  that session's reply; it is optional.
+  **Layman:** Group the to-do list by which version each item ships in, like the UT_Ants roadmap, instead of by internal work phase.
+  Kind: chore.
+  Source: user-request-2026-09-25.
+
 ### 🐛 Bug fixes
 
 - ✅ [LWSM-1132] **FP07: three of the four launcher kinds cannot start at all.**
