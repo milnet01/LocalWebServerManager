@@ -216,7 +216,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: review-code 2026-09-01 lane 2.
 
-- 📋 [LWSM-1273] **LOW batch (scanner): nine small defects from lane 3.**
+- ✅ [LWSM-1273] **LOW batch (scanner): nine small defects from lane 3.**
   scanner.py:898 - UNIT_NAME ends in $ not \Z, so "x.service\n" passes and a
   raw newline reaches a systemctl argv and DetectedProject.unit, the one field
   not passed through _display. :1140 - an assembled reason carrying two quoted
@@ -231,6 +231,20 @@ O8` forbids retrofitting that.
   one candidate can exhaust the 100-entry skipped budget. :657/:790 -
   intermediate-component TOCTOU (recorded, not fixable without O_PATH).
   DOC: spec 4.1's ScanResult block omits unlistable_roots.
+  Closed (2026-09-25), each finding re-checked first. Fixed with a
+  red-first test each: the unit-name pattern ends in \Z (a trailing
+  newline passed $); the line reader counts bytes consumed, not
+  characters; a whole scan root is no longer listed before the first
+  deadline check; a shell hop target is no longer parsed as JavaScript
+  (only .js/.mjs/.cjs are); one launcher's import walk keeps its first
+  refusal and counts the rest, so it cannot fill the skip list. Fixed in
+  words: _accept_hop's docstring (no third outcome), the
+  scanner.LauncherKind comment, the spec's ScanResult block
+  (unlistable_roots), the reason-length bound (per value, not per
+  reason), and 10's residency figure (measured 17x on two-character
+  lines). Dismissed: the intermediate-component race is known-issue-019.
+  Live tree: all seven sibling projects scan identically before and
+  after.
   **Layman:** Smaller issues in the code that discovers projects and their ports.
   Kind: chore.
   Source: review-code 2026-09-01 lane 3.

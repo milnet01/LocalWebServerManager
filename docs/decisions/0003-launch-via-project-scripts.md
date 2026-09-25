@@ -245,8 +245,9 @@ value and ignoring the wrong one are two different properties.
 **A unit name is untrusted input** (security review, 2026-08-03):
 
 - **Validate it** against
-  `^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)$`,
-  reject a leading `-`, and pass `--` before it. A name beginning
+  `^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)\Z`
+  (`\Z`, not `$`, which also matches before a trailing newline —
+  LWSM-1273), reject a leading `-`, and pass `--` before it. A name beginning
   with `-` is consumed by `systemctl` as an *option* — `--host=`,
   `-M`, `--machine=` all redirect which manager is driven. The
   project's own `coding.md § 7` already mandates the `--`

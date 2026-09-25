@@ -479,6 +479,9 @@ def test_a_property_value_is_exempt_from_the_comment_stripper() -> None:
         ("has space.service", False),
         ("x.mount", False),
         ("x.service\nevil.service", False),
+        # `$` also matches before a trailing newline; only `\Z` refuses this
+        # (LWSM-1273). A unit name is the one field `_display` never cleans.
+        ("x.service\n", False),
     ],
 )
 def test_the_unit_name_validator_accepts_only_adr_0003_names(
@@ -712,6 +715,33 @@ def test_an_oversized_file_is_refused(tmp_path: Path, reader: str) -> None:
             scanner._read_bytes(fat)
         else:
             scanner._read_lines(fat, deadline)
+
+
+def test_a_file_that_grows_past_the_byte_cap_after_the_check_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LWSM-1273: `_read_lines`' running total counted decoded CHARACTERS
+    against a cap stated in BYTES, so multibyte text passed at up to four times
+    the cap. The fstat at open is the first bound; this is the one that holds
+    when the file grows after it, so the growth happens between the two.
+    """
+    grows = tmp_path / "start.sh"
+    grows.write_text("PORT=1\n", encoding="utf-8")
+    real = scanner._checked_descriptor
+
+    def check_then_grow(path: Path) -> int:
+        fd = real(path)
+        # Two bytes per character: under the cap in characters, over it in bytes.
+        chars = scanner.MAX_SOURCE_FILE_BYTES * 3 // 4
+        with grows.open("a", encoding="utf-8") as tail:
+            tail.write("é" * chars)
+        return fd
+
+    monkeypatch.setattr(scanner, "_checked_descriptor", check_then_grow)
+    deadline = scanner.Deadline(expires_at=time.monotonic() + 60, now=time.monotonic)
+
+    with pytest.raises(OSError, match="too large"):
+        scanner._read_lines(grows, deadline)
 
 
 def test_an_over_long_line_is_clipped_and_its_tail_not_scanned(tmp_path: Path) -> None:
@@ -1936,6 +1966,45 @@ def test_the_budget_stops_a_scan_mid_candidate(corpus_tree: Path) -> None:
     assert len(result.projects) < len(CORPUS)
 
 
+def test_listing_a_scan_root_is_inside_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LWSM-1273: the whole root was listed and sorted before the first
+    deadline check, so a root holding a huge number of entries overran the
+    budget by however long listing it took. The check now runs per entry.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    for index in range(50):
+        (root / f"d{index:02}").mkdir()
+    listed: list[str] = []
+    real = os.scandir
+
+    class CountingScandir:
+        def __init__(self, path: object) -> None:
+            self._inner = real(path)
+
+        def __enter__(self) -> CountingScandir:
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self._inner.__exit__(*exc)
+
+        def __iter__(self):
+            for entry in self._inner:
+                listed.append(entry.name)
+                yield entry
+
+    monkeypatch.setattr(scanner.os, "scandir", CountingScandir)
+
+    # The clock runs out the moment the first entry has been listed.
+    result = scan_root(root, now=lambda: 100.0 if listed else 0.0, budget_seconds=1)
+
+    assert result.timed_out is True
+    assert len(listed) < 50, "the listing ran to the end before the budget was read"
+
+
 def test_a_directory_name_that_is_not_valid_utf8_produces_an_encodable_name(
     tmp_path: Path,
 ) -> None:
@@ -2492,6 +2561,32 @@ def test_a_shell_launcher_hands_its_program_to_the_import_walk(
     assert "config.py" in {path.name for path in opened_paths}
 
 
+def test_a_shell_hop_target_is_not_read_as_javascript(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """LWSM-1273: every suffix but `.py` took the JavaScript import branch, so a
+    shell script's `export FOO="./bin"` read as an import of `./bin` and a port
+    in that file was reported. A shell file has no imports to walk.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "shelled",
+        {
+            "run.sh": "#!/bin/sh\nexec ./serve.sh\n",
+            "serve.sh": '#!/bin/sh\nexport FOO="./settings"\nexec busybox httpd\n',
+            "settings": "PORT=7777\n",
+        },
+        "run.sh",
+    )
+
+    project = by_name(scan_root(root))["shelled"]
+
+    assert "settings" not in {path.name for path in opened_paths}
+    assert project.port is None
+
+
 def test_a_wrapped_program_reaches_the_import_walk_before_a_framework_default(
     tmp_path: Path,
 ) -> None:
@@ -2553,6 +2648,31 @@ def test_an_import_hop_is_still_exactly_one_hop(
 
     assert project.port is None
     assert "deep.mjs" not in {path.name for path in opened_paths}
+
+
+def test_one_launcher_cannot_fill_the_skip_list(tmp_path: Path) -> None:
+    """LWSM-1273: the import walk noted every refused specifier, so one launcher
+    importing enough parent-directory paths filled all `MAX_SKIP_REASONS` and
+    every other project's reason was counted instead of shown. It now keeps
+    the first refusal, as the shell hop does, and counts the rest.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    imports = "".join(
+        f'import x{index} from "../x{index}.mjs";\n'
+        for index in range(scanner.MAX_SKIP_REASONS + 20)
+    )
+    make_project(root, "noisy", {"serve.mjs": imports})
+    (root / "zz-a-plain-file").write_text("", encoding="utf-8")
+
+    result = scan_root(root)
+
+    refusals = [reason for reason in result.skipped if "outside the project" in reason]
+    assert len(refusals) == 1
+    assert any("more import hops refused" in reason for reason in result.skipped)
+    assert any("zz-a-plain-file" in reason for reason in result.skipped), (
+        "another entry's reason was crowded out"
+    )
 
 
 def test_the_launcher_outranks_its_own_imports(tmp_path: Path) -> None:

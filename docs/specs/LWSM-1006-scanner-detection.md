@@ -142,6 +142,9 @@ class ScanResult:
     projects: tuple[DetectedProject, ...]
     skipped: tuple[str, ...]  # one clipped reason per rejection, capped
     timed_out: bool  # the budget expired; `projects` is partial
+    # Roots `os.scandir` refused; added by LWSM-1131 § 4.3, which needs them
+    # apart from `skipped` to suppress its *missing* check.
+    unlistable_roots: tuple[Path, ...] = ()
 
 
 class SupportsUnitLookup(Protocol):
@@ -322,8 +325,10 @@ reasoning about `_read_bounded` — and the same applies to `PortFinding.source`
 which is a file or unit name from the same untrusted tree and reaches the same
 status bar.
 
-Each reason is clipped at `MAX_REASON_CHARS = 120` — the same name and value
-`registry.py` uses, since it bounds the same thing for the same reason;
+Each value interpolated into a reason is clipped at `MAX_REASON_CHARS = 120` —
+the same name and value `registry.py` uses, since it bounds the same thing for
+the same reason. The bound is per value, not per reason: a reason quoting two
+values runs to about twice that plus its fixed text (LWSM-1273);
 `MAX_DISPLAY_NAME_CHARS` is a separate constant because it bounds a *display*
 string under a different sanitiser, and one name for two policies is how they
 drift apart. `MAX_SKIP_REASONS = 100`, and whenever anything
@@ -685,7 +690,7 @@ requires both and `design.md § Detection rules` states only the first:
    *unknown*, and the acceptance test in § 7 cannot pass.
 
 **A unit name is untrusted input.** It is validated against ADR-0003's
-`^[A-Za-z0-9@:_.\-]{1,255}\.(service|socket|target|timer)$`, a leading `-` is
+`^[A-Za-z0-9@:_.\-]{1,255}\.(service|socket|target|timer)\Z`, a leading `-` is
 rejected, and `--` is passed immediately before it in every `systemctl` argv
 this module builds. A name beginning with `-` is consumed by `systemctl` as an
 option — `--host=`, `-M`, `--machine=` all redirect which manager is driven.
@@ -694,7 +699,7 @@ option — `--host=`, `-M`, `--machine=` all redirect which manager is driven.
 only for the name comparison.** Those are two different strings and the spec
 has to say which is which: `systemctl` accepts only the escaped form, while the
 comparison in step 1 needs the unescaped one. **The validator therefore admits
-`\`** — as `^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)$` — because
+`\`** — as `^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)\Z` — because
 ADR-0003's class as written has no backslash, so `app-ai\x2dprompts\x2dtray@autostart.service`
 (a real unit on the author's machine) fails validation and can never reach an
 argv. Left unfixed that has one of two shapes, both bad: the unescaping step
@@ -1835,7 +1840,11 @@ adds. (`lwsm.__file__` is read for § 4.2 rejection 3, which needs no import
 beyond the package itself.) No new build target.
 
 Bounded by construction, and every bound is named: at most
-`MAX_SOURCE_FILE_BYTES` (256 KB) resident per file, one file at a time; at
+`MAX_SOURCE_FILE_BYTES` (256 KB) read per file, one file at a time. What stays
+resident is the list of lines built from those bytes, one string object per
+line, so a file of very short lines holds many times its byte size — measured
+2026-09-25 with `tracemalloc`, a capped file of two-character lines held 17x and
+one of 80-character lines 1.6x. Bounded, but not by 256 KB (LWSM-1273). At
 most `MAX_SOURCE_LINE_CHARS` (4096) per line, with the tail discarded rather
 than buffered; at most `SCAN_BUDGET_SECONDS` (20) of wall clock.
 

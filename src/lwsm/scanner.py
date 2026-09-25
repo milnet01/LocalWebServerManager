@@ -36,8 +36,9 @@ from lwsm.registry import DECLARED_PORT_RANGE, LauncherKind
 # Re-exported deliberately. `LauncherKind` moved to `registry.py` with LWSM-1007
 # because the loader has to validate against it at run time, and this module
 # already imported from there — adding the reverse import would have closed a
-# cycle that stops the package importing at all. Every consumer still spells it
-# `scanner.LauncherKind`, and `__all__` keeps ruff from calling the import
+# cycle that stops the package importing at all. The re-export keeps
+# `scanner.LauncherKind` resolving, though no module in this tree spells it
+# that way any more (LWSM-1273); `__all__` keeps ruff from calling the import
 # unused.
 # `MAX_DISPLAY_NAME_CHARS` joins `LauncherKind` here for the same reason: it
 # moved to `configfile.py` with the sanitiser that reads it (LWSM-1249), and
@@ -56,7 +57,9 @@ MAX_SOURCE_LINE_CHARS = 4096
 # A rejection reason reaches the app log and the status bar, and the name in it
 # is a scan-root subdirectory name — attacker-supplied, and a Linux filename may
 # contain a newline. Same name and value as `configfile.py::MAX_REASON_CHARS`,
-# since it bounds the same thing for the same reason.
+# since it bounds the same thing for the same reason. It clips each VALUE
+# `_quoted` interpolates, not the whole reason, so a reason quoting two values
+# runs to about twice this plus its fixed text (LWSM-1273).
 MAX_REASON_CHARS = 120
 
 
@@ -336,7 +339,6 @@ def _read_lines(path: Path, deadline: Deadline) -> list[str]:
     """
     handle = _wrap(_checked_descriptor(path), "r", encoding="utf-8", errors="replace")
     lines: list[str] = []
-    total = 0
     with handle:
         discarding = False
         while True:
@@ -345,8 +347,9 @@ def _read_lines(path: Path, deadline: Deadline) -> list[str]:
             chunk = handle.readline(MAX_SOURCE_LINE_CHARS)
             if not chunk:
                 break
-            total += len(chunk)
-            if total > MAX_SOURCE_FILE_BYTES:
+            # Bytes consumed from the file, not characters decoded: the cap is
+            # in bytes, and a character is up to four of them (LWSM-1273).
+            if handle.buffer.tell() > MAX_SOURCE_FILE_BYTES:
                 raise OSError(
                     errno.EFBIG,
                     f"too large: over {MAX_SOURCE_FILE_BYTES} bytes",
@@ -694,9 +697,11 @@ def _accept_hop(
 ) -> tuple[Path | None, str | None]:
     """§ 4.5's six constraints, on a path.
 
-    A non-`None` reason means the token is a path and is refused; `(None, None)`
-    means it is not a path at all. Either way the previous token is tried, since
-    step 4 selects the last token that satisfies all six — the caller keeps the
+    Returns `(target, None)` when the token passes all six and `(None, reason)`
+    when it does not; there is no third outcome (LWSM-1273). Whether a passing
+    token names a file at all is learned only when the caller reads it, as a
+    `FileNotFoundError`. After a refusal the previous token is tried, since step
+    4 selects the last token that satisfies all six — the caller keeps the
     first refusal for the case where no token is acceptable at all.
     """
     if "\x00" in token:
@@ -764,13 +769,18 @@ _JS_RELATIVE = re.compile(r"""['"](\.{1,2}/[^'"]*)['"]""")
 _PY_IMPORT_LINE = re.compile(
     r"^\s*(?:from\s+(?P<from>\.*[\w.]*)\s+import\b|import\s+(?P<plain>[\w.]+))"
 )
+# Named rather than "anything not `.py`" (LWSM-1273): a shell hop target took
+# the JavaScript branch, and `export FOO="./bin"` read as an import of `./bin`.
+_JS_SUFFIXES = frozenset({".js", ".mjs", ".cjs"})
 
 
 def _import_specifiers(line: str, suffix: str) -> list[str]:
     """The in-project files `line` imports, as paths relative to the project.
 
-    Returns `[]` for a line that imports nothing, and for one that imports only
-    things outside the project — which is the common case and the safe default.
+    Returns `[]` for a line that imports nothing, for one that imports only
+    things outside the project — which is the common case and the safe default —
+    and for any file that is neither Python nor JavaScript by its suffix. An
+    extensionless `node` script is therefore not walked; its port stays unknown.
     """
     if suffix == ".py":
         match = _PY_IMPORT_LINE.match(line)
@@ -792,7 +802,7 @@ def _import_specifiers(line: str, suffix: str) -> list[str]:
             # `from . import port` names the package, not a module in it.
             return []
         return [module.replace(".", "/") + ".py"]
-    if not _JS_IMPORT_LINE.search(line):
+    if suffix not in _JS_SUFFIXES or not _JS_IMPORT_LINE.search(line):
         return []
     # The specifier as written, extension included. `./lib/port` (legal under
     # CommonJS, where the extension is optional) is NOT resolved against `.js`
@@ -821,6 +831,33 @@ def _import_hop_port(
     out of scope and comes back *unknown*, which is § 4.5's existing limit for
     `project-e` rather than a new one.
     """
+    # The first reason is kept and the rest counted, as `_hop_target` keeps its
+    # first refusal (LWSM-1273). Noting each one let a launcher with enough
+    # refused imports fill `MAX_SKIP_REASONS` alone, crowding out every other
+    # project's reasons.
+    held = 0
+
+    def hop_note(reason: str) -> None:
+        nonlocal held
+        held += 1
+        if held == 1:
+            note(reason)
+
+    try:
+        return _walk_imports(candidate, launcher, lines, deadline, hop_note)
+    finally:
+        if held > 1:
+            note(f"{_quoted(candidate.name)}: {held - 1} more import hops refused")
+
+
+def _walk_imports(
+    candidate: Path,
+    launcher: Path,
+    lines: Sequence[str],
+    deadline: Deadline,
+    note: Callable[[str], None],
+) -> PortFinding | None:
+    """`_import_hop_port`'s walk, with its reasons already rationed."""
     seen: set[Path] = set()
     hops = 0
     for line in lines:
@@ -1004,7 +1041,7 @@ UNIT_PROPERTIES = (
 # validation and the unescaping step would be dead code. A backslash is inert
 # in an `execve` argv; the leading-`-` rejection and the `--` separator remain
 # the actual defence.
-UNIT_NAME = re.compile(r"^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)$")
+UNIT_NAME = re.compile(r"^[A-Za-z0-9@:_.\\\-]{1,255}\.(service|socket|target|timer)\Z")
 
 
 def valid_unit_name(name: str) -> bool:
@@ -1624,7 +1661,15 @@ def scan(
         for root in roots:
             try:
                 with os.scandir(root) as listing:
-                    entries = sorted(listing, key=lambda entry: entry.name)
+                    # Listed inside the budget, then sorted (LWSM-1273): a
+                    # `sorted(listing)` reads the whole root before the first
+                    # deadline check, however many entries it holds.
+                    entries = []
+                    for entry in listing:
+                        if deadline.expired():
+                            raise _BudgetExpired
+                        entries.append(entry)
+                    entries.sort(key=lambda entry: entry.name)
             except OSError as exc:
                 # A missing root is ordinary — an unmounted drive — and must not
                 # blank the result.
