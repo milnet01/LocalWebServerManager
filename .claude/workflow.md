@@ -52,8 +52,14 @@ legend still says "this phase", and no roadmap_log op reaches it).
   first. I went bottom-up in case numbered slugs (`features-2`) renumber;
   whether they do was not tested.
 
-**Next:** the FP09 LOW batches (LWSM-1272–1284), then FP01's three items,
-then 0.1.0 (LWSM-1152).
+**FP09 LOW batches, via close-findings, one commit each:** LWSM-1272
+(registry) and LWSM-1273 (scanner) closed and pushed. Each finding is
+re-checked first, since the cited line numbers have all moved: search for
+the quoted code. A scanner change also gets the live-tree diff (CLAUDE.md
+trap), run from a temporary `git worktree` of HEAD.
+
+**Next:** LWSM-1274 (supervisor), 1275, 1278, 1279, 1280, 1281, 1284, then
+FP01's three items, then 0.1.0 (LWSM-1152).
 
 ## §1a. Session handoff — 2026-09-21
 
