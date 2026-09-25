@@ -34,8 +34,10 @@ rule-14 questions. It logged our finding that gate lanes see the
 session-start copy of `CLAUDE.md`, not the disk copy, as CFG-0593.
 **A `CLAUDE.md` gate brief must tell lanes to read the subject from disk.**
 
-**Next:** the FP09 LOW batches (LWSM-1272–1284), then FP01's three items,
-then 0.1.0.
+**Next:** finish LWSM-1311 (regroup the roadmap by version; its bullet holds
+the steps and the full id-to-version mapping, nothing moved yet). Then the
+FP09 LOW batches (LWSM-1272–1284), then FP01's three items, then 0.1.0.
+LWSM-1238 waits on the user's look at the focus-ring screenshots.
 
 ## §1a. Session handoff — 2026-09-21
 
