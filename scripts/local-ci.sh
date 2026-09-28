@@ -184,9 +184,10 @@ step "Format check (ruff format --check)"
 uv run ruff format --check .
 
 # --docs stops here. It is the documentation mode local-gate.md § 6 asks for,
-# and the pre-push hook selects it for a push whose every path is prose. Each
-# step above it reads a file such a push can touch: the lockstep reads
-# ROADMAP.md, the format check reads every .md. Nothing below does — compileall,
+# and the pre-push hook selects it for a push whose every path is prose. Two
+# steps above it read a file such a push can touch: the lockstep reads
+# ROADMAP.md, the format check reads every .md (ruff check lists .md files but
+# lints none, measured 2026-09-28; it rides along). Nothing below does — compileall,
 # the entry points and shellcheck read code, and the markdown the SUITE asserts
 # against never takes this mode, because the hook sends it to the full gate.
 # A step added below that reads prose must move above this line.
