@@ -71,6 +71,14 @@ The app as it stands, made solid: the FP09 review fixes, the FP01 security
 fixes, then the release itself (LWSM-1152). Every shipped item sits here too,
 because nothing has been released yet.
 
+Order of work (carried over 2026-09-28 from the retired workflow file): the
+open FP09 LOW batches first (LWSM-1275, LWSM-1278, LWSM-1279, LWSM-1280,
+LWSM-1281, LWSM-1284), then FP01 (LWSM-1046, LWSM-1047, LWSM-1049), then the
+pre-release review CLAUDE.md names, then LWSM-1152. Close each LOW batch with
+`close-findings`, re-checking every finding first: its cited line numbers have
+moved, so search for the quoted code. A scanner change also gets the live-tree
+verdict diff, run from a temporary `git worktree` of HEAD.
+
 The appearance and accessibility foundation (was P04) is part of this version.
 The primary user reads with a screen magnifier, and `docs/standards/coding.md §
 O8` forbids retrofitting that.
@@ -811,7 +819,7 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: review-contract-2026-09-25 CLAUDE.md loop 2.
 
-- 📋 [LWSM-1152] **Cut 0.1.0 once P04 closes — the first tagged release.**
+- 📋 [LWSM-1152] **Cut 0.1.0 once FP09 and FP01 close — the first tagged release.**
   Decided with the user 2026-08-18. Nothing has ever been released: the
   version is 0.0.0 in all four files, there is no version tag (P02/P03
   tags are phase markers), no GitHub release, and every entry sits in
@@ -9753,7 +9761,8 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Progress (2026-08-06): LWSM-1005 is the first work to exercise any of these. `pytest-qt` now drives `test_controller.py` and `test_mainwindow.py`; both markers are used, and `tests/conftest.py` sets `QT_QPA_PLATFORM=offscreen` when unset so a bare `pytest` cannot open a real window. One lesson worth keeping when this item closes: markers belong on tests, not files — marking a whole file by its heaviest test makes `local-ci.sh --fast` silently skip every light test beside it.
 
 - 📋 [LWSM-1060] **DS01: three agreed doc tasks exist only in a session journal.**
-  `.claude/workflow.md` § 3 records three decisions the user took on
+  `docs/journal/workflow-state-to-2026-09-28.md` § 3 (was
+  `.claude/workflow.md`) records three decisions the user took on
   2026-08-06 that are in no roadmap item: a `SECURITY.md` pointing at
   GitHub private vulnerability reporting (with the repo setting
   enabled), `CODE_OF_CONDUCT.md` as Contributor Covenant 2.1 verbatim
@@ -10058,18 +10067,19 @@ contract and § 3.12 for the field-completeness rule.
 
 ## How findings get folded
 
-After every `/audit` + `/code-quality-review` (and `/debt-sweep`):
+After every `check-code` + `review-code` (and `/debt-sweep`), which
+CLAUDE.md schedules before each release:
 
 ```
-Phase closes
-  → Run /audit + /code-quality-review
-  → Triage findings
-  → If clean: phase fully closed.
-  → If actionable: batch into one new fix-pass FP## (next-up),
-    add [Unreleased] entry, run that fix-pass through the
-    9-step loop; its own closing audits may produce another.
+Before a release
+  → Run check-code + review-code
+  → close-findings: give every finding a disposition
+  → If clean: cut the release.
+  → If actionable: file each finding into the release's section;
+    the release waits on them.
 ```
 
-See `docs/standards/roadmap-format.md § 3.8` and the
-app-workflow skill (`~/.claude/skills/app-workflow/SKILL.md`, local to the author's machine)
-for the full pattern.
+Older items name the retired forms of this loop: `/audit`,
+`/code-quality-review`, a phase close and an `FP##` fix-pass. Those
+labels are history; the phase workflow was retired on 2026-09-28.
+See `docs/standards/roadmap-format.md § 3.8` for the bullet shape.

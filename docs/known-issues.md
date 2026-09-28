@@ -3,10 +3,9 @@
 > **Status:** Empty until first deferral.
 > **Bar for entry:** high — only items genuinely blocked by
 > an unbuilt dependency, with the dependency named
-> explicitly. The
-> app-workflow skill (`~/.claude/skills/app-workflow/SKILL.md`, local to the author's machine)'s
-> default disposition is to fold every actionable finding
-> into a fix-pass; this file is the exception case.
+> explicitly. The default disposition is to fold every
+> actionable finding into the roadmap (`close-findings`);
+> this file is the exception case.
 
 **A second class of entry was created by the user on 2026-08-07:
 a finding handed to the phase that owns the code it lands in.**

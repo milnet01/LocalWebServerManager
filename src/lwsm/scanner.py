@@ -630,7 +630,7 @@ _FRAMEWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(flask|django)\b", re.IGN
 # § 7's own fixture, expected *unknown*, and the substring form reports it
 # DETECTED on 5173. Every real Vite dev script (`vite`, `vite --host`,
 # `./node_modules/.bin/vite`) still matches. Spec amendment surfaced, not
-# absorbed (`.claude/workflow.md § 2`).
+# absorbed (the "never silently drift" rule in CLAUDE.md § Review cadence).
 _VITE_SCRIPT = re.compile(r"\bvite\b")
 
 FRAMEWORK_DEFAULTS = {"Vite": 5173, "Django": 8000, "Flask": 5000}

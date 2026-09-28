@@ -213,8 +213,7 @@ whether one is safe to cut. It changes nothing.
   decision on where they belong.
 - [docs/standards/](docs/standards/) — coding, documentation,
   testing, commits, dependencies.
-- [.claude/workflow.md](.claude/workflow.md) — live workflow
-  state and rules.
+- [ROADMAP.md](ROADMAP.md) — what is in flight and what is next.
 
 ## License
 

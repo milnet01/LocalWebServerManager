@@ -20,9 +20,8 @@ deterministic checker that fires on the same non-defect forever is
 the exact problem this file exists to solve, and which tool
 produced it makes no difference to that.
 
-The
-app-workflow skill (`~/.claude/skills/app-workflow/SKILL.md`, local to the author's machine)
-reads this file **before** triaging audit findings, so
+Read this file **before** triaging audit findings
+(`check-code`, `review-code`, `close-findings`), so
 already-confirmed false positives are discarded without
 re-evaluating.
 

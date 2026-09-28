@@ -20,7 +20,7 @@ roadmap, and work on an item that is already scoped.
   project follows.
 - **`docs/specs/`** — per-feature specs.
 - **`docs/decisions/`** — Architecture Decision Records.
-- **`.claude/workflow.md`** — live workflow state and rules.
+- **`ROADMAP.md`** — what is in flight and what is next.
 
 ## Reporting bugs
 

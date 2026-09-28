@@ -1,4 +1,11 @@
-# LocalWebServerManager — Workflow state
+# LocalWebServerManager — Workflow state (retired 2026-09-28)
+
+> **History, not state.** This was `.claude/workflow.md`, the status file of
+> the phase-based `app-workflow` skill. The project left that workflow on
+> 2026-09-28 (CFG-0645). The file is kept verbatim below. What still binds
+> moved: standing rules to `CLAUDE.md`, open work and its order to
+> `ROADMAP.md`. The status header, handoffs and journal below describe the
+> project as it was, and none of it is current.
 
 ## §1. Status header
 

@@ -5,9 +5,10 @@ docs, and commits. If a term appears in `discovery.md`,
 `design.md`, or any spec and a reader six months from now
 might be confused, add it here.
 
-The starter entries below cover terminology used by the
-`app-workflow` skill itself; project-specific terms get added
-during Phases B and C.
+The starter entries below cover terminology of the phase-based
+`app-workflow` skill this project used until 2026-09-28. They
+stay because the journal and older roadmap items use them;
+project-specific terms are added as they appear.
 
 | Term | Definition |
 |------|------------|
@@ -21,7 +22,7 @@ during Phases B and C.
 | **Kind** | A roadmap-bullet metadata field declaring the work type (`implement`, `fix`, `refactor`, `audit-fix`, `review-fix`, `doc`, `doc-fix`, `test`, `chore`, `release`). Drives which standard governs the work; per `docs/standards/roadmap-format.md § 3.6.3`. |
 | **Source** | A roadmap-bullet metadata field naming where the item came from (`audit`, `code-quality-review`, `debt-sweep`, `user`, `planned`); per `docs/standards/roadmap-format.md § 3.6.3`. |
 | **Fix-pass (`FP##`)** | A roadmap item generated automatically after `/audit` + `/code-quality-review` to track findings as a single batched piece of work that runs through the full 9-step loop. |
-| **Convergence checkpoint** | The fix-pass count (default 5) at which Claude pauses to ask whether to keep iterating, accept remaining findings into known-issues, or rethink design. Configurable in `.claude/workflow.md` § 1. |
+| **Convergence checkpoint** | The fix-pass count (default 5) at which Claude pauses to ask whether to keep iterating, accept remaining findings into known-issues, or rethink design. Retired with the phase workflow on 2026-09-28. |
 | **Debt-sweep (`DS##`)** | A scan for cumulative drift introduced over multiple phases, run by `/debt-sweep`. Default cadence: as part of `/release` before the version bump. |
 
 ## Project terms

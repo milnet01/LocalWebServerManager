@@ -37,7 +37,6 @@ desktop.ini
 .claude/*
 # Team-shared Claude Code config that SHOULD be in version control:
 !.claude/settings.json
-!.claude/workflow.md
 # The release recipe. cut-release reads it from the project root, and CI runs
 # tests that read it — it was ignored for one push on 2026-08-18 and three of
 # those tests failed on the runner against a green local gate, because the

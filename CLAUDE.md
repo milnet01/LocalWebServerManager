@@ -1,18 +1,22 @@
 # LocalWebServerManager — Project instructions for Claude Code
 
-Scaffolded from the **Ants App-Build** template; follows the
-`app-workflow` (`~/.claude/skills/app-workflow/SKILL.md`, local to the author's machine)
-skill.
+Scaffolded from the **Ants App-Build** template. Follows the machine-wide
+workflow in `~/.claude/workflow.md` (local to the author's machine): its five
+states and gates, with no phases. The phase-based `app-workflow` skill this
+project started under was retired on 2026-09-28 (CFG-0645). Its status file
+is kept as history at
+[`docs/journal/workflow-state-to-2026-09-28.md`](docs/journal/workflow-state-to-2026-09-28.md).
 
 ## Where state lives
 
 Read these in order on every session start:
 
 1. **This file** — stable rules and conventions.
-2. **`.claude/workflow.md`** — live status header (current
-   phase, active item, step number, blockers, last-update
-   timestamp). After reading, **summarise back to the user**
-   before doing any work.
+2. **`ROADMAP.md`'s open items** — what is in flight and what is
+   next. Ask the store, not the file: `roadmap_query
+   status:"in-progress" mode:"headline_only"`, then the release
+   section's intro for the order. After reading, **summarise back
+   to the user** before doing any work.
 3. **`docs/standards/{coding,documentation,testing,commits,dependencies}.md`**
    — the five v1 standards. `dependencies.md` is canonical for
    version policy and is read before touching any pin.
@@ -21,9 +25,9 @@ Read these in order on every session start:
 5. **`docs/audit-allowlist.md`** — read **additionally** before
    invoking `check-code` or `review-code` so already-confirmed
    project-specific false positives aren't re-flagged. The
-   allowlist is the closed-loop memory for this project — see
-   the app-workflow skill (`~/.claude/skills/app-workflow/SKILL.md`, local to the author's machine)
-   "False-positive learning" section.
+   allowlist is the closed-loop memory for this project: a
+   confirmed false positive is added there, never silenced in
+   the tool.
 
 ## Which skill runs which job
 
@@ -120,9 +124,19 @@ is **yes, if a test had used any argv but `./start.sh`** — so it is a
 fixture-coverage failure, not a missing-contract failure, and a spec would not
 have caught it either. The same is true of the unbounded overlay: no fixture
 had a port-less project.
-**What to watch on the next close is the class, not the count.** If a defect
+**What to watch on the next pre-release review is the class, not the count.** If a defect
 turns up that a *contract* would have caught and a test could not have, that is
 the signal rule 1 is wrong. So far none has.
+
+**Never silently drift.** If code being written diverges from its spec, stop
+and say so. Either the spec was wrong (correct it, re-check what it touches,
+resume) or the code was wrong (fix the code, leave the spec). Never paper
+over both. Build-first changes when the spec is corrected, not whether.
+
+**A rule-14 gate over `CLAUDE.md` must tell its lanes to read the subject
+from disk.** A dispatched lane is briefed with the session-start copy of this
+file, not the edited one, so a lane that trusts its context reviews the old
+text (found 2026-09-25, logged in `~/.claude` as CFG-0593).
 
 ## Before pushing
 
@@ -202,12 +216,13 @@ exists to prevent.
 
 ## Standing quality passes
 
-Both added by the user on 2026-08-03, and both run as part of closing a
-phase rather than when someone remembers:
+Both added by the user on 2026-08-03, and both run as part of the
+pre-release review (see **Before a release: the big review**) rather than
+when someone remembers:
 
 - **Look for refactoring opportunities.** Python is interpreted, so
   there is no compiler catching a tangle — structure is held by
-  reading alone. On every phase close, ask what got duplicated, what
+  reading alone. Before every release, ask what got duplicated, what
   grew a second responsibility, and what a name now lies about.
   Refactor when there is something to refactor; **say "nothing to
   refactor at this size" when there isn't**, rather than inventing
@@ -230,10 +245,17 @@ This overrides any session-level default that says not to spawn
 agents unless asked. It is not a licence to fan out on work one
 context can already do.
 
-## Closing a phase
+## Before a release: the big review
 
-Run **`/close-phase`** once steps 1–4 of the per-phase loop
-are done — see SKILL.md for the full description.
+**Before cutting a release, run `check-code` over the whole tree and
+`review-code` over the codebase, then `close-findings` on what they
+return** (user, 2026-09-28). This replaces the retired `/close-phase`,
+which ran the same pair at every phase close; the roadmap is now grouped
+by version, so the release is the checkpoint. Read
+`docs/audit-allowlist.md` first, as **Where state lives** says. Findings
+are filed into the release's roadmap section, and the release waits on
+them. `./scripts/local-release.sh` (below) is the mechanical pre-flight
+and does not replace this.
 
 ## Tech stack
 
@@ -338,17 +360,11 @@ either a phase ID (`P##`, `FP##`, `DS##`, `DOC##`, `R##`) or a
 stable per-bullet ID for ROADMAP_FORMAT v1 projects
 (`LWSM-NNNN`).
 
-**More than one phase can be in flight at once, and the status header names
-only one.** Observed 2026-08-19 and recorded rather than resolved, because
-resolving it is `/close-phase`'s call and not a session's. `.claude/workflow.md`
-§ 1 says `P03b` OPEN, which is true — LWSM-1039, LWSM-1008 and LWSM-1121 are
-still 📋. Meanwhile LWSM-1145, LWSM-1146, LWSM-1147, LWSM-1149 and LWSM-1031
-are all `P04:` items and all shipped, so `P04` is the live label for work with
-no item id (`P04: record the theme layer`, `P04: the README says…`) while
-`P03b:` carries the FP07 bookkeeping. **Follow the commit log's precedent for
-the prefix, not the status header** — the header names the phase whose ITEMS
-are outstanding, which is not the same question as which phase you are
-committing under. Costs one lookup per session until a close reconciles them.
+**Phases are retired, and their prefixes are not — yet.** The project left
+the phase workflow on 2026-09-28. **Until 0.1.0 ships, a commit with no item
+id keeps using `P04:`** (user, 2026-09-28), so commit subjects stay
+consistent with the log. Revisit it with LWSM-1062, which owns this project's
+fork of `commits.md`. Prefer an item id wherever one exists.
 
 **A phase ID may carry a lowercase continuation suffix — `P03b`**
 (user, 2026-08-12). It names a phase that finishes a predecessor's
@@ -361,15 +377,10 @@ instead would have re-labelled 28 bullets and every doc that cites
 a phase by number, and re-pointing the pushed `P03-complete` tag
 needs the force-push authorisation `commits.md § 4.2` withholds.
 
-The suffix is a continuation, **not a sub-phase**: `P03b` runs the
-full 9-step loop and earns its own `P03b-complete` tag. Only reach
-for one when a phase closes against partial scope and the next
-number is already spoken for — a phase that simply has more work
-in it stays one phase.
-
-Every implementation phase ends with `git tag -a <ID>-complete`
-on the closing commit. Tags are local until the user explicitly
-authorises a push.
+That rule is history now: no new phase opens, and no new `<ID>-complete` tag
+is cut. The existing tags stay. `P03b`'s three open items (LWSM-1039,
+LWSM-1008, LWSM-1121) sit in the roadmap's 0.2.0 section. A release is
+tagged by `cut-release`.
 
 ## Licence and visibility
 
@@ -396,8 +407,29 @@ Inherits from the user's global `~/.claude/CLAUDE.md` § 6
 batching gate. `main` tracks `origin/main`.
 
 Detect repo visibility once per session via
-`gh repo view --json visibility -q .visibility` and cache; the
-result is recorded in `.claude/workflow.md` § 1 status header.
+`gh repo view --json visibility -q .visibility` and cache it for
+the session.
+
+## The roadmap store
+
+`ROADMAP.md` is rendered from the Ants roadmap store; edit it through
+`roadmap_log`, never by hand. Three standing rules:
+
+- **Do not run `roadmap_migrate` on this project.** It is already in the
+  store, so there is nothing to migrate, and a `dry_run` has planned
+  dozens of phantom headline updates that no diff explains (re-checked
+  2026-08-19). The store has no undo. The full record is in the
+  2026-09-28 journal file named at the top of this file.
+- **A calibrated-down finding is closed as a finding, not built here**
+  (user, 2026-09-03). When a fold-in marks a finding as another item's
+  scope, flip it shipped, say in the note that no code changed, and name
+  the item that owns the work. First applied to LWSM-1230 → LWSM-1011.
+- **Three `roadmap_log` traps** (2026-09-25). `set_intro` does not replace
+  a section's table — the old table stays and the text lands above it, so
+  delete and recreate the section and rebuild the table with `bundle_row`.
+  `amend_field field:"section"` naming the item's current section moves
+  nothing; move it away and back. `delete_section` refuses a parent that
+  has sub-sections; delete those first.
 
 ## Module map
 
@@ -1397,14 +1429,13 @@ output looks authoritative and is about the wrong interpreter.
 
 ## Resumption flow — MANDATORY summarise-back
 
-Per the app-workflow skill:
-
-1. **Parallel batch:** read this file + `.claude/workflow.md`
-   status header + active-item details (one tool-call batch).
+1. **Parallel batch:** read this file, the roadmap's in-progress
+   items, and the intro of the release section they sit in (one
+   tool-call batch). Fetch an active item's body by id.
 2. Once `Kind` is known from the active item, read the
    matching `docs/standards/<which>.md` (single read).
-3. **Summarise back to the user:** "We're on `<ID>` step
-   `<N>`, last did `<X>`, next is `<Y>`."
+3. **Summarise back to the user:** "We're on `<ID>`, last did
+   `<X>`, next is `<Y>`."
 4. Wait for confirm or redirect.
 
 **Never skip step 3.** Catching state-recovery errors before
