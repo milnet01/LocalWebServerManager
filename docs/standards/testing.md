@@ -161,21 +161,14 @@ End-to-end behaviour matching its spec. Larger than unit tests
 but still GUI-free where possible. Pattern:
 
 ```
-tests/features/<feature_name>/
-├── spec.md           # contract — human-readable invariants
-└── test_<name>.cpp   # enforcement — INV-1, INV-2, … assertions
+docs/specs/<ID>-<topic>.md   # contract — INV-1, INV-2, … each naming its test
+tests/test_<module>.py        # enforcement — one test per invariant
 ```
 
-CMakeLists.txt wiring:
-
-```cmake
-add_executable(test_foo
-    tests/features/foo/test_foo.cpp
-    src/foo.cpp)
-target_link_libraries(test_foo PRIVATE Qt6::Core Qt6::Test)
-add_test(NAME foo_feature COMMAND test_foo)
-set_tests_properties(foo_feature PROPERTIES LABELS "features;fast")
-```
+There is no wiring step: `pyproject.toml` sets `testpaths = ["tests"]`,
+so pytest collects every `tests/test_*.py`. A test's name or docstring
+names the invariant it holds, so a spec's `*Test:*` clause can be
+searched for.
 
 ### 3.3 Integration tests
 
@@ -185,16 +178,20 @@ interaction is the thing under test.
 
 ### 3.4 Performance tests
 
-Measure throughput / latency / memory. Tag `LABELS perf` so they
-can be excluded from CI when noisy. Compare against a baseline,
+Measure throughput / latency / memory. Mark them `perf` so they can
+be excluded from CI when noisy — after registering `perf` under
+`markers` in `pyproject.toml`. An unregistered marker stops the run:
+pytest warns about it and `filterwarnings = ["error"]` makes the
+warning an error. Markers go on tests, never on files. Compare against a baseline,
 not absolute thresholds, so machine differences don't fail the
 test.
 
 ### 3.5 Fixture-based tests
 
-For rule-based tools (linters, audit checks): keep `bad.cpp` and
-`good.cpp` files in `tests/audit_fixtures/<rule>/`, run the rule
-against them, assert N hits on `bad` and 0 on `good`. Count-based,
+For rule-based code (the scanner's detection rules, a linter, an
+audit check): keep the inputs that must match and the ones that must
+not side by side — here, `tests/scanner_fixtures.py` — run the rule
+against them, and assert N hits on the first set and 0 on the second. Count-based,
 not line-number-based — line numbers shift across edits.
 
 ### 3.6 Source-invariant tests
@@ -278,31 +275,30 @@ test code and commit messages.
 A failing test must print enough to diagnose without reproducing
 locally:
 
-```cpp
-QVERIFY2(grid->cellAt(0, 0).fg == QColor(255, 0, 0),
-         qPrintable(QString("Cell 0,0 fg = %1, expected #FF0000")
-                    .arg(grid->cellAt(0, 0).fg.name())));
+```python
+assert row.status is ProjectStatus.RUNNING, (
+    f"{row.name}: status {row.status}, want running"
+)
 ```
 
-Not just `QVERIFY(grid->cellAt(0, 0).fg == QColor(255, 0, 0))`,
-which only prints "QVERIFY failed at line N".
-
-Same principle for Python (`assert x == y, f"got {x}, want {y}"`)
-and any other language: every assertion carries enough context
-that the CI log alone is diagnosable.
+pytest's assertion rewriting already prints both sides of a bare
+`assert a == b`. The message is for what the operands cannot say:
+which project, which fixture, what the value means. Every assertion
+carries enough context that the CI log alone is diagnosable.
 
 
 ## 6. Performance / determinism
 
 - **Deterministic.** No `random.random()`, no time-of-day. If
   randomness is genuinely needed, seed it with a fixed value.
-- **Fast.** Target < 100 ms each for `LABELS fast`. Move slower
-  tests to `LABELS perf` or `LABELS integration`.
+- **Fast.** Target < 100 ms each for an unmarked test. Mark a
+  slower one `integration` (§3.3), or `perf` once registered (§3.4);
+  `./scripts/local-ci.sh --fast` skips `integration`.
 - **Isolated.** No shared state between tests; one failing test
   doesn't poison another.
 - **No network unless opt-in.** A test that hits the network
-  needs `LABELS network` and an env-var gate (e.g.
-  `ANTS_TEST_NETWORK=1`).
+  needs a registered `network` marker and an env-var gate (e.g.
+  `LWSM_TEST_NETWORK=1`).
 
 
 ## 7. Coverage policy
@@ -326,10 +322,10 @@ prefix. With the `<ID>: <description>` mandate from
 [commits § 1.1](commits.md):
 
 ```
-ANTS-1234: lock the OSC 8 multi-row span emission
+LWSM-1234: lock the scanner's refusal of a symlinked launcher
 
-Adds INV-7c to tests/features/osc8_hyperlinks/spec.md and the
-corresponding assertion in test_osc8_hyperlinks.cpp.
+Adds INV-20 to docs/specs/LWSM-1006-scanner-detection.md and the
+corresponding test in tests/test_scanner.py.
 
 Co-Authored-By: …
 ```

@@ -48,7 +48,7 @@ Three consequences:
    `QT_QPA_PLATFORM=offscreen`, so the headless lane exists and has never
    carried a test.
 
-## 3. Scope decisions (and who made each)
+## 3. Scope decisions (agreed with the user)
 
 - **Two states, and the collapse is deliberate.** The roadmap bullet asks
   for `running` and `stopped` only. With no `Supervisor` there is never an
@@ -1420,40 +1420,7 @@ empty return, the suite is run red, and only then is the body written.
 - The remaining themes, the text-size control and the T8 test surfaces —
   LWSM-1031, LWSM-1032.
 
-## 10. Resource cost
-
-No new dependency: `PySide6==6.11.1` and `psutil==7.2.2` are already
-pinned in `pyproject.toml` and were unused. One `PortSnapshot` per tick,
-holding a `frozenset[int]` of the machine's listening ports and discarded
-on the next tick — no accumulation. (The count is not stated: two
-measurements minutes apart on an idle machine gave 9 and 12, so it is a
-property of the machine at an instant, not a figure this spec can assert.)
-The controller holds one `dict[Path, ProjectStatus]` sized by the record
-count, and the window holds one widget per record, created once. No new
-build target. One `_SnapshotTask` per tick, deleted by the pool as `run()`
-returns, and one `_SnapshotSignals` for the controller's whole life rather
-than one per task; at most one task is outstanding (INV-12), so the ceiling
-is one task, not one per tick elapsed.
-
-That ceiling was **asserted here and not delivered** until LWSM-1098's
-sibling fix. A per-task signaller had to outlive `run()` for its queued
-emission to survive, which forced `setAutoDelete(False)` — and
-`QThreadPool.start()` has already transferred ownership to C++, so clearing
-the controller's own reference freed nothing. Measured: 200 live
-`_SnapshotTask` objects after 200 completed polls, one per tick, ~2.5 KiB
-each — about 210 MiB/day at the 1000 ms interval, plus a connection list
-growing without bound behind each retained signaller. Moving the signaller
-onto the controller is what lets `autoDelete` stay on.
-`test_completed_tasks_do_not_accumulate` now holds the claim.
-
-Amended 2026-08-20 (LWSM-1158): that test asserts a ceiling of **zero**, not
-one. It drains the pool with `controller.stop()` before counting, which ends
-the window INV-12 bounds, and it counts only objects whose **C++** side is
-still alive. `gc.get_objects()` alone also counts PySide's own reference to
-every runnable handed to `QThreadPool.start()` — held inside the pool and
-purged lazily — which is what made the test fail on a loaded machine.
-
-## 11. What checks this
+## 10. What checks this
 
 | Rule | What catches a breach |
 |------|----------------------|
@@ -1512,7 +1479,7 @@ when they landed and this section was not — so the number was wrong by two, an
 a count re-asserted rather than re-derived is how it stayed wrong. Recomputed
 from the rows above, not carried forward.
 
-## 12. Cross-doc impact
+## 11. Cross-doc impact
 
 - `CHANGELOG.md` — an Added entry for the window and the status row.
 - `CLAUDE.md § Module map` — five new modules and the core/UI split rule as
@@ -1541,10 +1508,43 @@ from the rows above, not carried forward.
   it". P02 writes it: `registry.py::default_projects_path`. The sentence
   becomes stale the moment this ships and should name P02.
 
-## 13. Cold-eyes loop log
+## 12. Cold-eyes loop log
 
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
 | 1 | 2026-08-06 | 2 | 2 | 6 | 8 | 10 | 26 verified, 0 unverified, 26 fixed. Dimensions: dim 2×6, dim 5×6, dim 7×6, dim 15×4, dim 4×3, dim 6×2, dim 10×2, dim 1×1. Both CRITICALs were doc-vs-design conflicts: the probe ran on the UI thread against `design.md § State management`'s worker rule, and INV-4 forbade the very carry-over §6 required on a failed probe. Contract added: `ProjectStatus.UNKNOWN`, `RowView`, the worker + in-flight skip, in-place row updates. INV-3 and INV-8 split because each claimed more than its named test exercised. 391 → 684 lines. |
 | 2 | 2026-08-06 | 2 | 1 | 8 | 12 | 12 | 25 verified (18 fix collateral from loop 1, 7 draft defects), 0 unverified, 25 fixed. Dimensions: dim 15×7, dim 5×6, dim 7×5, dim 4×4, dim 10×3, dim 2×2, dim 1×1, dim 6×1, dim 12×1. Two invariants could not fail for the breach they named: INV-4's fresh-controller fixture passes under a sticky implementation, and INV-11 named `psutil` and `MainWindow`, neither of which its fixture has. `QRunnable` cannot carry a `Signal` — `issubclass(QRunnable, QObject)` is `False`, verified — so the worker became `_SnapshotTask(QObject, QRunnable)`. Both lanes agreed the XDG citation was wrong and both named the wrong replacement (`§ O6`); verification found `§ O3`. `nothing` rows 4 → 6 once promises that only looked covered were separated. 684 → 833 lines. |
 | 3 | 2026-08-06 | 1 | 0 | 3 | 5 | 5 | 13 verified, 0 unverified, 13 fixed. Almost all fix collateral from loops 1–2, which is why one lane rather than two. The lane named the check this run owed itself: loop 2 prescribed `_SnapshotTask(QObject, QRunnable)` **without executing it**. Executed here — both that shape *and* a plain `QRunnable` with a composed signaller work under 6.11.1, so the lane's premise (Shiboken forbids it) was wrong while its advice was right; the composed signaller is adopted as the documented idiom. Also caught: the accessible name would have included the `●` glyph and announced "black circle"; INV-15 named a test that could not observe it, since `main` blocks in `app.exec()` — `build_window` is the seam that fixes it. Added INV-16 (shutdown waits for the outstanding task). `nothing` rows 6 → 8, two of them unowned. 833 → 921 lines. **Converged by cap.** No verified finding is left unfixed. |
+
+## 13. Resource cost
+
+No new dependency: `PySide6==6.11.1` and `psutil==7.2.2` are already
+pinned in `pyproject.toml` and were unused. One `PortSnapshot` per tick,
+holding a `frozenset[int]` of the machine's listening ports and discarded
+on the next tick — no accumulation. (The count is not stated: two
+measurements minutes apart on an idle machine gave 9 and 12, so it is a
+property of the machine at an instant, not a figure this spec can assert.)
+The controller holds one `dict[Path, ProjectStatus]` sized by the record
+count, and the window holds one widget per record, created once. No new
+build target. One `_SnapshotTask` per tick, deleted by the pool as `run()`
+returns, and one `_SnapshotSignals` for the controller's whole life rather
+than one per task; at most one task is outstanding (INV-12), so the ceiling
+is one task, not one per tick elapsed.
+
+That ceiling was **asserted here and not delivered** until LWSM-1098's
+sibling fix. A per-task signaller had to outlive `run()` for its queued
+emission to survive, which forced `setAutoDelete(False)` — and
+`QThreadPool.start()` has already transferred ownership to C++, so clearing
+the controller's own reference freed nothing. Measured: 200 live
+`_SnapshotTask` objects after 200 completed polls, one per tick, ~2.5 KiB
+each — about 210 MiB/day at the 1000 ms interval, plus a connection list
+growing without bound behind each retained signaller. Moving the signaller
+onto the controller is what lets `autoDelete` stay on.
+`test_completed_tasks_do_not_accumulate` now holds the claim.
+
+Amended 2026-08-20 (LWSM-1158): that test asserts a ceiling of **zero**, not
+one. It drains the pool with `controller.stop()` before counting, which ends
+the window INV-12 bounds, and it counts only objects whose **C++** side is
+still alive. `gc.get_objects()` alone also counts PySide's own reference to
+every runnable handed to `QThreadPool.start()` — held inside the pool and
+purged lazily — which is what made the test fail on a loaded machine.

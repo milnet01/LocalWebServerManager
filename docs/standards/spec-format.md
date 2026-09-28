@@ -57,8 +57,8 @@ The gate catches everything countable. These are what it cannot:
 8. Does the **What checks this** table say `nothing` where that is the
    truth, rather than naming a catcher that does not really catch it?
    (§3.12)
-9. `/doc-lint` `size` reports the line count — given it, **is the split worth
-   it**? (§5.4)
+9. `spec_lint` reports the line count as `line_count` — given it, **is the
+   split worth it**? (§5.4)
 10. Does every plan step have an **observable** verification? (§8)
 
 ### The one number that matters
@@ -110,6 +110,34 @@ docs/plans/<ID>-<topic>.md    the build steps
 In this order. Skip a section only when it would be empty, and **say so**
 rather than leaving a bare heading — an omitted section reads as an
 oversight, an explicit "none" reads as a decision.
+
+**A finished spec numbers these twelve 1–12, with exactly these headings,
+and appends §4's recommended sections after them from 13.** A required
+section's number is part of its identity: an optional one inside the run
+shifts every heading after it. `spec_lint` reads the block below
+**verbatim, numbers included**, so a heading reworded or renumbered is
+reported missing. §9 maps these headings to this section's §3.N rules.
+
+<!-- required-sections -->
+```
+## 1. Goal
+## 2. Problem
+## 3. Scope decisions (agreed with the user)
+## 4. Design
+## 5. Invariants
+## 6. Failure modes
+## 7. Tests
+## 8. Alternatives considered (and rejected)
+## 9. Out of scope
+## 10. What checks this
+## 11. Cross-doc impact
+## 12. Cold-eyes loop log
+```
+
+**`Cold-eyes` in the last heading is a retained name — do not rename it.**
+`/cold-eyes` became `review-contract` on 2026-08-12 and the heading
+deliberately kept its name; renaming it here alone would fail every
+existing spec against this block.
 
 ### 3.1 Title
 
@@ -267,7 +295,8 @@ CHANGELOG, README, sibling specs.
 
 ## 4. Recommended sections
 
-Add when they carry weight:
+Add when they carry weight, **after §3's twelve, numbered from 13** — never
+interleaved, for the reason §3 gives:
 
 - **Resource cost** — required for any feature that holds state or adds a
   build target. State the memory budget and eviction policy at design
@@ -301,7 +330,7 @@ second copy of the one-copy rule would be its own counterexample.
 
 Spec-side application: when a review's findings are mostly "§A and §B
 disagree", delete N−1 and leave a pointer rather than reconciling the
-copies. `/cold-eyes` Phase 4 explains why that shortens the whole run.
+copies. `review-contract` Phase 4 explains why that shortens the whole run.
 
 ### 5.3 Brevity
 
@@ -311,13 +340,13 @@ the code it specifies.
 
 ### 5.4 Size gate — split before reviewing
 
-Before the first review pass, size the spec honestly. `/cold-eyes`
-converges in one to three loops by design, with five as a runaway guard.
-A spec that needs more than that is larger than the review's design point,
-and the correct response is to split it — not to keep looping.
+Before the first review pass, size the spec honestly. `review-contract`
+stops a spec at two loops (its § At the cap), converged or not. A spec
+that cannot converge inside that is larger than the review's design point,
+and the correct response is to split it — not to review it again.
 
-`/doc-lint` `size` reports each doc's line count and carries the evidence for
-why an oversized spec costs more loops than it saves. If your spec is in
+`spec_lint` reports each spec's line count as `line_count`; nothing judges
+whether it is too big. If your spec is in
 that territory, split it along the seams in §3.6 and give each part its own
 id — splitting before the first review is cheap; splitting at loop eight
 means eight loops were wasted.
@@ -339,8 +368,9 @@ plain-English **Layman:** gloss so a non-technical reader can follow the
 ### 5.7 Escalation — the same class twice becomes a check
 
 When a reviewer or a human catches the same *class* of defect twice, it
-stops being a review finding and becomes a mechanical check: add it to
-`/doc-lint`'s `references/checks.md`.
+stops being a review finding and becomes a mechanical check: propose it for
+`check-doc-facts`' catalogue, `references/checks.md`, which the `~/.claude`
+session owns.
 
 The general rule, and the cheapest-first table of catchers it rests on,
 live in `documentation.md` §8.2 — this section is the spec-side pointer at
@@ -353,9 +383,9 @@ loops — in this standard, and in the first spec to adopt it. Not bad luck: a
 hand-maintained number nobody recomputes is a number that drifts, and the
 failure is invisible because a wrong count reads exactly like a right one.
 
-So it is now a `/doc-lint` `what-checks-this` check, along with two siblings: no cell may
-blur a named catcher and a `nothing`, and no cell may name a `/doc-lint` check that
-`/doc-lint` does not contain. That third one is the important one — an invented
+So it is now a `check-doc-facts` `what-checks-this` check, along with two siblings: no cell may
+blur a named catcher and a `nothing`, and no cell may name a `check-doc-facts` check that
+`check-doc-facts` does not contain. That third one is the important one — an invented
 catcher is precisely the defect the table exists to prevent, and it was
 found twice.
 
@@ -364,9 +394,10 @@ unverifiable is a wish wearing a table's clothes.
 
 ## 6. Review gate
 
-Every spec runs through `/cold-eyes` before implementation, looped until it
-converges. The skill owns the procedure — the loop, the per-loop severity
-tally, the definition of convergence, and the post-fix blast-radius check.
+A spec gated under `CLAUDE.md` § Review cadence runs through
+`review-contract`, looped until it converges or reaches its cap. The skill
+owns the procedure — the loop, the per-loop tally, the definition of
+convergence, and the post-fix blast-radius check.
 **This standard does not restate those rules** (§5.2); read the skill.
 
 `documentation.md` §8.1 owns the loop-log requirements — that it is written
@@ -376,7 +407,7 @@ gate. They apply to a spec unchanged.
 
 One spec-side specific: `spec_log op:append_loop` writes **bullet** form. If
 the spec's log is a table (as the skeleton ships), add the row with `Edit`
-instead — mixing the two makes the row unreadable to `/doc-lint`'s `loop-log` check.
+instead — mixing the two makes the row unreadable to `check-doc-facts`' `loop-log` check.
 
 ## 7. Machine-readability
 
@@ -387,7 +418,7 @@ parseable, keep the H1 as `# <PREFIX>-NNNN — title`, the `**Status:**` and
 bullet form `- **INV-N** — body` with a `*Test:*` clause.
 
 Where `spec_query` is available (it is an Ants MCP verb, so not every
-project has it), `/doc-lint`'s `structure` check runs it against the draft and confirms the
+project has it), `check-doc-facts`' `structure` check runs it against the draft and confirms the
 title, status, kind and every invariant come back. Without the MCP this
 rule has no mechanical catcher — the format still applies, but nothing
 enforces it.
@@ -434,13 +465,10 @@ nested inside §3 *Required spec structure*. A finished spec uses the
 skeleton's numbering. When citing a rule *about* specs, cite this file's
 §3.N; when citing a section *of* a spec, use that spec's own number.
 
-The mapping is **not a fixed offset**. It runs skeleton §1 ↔ §3.3 through
-skeleton §9 ↔ §3.11, then the skeleton inserts *Resource cost* — a §4
-recommended section, not a §3 required one — at its §10, so everything after
-shifts by one more (skeleton §11 ↔ §3.12, §12 ↔ §3.13). The skeleton's last
-section, §13 *Cold-eyes loop log*, has no §3.N counterpart at all — the loop
-log is governed by §6, not by the required-structure list. Count the mapping,
-don't compute it.
+The mapping runs skeleton §1 ↔ §3.3 through skeleton §11 ↔ §3.13. Skeleton
+§12, *Cold-eyes loop log*, has no §3.N counterpart — the loop log is
+governed by §6. Everything from skeleton §13 on is a §4 recommended
+section.
 
 ## What checks this
 
@@ -448,20 +476,20 @@ Unnumbered because this is a standard — see `documentation.md` §1.8.
 
 | Rule | What catches a breach |
 |------|----------------------|
-| §3.1–3.2 title / Status / Kind shape, where the Ants MCP is present | `/doc-lint` `structure` (via `spec_query`) |
+| §3.1–3.2 title / Status / Kind shape, where the Ants MCP is present | `check-doc-facts` `structure` (via `spec_query`) |
 | §3.1–3.2 the same, where it is not | **nothing** — the format still applies, but no verb enforces it |
-| §3.7 `INV-N` ids contiguous, no gaps | `/doc-lint` `structure` |
-| §3.7 no `INV-N` id reused | **nothing mechanical** — `/doc-lint` `structure` checks for *gaps*, which a duplicate does not create; a cold reader or `spec_query`'s returned invariant list read by eye |
-| §3.7 every INV names a test surface | `/doc-lint` `contract` |
-| §3.7 a command `*Test:*` states its expected output | `/doc-lint` `contract`, as a *candidate* — "is this clause a command?" is a heuristic, so the check produces the short list and a lane makes the call |
-| §3.7 every INV names its breaking input — the clause is present | `/doc-lint` `contract` |
+| §3.7 `INV-N` ids contiguous, no gaps | `check-doc-facts` `structure` |
+| §3.7 no `INV-N` id reused | **nothing mechanical** — `check-doc-facts` `structure` checks for *gaps*, which a duplicate does not create; a cold reader or `spec_query`'s returned invariant list read by eye |
+| §3.7 every INV names a test surface | `check-doc-facts` `contract` |
+| §3.7 a command `*Test:*` states its expected output | `check-doc-facts` `contract`, as a *candidate* — "is this clause a command?" is a heuristic, so the check produces the short list and a lane makes the call |
+| §3.7 every INV names its breaking input — the clause is present | `check-doc-facts` `contract` |
 | §3.7 that clause being honest rather than decorative | **nothing mechanical** — a cold reader |
-| §5.1 no `path:line` citations | `/doc-lint` `links` |
-| §5.1 cited symbols exist | `/doc-lint` `symbols` produces the unresolved list; **defect-vs-forward-reference is a lane's judgement**, not the check's |
-| §5.2 one fact, one place | **nothing mechanical** — `/cold-eyes` Phase 4 diagnoses it from the finding pattern |
-| §5.4 size gate | `/doc-lint` `size` emits the line count |
-| §6 loop log present, every row has an outcome | `/doc-lint` `loop-log` |
-| §3.12 every spec carries a What-checks-this table | `/doc-lint` `sections`, which reads this file's §3 list |
+| §5.1 no `path:line` citations | `check-doc-facts` `paths` |
+| §5.1 cited symbols exist | `check-doc-facts` `symbols` produces the unresolved list; **defect-vs-forward-reference is a lane's judgement**, not the check's |
+| §5.2 one fact, one place | **nothing mechanical** — `review-contract` Phase 4 diagnoses it from the finding pattern |
+| §5.4 size gate | `spec_lint` emits the line count as `line_count` |
+| §6 loop log present, every row has an outcome | `check-doc-facts` `loop-log` |
+| §3 the twelve required sections present and numbered, §3.12's table among them | `spec_lint` `missing_section`, which reads §3's `required-sections` block |
 | §8 every plan step has a verification | **nothing mechanical** — a cold reader |
 
 Fifteen rows, **five** with a bolded `nothing` — the metric §0 defines. That
