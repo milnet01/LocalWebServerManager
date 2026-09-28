@@ -11,6 +11,7 @@ import atexit
 import logging
 import os
 import sys
+from collections.abc import Collection
 from concurrent.futures import Future
 from dataclasses import dataclass
 from enum import StrEnum
@@ -238,7 +239,7 @@ class SupportsSupervision(Protocol):
 
     def stop_async(self, project: Path) -> Future[StopOutcome]: ...
 
-    def running(self) -> dict[Path, ManagedProcess]: ...
+    def running(self) -> Collection[Path]: ...
 
     def owns_pid(self, project: Path, pid: int) -> bool: ...
 

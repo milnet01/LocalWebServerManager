@@ -8951,7 +8951,7 @@ O8` forbids retrofitting that.
   Source: code-quality-review-2026-08-15 lane-1 (known-issue-037).
   Lanes: core.
 
-- 📋 [LWSM-1321] **Known-issues batch (supervisor): six deferred findings still live.**
+- ✅ [LWSM-1321] **Known-issues batch (supervisor): six deferred findings still live.**
   Re-triaged 2026-09-28 against the code; each was deferred to a phase
   that no longer exists.
   1. known-issue-040 (MEDIUM): a process that survives SIGKILL is
@@ -8962,6 +8962,16 @@ O8` forbids retrofitting that.
   4. 056d: Supervisor.start's docstring omits Popen's OSError.
   5. 056e: running() hands out live log fds and Popen handles.
   6. 056g: build_child_env has no PATH fallback when PATH is unset.
+  Shipped 2026-09-28 via close-findings; all six fixed, none queued or
+  dismissed. (1) 040: stop() records group members alive after the SIGKILL
+  wait in _Registry.stragglers while still holding the stopping key; start()
+  refuses AlreadyRunning while any is alive and drops them once none is.
+  Red first (DID NOT RAISE). (2) _alive: AccessDenied counts as alive.
+  (3) _launcher_bytes reads to EOF or cap+1. (4) start's docstring names
+  Popen's OSError. (5) running() returns frozenset[Path]; the supervisor's
+  own reaper uses _entries(); the controller protocol is Collection[Path].
+  (6) build_child_env sets PATH to os.defpath when absent. Four mutants,
+  one per behavioural fix, all killed; no orphan processes after the suite.
   **Layman:** Small leftover problems in the part that starts and stops servers, found in August and never picked up.
   Kind: review-fix.
   Source: known-issues re-triage 2026-09-28.

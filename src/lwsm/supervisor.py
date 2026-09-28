@@ -386,6 +386,10 @@ def build_child_env(
         for key, value in source.items()
         if key in ENV_ALLOWLIST or key.startswith(ENV_ALLOW_PREFIXES)
     }
+    # A launcher and everything it runs resolve commands against PATH. Where
+    # the manager itself was started without one, the child gets the system
+    # default rather than none (known-issue-056, LWSM-1321).
+    env.setdefault("PATH", os.defpath)
     if port is not None:
         env["PORT"] = str(port)
     # ADR-0006: a presentation hint with no security value. It is unauthenticated
@@ -634,7 +638,15 @@ def _launcher_bytes(path: Path) -> bytes | None:
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             return None
-        data = os.read(fd, MAX_LAUNCHER_BYTES + 1)
+        # Read to EOF or one past the cap. A single `os.read` may return short,
+        # which would hash a prefix as though it were the file
+        # (known-issue-056, LWSM-1321).
+        data = b""
+        while len(data) <= MAX_LAUNCHER_BYTES:
+            chunk = os.read(fd, MAX_LAUNCHER_BYTES + 1 - len(data))
+            if not chunk:
+                break
+            data += chunk
     except OSError:
         return None
     finally:
@@ -665,6 +677,12 @@ def _alive(proc: psutil.Process) -> bool:
     """
     try:
         return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
+    except psutil.AccessDenied:
+        # Running, but its status cannot be read (hidepid, an LSM). Counting it
+        # as dead let the stop loop give up early on a process that is still
+        # there; counting it as alive costs at most the rest of the wait
+        # (known-issue-056, LWSM-1321).
+        return True
     except psutil.Error:
         return False
     except OSError:
@@ -692,6 +710,12 @@ class _Registry:
     # kill and reap window with the lock released, so `processes` alone cannot
     # answer "is one already on its way OUT?" either.
     stopping: set[Path] = field(default_factory=set)
+    # Processes still in a project's group after its stop's SIGKILL wait
+    # (known-issue-040, LWSM-1321). A process in uninterruptible sleep outlives
+    # SIGKILL for as long as its I/O takes, and forgetting it let the next
+    # `start()` spawn a second server beside one that could still hold the
+    # port. `start()` refuses while any is alive and drops them once none is.
+    stragglers: dict[Path, list[psutil.Process]] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -848,7 +872,9 @@ class Supervisor:
         """Spawn `argv` in its own session, with the port pre-flight first.
 
         Raises `PortAlreadyBound`, `LauncherRefused`, `LauncherUntrusted`,
-        `AlreadyRunning`, or `OSError` if the log cannot be opened. A
+        `AlreadyRunning`, or `OSError` if the log cannot be opened or the
+        launcher cannot be executed (`Popen` raises it for a missing or
+        non-executable file, or an unrecognised binary format). A
         `ProbeError` from the pre-flight propagates unchanged: a socket table we
         could not read is not evidence the port is free, and it is not evidence
         it is taken either — the caller decides, and the app log already carries
@@ -878,6 +904,18 @@ class Supervisor:
                 # and `_port_after_stop` reports the manager's own server as
                 # one it did not start.
                 raise AlreadyRunning(f"{name} is still stopping")
+            left = [
+                proc
+                for proc in self._registry.stragglers.pop(resolved_project, [])
+                if _alive(proc)
+            ]
+            if left:
+                self._registry.stragglers[resolved_project] = left
+                pids = ", ".join(str(proc.pid) for proc in left)
+                raise AlreadyRunning(
+                    f"{name}: {len(left)} process(es) survived the last stop and "
+                    f"are still running: {pids}"
+                )
             self._registry.starting.add(resolved_project)
 
         try:
@@ -1018,7 +1056,7 @@ class Supervisor:
             return StopOutcome()
 
         try:
-            return self._stop_sequence(managed, grace, _on_wait)
+            return self._stop_sequence(key, managed, grace, _on_wait)
         except SupervisorError:
             # The self-group refusal fires before anything is signalled, and
             # the entry was popped above. Put it back, or the child is
@@ -1032,6 +1070,7 @@ class Supervisor:
 
     def _stop_sequence(
         self,
+        key: Path,
         managed: ManagedProcess,
         grace: float,
         _on_wait: Callable[[], None] | None,
@@ -1094,7 +1133,13 @@ class Supervisor:
         # same hole one phase along. Nothing is signalled for these: they are
         # reported, the way a still-bound port is (`_port_after_stop`), so a
         # stop that could not finish the job says so instead of claiming it.
-        stragglers = [proc.pid for proc in self._group_members(managed)]
+        left = self._group_members(managed)
+        stragglers = [proc.pid for proc in left]
+        if left:
+            # Recorded while `stop()` still holds the key in `stopping`, so no
+            # `start()` can slip between the two.
+            with self._registry.lock:
+                self._registry.stragglers[key] = left
 
         exit_code = self._reap(managed)
         bound, warning = self._port_after_stop(managed)
@@ -1310,7 +1355,7 @@ class Supervisor:
         is left entirely alone rather than reaped twice (LWSM-1138).
         """
         collected: dict[Path, int | None] = {}
-        for project, managed in self.running().items():
+        for project, managed in self._entries().items():
             if _alive(managed.handle):
                 continue
             if self._group_members(managed):
@@ -1333,7 +1378,17 @@ class Supervisor:
         with self._registry.lock:
             return self._registry.processes.get(Path(project).resolve())
 
-    def running(self) -> dict[Path, ManagedProcess]:
+    def running(self) -> frozenset[Path]:
+        """The projects this manager holds a child for.
+
+        Paths only. The entries hold a live log descriptor and a `Popen`, and a
+        caller closing the one or waiting on the other would break the stop
+        sequence's ownership of both (known-issue-056, LWSM-1321).
+        """
+        with self._registry.lock:
+            return frozenset(self._registry.processes)
+
+    def _entries(self) -> dict[Path, ManagedProcess]:
         with self._registry.lock:
             return dict(self._registry.processes)
 

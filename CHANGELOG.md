@@ -321,6 +321,14 @@ signaling per
 
 ### Fixed
 
+- **Starting a project again no longer launches a second server beside part of the old one that refused to die.** (LWSM-1321)
+  A process can outlive a forced kill while it waits on slow disk I/O.
+  The app used to forget it and let Start launch a second copy; Start now
+  refuses, naming the process, until it is gone. Also: a server is still
+  counted as running when the system hides its details, launchers are
+  read whole before being fingerprinted, and a project started from a
+  session with no PATH still finds its tools.
+
 - **The Graphite theme's keyboard focus outline is now clearly visible** (LWSM-1238)
   The outline around a focused button was too faint against Graphite's dark
   buttons. Graphite's accent colour is now a lighter blue of the same hue.

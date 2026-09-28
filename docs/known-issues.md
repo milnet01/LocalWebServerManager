@@ -1015,6 +1015,8 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** P05, after LWSM-1137
 - **Logged:** 2026-08-15
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1321.**
+- **Resolved 2026-09-28 by LWSM-1321:** the survivors are kept, and
+  `start()` refuses while any is alive.
 
 ## known-issue-041 — `StopOutcome` cannot report that a SIGKILL failed
 
@@ -1331,3 +1333,6 @@ the phase that owns the code. Owners are named, not implied.
   **LWSM-1274**; the payload comprehension outside the `try` by
   **LWSM-1272**. The rest of this entry stands.
 - **Re-triaged 2026-09-28**, item by item. Resolved: the rotation write and the payload comprehension (already marked above), the unreachable `except` (kept on purpose, LWSM-1217), the button minimum size (LWSM-1032) and `_should_write`'s comparison (LWSM-1166). Still live: supervisor items → LWSM-1321; registry items → LWSM-1322; UI items → LWSM-1323; `wait_for_abandoned_probes` → LWSM-1275; `TrustStore.revoke` → LWSM-1319.
+- **Resolved 2026-09-28 by LWSM-1321:** the five supervisor items —
+  `_alive` on AccessDenied, the single `os.read`, `start`'s docstring,
+  `running()` handing out live entries, and the missing PATH fallback.
