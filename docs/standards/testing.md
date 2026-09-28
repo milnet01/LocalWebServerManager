@@ -131,14 +131,14 @@ touch.
 If the test passes on broken code, it's not testing what you
 think. Rewrite it.
 
-### 2.3 Spec first, then test
+### 2.3 The spec is the contract
 
-For feature-conformance tests: write `spec.md` first as a
-human-readable contract. Get user sign-off on the spec. Then
-write the test that enforces each invariant.
+For feature-conformance tests the contract is the item's spec in
+`docs/specs/`, where it has one. Whether it is written before the
+code or folded back after is `CLAUDE.md` § Review cadence's call.
 
-The test references the spec by section: `// INV-3 from
-spec.md § 2.1`. Reader can move between spec and test fluidly.
+The test names the invariant it enforces, in its name or docstring:
+`INV-3 of LWSM-1006`. Reader can move between spec and test fluidly.
 
 
 ## 3. Test types
@@ -232,42 +232,11 @@ mechanism found once is served by the grep and the commit line.
   § 7 are discharged only for those sites.
 
 
-## 4. spec.md authoring
+## 4. Writing the invariants
 
-```markdown
-# <feature> spec
-
-**Theme:** one-line summary.
-
-## Invariants
-
-- **INV-1**: <observable behaviour, written as an assertion>.
-  Source: RFC X.Y.Z § 4.5.
-- **INV-2**: <observable behaviour>. Source: user report
-  YYYY-MM-DD.
-- **INV-3**: <observable behaviour>. Source: derived from INV-1
-  and INV-2.
-
-## Out of scope
-
-What this feature explicitly does *not* do. (An empty section is
-fine; the heading itself is a useful question to answer.)
-```
-
-INV numbering:
-
-- Top-level: `INV-1`, `INV-2`, `INV-3`, …
-- Sub-invariants: `INV-1a`, `INV-1b`, … (when one invariant has
-  multiple sub-cases differing only in a parameter).
-
-INVs are **append-only** within a spec. Don't renumber when
-inserting — add `INV-1c` for a new sub-case after `INV-1b`. Same
-policy as ROADMAP IDs.
-
-When a spec invariant is dropped (the feature decision changed),
-mark the INV as `**INV-3** (retired in 0.7.21): <reason>` rather
-than deleting it — that preserves the cross-reference from old
-test code and commit messages.
+`spec-format.md` §3.7 owns the invariant form: numbering, the
+`*Test:*` clause, and how a dead invariant is withdrawn without
+renumbering.
 
 
 ## 5. Test failure messages
