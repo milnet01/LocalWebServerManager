@@ -585,8 +585,8 @@ Added at P02 (LWSM-1005), contract in
   `placement_available`, `position_is_readable`, `kwin_script`,
   `run_kwin_script`, `place_window`. Added by LWSM-1033; the technique is
   transcribed from `OneUp/oneup/gui/placement.py`, **not** the
-  `OneUp/updater.py` lines ADR-0007 cites, which no longer resolve (DS01,
-  scheduled with P10). **Restoring a position and centring are one operation
+  `OneUp/updater.py` lines ADR-0007 once cited, which stopped resolving and
+  were removed (LWSM-1060). **Restoring a position and centring are one operation
   with two targets**, so both go through `place_window` and the clamp cannot
   be forgotten by either. **Setting a position and READING one are not
   symmetric** — see the Wayland trap below, which is the item's whole shape.

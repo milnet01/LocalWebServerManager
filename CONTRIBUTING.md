@@ -91,9 +91,8 @@ before review.
 
 ## Code of conduct
 
-Be respectful. Disagreements are fine; personal attacks are
-not. The project maintainer reserves the right to close issues
-or PRs that violate this.
+This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md).
+Report a problem privately through the channel it names.
 
 ## Questions
 

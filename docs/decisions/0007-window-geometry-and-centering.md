@@ -21,8 +21,7 @@ assert "we called move()" pass, and the window does not move.
 Three sibling projects on this machine have already hit this, and
 the user pointed at them rather than letting it be rediscovered:
 `SystemManager`, `finbreak` and `OneUp`. **`OneUp` carries the
-working solution for centring** — `OneUp/updater.py:1932-1966` —
-and it is worth stating why it works rather than merely copying
+working solution for centring**, and it is worth stating why it works rather than merely copying
 it: KDE exposes a scripting interface over D-Bus, and a script
 running *inside* KWin **is** the compositor, so it may place
 windows. The app asks; the compositor acts.
@@ -31,7 +30,7 @@ windows. The app asks; the compositor acts.
 user reports (2026-08-03) that OneUp does not reopen in its last
 position. That is the same limitation showing through from the
 other side: OneUp persists geometry with
-`saveGeometry()`/`restoreGeometry()` (`updater.py:1902`), whose
+`saveGeometry()`/`restoreGeometry()`, whose
 position component Wayland discards exactly as it discards
 `move()`. Size comes back; position does not.
 
@@ -116,7 +115,7 @@ centre, so there is one code path and one set of failure modes.
   between writing it and KWin reading it.
 - Platform is detected by `XDG_SESSION_TYPE == "wayland"`, **or by
   `WAYLAND_DISPLAY` being set to a non-empty value**. This started as
-  the single test OneUp uses (`updater.py:541`); amended after
+  the single test OneUp uses; amended after
   LWSM-1239 measured that one variable is not enough. It is routinely
   absent — this project's own `conftest.py` pins it *because* the CI
   runner has it unset — and absent read as X11, so a `systemd --user`
@@ -143,9 +142,9 @@ matters asserts the window *ends up* at the requested
 coordinates, never that `move()` or `dbus-send` was called. A
 test asserting the call is exactly the test that passes while
 OneUp's window opens in the wrong place — the failure this ADR
-exists to avoid. OneUp's own suite shows the shape to follow:
-`OneUp/tests/gui-smoke.py:282-305` drives both session types by
-setting `XDG_SESSION_TYPE` and asserts the resulting geometry.
+exists to avoid. OneUp's own GUI smoke test shows the shape to follow: it drives
+both session types by setting `XDG_SESSION_TYPE` and asserts the
+resulting geometry.
 
 **Driving one variable is not sufficient, and LWSM-1239 is why.**
 A verification that sets `XDG_SESSION_TYPE` alone leaves the second
@@ -262,8 +261,9 @@ the app to own a D-Bus service for a KWin script to call back into,
 which was put to the user on 2026-08-21 and declined in favour of the
 honest limit; if it is ever wanted, that is the shape.
 
-**One citation note.** The four `OneUp/updater.py` line references
-above no longer resolve — that file is 21 lines now and the working
-code is at `OneUp/oneup/gui/placement.py`. Already filed as roadmap
-debt (DS01, scheduled with P10) and left for it rather than fixed
-here.
+**One citation note.** OneUp is a sibling project outside this
+repository, so this ADR names what it does rather than citing its
+lines, which a reader of this repository cannot open. Its line
+references were removed on 2026-09-28 (LWSM-1060) after they stopped
+resolving; the placement code this ADR describes now lives in
+OneUp's `oneup/gui/placement.py`.

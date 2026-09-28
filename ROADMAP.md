@@ -9853,7 +9853,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   markers are in use, and conftest.py sets QT_QPA_PLATFORM=offscreen. No
   code changed today.
 
-- 📋 [LWSM-1060] **DS01: three agreed doc tasks exist only in a session journal.**
+- ✅ [LWSM-1060] **DS01: three agreed doc tasks exist only in a session journal.**
   `docs/journal/workflow-state-to-2026-09-28.md` § 3 (was
   `.claude/workflow.md`) records three decisions the user took on
   2026-08-06 that are in no roadmap item: a `SECURITY.md` pointing at
@@ -9884,6 +9884,15 @@ open DS01 debt-sweep items, and the open FP02 review items.
   **One correction to the bullet body:** it says these are "in no roadmap
   item", which stopped being true the moment this bullet was written. Left as
   filed — it is a dated record of the state that justified filing.
+  Resolved 2026-09-28, all three. SECURITY.md sends reports to GitHub's
+  private advisory form, which was switched on today at the user's say-so
+  (gh api private-vulnerability-reporting reads enabled:true).
+  CODE_OF_CONDUCT.md is the Contributor Covenant 2.1 text fetched from
+  the EthicalSource repository, with only its contact placeholder filled.
+  Following finbreak (FIBR-0237), no email address is published; the
+  user asked for the sibling projects' practice. CONTRIBUTING's homemade
+  paragraph now points at it. ADR-0007's OneUp line citations are gone,
+  with the technique kept in the prose.
 
 - 📋 [LWSM-1061] **DS01: `spec-format.md` has no required-sections block, so that check never runs.**
   `spec_lint` only runs its `missing_section` check when the
