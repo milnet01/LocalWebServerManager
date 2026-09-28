@@ -55,10 +55,20 @@ disagreement is reported.**
     listed. If a user override exists for the field that moved,
     the override stays in force and the row is flagged
     *override differs from detected*, so a stale override is
-    visible instead of mysterious.
+    visible instead of mysterious. **An unknown is not a change**
+    (LWSM-1131 § 4.1): a rescan that cannot tell a project's port
+    keeps the stored port rather than erasing it. `port` is the only
+    detected field with an unknown value; for the others a
+    completed scan's value always wins.
   - **Missing:** in the registry, absent from disk → marked
     *missing*, kept, never auto-deleted. Removal is a user
     action, because an unmounted drive must not destroy the list.
+    **Missing means absent from a scan that could have seen it**
+    (LWSM-1131 § 4.3). Only a record under one of the scanned roots
+    can be missing. Nothing is marked missing after a scan that
+    timed out, or under a root that could not be listed: both hid
+    an unknown number of projects. An ordinary skipped entry
+    suppresses nothing, because the scanner looked at it.
 - **Duplicate ports are flagged at merge time**, not at launch
   time, naming both projects. ADR-0004 cannot distinguish two
   projects sharing a port by probing, so the registry is where

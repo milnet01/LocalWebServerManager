@@ -8947,6 +8947,101 @@ O8` forbids retrofitting that.
   Source: code-quality-review-2026-08-15 lane-1 (known-issue-037).
   Lanes: core.
 
+- 📋 [LWSM-1321] **Known-issues batch (supervisor): six deferred findings still live.**
+  Re-triaged 2026-09-28 against the code; each was deferred to a phase
+  that no longer exists.
+  1. known-issue-040 (MEDIUM): a process that survives SIGKILL is
+     forgotten, so start() can spawn a second instance. Keep the
+     stragglers and refuse Start until the group is empty.
+  2. 056a: _alive treats an uninspectable process (AccessDenied) as dead.
+  3. 056b: _launcher_bytes does one os.read; loop to EOF or cap+1.
+  4. 056d: Supervisor.start's docstring omits Popen's OSError.
+  5. 056e: running() hands out live log fds and Popen handles.
+  6. 056g: build_child_env has no PATH fallback when PATH is unset.
+  **Layman:** Small leftover problems in the part that starts and stops servers, found in August and never picked up.
+  Kind: review-fix.
+  Source: known-issues re-triage 2026-09-28.
+  Lanes: core.
+
+- 📋 [LWSM-1322] **Known-issues batch (registry + config files): eleven deferred findings still live.**
+  Re-triaged 2026-09-28 against the code.
+  1. known-issue-047 (MEDIUM): a write whose directory fsync fails is
+     reported as not saved, though the file was replaced.
+  2. known-issue-048 (MEDIUM): read_bounded follows symlinks the write
+     side refuses.
+  3. known-issue-001: a record's name is stored raw and reaches the
+     accessible name unbounded.
+  4. known-issue-002: no cap on record count; MAX_FILE_BYTES comment
+     miscalibrated.
+  5. known-issue-003: a pre-existing app.log keeps its mode.
+  6. 056h: NaN/Infinity accepted and re-emitted (allow_nan=False).
+  7. 056i: duplicate JSON keys silently last-wins.
+  8. 056l: merge iterates scan.projects, not the deduped map.
+  9. 056m: merge drops the unlistable-root failure string.
+  10. 056n: prepare_config_dir mkdir without exist_ok races a second
+      instance.
+  11. 056o: nothing binds a LoadResult to the path it was read from.
+  Added 2026-09-28: known-issue-044. registry._detected_half_applied
+  still lists port, kind, argv and unit by hand, so a new detected field
+  would never be refreshed by a rescan. Derive it from DETECTED_FIELDS -
+  {"path"} and keep the port qualifier. The entry defers to LWSM-1121,
+  but the fix does not depend on it.
+  **Layman:** Small leftover problems in how the app reads and writes its own settings and project list.
+  Kind: review-fix.
+  Source: known-issues re-triage 2026-09-28.
+  Lanes: core.
+
+- 📋 [LWSM-1323] **Known-issues batch (controller + window): eleven deferred findings still live.**
+  Re-triaged 2026-09-28 against the code.
+  1. known-issue-050 (MEDIUM): a transition disables the focused button
+     and focus is lost.
+  2. known-issue-012 (MEDIUM): the load-error message is truncated in
+     an empty window.
+  3. known-issue-013: ProjectRow's accessible role is Border.
+  4. known-issue-049 residual: status-bar text raises no accessibility
+     event.
+  5. known-issue-008: run() skips the bounded exit if main() raises.
+  6. known-issue-009: start_polling() after stop() starts a dead timer.
+  7. 056p: restart_project leaves _restarting set on an early return.
+  8. 056q: project_url hardcodes localhost, dropping the bound family.
+  9. 056r: the focus-ring QPainter is never ended.
+  10. 056s: counts are not formatted with QLocale.
+  11. 056v: stopped is AutoConnected, so a done future re-enters
+      stop_project synchronously.
+  **Layman:** Small leftover problems in the window and the code behind its buttons, several of them about keyboard and screen-reader use.
+  Kind: review-fix.
+  Source: known-issues re-triage 2026-09-28.
+  Lanes: ui.
+
+- 📋 [LWSM-1324] **Known-issues batch (scanner + tests): five deferred findings still live.**
+  Re-triaged 2026-09-28 against the code.
+  1. known-issue-004: test_refuses_a_device_node falls back to the real
+     /dev/null.
+  2. known-issue-019: the hop containment check and the hop read race
+     (intermediate components; O_PATH + dir_fd).
+  3. known-issue-020: _checked_descriptor accepts a hard link
+     (st_nlink), or the difference from applog is written down.
+  4. known-issue-027: the reversed token scan and the option filter are
+     unconstrained by any test.
+  5. known-issue-033 items 1, 2, 5: self-exec fixture, ExecStart
+     assertion, test_layering's non-recursive glob.
+  **Layman:** Small leftover gaps in the project-finding code and the tests that hold it.
+  Kind: review-fix.
+  Source: known-issues re-triage 2026-09-28.
+  Lanes: core, tests.
+
+- 📋 [LWSM-1325] **Decide whether launched servers inherit the desktop session bus and display.**
+  known-issue-042, re-triaged 2026-09-28: ENV_ALLOWLIST still passes
+  DISPLAY and DBUS_SESSION_BUS_ADDRESS, and ADR-0003 lists both. A
+  launcher can then open windows and drive the session bus as the user.
+  Dropping them breaks any dev server that opens a browser on start.
+  Options: drop both, or drop by default with a per-project opt-in on
+  the trust dialog. Needs a user decision and an ADR-0003 amendment.
+  **Layman:** Choose whether projects the app starts can talk to your desktop (open windows, send notifications) by default.
+  Kind: security.
+  Source: code-quality-review-2026-08-15 (known-issue-042).
+  Lanes: core.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
@@ -9998,6 +10093,9 @@ open DS01 debt-sweep items, and the open FP02 review items.
   design.md § Observability promises. Needs the ADR-0004 question settled
   first: does "no lock files" ban a single-instance guard, or only
   PERSISTED runtime state? It reads as the latter.
+  Decision (user, 2026-09-28): only one copy runs. Opening the app a
+  second time brings the existing window to the front instead of
+  starting a second copy, which also settles the shared app.log.
   **Layman:** If you open the app twice, the two copies can scramble each other's log files. Decide how to stop that.
   Kind: investigate.
   Source: code-quality-review-2026-08-06.
@@ -10014,6 +10112,9 @@ open DS01 debt-sweep items, and the open FP02 review items.
   in scripts/local-ci.sh (so it is runnable before a push, per this
   project's arrangement), its strictness level is a recorded decision
   rather than a default, and `_open` is clean under it.
+  Decision (user, 2026-09-28): pyright over src/ only, at its standard
+  level. Measured today: 40 errors in src/, 233 including tests/. Fix
+  the 40 and keep src/ clean in the gate.
   **Layman:** Add a tool that catches a class of mistake nothing currently checks for.
   Kind: test.
   Source: audit-2026-08-06.

@@ -81,6 +81,7 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** P04 (LWSM-1030 — appearance and accessibility
   foundation)
 - **Logged:** 2026-08-07
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.**
 
 ## known-issue-002 — No cap on record count, and `MAX_FILE_BYTES`' stated calibration is ~6× optimistic
 
@@ -94,6 +95,7 @@ in the current build. Owners are named, not implied.
   holds, and a count cap set before the scanner exists would be a guess.
 - **Will be addressed in:** P03 (LWSM-1006 — project discovery)
 - **Logged:** 2026-08-07
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.**
 
 ## known-issue-003 — A pre-existing `app.log` keeps whatever mode it has
 
@@ -109,6 +111,7 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** P09 (LWSM-1019 — settings and session, which is
   when a configurable state location first exists)
 - **Logged:** 2026-08-07
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.** Its old owner LWSM-1019 was folded into LWSM-1021.
 
 ## known-issue-004 — `test_refuses_a_device_node` reads the real `/dev/null` on any unprivileged run
 
@@ -127,6 +130,7 @@ in the current build. Owners are named, not implied.
   where it can be done once for every test making a claim it cannot keep.
 - **Will be addressed in:** LWSM-1113 (FP05 — wiring-test rule)
 - **Logged:** 2026-08-07
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.**
 
 ## known-issue-005 — `MAX_REASON_CHARS`' value is pinned by nothing
 
@@ -169,6 +173,7 @@ in the current build. Owners are named, not implied.
   designing that field twice.
 - **Will be addressed in:** P06 (LWSM-1012 — the full state model)
 - **Logged:** 2026-08-07
+- **Owner corrected 2026-09-28**: the full state model is LWSM-1011 (📋), not LWSM-1012, which is foreign-server adoption. Still blocked on it.
 
 ## known-issue-007 — The shipped `STOP_WAIT_MS` is unpinned and INV-16's budget clause is tautological
 
@@ -206,6 +211,7 @@ in the current build. Owners are named, not implied.
   edit as LWSM-1117's mechanism-level bound rather than as a separate pass.
 - **Will be addressed in:** LWSM-1117 (FP05 — bound the abandoned-pool wait)
 - **Logged:** 2026-08-07
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323.**
 
 ## known-issue-009 — `start_polling()` after `stop()` starts a timer that can never observe
 
@@ -220,6 +226,7 @@ in the current build. Owners are named, not implied.
   decide whether a controller is restarted or replaced.
 - **Will be addressed in:** P03 (LWSM-1006 — project discovery)
 - **Logged:** 2026-08-07
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323.**
 
 ### From the presentation lane
 
@@ -245,6 +252,7 @@ in the current build. Owners are named, not implied.
   this explicitly. known-issue-011 and -012, from the same review batch and
   about the same surface, were already routed to LWSM-1030.
 - **Logged:** 2026-08-07
+- **RESOLVED (re-triaged 2026-09-28)**: `tests/test_theme.py` checks every state token against `window`, `base` and `alt_base` (3634144, LWSM-1031 + LWSM-1147).
 
 ## known-issue-011 — INV-20's 600 px band breaks on a realistic project name
 
@@ -289,6 +297,7 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** P04 (LWSM-1030 — appearance and accessibility
   foundation)
 - **Logged:** 2026-08-07
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323.**
 
 ## known-issue-013 — The row's accessible role is `Border`, and no widget has an accessible description
 
@@ -321,6 +330,7 @@ in the current build. Owners are named, not implied.
   (`docs/specs/LWSM-1007-registry-persistence.md § 9`) excludes this
   explicitly.
 - **Logged:** 2026-08-07
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323** (the `role=Border` half).
 
 ## known-issue-014 — The port cell reserves the width of its shortest possible string
 
@@ -336,6 +346,7 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** P04 (LWSM-1030 — appearance and accessibility
   foundation)
 - **Logged:** 2026-08-07
+- **RESOLVED (re-triaged 2026-09-28)**: rows share one column geometry, so the port cell takes the widest row's width (a10a727, LWSM-1145).
 
 ### From static analysis
 
@@ -356,6 +367,7 @@ in the current build. Owners are named, not implied.
   configuration that does not exist yet.
 - **Will be addressed in:** LWSM-1066 (FP02 — put a type checker in the gate)
 - **Logged:** 2026-08-07
+- **RESOLVED (re-triaged 2026-09-28)**: the `src/` half: `ProjectRow` uses `self._cells_layout`, not an unguarded `self.layout()` (91ed699, LWSM-1032). The test-file half rides with LWSM-1066, which gates `src/` only.
 
 ### From the repository itself
 
@@ -470,6 +482,7 @@ otherwise. What is missing is the thing that would notice it stopping.
 - **Will be addressed in:** LWSM-1049 (FP01 — trust gate before running a
   discovered launcher)
 - **Logged:** 2026-08-12
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.**
 
 ## known-issue-020 — A hard link reads outside the project through the `_open_source` seam
 
@@ -494,6 +507,7 @@ otherwise. What is missing is the thing that would notice it stopping.
   either way.
 - **Will be addressed in:** LWSM-1049 (FP01 — trust gate)
 - **Logged:** 2026-08-12
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.**
 
 ## known-issue-021 — `_UnitLookup.properties` guarantees totality by docstring only
 
@@ -585,6 +599,7 @@ otherwise. What is missing is the thing that would notice it stopping.
   LWSM-1131 while LWSM-1007 kept the file format and the writer. The routing
   reason above is unchanged — only the id that now owns it.
 - **Logged:** 2026-08-12
+- **RESOLVED (re-triaged 2026-09-28)**: `test_two_paths_resolving_to_one_directory_are_one_project` (6c64d9d, LWSM-1131). It drives `registry.merge`; no scanner-level `.resolve()` test was added.
 
 ## known-issue-026 — INV-15's fixtures make zero calls to the matcher the invariant names
 
@@ -633,6 +648,7 @@ otherwise. What is missing is the thing that would notice it stopping.
   function about to change is worse.
 - **Will be addressed in:** LWSM-1123 (FP06 — hop-target fallback)
 - **Logged:** 2026-08-12
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.** Line order is pinned (LWSM-1183); the reversed scan and the option filter are not.
 
 ## known-issue-028 — `_RULE_1_ONLY` on the `ExecStart` argv is untested
 
@@ -762,6 +778,7 @@ otherwise. What is missing is the thing that would notice it stopping.
 - **Will be addressed in:** LWSM-1007 (P03 — registry persistence; the next
   item to add source files and so the first that could add a subpackage)
 - **Logged:** 2026-08-12
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324** (items 1, 2 and 5).
 
 ## known-issue-034 — `scanner`'s copy of `MAX_REASON_CHARS` and `MAX_DISPLAY_NAME_CHARS` is pinned by nothing
 
@@ -786,6 +803,7 @@ otherwise. What is missing is the thing that would notice it stopping.
   wrong.
 - **Will be addressed in:** LWSM-1007 (P03 — registry persistence)
 - **Logged:** 2026-08-12
+- **RESOLVED (re-triaged 2026-09-28)**: `test_the_shipped_bounds_are_pinned` pins both of `scanner`'s copies (0b29662, LWSM-1007).
 
 ## known-issue-035 — `test_completed_tasks_do_not_accumulate` failed once and has not reproduced
 
@@ -928,6 +946,7 @@ the `P03b` close. `FP07` (LWSM-1132 … LWSM-1141) carries the 3 CRITICAL and 7
 HIGH; scope was set by the user on 2026-08-15, per the standing 2026-08-07
 decision — one review per phase, fix what is above the bar, route the rest to
 the phase that owns the code. Owners are named, not implied.
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1061**, which adds the required-sections block, together with LWSM-1062's reconciliation of the same file.
 
 ### From the supervisor lane
 
@@ -965,6 +984,7 @@ the phase that owns the code. Owners are named, not implied.
   caller; fixing it now would be untestable through any real path
 - **Will be addressed in:** LWSM-1136 (fix both in the same pass)
 - **Logged:** 2026-08-15
+- **RESOLVED (re-triaged 2026-09-28)**: the backup opens through `_open_private_regular` (496638c, LWSM-1229).
 
 ## known-issue-039 — The process group is enumerated once and never re-enumerated
 
@@ -979,6 +999,7 @@ the phase that owns the code. Owners are named, not implied.
   correct before it becomes a kill loop
 - **Will be addressed in:** P05
 - **Logged:** 2026-08-15
+- **RESOLVED (re-triaged 2026-09-28)**: the group is re-read after the grace period and after the kill (81d791f, LWSM-1204).
 
 ## known-issue-040 — A process surviving SIGKILL is forgotten rather than retained
 
@@ -993,6 +1014,7 @@ the phase that owns the code. Owners are named, not implied.
   both consult, which interacts with LWSM-1137's lock-scope change
 - **Will be addressed in:** P05, after LWSM-1137
 - **Logged:** 2026-08-15
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1321.**
 
 ## known-issue-041 — `StopOutcome` cannot report that a SIGKILL failed
 
@@ -1006,6 +1028,7 @@ the phase that owns the code. Owners are named, not implied.
   render, which is P06's state model
 - **Will be addressed in:** P06
 - **Logged:** 2026-08-15
+- **RESOLVED (re-triaged 2026-09-28)**: a failed kill reaches the user as `StopOutcome.warning` (6ce335c, LWSM-1224; LWSM-1204). There is no structured `still_alive` field.
 
 ## known-issue-042 — The child environment allowlist hands over the session bus and the display
 
@@ -1023,6 +1046,7 @@ the phase that owns the code. Owners are named, not implied.
   likely answer is a per-project opt-in on LWSM-1046's dialog
 - **Will be addressed in:** an ADR-0003 amendment, before P05 closes
 - **Logged:** 2026-08-15
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1325**, which needs a user decision.
 
 ### From the registry lane
 
@@ -1042,6 +1066,7 @@ the phase that owns the code. Owners are named, not implied.
   opaque, or state the loss), not an edit; it binds LWSM-1038 and LWSM-1039
 - **Will be addressed in:** LWSM-1038, or an ADR-0005 amendment before it
 - **Logged:** 2026-08-15
+- **RESOLVED (re-triaged 2026-09-28)**: unknown keys are carried through and written back (e1fa365, LWSM-1218).
 
 ## known-issue-044 — `DETECTED_FIELDS` and `USER_FIELDS` have no readers
 
@@ -1077,6 +1102,11 @@ the phase that owns the code. Owners are named, not implied.
   documentation pass rather than a line edit
 - **Will be addressed in:** the next `DOC##` pass, before P05 closes
 - **Logged:** 2026-08-15
+- **RESOLVED 2026-09-28**: both clauses are in ADR-0005's *Merge outcomes*,
+  recording what `registry.merge` already does and three tests already hold
+  (`test_unknown_does_not_erase_a_known_port`,
+  `test_a_timed_out_scan_marks_nothing_missing`,
+  `test_an_unlistable_root_marks_nothing_missing_under_it`).
 
 ## known-issue-046 — *override differs* is announced once, not on every rescan
 
@@ -1092,6 +1122,7 @@ the phase that owns the code. Owners are named, not implied.
   wrong and choosing which is a decision
 - **Will be addressed in:** the same `DOC##` pass as known-issue-045
 - **Logged:** 2026-08-15
+- **RESOLVED (re-triaged 2026-09-28)**: ADR-0005 now says the flag fires on the rescan where the port moves (df7e6c0, LWSM-1219).
 
 ## known-issue-047 — A non-durable write is indistinguishable from a refusal
 
@@ -1109,6 +1140,7 @@ the phase that owns the code. Owners are named, not implied.
   together or the second undoes the first
 - **Will be addressed in:** LWSM-1135's fix pass, if cheap there; else P05
 - **Logged:** 2026-08-15
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.**
 
 ## known-issue-048 — The registry read follows symlinks the write side refuses
 
@@ -1127,6 +1159,7 @@ the phase that owns the code. Owners are named, not implied.
   question FP02 calibrated **down** for `~/.local/state`)
 - **Will be addressed in:** P05, with the FP02 symlink precedent read first
 - **Logged:** 2026-08-15
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.**
 
 ### From the UI lane
 
@@ -1144,6 +1177,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Why deferred:** an inline per-row message surface is a UI feature, not a fix
 - **Will be addressed in:** P04 (appearance and accessibility foundation)
 - **Logged:** 2026-08-15
+- **RESOLVED (re-triaged 2026-09-28)**: the failure half: a failure lands on its row (91ed699, LWSM-1032). The screen-reader half is still live, in LWSM-1323.
 
 ## known-issue-050 — A transition steals keyboard focus
 
@@ -1157,6 +1191,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Why deferred:** P04 owns keyboard navigation
 - **Will be addressed in:** P04
 - **Logged:** 2026-08-15
+- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323.**
 
 ## known-issue-051 — Precedence bug shows an empty launcher path in the trust dialog
 
@@ -1208,6 +1243,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** P09 (shell: tray, settings, session) or whichever
   item first wires `lupdate`
 - **Logged:** 2026-08-15
+- **RESOLVED (re-triaged 2026-09-28)**: strings are extractable under one literal context (29e80d9, LWSM-1304).
 
 ## known-issue-054 — An unset `load` on a window with a rescan raises `AttributeError`
 
@@ -1225,6 +1261,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** LWSM-1135 closes the symptom; the signature change
   in P05
 - **Logged:** 2026-08-15
+- **RESOLVED (re-triaged 2026-09-28)**: `_should_write` refuses when there is no load (e0521c0, LWSM-1166).
 
 ## known-issue-055 — The trust dialog is parented to the window, not the row
 
@@ -1293,3 +1330,4 @@ the phase that owns the code. Owners are named, not implied.
 - **Partly resolved:** 2026-09-25. The unchecked `os.write` in rotation by
   **LWSM-1274**; the payload comprehension outside the `try` by
   **LWSM-1272**. The rest of this entry stands.
+- **Re-triaged 2026-09-28**, item by item. Resolved: the rotation write and the payload comprehension (already marked above), the unreachable `except` (kept on purpose, LWSM-1217), the button minimum size (LWSM-1032) and `_should_write`'s comparison (LWSM-1166). Still live: supervisor items → LWSM-1321; registry items → LWSM-1322; UI items → LWSM-1323; `wait_for_abandoned_probes` → LWSM-1275; `TrustStore.revoke` → LWSM-1319.
