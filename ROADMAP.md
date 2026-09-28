@@ -859,6 +859,9 @@ O8` forbids retrofitting that.
   review backlog (findings filed in passing, DS01, FP02) follows 0.1.0.
   This supersedes "cut when P04 closes" and is not a reopening of the
   2026-08-19 hold.
+  Progress (2026-09-28): when 0.1.0 is cut, tell the Ants Projects Hub
+  website session. It is a source release, so the page's button stays
+  "Download source"; only the AppImage (LWSM-1021) switches it.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
@@ -9429,6 +9432,10 @@ author's own use, which is why it sits after the app works.
   Kind: package.
   Source: user-2026-08-03.
   Priority: 2.
+  Progress (2026-09-28): when the AppImage is first published, message
+  the Ants Projects Hub website session (session_message or SendMessage)
+  so the project page's download button switches from "Download source"
+  to the AppImage. Promised to that session on 2026-09-28.
   Lanes: build, ci.
 
 - 📋 [LWSM-1043] **P10: decide how updates reach users — research first.**
