@@ -6,8 +6,8 @@ Both name `run()`, not `main()`. See `run()` for why the two are separate.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
-from dataclasses import replace
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -605,8 +605,116 @@ def _identify(app: object) -> None:
     app.setWindowIcon(QIcon.fromTheme(DESKTOP_FILE_NAME))
 
 
+# The socket the running copy listens on, in the per-user runtime directory
+# ($XDG_RUNTIME_DIR): mode 0700, on tmpfs, and emptied at logout. A crash can
+# still leave the file behind, which is why `claim_single_instance` treats a
+# socket nobody answers on as stale rather than as a running copy.
+INSTANCE_SOCKET_NAME = "localwebservermanager.sock"
+
+# How long a second launch waits for the first to answer. A local socket either
+# accepts at once or has no listener, so this bounds a wedged first copy rather
+# than a slow one.
+INSTANCE_CONNECT_MS = 1000
+
+
+@dataclass(frozen=True)
+class InstanceClaim:
+    """What `claim_single_instance` found.
+
+    `primary` False means another copy answered and was asked to come to the
+    front, so this one should exit. `server` is the listening socket to keep
+    alive and close at shutdown; it is None when this copy runs WITHOUT a guard,
+    and `problem` then says why — the app still starts, because refusing to run
+    over a socket we cannot create would trade a rare hazard for a certain one.
+    """
+
+    primary: bool
+    server: object | None = None
+    problem: str | None = None
+
+
+def instance_socket_path() -> str:
+    """Where the running copy listens.
+
+    `QStandardPaths`' runtime location is `$XDG_RUNTIME_DIR` when it is set
+    and usable, and a private fallback directory Qt creates when it is not.
+    """
+    from PySide6.QtCore import QStandardPaths
+
+    runtime = QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.RuntimeLocation
+    )
+    return str(Path(runtime) / INSTANCE_SOCKET_NAME)
+
+
+def claim_single_instance(path: str, on_activated: Callable[[], None]) -> InstanceClaim:
+    """Become the one running copy, or wake the one that already is (LWSM-1065).
+
+    The user's decision (2026-09-28): only one copy runs, and opening the app a
+    second time brings the existing window to the front. That also settles the
+    shared `app.log`, which `RotatingFileHandler` cannot rotate safely from two
+    processes.
+
+    **Listen first, connect second.** Connecting first and listening on a miss
+    lets two copies launched together both miss and both listen. Listening
+    first leaves exactly one winner; the loser gets `AddressInUseError`, and
+    only then asks whether anyone is actually there. A socket file with no
+    listener behind it was left by a copy that crashed, and is removed.
+
+    Not the lock file ADR-0004 rules out: that decision is about remembering
+    which SERVERS are running, and this remembers nothing — the listening
+    socket is the running copy, and it cannot outlive the process it belongs
+    to while anyone could mistake it for one.
+
+    Any connection counts as a request to come to the front; nothing is read
+    from it. The runtime directory is the user's own and 0700, so only this
+    user can make one. **No socket options**: with any set, Qt binds in a
+    scratch directory and RENAMES the socket into place, which silently
+    replaces a live copy's socket instead of failing with `AddressInUseError`
+    — measured 2026-09-28, where it let a second copy run.
+    """
+    from PySide6.QtNetwork import QAbstractSocket, QLocalServer, QLocalSocket
+
+    server = QLocalServer()
+    if not server.listen(path):
+        if server.serverError() != QAbstractSocket.SocketError.AddressInUseError:
+            return InstanceClaim(primary=True, problem=server.errorString())
+        probe = QLocalSocket()
+        probe.connectToServer(path)
+        if probe.waitForConnected(INSTANCE_CONNECT_MS):
+            probe.disconnectFromServer()
+            return InstanceClaim(primary=False)
+        # Nobody answered, so the file is a crashed copy's leftover.
+        QLocalServer.removeServer(path)
+        if not server.listen(path):
+            return InstanceClaim(primary=True, problem=server.errorString())
+
+    def answer() -> None:
+        while server.hasPendingConnections():
+            connection = server.nextPendingConnection()
+            connection.disconnected.connect(connection.deleteLater)
+            connection.disconnectFromServer()
+        on_activated()
+
+    server.newConnection.connect(answer)
+    return InstanceClaim(primary=True, server=server)
+
+
+def _bring_to_front(window: MainWindow) -> None:
+    """Show the running copy's window to a user who just tried to open another.
+
+    Under Wayland a client may not take focus unasked, so whether the window
+    actually comes forward is the compositor's decision — not yet checked on
+    KWin. Either way the user gets the running copy, never a second one.
+    """
+    if window.isMinimized():
+        window.showNormal()
+    window.raise_()
+    window.activateWindow()
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Configure logging, then open the window."""
+    """Configure logging, then open the window — unless a copy already runs."""
     parser = argparse.ArgumentParser(
         prog="lwsm",
         description=(
@@ -618,6 +726,26 @@ def main(argv: list[str] | None = None) -> int:
     # args` membership test, which had no --help and silently accepted every
     # option it did not recognise — a typo'd flag looked honoured and returned 0.
     parser.parse_args(argv)
+
+    # Imported here, not at module scope, so `--version` and `--help` — which
+    # argparse handles above — need no Qt and therefore no display (INV-14).
+    from PySide6.QtWidgets import QApplication
+
+    # Qt permits one QApplication per process, and a test session already has
+    # one, so reuse it rather than raising.
+    app = QApplication.instance() or QApplication([])
+
+    # Before logging is configured, so a second copy never opens `app.log` at
+    # all: two `RotatingFileHandler`s on one file can discard a generation of
+    # it, which is half of why only one copy runs (LWSM-1065).
+    shown: list[MainWindow] = []
+    claim = claim_single_instance(
+        instance_socket_path(),
+        lambda: _bring_to_front(shown[0]) if shown else None,
+    )
+    if not claim.primary:
+        print("Local Web Server Manager is already running; showing its window.")
+        return 0
 
     try:
         log_path = applog.configure_logging()
@@ -655,17 +783,17 @@ def main(argv: list[str] | None = None) -> int:
         f"Logging to {quoted(str(log_path))}" if log_path else "Not logging to a file."
     )
 
-    # Imported here, not at module scope, so `--version` and `--help` — which
-    # argparse handles above — need no Qt and therefore no display (INV-14).
-    from PySide6.QtWidgets import QApplication
+    if claim.problem is not None:
+        applog.get_logger(__name__).warning(
+            "no single-instance guard (%s) — a second copy could start",
+            claim.problem,
+        )
 
-    # Qt permits one QApplication per process, and a test session already has
-    # one, so reuse it rather than raising.
-    app = QApplication.instance() or QApplication([])
     _identify(app)
     # No argument: resolving the default path is itself fallible, so it happens
     # inside build_window's RegistryError catch rather than out here (LWSM-1116).
     window, controller = build_window()
+    shown.append(window)
     try:
         window.show()
         return app.exec()
@@ -695,6 +823,9 @@ def main(argv: list[str] | None = None) -> int:
             # gets the same bounded wait rather than being left to
             # `~QThreadPool`, which joins with no timeout at all.
             ("wait for the rescan pool", window.shutdown),
+            # Closing removes the socket file, so the next launch finds no
+            # leftover and needs no stale-socket recovery.
+            ("release the single-instance socket", _release(claim)),
         )
         for description, step in shutdown_steps:
             try:
@@ -703,6 +834,12 @@ def main(argv: list[str] | None = None) -> int:
                 applog.get_logger(__name__).exception(
                     "could not %s while shutting down", description
                 )
+
+
+def _release(claim: InstanceClaim) -> Callable[[], None]:
+    """The shutdown step closing the instance socket, or a no-op without one."""
+    server = claim.server
+    return server.close if server is not None else lambda: None
 
 
 def run() -> int:

@@ -35,6 +35,11 @@ Pointed at an empty directory, so the default is a machine with no browsers and
 every window gets the "Default" entry alone. A test that wants browsers
 injects them through `MainWindow`'s `list_browsers` seam, which is what `§ T1`
 asks for.
+
+`XDG_RUNTIME_DIR` is the sixth (LWSM-1065). `main()` claims the single-instance
+socket there, so unpinned, a test calling `main()` while the developer has the
+real app open would find it, ask it to come to the front, and return early —
+and a test run would leave its own socket where the real app looks.
 """
 
 from __future__ import annotations
@@ -68,6 +73,8 @@ def _isolated_config_home(tmp_path_factory, monkeypatch):
     empty = tmp_path_factory.mktemp("xdg-data")
     monkeypatch.setenv("XDG_DATA_HOME", str(empty))
     monkeypatch.setenv("XDG_DATA_DIRS", str(empty))
+    # mktemp makes it 0700, which Qt requires of a runtime directory.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path_factory.mktemp("xdg-rt")))
 
 
 @pytest.fixture(scope="session", autouse=True)

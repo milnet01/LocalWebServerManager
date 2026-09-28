@@ -483,6 +483,14 @@ substring search reports all of them as violations.
   an in-process test. `QApplication` is imported and constructed
   *inside* `main`, after `argparse`, so `--version` needs no
   display.
+  Since LWSM-1065 `main` also claims **`claim_single_instance`**'s socket in
+  `$XDG_RUNTIME_DIR`, before logging: a second launch wakes the running copy
+  and exits 0 without ever opening `app.log`, and a socket nobody answers on
+  is a crashed copy's leftover and is replaced. **It sets no socket
+  options** — with any set, Qt renames the socket into place and silently
+  replaces a live copy's instead of failing (measured). `conftest.py` pins
+  `XDG_RUNTIME_DIR`, or a test calling `main()` finds the developer's own
+  open copy and returns early.
 - **`src/lwsm/applog.py`** — the application log.
   `default_state_dir()`, `get_logger()`, `configure_logging()`,
   `configure_stderr_logging()` (the fallback the entry point uses

@@ -23,6 +23,14 @@ signaling per
 
 ### Added
 
+- **Opening the app while it is already running shows the running copy instead of starting a second one.** (LWSM-1065)
+  Two copies could scramble each other's log file and fight over the
+  same project list. The second launch now asks the first to come to
+  the front and exits. Under Wayland whether the window actually comes
+  forward is the desktop's decision, since apps may not take focus
+  unasked; not yet checked on KDE.
+  A copy that crashed does not block the next launch.
+
 - **Acting on a server the app did not start now shows you what is holding the port first** (LWSM-1154)
   The program, who it runs as, its full command, when it started, and its
   service name if it has one. Nothing happens until you agree, and the

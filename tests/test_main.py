@@ -395,6 +395,128 @@ def test_one_failed_shutdown_step_does_not_defeat_the_other_two(
     )
 
 
+# --- LWSM-1065: only one copy runs -----------------------------------------------
+
+
+@pytest.mark.gui
+def test_a_second_claim_wakes_the_first_instead_of_running(qtbot, tmp_path) -> None:
+    """The user's decision: opening the app again shows the running copy.
+
+    Two claims on one path, the way two launches meet. The first must win and
+    keep a server; the second must lose, and its connection must reach the
+    first as a request to come to the front.
+    """
+    path = str(tmp_path / "lwsm.sock")
+    woken: list[str] = []
+    first = entry.claim_single_instance(path, lambda: woken.append("first"))
+    try:
+        assert first.primary and first.server is not None, first
+        second = entry.claim_single_instance(path, lambda: woken.append("second"))
+        assert not second.primary, "a second copy claimed the socket too"
+        qtbot.waitUntil(lambda: woken == ["first"], timeout=2000)
+    finally:
+        first.server.close()
+
+
+@pytest.mark.gui
+def test_a_socket_left_by_a_crashed_copy_is_taken_over(tmp_path) -> None:
+    """A socket file nobody answers on is a leftover, not a running copy.
+
+    Made with the stdlib and closed without unlinking, which is what a copy
+    killed by SIGKILL leaves behind. Treating it as a running copy would make
+    the app refuse to start until the user deleted a file they cannot see.
+    """
+    import socket
+
+    path = tmp_path / "lwsm.sock"
+    leftover = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    leftover.bind(str(path))
+    leftover.close()
+    assert path.exists(), "the fixture did not leave a socket file behind"
+
+    claim = entry.claim_single_instance(str(path), lambda: None)
+    try:
+        assert claim.primary and claim.server is not None, claim
+    finally:
+        if claim.server is not None:
+            claim.server.close()
+
+
+@pytest.mark.gui
+def test_a_socket_that_cannot_be_made_still_lets_the_app_run(tmp_path) -> None:
+    """No guard is a reason to warn, never a reason not to start."""
+    claim = entry.claim_single_instance(
+        str(tmp_path / "no-such-dir" / "lwsm.sock"), lambda: None
+    )
+    assert claim.primary, "a copy with no guard refused to run"
+    assert claim.server is None
+    assert claim.problem, "the missing guard was not explained"
+
+
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+def test_main_shows_the_running_copy_and_opens_nothing(
+    qtbot, monkeypatch, capsys, tmp_path: Path
+) -> None:
+    """A second launch builds no window and never opens `app.log`.
+
+    The log half is half of why only one copy runs: two rotating handlers on one
+    file can discard a generation of it, so the check comes before logging.
+    """
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    woken: list[int] = []
+    running = entry.claim_single_instance(
+        entry.instance_socket_path(), lambda: woken.append(1)
+    )
+    assert running.server is not None, running
+
+    def must_not_build(_path=None):
+        raise AssertionError("a second copy built a window")
+
+    monkeypatch.setattr(entry, "build_window", must_not_build)
+    try:
+        assert main([]) == 0
+        qtbot.waitUntil(lambda: woken == [1], timeout=2000)
+    finally:
+        running.server.close()
+    assert "already running" in capsys.readouterr().out
+    assert not (tmp_path / "state" / "localwebservermanager" / "app.log").exists(), (
+        "the second copy opened the running copy's log"
+    )
+
+
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+def test_main_releases_the_socket_when_it_exits(monkeypatch, tmp_path: Path) -> None:
+    """The next launch must find no socket, not a leftover it has to recover."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    seen: list[bool] = []
+
+    class Controller:
+        def stop(self) -> None:
+            # Still inside main(): the socket is live while the app runs.
+            seen.append(os.path.exists(entry.instance_socket_path()))
+
+        def close_supervisor(self) -> None:
+            return None
+
+    class Window:
+        def show(self) -> None:
+            return None
+
+        def shutdown(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        entry, "build_window", lambda _path=None: (Window(), Controller())
+    )
+    assert main([]) == 0
+    assert seen == [True], "main() ran without claiming the socket"
+    assert not os.path.exists(entry.instance_socket_path()), (
+        "main() left its socket behind"
+    )
+
+
 # --- LWSM-1144: where to scan is configurable ---------------------------------
 
 

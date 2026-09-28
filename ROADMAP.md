@@ -9129,7 +9129,7 @@ O8` forbids retrofitting that.
   nothing restored. Remaining findings the gates found outside the
   change: LWSM-1330. Full reconciliation stays LWSM-1326.
 
-- 📋 [LWSM-1065] **Decide whether two instances may share one app.log.**
+- ✅ [LWSM-1065] **Decide whether two instances may share one app.log.**
   `RotatingFileHandler` is not multi-process safe, and ADR-0004 rules out
   PID and lock files, so nothing currently prevents two instances. A
   renames app.log to app.log.1 while B still holds the old descriptor and
@@ -9145,6 +9145,18 @@ O8` forbids retrofitting that.
   Decision (user, 2026-09-28): only one copy runs. Opening the app a
   second time brings the existing window to the front instead of
   starting a second copy, which also settles the shared app.log.
+  Shipped 2026-09-28, per the user's decision. `__main__.claim_single_instance`
+  listens on $XDG_RUNTIME_DIR/localwebservermanager.sock before logging is
+  configured; a second launch connects, wakes the first (show, raise,
+  activate) and exits 0 without opening app.log. A socket nobody answers on
+  is a crashed copy's and is replaced; a socket that cannot be made is
+  logged and the app runs unguarded. Not ADR-0004's lock file: that ADR is
+  about remembering server state, and this remembers nothing. Trap found:
+  any QLocalServer socket option makes Qt rename the socket into place,
+  replacing a live copy's socket silently. 5 tests; 5 mutants (stale
+  removal, probe, wake, release, claim-before-logging) all killed; verified
+  end to end with two real processes and a SIGTERM-ed copy's leftover.
+  Unverified: whether KWin lets the window come forward under Wayland.
   **Layman:** If you open the app twice, the two copies can scramble each other's log files. Decide how to stop that.
   Kind: investigate.
   Source: code-quality-review-2026-08-06.
