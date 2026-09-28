@@ -9912,6 +9912,49 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: test.
   Source: audit-2026-08-06.
 
+- 📋 [LWSM-1316] **Cut CLAUDE.md's always-loaded cost: move the module map and the trap notes into on-demand docs.**
+  Measured 2026-09-28: `CLAUDE.md` is 90,081 bytes, roughly 22k tokens, paid by
+  every session in this project and again by every subagent it dispatches (each
+  review lane, each Explore). About two thirds of it is § Module map and the
+  trap paragraphs that follow it, which matter only when editing the module or
+  tool they name. Move them to `docs/` files (e.g. a module map and a traps
+  file, grouped by subsystem) and leave one line per group in `CLAUDE.md`
+  saying when to read it. `tests/test_docs.py` governs `CLAUDE.md` and
+  `docs/standards/`; decide whether the new files join that set. This changes
+  what every session loads, so it is a real choice for the user, and a
+  `CLAUDE.md` edit re-arms global rule 14.
+  **Layman:** The instructions file every session reads is about 90 KB; most of it is reference that only matters when touching specific code, so it could live in separate files read when needed.
+  Kind: chore.
+  Source: in-session-2026-09-28 (global rule 18a).
+  Lanes: docs.
+
+- 📋 [LWSM-1317] **Decide what docs/audit-allowlist.md is for now that no skill reads it.**
+  Found 2026-09-28 retiring the phase workflow. The `app-workflow` skill was the
+  only reader of `docs/audit-allowlist.md`; `check-code` matches against
+  `.audit_cache/learned-fp.jsonl` and `.ants_review_falsepos.jsonl` instead
+  (its § 7). `CLAUDE.md` now calls the file a human-readable record. Options:
+  move each live entry into the ledger `check-code` reads (via
+  `close-findings`), or keep the file as history and stop telling sessions to
+  read it before every review.
+  **Layman:** A notes file about past false alarms was read automatically by the old workflow; nothing reads it any more, so either its entries move into the tools' own records or it becomes plain history.
+  Kind: chore.
+  Source: in-session-2026-09-28 (CFG-0645 migration).
+  Lanes: docs.
+
+- 📋 [LWSM-1318] **CLAUDE.md offers the pre-push escape with no condition, against commits.md § 2.3.**
+  `CLAUDE.md` § Before pushing ends "Escape with `git push --no-verify` or
+  `LWSM_SKIP_PREPUSH=1`." `docs/standards/commits.md` § 2.3 says such a
+  bypass is used "only when the user explicitly authorises it for a specific
+  commit". An agent reading the first could skip the gate on its own
+  judgement. Fix: append "— only when the user authorises it for that push
+  (`commits.md` § 2.3)". Pre-existing; found by a cold lane gating 194ed20 and
+  filed rather than fixed because it lies outside that change. A CLAUDE.md
+  edit, so global rule 14 applies to the fix.
+  **Layman:** The instructions tell an agent how to skip the safety check before pushing without saying it needs your permission first.
+  Kind: doc-fix.
+  Source: review-contract-2026-09-28 CLAUDE.md loop 4 (filed, outside the gated change).
+  Lanes: docs.
+
 ## 💭 Considered — not scheduled
 
 - 💭 [LWSM-1023] **Support more kinds of web server.**

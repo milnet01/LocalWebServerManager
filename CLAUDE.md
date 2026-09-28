@@ -15,8 +15,8 @@ Read these in order on every session start:
 2. **`ROADMAP.md`'s open items** — what is in flight and what is
    next. Ask the store, not the file: `roadmap_query
    status:"in-progress" mode:"headline_only"`, then the release
-   section's intro for the order. With nothing in flight, that
-   intro's order names what is next. After reading, **summarise back
+   section's intro for the order. With nothing in flight, the
+   first unreleased section's intro names what is next. After reading, **summarise back
    to the user** before doing any work.
 3. **`docs/standards/{coding,documentation,testing,commits,dependencies}.md`**
    — the five v1 standards. `dependencies.md` is canonical for
@@ -252,7 +252,7 @@ context can already do.
 
 **Before cutting a release, run `check-code` over the whole tree and
 `review-code` over the codebase, then `close-findings` on what they
-return** (user, 2026-09-28). This replaces the retired `/close-phase`,
+return** (user, 2026-09-28), plus the two **Standing quality passes** above. This replaces the retired `/close-phase`,
 which ran the same pair at every phase close; the roadmap is now grouped
 by version, so the release is the checkpoint. Read
 `docs/audit-allowlist.md` first, as **Where state lives** says. The findings
