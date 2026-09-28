@@ -69,6 +69,13 @@ Specifics:
   from `/proc/<pid>/environ` by any other local process. A manager
   that starts things on your behalf must not also be a credential
   broker.
+  **The display and session-bus variables stay in, on purpose**
+  (LWSM-1325, user decision 2026-09-28). Removing them is not a
+  boundary: the session bus is a fixed socket at
+  `/run/user/<uid>/bus`, reachable by any process the user runs
+  whatever its environment says. And removing them breaks every dev
+  server that opens a browser tab on start. The trust confirmation
+  below is the protection, not the environment.
 
 ### Trust: a discovered launcher is untrusted until confirmed
 

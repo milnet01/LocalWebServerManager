@@ -9034,13 +9034,22 @@ O8` forbids retrofitting that.
   Source: known-issues re-triage 2026-09-28.
   Lanes: core, tests.
 
-- 📋 [LWSM-1325] **Decide whether launched servers inherit the desktop session bus and display.**
+- ✅ [LWSM-1325] **Decide whether launched servers inherit the desktop session bus and display.**
   known-issue-042, re-triaged 2026-09-28: ENV_ALLOWLIST still passes
   DISPLAY and DBUS_SESSION_BUS_ADDRESS, and ADR-0003 lists both. A
   launcher can then open windows and drive the session bus as the user.
   Dropping them breaks any dev server that opens a browser on start.
   Options: drop both, or drop by default with a per-project opt-in on
   the trust dialog. Needs a user decision and an ADR-0003 amendment.
+  Decision (user, 2026-09-28): keep DISPLAY, WAYLAND_DISPLAY and
+  DBUS_SESSION_BUS_ADDRESS in the allowlist and record why in ADR-0003.
+  Removing them is not a boundary: the session bus is at
+  /run/user/<uid>/bus (mode 0666) whatever the environment says, and
+  dropping them breaks dev servers that open a browser on start. The
+  trust confirmation is the real protection.
+  Resolved 2026-09-28: no code changed. ADR-0003's environment clause
+  now says why the three desktop variables stay. known-issue-042 closes
+  with it.
   **Layman:** Choose whether projects the app starts can talk to your desktop (open windows, send notifications) by default.
   Kind: security.
   Source: code-quality-review-2026-08-15 (known-issue-042).
@@ -9061,6 +9070,17 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: debt-sweep-2026-08-06.
   Priority: 3.
+  Premise corrected 2026-09-28: the check is no longer silent. spec_lint
+  now falls back to the GLOBAL block (sections_source
+  ~global/standards/spec-format.md, reason local_standard_no_block) and
+  reports 7 missing_section findings, because the match is verbatim,
+  numbers included. LWSM-1005's § 3 is "Scope decisions (and who made
+  each)", and LWSM-1005 and LWSM-1006 put Resource cost at § 10,
+  shifting What checks this, Cross-doc impact and the loop log by one.
+  Fix: add the project's own block, say that recommended sections go
+  after the required twelve, and renumber those two specs (moving
+  Resource cost to the end, updating their internal § references).
+  Batched with LWSM-1062's spec-format.md defects under one gate.
   Lanes: docs.
 
 - 📋 [LWSM-1062] **DS01: reconcile the four forked standards against the app-workflow template.**
@@ -9084,6 +9104,16 @@ O8` forbids retrofitting that.
   Priority: 2.
   Lanes: docs.
   Progress (2026-08-07, FP05 rule-14 gate): the cold-eyes run over coding.md + testing.md found the fork's most consequential residue and fixed the load-bearing part. Both lanes independently flagged that `testing.md § 2.2` was a CMake/ctest recipe in a Python project — which matters because § T9 explicitly stands on § 2.2, so a developer following the new clause landed on an unrunnable command. § 2.2 is now the project's own pytest form and was EXECUTED before it shipped (which caught two wrong revert forms — see the section). coding.md § 4's naming examples were camelCase with `m_` prefixes and are now Python. STILL OUTSTANDING and owned here: 16 further C++/CMake hits in testing.md — § 3.2's CMakeLists/`test_<name>.cpp` block, § 3.4 and § 6's `LABELS perf` / `LABELS fast` vocabulary (pytest has markers, and this project's convention is that markers go on tests not files), and § 5's QVERIFY2 example. Left deliberately: porting them is a per-hunk judgement across a standard, which is this bullet's job, not a gate's.
+  Decision (user, 2026-09-28): only the known defects land before 0.1.0;
+  the full seven-standard reconciliation is LWSM-1326, after 0.1.0.
+  Known defects owned here: (1) spec-format.md names the retired
+  /cold-eyes and /doc-lint throughout; (2) testing.md's remaining
+  C++/CMake examples (the § 3.2 CMakeLists block, the LABELS vocabulary
+  in § 3.4 and § 6, § 5's QVERIFY2); (3) check whether dependencies.md
+  covers the dropped "prefer the latest stable release, with its current
+  idioms" rule, and restore it if not. Each standard that changes owes a
+  review-contract gate (cap 3). LWSM-1061's required-sections block goes
+  in the same spec-format.md batch, so that file gets one gate.
 
 - 📋 [LWSM-1065] **Decide whether two instances may share one app.log.**
   `RotatingFileHandler` is not multi-process safe, and ADR-0004 rules out
@@ -9333,6 +9363,19 @@ bugs in the same area.
   Kind: ux.
   Source: in-session-2026-09-28 (split from LWSM-1046).
   Lanes: ui, core.
+
+- 📋 [LWSM-1326] **Reconcile the seven OWNED-HERE standards with the machine-wide set.**
+  Split from LWSM-1062 on 2026-09-28 by user decision: only the known
+  defects land before 0.1.0; the full walk comes after it. For each of
+  coding, testing, documentation, dependencies, commits, spec-format and
+  roadmap-format, compare against ~/.claude/standards/ hunk by hunk,
+  ask the user where neither side is authoritative, and gate each
+  standard that changes (rule 14). Each file's OWNED-HERE marker names
+  LWSM-1062 as owner; repoint them here when this starts.
+  **Layman:** Bring this project's own rulebooks back in line with the shared ones, one difference at a time.
+  Kind: doc-fix.
+  Source: user-decision-2026-09-28 (split from LWSM-1062).
+  Lanes: docs.
 
 ## 0.3.0 — The full state model
 

@@ -1046,7 +1046,7 @@ the phase that owns the code. Owners are named, not implied.
   likely answer is a per-project opt-in on LWSM-1046's dialog
 - **Will be addressed in:** an ADR-0003 amendment, before P05 closes
 - **Logged:** 2026-08-15
-- **Re-triaged 2026-09-28 — still live, now owned by LWSM-1325**, which needs a user decision.
+- **RESOLVED 2026-09-28 (LWSM-1325)**: kept by user decision; ADR-0003 now records why removing them is not a boundary.
 
 ### From the registry lane
 
