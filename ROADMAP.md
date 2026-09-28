@@ -9943,6 +9943,21 @@ open DS01 debt-sweep items, and the open FP02 review items.
   move each live entry into the ledger `check-code` reads (via
   `close-findings`), or keep the file as history and stop telling sessions to
   read it before every review.
+  Progress (2026-09-28): recommendation from the MAME_Curator session,
+  claims re-checked here. check-code reads such a file only through an
+  audit-config.json `suppressions_doc` field (tools/audit/, .claude/audit/
+  or docs/private/audit/). None of those directories exists here, so none
+  of the nine entries suppresses anything. CLAUDE.md § Where state lives
+  item 5 and § Before a release still tell sessions to read the file.
+  Suggested split. Tool entries check-code can match: 004 bandit B101,
+  005 semgrep insecure-file-permissions, 007 vulture theme.py, 008 deptry
+  DEP002/DEP003, 009 bandit B404/B603. Either point suppressions_doc at
+  this file, or move each to its tool's own suppression (pyproject skips,
+  nosec with a reason, a vulture whitelist, deptry ignores). Doc-checker
+  entries check-code never matches: 001 doc_integrity, 002 spec_lint, 003
+  and 006 contract_doc_drift. Unverified whether check-doc-facts reads any
+  allowlist. The file's intro also names the dead /audit,
+  /code-quality-review and /doc-lint. Not decided; the user chooses.
   **Layman:** A notes file about past false alarms was read automatically by the old workflow; nothing reads it any more, so either its entries move into the tools' own records or it becomes plain history.
   Kind: chore.
   Source: in-session-2026-09-28 (CFG-0645 migration).
