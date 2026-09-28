@@ -71,10 +71,14 @@ The app as it stands, made solid: the FP09 review fixes, the FP01 security
 fixes, then the release itself (LWSM-1152). Every shipped item sits here too,
 because nothing has been released yet.
 
-Order of work (carried over 2026-09-28 from the retired workflow file): the
-open FP09 LOW batches first (LWSM-1275, LWSM-1278, LWSM-1279, LWSM-1280,
-LWSM-1281, LWSM-1284), then FP01 (LWSM-1046, LWSM-1047, LWSM-1049), then the
-pre-release review CLAUDE.md names, then LWSM-1152. Close each LOW batch with
+Order of work (user, 2026-09-28): every open review finding first,
+backlogged ones included — critical first, then oldest to newest — then the
+rest of this version. FP01 is done. Next: LWSM-1061 with LWSM-1062
+(standards, gated), LWSM-1065, LWSM-1066, then the known-issues batches
+LWSM-1321 to LWSM-1324 and LWSM-1320, then the FP09 LOW batches (LWSM-1275,
+LWSM-1278, LWSM-1279, LWSM-1280, LWSM-1281, LWSM-1284), then the later
+findings in id order. LWSM-1325 waits on a user decision. LWSM-1317 lands
+before the pre-release review CLAUDE.md names, then LWSM-1152. Close each LOW batch with
 `close-findings`, re-checking every finding first: its cited line numbers have
 moved, so search for the quoted code. A scanner change also gets the live-tree
 verdict diff, run from a temporary `git worktree` of HEAD.
@@ -9042,6 +9046,116 @@ O8` forbids retrofitting that.
   Source: code-quality-review-2026-08-15 (known-issue-042).
   Lanes: core.
 
+- 📋 [LWSM-1061] **DS01: `spec-format.md` has no required-sections block, so that check never runs.**
+  `spec_lint` only runs its `missing_section` check when the
+  project's format standard carries a `<!-- required-sections -->`
+  block. `docs/standards/spec-format.md` has none (verified
+  2026-08-06), so the check is silently disabled and every run
+  returns `sections_checked: false`. Nothing is wrong today because
+  `docs/specs/` is still empty — but the first spec written will not
+  be checked for missing sections, and a `false` nobody reads is
+  indistinguishable from coverage. One-time fix: add the block
+  naming spec-format's own required headings.
+  Dependencies: none.
+  **Layman:** One of the automatic spec checks is switched off and reports nothing, which looks the same as passing.
+  Kind: doc-fix.
+  Source: debt-sweep-2026-08-06.
+  Priority: 3.
+  Lanes: docs.
+
+- 📋 [LWSM-1062] **DS01: reconcile the four forked standards against the app-workflow template.**
+  Measured 2026-08-06 by lineage test (shared H2 headings, so these
+  are forks and not independent authorship). `testing.md` is +98
+  lines project-only, a clean one-way fork. `coding.md` is +105 / -4,
+  `README.md` +7 / -4, `roadmap-format.md` 3 / 3 — all two-way, so
+  both sides hold content the other lacks. **The hunk worth a
+  decision:** the template's `coding.md` carries a rule this
+  project's copy dropped — prefer the latest stable release of an
+  external library, and call it with that version's current idioms.
+  That is a live policy gap, not cosmetic drift, and
+  `docs/standards/dependencies.md` may or may not already cover it.
+  Reconciling a fork is a per-hunk judgement and neither side is
+  authoritative by position, so `/debt-sweep` reports it and never
+  edits it.
+  Dependencies: none.
+  **Layman:** Four of the shared standards have drifted from the template they came from, and one may have lost a rule about keeping libraries current.
+  Kind: doc-fix.
+  Source: debt-sweep-2026-08-06.
+  Priority: 2.
+  Lanes: docs.
+  Progress (2026-08-07, FP05 rule-14 gate): the cold-eyes run over coding.md + testing.md found the fork's most consequential residue and fixed the load-bearing part. Both lanes independently flagged that `testing.md § 2.2` was a CMake/ctest recipe in a Python project — which matters because § T9 explicitly stands on § 2.2, so a developer following the new clause landed on an unrunnable command. § 2.2 is now the project's own pytest form and was EXECUTED before it shipped (which caught two wrong revert forms — see the section). coding.md § 4's naming examples were camelCase with `m_` prefixes and are now Python. STILL OUTSTANDING and owned here: 16 further C++/CMake hits in testing.md — § 3.2's CMakeLists/`test_<name>.cpp` block, § 3.4 and § 6's `LABELS perf` / `LABELS fast` vocabulary (pytest has markers, and this project's convention is that markers go on tests not files), and § 5's QVERIFY2 example. Left deliberately: porting them is a per-hunk judgement across a standard, which is this bullet's job, not a gate's.
+
+- 📋 [LWSM-1065] **Decide whether two instances may share one app.log.**
+  `RotatingFileHandler` is not multi-process safe, and ADR-0004 rules out
+  PID and lock files, so nothing currently prevents two instances. A
+  renames app.log to app.log.1 while B still holds the old descriptor and
+  keeps appending to the renamed inode; B's own rollover then renames A's
+  fresh file, and `doRollover`'s `os.remove` can discard a whole
+  generation. Verified as a property of the stdlib handler, not observed
+  in the wild — nothing runs two copies yet. Two candidate answers: the
+  single-instance guard P09's tray/session work needs anyway, or a
+  PID-qualified filename, which costs the single fixed path
+  design.md § Observability promises. Needs the ADR-0004 question settled
+  first: does "no lock files" ban a single-instance guard, or only
+  PERSISTED runtime state? It reads as the latter.
+  Decision (user, 2026-09-28): only one copy runs. Opening the app a
+  second time brings the existing window to the front instead of
+  starting a second copy, which also settles the shared app.log.
+  **Layman:** If you open the app twice, the two copies can scramble each other's log files. Decide how to stop that.
+  Kind: investigate.
+  Source: code-quality-review-2026-08-06.
+
+- 📋 [LWSM-1066] **Put a type checker in the gate.**
+  Nothing type-checks this project. Running pyright by hand during the
+  2026-08-06 audit found one real mismatch on the tree as it stands:
+  `_NoFollowRotatingFileHandler._open` returns the `IO[Any]` that `open()`
+  infers from a `str` mode, where `logging.FileHandler._open` declares
+  `TextIOWrapper`. No runtime effect — the object IS a TextIOWrapper —
+  which is why it was left rather than papered over with a cast plus two
+  imports in a five-line security-critical method. The fix is a checker
+  that keeps it honest, not one annotation. Acceptance: the checker runs
+  in scripts/local-ci.sh (so it is runnable before a push, per this
+  project's arrangement), its strictness level is a recorded decision
+  rather than a default, and `_open` is clean under it.
+  Decision (user, 2026-09-28): pyright over src/ only, at its standard
+  level. Measured today: 40 errors in src/, 233 including tests/. Fix
+  the 40 and keep src/ clean in the gate.
+  **Layman:** Add a tool that catches a class of mistake nothing currently checks for.
+  Kind: test.
+  Source: audit-2026-08-06.
+
+- 📋 [LWSM-1317] **Decide what docs/audit-allowlist.md is for now that no skill reads it.**
+  Found 2026-09-28 retiring the phase workflow. The `app-workflow` skill was the
+  only reader of `docs/audit-allowlist.md`; `check-code` matches against
+  `.audit_cache/learned-fp.jsonl` and `.ants_review_falsepos.jsonl` instead
+  (its § 7). `CLAUDE.md` now calls the file a human-readable record. Options:
+  move each live entry into the ledger `check-code` reads (via
+  `close-findings`), or keep the file as history and stop telling sessions to
+  read it before every review.
+  Progress (2026-09-28): recommendation from the MAME_Curator session,
+  claims re-checked here. check-code reads such a file only through an
+  audit-config.json `suppressions_doc` field (tools/audit/, .claude/audit/
+  or docs/private/audit/). None of those directories exists here, so none
+  of the nine entries suppresses anything. CLAUDE.md § Where state lives
+  item 5 and § Before a release still tell sessions to read the file.
+  Suggested split. Tool entries check-code can match: 004 bandit B101,
+  005 semgrep insecure-file-permissions, 007 vulture theme.py, 008 deptry
+  DEP002/DEP003, 009 bandit B404/B603. Either point suppressions_doc at
+  this file, or move each to its tool's own suppression (pyproject skips,
+  nosec with a reason, a vulture whitelist, deptry ignores). Doc-checker
+  entries check-code never matches: 001 doc_integrity, 002 spec_lint, 003
+  and 006 contract_doc_drift. Unverified whether check-doc-facts reads any
+  allowlist. The file's intro also names the dead /audit,
+  /code-quality-review and /doc-lint. Not decided; the user chooses.
+  Decision (user, 2026-09-28): one pointer file. Add
+  tools/audit/audit-config.json with suppressions_doc set to
+  docs/audit-allowlist.md, and fix the file's dead skill names. Do it
+  before the 0.1.0 pre-release review, which runs check-code.
+  **Layman:** A notes file about past false alarms was read automatically by the old workflow; nothing reads it any more, so either its entries move into the tools' own records or it becomes plain history.
+  Kind: chore.
+  Source: in-session-2026-09-28 (CFG-0645 migration).
+  Lanes: docs.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
@@ -9989,45 +10103,6 @@ open DS01 debt-sweep items, and the open FP02 review items.
   paragraph now points at it. ADR-0007's OneUp line citations are gone,
   with the technique kept in the prose.
 
-- 📋 [LWSM-1061] **DS01: `spec-format.md` has no required-sections block, so that check never runs.**
-  `spec_lint` only runs its `missing_section` check when the
-  project's format standard carries a `<!-- required-sections -->`
-  block. `docs/standards/spec-format.md` has none (verified
-  2026-08-06), so the check is silently disabled and every run
-  returns `sections_checked: false`. Nothing is wrong today because
-  `docs/specs/` is still empty — but the first spec written will not
-  be checked for missing sections, and a `false` nobody reads is
-  indistinguishable from coverage. One-time fix: add the block
-  naming spec-format's own required headings.
-  Dependencies: none.
-  **Layman:** One of the automatic spec checks is switched off and reports nothing, which looks the same as passing.
-  Kind: doc-fix.
-  Source: debt-sweep-2026-08-06.
-  Priority: 3.
-  Lanes: docs.
-
-- 📋 [LWSM-1062] **DS01: reconcile the four forked standards against the app-workflow template.**
-  Measured 2026-08-06 by lineage test (shared H2 headings, so these
-  are forks and not independent authorship). `testing.md` is +98
-  lines project-only, a clean one-way fork. `coding.md` is +105 / -4,
-  `README.md` +7 / -4, `roadmap-format.md` 3 / 3 — all two-way, so
-  both sides hold content the other lacks. **The hunk worth a
-  decision:** the template's `coding.md` carries a rule this
-  project's copy dropped — prefer the latest stable release of an
-  external library, and call it with that version's current idioms.
-  That is a live policy gap, not cosmetic drift, and
-  `docs/standards/dependencies.md` may or may not already cover it.
-  Reconciling a fork is a per-hunk judgement and neither side is
-  authoritative by position, so `/debt-sweep` reports it and never
-  edits it.
-  Dependencies: none.
-  **Layman:** Four of the shared standards have drifted from the template they came from, and one may have lost a rule about keeping libraries current.
-  Kind: doc-fix.
-  Source: debt-sweep-2026-08-06.
-  Priority: 2.
-  Lanes: docs.
-  Progress (2026-08-07, FP05 rule-14 gate): the cold-eyes run over coding.md + testing.md found the fork's most consequential residue and fixed the load-bearing part. Both lanes independently flagged that `testing.md § 2.2` was a CMake/ctest recipe in a Python project — which matters because § T9 explicitly stands on § 2.2, so a developer following the new clause landed on an unrunnable command. § 2.2 is now the project's own pytest form and was EXECUTED before it shipped (which caught two wrong revert forms — see the section). coding.md § 4's naming examples were camelCase with `m_` prefixes and are now Python. STILL OUTSTANDING and owned here: 16 further C++/CMake hits in testing.md — § 3.2's CMakeLists/`test_<name>.cpp` block, § 3.4 and § 6's `LABELS perf` / `LABELS fast` vocabulary (pytest has markers, and this project's convention is that markers go on tests not files), and § 5's QVERIFY2 example. Left deliberately: porting them is a per-hunk judgement across a standard, which is this bullet's job, not a gate's.
-
 - ✅ [LWSM-1063] **DS01: `design.md` cites a path inside a sibling repo that no reader can resolve.**
   `docs/design.md:253` points at `project-g/run.sh:87` to evidence
   the `${PORT:-N}` detection rule. `project-g` is an anonymised
@@ -10080,45 +10155,6 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: refactor.
   Source: in-session-2026-08-21 (noted while shipping LWSM-1018).
 
-- 📋 [LWSM-1065] **Decide whether two instances may share one app.log.**
-  `RotatingFileHandler` is not multi-process safe, and ADR-0004 rules out
-  PID and lock files, so nothing currently prevents two instances. A
-  renames app.log to app.log.1 while B still holds the old descriptor and
-  keeps appending to the renamed inode; B's own rollover then renames A's
-  fresh file, and `doRollover`'s `os.remove` can discard a whole
-  generation. Verified as a property of the stdlib handler, not observed
-  in the wild — nothing runs two copies yet. Two candidate answers: the
-  single-instance guard P09's tray/session work needs anyway, or a
-  PID-qualified filename, which costs the single fixed path
-  design.md § Observability promises. Needs the ADR-0004 question settled
-  first: does "no lock files" ban a single-instance guard, or only
-  PERSISTED runtime state? It reads as the latter.
-  Decision (user, 2026-09-28): only one copy runs. Opening the app a
-  second time brings the existing window to the front instead of
-  starting a second copy, which also settles the shared app.log.
-  **Layman:** If you open the app twice, the two copies can scramble each other's log files. Decide how to stop that.
-  Kind: investigate.
-  Source: code-quality-review-2026-08-06.
-
-- 📋 [LWSM-1066] **Put a type checker in the gate.**
-  Nothing type-checks this project. Running pyright by hand during the
-  2026-08-06 audit found one real mismatch on the tree as it stands:
-  `_NoFollowRotatingFileHandler._open` returns the `IO[Any]` that `open()`
-  infers from a `str` mode, where `logging.FileHandler._open` declares
-  `TextIOWrapper`. No runtime effect — the object IS a TextIOWrapper —
-  which is why it was left rather than papered over with a cast plus two
-  imports in a five-line security-critical method. The fix is a checker
-  that keeps it honest, not one annotation. Acceptance: the checker runs
-  in scripts/local-ci.sh (so it is runnable before a push, per this
-  project's arrangement), its strictness level is a recorded decision
-  rather than a default, and `_open` is clean under it.
-  Decision (user, 2026-09-28): pyright over src/ only, at its standard
-  level. Measured today: 40 errors in src/, 233 including tests/. Fix
-  the 40 and keep src/ clean in the gate.
-  **Layman:** Add a tool that catches a class of mistake nothing currently checks for.
-  Kind: test.
-  Source: audit-2026-08-06.
-
 - 📋 [LWSM-1316] **Cut CLAUDE.md's always-loaded cost: move the module map and the trap notes into on-demand docs.**
   Measured 2026-09-28: `CLAUDE.md` is 90,081 bytes, roughly 22k tokens, paid by
   every session in this project and again by every subagent it dispatches (each
@@ -10135,38 +10171,6 @@ open DS01 debt-sweep items, and the open FP02 review items.
   **Layman:** The instructions file every session reads is about 90 KB; most of it is reference that only matters when touching specific code, so it could live in separate files read when needed.
   Kind: chore.
   Source: in-session-2026-09-28 (global rule 18a).
-  Lanes: docs.
-
-- 📋 [LWSM-1317] **Decide what docs/audit-allowlist.md is for now that no skill reads it.**
-  Found 2026-09-28 retiring the phase workflow. The `app-workflow` skill was the
-  only reader of `docs/audit-allowlist.md`; `check-code` matches against
-  `.audit_cache/learned-fp.jsonl` and `.ants_review_falsepos.jsonl` instead
-  (its § 7). `CLAUDE.md` now calls the file a human-readable record. Options:
-  move each live entry into the ledger `check-code` reads (via
-  `close-findings`), or keep the file as history and stop telling sessions to
-  read it before every review.
-  Progress (2026-09-28): recommendation from the MAME_Curator session,
-  claims re-checked here. check-code reads such a file only through an
-  audit-config.json `suppressions_doc` field (tools/audit/, .claude/audit/
-  or docs/private/audit/). None of those directories exists here, so none
-  of the nine entries suppresses anything. CLAUDE.md § Where state lives
-  item 5 and § Before a release still tell sessions to read the file.
-  Suggested split. Tool entries check-code can match: 004 bandit B101,
-  005 semgrep insecure-file-permissions, 007 vulture theme.py, 008 deptry
-  DEP002/DEP003, 009 bandit B404/B603. Either point suppressions_doc at
-  this file, or move each to its tool's own suppression (pyproject skips,
-  nosec with a reason, a vulture whitelist, deptry ignores). Doc-checker
-  entries check-code never matches: 001 doc_integrity, 002 spec_lint, 003
-  and 006 contract_doc_drift. Unverified whether check-doc-facts reads any
-  allowlist. The file's intro also names the dead /audit,
-  /code-quality-review and /doc-lint. Not decided; the user chooses.
-  Decision (user, 2026-09-28): one pointer file. Add
-  tools/audit/audit-config.json with suppressions_doc set to
-  docs/audit-allowlist.md, and fix the file's dead skill names. Do it
-  before the 0.1.0 pre-release review, which runs check-code.
-  **Layman:** A notes file about past false alarms was read automatically by the old workflow; nothing reads it any more, so either its entries move into the tools' own records or it becomes plain history.
-  Kind: chore.
-  Source: in-session-2026-09-28 (CFG-0645 migration).
   Lanes: docs.
 
 - 📋 [LWSM-1318] **CLAUDE.md offers the pre-push escape with no condition, against commits.md § 2.3.**
