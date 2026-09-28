@@ -23,6 +23,12 @@ signaling per
 
 ### Added
 
+- **The checks before every push now include a type checker over the app's source.** (LWSM-1066)
+  pyright runs over src/ at its standard level, as part of
+  ./scripts/local-ci.sh and therefore of CI. The 41 errors it found were
+  typing gaps rather than behaviour bugs; each was fixed where it arose,
+  with no blanket ignores.
+
 - **Opening the app while it is already running shows the running copy instead of starting a second one.** (LWSM-1065)
   Two copies could scramble each other's log file and fight over the
   same project list. The second launch now asks the first to come to

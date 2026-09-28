@@ -1322,6 +1322,18 @@ class ProjectRow(QFrame):
             )
 
 
+def _application() -> QApplication | None:
+    """The running `QApplication`, or None.
+
+    `QApplication.instance()` is typed as returning the `QCoreApplication` base,
+    which has no palette, font or style hints, so every caller here would read
+    as calling methods that do not exist (LWSM-1066). Checking the type once
+    makes that true instead of assumed.
+    """
+    app = QApplication.instance()
+    return app if isinstance(app, QApplication) else None
+
+
 def _desktop_is_dark() -> bool | None:
     """Whether the desktop asks for a dark palette, or None if it did not say.
 
@@ -1330,7 +1342,7 @@ def _desktop_is_dark() -> bool | None:
     told light are different answers, and only one of them should fall through
     to the documented dark default.
     """
-    app = QApplication.instance()
+    app = _application()
     if app is None:
         return None
     scheme = app.styleHints().colorScheme()
@@ -1548,7 +1560,7 @@ class MainWindow(QMainWindow):
         # It assumes the application font is still the desktop's when the
         # window is built, which holds because `build_window` runs once per
         # process and applies the stored scale through this window.
-        app = QApplication.instance()
+        app = _application()
         # Through `QFontInfo`, never `QFont.pointSizeF()` (LWSM-1256): a font set
         # with `setPixelSize` — an ordinary desktop configuration — answers -1
         # there, which made the guard in `set_text_scale` false and the whole
@@ -1581,7 +1593,7 @@ class MainWindow(QMainWindow):
         # like every other widget, so the `self.setPalette` that used to sit here
         # became redundant and was removed with it — a line no test could redden
         # is the LWSM-1113 defect this pass exists to close.
-        app = QApplication.instance()
+        app = _application()
         if app is not None:
             app.setPalette(theme.to_palette())
         # Set once for the whole window; rows carry a state property the rules
@@ -1594,7 +1606,7 @@ class MainWindow(QMainWindow):
         # `set_theme`, which ticks an entry in `_theme_actions`, and a slot that
         # raised would do it silently — PySide swallows an exception out of a
         # slot Qt invoked, prints it, and carries on (measured, LWSM-1176).
-        app = QApplication.instance()
+        app = _application()
         if app is not None:
             app.styleHints().colorSchemeChanged.connect(self._on_color_scheme_changed)
 
@@ -1679,6 +1691,9 @@ class MainWindow(QMainWindow):
         self._scroll.setWidget(self._rows_host)
         outer.addWidget(self._scroll, 1)
         self.setCentralWidget(central)
+        # Kept, so the geometry code need not ask Qt for a layout it types as
+        # possibly absent (LWSM-1066).
+        self._outer = outer
 
         self._rows: dict[Path, ProjectRow] = {}
         self._geometry_applied = False
@@ -1904,7 +1919,7 @@ class MainWindow(QMainWindow):
         raised — a settings file that cannot be written must not undo a change
         the user can already see.
         """
-        app = QApplication.instance()
+        app = _application()
         if app is None or self._base_point_size <= 0:
             # Nothing was scaled, so nothing below may claim it was: ticking the
             # menu and writing the choice to disk is how the user came to be
@@ -2085,7 +2100,7 @@ class MainWindow(QMainWindow):
         self._theme_id = theme_id
         theme = theme_for_id(self._resolved_theme_id(theme_id))
         self._theme = theme
-        app = QApplication.instance()
+        app = _application()
         if app is not None:
             app.setPalette(theme.to_palette())
         self.setStyleSheet(theme.style_sheet())
@@ -2291,7 +2306,8 @@ class MainWindow(QMainWindow):
         """
         rows = []
         for index in range(self._rows_layout.count()):
-            widget = self._rows_layout.itemAt(index).widget()
+            item = self._rows_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
             if isinstance(widget, ProjectRow):
                 rows.append(widget)
         return rows
@@ -3560,7 +3576,7 @@ class MainWindow(QMainWindow):
         Split out of `_apply_default_geometry` by LWSM-1200 so the floor can be
         re-measured without the resize beside it running a second time.
         """
-        outer = self.centralWidget().layout()
+        outer = self._outer
         margins = outer.contentsMargins()
         row_height = rows[0].sizeHint().height() + max(self._rows_layout.spacing(), 0)
         # Everything that is not the list — the menu bar included (LWSM-1146),

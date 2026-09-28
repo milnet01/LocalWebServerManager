@@ -9161,7 +9161,7 @@ O8` forbids retrofitting that.
   Kind: investigate.
   Source: code-quality-review-2026-08-06.
 
-- 📋 [LWSM-1066] **Put a type checker in the gate.**
+- ✅ [LWSM-1066] **Put a type checker in the gate.**
   Nothing type-checks this project. Running pyright by hand during the
   2026-08-06 audit found one real mismatch on the tree as it stands:
   `_NoFollowRotatingFileHandler._open` returns the `IO[Any]` that `open()`
@@ -9176,6 +9176,16 @@ O8` forbids retrofitting that.
   Decision (user, 2026-09-28): pyright over src/ only, at its standard
   level. Measured today: 40 errors in src/, 233 including tests/. Fix
   the 40 and keep src/ clean in the gate.
+  Shipped 2026-09-28. pyright[nodejs]==1.1.414 in the dev extra (Node pinned
+  through uv.lock); [tool.pyright] records src/ only at "standard"; the gate
+  runs `uv run pyright` after compileall. 41 errors fixed at source, none
+  ignored: `_open` now returns io.TextIOWrapper (one cast, commented); the
+  registry's three merge Protocols are read-only properties, which is what
+  let a real ScanResult satisfy ScanLike; a typed `_application()` helper
+  replaces six QApplication.instance() calls; scanner's `_wrap` is generic
+  over its opener and the line reader counts bytes on its own raw stream;
+  two optional-None narrowings. A planted type error fails the step (exit 1).
+  Gate green, 1693 passed.
   **Layman:** Add a tool that catches a class of mistake nothing currently checks for.
   Kind: test.
   Source: audit-2026-08-06.

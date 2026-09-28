@@ -4,11 +4,13 @@ server logs (ADR-0003). Contract: `docs/design.md § Observability`."""
 from __future__ import annotations
 
 import errno
+import io
 import logging
 import os
 import stat
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import cast
 
 LOGGER_NAME = "lwsm"
 MAX_BYTES = 1024 * 1024
@@ -50,7 +52,7 @@ class _NoFollowRotatingFileHandler(RotatingFileHandler):
     write blocking or a record can be short-written.
     """
 
-    def _open(self):
+    def _open(self) -> io.TextIOWrapper:
         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK
         fd = os.open(self.baseFilename, flags, 0o600)
         try:
@@ -61,7 +63,14 @@ class _NoFollowRotatingFileHandler(RotatingFileHandler):
             raise
         # `open()` owns the fd from here, including if it raises — so this is
         # outside the try, or a failure there would close the fd twice.
-        return open(fd, self.mode, encoding=self.encoding, errors=self.errors)
+        #
+        # `cast`, because `open` types a mode held in a `str` as `IO[Any]` while
+        # `FileHandler._open` promises a `TextIOWrapper` — which a text mode
+        # always yields; the handler's mode is `"a"` (LWSM-1066).
+        return cast(
+            "io.TextIOWrapper",
+            open(fd, self.mode, encoding=self.encoding, errors=self.errors),
+        )
 
 
 def _prepare_state_dir(directory: Path) -> None:

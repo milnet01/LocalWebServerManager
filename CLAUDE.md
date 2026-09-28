@@ -306,7 +306,8 @@ uv sync --extra dev     # resolves from the committed uv.lock
 
 There is no compile step. `scripts/local-ci.sh` runs, in order:
 `uv sync --locked`, `ruff check`, `ruff format --check`,
-`python -m compileall src tests` (the syntax gate), an
+`python -m compileall src tests` (the syntax gate), `pyright` over
+`src/` at its standard level (LWSM-1066), an
 entry-point resolution check, `pytest`, `shellcheck`, and
 `actionlint` + `yamllint`. A check whose tool is missing is
 reported as an explicit **SKIP**, never folded into the pass —

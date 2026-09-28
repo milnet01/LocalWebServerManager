@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import enum
 import errno
+import io
 import json
 import os
 import re
@@ -297,9 +298,10 @@ def _checked_descriptor(path: Path) -> int:
     return fd
 
 
-def _wrap(fd: int, mode: str, **kwargs: object) -> object:
+def _wrap[T](fd: int, open_it: Callable[[int], T]) -> T:
+    """`open_it(fd)`, closing `fd` if it raises — typed by what it opens."""
     try:
-        return os.fdopen(fd, mode, **kwargs)
+        return open_it(fd)
     except BaseException:
         os.close(fd)
         raise
@@ -313,7 +315,7 @@ def _read_bytes(path: Path) -> bytes:
     raises `JSONDecodeError`. Under a single line-capped reader every minified
     one — an ordinary artefact — would be reported as malformed.
     """
-    handle = _wrap(_checked_descriptor(path), "rb")
+    handle = _wrap(_checked_descriptor(path), lambda fd: os.fdopen(fd, "rb"))
     with handle:
         # One byte past the cap, so a file that grew between the fstat and the
         # read is still refused rather than read whole.
@@ -337,7 +339,11 @@ def _read_lines(path: Path, deadline: Deadline) -> list[str]:
     a `UnicodeDecodeError` three levels into someone else's repo is not a fact
     worth stopping a scan for.
     """
-    handle = _wrap(_checked_descriptor(path), "r", encoding="utf-8", errors="replace")
+    # The byte stream and the text over it, built as `fdopen(fd, "r")` builds
+    # them, so the byte count below reads `raw` — a `.buffer` typeshed cannot
+    # promise a `tell()` on (LWSM-1066).
+    raw = _wrap(_checked_descriptor(path), lambda fd: os.fdopen(fd, "rb"))
+    handle = io.TextIOWrapper(raw, encoding="utf-8", errors="replace")
     lines: list[str] = []
     with handle:
         discarding = False
@@ -349,7 +355,7 @@ def _read_lines(path: Path, deadline: Deadline) -> list[str]:
                 break
             # Bytes consumed from the file, not characters decoded: the cap is
             # in bytes, and a character is up to four of them (LWSM-1273).
-            if handle.buffer.tell() > MAX_SOURCE_FILE_BYTES:
+            if raw.tell() > MAX_SOURCE_FILE_BYTES:
                 raise OSError(
                     errno.EFBIG,
                     f"too large: over {MAX_SOURCE_FILE_BYTES} bytes",
@@ -485,6 +491,8 @@ def rule_1(line: str) -> int | None:
     """
     for match in RULE_1.finditer(line):
         form = match.lastindex  # exactly one alternation group can have matched
+        if form is None:  # unreachable: every alternative of RULE_1 is a group
+            continue
         value = int(match.group(form))
         if not PORT_RANGE[0] <= value <= PORT_RANGE[1]:
             continue
@@ -1189,21 +1197,23 @@ class _UnitLookup:
         )
 
     def names(self) -> list[str]:
-        if self._disabled:
+        source = self._source
+        if self._disabled or source is None:
             return []
         if self._names is None:
             try:
-                self._names = list(self._source.unit_names(self._timeout()))
+                self._names = list(source.unit_names(self._timeout()))
             except OSError as exc:
                 self._names = []
                 self._disable(exc)
         return self._names
 
     def properties(self, unit: str) -> dict[str, str] | None:
-        if self._disabled:
+        source = self._source
+        if self._disabled or source is None:
             return None
         try:
-            return self._source.properties(unit, UNIT_PROPERTIES, self._timeout())
+            return source.properties(unit, UNIT_PROPERTIES, self._timeout())
         except OSError as exc:
             self._disable(exc)
             return None

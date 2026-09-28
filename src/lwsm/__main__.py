@@ -16,6 +16,9 @@ from lwsm import __version__, applog
 if TYPE_CHECKING:
     # Type-checking only: the runtime imports stay inside build_window so
     # `--version` and `--help` need no Qt and therefore no display (INV-14).
+    from PySide6.QtNetwork import QLocalServer
+    from PySide6.QtWidgets import QApplication
+
     from lwsm.controller import ProjectController
     from lwsm.mainwindow import MainWindow
     from lwsm.placement import Rect
@@ -583,7 +586,7 @@ in the task manager, which is the one job a pin has.
 """
 
 
-def _identify(app: object) -> None:
+def _identify(app: QApplication) -> None:
     """Name the application to the desktop, before any window exists.
 
     Separate from `build_window` because it is about the process rather than
@@ -629,7 +632,7 @@ class InstanceClaim:
     """
 
     primary: bool
-    server: object | None = None
+    server: QLocalServer | None = None
     problem: str | None = None
 
 
@@ -732,8 +735,10 @@ def main(argv: list[str] | None = None) -> int:
     from PySide6.QtWidgets import QApplication
 
     # Qt permits one QApplication per process, and a test session already has
-    # one, so reuse it rather than raising.
-    app = QApplication.instance() or QApplication([])
+    # one, so reuse it rather than raising. Checked by type, because
+    # `instance()` is typed as the `QCoreApplication` base (LWSM-1066).
+    existing = QApplication.instance()
+    app = existing if isinstance(existing, QApplication) else QApplication([])
 
     # Before logging is configured, so a second copy never opens `app.log` at
     # all: two `RotatingFileHandler`s on one file can discard a generation of

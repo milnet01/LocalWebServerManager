@@ -218,6 +218,13 @@ step "Syntax gate (compileall)"
 #                               a timestamp, and cannot go stale at all
 uv run python -m compileall -q -f --invalidation-mode checked-hash src tests
 
+step "Type check (pyright)"
+# src/ only, at the standard level; both are recorded in pyproject.toml's
+# [tool.pyright], so this line carries no settings of its own (LWSM-1066).
+# pyright comes from uv.lock with its Node runtime, so this and CI run the
+# same checker.
+uv run pyright
+
 step "Entry points resolve"
 # compileall proves every file that EXISTS parses; it cannot know that
 # [project.scripts] names a module that does not. Without this, the shipped

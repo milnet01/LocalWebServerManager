@@ -854,26 +854,40 @@ class DetectedPort(Protocol):
     recomputed on the next scan.
     """
 
-    port: int
+    # Properties, not attributes, across all three protocols: a protocol
+    # attribute is writable and therefore invariant, and the scanner's frozen
+    # dataclasses offer read-only fields, so pyright rejects a real
+    # `ScanResult` as a `ScanLike` (LWSM-1066). A merge only reads them.
+    @property
+    def port(self) -> int: ...
 
 
 class ScannedProject(Protocol):
     """`scanner.DetectedProject`, as the merge sees it."""
 
-    path: Path  # RESOLVED, absolute; the identity (ADR-0005)
-    name: str
-    kind: LauncherKind
-    argv: tuple[str, ...]
-    unit: str | None
-    port: DetectedPort | None  # None means UNKNOWN, never a guess
+    @property
+    def path(self) -> Path: ...  # RESOLVED, absolute; the identity (ADR-0005)
+    @property
+    def name(self) -> str: ...
+    @property
+    def kind(self) -> LauncherKind: ...
+    @property
+    def argv(self) -> tuple[str, ...]: ...
+    @property
+    def unit(self) -> str | None: ...
+    @property
+    def port(self) -> DetectedPort | None: ...  # None means UNKNOWN, never a guess
 
 
 class ScanLike(Protocol):
     """`scanner.ScanResult`, as the merge sees it."""
 
-    projects: tuple[ScannedProject, ...]
-    timed_out: bool  # the budget expired; `projects` is partial
-    unlistable_roots: tuple[Path, ...]
+    @property
+    def projects(self) -> tuple[ScannedProject, ...]: ...
+    @property
+    def timed_out(self) -> bool: ...  # the budget expired; `projects` is partial
+    @property
+    def unlistable_roots(self) -> tuple[Path, ...]: ...
 
 
 NEW = "new"
@@ -1012,7 +1026,7 @@ def merge(
     exactly the records the app made itself.
     """
     reasons: list[str] = []
-    counts = dict.fromkeys(OUTCOMES, 0)
+    counts: dict[str, int] = dict.fromkeys(OUTCOMES, 0)
     suppressed = 0
 
     def note(reason: str) -> None:
@@ -1400,7 +1414,7 @@ def merge_imported(
     kept — an import is a merge, never a replacement.
     """
     reasons: list[str] = []
-    counts = dict.fromkeys(OUTCOMES, 0)
+    counts: dict[str, int] = dict.fromkeys(OUTCOMES, 0)
     suppressed = 0
 
     def note(reason: str) -> None:
