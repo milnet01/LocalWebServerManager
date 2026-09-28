@@ -565,6 +565,11 @@ O8` forbids retrofitting that.
   Not fixed in passing because CLAUDE.md is a gate input, so editing it is
   not a docs-only push, and rule 14's test has to be applied to it rather
   than assumed.
+  Hit live 2026-09-28 (LWSM-1065 end-to-end check): `pkill -INT -f 'bin/lwsm$'`
+  meant for a test copy also matched the user's own running app. It survived,
+  since a Qt event loop does not act on SIGINT. Safe form used afterwards:
+  select by PID, and confirm the PID's /proc/<pid>/environ holds the test's
+  private XDG_RUNTIME_DIR before signalling it.
   **Layman:** The cleanup command our own notes tell you to run can kill unrelated programs on this machine.
   Kind: doc-fix.
   Source: in-session-2026-09-02.
