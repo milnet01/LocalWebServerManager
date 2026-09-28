@@ -183,11 +183,13 @@ what `./scripts/local-ci.sh --fast` skips. A throwaway tree under
 
 ### 3.4 Performance tests
 
-Measure throughput / latency / memory. Mark them `perf` so they can
-be excluded from CI when noisy — after registering `perf` under
-`markers` in `pyproject.toml`. An unregistered marker stops the run:
-pytest warns about it and `filterwarnings = ["error"]` makes the
-warning an error. Markers go on tests, never on files. Compare against a baseline,
+Measure throughput / latency / memory. Mark them `perf`, registering
+`perf` under `markers` in `pyproject.toml` with the first such test —
+an unregistered marker stops the run: pytest warns about it and
+`filterwarnings = ["error"]` makes the warning an error. Nothing
+deselects `perf` yet; keeping a noisy one out of a gate means adding
+`-m "not perf"` to `local-ci.sh`. Markers go on tests, never on
+files. Compare against a baseline,
 not absolute thresholds, so machine differences don't fail the
 test.
 
@@ -266,7 +268,7 @@ carries enough context that the CI log alone is diagnosable.
 - **Deterministic.** No `random.random()`, no time-of-day. If
   randomness is genuinely needed, seed it with a fixed value.
 - **Fast.** Target < 100 ms each for an unmarked test. A slower one
-  is marked `perf` once that is registered (§3.4) — never
+  is marked `perf` (§3.4) — never
   `integration`, which says what a test does, not how long it takes
   (§3.3).
 - **Isolated.** No shared state between tests; one failing test
@@ -528,3 +530,4 @@ each loop happens, never back-filled.
 | 1 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 4 | 4 | 4 | 12 verified, 0 unverified, 12 fixed | Converged. Batched run with `coding.md` — see that file's log for why. Dimensions: dim 6×3, dim 7×3, dim 2×2, dim 15×1, dim 8×1, dim 12×1, dim 11×1. **Both lanes independently found that `§ T9` step 1 only worked for a fix that ADDS a line** — it read "Name the line the fix adds. Delete it" while a large share of fixes change or remove one, and deleting a *changed* line removes the behaviour rather than restoring the defect, so it reddens for the wrong reason and reads as verified. Generalised to reverting the smallest edit, which `§ 2.2` already did. **`§ 2.2` itself was a CMake/ctest recipe in a Python project**, and `§ T9` explicitly stands on it, so following the new clause led to an unrunnable command; now the project's pytest form, and **executing it before it shipped caught two wrong revert forms**, both of which reported the test passing in the "must FAIL" position. `§ 3.6` added to sanction the source-invariant test `coding.md § 1.6` asks for, with the exemptions stated and bounded. Also fixed: `§ 3.1`'s "< 10 ms" against `§ 6`'s "< 100 ms" for the same tests; `§ T9`'s "150 tests" stated as standing fact when the suite is at 173; T7 restored to sequence after T9 had been inserted between T8 and T7; T1's undefined `<scan root>` placeholder; and the header's "other three standards" against five. Remaining C++/CMake residue routed to LWSM-1062. |
 | 2 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 7 | 6 | 2 | 15 verified, 0 unverified, 15 fixed | **Converged by sweep, not by dispatch** — 11 fix collateral vs 4 draft defects; see `coding.md`'s log for the split and the shared findings. Both lanes independently found that loop 1's own two additions to `§ T9` contradicted each other: step 1 endorsed § 2.2's **whole-file** revert while the paragraph below required the mutation **per site**, and a whole-file revert of a multi-site sweep produces exactly one red run — which the per-site rule would then credit to every site, the precise failure T9 exists to catch. Step 1 also passed on "at least one test goes red", satisfiable by any unrelated failure; it now names the fix's own test and runs it by name. `§ T9`'s closing paragraph read as narrowing the whole section to call-happened-spy cases while its opening applied to every fix of three Kinds — it now narrows the *assertion style* only. Draft defects: the header scoped this standard to `test` plus three fix Kinds while `§ 1` binds "every code change that ships behaviour" and `§ 7` binds `Kind: implement`; and `§ 2.2`'s `git checkout <rev> -- <path>` silently destroys an uncommitted fix, which § 1's TDD cycle has you holding at step 3 — now says commit first. `§ 3.1` and `§ 9` gained the reciprocal pointer to § 3.6's exemption, which loop 1 had declared only at the exempt end, and `§ 3.6` now says a mechanism spanning modules needs one test per module. |
 | 3 | 2026-09-28 | 2 (`review-contract`, genre standard pinned, both lanes holding every question; `neutral-lane`, no project context) | — | — | — | — | 1 verified, 0 dismissed, 1 fixed | Gate armed by c660263 + e7aee3b (pytest forms for § 3.2/§ 3.4/§ 3.5/§ 5/§ 6/§ 8; § 2.3 and § 4 now point at `docs/specs/` and `spec-format.md` § 3.7). **Q2 1**, both lanes: § 6 told a slow test to take `integration`, whose registered meaning is a real child process or socket and which `--fast` skips; now `perf`, with the marker's meaning stated in § 3.3. Measured and true: `local-ci.sh` exports `PYTHONDONTWRITEBYTECODE`; `-k` matching nothing exits 5. **Filed on LWSM-1330, outside the change:** § 7's no-new-tests-for-refactors against § 3.6; § 3.1's "no I/O" against T1's `tmp_path` trees; § 8's "corresponding commit prefix". |
+| 4 | 2026-09-28 | 2 (same brief, cold, rebuilt from disk; `neutral-lane`) | — | — | — | — | 1 verified, 0 dismissed, 1 fixed | **Q3 1**, one lane: § 3.4 said `perf` tests are marked "so they can be excluded from CI", and nothing deselects `perf` (measured: `local-ci.sh`'s only `-m` is `"not integration"`); "once registered" read two ways. Now: register it with the first such test, and say that excluding one needs `-m "not perf"` added to `local-ci.sh`. **Filed on LWSM-1330, outside the change:** § 2.2's claim that a mistyped `-k` cannot satisfy the must-FAIL step (it exits 5, which reads as red; both lanes); T6 never says when to apply the registered `gui` marker. |

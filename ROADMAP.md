@@ -9256,6 +9256,17 @@ O8` forbids retrofitting that.
   7. § 8 says a test-only change uses the `Kind: test` "corresponding commit
      prefix"; under commits.md § 1.1 the item ID replaces any type prefix.
      Delete the prefix clause.
+  testing.md, gate loop 4 (2026-09-28), pre-existing so filed:
+  8. [Q1] § 2.2, "a typo fails a && chain … the must-FAIL step cannot be
+     satisfied by a misspelling" is false: the block runs a bare
+     `pytest -k … # must FAIL`, and a pattern matching nothing exits 5,
+     which is non-zero and reads as red. T9 step 1 runs only the red half,
+     so a typo there records "verified red" for a test that never ran.
+     Require exit 1 with at least one failed test, in § 2.2 and T9. Both
+     lanes.
+  9. [Q3] T6: pyproject.toml's `gui` marker cites T6, which never says to
+     apply it; 5 of the 7 files using qtbot carry it, and nothing selects on
+     it. Say whether a widget test carries `gui`, or retire the marker.
   **Layman:** Two of the project's rulebooks still contain a few instructions that contradict the rest.
   Kind: doc-fix.
   Source: review-contract-2026-09-28 spec-format.md loop 7.
