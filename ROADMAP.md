@@ -9207,6 +9207,20 @@ O8` forbids retrofitting that.
   Source: session-message-130-2026-09-28.
   Lanes: tooling, tests.
 
+- ✅ [LWSM-1328] **CI keeps its dependency cache when the gate fails, not only when it passes.**
+  local-gate.md § 9's cache row: save with if: always(). setup-uv's own save
+  is post-if: success(), so a run that failed or timed out on a new uv.lock
+  saved nothing. Now save-cache: false on setup-uv, and an
+  actions/cache/save step with if: always(), keyed on setup-uv's own
+  cache-key output, skipped on an exact hit. A successful run's timing is
+  unchanged by design; the gain is the run after a failing one.
+  test_ci_contract.py: the save step is allowed by name, and the gate-step
+  check is bounded at the next step instead of reading to end of file.
+  **Layman:** A failed build on GitHub no longer makes the next one start from scratch.
+  Kind: perf.
+  Source: session-message-161-2026-09-28.
+  Lanes: ci.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart

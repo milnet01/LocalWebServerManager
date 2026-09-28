@@ -50,6 +50,7 @@ jobs:
       # rewrites that form when it bumps the SHA. On its own line it would go on
       # asserting a version the pin no longer points at.
       - name: Install uv
+        id: uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           # Pinned, because an unpinned setup-uv resolves whatever uv is latest
@@ -65,6 +66,11 @@ jobs:
           # no workaround. Re-locking under 0.12.2 left uv.lock byte-identical.
           version: "0.12.2"
           enable-cache: true
+          # Saved by the last step instead, which runs on failure too.
+          # setup-uv's own save is `post-if: success()`, so a run that fails
+          # or times out on a new uv.lock saves nothing, and the next run
+          # starts cold (local-gate.md § 9).
+          save-cache: false
 
       # Reads .python-version, which is committed so that this machine and a
       # developer's resolve the SAME interpreter. requires-python is only a
@@ -127,3 +133,13 @@ jobs:
         env:
           LWSM_REQUIRE_ALL_TOOLS: 1
         run: ./scripts/local-ci.sh
+
+      # always(), so a red or timed-out gate still leaves a warm cache. Skipped
+      # on an exact hit: that key already holds this cache. The key is
+      # setup-uv's own, so restore and save cannot disagree about it.
+      - name: Save the uv cache
+        if: always() && steps.uv.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ steps.uv.outputs.cache-key }}

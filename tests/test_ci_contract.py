@@ -47,6 +47,9 @@ PREPARATION_STEPS = frozenset(
         "Install Python",
         "Install Qt runtime libraries",
         "Install shellcheck, actionlint and yamllint",
+        # After the gate, not before it, and it checks nothing: it keeps the
+        # dependency cache when the gate fails (local-gate.md § 9).
+        "Save the uv cache",
     }
 )
 
@@ -179,6 +182,9 @@ def test_the_gate_step_runs_the_script_and_nothing_else() -> None:
     would be a check the developer cannot reproduce, however short."""
     text = WORKFLOW.read_text()
     tail = text[text.index(f"- name: {GATE_STEP}") :]
+    # Bounded at the next step, so a step after the gate is judged as its own
+    # step and not read as part of this one's run block.
+    tail = re.split(r"^      - name: ", tail, maxsplit=2, flags=re.M)[0]
     commands = [
         line.strip()
         for line in tail.splitlines()
