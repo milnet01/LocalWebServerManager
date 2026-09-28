@@ -74,13 +74,11 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
 
 **What is not there yet**
 
-- No **Settings window** — where to look for projects is a plain
-  text file for now (see **Quickstart**).
 - No **live output panel** inside the app. The logs are on disk
   and you read them with your own tools.
 - No **system tray icon**, no **start on login**, no
   **"what is using this port?"** help, and no **downloadable
-  package** — those are later phases.
+  package** — those are planned for later versions.
 
 Every one of those has a stable ID and stated acceptance criteria
 in [ROADMAP.md](ROADMAP.md), so what is real and what is merely
@@ -103,8 +101,9 @@ there and with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Install
 
-There is no download, package or AppImage yet — that is the last
-phase of the build. For now you run it from a copy of the source.
+There is no download, package or AppImage yet — an AppImage is
+planned for version 1.0.0. For now you run it from a copy of the
+source.
 
 ```bash
 git clone https://github.com/milnet01/LocalWebServerManager.git
@@ -126,8 +125,8 @@ password.
 ### Quickstart
 
 1. **Tell it where your projects are.** Create the file
-   `~/.config/localwebservermanager/scan-roots` and put one
-   folder per line:
+   `~/.config/localwebservermanager/scan-roots` with one folder
+   per line (or set them later in **Settings > Preferences**):
 
    ```
    # one directory per line; blank lines and #comments are ignored
