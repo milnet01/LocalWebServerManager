@@ -8946,6 +8946,12 @@ O8` forbids retrofitting that.
   parent). Closing the race needs execution from the checked
   descriptor (fexecve or /proc/self/fd/N), which interacts with
   shebang scripts; decide whether the residual is worth it.
+  Decision (user, 2026-09-28): accept the residual and document it. No
+  execution from the checked descriptor: that would change $0 and
+  __file__ for every launcher and break `cd "$(dirname "$0")"` and
+  sibling imports. Since LWSM-1226 only the file's owner can swap it,
+  and that owner already controls the account. Remaining work: write the
+  reasoning where the check lives, then close.
   **Layman:** Make sure the start script the app checked is exactly the one it runs, with no gap for a swap in between.
   Kind: security.
   Source: code-quality-review-2026-08-15 lane-1 (known-issue-037).
@@ -9376,6 +9382,9 @@ O8` forbids retrofitting that.
      Fixing it means a custom QAccessibleInterface with a list-item role (and
      the list a list), installed through an accessible factory, then checked
      in Orca or accerciser, since offscreen cannot answer what AT-SPI sees.
+  Decision (user, 2026-09-28), item 1: show the load error in the empty
+  list area as a wrapped, selectable label, and keep the status-bar line
+  too. Render it and look before closing.
   **Layman:** When the project list cannot be read, most of the explanation is cut off, and a screen reader calls each project row a decorative border.
   Kind: accessibility.
   Source: known-issues re-triage 2026-09-28, queued from LWSM-1323.
@@ -9876,6 +9885,8 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: implement.
   Source: in-session-2026-08-03.
   Priority: 2.
+  Decision (user, 2026-09-28): stays in 0.4.0. Workaround meanwhile:
+  change the port in one project's own settings, then Rescan.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**
