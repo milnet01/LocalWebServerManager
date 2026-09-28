@@ -321,6 +321,14 @@ signaling per
 
 ### Fixed
 
+- **Keyboard and screen-reader users keep their place, and status messages are read out.** (LWSM-1323)
+  Pressing Start or Stop from the keyboard used to throw focus somewhere
+  else in the window as the button greyed out; it now stays on that
+  project's row. Messages shown at the bottom of the window are now also
+  announced to a screen reader. Also: counts in the rescan summary use
+  your language's digits, and a restart can no longer begin before its
+  own stop has finished being handled.
+
 - **The project list is read and saved more carefully, and a save that did happen is no longer reported as failed.** (LWSM-1322)
   When the disk accepted the new project list but could not confirm it
   would survive a crash, the app said "not saved" and then behaved as if

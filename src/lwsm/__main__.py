@@ -863,7 +863,18 @@ def run() -> int:
     """
     from lwsm.controller import exit_without_waiting_for_abandoned_probes
 
-    code = main()
+    try:
+        code = main()
+    except BaseException:
+        # The bound applies to an exception too (known-issue-008, LWSM-1323):
+        # without it, `main()`'s own `finally` had already abandoned the pool,
+        # and the propagating exception reached interpreter shutdown and waited
+        # there — measured at 30 s. Logged first, because a bounded exit ends
+        # the process before the interpreter would print it; with nothing
+        # abandoned the bound returns and the exception propagates as usual.
+        applog.get_logger(__name__).exception("the app ended on an exception")
+        exit_without_waiting_for_abandoned_probes(1)
+        raise
     exit_without_waiting_for_abandoned_probes(code)
     return code
 

@@ -1391,6 +1391,9 @@ class FakeSupervisor:
         self.stopping_projects: set[Path] = set()
         # PID per project, for `owns_pid`. Empty means nothing here is ours.
         self.child_pids: dict[Path, int] = {}
+        # A stop whose future is already done when it is returned, which is
+        # when `add_done_callback` runs inline (LWSM-1323).
+        self.done_immediately = False
 
     def start(self, project, name, argv, port):
         if self.refusal is not None:
@@ -1404,6 +1407,8 @@ class FakeSupervisor:
         self._running.pop(project, None)
         future: Future = Future()
         self.futures.append(future)
+        if self.done_immediately:
+            future.set_result(StopOutcome(exit_code=0))
         return future
 
     def running(self):
@@ -1522,7 +1527,11 @@ def test_a_port_less_project_does_not_freeze_on_stopping(qtbot, controllers) -> 
     controller.start_project(Path("/srv/a"))
     controller.stop_project(Path("/srv/a"))
     assert controller.rows()[0].status is ProjectStatus.STOPPING
-    supervisor.futures[0].set_result(StopOutcome(exit_code=0))
+    # The stop's report is queued since LWSM-1323, never delivered inside
+    # `set_result`, and it emits `projects_changed` itself, so it is waited for
+    # separately; otherwise the poll's wait below is satisfied by the report.
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        supervisor.futures[0].set_result(StopOutcome(exit_code=0))
 
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
@@ -2278,3 +2287,51 @@ def test_a_probe_abandoned_at_teardown_stays_below_it(caplog) -> None:
         (r.levelname, r.getMessage()) for r in caplog.records
     ]
     assert any("no live signaller" in r.getMessage() for r in caplog.records)
+
+
+def test_a_stopped_controller_refuses_to_poll_again(controllers) -> None:
+    """known-issue-009 (LWSM-1323): a restart that can observe nothing is refused.
+
+    `poll_once` returns at once once `_stopped` is set, so a timer restarted
+    on a stopped controller ticked forever and never observed anything.
+    """
+    controller = build(controllers, [], FakeProbe())
+    controller.stop()
+    with pytest.raises(RuntimeError, match="cannot poll again"):
+        controller.start_polling()
+    assert not controller._timer.isActive()
+
+
+def test_a_restart_that_reaches_no_stop_is_not_left_pending(controllers) -> None:
+    """known-issue-056 (LWSM-1323): an early return must clear the restart flag.
+
+    Left set, some later ordinary Stop of that project turned into a restart.
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+    controller.set_records([])  # the record goes away; the child does not
+
+    controller.restart_project(Path("/srv/a"))
+
+    assert Path("/srv/a") not in controller._restarting
+
+
+def test_a_finished_stop_is_reported_after_stop_project_returns(
+    qtbot, controllers
+) -> None:
+    """known-issue-056 (LWSM-1323): never re-entrantly, inside the call.
+
+    A future already done runs its callback inline, and the report used to be
+    handled before the call returned — so a restart's second half, the start,
+    ran inside `restart_project` itself.
+    """
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+    supervisor.done_immediately = True
+
+    controller.restart_project(Path("/srv/a"))
+
+    assert len(supervisor.started) == 1, "the restart's start ran inside the call"
+    qtbot.waitUntil(lambda: len(supervisor.started) == 2, timeout=2000)

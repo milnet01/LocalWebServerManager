@@ -215,6 +215,7 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** LWSM-1117 (FP05 — bound the abandoned-pool wait)
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323.**
+- **Resolved 2026-09-28 by LWSM-1323.**
 
 ## known-issue-009 — `start_polling()` after `stop()` starts a timer that can never observe
 
@@ -230,6 +231,7 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** P03 (LWSM-1006 — project discovery)
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323.**
+- **Resolved 2026-09-28 by LWSM-1323:** a stopped controller refuses to poll again.
 
 ### From the presentation lane
 
@@ -301,6 +303,7 @@ in the current build. Owners are named, not implied.
   foundation)
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323.**
+- **Queued 2026-09-28 as LWSM-1331** (measured: 239 px window, 780 px message).
 
 ## known-issue-013 — The row's accessible role is `Border`, and no widget has an accessible description
 
@@ -334,6 +337,7 @@ in the current build. Owners are named, not implied.
   explicitly.
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323** (the `role=Border` half).
+- **Queued 2026-09-28 as LWSM-1331.**
 
 ## known-issue-014 — The port cell reserves the width of its shortest possible string
 
@@ -1189,6 +1193,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** P04 (appearance and accessibility foundation)
 - **Logged:** 2026-08-15
 - **RESOLVED (re-triaged 2026-09-28)**: the failure half: a failure lands on its row (91ed699, LWSM-1032). The screen-reader half is still live, in LWSM-1323.
+- **Resolved 2026-09-28 by LWSM-1323:** status messages are announced.
 
 ## known-issue-050 — A transition steals keyboard focus
 
@@ -1203,6 +1208,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** P04
 - **Logged:** 2026-08-15
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323.**
+- **Resolved 2026-09-28 by LWSM-1323.**
 
 ## known-issue-051 — Precedence bug shows an empty launcher path in the trust dialog
 
@@ -1348,3 +1354,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Resolved 2026-09-28 by LWSM-1322:** the six registry items — NaN,
   duplicate keys, the deduplicated merge, the unlistable-root failure, the
   `mkdir` race, and binding a load to its path.
+- **Resolved 2026-09-28 by LWSM-1323:** `_restarting` on an early return,
+  the focus-ring painter, locale digits and the queued stop report. Dismissed:
+  `localhost` for an IPv6-only server — measured, `localhost` resolves to `::1`
+  here and curl and urllib both reach a `::1`-only server by name.

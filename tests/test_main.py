@@ -283,6 +283,31 @@ def test_run_bounds_the_process_exit(monkeypatch) -> None:
     )
 
 
+def test_run_bounds_the_exit_when_main_raises(monkeypatch) -> None:
+    """known-issue-008 (LWSM-1323): an exception must not skip the bound.
+
+    `main()`'s `finally` abandons the pool before the exception leaves it, so
+    an unbounded exit then waits on the stuck probe — measured at 30 s.
+    """
+    from lwsm import controller as controller_module
+
+    bounded: list[int] = []
+
+    def failing_main() -> int:
+        raise RuntimeError("the loop broke")
+
+    monkeypatch.setattr(entry, "main", failing_main)
+    monkeypatch.setattr(
+        controller_module,
+        "exit_without_waiting_for_abandoned_probes",
+        lambda code: bounded.append(code),
+    )
+
+    with pytest.raises(RuntimeError, match="the loop broke"):
+        entry.run()
+    assert bounded == [1], "an exception out of main() skipped the bounded exit"
+
+
 @pytest.mark.gui
 @pytest.mark.usefixtures("_no_event_loop")
 def test_main_stops_the_controller_when_the_loop_returns(

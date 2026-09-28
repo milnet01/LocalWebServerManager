@@ -18,7 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
 from lwsm.registry import ProjectRecord, port_claims
@@ -462,7 +462,13 @@ class ProjectController(QObject):
         # management` forbids.
         self._overlay: tuple[Path, ProjectStatus] | None = None
         self._action_signals = _ActionSignals(self)
-        self._action_signals.stopped.connect(self._on_stopped)
+        # Queued, never auto: a future that is already done runs its callback
+        # INLINE on the GUI thread, and an auto connection then called
+        # `_on_stopped` inside `stop_project` — so a restart's start ran
+        # re-entrantly within its own stop (known-issue-056, LWSM-1323).
+        self._action_signals.stopped.connect(
+            self._on_stopped, Qt.ConnectionType.QueuedConnection
+        )
         # Paths whose stop is the first half of a restart.
         self._restarting: set[Path] = set()
         # Recomputed from each snapshot by `_managed_paths`. Empty until the
@@ -714,11 +720,16 @@ class ProjectController(QObject):
         """
         record = self._record(path)
         if record is None or self._supervisor is None:
+            # A restart that reaches no stop must not stay pending, or some
+            # later ordinary Stop turns into a restart (known-issue-056,
+            # LWSM-1323). Same on the foreign branch below.
+            self._restarting.discard(path)
             self.action_failed.emit(
                 path, f"cannot stop {path}: nothing is supervising it"
             )
             return
         if path not in self._supervisor.running():
+            self._restarting.discard(path)
             # A `running (foreign)` project — this manager did not spawn it, so
             # there is no handle to signal through, and ADR-0003 forbids
             # signalling a bare PID. Its systemd unit is an identity rather than
@@ -952,6 +963,12 @@ class ProjectController(QObject):
         self._timer.setInterval(interval_ms)
 
     def start_polling(self) -> None:
+        # A stopped controller stays stopped: `poll_once` returns at once on
+        # `_stopped`, so restarting the timer would tick forever and observe
+        # nothing, silently (known-issue-009, LWSM-1323). Refused aloud; a
+        # caller that needs polling again builds a new controller.
+        if self._stopped:
+            raise RuntimeError("a stopped ProjectController cannot poll again")
         # Poll immediately rather than leaving the window blank for a second.
         self.poll_once()
         self._timer.start()

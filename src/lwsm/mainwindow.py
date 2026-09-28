@@ -21,6 +21,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QCoreApplication,
     QEvent,
+    QLocale,
     QObject,
     QPoint,
     QRect,
@@ -36,6 +37,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAccessible,
+    QAccessibleAnnouncementEvent,
     QAccessibleEvent,
     QAction,
     QActionGroup,
@@ -402,7 +404,8 @@ def _merge_parts(counts: dict[str, int]) -> list[str]:
     """
 
     parts = [
-        text.replace("%1", str(count))
+        # The user's digits, not always ASCII ones (known-issue-056, LWSM-1323).
+        text.replace("%1", QLocale().toString(count))
         for outcome, text in (
             (registry.NEW, QCoreApplication.translate("ProjectRow", "%1 new")),
             (registry.CHANGED, QCoreApplication.translate("ProjectRow", "%1 changed")),
@@ -1037,6 +1040,9 @@ class ProjectRow(QFrame):
         # render at half the width this method promises.
         inset = width / 2
         painter.drawRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset))
+        # Ended explicitly, as the glyph painter above is, rather than left to
+        # the object's destruction (known-issue-056, LWSM-1323).
+        painter.end()
 
     def _apply_button_state(self, row: RowView) -> None:
         """Labels and enablement, both derived from the one status.
@@ -1068,9 +1074,23 @@ class ProjectRow(QFrame):
         # a second server (`coding.md § 1.1`).
         # `row.stopping` is the third condition and not a fourth spelling of
         # the first: the overlay is gone by the time it matters (LWSM-1191).
-        self.start_button.setEnabled(
-            not in_transition and not running and not row.stopping
-        )
+        start_ok = not in_transition and not running and not row.stopping
+        # Focus first, then disable. Qt moves focus off a widget as it is
+        # disabled and does not bring it back, so a keyboard user who pressed
+        # Start lost their place in the list. The row is focusable and is the
+        # project they were acting on (known-issue-050, LWSM-1323;
+        # `design-accessibility.md`: the app never steals focus).
+        if any(
+            button.hasFocus() and not ok
+            for button, ok in (
+                (self.start_button, start_ok),
+                (self.stop_button, running),
+                (self.restart_button, running),
+                (self.open_button, running),
+            )
+        ):
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.start_button.setEnabled(start_ok)
         # Running AND ours, for the same reason Open is below — and the two
         # buttons that SIGNAL had neither the gate nor a substitute
         # (LWSM-1197). Nothing foreign was ever signalled: `stop_project`
@@ -2602,6 +2622,12 @@ class MainWindow(QMainWindow):
 
     def set_status_message(self, text: str) -> None:
         self.statusBar().showMessage(text)
+        # `showMessage` raises no accessibility event, so a screen-reader user
+        # was never told any of it (known-issue-049, LWSM-1323). Announced
+        # politely: it waits for whatever is being read out now. Not yet
+        # checked against a running Orca.
+        if text:
+            QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, text))
 
     def _confirm_dialog(
         self, project: Path, resolved: str, argv: tuple[str, ...]

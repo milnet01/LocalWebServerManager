@@ -7243,3 +7243,66 @@ def test_a_hostile_name_reaches_the_screen_reader_bounded(qtbot, built) -> None:
     assert "\n" not in name and "\x1b" not in name, repr(name[:80])
     assert len(name) < mainwindow.MAX_NAME_CHARS + 40, len(name)
     assert mainwindow.displayable_name("short") == "short"
+
+
+# --- LWSM-1323: the window and controller findings ------------------------------
+
+
+def test_a_transition_keeps_keyboard_focus_on_the_row(qtbot, built) -> None:
+    """known-issue-050: disabling the focused button must not lose the user.
+
+    Qt moves focus off a widget as it is disabled and never brings it back, so a
+    keyboard user who pressed Start landed somewhere else in the window.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    with qtbot.waitExposed(window):
+        window.show()
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    row = rows_of(window)[0]
+    from lwsm.controller import RowView
+
+    row.start_button.setFocus()
+    assert row.start_button.hasFocus(), "the fixture must focus Start first"
+
+    row.update_from(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            effective_port=5005,
+            status=ProjectStatus.STARTING,
+        )
+    )
+
+    assert not row.start_button.isEnabled()
+    assert row.hasFocus(), f"focus went to {QApplication.focusWidget()!r}"
+
+
+def test_a_status_message_is_announced_to_a_screen_reader(
+    qtbot, built, monkeypatch
+) -> None:
+    """known-issue-049 residual (LWSM-1323): `showMessage` raises no event."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    sent: list[str] = []
+
+    def spy(event) -> None:
+        if hasattr(event, "message"):
+            sent.append(event.message())
+
+    monkeypatch.setattr(mainwindow.QAccessible, "updateAccessibility", spy)
+    window.set_status_message("a could not start: port taken")
+
+    assert sent == ["a could not start: port taken"], sent
+
+
+def test_the_rescan_summary_uses_the_users_digits() -> None:
+    """known-issue-056 (LWSM-1323): `str(count)` is always ASCII digits."""
+    from PySide6.QtCore import QLocale
+
+    before = QLocale()
+    QLocale.setDefault(QLocale(QLocale.Language.Arabic, QLocale.Country.Egypt))
+    try:
+        summary = mainwindow.summarise_merge({registry.NEW: 3})
+    finally:
+        QLocale.setDefault(before)
+    assert "٣" in summary, summary  # ARABIC-INDIC DIGIT THREE

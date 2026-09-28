@@ -9020,7 +9020,7 @@ O8` forbids retrofitting that.
   Source: known-issues re-triage 2026-09-28.
   Lanes: core.
 
-- 📋 [LWSM-1323] **Known-issues batch (controller + window): eleven deferred findings still live.**
+- ✅ [LWSM-1323] **Known-issues batch (controller + window): eleven deferred findings still live.**
   Re-triaged 2026-09-28 against the code.
   1. known-issue-050 (MEDIUM): a transition disables the focused button
      and focus is lost.
@@ -9037,6 +9037,19 @@ O8` forbids retrofitting that.
   10. 056s: counts are not formatted with QLocale.
   11. 056v: stopped is AutoConnected, so a done future re-enters
       stop_project synchronously.
+  Shipped 2026-09-28 via close-findings: 8 fixed, 2 queued, 1 dismissed.
+  Fixed: 050 focus moves to the row before a transition disables the
+  focused button; 049 residual status messages are announced
+  (QAccessibleAnnouncementEvent, polite; not yet checked in Orca); 008
+  run() takes the bounded exit when main() raises; 009 a stopped controller
+  refuses start_polling; 056p early returns clear _restarting; 056r the
+  focus-ring painter is ended; 056s summary counts use QLocale; 056v the
+  stop report is a queued connection. Queued as LWSM-1331: 012 (measured
+  239 px window vs 780 px message) and 013 (row role Border) - each needs
+  design plus a real-screen or AT check. Dismissed: 056q - measured,
+  localhost resolves to ::1 here and curl and urllib both reach a
+  ::1-only server by name. Seven mutants, all killed; two tests re-fixtured
+  because they assumed the re-entrant delivery 056v removes.
   **Layman:** Small leftover problems in the window and the code behind its buttons, several of them about keyboard and screen-reader use.
   Kind: review-fix.
   Source: known-issues re-triage 2026-09-28.
@@ -9340,6 +9353,24 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: review-contract-2026-09-28 spec-format.md loop 7.
   Lanes: docs.
+
+- 📋 [LWSM-1331] **A long load error is cut off in the empty window, and a row announces itself as a decorative border.**
+  Queued rather than fixed in LWSM-1323: each needs a design choice and
+  verification on a real screen or screen reader, not an edit.
+  1. known-issue-012 (MEDIUM). Measured 2026-09-28: with an unparseable
+     projects.json the window opens 239 px wide and the status-bar message
+     needs 780 px, so about a third shows. A status bar cannot wrap. Likely
+     fix: show the load error as a wrapped, selectable label in the empty
+     list area (design-accessibility.md: feedback where the action happened),
+     keeping the status bar too. Render it and look, per CLAUDE.md.
+  2. known-issue-013. ProjectRow is a QFrame, so its AT-SPI role is Border.
+     Fixing it means a custom QAccessibleInterface with a list-item role (and
+     the list a list), installed through an accessible factory, then checked
+     in Orca or accerciser, since offscreen cannot answer what AT-SPI sees.
+  **Layman:** When the project list cannot be read, most of the explanation is cut off, and a screen reader calls each project row a decorative border.
+  Kind: accessibility.
+  Source: known-issues re-triage 2026-09-28, queued from LWSM-1323.
+  Lanes: ui.
 
 ## 0.2.0 — Find and run
 
