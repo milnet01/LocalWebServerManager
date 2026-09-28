@@ -10265,6 +10265,20 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Source: review-contract-2026-09-28 CLAUDE.md loop 4 (filed, outside the gated change).
   Lanes: docs.
 
+- 📋 [LWSM-1329] **Run the test suite in parallel, once the tests are proven to share no state.**
+  local-gate.md § 9's test-parallelism row. pytest is most of a push:
+  1688 tests in 58s locally (2026-09-28). Safe only once the tests share no
+  state and each has a timeout: the integration tests bind real sockets and
+  spawn real children, and some tests count processes with pgrep. So:
+  audit shared ports, temp paths and config directories; add pytest-xdist
+  and pytest-timeout; then measure before and after, and repeat-run the whole
+  suite under -n to check for flakes (§ 9 rules 1 and 3). Not taken on
+  2026-09-28, because a flaky push gate teaches --no-verify.
+  **Layman:** The checks before each push could run several tests at once and finish sooner.
+  Kind: perf.
+  Source: session-message-161-2026-09-28.
+  Lanes: tests, ci.
+
 ## 💭 Considered — not scheduled
 
 - 💭 [LWSM-1023] **Support more kinds of web server.**
