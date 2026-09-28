@@ -3,7 +3,9 @@
 Scaffolded from the **Ants App-Build** template. Follows the machine-wide
 workflow in `~/.claude/workflow.md` (local to the author's machine): its five
 states and gates, with no phases. The phase-based `app-workflow` skill this
-project started under was retired on 2026-09-28 (CFG-0645). Its status file
+project started under left it on 2026-09-28 (CFG-0645). Where it is still
+installed it fires on phrases this roadmap still uses ("fix-pass", "phase
+close", "drift handling"); do not follow it here. Its status file
 is kept as history at
 [`docs/journal/workflow-state-to-2026-09-28.md`](docs/journal/workflow-state-to-2026-09-28.md).
 
@@ -18,14 +20,16 @@ Read these in order on every session start:
    section's intro for the order. With nothing in flight, the
    first unreleased section's intro names what is next. After reading, **summarise back
    to the user** before doing any work.
-3. **`docs/standards/{coding,documentation,testing,commits,dependencies}.md`**
-   — the five v1 standards. `dependencies.md` is canonical for
+3. **The `docs/standards/` file matching the active item's `Kind`**
+   (see **Resumption flow**). `dependencies.md` is canonical for
    version policy and is read before touching any pin.
 4. **`docs/specs/<active-id>.md`** — the contract for the
    currently-active roadmap item.
 5. **`docs/audit-allowlist.md`** — read **additionally** before
    invoking `check-code` or `review-code`. It is a human-readable
-   record of past false positives and why; no skill reads it. What
+   record of past false positives and why, frozen on 2026-09-28 until
+   LWSM-1317 decides its fate; no skill reads it and nothing new is
+   added to it. What
    `check-code` matches against is its two ledgers —
    `.audit_cache/learned-fp.jsonl` for tool findings and
    `.ants_review_falsepos.jsonl` for reviewer claims — and
@@ -133,8 +137,10 @@ the signal rule 1 is wrong. So far none has.
 **Never silently drift.** When code diverges from its spec, decide which was
 wrong: the spec (correct it and re-check what it touches) or the code (fix the
 code, leave the spec). Never paper over both. Under rule 2 (spec-first), stop
-and say so before continuing. Under rule 1, note the divergence and fold it
-back when the build is done.
+and say so before continuing. Under rule 1, note the divergence on the item's
+bullet and fold it back when the build is done. That is a deliberate local
+departure from `~/.claude/workflow.md` § 7's first row, which re-runs the
+pick-time gate; it is rule 1 applied to drift.
 
 **A rule-14 gate over `CLAUDE.md` must tell its lanes to read the subject
 from disk.** A dispatched lane is briefed with the session-start copy of this
@@ -252,7 +258,9 @@ context can already do.
 
 **Before cutting a release, run `check-code` over the whole tree and
 `review-code` over the codebase, then `close-findings` on what they
-return** (user, 2026-09-28), plus the two **Standing quality passes** above. This replaces the retired `/close-phase`,
+return** (user, 2026-09-28), plus the two **Standing quality passes** above.
+This is in addition to the per-item checks `~/.claude/workflow.md` § 6
+requires, not instead of them. This replaces the retired `/close-phase`,
 which ran the same pair at every phase close; the roadmap is now grouped
 by version, so the release is the checkpoint. Read
 `docs/audit-allowlist.md` first, as **Where state lives** says. The findings

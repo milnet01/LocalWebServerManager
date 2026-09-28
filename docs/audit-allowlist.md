@@ -28,23 +28,13 @@ re-evaluating.
 
 ## How entries are added
 
-When `/audit` or `/code-quality-review` produces a finding F that
-triage classifies as a tool false positive (verified, not just
-dismissed), Claude **must**:
-
-1. Add an entry to this file with the rule, location,
-   reasoning, date, and confirming phase.
-2. Apply a tool-level suppression where the toolchain supports
-   it — `# noqa: <RULE>` for ruff, `// NOLINT(<rule>)` for
-   clang-tidy, `eslint-disable-next-line <rule>` for ESLint,
-   `# pylint: disable=<rule>` for pylint, etc. — and cite this
-   allowlist entry by number in the suppression comment.
-3. Log the false positive inline in the active phase's
-   `docs/journal/<ID>.md`.
-
-If a tool-level suppression isn't possible (e.g. semantic
-code-quality-review finding with no rule ID), the allowlist entry
-alone is enough — triage subagents read it before flagging.
+**Frozen on 2026-09-28** (LWSM-1317), when the phase workflow that
+read this file was retired. Nothing new is added here. A newly
+confirmed tool false positive is recorded by `close-findings` in the
+ledgers `check-code` reads; a tool-level suppression (`# noqa: <RULE>`
+for ruff, and the like) is still fine where the toolchain supports it.
+Existing entries keep their format, and revoking one still follows the
+section below.
 
 
 ## How entries are revoked
