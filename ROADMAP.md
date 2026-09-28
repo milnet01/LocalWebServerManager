@@ -9240,6 +9240,11 @@ O8` forbids retrofitting that.
      contradicts CLAUDE.md § Review cadence rule 1.
   Owner of the full fork reconciliation stays LWSM-1326; these are the
   known defects, per LWSM-1062's decision.
+  4. [Q2] spec-format.md § 6 paraphrases documentation.md § 8.1 as "every row
+     carries an outcome"; § 8.1 requires the tally to balance (one outcome
+     per finding). The What-checks-this row for § 6 repeats the weak form.
+     Fix by deletion: keep the pointer, drop the paraphrase. Both lanes,
+     loop 8 (2026-09-28); predates the gated change, so filed.
   **Layman:** Two of the project's rulebooks still contain a few instructions that contradict the rest.
   Kind: doc-fix.
   Source: review-contract-2026-09-28 spec-format.md loop 7.

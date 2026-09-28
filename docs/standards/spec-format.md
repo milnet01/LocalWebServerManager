@@ -80,9 +80,9 @@ security boundary, or a design spanning several files.
 
 Skip the formal spec when the work is mechanical: a typo, a one-line fix, a
 menu entry, a dependency bump. A regression test is more useful than a
-document. A `spec.md` beside a feature test (`tests/features/<name>/`) is
-the right home for a single-invariant behaviour; `docs/specs/` is for
-designs whose contract spans files.
+document, and for a single-invariant behaviour the test is the whole
+contract. `docs/specs/` is for designs whose contract
+spans files.
 
 When unsure, write the spec. It is cheaper than the rewrite that follows an
 unstated assumption.
@@ -281,7 +281,7 @@ forms, one row per rule, and why a wrong row is worse than a missing one.
 
 | Rule | What catches a breach |
 |------|----------------------|
-| INV-1 | `tests/features/foo/test_foo.py::test_bar` |
+| INV-1 | `tests/test_foo.py::test_bar` |
 | INV-4 | **nothing** — needs a GUI harness; tracked by `<PREFIX>-NNNN` |
 
 Two spec-side specifics: rows are keyed by `INV-N` (or a section number for
@@ -295,8 +295,9 @@ CHANGELOG, README, sibling specs.
 
 ## 4. Recommended sections
 
-Add when they carry weight, **after §3's twelve, numbered from 13** — never
-interleaved, for the reason §3 gives:
+Add when they carry weight, **after §3's twelve, numbered contiguously from
+13** — never interleaved, for the reason §3 gives. The skeleton ships all
+three pre-numbered; delete the ones that do not apply and renumber the rest:
 
 - **Resource cost** — required for any feature that holds state or adds a
   build target. State the memory budget and eviction policy at design
@@ -460,8 +461,8 @@ gets applied inconsistently.
 
 **Numbering differs on purpose.** The skeleton numbers its sections from 1
 (`## 1. Goal`); this standard describes them as §3.3, §3.4… because they are
-nested inside §3 *Required spec structure*. A finished spec uses the
-skeleton's numbering. When citing a rule *about* specs, cite this file's
+nested inside §3 *Required spec structure*. A finished spec numbers §1–12
+as the skeleton does, and its recommended sections as §4 says. When citing a rule *about* specs, cite this file's
 §3.N; when citing a section *of* a spec, use that spec's own number.
 
 The mapping runs skeleton §1 ↔ §3.3 through skeleton §11 ↔ §3.13. Skeleton
@@ -483,7 +484,7 @@ Unnumbered because this is a standard — see `documentation.md` §1.8.
 | §3.7 a command `*Test:*` states its expected output | `check-doc-facts` `contract`, as a *candidate* — "is this clause a command?" is a heuristic, so the check produces the short list and a lane makes the call |
 | §3.7 every INV names its breaking input — the clause is present | `check-doc-facts` `contract` |
 | §3.7 that clause being honest rather than decorative | **nothing mechanical** — a cold reader |
-| §5.1 no `path:line` citations | `check-doc-facts` `paths` |
+| §5.1 no `path:line` citations | **nothing** — `check-doc-facts` `paths` passes a `path:line` whose file exists |
 | §5.1 cited symbols exist | `check-doc-facts` `symbols` produces the unresolved list; **defect-vs-forward-reference is a lane's judgement**, not the check's |
 | §5.2 one fact, one place | **nothing mechanical** — `review-contract` Phase 4 diagnoses it from the finding pattern |
 | §5.4 size gate | **nothing** — the split is a judgement made before dispatch |
@@ -492,7 +493,7 @@ Unnumbered because this is a standard — see `documentation.md` §1.8.
 | §3.12 that section holds a table, not prose | **nothing** — `missing_section` reads the heading only |
 | §8 every plan step has a verification | **nothing mechanical** — a cold reader |
 
-Sixteen rows, **seven** with a bolded `nothing` — the metric §0 defines. That
+Sixteen rows, **eight** with a bolded `nothing` — the metric §0 defines. That
 is this standard's honest error budget; §5.7 is how it falls.
 
 This count has been wrong in three consecutive review loops, in this file
@@ -510,3 +511,4 @@ written as those loops closed, and rule 14 forbids back-filling them.
 | 5 | 2026-07-27 | 4 (same partition, cold) | 0 | 0 | 0 | 0 | **Clean.** Lane 2 re-read this file and the skeleton cold and found nothing — loop 4's three fixes held, including the §5 reorder and the row recount. |
 | 6 | 2026-07-27 | 3 (lane 3 skipped — bytes unchanged since its last clean verdict) | 0 | 0 | 1 | 0 | **Converged (no build-changing findings).** One finding, in the §9 mapping added by loop 4: it stopped at skeleton §12 and never placed §13, whose home is §6 rather than the §3 list. Fixed; run closed. |
 | 7 | 2026-09-28 | 2 (`review-contract`, genre standard pinned, both lanes holding every question; run via `neutral-lane`, no project context loaded) | — | — | — | — | Gate armed by c660263 (required-sections block, retired skill names, § 6, § 9). **Q1 1 · Q2 3 · Q3 1 — verified 5, fixed 5, dismissed 1.** Fixed: § 5.4 said to split a capped spec, while `review-contract` ships it to implementation, and gave no pre-review test (now a judgement at `/write-spec` Step 4); the size-gate row named a catcher that judges nothing; § 6 inherited § 8.1's "log is last" while § 3/§ 4 put recommended sections after § 12; the new § 3 row claimed `spec_lint` checks § 3.12's table (it reads headings only, now its own `nothing` row); "skip a section" read against the new twelve-headings rule. Table recounted by script: 16 rows, 7 `nothing`. Dismissed: § 5.3's pointer to `documentation.md` § 1.6 (it does hold the length yardsticks). **Outside the change, filed, not fixed:** the header's "keep this a verbatim copy" paragraph contradicts the OWNED-HERE marker; § 1's "when unsure, write the spec" sits against `CLAUDE.md` § Review cadence rule 1. Both lanes disclosed only the global `CLAUDE.md` and the lane prompt. |
+| 8 | 2026-09-28 | 2 (same brief, cold, rebuilt from disk; `neutral-lane`) | — | — | — | — | **Q1 2 · Q2 1 — verified 3, fixed 3, dismissed 1.** Fixed: § 1 sent a single-invariant spec to a `tests/features/<name>/` layout this project does not use (the same batch's `testing.md` edit removed it; the § 3.12 example table carried it too); § 4's "numbered from 13" against § 9's "uses the skeleton's numbering", which pre-numbers 13–15 (now contiguous, unused ones deleted); the § 5.1 row credited `paths` with catching `path:line`, which it passes when the file exists (now `nothing`). Recounted: 16 rows, 8 `nothing`. Dismissed: § 5.3 → `documentation.md` § 1.6 again, from the packet's outline; the other lane opened the file and confirmed it. Resolved clean: which specs are gated (`CLAUDE.md` § Review cadence says, past the packet's window). **Filed on LWSM-1330, outside the change:** § 6's paraphrase of § 8.1 ("every row carries an outcome") weaker than its balanced tally. |
