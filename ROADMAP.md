@@ -9221,7 +9221,7 @@ O8` forbids retrofitting that.
   Source: session-message-161-2026-09-28.
   Lanes: ci.
 
-- 📋 [LWSM-1330] **spec-format.md and documentation.md still carry stale rules the 2026-09-28 gate found outside its change.**
+- 📋 [LWSM-1330] **spec-format.md, testing.md and documentation.md still carry stale rules the 2026-09-28 gate found outside its change.**
   Do not re-review; fold in directly, then gate each standard once.
   1. [Q2] spec-format.md header, the paragraph starting "This is the project's
      copy": it says keep a verbatim copy of `~/.claude/skills/_shared/spec-format.md`
@@ -9245,6 +9245,17 @@ O8` forbids retrofitting that.
      per finding). The What-checks-this row for § 6 repeats the weak form.
      Fix by deletion: keep the pointer, drop the paraphrase. Both lanes,
      loop 8 (2026-09-28); predates the gated change, so filed.
+  testing.md, gate loop 3 (2026-09-28), pre-existing so filed:
+  5. [Q2] § 7 "Refactors don't get new tests" against § 3.6 and coding.md
+     § 1.6, which owe a refactor that closes a 3+-site mechanism a
+     source-invariant test. Carve that test out of § 7. Lane B.
+  6. [Q2] § 3.1 "Deterministic, no I/O" and § 3.6's "the only test type
+     that may do either" against T1's tmp_path trees and T6 calling scanner
+     tests core. Say which bucket tmp_path I/O is in (the marker half is
+     settled in § 3.3 now). Lane A.
+  7. § 8 says a test-only change uses the `Kind: test` "corresponding commit
+     prefix"; under commits.md § 1.1 the item ID replaces any type prefix.
+     Delete the prefix clause.
   **Layman:** Two of the project's rulebooks still contain a few instructions that contradict the rest.
   Kind: doc-fix.
   Source: review-contract-2026-09-28 spec-format.md loop 7.
