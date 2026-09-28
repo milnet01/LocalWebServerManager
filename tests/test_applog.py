@@ -548,3 +548,20 @@ def test_preparing_a_state_dir_survives_a_racing_first_run(
     assert raced["done"], "the race was never triggered, so nothing was tested"
     assert target.is_dir()
     assert stat.S_IMODE(target.stat().st_mode) == 0o700
+
+
+def test_a_pre_existing_log_is_narrowed_to_0600(tmp_path: Path):
+    """known-issue-003 (LWSM-1322): `O_CREAT`'s mode applies only to a new file.
+
+    A log that already existed at 0644 kept 0644; the open now narrows it.
+    """
+    state = tmp_path / "state"
+    state.mkdir(mode=0o700)
+    log = state / "app.log"
+    log.write_text("from before\n", encoding="utf-8")
+    log.chmod(0o644)
+
+    applog.configure_logging(state_dir=state)
+
+    mode = stat.S_IMODE(log.stat().st_mode)
+    assert mode == 0o600, f"a pre-existing app.log stayed {oct(mode)}"

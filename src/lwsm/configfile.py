@@ -35,8 +35,11 @@ class ConfigFileError(Exception):
 
 
 # A cap on the file, not on hope. Reproduced before this existed: a 600 MB
-# projects.json peaked at 1214 MB RSS. A thousand projects is roughly 200 KB, so
-# 1 MiB is generous for anything a person would hand-write.
+# projects.json peaked at 1214 MB RSS. A real record is about 450 bytes
+# (measured 2026-09-28 on a live registry), so a thousand projects is about
+# 450 KB and 1 MiB is generous. It bounds MEMORY, not how many records a file
+# holds: a minimal record is 27 bytes, so about 38,000 fit under it — which is
+# why `registry.MAX_RECORDS` exists (known-issue-002).
 MAX_FILE_BYTES = 1 << 20
 
 # A rejection reason reaches both the app log and the status bar, and the name
@@ -95,6 +98,14 @@ def quoted(value: object) -> str:
     if len(escaped) <= MAX_REASON_CHARS:
         return escaped
     return f"{escaped[:MAX_REASON_CHARS]}…"
+
+
+class ConfigFileNotDurable(ConfigFileError):
+    """The file WAS replaced; only the directory fsync failed (known-issue-047).
+
+    A subclass, so every `except ConfigFileError` still catches it, and a caller
+    that must not report a written file as unwritten can tell the two apart.
+    """
 
 
 def read_bounded(path: Path) -> bytes:
@@ -161,7 +172,10 @@ def prepare_config_dir(directory: Path) -> None:
             break
         probe = probe.parent
     for path in reversed(missing):
-        path.mkdir(mode=0o700)
+        # exist_ok: the check above and this create are not atomic, and a
+        # directory another process made in between is the one we wanted
+        # (known-issue-056, LWSM-1322). A FILE there still raises.
+        path.mkdir(mode=0o700, exist_ok=True)
 
 
 def refuse_existing_target(path: Path) -> None:
@@ -291,7 +305,7 @@ def write_json_atomically(path: Path, data: bytes, *, prefix: str) -> None:
         finally:
             os.close(directory_fd)
     except OSError as exc:
-        raise ConfigFileError(
+        raise ConfigFileNotDurable(
             f"{quoted(str(path))}: written, but the directory entry could not be "
             f"made durable ({exc.strerror or exc})"
         ) from exc

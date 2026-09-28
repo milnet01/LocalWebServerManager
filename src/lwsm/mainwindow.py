@@ -84,7 +84,13 @@ from lwsm.controller import (
     abandon_pool,
 )
 from lwsm.placement import Rect, centre_in
-from lwsm.registry import LoadResult, MergeResult, ProjectRecord, RegistryError
+from lwsm.registry import (
+    LoadResult,
+    MergeResult,
+    ProjectRecord,
+    RegistryError,
+    RegistryNotDurable,
+)
 from lwsm.service import describe_holder
 from lwsm.settings import MAX_TEXT_SCALE, MIN_TEXT_SCALE
 from lwsm.theme import (
@@ -586,7 +592,7 @@ class ProjectRow(QFrame):
         self._glyph_width = 0
         # The name as it should READ, before elision fits it to the column.
         # Set before `_apply_text_metrics`, which measures it.
-        self._name_display = row.name
+        self._name_display = displayable_name(row.name)
         # The column width `apply_column_widths` last handed down. Held rather
         # than read back from the label: `setFixedWidth` does not update
         # `width()` until Qt runs a layout pass, so eliding against `width()`
@@ -1238,7 +1244,8 @@ class ProjectRow(QFrame):
         # string. Colour alone carries no meaning to a screen reader, and the
         # announcement below is built from the rendered cells precisely so no
         # accessibility string can drift from what is on screen.
-        self._name_display = hidden_name(row.name) if row.hidden else row.name
+        name = displayable_name(row.name)
+        self._name_display = hidden_name(name) if row.hidden else name
         self._elide_name()
         self.hide_action.setText(
             QCoreApplication.translate("ProjectRow", "&Show this project")
@@ -1320,6 +1327,29 @@ class ProjectRow(QFrame):
             QAccessible.updateAccessibility(
                 QAccessibleEvent(self, QAccessible.Event.NameChanged)
             )
+
+
+# The longest project name the window shows or announces. A name is the
+# user's own text and the registry stores it as written; the bound is on what
+# reaches a label, a tooltip and a screen reader (known-issue-001, LWSM-1322).
+MAX_NAME_CHARS = 120
+
+
+def displayable_name(name: str) -> str:
+    """`name` as the window may show and announce it.
+
+    Control characters and line separators become spaces, so a name cannot
+    forge a second line in a status message or an announcement; format
+    characters stay, because emoji sequences and right-to-left names need them.
+    Then clipped, with an ellipsis, to `MAX_NAME_CHARS`.
+    """
+    cleaned = "".join(
+        " " if unicodedata.category(c) == "Cc" or c in "\u2028\u2029" else c
+        for c in name
+    )
+    if len(cleaned) <= MAX_NAME_CHARS:
+        return cleaned
+    return cleaned[: MAX_NAME_CHARS - 1] + "\u2026"
 
 
 def _application() -> QApplication | None:
@@ -2785,12 +2815,12 @@ class MainWindow(QMainWindow):
                         "ProjectRow",
                         "%1's browser is installed but its desktop entry could "
                         "not be read - opening in the default",
-                    ).replace("%1", view.name)
+                    ).replace("%1", displayable_name(view.name))
                     if refused
                     else QCoreApplication.translate(
                         "ProjectRow",
                         "%1's chosen browser is not installed - opening in the default",
-                    ).replace("%1", view.name)
+                    ).replace("%1", displayable_name(view.name))
                 )
             # openUrl returns False when the desktop has no handler. Silence
             # here would look identical to a browser that opened behind the
@@ -3077,22 +3107,39 @@ class MainWindow(QMainWindow):
         # project has now met several times, where a mechanism that did nothing
         # is indistinguishable from one that found nothing to do.
         if self._rescan is not None and self._should_write(records):
+            saved = True
             try:
                 self._rescan.save(self._rescan.projects_path, records, load=self._load)
+            except RegistryNotDurable as exc:
+                # Written: only its survival across a crash is in doubt, so it
+                # is neither called unsaved nor left out of the refresh below
+                # (known-issue-047, LWSM-1322).
+                log.warning("the %s was saved but not made durable: %s", source, exc)
+                message = _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow", "%1 — saved, but may not survive a crash: %2"
+                    ),
+                    message,
+                    str(exc),
+                )
             except RegistryError as exc:
+                saved = False
                 log.warning("the %s could not be saved: %s", source, exc)
                 message = _filled(
                     QCoreApplication.translate("ProjectRow", "%1 — not saved: %2"),
                     message,
                     str(exc),
                 )
-            else:
+            if saved:
                 # The next write, of any kind, compares against what is now on
                 # disk. Without this, a first run stays `RegistryMissing` for
                 # the life of the session and every later write is
                 # unconditional.
                 self._load = LoadResult(
-                    records=list(records), reasons=[], rows_refused=0
+                    records=list(records),
+                    reasons=[],
+                    rows_refused=0,
+                    path=self._rescan.projects_path,
                 )
 
         self._controller.set_records(records)

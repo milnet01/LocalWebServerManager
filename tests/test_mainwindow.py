@@ -7189,3 +7189,57 @@ def test_a_rescan_abandoned_at_shutdown_stays_below_it(caplog, tmp_path) -> None
         (r.levelname, r.getMessage()) for r in caplog.records
     ]
     assert any("no live signaller" in r.getMessage() for r in caplog.records)
+
+
+# --- LWSM-1322: the window side of the registry findings ------------------------
+
+
+def test_a_save_that_was_not_made_durable_reads_as_saved(
+    qtbot, built, tmp_path
+) -> None:
+    """known-issue-047: written, so neither called unsaved nor left unrefreshed.
+
+    Unrefreshed, a first run stayed `RegistryMissing` and every later rescan
+    wrote unconditionally.
+    """
+    project = tmp_path / "roots" / "web"
+
+    def unsynced_save(path, merged, *, load) -> None:
+        raise registry.RegistryNotDurable("written, but the directory entry ...")
+
+    controller = build_controller(built, [], FakeProbe())
+    context = mainwindow.RescanContext(
+        projects_path=tmp_path / "projects.json",
+        roots=(tmp_path / "roots",),
+        scan=lambda _roots: FakeScanResult(projects=(FakeDetected(project, "web"),)),
+        now=lambda: "2026-08-14T09:00:00Z",
+        save=unsynced_save,
+    )
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        rescan=context,
+        load=registry.RegistryMissing("first run"),
+    )
+    qtbot.addWidget(window)
+
+    run_rescan(qtbot, window)
+
+    message = window.statusBar().currentMessage()
+    assert "not saved" not in message, message
+    assert "may not survive a crash" in message, message
+    assert isinstance(window._load, LoadResult), "a written file left the load stale"
+    assert [record.name for record in window._load.records] == ["web"]
+    window.shutdown()
+
+
+def test_a_hostile_name_reaches_the_screen_reader_bounded(qtbot, built) -> None:
+    """known-issue-001: stored as written; shown and announced bounded."""
+    hostile = "a\nforged line\x1b[31m" + "x" * 5000
+    window, _ = window_for(qtbot, built, [record(hostile, 5005)], FakeProbe(5005))
+    name = rows_of(window)[0].accessibleName()
+
+    assert "\n" not in name and "\x1b" not in name, repr(name[:80])
+    assert len(name) < mainwindow.MAX_NAME_CHARS + 40, len(name)
+    assert mainwindow.displayable_name("short") == "short"

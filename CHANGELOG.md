@@ -321,6 +321,17 @@ signaling per
 
 ### Fixed
 
+- **The project list is read and saved more carefully, and a save that did happen is no longer reported as failed.** (LWSM-1322)
+  When the disk accepted the new project list but could not confirm it
+  would survive a crash, the app said "not saved" and then behaved as if
+  nothing had been written. It now says the list was saved and why it
+  may not survive a crash. Also: a hand-edited list with a repeated
+  setting, or a value JSON does not allow such as NaN, is reported
+  rather than silently accepted; a list over 1000 projects loads the first 1000 and
+  is never written over; a project's name is shown and read aloud
+  without control characters and at a bounded length; an existing log
+  file is made private to you.
+
 - **Starting a project again no longer launches a second server beside part of the old one that refused to die.** (LWSM-1321)
   A process can outlive a forced kill while it waits on slow disk I/O.
   The app used to forget it and let Start launch a second copy; Start now

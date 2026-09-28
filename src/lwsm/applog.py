@@ -57,6 +57,11 @@ class _NoFollowRotatingFileHandler(RotatingFileHandler):
         fd = os.open(self.baseFilename, flags, 0o600)
         try:
             _require_private_regular_file(fd, self.baseFilename)
+            # `0o600` above applies only when the open CREATES the file; a log
+            # that already existed kept whatever mode it had. The check just
+            # proved it is ours, so it is narrowed on every open
+            # (known-issue-003, LWSM-1322).
+            os.fchmod(fd, 0o600)
             os.set_blocking(fd, True)
         except BaseException:
             os.close(fd)

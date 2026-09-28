@@ -402,6 +402,11 @@ class LoadResult:
     records: list[ProjectRecord]
     reasons: list[str]  # every refusal, row-level and field-level alike
     rows_refused: int  # ROW refusals only; `reasons` is not a proxy for it
+    path: Path | None = None  # the file read; binds the write gate to it (LWSM-1322)
+
+
+class RegistryNotDurable(RegistryError):
+    """Raised when step 4 fails: the file WAS written (LWSM-1322)."""
 
 
 class RegistryMissing(RegistryError):
@@ -451,6 +456,8 @@ filesystem:
 6. A failure at step 4 is **reported and not reversed**: the new file is
    already in place, there is no temporary file left to unlink, and rolling
    back would mean having kept a copy of the old one — which is LWSM-1039.
+   It is reported as `RegistryNotDurable`, so a caller can say the file was
+   written rather than unsaved (LWSM-1322).
 
 Steps 5 and 6 are split because "on any failure" covered step 4 and contradicted
 INV-2: it would have an implementer unlink a path that no longer exists and
@@ -523,7 +530,7 @@ session, on a file with nothing at risk. **So `LoadResult` carries
 `rows_refused` separately from `reasons`**, and that count is what the gate
 reads.
 
-**Four states, and only the first two may write:**
+**Only the first two states may write:**
 
 | At load | May write? |
 |---|---|
@@ -531,6 +538,10 @@ reads.
 | `LoadResult` with `rows_refused == 0` | **yes** — including when fields were dropped |
 | `LoadResult` with `rows_refused > 0` | no — read-only, reported |
 | any other `RegistryError` (unparseable, wrong `schema_version`, unreadable, a directory, a FIFO) | no — read-only, reported |
+| a `LoadResult` whose `path` names a different file | no — a load licenses a write to the file it read (LWSM-1322) |
+
+A file holding more than `MAX_RECORDS` (1000) projects loads the first 1000 and
+counts the rest as refused rows, so it is never written over (LWSM-1322).
 
 **The absent file is a `RegistryError` today, and that is why `RegistryMissing`
 exists.** `_read_bounded` opens with `os.open`, so a missing

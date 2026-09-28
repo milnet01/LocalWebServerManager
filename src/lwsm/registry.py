@@ -24,6 +24,7 @@ from typing import Protocol, TypeGuard
 from lwsm.configfile import (
     MAX_FILE_BYTES,
     ConfigFileError,
+    ConfigFileNotDurable,
     quoted,
     read_bounded,
     write_json_atomically,
@@ -39,13 +40,20 @@ SCHEMA_VERSION = 1
 # keeping 5, i.e. the whole history the user is told to consult, and 8.7 s of it
 # before `window.show()` with no window on screen to interrupt.
 #
-# 100 is chosen against a legitimate file, not against the attack: a thousand
-# projects is roughly 200 KB, and a user who has broken a hundred of them has
+# 100 is chosen against a legitimate file, not against the attack: a user
+# with a thousand projects who has broken a hundred of them has
 # a systematic problem the hundred-and-first line will not clarify. The
 # suppressed count is always reported (see `load_projects`), on the rule
 # `controller._flush_repeated_error` already follows — silence and suppression
 # must never be indistinguishable.
 MAX_REASONS = 100
+
+# How many projects one registry may hold. `MAX_FILE_BYTES` bounds memory but
+# admits about 38,000 minimal records, and 29,743 took 11.1 s to build the
+# window before it showed (known-issue-002). Chosen against a legitimate
+# registry — the author's scan of a whole projects drive finds seven — so it
+# costs a real user nothing and bounds startup (LWSM-1322).
+MAX_RECORDS = 1000
 
 # The declared port is the "detected" half and may legitimately be 80 or 443;
 # ADR-0005's 1024-65535 floor governs the *override*, which the user types.
@@ -78,6 +86,16 @@ class RegistryError(ConfigFileError):
     """The file itself is unusable, so nothing is returned from it.
 
     ADR-0005 forbids partially parsing a file whose version we do not know.
+    """
+
+
+class RegistryNotDurable(RegistryError):
+    """The registry WAS written; the directory entry may not survive a crash.
+
+    LWSM-1007 § 4.3 step 6 and INV-2: a step-4 failure is reported and not
+    reversed. A subclass for `RegistryMissing`'s reason — existing handlers
+    keep working — so a caller can refuse to call a written file unsaved
+    (known-issue-047, LWSM-1322).
     """
 
 
@@ -184,6 +202,11 @@ class LoadResult:
     # dropped DETECTED field is harmless in a profile because a rescan
     # re-derives it, and a dropped USER field is the profile's whole point.
     user_fields_refused: frozenset[str] = frozenset()
+    # The file this load read. The write gate answers "is it safe to write
+    # over THIS file?" from a load, so a load of one file must not license a
+    # write to another (known-issue-056, LWSM-1322). None for a result built
+    # by hand, which binds nothing.
+    path: Path | None = None
 
 
 def default_projects_path() -> Path:
@@ -416,6 +439,31 @@ def _added_or_reason(value: object, name: str) -> tuple[str | None, str | None]:
     return value, None
 
 
+def _refuse_constant(name: str) -> object:
+    """`json.loads`' hook for `NaN`, `Infinity` and `-Infinity`.
+
+    Python accepts them and re-emits them bare, which is not JSON: another tool
+    reading the file refuses it (known-issue-056, LWSM-1322). A `ValueError`
+    here reaches `load_projects`' existing branch for an unparseable file.
+    """
+    raise ValueError(f"{name} is not a JSON value")
+
+
+class _DuplicateKeys:
+    """An `object_pairs_hook` that keeps `json`'s last-wins and remembers the loss."""
+
+    def __init__(self) -> None:
+        self.keys: list[str] = []
+
+    def pairs(self, pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                self.keys.append(key)
+            result[key] = value
+        return result
+
+
 def load_projects(path: Path) -> LoadResult:
     """Return the records, every rejection reason, and the ROW-refusal count.
 
@@ -441,11 +489,16 @@ def load_projects(path: Path) -> LoadResult:
             f"{quoted(str(path))}: cannot be read ({exc.strerror or exc})"
         ) from exc
 
+    duplicates = _DuplicateKeys()
     try:
         # utf-8-sig, not utf-8: an editor-added BOM is invisible in that
         # editor and would otherwise refuse the whole file with a reason
         # naming byte 0, which sends the user looking at the wrong thing.
-        data = json.loads(raw.decode("utf-8-sig"))
+        data = json.loads(
+            raw.decode("utf-8-sig"),
+            parse_constant=_refuse_constant,
+            object_pairs_hook=duplicates.pairs,
+        )
     except UnicodeDecodeError as exc:
         # Not a JSONDecodeError, so it has to be caught by name.
         raise RegistryError(f"{quoted(str(path))}: not valid UTF-8 ({exc})") from exc
@@ -532,6 +585,20 @@ def load_projects(path: Path) -> LoadResult:
         nonlocal rows_refused
         rows_refused += 1
         note(reason)
+
+    if len(projects) > MAX_RECORDS:
+        # Refused rows, not a silent truncation: the count feeds the write gate,
+        # so a file holding more than this is never written over and loses
+        # nothing (known-issue-002, LWSM-1322).
+        over = len(projects) - MAX_RECORDS
+        rows_refused += over
+        note(f"{over} project(s) past the first {MAX_RECORDS} were not loaded")
+        projects = projects[:MAX_RECORDS]
+
+    # Last-wins is what `json` does and what the user sees in their editor is
+    # both values, so the loss is said out loud (known-issue-056, LWSM-1322).
+    for key in duplicates.keys:
+        note(f"duplicate key {quoted(key)}; the last value was used")
 
     for index, entry in enumerate(projects):
         if not isinstance(entry, dict):
@@ -676,6 +743,7 @@ def load_projects(path: Path) -> LoadResult:
         reasons=reasons,
         rows_refused=rows_refused,
         user_fields_refused=frozenset(user_fields_refused),
+        path=path,
     )
 
 
@@ -749,7 +817,9 @@ def _encoded(path: Path, records: Sequence[ProjectRecord]) -> bytes:
         # ensure_ascii=False so a non-Latin project name stays readable in the
         # file the user is invited to hand-edit; the bound below is on the
         # encoded bytes, which is what the reader's cap measures.
-        text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+        # allow_nan=False: `NaN` is not JSON, and another tool reading the file
+        # would refuse it (known-issue-056, LWSM-1322).
+        text = json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
         data = text.encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise RegistryError(
@@ -774,10 +844,10 @@ def _refuse_unwritable_load(path: Path, load: LoadResult | RegistryError) -> Non
     implements — and LWSM-1131 § 4.4 says the merge "calls a writer that enforces
     it" rather than re-implementing the check.
 
-    Four states, and only the first two may write: `RegistryMissing` (first run,
+    Only the first two states may write: `RegistryMissing` (first run,
     so a fresh file is created), a `LoadResult` with no ROW refusal (including
-    one that dropped fields), a `LoadResult` that refused a row, and any other
-    `RegistryError`.
+    one that dropped fields), a `LoadResult` read from a different file, a
+    `LoadResult` that refused a row, and any other `RegistryError`.
 
     The last is the one a `reasons`-only gate misses entirely: a raised
     `RegistryError` produces **no reasons at all**, so such a gate would write a
@@ -791,6 +861,14 @@ def _refuse_unwritable_load(path: Path, load: LoadResult | RegistryError) -> Non
         raise RegistryError(
             f"{quoted(str(path))}: not writing over a registry that could not be "
             f"loaded ({quoted(str(load))})"
+        )
+    if (
+        load.path is not None
+        and _resolve_or_lexical(load.path)[0] != (_resolve_or_lexical(path)[0])
+    ):
+        raise RegistryError(
+            f"{quoted(str(path))}: not writing; the load that would license it "
+            f"was read from {quoted(str(load.path))}"
         )
     if load.rows_refused:
         raise RegistryError(
@@ -825,6 +903,9 @@ def save_projects(
         # it now because `settings.json` needs the same sequence and a second
         # copy of it would be a second set of the four defects it records.
         write_json_atomically(path, data, prefix=".projects-")
+    except ConfigFileNotDurable as exc:
+        # Written, and the caller must be able to say so (known-issue-047).
+        raise RegistryNotDurable(str(exc)) from exc
     except ConfigFileError as exc:
         # Converted rather than propagated: this function's contract, § 6 and
         # four tests all promise `RegistryError`, and `ConfigFileError` is its
@@ -992,14 +1073,16 @@ def _detected_half_applied(
     value — it is what every non-systemd project has — and treating it as
     unknown would keep a stale unit name forever on a project that stopped being
     a service, which is this rule's own mirror image.
+
+    Derived from the set, not listed by hand (known-issue-044, LWSM-1322):
+    listed, a fifth detected field would be classified correctly, keep INV-1
+    green, and never be refreshed by a rescan. The two conversions below are
+    the only per-field knowledge.
     """
-    return replace(
-        record,
-        port=record.port if found.port is None else found.port.port,
-        kind=found.kind,
-        argv=tuple(found.argv),
-        unit=found.unit,
-    )
+    changes = {name: getattr(found, name) for name in DETECTED_FIELDS - {"path"}}
+    changes["port"] = record.port if found.port is None else found.port.port
+    changes["argv"] = tuple(found.argv)
+    return replace(record, **changes)
 
 
 def merge(
@@ -1055,7 +1138,14 @@ def merge(
     # Resolved before the containment test for the same reason the roots are: a
     # symlinked root would otherwise contain nothing, and here that lands on the
     # permission-denied run, which is the one branch this field exists for.
-    unlistable = [_resolve_or_lexical(Path(root))[0] for root in scan.unlistable_roots]
+    unlistable: list[Path] = []
+    for root in scan.unlistable_roots:
+        resolved, failure = _resolve_or_lexical(Path(root))
+        if failure:
+            # Reported, as the same failure on a root is above; the lexical
+            # form is still the best containment answer (known-issue-056).
+            note(failure)
+        unlistable.append(resolved)
 
     owner = _identity_owners(stored, note, flag)
 
@@ -1098,7 +1188,10 @@ def merge(
             )
 
     # --- the projects that are new ----------------------------------------
-    for project in scan.projects:
+    # The deduplicated map, not `scan.projects`: a path the scan listed twice
+    # would otherwise be added twice. The scanner dedups today, which made this
+    # safe by coincidence rather than by construction (known-issue-056).
+    for project in scanned.values():
         if project.path in owner:
             continue
         # The one place a merge writes a user-owned field. Reading INV-1 as

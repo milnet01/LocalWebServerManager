@@ -594,7 +594,7 @@ def test_the_number_of_reasons_is_bounded(dense_malformed_file: Path) -> None:
 
 
 def test_the_suppressed_reasons_are_counted_not_silently_dropped(
-    dense_malformed_file: Path,
+    dense_malformed_file: Path, monkeypatch
 ) -> None:
     """A cap with no tail reads as completeness.
 
@@ -602,7 +602,11 @@ def test_the_suppressed_reasons_are_counted_not_silently_dropped(
     suppression are never indistinguishable in the log" — and a truncated
     reason list owes the same. Without the tail, a file with 524,271 problems
     and a file with exactly `MAX_REASONS` problems produce identical output.
+
+    The record cap (LWSM-1322) is lifted here, so every one of the rows still
+    reaches the reason list this test is about.
     """
+    monkeypatch.setattr(registry, "MAX_RECORDS", 1_000_000)
     _, reasons = load(dense_malformed_file)
 
     assert "more" in reasons[-1], f"no suppressed-count tail: {reasons[-1]!r}"
@@ -790,11 +794,12 @@ def test_a_key_this_build_does_not_know_survives_a_round_trip(
         encoding="utf-8",
     )
 
+    # Written back over the same file, as the older build would: a load
+    # licenses a write to the file it read and no other (LWSM-1322).
     loaded = load_projects(path)
-    out = tmp_path / "rewritten.json"
-    registry.save_projects(out, loaded.records, load=loaded)
+    registry.save_projects(path, loaded.records, load=loaded)
 
-    rewritten = json.loads(out.read_text(encoding="utf-8"))
+    rewritten = json.loads(path.read_text(encoding="utf-8"))
     (entry,) = rewritten["projects"]
     assert entry["from_a_newer_build"] == {"nested": [1, 2]}, (
         f"a key this build does not know was dropped on rewrite: {entry}"
@@ -2284,3 +2289,136 @@ def test_write_json_atomically_leaves_an_existing_file_intact_when_it_refuses(
         write_json_atomically(path, b"x" * (MAX_FILE_BYTES + 1), prefix=".keep-")
 
     assert path.read_text(encoding="utf-8") == "previous\n"
+
+
+# --- LWSM-1322: the registry half of the known-issues re-triage ------------------
+
+
+def test_a_failed_directory_fsync_says_written_not_unsaved(tmp_path, monkeypatch):
+    """known-issue-047: the file WAS replaced, so it must not read as unsaved."""
+    path = tmp_path / "projects.json"
+    real_fsync = os.fsync
+
+    def fsync(fd: int) -> None:
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError(errno.EIO, "the disk said no")
+        real_fsync(fd)
+
+    monkeypatch.setattr(configfile.os, "fsync", fsync)
+    with pytest.raises(registry.RegistryNotDurable, match="written, but"):
+        save_projects(path, [every_field_record()], load=RegistryMissing("first run"))
+    assert path.exists(), "the file was reported written and is not there"
+
+
+def test_nan_is_refused_as_the_invalid_json_it_is(tmp_path: Path) -> None:
+    """known-issue-056: Python reads NaN and writes it back bare, which is not JSON."""
+    path = tmp_path / "projects.json"
+    path.write_text(
+        '{"schema_version": 1, "projects": [{"path": "/a", "name": "a", "port": NaN}]}',
+        encoding="utf-8",
+    )
+    with pytest.raises(RegistryError, match="NaN is not a JSON value"):
+        load_projects(path)
+
+
+def test_a_duplicate_key_is_reported_rather_than_silently_lost(tmp_path: Path):
+    """known-issue-056: last-wins is json's rule, and the loss is now said."""
+    path = tmp_path / "projects.json"
+    path.write_text(
+        '{"schema_version": 1, "projects": [{"path": "/a", "name": "first", '
+        '"name": "second"}]}',
+        encoding="utf-8",
+    )
+    result = load_projects(path)
+    assert result.records[0].name == "second"
+    assert any("duplicate key" in reason for reason in result.reasons), result.reasons
+
+
+def test_a_path_the_scan_lists_twice_is_added_once(tmp_path: Path) -> None:
+    """known-issue-056: the merge iterates the deduplicated map, by construction."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    scan = FakeScan((FakeProject(project, "web"), FakeProject(project, "web")))
+    result = registry.merge([], scan, (root,), stamp)
+    assert [record.path for record in result.records] == [project]
+
+
+def test_an_unresolvable_unlistable_root_is_reported(tmp_path, monkeypatch) -> None:
+    """known-issue-056: the same failure is reported for a root; now for this too."""
+    root = a_root(tmp_path)
+    blocked = root / "blocked"
+    real = registry._resolve_or_lexical
+
+    def resolve(path: Path):
+        if path == blocked:
+            return path, "'blocked': could not be resolved (test)"
+        return real(path)
+
+    monkeypatch.setattr(registry, "_resolve_or_lexical", resolve)
+    scan = FakeScan(unlistable_roots=(blocked,))
+    result = registry.merge([], scan, (root,), stamp)
+    assert any("could not be resolved" in reason for reason in result.reasons)
+
+
+def test_a_directory_made_by_someone_else_mid_create_is_accepted(
+    tmp_path, monkeypatch
+) -> None:
+    """known-issue-056: the exists-check and the mkdir are not atomic."""
+    target = tmp_path / "config" / "lwsm"
+    target.mkdir(parents=True)
+    # Every component reads as missing, as it would if another process
+    # created them between the check and the create.
+    monkeypatch.setattr(configfile.Path, "exists", lambda self: False)
+    configfile.prepare_config_dir(target)
+    assert target.is_dir()
+
+
+def test_a_load_of_one_file_does_not_license_a_write_to_another(tmp_path) -> None:
+    """known-issue-056: the gate answers for the file the load read."""
+    first = write(tmp_path, {"schema_version": 1, "projects": [one_good()]})
+    loaded = load_projects(first)
+    other = tmp_path / "other.json"
+    with pytest.raises(RegistryError, match="was read from"):
+        save_projects(other, loaded.records, load=loaded)
+    assert not other.exists()
+
+
+def test_a_new_detected_field_is_refreshed_without_being_listed(
+    tmp_path, monkeypatch
+) -> None:
+    """known-issue-044: the refreshed set is DETECTED_FIELDS, not a hand list.
+
+    `name` stands in for a future detected field: a merge deriving from the set
+    copies it, and one listing four names by hand never would.
+    """
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    monkeypatch.setattr(
+        registry, "DETECTED_FIELDS", registry.DETECTED_FIELDS | {"name"}
+    )
+    stored = ProjectRecord(path=project, name="old")
+    result = registry.merge(
+        [stored], FakeScan((FakeProject(project, "new"),)), (root,), stamp
+    )
+    assert result.records[0].name == "new"
+
+
+def test_records_past_the_cap_are_refused_rows_not_silently_dropped(
+    tmp_path, monkeypatch
+) -> None:
+    """known-issue-002: a count cap, and the write gate protects what it skips."""
+    monkeypatch.setattr(registry, "MAX_RECORDS", 2)
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [one_good(f"/srv/p{i}", f"p{i}") for i in range(3)],
+        },
+    )
+    result = load_projects(path)
+    assert len(result.records) == 2
+    assert result.rows_refused == 1
+    with pytest.raises(RegistryError, match="refused at load"):
+        save_projects(path, result.records, load=result)

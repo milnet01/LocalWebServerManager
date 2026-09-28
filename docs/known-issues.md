@@ -82,6 +82,7 @@ in the current build. Owners are named, not implied.
   foundation)
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.**
+- **Resolved 2026-09-28 by LWSM-1322.**
 
 ## known-issue-002 — No cap on record count, and `MAX_FILE_BYTES`' stated calibration is ~6× optimistic
 
@@ -96,6 +97,7 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** P03 (LWSM-1006 — project discovery)
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.**
+- **Resolved 2026-09-28 by LWSM-1322.**
 
 ## known-issue-003 — A pre-existing `app.log` keeps whatever mode it has
 
@@ -112,6 +114,7 @@ in the current build. Owners are named, not implied.
   when a configurable state location first exists)
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.** Its old owner LWSM-1019 was folded into LWSM-1021.
+- **Resolved 2026-09-28 by LWSM-1322.**
 
 ## known-issue-004 — `test_refuses_a_device_node` reads the real `/dev/null` on any unprivileged run
 
@@ -1087,6 +1090,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** LWSM-1121 (extra port sources — the next item that
   touches the detected set)
 - **Logged:** 2026-08-15
+- **Resolved 2026-09-28 by LWSM-1322:** derived from `DETECTED_FIELDS`.
 
 ## known-issue-045 — ADR-0005 is missing both clauses LWSM-1131 § 11 requires
 
@@ -1143,6 +1147,7 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** LWSM-1135's fix pass, if cheap there; else P05
 - **Logged:** 2026-08-15
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.**
+- **Resolved 2026-09-28 by LWSM-1322.**
 
 ## known-issue-048 — The registry read follows symlinks the write side refuses
 
@@ -1162,6 +1167,10 @@ the phase that owns the code. Owners are named, not implied.
 - **Will be addressed in:** P05, with the FP02 symlink precedent read first
 - **Logged:** 2026-08-15
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1322.**
+- **Dismissed 2026-09-28 (LWSM-1322):** a symlinked config file or
+  directory is a legitimate dotfile-manager setup (the FP02 precedent). The
+  write side refuses to REPLACE a symlink because replacing destroys it, not
+  because links are hostile; `O_NOFOLLOW` on the read would break those setups.
 
 ### From the UI lane
 
@@ -1336,3 +1345,6 @@ the phase that owns the code. Owners are named, not implied.
 - **Resolved 2026-09-28 by LWSM-1321:** the five supervisor items —
   `_alive` on AccessDenied, the single `os.read`, `start`'s docstring,
   `running()` handing out live entries, and the missing PATH fallback.
+- **Resolved 2026-09-28 by LWSM-1322:** the six registry items — NaN,
+  duplicate keys, the deduplicated merge, the unlistable-root failure, the
+  `mkdir` race, and binding a load to its path.

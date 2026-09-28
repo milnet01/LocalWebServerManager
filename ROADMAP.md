@@ -8977,7 +8977,7 @@ O8` forbids retrofitting that.
   Source: known-issues re-triage 2026-09-28.
   Lanes: core.
 
-- 📋 [LWSM-1322] **Known-issues batch (registry + config files): eleven deferred findings still live.**
+- ✅ [LWSM-1322] **Known-issues batch (registry + config files): eleven deferred findings still live.**
   Re-triaged 2026-09-28 against the code.
   1. known-issue-047 (MEDIUM): a write whose directory fsync fails is
      reported as not saved, though the file was replaced.
@@ -9000,6 +9000,21 @@ O8` forbids retrofitting that.
   would never be refreshed by a rescan. Derive it from DETECTED_FIELDS -
   {"path"} and keep the port qualifier. The entry defers to LWSM-1121,
   but the fix does not depend on it.
+  Shipped 2026-09-28 via close-findings: 11 fixed, 1 dismissed, 0 queued.
+  Fixed: 047 ConfigFileNotDurable -> RegistryNotDurable, and the window reads
+  it as saved and refreshes its load; 001 displayable_name bounds and cleans
+  the name at both assignment sites and in two status messages; 002
+  MAX_RECORDS = 1000 as refused rows (write gate protects the file), and the
+  size comments recalibrated to a measured 455 bytes/record; 003 fchmod 0600
+  on every open of app.log; 056h parse_constant refuses NaN/Infinity, the
+  writer uses allow_nan=False; 056i duplicate keys reported; 056l new
+  projects from the deduplicated map; 056m unlistable-root failure reported;
+  056n mkdir exist_ok; 056o LoadResult.path binds the write gate; 044 the
+  refreshed set derives from DETECTED_FIELDS. Dismissed: 048 - a symlinked
+  config file or directory is a legitimate dotfile setup (FP02 precedent);
+  the write refuses to REPLACE a link because that destroys it. Twelve
+  mutants, all killed. LWSM-1007 spec folded back (LoadResult.path,
+  RegistryNotDurable, the gate table, MAX_RECORDS).
   **Layman:** Small leftover problems in how the app reads and writes its own settings and project list.
   Kind: review-fix.
   Source: known-issues re-triage 2026-09-28.
