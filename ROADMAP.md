@@ -9055,7 +9055,7 @@ O8` forbids retrofitting that.
   Source: code-quality-review-2026-08-15 (known-issue-042).
   Lanes: core.
 
-- 📋 [LWSM-1061] **DS01: `spec-format.md` has no required-sections block, so that check never runs.**
+- ✅ [LWSM-1061] **DS01: `spec-format.md` has no required-sections block, so that check never runs.**
   `spec_lint` only runs its `missing_section` check when the
   project's format standard carries a `<!-- required-sections -->`
   block. `docs/standards/spec-format.md` has none (verified
@@ -9081,9 +9081,15 @@ O8` forbids retrofitting that.
   after the required twelve, and renumber those two specs (moving
   Resource cost to the end, updating their internal § references).
   Batched with LWSM-1062's spec-format.md defects under one gate.
+  Shipped 2026-09-28 (c660263 … fcd0ef0). spec-format.md carries its own
+  required-sections block; LWSM-1005 and LWSM-1006 renumbered with
+  Resource cost at § 13. spec_lint: 0 missing_section, sections_source
+  docs/standards/spec-format.md. review-contract gate converged at loop
+  9 (3 loops): 8 verified, 8 fixed; pre-existing findings filed on
+  LWSM-1330.
   Lanes: docs.
 
-- 📋 [LWSM-1062] **DS01: reconcile the four forked standards against the app-workflow template.**
+- ✅ [LWSM-1062] **DS01: reconcile the four forked standards against the app-workflow template.**
   Measured 2026-08-06 by lineage test (shared H2 headings, so these
   are forks and not independent authorship). `testing.md` is +98
   lines project-only, a clean one-way fork. `coding.md` is +105 / -4,
@@ -9114,6 +9120,14 @@ O8` forbids retrofitting that.
   idioms" rule, and restore it if not. Each standard that changes owes a
   review-contract gate (cap 3). LWSM-1061's required-sections block goes
   in the same spec-format.md batch, so that file gets one gate.
+  Shipped 2026-09-28. The three known defects: (1) spec-format.md's
+  retired /cold-eyes and /doc-lint names replaced (gated with
+  LWSM-1061); (2) testing.md's CMake, LABELS and QVERIFY2 examples and
+  its per-feature spec.md layout replaced with this project's pytest
+  forms, review-contract capped at 3 loops, 3 in-change findings fixed;
+  (3) dependencies.md § 1 already carries the latest-stable rule,
+  nothing restored. Remaining findings the gates found outside the
+  change: LWSM-1330. Full reconciliation stays LWSM-1326.
 
 - 📋 [LWSM-1065] **Decide whether two instances may share one app.log.**
   `RotatingFileHandler` is not multi-process safe, and ADR-0004 rules out
