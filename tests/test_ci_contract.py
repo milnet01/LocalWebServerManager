@@ -491,8 +491,9 @@ def test_every_push_is_scanned_for_secrets_before_the_gate(tmp_path: Path) -> No
     """
     for kind, changed in (("code", "src/lwsm/thing.py"), ("docs", "docs/design.md")):
         out = _hook_verdict(tmp_path / kind, changed)
-        assert "SCAN-RAN ARGS=[--secrets-only]" in out, (
-            f"a {kind} push was not scanned for secrets: {out}"
+        assert "SCAN-RAN ARGS=[--secrets-only origin]" in out, (
+            f"a {kind} push was not scanned for secrets against the remote "
+            f"being pushed to: {out}"
         )
         assert "STDIN=[refs/heads/main " in out, (
             f"the secret scan on a {kind} push was fed no refs: {out}"

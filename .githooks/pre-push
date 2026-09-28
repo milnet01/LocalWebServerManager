@@ -42,7 +42,9 @@ REFS=$(cat)
 # in silence.
 SHARED_HOOK="${ANTS_GLOBAL_HOOKS:-$HOME/.claude/githooks}/pre-push"
 if [[ -x $SHARED_HOOK ]]; then
-    printf '%s\n' "$REFS" | "$SHARED_HOOK" --secrets-only
+    # The remote git named, so a branch new to it is scanned against what THAT
+    # remote holds — our push_base() below scopes the gate the same way.
+    printf '%s\n' "$REFS" | "$SHARED_HOOK" --secrets-only "${1:-}"
 else
     printf 'pre-push: NO SECRET SCAN on this machine (%s is absent)\n' "$SHARED_HOOK" >&2
 fi
