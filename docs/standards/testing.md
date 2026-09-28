@@ -1,4 +1,5 @@
 <!-- ants-test-standards: 1 -->
+<!-- OWNED-HERE testing.md — forked from the app-workflow template and kept as this project's own standard; tests/test_docs.py asserts against it. Reconciling it with the global testing.md is LWSM-1062's job; decided 2026-09-28 (LWSM-1062) -->
 # Testing Standards — v1
 
 A shareable contract for tests in this project. Pairs with the

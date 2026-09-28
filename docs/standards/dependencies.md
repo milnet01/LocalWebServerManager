@@ -1,4 +1,5 @@
 <!-- ants-dependency-standards: 1 -->
+<!-- OWNED-HERE dependencies.md — forked from the app-workflow template and kept as this project's own standard; tests/test_docs.py asserts against it. Reconciling it with the global dependencies.md is LWSM-1062's job; decided 2026-09-28 (LWSM-1062) -->
 # Dependencies Standard — v1
 
 Governs every version this project pins: Python packages, GitHub Actions,

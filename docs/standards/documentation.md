@@ -1,4 +1,5 @@
 <!-- ants-doc-standards: 1 -->
+<!-- OWNED-HERE documentation.md — forked from the app-workflow template and kept as this project's own standard; tests/test_docs.py asserts against it. Reconciling it with the global documentation.md is LWSM-1062's job; decided 2026-09-28 (LWSM-1062) -->
 # Documentation Standards — v1
 
 Documentation contract for this project. Pairs with

@@ -1,4 +1,5 @@
 <!-- ants-roadmap-format-spec: 1.1 -->
+<!-- OWNED-HERE roadmap-format.md — forked from the app-workflow template and kept as this project's own standard; tests/test_docs.py asserts against it. Reconciling it with the global roadmap-format.md is LWSM-1062's job; decided 2026-09-28 (LWSM-1062) -->
 # ROADMAP.md & CHANGELOG.md format spec (v1.1)
 
 > Detailed format spec for the two files the Ants Terminal Roadmap

@@ -1,4 +1,5 @@
 <!-- ants-commit-standards: 1 -->
+<!-- OWNED-HERE commits.md — forked from the app-workflow template and kept as this project's own standard; tests/test_docs.py asserts against it. Reconciling it with the global commits.md is LWSM-1062's job; decided 2026-09-28 (LWSM-1062) -->
 # Commit Standards — v1
 
 A shareable contract for git commits in this project. Pairs with

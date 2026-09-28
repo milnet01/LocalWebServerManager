@@ -86,7 +86,9 @@ Do not delete revoked entries — the history is the value.
 
 ## allowlist-001 — doc_integrity:broken_link — the plan skeleton's placeholder link
 
-- **Status:** active
+- **Status:** retired 2026-09-28 — the project's plan skeleton was deleted
+  and `/write-spec` now copies the machine-wide one, so the file this
+  entry covers no longer exists.
 - **Tool / rule:** `doc_integrity` (via `/doc-lint`, `/debt-sweep`) — `broken_link`
 - **Location:** `docs/standards/plan-skeleton.md:3` —
   `[docs/specs/<ID>-<topic>.md](../specs/<ID>-<topic>.md)`

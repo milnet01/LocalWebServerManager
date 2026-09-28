@@ -26,12 +26,14 @@ Sub-specs extracted from `documentation.md` for token efficiency:
 | [roadmap-format.md](roadmap-format.md) | Detailed `ROADMAP.md` and `CHANGELOG.md` format spec — file-header marker, status / theme emojis, stable IDs (`PROJ-NNNN`), insertion semantics, `Kind:` / `Source:` taxonomy, current-work signaling, fold-in subsections, anti-patterns. Read when authoring either file or any tooling that consumes them. |
 | [spec-format.md](spec-format.md) | Detailed `docs/specs/` and `docs/plans/` format spec — required sections, invariant rules (test surface + breaking input, never renumber), citation grounding, the size gate, the review gate, `spec_query` parseability. Read §0 before writing a spec; the rest is reference. Governs `documentation.md § 10`. |
 
-Fill-in-the-blanks starting points, copied by `/write-spec`:
+Fill-in-the-blanks starting points, copied by `/write-spec` from the
+machine-wide `~/.claude/standards/skeletons/` (local to the author's
+machine). This project keeps no copy since 2026-09-28:
 
 | Skeleton | For |
 |----------|-----|
-| [spec-skeleton.md](spec-skeleton.md) | a new spec — every section pre-numbered with its authoring prompt inline |
-| [plan-skeleton.md](plan-skeleton.md) | a new build plan |
+| `spec-skeleton.md` | a new spec — every section pre-numbered with its authoring prompt inline |
+| `plan-skeleton.md` | a new build plan |
 
 ## How they fit together
 

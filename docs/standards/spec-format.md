@@ -1,4 +1,5 @@
 <!-- ants-spec-format: 1 -->
+<!-- OWNED-HERE spec-format.md — forked from the app-workflow template and kept as this project's own standard; tests/test_docs.py asserts against it. Reconciling it with the global spec-format.md is LWSM-1062's job; decided 2026-09-28 (LWSM-1062) -->
 # Spec- and plan-authoring standard — v1
 
 **Status:** v1 (2026-07-27).
@@ -394,7 +395,8 @@ enforces it.
 ## 8. Plan format
 
 A plan is deliberately thin: ordered steps, each with its verification.
-Skeleton at `plan-skeleton.md` beside this file.
+Skeleton: the machine-wide `~/.claude/standards/skeletons/plan-skeleton.md`
+(local to the author's machine).
 
 Rules:
 
@@ -412,14 +414,15 @@ Rules:
 
 ## 9. Skeletons
 
-Two files beside this one. `/write-spec` copies them; there is no second
-copy embedded here, because a skeleton in two places is two skeletons
-(§5.2).
+Two machine-wide files in `~/.claude/standards/skeletons/` (local to the
+author's machine). `/write-spec` copies them; this project keeps no copy,
+because a skeleton in two places is two skeletons (§5.2). The project's own
+copies were deleted on 2026-09-28 (LWSM-1062).
 
 | File | For |
 |------|-----|
-| [`spec-skeleton.md`](spec-skeleton.md) | a new spec — every section pre-numbered, with the authoring prompt inline as a comment |
-| [`plan-skeleton.md`](plan-skeleton.md) | a new plan |
+| `spec-skeleton.md` | a new spec — every section pre-numbered, with the authoring prompt inline as a comment |
+| `plan-skeleton.md` | a new plan |
 
 The prompts live **in** the skeleton so an author never needs this standard
 open. That is deliberate: a rule you must remember to look up is a rule that

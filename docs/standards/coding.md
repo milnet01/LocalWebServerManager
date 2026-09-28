@@ -1,4 +1,5 @@
 <!-- ants-coding-standards: 1 -->
+<!-- OWNED-HERE coding.md — forked from the app-workflow template and kept as this project's own standard; tests/test_docs.py asserts against it. Reconciling it with the global coding.md is LWSM-1062's job; decided 2026-09-28 (LWSM-1062) -->
 # Coding Standards — v1
 
 A shareable contract for code in this project. Pairs with the
