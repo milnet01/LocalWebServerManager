@@ -310,8 +310,9 @@ refused until they do. Guessing would be worse than asking.
 
 1. `PORT=N`, `PORT=${PORT:-N}`, `--port N`, `--port=N`, or
    `localhost:N` / `127.0.0.1:N` anywhere in the file. The
-   `${PORT:-N}` form matters: it is how `project-g/run.sh:87`
-   declares 8080 while already honouring the contract.
+   `${PORT:-N}` form matters: it is how a sibling that has adopted
+   the contract still declares its default — a `start.sh` line
+   `PORT=${PORT:-8080}` declares 8080.
 2. An assignment whose left-hand side **is** `port` — either
    exactly, or preceded by a **non-alphanumeric character** —
    case-insensitive, with an integer literal anywhere on the right

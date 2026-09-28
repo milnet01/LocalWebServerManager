@@ -9815,7 +9815,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Priority: 3.
   Lanes: core, docs.
 
-- 📋 [LWSM-1056] **DS01: `main()` is a shipped entry point with no test.**
+- ✅ [LWSM-1056] **DS01: `main()` is a shipped entry point with no test.**
   `src/lwsm/__main__.py::main` takes an optional argv, branches on
   `--version` and returns an exit code, and nothing asserts on any of
   it. `scripts/local-ci.sh` § Entry points only `e.load()`s the
@@ -9828,9 +9828,12 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: test.
   Source: debt-sweep-2026-08-06.
   Priority: 3.
+  Resolved 2026-09-28: already covered, no code changed today.
+  tests/test_main.py asserts main(["--version"]) exits 0 and prints
+  __version__, and runs `python -m lwsm --version` as a subprocess.
   Lanes: tests.
 
-- 📋 [LWSM-1059] **DS01: `pytest-qt` and the `gui` / `integration` markers are declared but unexercised.**
+- ✅ [LWSM-1059] **DS01: `pytest-qt` and the `gui` / `integration` markers are declared but unexercised.**
   `pyproject.toml` pins `pytest-qt==4.5.0` and registers both
   markers; no test uses either, so `local-ci.sh --fast` (which
   deselects `integration`) currently deselects nothing and the
@@ -9845,6 +9848,10 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Priority: 3.
   Lanes: tests, build.
   Progress (2026-08-06): LWSM-1005 is the first work to exercise any of these. `pytest-qt` now drives `test_controller.py` and `test_mainwindow.py`; both markers are used, and `tests/conftest.py` sets `QT_QPA_PLATFORM=offscreen` when unset so a bare `pytest` cannot open a real window. One lesson worth keeping when this item closes: markers belong on tests, not files — marking a whole file by its heaviest test makes `local-ci.sh --fast` silently skip every light test beside it.
+  Resolved 2026-09-28: already covered, as the 2026-08-06 progress note
+  says. pytest-qt drives test_controller.py and test_mainwindow.py, both
+  markers are in use, and conftest.py sets QT_QPA_PLATFORM=offscreen. No
+  code changed today.
 
 - 📋 [LWSM-1060] **DS01: three agreed doc tasks exist only in a session journal.**
   `docs/journal/workflow-state-to-2026-09-28.md` § 3 (was
@@ -9917,7 +9924,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Lanes: docs.
   Progress (2026-08-07, FP05 rule-14 gate): the cold-eyes run over coding.md + testing.md found the fork's most consequential residue and fixed the load-bearing part. Both lanes independently flagged that `testing.md § 2.2` was a CMake/ctest recipe in a Python project — which matters because § T9 explicitly stands on § 2.2, so a developer following the new clause landed on an unrunnable command. § 2.2 is now the project's own pytest form and was EXECUTED before it shipped (which caught two wrong revert forms — see the section). coding.md § 4's naming examples were camelCase with `m_` prefixes and are now Python. STILL OUTSTANDING and owned here: 16 further C++/CMake hits in testing.md — § 3.2's CMakeLists/`test_<name>.cpp` block, § 3.4 and § 6's `LABELS perf` / `LABELS fast` vocabulary (pytest has markers, and this project's convention is that markers go on tests not files), and § 5's QVERIFY2 example. Left deliberately: porting them is a per-hunk judgement across a standard, which is this bullet's job, not a gate's.
 
-- 📋 [LWSM-1063] **DS01: `design.md` cites a path inside a sibling repo that no reader can resolve.**
+- ✅ [LWSM-1063] **DS01: `design.md` cites a path inside a sibling repo that no reader can resolve.**
   `docs/design.md:253` points at `project-g/run.sh:87` to evidence
   the `${PORT:-N}` detection rule. `project-g` is an anonymised
   sibling project outside this repository, so the citation resolves
@@ -9933,6 +9940,10 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: doc-fix.
   Source: debt-sweep-2026-08-06.
   Priority: 4.
+  Resolved 2026-09-28: design.md rule 1 now shows the form inline (a
+  start.sh line `PORT=${PORT:-8080}` declares 8080) instead of citing
+  project-g/run.sh:87. The example was run through scanner.scan and
+  reads as port 8080 by the explicit rule.
   Lanes: docs.
 
 - 📋 [LWSM-1161] **`write_json_atomically` now writes a file that is not JSON.**
