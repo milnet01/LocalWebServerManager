@@ -122,11 +122,11 @@ effect — reproduced on this project 2026-08-06. `local-ci.sh`
 exports it; a bare `pytest` does not.
 
 Check the `-k` pattern matched what you meant. A pattern matching
-nothing **exits 5** (measured), so a typo fails a `&&` chain rather
-than passing one — the "must FAIL" step cannot be satisfied by a
-misspelling. The real hazard is a pattern matching the *wrong*
-tests: that exits 0 and reports a green run of code you did not
-touch.
+nothing **exits 5** (measured) — non-zero, so in the "must FAIL"
+position a typo reads as red. That step counts only when pytest
+exits 1 and reports the named test failed. A pattern matching the
+*wrong* tests is the other hazard: in the "must PASS" position it
+exits 0 over code you did not touch.
 
 If the test passes on broken code, it's not testing what you
 think. Rewrite it.
@@ -267,10 +267,10 @@ carries enough context that the CI log alone is diagnosable.
 
 - **Deterministic.** No `random.random()`, no time-of-day. If
   randomness is genuinely needed, seed it with a fixed value.
-- **Fast.** Target < 100 ms each for an unmarked test. A slower one
-  is marked `perf` (§3.4) — never
-  `integration`, which says what a test does, not how long it takes
-  (§3.3).
+- **Fast.** Target < 100 ms each. A marker never excuses a slow
+  test: `integration` says what a test does (§3.3) and `perf` holds
+  tests that measure (§3.4), so a slow correctness test carries
+  neither and stays in every gate.
 - **Isolated.** No shared state between tests; one failing test
   doesn't poison another.
 - **No network unless opt-in.** A test that hits the network
@@ -465,7 +465,8 @@ So the rule, for every `Kind: fix`, `audit-fix` and `review-fix` change:
 1. **Revert the smallest edit the fix made, and confirm the fix's own test goes
    red** — run it by name (`PYTHONDONTWRITEBYTECODE=1 uv run pytest -k
    the_new_test`), not the whole suite, so an unrelated failure cannot stand in
-   for it. Delete the line it added, restore the line it removed, or put back
+   for it. It is red only when pytest reports that test failed: exit 5 means
+   the pattern matched nothing (§2.2). Delete the line it added, restore the line it removed, or put back
    the value it changed. If it does not redden, the test you just wrote is
    testing something else and the fix ships unguarded.
 
@@ -531,3 +532,4 @@ each loop happens, never back-filled.
 | 2 | 2026-08-07 | 2 (general-purpose, strong model) | 0 | 7 | 6 | 2 | 15 verified, 0 unverified, 15 fixed | **Converged by sweep, not by dispatch** — 11 fix collateral vs 4 draft defects; see `coding.md`'s log for the split and the shared findings. Both lanes independently found that loop 1's own two additions to `§ T9` contradicted each other: step 1 endorsed § 2.2's **whole-file** revert while the paragraph below required the mutation **per site**, and a whole-file revert of a multi-site sweep produces exactly one red run — which the per-site rule would then credit to every site, the precise failure T9 exists to catch. Step 1 also passed on "at least one test goes red", satisfiable by any unrelated failure; it now names the fix's own test and runs it by name. `§ T9`'s closing paragraph read as narrowing the whole section to call-happened-spy cases while its opening applied to every fix of three Kinds — it now narrows the *assertion style* only. Draft defects: the header scoped this standard to `test` plus three fix Kinds while `§ 1` binds "every code change that ships behaviour" and `§ 7` binds `Kind: implement`; and `§ 2.2`'s `git checkout <rev> -- <path>` silently destroys an uncommitted fix, which § 1's TDD cycle has you holding at step 3 — now says commit first. `§ 3.1` and `§ 9` gained the reciprocal pointer to § 3.6's exemption, which loop 1 had declared only at the exempt end, and `§ 3.6` now says a mechanism spanning modules needs one test per module. |
 | 3 | 2026-09-28 | 2 (`review-contract`, genre standard pinned, both lanes holding every question; `neutral-lane`, no project context) | — | — | — | — | 1 verified, 0 dismissed, 1 fixed | Gate armed by c660263 + e7aee3b (pytest forms for § 3.2/§ 3.4/§ 3.5/§ 5/§ 6/§ 8; § 2.3 and § 4 now point at `docs/specs/` and `spec-format.md` § 3.7). **Q2 1**, both lanes: § 6 told a slow test to take `integration`, whose registered meaning is a real child process or socket and which `--fast` skips; now `perf`, with the marker's meaning stated in § 3.3. Measured and true: `local-ci.sh` exports `PYTHONDONTWRITEBYTECODE`; `-k` matching nothing exits 5. **Filed on LWSM-1330, outside the change:** § 7's no-new-tests-for-refactors against § 3.6; § 3.1's "no I/O" against T1's `tmp_path` trees; § 8's "corresponding commit prefix". |
 | 4 | 2026-09-28 | 2 (same brief, cold, rebuilt from disk; `neutral-lane`) | — | — | — | — | 1 verified, 0 dismissed, 1 fixed | **Q3 1**, one lane: § 3.4 said `perf` tests are marked "so they can be excluded from CI", and nothing deselects `perf` (measured: `local-ci.sh`'s only `-m` is `"not integration"`); "once registered" read two ways. Now: register it with the first such test, and say that excluding one needs `-m "not perf"` added to `local-ci.sh`. **Filed on LWSM-1330, outside the change:** § 2.2's claim that a mistyped `-k` cannot satisfy the must-FAIL step (it exits 5, which reads as red; both lanes); T6 never says when to apply the registered `gui` marker. |
+| 5 | 2026-09-28 | 2 (same brief, cold, rebuilt from disk; `neutral-lane`) | — | — | — | — | 1 verified, 0 dismissed, 1 fixed | **Capped (loop 3 of 3 for a standard). Q2 1**, one lane: § 6 sent every slow test to `perf` while § 3.4 defines `perf` as measurement tests and names `-m "not perf"` as the way to exclude them, which would drop slow correctness tests from the gate; now no marker excuses a slow test. Both lanes re-raised § 2.2's exit-5 claim and T6's `gui` marker, which the packet listed as facts instead of as surfaced; merged into the filed entries. At the cap § 2.2's exit-5 claim and T9 step 1 were fixed too (out-of-change, the run's last loop): a must-FAIL run counts only on exit 1 with the test reported failed (measured). **Final-loop share on this run's own text: 1 of 1** — the § 6 marker rule, rewritten in loops 3 and 4 and wrong again in 5. Read as a violent cap on that one rule, calm on the rest of the document: this review ends here. **Share inside the gated change (c660263 + e7aee3b): 3 of 3** in-change findings; 7 more pre-existing ones filed on LWSM-1330. **Filed, outside the change:** T1's scope against `tests/conftest.py`. |

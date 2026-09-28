@@ -9267,6 +9267,14 @@ O8` forbids retrofitting that.
   9. [Q3] T6: pyproject.toml's `gui` marker cites T6, which never says to
      apply it; 5 of the 7 files using qtbot carry it, and nothing selects on
      it. Say whether a widget test carries `gui`, or retire the marker.
+  Item 8 is FIXED (testing.md gate loop 5, 2026-09-28, fixed at the cap as
+  the skill allows on the last loop): § 2.2 and T9 now say a must-FAIL run
+  counts only when pytest exits 1 and reports the test failed.
+  10. [Q2] testing.md T1's body forbids only ~/.config/localwebservermanager
+     and scan roots, while its heading says "never touch the real
+     environment" and tests/conftest.py cites T1 for pinning XDG_DATA_HOME,
+     XDG_DATA_DIRS and XDG_SESSION_TYPE. State T1's scope as any per-user
+     state the code reads, or narrow the heading. Loop 5, one lane.
   **Layman:** Two of the project's rulebooks still contain a few instructions that contradict the rest.
   Kind: doc-fix.
   Source: review-contract-2026-09-28 spec-format.md loop 7.
