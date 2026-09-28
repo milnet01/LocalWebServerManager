@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The CI gate. Run this before any push that touches code, tooling or CI
-# config; a docs-only push does not need it.
+# The CI gate. The pre-push hook runs it on every push: in full for code,
+# tooling or CI config, and as --docs for a documentation-only push.
 #
 # THIS FILE IS THE SINGLE SOURCE OF TRUTH FOR CI.
 # `.github/workflows/ci.yml` sets up a machine and then calls this script —
@@ -15,6 +15,7 @@
 # Usage:
 #   ./scripts/local-ci.sh          # the full gate
 #   ./scripts/local-ci.sh --fast   # skip the slowest stage (still lints+tests)
+#   ./scripts/local-ci.sh --docs   # only the steps that read documentation
 set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
@@ -35,15 +36,18 @@ export PYTHONDONTWRITEBYTECODE=1
 usage() {
     printf 'usage: %s [--fast]\n' "$0"
     printf '  --fast   skip the slowest stage (still lints and tests)\n'
+    printf '  --docs   only the steps that read documentation\n'
 }
 
 # Every argument is examined, not just $1: an unrecognised one used to be
 # ignored silently, so `--fst` or `--help` ran the full gate and looked like it
 # had been honoured.
 FAST=0
+DOCS=0
 for arg in "$@"; do
     case $arg in
         --fast) FAST=1 ;;
+        --docs) DOCS=1 ;;
         -h | --help)
             usage
             exit 0
@@ -175,7 +179,28 @@ step "Lint (ruff check)"
 uv run ruff check .
 
 step "Format check (ruff format --check)"
+# This reads MARKDOWN too: ruff formats the ```python blocks inside every .md
+# file in the tree, so a spec with a badly formatted example fails here.
 uv run ruff format --check .
+
+# --docs stops here. It is the documentation mode local-gate.md § 6 asks for,
+# and the pre-push hook selects it for a push whose every path is prose. Each
+# step above it reads a file such a push can touch: the lockstep reads
+# ROADMAP.md, the format check reads every .md. Nothing below does — compileall,
+# the entry points and shellcheck read code, and the markdown the SUITE asserts
+# against never takes this mode, because the hook sends it to the full gate.
+# A step added below that reads prose must move above this line.
+if [[ $DOCS -eq 1 ]]; then
+    # uv is the one tool checked above, and its drift is as fatal here as in
+    # the full run's summary below, for that summary's reason.
+    if ((${#DRIFTED[@]})); then
+        printf '%sTOOL DRIFT: %s%s\n' "$YELLOW" "${DRIFTED[*]}" "$RESET"
+        if [[ ${LWSM_REQUIRE_ALL_TOOLS:-0} == 1 ]]; then exit 1; fi
+    fi
+    printf '\n%sDocumentation checks passed (--docs: the steps below the format check did not run).%s\n' \
+        "$GREEN" "$RESET"
+    exit 0
+fi
 
 step "Syntax gate (compileall)"
 # The "build" for a pure-Python project. `import lwsm` would miss any submodule

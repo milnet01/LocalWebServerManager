@@ -7,29 +7,52 @@
 # version differed (see scripts/ci-tools.env), the next four because nobody
 # noticed the first.
 #
-# A DOCS-ONLY push is exempt, deliberately: the gate has mostly nothing to say
-# about prose, and eleven seconds of pytest between a typo fix and a push is how
-# a team learns to reach for --no-verify by reflex. The exemption is decided by
-# the paths in the push, never by the commit subject.
+# A DOCS-ONLY push runs `local-ci.sh --docs`, not the full gate: eleven seconds
+# of pytest between a typo fix and a push is how a team learns to reach for
+# --no-verify by reflex. It is decided by the paths in the push, never by the
+# commit subject. It is not a skip. Until 2026-09-28 it was, and three gate
+# steps read prose: the format check reads every .md, the version lockstep
+# reads ROADMAP.md, and the suite reads CONTRIBUTING.md (local-gate.md § 2.1).
 #
-# "Mostly" is load-bearing. Some markdown IS a gate input, and the exemption
-# below carves those files back out — see docs_only().
+# Some markdown takes the FULL gate, because the suite asserts against it —
+# see docs_only().
 #
-# Escape hatches, in order of preference:
-#   git push --no-verify          one push, git's own mechanism
-#   LWSM_SKIP_PREPUSH=1 git push  same, when a wrapper eats --no-verify
+# Every push is also scanned for secrets first, by the machine-wide hook's
+# --secrets-only mode, and neither escape hatch below skips that scan.
+#
+# Escape hatches for the gate, in order of preference:
+#   git push --no-verify          one push, git's own mechanism; skips the scan too
+#   LWSM_SKIP_PREPUSH=1 git push  the gate only, when a wrapper eats --no-verify
 #
 # Enable with:  git config core.hooksPath .githooks
 # That is per-clone and cannot be committed, which is why tests/test_hooks.py
 # checks the file is present and executable rather than that it is active.
 set -Eeuo pipefail
 
-if [[ ${LWSM_SKIP_PREPUSH:-0} == 1 ]]; then
-    printf 'pre-push: skipped (LWSM_SKIP_PREPUSH=1)\n' >&2
-    exit 0
+cd "$(git rev-parse --show-toplevel)"
+
+# git's stdin, read ONCE: the secret scan and the gate below both need it.
+REFS=$(cat)
+
+# security.md § 2: a secret must never reach a remote. The machine-wide hook
+# owns the scan (gitleaks over the pushed commits) and --secrets-only runs no
+# gate, so this project keeps its own gate and does not copy the scanner. Its
+# non-zero exit stops the push, through `set -e`. On a machine without it — CI,
+# a colleague's clone — there is no scan, and this says so rather than passing
+# in silence.
+SHARED_HOOK="${ANTS_GLOBAL_HOOKS:-$HOME/.claude/githooks}/pre-push"
+if [[ -x $SHARED_HOOK ]]; then
+    printf '%s\n' "$REFS" | "$SHARED_HOOK" --secrets-only
+else
+    printf 'pre-push: NO SECRET SCAN on this machine (%s is absent)\n' "$SHARED_HOOK" >&2
 fi
 
-cd "$(git rev-parse --show-toplevel)"
+# After the scan, not before it: skipping the gate is the user's call, and a
+# secret reaching a remote is never anyone's.
+if [[ ${LWSM_SKIP_PREPUSH:-0} == 1 ]]; then
+    printf 'pre-push: gate skipped (LWSM_SKIP_PREPUSH=1)\n' >&2
+    exit 0
+fi
 
 ZERO=0000000000000000000000000000000000000000
 
@@ -46,12 +69,14 @@ ZERO=0000000000000000000000000000000000000000
 # skipped the gate on that basis, and GitHub found the prose count that
 # test_docs.py forbids. The list is DERIVED, not copied: the contract test runs
 # this very function against test_docs.GOVERNED, so the two cannot part.
+# CONTRIBUTING.md is the one addition, since test_ci_contract.py reads it; the
+# same test names it beside GOVERNED.
 docs_only() {
     local path
     while IFS= read -r path; do
         [[ -z $path ]] && continue
         case $path in
-            CLAUDE.md | README.md | docs/standards/*.md) return 1 ;;
+            CLAUDE.md | README.md | CONTRIBUTING.md | docs/standards/*.md) return 1 ;;
             docs/* | .claude/* | *.md | LICENSE) ;;
             *) return 1 ;;
         esac
@@ -99,23 +124,24 @@ REMOTE=${1:-origin}
 changed=""
 tips=()
 while read -r _local_ref local_sha _remote_ref remote_sha; do
-    # Deleting a ref pushes no content.
-    [[ $local_sha == "$ZERO" ]] && continue
+    # Deleting a ref pushes no content; an empty line is no ref at all.
+    [[ -z ${local_sha:-} || $local_sha == "$ZERO" ]] && continue
 
     base=$(push_base "$local_sha" "$remote_sha" "$REMOTE") || continue
 
     changed+=$(git diff --name-only "$base" "$local_sha")$'\n'
     tips+=("$local_sha")
-done
+done <<<"$REFS"
 
 if [[ -z ${changed//[$'\n' ]/} ]]; then
     printf 'pre-push: nothing to check\n' >&2
     exit 0
 fi
 
+GATE_ARGS=()
 if printf '%s' "$changed" | docs_only; then
-    printf 'pre-push: docs-only push, gate not required\n' >&2
-    exit 0
+    printf 'pre-push: docs-only push, running the documentation checks\n' >&2
+    GATE_ARGS=(--docs)
 fi
 
 # No --fast, and the runner's environment rather than a developer's. The point
@@ -155,12 +181,13 @@ cleanup() {
 trap cleanup EXIT
 
 for tip in "${tips[@]}"; do
-    printf 'pre-push: running ./scripts/local-ci.sh against %s\n' "${tip:0:12}" >&2
+    printf 'pre-push: running ./scripts/local-ci.sh%s against %s\n' \
+        "${GATE_ARGS[*]:+ ${GATE_ARGS[*]}}" "${tip:0:12}" >&2
     WORKTREE=$(mktemp -d)
     git worktree add --detach --quiet "$WORKTREE" "$tip"
     # The subshell keeps the cd local, so cleanup above still runs from the
     # repo root where `git worktree remove` has to be invoked.
-    ( cd "$WORKTREE" && LWSM_REQUIRE_ALL_TOOLS=1 ./scripts/local-ci.sh )
+    ( cd "$WORKTREE" && LWSM_REQUIRE_ALL_TOOLS=1 ./scripts/local-ci.sh "${GATE_ARGS[@]}" )
     cleanup
     WORKTREE=""
 done

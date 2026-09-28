@@ -9186,6 +9186,27 @@ O8` forbids retrofitting that.
   Source: in-session-2026-09-28 (CFG-0645 migration).
   Lanes: docs.
 
+- ✅ [LWSM-1327] **The pre-push hook scans for secrets, and a docs-only push runs the documentation checks instead of nothing.**
+  local-gate.md § 2.1 (user, 2026-09-28): a project's own pre-push keeps
+  every check the shared hook runs. Ours had no secret scan, and it skipped a
+  docs-only push entirely although three gate steps read prose: ruff format
+  --check reads every .md (it formats the python blocks inside markdown), the
+  version lockstep reads ROADMAP.md, and test_ci_contract.py reads
+  CONTRIBUTING.md, which the exemption also covered. So a spec with a
+  mis-formatted example, or a ROADMAP.md version drift, pushed ungated.
+  Fix: stdin read once and fed to ~/.claude/githooks/pre-push
+  --secrets-only before the gate; local-ci.sh gains --docs (sync, lockstep,
+  format check) which the hook runs for a docs-only push; CONTRIBUTING.md
+  always takes the full gate.
+  Shipped 2026-09-28. Four mutants against the hook (scan removed, scan fed
+  empty stdin, docs push skipped again, CONTRIBUTING.md exempt again) all
+  killed; test_ci_contract.py 5/5 repeat runs green; full gate green.
+  local-ci.sh --docs takes about 4.7s by hand, against 0s for the old skip.
+  **Layman:** Every push is now checked for leaked passwords, and a documentation-only push still runs the few checks that read documentation.
+  Kind: fix.
+  Source: session-message-130-2026-09-28.
+  Lanes: tooling, tests.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart

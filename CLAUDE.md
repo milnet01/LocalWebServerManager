@@ -150,11 +150,20 @@ text (found 2026-09-25, logged in `~/.claude` as CFG-0593).
 ## Before pushing
 
 **Run `./scripts/local-ci.sh` before any push that touches code,
-tooling or CI config** (user, 2026-08-03). A **docs-only push is
-exempt** — the gate has nothing to say about prose, and making it
-mandatory there just trains people to skip it.
+tooling or CI config** (user, 2026-08-03). A **docs-only push runs
+`./scripts/local-ci.sh --docs`** — the steps that read prose, not the
+whole gate, because a full gate on every typo fix trains people to skip
+it. It was a complete skip until 2026-09-28, when `local-gate.md` § 2.1
+(user, same day) ruled out dropping checks for speed. Three gate steps
+read prose: the format check reads every `.md`, because ruff formats
+the Python blocks inside markdown; the version lockstep reads
+`ROADMAP.md`; and the suite reads `CONTRIBUTING.md`.
 
-**Since 2026-08-18 a `pre-push` hook enforces both halves of that**, so
+**Every push is also scanned for secrets** by the machine-wide hook's
+`--secrets-only` mode, before the gate. `LWSM_SKIP_PREPUSH=1` skips the
+gate and not the scan.
+
+**Since 2026-08-18 a `pre-push` hook enforces all of that**, so
 it is no longer a rule someone has to remember. Enable it once per
 clone — `core.hooksPath` cannot be committed:
 
@@ -174,16 +183,16 @@ never exempt — a change to the checker must run the check.
 `tests/test_ci_contract.py` asserts that, because an exemption that
 grew to cover `scripts/` would let an edit to the gate skip the gate.
 
-**Some markdown is a gate input too, and that was missed until
+**Some markdown takes the FULL gate, and that was missed until
 2026-08-19**: `CLAUDE.md`, `README.md` and every file under
-`docs/standards/` are asserted against by `tests/test_docs.py`, so an
-edit to one can redden the suite. They are carved out of the exemption
-and always run the gate. The cost of learning this was a red CI run on
+`docs/standards/` are asserted against by `tests/test_docs.py`, and
+`CONTRIBUTING.md` by `tests/test_ci_contract.py`, so an edit to one can
+redden the suite. They never take the docs mode. The cost of learning this was a red CI run on
 `5f1891f`, a markdown-only push that skipped the gate on the strength of
 its paths and was caught by GitHub instead. **The carve-out list is
 imported from `test_docs.GOVERNED`, never copied** — a standard added
 there alone would otherwise leave the contract test green while the file
-it governs pushes ungated. And the test **runs** `docs_only()` rather
+it governs skips the suite. And the test **runs** `docs_only()` rather
 than reading it: its predecessor scanned the case arms as strings, which
 can say which patterns are present but never which arm a path lands in.
 Every assertion in it held while the escape went through.

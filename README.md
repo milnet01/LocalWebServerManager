@@ -175,7 +175,8 @@ run no longer predicts GitHub. Bump a version there and the workflow
 follows; `tests/test_ci_contract.py` fails if the two ever part.
 
 The `core.hooksPath` line above installs a `pre-push` hook that runs
-the gate for you. A docs-only push skips it.
+the gate for you and scans the pushed commits for secrets. A docs-only
+push runs only the documentation checks (`./scripts/local-ci.sh --docs`).
 
 Before cutting a release, `./scripts/local-release.sh` reports
 whether one is safe to cut. It changes nothing.

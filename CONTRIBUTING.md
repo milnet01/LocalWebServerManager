@@ -79,12 +79,14 @@ Before opening a PR:
    fatal. So the hook, not a hand run, is what tells you whether
    CI will agree.
 
-   **A docs-only change is exempt, with exceptions.** `CLAUDE.md`,
-   `README.md` and everything under `docs/standards/` are
-   asserted against by `tests/test_docs.py`, so editing one can
-   turn the suite red — they always run the gate. `scripts/`,
-   `.github/`, `src/` and `tests/` are never exempt either: a
-   change to the checker must run the check.
+   **A docs-only change runs only the documentation checks**
+   (`./scripts/local-ci.sh --docs`), with exceptions. `CLAUDE.md`,
+   `README.md`, `CONTRIBUTING.md` and everything under
+   `docs/standards/` are asserted against by the suite, so
+   editing one can turn it red — they always run the full gate.
+   `scripts/`, `.github/`, `src/` and `tests/` always do too: a
+   change to the checker must run the check. Every push is
+   scanned for secrets first, whatever it touches.
 
 PRs that don't follow the standards may be asked to update
 before review.

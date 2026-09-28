@@ -302,7 +302,7 @@ def test_contributing_does_not_contradict_the_gate_it_describes() -> None:
 
     # Scoped to the exemption's own paragraph. Elsewhere in the file these
     # paths are cited for what they SAY, which is a different claim.
-    marker = "docs-only change is exempt"
+    marker = "docs-only change runs only the documentation checks"
     assert marker in text, "the exemption is not described at all"
     carve_out = text[text.index(marker) :]
     for path in GOVERNED:
@@ -330,7 +330,8 @@ def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> N
     """
     assert GOVERNED, "test_docs governs nothing, so this test proves nothing"
 
-    for path in GOVERNED:
+    # CONTRIBUTING.md beside GOVERNED: the test above this one reads it.
+    for path in [*GOVERNED, REPO / "CONTRIBUTING.md"]:
         relative = path.relative_to(REPO).as_posix()
         assert not _hook_says_docs_only([relative]), (
             f"a push touching only {relative} skips the gate, but test_docs.py "
@@ -371,9 +372,20 @@ def _hook_verdict(tmp_path: Path, changed: str) -> str:
     gate = repo / "scripts/local-ci.sh"
     gate.write_text(
         "#!/usr/bin/env bash\n"
-        'printf "GATE-RAN REQUIRE=%s\\n" "${LWSM_REQUIRE_ALL_TOOLS:-unset}"\n'
+        'printf "GATE-RAN REQUIRE=%s ARGS=[%s]\\n" '
+        '"${LWSM_REQUIRE_ALL_TOOLS:-unset}" "$*"\n'
     )
     gate.chmod(0o755)
+
+    # The machine-wide hook, stubbed: it records how it was called and what it
+    # was fed. Pointing ANTS_GLOBAL_HOOKS here also keeps this test off the
+    # developer's real hook, whose presence differs between here and CI.
+    shared = tmp_path / "shared-hooks"
+    shared.mkdir()
+    (shared / "pre-push").write_text(
+        '#!/usr/bin/env bash\nprintf "SCAN-RAN ARGS=[%s] STDIN=[%s]\\n" "$*" "$(cat)"\n'
+    )
+    (shared / "pre-push").chmod(0o755)
 
     def git(*args: str) -> str:
         done = subprocess.run(
@@ -411,6 +423,7 @@ def _hook_verdict(tmp_path: Path, changed: str) -> str:
     # the variable would report REQUIRE=1 on the runner whatever the hook did,
     # and this test would pass on GitHub while the defect it names shipped.
     env = {k: v for k, v in os.environ.items() if k != "LWSM_REQUIRE_ALL_TOOLS"}
+    env["ANTS_GLOBAL_HOOKS"] = str(shared)
 
     done = subprocess.run(
         ["bash", str(repo / ".githooks/pre-push"), "origin", "url"],
@@ -452,10 +465,35 @@ def test_the_hook_runs_the_gate_under_the_same_environment_as_github(
         f"split this file exists to close: {ran}"
     )
 
-    skipped = _hook_verdict(tmp_path / "docs", "docs/design.md")
-    assert "GATE-RAN" not in skipped, (
-        f"a docs-only push now pays the full gate, so the exemption is dead: {skipped}"
+    assert "ARGS=[]" in ran, f"a code push did not get the full gate: {ran}"
+
+    docs = _hook_verdict(tmp_path / "docs", "docs/design.md")
+    assert "ARGS=[--docs]" in docs, (
+        "a docs-only push must run the documentation checks, not the full gate "
+        f"and not nothing (local-gate.md § 6): {docs}"
     )
+    assert "REQUIRE=1" in docs, f"the docs mode runs without CI's environment: {docs}"
+
+
+def test_every_push_is_scanned_for_secrets_before_the_gate(tmp_path: Path) -> None:
+    """local-gate.md § 2.1 item 1: a hook of its own still scans every push.
+
+    Both kinds of push, in ONE test: the scan must not ride only on the
+    branch that runs the full gate. And it must be handed git's refs, not an
+    empty stdin — the hook reads stdin once for two consumers, and a scan fed
+    nothing reports clean having scanned no commit at all.
+    """
+    for kind, changed in (("code", "src/lwsm/thing.py"), ("docs", "docs/design.md")):
+        out = _hook_verdict(tmp_path / kind, changed)
+        assert "SCAN-RAN ARGS=[--secrets-only]" in out, (
+            f"a {kind} push was not scanned for secrets: {out}"
+        )
+        assert "STDIN=[refs/heads/main " in out, (
+            f"the secret scan on a {kind} push was fed no refs: {out}"
+        )
+        assert out.index("SCAN-RAN") < out.index("GATE-RAN"), (
+            f"the scan ran after the gate on a {kind} push: {out}"
+        )
 
 
 # --- the comparison itself ----------------------------------------------------
