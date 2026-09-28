@@ -107,9 +107,9 @@ docs/plans/<ID>-<topic>.md    the build steps
 
 ## 3. Required spec structure
 
-In this order. Skip a section only when it would be empty, and **say so**
-rather than leaving a bare heading — an omitted section reads as an
-oversight, an explicit "none" reads as a decision.
+In this order. Never omit one: where a section would be empty, keep its
+heading and **say so** rather than leaving it bare — an omitted section
+reads as an oversight, an explicit "none" reads as a decision.
 
 **A finished spec numbers these twelve 1–12, with exactly these headings,
 and appends §4's recommended sections after them from 13.** A required
@@ -340,16 +340,14 @@ the code it specifies.
 
 ### 5.4 Size gate — split before reviewing
 
-Before the first review pass, size the spec honestly. `review-contract`
-stops a spec at two loops (its § At the cap), converged or not. A spec
-that cannot converge inside that is larger than the review's design point,
-and the correct response is to split it — not to review it again.
-
-`spec_lint` reports each spec's line count as `line_count`; nothing judges
-whether it is too big. If your spec is in
-that territory, split it along the seams in §3.6 and give each part its own
-id — splitting before the first review is cheap; splitting at loop eight
-means eight loops were wasted.
+Before the first review pass, size the spec honestly. **The call is a
+judgement, made before dispatch, and `/write-spec` Step 4 is where it is
+made.** A spec you can already see needing more loops than
+`review-contract`'s cap for a spec (two, its § At the cap) is too big for
+one review: split it along the seams in §3.6 and give each part its own id.
+`spec_lint` reports `line_count`; nothing judges it. Once the loops begin
+nothing splits a spec — at the cap `review-contract` ships it to
+implementation.
 
 ### 5.5 Security boundaries
 
@@ -403,7 +401,8 @@ convergence, and the post-fix blast-radius check.
 `documentation.md` §8.1 owns the loop-log requirements — that it is written
 as the loops happen rather than back-filled, that every row carries an
 outcome, and that a gated document without one has not been through the
-gate. They apply to a spec unchanged.
+gate. They apply to a spec with one exception: §8.1 puts the log last, and
+in a spec it is §12, with §4's recommended sections after it (§3).
 
 One spec-side specific: `spec_log op:append_loop` writes **bullet** form. If
 the spec's log is a table (as the skeleton ships), add the row with `Edit`
@@ -487,16 +486,14 @@ Unnumbered because this is a standard — see `documentation.md` §1.8.
 | §5.1 no `path:line` citations | `check-doc-facts` `paths` |
 | §5.1 cited symbols exist | `check-doc-facts` `symbols` produces the unresolved list; **defect-vs-forward-reference is a lane's judgement**, not the check's |
 | §5.2 one fact, one place | **nothing mechanical** — `review-contract` Phase 4 diagnoses it from the finding pattern |
-| §5.4 size gate | `spec_lint` emits the line count as `line_count` |
+| §5.4 size gate | **nothing** — the split is a judgement made before dispatch |
 | §6 loop log present, every row has an outcome | `check-doc-facts` `loop-log` |
-| §3 the twelve required sections present and numbered, §3.12's table among them | `spec_lint` `missing_section`, which reads §3's `required-sections` block |
+| §3 the twelve required headings present and numbered | `spec_lint` `missing_section`, which reads §3's `required-sections` block |
+| §3.12 that section holds a table, not prose | **nothing** — `missing_section` reads the heading only |
 | §8 every plan step has a verification | **nothing mechanical** — a cold reader |
 
-Fifteen rows, **five** with a bolded `nothing` — the metric §0 defines. That
-is this standard's honest error budget; §5.7 is how it falls. The row count
-rose from thirteen without the budget moving: two cells each blurred a named
-catcher and a `nothing` together, and splitting them into one row apiece is
-what makes the five countable rather than arguable.
+Sixteen rows, **seven** with a bolded `nothing` — the metric §0 defines. That
+is this standard's honest error budget; §5.7 is how it falls.
 
 This count has been wrong in three consecutive review loops, in this file
 and in the spec that adopts it. See §5.8.
@@ -512,3 +509,4 @@ written as those loops closed, and rule 14 forbids back-filling them.
 | 4 | 2026-07-27 | 4 (breadth, all escalated) — this file + skeleton was lane 2 | 1 | 1 | 4 | 1 | 7 verified, 3 unverified. All 7 fixed. This file took 3: §5.7/§5.8 were out of order, two What-checks-this cells blurred a catcher with a `nothing`, and §9's numbering note implied a fixed offset that breaks at skeleton §10. |
 | 5 | 2026-07-27 | 4 (same partition, cold) | 0 | 0 | 0 | 0 | **Clean.** Lane 2 re-read this file and the skeleton cold and found nothing — loop 4's three fixes held, including the §5 reorder and the row recount. |
 | 6 | 2026-07-27 | 3 (lane 3 skipped — bytes unchanged since its last clean verdict) | 0 | 0 | 1 | 0 | **Converged (no build-changing findings).** One finding, in the §9 mapping added by loop 4: it stopped at skeleton §12 and never placed §13, whose home is §6 rather than the §3 list. Fixed; run closed. |
+| 7 | 2026-09-28 | 2 (`review-contract`, genre standard pinned, both lanes holding every question; run via `neutral-lane`, no project context loaded) | — | — | — | — | Gate armed by c660263 (required-sections block, retired skill names, § 6, § 9). **Q1 1 · Q2 3 · Q3 1 — verified 5, fixed 5, dismissed 1.** Fixed: § 5.4 said to split a capped spec, while `review-contract` ships it to implementation, and gave no pre-review test (now a judgement at `/write-spec` Step 4); the size-gate row named a catcher that judges nothing; § 6 inherited § 8.1's "log is last" while § 3/§ 4 put recommended sections after § 12; the new § 3 row claimed `spec_lint` checks § 3.12's table (it reads headings only, now its own `nothing` row); "skip a section" read against the new twelve-headings rule. Table recounted by script: 16 rows, 7 `nothing`. Dismissed: § 5.3's pointer to `documentation.md` § 1.6 (it does hold the length yardsticks). **Outside the change, filed, not fixed:** the header's "keep this a verbatim copy" paragraph contradicts the OWNED-HERE marker; § 1's "when unsure, write the spec" sits against `CLAUDE.md` § Review cadence rule 1. Both lanes disclosed only the global `CLAUDE.md` and the lane prompt. |

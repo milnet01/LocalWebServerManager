@@ -9221,6 +9221,30 @@ O8` forbids retrofitting that.
   Source: session-message-161-2026-09-28.
   Lanes: ci.
 
+- 📋 [LWSM-1330] **spec-format.md and documentation.md still carry stale rules the 2026-09-28 gate found outside its change.**
+  Do not re-review; fold in directly, then gate each standard once.
+  1. [Q2] spec-format.md header, the paragraph starting "This is the project's
+     copy": it says keep a verbatim copy of `~/.claude/skills/_shared/spec-format.md`
+     (a path that no longer exists; the global one is ~/.claude/standards/) with
+     changes in a `## <Project> overrides` section. The OWNED-HERE marker two
+     lines up says the file is the project's own fork, edited in place. A
+     conformer following the paragraph re-syncs from upstream. Both lanes.
+  2. [Q2] spec-format.md § 1, "When unsure, write the spec." CLAUDE.md § Review
+     cadence rule 1 says build first and fold the spec back, and cites § 1 as
+     its authority on whether a spec is needed. An unsure author gets opposite
+     timing from the two. Lane A; lane B raised it as an open question.
+  3. documentation.md names the retired /cold-eyes and /doc-lint throughout,
+     including a `size` check that no longer exists and `links` where
+     path:line is `paths`. Its § 8.1 says every spec, design doc, ADR,
+     standard and reference is gated before the work starts, which
+     contradicts CLAUDE.md § Review cadence rule 1.
+  Owner of the full fork reconciliation stays LWSM-1326; these are the
+  known defects, per LWSM-1062's decision.
+  **Layman:** Two of the project's rulebooks still contain a few instructions that contradict the rest.
+  Kind: doc-fix.
+  Source: review-contract-2026-09-28 spec-format.md loop 7.
+  Lanes: docs.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
