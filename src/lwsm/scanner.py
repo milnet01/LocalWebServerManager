@@ -278,6 +278,19 @@ def _open_source(path: Path) -> int:
 
 
 def _checked_descriptor(path: Path) -> int:
+    """`_open_source(path)`, refused unless it is a regular file under the cap.
+
+    **A hard link is accepted, and that is a decision, not an oversight**
+    (known-issue-020, LWSM-1324). `applog._require_private_regular_file`
+    refuses one, because the log is a file WE write and a link would send our
+    records somewhere else. Here the file is someone else's and is only read:
+    a hard-linked `start.sh` or `package.json` is an ordinary result of a
+    backup or copy tool (`cp -al`, rsnapshot), refusing it would hide a real
+    project, and what a link could leak is one port number and a rule name —
+    `PortFinding` carries no file bytes. `fs.protected_hardlinks=1`, the
+    distribution default, also requires the linker to own the target or be
+    able to read and write it.
+    """
     fd = _open_source(path)
     try:
         # Interrogated on the raw descriptor, before anything wraps it —

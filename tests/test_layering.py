@@ -120,7 +120,9 @@ def test_the_core_module_list_matches_the_criterion() -> None:
     actually enforces § O1, so a sixth core module that never reaches it is a
     `QtWidgets` import passing every gate — which is how `applog.py` came to be
     missing from it in the first place."""
-    on_disk = {path.name for path in SRC.glob("*.py")}
+    # Recursive, so a module in a subpackage is covered too; `glob` saw only
+    # the top level (known-issue-033, LWSM-1324).
+    on_disk = {path.relative_to(SRC).as_posix() for path in SRC.rglob("*.py")}
 
     assert on_disk - NON_CORE_MODULES == set(CORE_MODULES)
 

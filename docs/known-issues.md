@@ -134,6 +134,7 @@ in the current build. Owners are named, not implied.
 - **Will be addressed in:** LWSM-1113 (FP05 — wiring-test rule)
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.**
+- **Resolved 2026-09-28 by LWSM-1324:** `fstat` reports the device; `/dev/null` is no longer read.
 
 ## known-issue-005 — `MAX_REASON_CHARS`' value is pinned by nothing
 
@@ -490,6 +491,7 @@ otherwise. What is missing is the thing that would notice it stopping.
   discovered launcher)
 - **Logged:** 2026-08-12
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.**
+- **Queued 2026-09-28 as LWSM-1332**, with the dir_fd design.
 
 ## known-issue-020 — A hard link reads outside the project through the `_open_source` seam
 
@@ -515,6 +517,7 @@ otherwise. What is missing is the thing that would notice it stopping.
 - **Will be addressed in:** LWSM-1049 (FP01 — trust gate)
 - **Logged:** 2026-08-12
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.**
+- **Resolved 2026-09-28 by LWSM-1324:** the difference from `applog.py` is written down in `_checked_descriptor`'s docstring; hard links stay accepted.
 
 ## known-issue-021 — `_UnitLookup.properties` guarantees totality by docstring only
 
@@ -656,6 +659,7 @@ otherwise. What is missing is the thing that would notice it stopping.
 - **Will be addressed in:** LWSM-1123 (FP06 — hop-target fallback)
 - **Logged:** 2026-08-12
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.** Line order is pinned (LWSM-1183); the reversed scan and the option filter are not.
+- **Resolved 2026-09-28 by LWSM-1324:** two discriminating fixtures pin the reversed token scan and the option filter.
 
 ## known-issue-028 — `_RULE_1_ONLY` on the `ExecStart` argv is untested
 
@@ -786,6 +790,7 @@ otherwise. What is missing is the thing that would notice it stopping.
   item to add source files and so the first that could add a subpackage)
 - **Logged:** 2026-08-12
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324** (items 1, 2 and 5).
+- **Resolved 2026-09-28 by LWSM-1324:** items 1, 2 and 5.
 
 ## known-issue-034 — `scanner`'s copy of `MAX_REASON_CHARS` and `MAX_DISPLAY_NAME_CHARS` is pinned by nothing
 

@@ -449,9 +449,11 @@ def test_exec_start_is_a_record_and_only_its_argv_field_is_scanned() -> None:
     argv = scanner._exec_start_argv(record)
     assert argv is not None
     assert rule_1(argv) == 8080
-    # `path=` and `pid=` are systemctl's own keys, not the project's, so rule 2
-    # is never run over the record.
-    assert rule_2(record) is None
+    # The argv FIELD alone: `path=` and `pid=` are systemctl's own keys, not the
+    # project's. Asserted on the return value, which is what is scanned; the
+    # assertion used to be on `record`, so returning the whole record passed
+    # (known-issue-033, LWSM-1324).
+    assert argv.strip() == "/usr/bin/node serve.mjs --port 8080"
 
 
 def test_a_property_value_is_exempt_from_the_comment_stripper() -> None:
@@ -1110,12 +1112,23 @@ def test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours(
     assert len(reasons[0]) <= scanner.MAX_REASON_CHARS + 50
 
 
-def test_a_script_that_execs_its_own_name_cannot_loop(tmp_path: Path) -> None:
-    make_project(
+def test_a_script_that_execs_its_own_name_cannot_loop(
+    tmp_path: Path, opened_paths: list[Path]
+) -> None:
+    """The hop never re-reads the launcher it came from.
+
+    Counted by opens, because the port alone cannot fail: this launcher
+    declares none, so re-reading it returns `None` either way and the guard
+    could be deleted with the test green (known-issue-033, LWSM-1324).
+    """
+    project_dir = make_project(
         tmp_path, "proj", {"start.sh": "#!/bin/sh\nexec python3 start.sh\n"}, "start.sh"
     )
 
     assert by_name(scan_root(tmp_path))["proj"].port is None
+    launcher = (project_dir / "start.sh").resolve()
+    opens = [path for path in opened_paths if path.resolve() == launcher]
+    assert len(opens) == 1, f"the launcher was opened {len(opens)} times"
 
 
 @pytest.mark.parametrize(
@@ -1167,6 +1180,55 @@ def test_the_last_invocation_wins_and_a_commented_one_is_not_it(tmp_path: Path) 
 
     assert project.port is not None
     assert project.port.port == 3131
+
+
+def test_the_last_acceptable_token_on_the_line_is_the_hop(tmp_path: Path) -> None:
+    """known-issue-027 (LWSM-1324): step 4 takes the LAST token, not the first.
+
+    Both files exist and declare different ports, so the order of the token
+    scan is the only thing that decides. The earlier fixtures leaned on
+    non-path tokens not existing on disk, where forward and reverse agree.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nexec node config.js server.js\n",
+            "config.js": "const PORT = 4141;\n",
+            "server.js": "const PORT = 5252;\n",
+        },
+        "start.sh",
+    )
+
+    project = by_name(scan_root(tmp_path))["proj"]
+
+    assert project.port is not None
+    assert project.port.port == 5252
+
+
+def test_an_option_is_never_the_hop_even_when_a_file_has_its_name(
+    tmp_path: Path,
+) -> None:
+    """known-issue-027 (LWSM-1324): step 3 drops option-shaped tokens.
+
+    A file actually named like the option exists here, so a scan that stopped
+    filtering options would read it and report its port.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nexec node server.js --inspect.js\n",
+            "server.js": "const PORT = 5252;\n",
+            "--inspect.js": "const PORT = 6363;\n",
+        },
+        "start.sh",
+    )
+
+    project = by_name(scan_root(tmp_path))["proj"]
+
+    assert project.port is not None
+    assert project.port.port == 5252
 
 
 def test_an_interpreter_behind_a_shell_variable_is_still_an_invocation(

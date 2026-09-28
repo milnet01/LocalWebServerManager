@@ -9055,7 +9055,7 @@ O8` forbids retrofitting that.
   Source: known-issues re-triage 2026-09-28.
   Lanes: ui.
 
-- 📋 [LWSM-1324] **Known-issues batch (scanner + tests): five deferred findings still live.**
+- ✅ [LWSM-1324] **Known-issues batch (scanner + tests): five deferred findings still live.**
   Re-triaged 2026-09-28 against the code.
   1. known-issue-004: test_refuses_a_device_node falls back to the real
      /dev/null.
@@ -9067,6 +9067,15 @@ O8` forbids retrofitting that.
      unconstrained by any test.
   5. known-issue-033 items 1, 2, 5: self-exec fixture, ExecStart
      assertion, test_layering's non-recursive glob.
+  Shipped 2026-09-28 via close-findings: 4 fixed, 1 queued, 0 dismissed.
+  004 the device test fakes the descriptor's st_mode instead of falling back
+  to the real /dev/null; 020 resolved by its own second remedy - the reason
+  the scanner accepts a hard link where applog refuses one is now written in
+  _checked_descriptor; 027 two fixtures pin the last-token rule and the
+  option filter; 033 items 1 (count launcher opens), 2 (assert the returned
+  argv) and 5 (rglob). 019 queued as LWSM-1332 with the dir_fd design, since
+  the fix changes the seam every scanner test patches. Four mutants, all
+  killed; 033 item 5 has no red run, since no subpackage exists yet.
   **Layman:** Small leftover gaps in the project-finding code and the tests that hold it.
   Kind: review-fix.
   Source: known-issues re-triage 2026-09-28.
@@ -9562,6 +9571,24 @@ bugs in the same area.
   Kind: doc-fix.
   Source: user-decision-2026-09-28 (split from LWSM-1062).
   Lanes: docs.
+
+- 📋 [LWSM-1332] **The scanner's hop read can be redirected by swapping a directory between its check and its open.**
+  known-issue-019. `_accept_hop` resolves and containment-checks the target,
+  and `_open_source` then re-opens it by PATH. O_NOFOLLOW guards only the last
+  component, so swapping an intermediate directory for a symlink in between
+  reads a file outside the project. Bounded: the leak is one port number and a
+  rule name (PortFinding carries no bytes), and the attacker must already
+  write inside the scan root. Queued, not fixed, because the fix changes the
+  seam every scanner test patches: open the candidate directory O_PATH |
+  O_DIRECTORY | O_NOFOLLOW once, walk each relative component with
+  os.open(..., dir_fd=...) and O_NOFOLLOW, and open the file relative to the
+  last. `_open_source` then takes (candidate_fd, relative) rather than a path,
+  and the opened_paths fixture must follow. Needs an adversarial test that
+  swaps a directory mid-scan through a seam, not a race.
+  **Layman:** Someone who can already write inside a scanned folder could, with precise timing, make the scanner read one number from a file outside that project.
+  Kind: security.
+  Source: known-issue-019, queued from LWSM-1324 on 2026-09-28.
+  Lanes: core.
 
 ## 0.3.0 — The full state model
 

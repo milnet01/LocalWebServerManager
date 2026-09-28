@@ -272,23 +272,28 @@ def test_refuses_a_fifo_rather_than_blocking_on_it(tmp_path: Path) -> None:
         signal.signal(signal.SIGALRM, previous)
 
 
-def test_refuses_a_device_node(tmp_path: Path) -> None:
+def test_refuses_a_device_node(tmp_path: Path, monkeypatch) -> None:
     """A character device: reading it succeeds and returns nothing, so without
     the type check this fails later as 'not valid JSON' — a reason that sends
     the user looking at the wrong thing.
 
-    The node is created under `tmp_path` rather than reading the real
-    `/dev/null`, which was the one test outside `tmp_path` that `testing.md
-    § T1` otherwise forbids (LWSM-1111). Falls back to `/dev/null` where
-    `mknod` needs privileges this run does not have, since the point is the
-    character device and not who made it.
+    The refusal reads only the descriptor's `st_mode`, so `fstat` is made to
+    report a character device for a file under `tmp_path`. The previous
+    version tried `mknod`, which needs `CAP_MKNOD`, and on every unprivileged
+    run fell back to the real `/dev/null` — the `testing.md § T1` breach its
+    docstring said it avoided (known-issue-004, LWSM-1324).
     """
     node = tmp_path / "projects.json"
-    try:
-        os.mknod(node, 0o600 | stat.S_IFCHR, os.makedev(1, 3))
-    except (PermissionError, OSError):
-        node = Path("/dev/null")
+    node.write_text("{}", encoding="utf-8")
+    real_fstat = os.fstat
 
+    def as_a_character_device(fd: int) -> os.stat_result:
+        info = real_fstat(fd)
+        fields = list(info)
+        fields[0] = stat.S_IFCHR | 0o600
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(configfile.os, "fstat", as_a_character_device)
     with pytest.raises(RegistryError, match="regular file"):
         load_projects(node)
 
