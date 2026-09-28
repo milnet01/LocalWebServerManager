@@ -1595,3 +1595,33 @@ def test_a_scan_roots_comment_block_that_would_cross_the_cap_is_refused(
 
     assert "too large" in str(caught.value)
     assert path.read_bytes() == before, "the previous list survives"
+
+
+def test_a_trust_confirmation_survives_a_restart_of_the_app(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1046, through `build_window`: the store is tested on its own in
+    `test_supervisor.py`, and this is what proves the app hands it a file."""
+    from lwsm.supervisor import default_trust_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    projects = tmp_path / "projects.json"
+    project = tmp_path / "site"
+    project.mkdir()
+    fingerprint = "c" * 64
+
+    first, controller = build_window(projects)
+    qtbot.addWidget(first)
+    try:
+        controller._supervisor.trust.confirm(project, fingerprint)
+    finally:
+        controller.stop()
+
+    assert default_trust_path().exists(), "the confirmation was not written anywhere"
+
+    second, controller = build_window(projects)
+    qtbot.addWidget(second)
+    try:
+        assert controller._supervisor.trust.is_confirmed(project, fingerprint)
+    finally:
+        controller.stop()

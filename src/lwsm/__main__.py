@@ -54,7 +54,7 @@ def build_window(
     from lwsm.settings import Settings, SettingsError, default_settings_path
     from lwsm.settings import load as load_settings
     from lwsm.settings import save as save_settings
-    from lwsm.supervisor import Supervisor
+    from lwsm.supervisor import Supervisor, TrustStore, default_trust_path
     from lwsm.theme import theme_for_id
 
     log = applog.get_logger(__name__)
@@ -289,10 +289,19 @@ def build_window(
             )
 
     probe = PortProbe()
+    # Confirmations persist (LWSM-1046), so ADR-0003's gate asks once per
+    # launcher rather than once a session. With no home directory there is no
+    # file: memory only, which asks every session — the safe direction.
+    try:
+        trust = TrustStore(default_trust_path())
+    except RegistryError as exc:
+        log.warning("no trust file: %s", exc)
+        trust = TrustStore()
+    notices.extend(trust.reasons)
     # One probe for both jobs: the poll classifies from it, and the supervisor's
     # pre-flight check asks the same socket table rather than opening a second
     # view of it that could disagree.
-    supervisor = Supervisor(probe=probe)
+    supervisor = Supervisor(probe=probe, trust=trust)
     controller = ProjectController(records, probe, supervisor)
     window = MainWindow(
         controller,

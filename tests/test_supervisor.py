@@ -43,6 +43,7 @@ from lwsm.supervisor import (
     PortAlreadyBound,
     StopOutcome,
     Supervisor,
+    TrustStore,
     _launcher_path,
     build_child_env,
     launcher_fingerprint,
@@ -2254,3 +2255,120 @@ def test_the_duplicate_is_taken_while_the_lock_still_proves_the_entry_is_held(
     assert bystander.read_bytes() == sentinel, (
         "the rotation ran against a file that was not the log"
     )
+
+
+# --------------------------------------------------------------------------
+# LWSM-1046 — a confirmation lasts across restarts, not just the session
+# --------------------------------------------------------------------------
+
+FINGERPRINT = "a" * 64
+OTHER_FINGERPRINT = "b" * 64
+
+
+def test_a_confirmation_survives_a_restart(project: Path, tmp_path: Path) -> None:
+    """ADR-0003's gate is "one-time per-project": asked once, not once a session.
+
+    Re-asking every launch trains the user to click through the one dialog
+    that exists to make them read what will run.
+    """
+    path = tmp_path / "config" / "trust.json"
+    TrustStore(path).confirm(project, FINGERPRINT)
+
+    reopened = TrustStore(path)
+    assert reopened.is_confirmed(project, FINGERPRINT)
+    assert not reopened.is_confirmed(project, OTHER_FINGERPRINT)
+
+
+def test_a_revocation_survives_a_restart(project: Path, tmp_path: Path) -> None:
+    path = tmp_path / "trust.json"
+    store = TrustStore(path)
+    store.confirm(project, FINGERPRINT)
+    store.revoke(project)
+
+    assert not TrustStore(path).is_confirmed(project, FINGERPRINT)
+
+
+def test_the_trust_file_is_private(project: Path, tmp_path: Path) -> None:
+    """It says which launchers may run unasked, so no one else may read it."""
+    path = tmp_path / "trust.json"
+    TrustStore(path).confirm(project, FINGERPRINT)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_an_unreadable_trust_file_trusts_nothing_and_says_why(
+    project: Path, tmp_path: Path
+) -> None:
+    """Losing the file only means asking again, which is the safe direction."""
+    path = tmp_path / "trust.json"
+    path.write_text("{not json", encoding="utf-8")
+
+    store = TrustStore(path)
+    assert not store.is_confirmed(project, FINGERPRINT)
+    assert store.reasons
+
+    # And the next confirmation replaces it rather than failing on it.
+    store.confirm(project, FINGERPRINT)
+    assert TrustStore(path).is_confirmed(project, FINGERPRINT)
+
+
+def test_a_malformed_entry_is_dropped_and_the_rest_kept(
+    project: Path, tmp_path: Path
+) -> None:
+    good = project.resolve()
+    path = tmp_path / "trust.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "confirmed": {
+                    str(good): FINGERPRINT,
+                    "relative/path": FINGERPRINT,
+                    str(tmp_path / "other"): "not-a-digest",
+                    str(tmp_path / "third"): 7,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = TrustStore(path)
+    assert store.is_confirmed(project, FINGERPRINT)
+    assert not store.is_confirmed(tmp_path / "other", "not-a-digest")
+    assert len(store.reasons) == 3
+
+
+def test_a_newer_schema_is_not_read_as_this_one(project: Path, tmp_path: Path) -> None:
+    path = tmp_path / "trust.json"
+    path.write_text(
+        json.dumps(
+            {"schema_version": 2, "confirmed": {str(project.resolve()): FINGERPRINT}}
+        ),
+        encoding="utf-8",
+    )
+
+    store = TrustStore(path)
+    assert not store.is_confirmed(project, FINGERPRINT)
+    assert store.reasons
+
+
+def test_a_confirmation_that_cannot_be_saved_still_holds_this_session(
+    project: Path, tmp_path: Path
+) -> None:
+    """A symlink planted at the path is refused, and the click is not lost."""
+    target = tmp_path / "elsewhere.json"
+    path = tmp_path / "trust.json"
+    path.symlink_to(target)
+
+    store = TrustStore(path)
+    store.confirm(project, FINGERPRINT)
+
+    assert store.is_confirmed(project, FINGERPRINT)
+    assert not target.exists()
+    assert store.reasons
+
+
+def test_a_store_with_no_path_writes_nothing(project: Path, tmp_path: Path) -> None:
+    """The default every test's `Supervisor` gets: memory only."""
+    TrustStore().confirm(project, FINGERPRINT)
+    assert list(tmp_path.rglob("trust.json")) == []

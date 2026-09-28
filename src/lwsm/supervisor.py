@@ -14,11 +14,10 @@ environment is an allowlist).
 
 **What this module does NOT do.** It does not show the confirmation dialog
 (LWSM-1010 owns the UI), does not drive systemd units (LWSM-1028), does not
-tail the log into a `LogBuffer` (LWSM-1011), and does not persist a
-confirmation across restarts — `TrustStore` is in-memory, so ADR-0003's
-one-time confirmation is asked again each session. LWSM-1007's writer now
-exists; persisting trust through it is LWSM-1046's (LWSM-1274). Each of those
-is a named item, not an oversight.
+tail the log into a `LogBuffer` (LWSM-1011), and does not write a
+confirmation into the registry — `TrustStore` keeps its own small file,
+`trust.json`, beside `settings.json` (LWSM-1046). Each of those is a named
+item, not an oversight.
 """
 
 from __future__ import annotations
@@ -45,8 +44,14 @@ from lwsm.applog import (
     default_state_dir,
     get_logger,
 )
+from lwsm.configfile import (
+    ConfigFileError,
+    quoted,
+    read_bounded,
+    write_json_atomically,
+)
 from lwsm.ports import ProbeError, SupportsSnapshot
-from lwsm.settings import DEFAULT_LOG_MAX_MIB
+from lwsm.settings import DEFAULT_LOG_MAX_MIB, default_settings_path
 
 log = get_logger(__name__)
 
@@ -215,23 +220,114 @@ class ManagedProcess:
         return self.popen.pid
 
 
+TRUST_SCHEMA_VERSION = 1
+
+# A `launcher_fingerprint` is a SHA-256 hex digest, so anything else in the file
+# was not written by this module and names nothing a confirmation can match.
+_FINGERPRINT = re.compile(r"\A[0-9a-f]{64}\Z")
+
+
+def default_trust_path() -> Path:
+    """`trust.json` beside `settings.json`, for that function's reason: one XDG
+    rule, so the config files cannot drift into different directories."""
+    return default_settings_path().with_name("trust.json")
+
+
 class TrustStore:
     """Which launchers the user has confirmed, keyed by resolved project path.
 
-    In memory only. ADR-0003's gate is "one-time per-project", which properly
-    means one time ever, and that needs the registry writer LWSM-1007 builds —
-    so today the confirmation lasts for the session and re-asks on the next
-    launch. That is the safe direction to be wrong in, and it is stated rather
-    than left for a reader to discover.
+    ADR-0003's gate is "one-time per-project", so with a `path` a confirmation
+    is written to `trust.json` and read back on the next launch (LWSM-1046).
+    Asking every session trained the user to click through the one dialog that
+    exists to make them read what will run. With no `path` the store is memory
+    only, which is what every test's `Supervisor` gets.
+
+    **Every failure here errs towards asking again.** An unreadable file, a
+    malformed entry or a newer schema trusts nothing it cannot read, and a save
+    that fails keeps the confirmation for this session only. Each says why in
+    `reasons` and the log. Nothing is gated on a refused read, unlike
+    `projects.json`: rewriting over a refused file loses confirmations, and a
+    lost confirmation is one more question, never a launcher run unasked. The
+    same holds across two running instances, where the last writer wins.
+
+    The fingerprint already covers the argv and the launcher's bytes, so a
+    stored entry re-arms on its own when either changes. Entries for projects
+    that have since gone are kept, not pruned: they match nothing.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, path: Path | None = None) -> None:
         self._confirmed: dict[Path, str] = {}
         self._lock = threading.Lock()
+        self._path = path
+        self.reasons: list[str] = []
+        if path is not None:
+            self._load(path)
+
+    def _refuse(self, reason: str) -> None:
+        self.reasons.append(reason)
+        log.warning("trust store: %s", reason)
+
+    def _load(self, path: Path) -> None:
+        try:
+            raw = read_bounded(path)
+        except FileNotFoundError:
+            return  # first run: nothing confirmed yet, and nothing wrong
+        except OSError as exc:
+            self._refuse(f"{quoted(str(path))}: cannot be read ({exc.strerror or exc})")
+            return
+        try:
+            document = json.loads(raw.decode("utf-8-sig"))
+        except (ValueError, RecursionError) as exc:
+            # `ValueError` covers both a decode error and a JSON one; a deeply
+            # nested document raises `RecursionError` instead (LWSM-1164).
+            self._refuse(f"{quoted(str(path))}: not valid JSON ({type(exc).__name__})")
+            return
+        if not isinstance(document, dict):
+            self._refuse(f"{quoted(str(path))}: not a JSON object")
+            return
+        version = document.get("schema_version")
+        if type(version) is not int or version != TRUST_SCHEMA_VERSION:
+            self._refuse(
+                f"{quoted(str(path))}: schema_version {quoted(version)} is not "
+                f"{TRUST_SCHEMA_VERSION}; trusting nothing in it"
+            )
+            return
+        confirmed = document.get("confirmed")
+        if not isinstance(confirmed, dict):
+            self._refuse(f'{quoted(str(path))}: no "confirmed" object')
+            return
+        for key, fingerprint in confirmed.items():
+            project = Path(key)
+            if not project.is_absolute():
+                self._refuse(f"{quoted(key)}: not an absolute path; dropped")
+            elif not isinstance(fingerprint, str) or not _FINGERPRINT.match(
+                fingerprint
+            ):
+                self._refuse(f"{quoted(key)}: not a launcher fingerprint; dropped")
+            else:
+                self._confirmed[project] = fingerprint
+
+    def _save(self) -> None:
+        """Write the whole set. Called with `_lock` held, so writes keep order."""
+        if self._path is None:
+            return
+        payload = {
+            "schema_version": TRUST_SCHEMA_VERSION,
+            "confirmed": {
+                str(project): fingerprint
+                for project, fingerprint in sorted(self._confirmed.items())
+            },
+        }
+        data = (json.dumps(payload, indent=2) + "\n").encode("utf-8", "surrogateescape")
+        try:
+            write_json_atomically(self._path, data, prefix=".trust-")
+        except (ConfigFileError, OSError) as exc:
+            self._refuse(f"not saved, so this lasts until the app closes: {exc}")
 
     def confirm(self, project: Path, fingerprint: str) -> None:
         with self._lock:
             self._confirmed[Path(project).resolve()] = fingerprint
+            self._save()
 
     def is_confirmed(self, project: Path, fingerprint: str) -> bool:
         with self._lock:
@@ -240,7 +336,7 @@ class TrustStore:
     def revoke(self, project: Path) -> None:
         """Forget that this project's launcher was confirmed.
 
-        **Reserved for LWSM-1046's UI half, which is unshipped — so it has no
+        **Reserved for LWSM-1319's UI, which is unshipped — so it has no
         caller and that is not a defect.** Recorded in `docs/known-issues.md`
         under the Supervisor group, which is where a finding that is real but
         blocked by a missing feature belongs (`docs/audit-allowlist.md` § The
@@ -262,6 +358,7 @@ class TrustStore:
         """
         with self._lock:
             self._confirmed.pop(Path(project).resolve(), None)
+            self._save()
 
 
 # --------------------------------------------------------------------------

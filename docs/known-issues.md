@@ -946,6 +946,10 @@ the phase that owns the code. Owners are named, not implied.
 - **Why deferred:** the TOCTOU half needs `fexecve` or `/proc/self/fd/<n>`
   execution, which is a supervisor redesign rather than a fix
 - **Will be addressed in:** P05 (LWSM-1046's UI half lands the trust surface)
+- **Directory half RESOLVED 2026-09-02 (LWSM-1226)**: a group- or
+  other-writable parent without the sticky bit, and a launcher we do not own,
+  are refused. **The TOCTOU half is LWSM-1320**, re-routed 2026-09-28 when
+  LWSM-1046 closed without it.
 - **Logged:** 2026-08-15
 
 ## known-issue-038 — The log-rotation backup skips `_open_log`'s three guards
@@ -1167,6 +1171,8 @@ the phase that owns the code. Owners are named, not implied.
 - **Why deferred:** unreachable today — `start_project` refuses an empty argv
   before any refusal can be raised — so it is latent rather than live
 - **Will be addressed in:** LWSM-1046's UI half (P05), which reworks this dialog
+- **RESOLVED (LWSM-1261)**: the expression is parenthesised, and a prompt with
+  no launcher to show is refused rather than shown (`MainWindow._ask_to_trust`).
 - **Logged:** 2026-08-15
 
 ## known-issue-052 — A newline in a scanner-derived argv forges the trust dialog's structure
@@ -1182,6 +1188,9 @@ the phase that owns the code. Owners are named, not implied.
   control characters escaped.
 - **Why deferred:** same dialog as known-issue-051; fix both together
 - **Will be addressed in:** LWSM-1046's UI half (P05)
+- **RESOLVED (LWSM-1181)**: line breaks in every untrusted field are escaped,
+  so none can add a line to the prompt
+  (`test_an_untrusted_field_cannot_add_a_line_to_the_trust_prompt`).
 - **Logged:** 2026-08-15
 
 ## known-issue-053 — None of the translatable strings are extractable
@@ -1253,8 +1262,8 @@ the phase that owns the code. Owners are named, not implied.
   `:490` `os.write`'s return is unchecked so a partial write corrupts the
   rotated copy; `:508` the docstring omits that `Popen` also raises `OSError`;
   `:754` `running()` returns live `log_fd` ints and `Popen` handles to callers;
-  `:205` `TrustStore.revoke` has zero callers (not yet dead — LWSM-1046's UI
-  half is unshipped); `build_child_env` supplies no `PATH` fallback when the
+  `:205` `TrustStore.revoke` has zero callers (not yet dead — its UI is
+  LWSM-1319, split from LWSM-1046); `build_child_env` supplies no `PATH` fallback when the
   manager's own environment lacks one, which a `.desktop` launch can.
   **Registry:** `json.loads` accepts `NaN`/`Infinity` and `_serialised`
   re-emits it as a bare literal (pass `allow_nan=False`); duplicate keys are

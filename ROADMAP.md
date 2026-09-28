@@ -83,7 +83,7 @@ The appearance and accessibility foundation (was P04) is part of this version.
 The primary user reads with a screen magnifier, and `docs/standards/coding.md §
 O8` forbids retrofitting that.
 
-- 🚧 [LWSM-1046] **FP01: a trust gate before running a discovered launcher.**
+- ✅ [LWSM-1046] **FP01: a trust gate before running a discovered launcher.**
   Start executes arbitrary code from any directory in
   a scan root — a hostile repo cloned there is auto-listed and
   visually identical to a real project, and `npm run <script>`
@@ -129,6 +129,17 @@ O8` forbids retrofitting that.
   Persisting confirmations (where, in what format, and what re-arms
   them) is a design choice, so it belongs to this item rather than a LOW
   batch.
+  Resolved 2026-09-28: confirmations persist. TrustStore takes a path;
+  build_window hands it default_trust_path(), trust.json beside
+  settings.json, written 0600 through configfile.write_json_atomically.
+  Every failure errs towards asking again: an unreadable file, a
+  malformed entry or a newer schema trusts nothing it cannot read, and a
+  failed save keeps the confirmation for the session only, with a reason
+  in the status bar and the log. No spec (build-first): deleting the
+  file only re-asks, so the format is cheap to redo. Nine tests; seven
+  mutants all red. The UI half (the dialog) had already shipped with
+  LWSM-1010/1181/1261. Withdrawing trust split to LWSM-1319; the
+  check-to-exec race (known-issue-037's second half) to LWSM-1320.
 
 - ✅ [LWSM-1047] **FP01: signal process objects, never bare PIDs.**
   ADR-0003 escalates to `SIGKILL` when "anything is alive **or**
@@ -8920,6 +8931,22 @@ O8` forbids retrofitting that.
   Lanes: mainwindow.
   Evidence: docs/screenshots/main-window.png, docs/screenshots/light-theme.png
 
+- 📋 [LWSM-1320] **The launcher that is checked is not provably the launcher that runs.**
+  known-issue-037's second half, re-routed 2026-09-28 when LWSM-1046
+  closed (it named LWSM-1046's UI half as owner). The directory half
+  shipped in LWSM-1226. Still open: the launcher's name is resolved
+  three separate times — the stat in validate_launcher, the open in
+  _launcher_bytes, and the kernel at Popen — so a file swapped between
+  them is not the one that was checked and fingerprinted (CWE-367).
+  LWSM-1226 narrows who can swap it (owner, non-writable, sticky
+  parent). Closing the race needs execution from the checked
+  descriptor (fexecve or /proc/self/fd/N), which interacts with
+  shebang scripts; decide whether the residual is worth it.
+  **Layman:** Make sure the start script the app checked is exactly the one it runs, with no gap for a swap in between.
+  Kind: security.
+  Source: code-quality-review-2026-08-15 lane-1 (known-issue-037).
+  Lanes: core.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
@@ -9084,6 +9111,19 @@ bugs in the same area.
   Kind: fix.
   Source: user-report-2026-09-25.
   Lanes: registry, scanner.
+
+- 📋 [LWSM-1319] **Let the user withdraw trust from a project's launcher.**
+  Split from LWSM-1046 on 2026-09-28. Confirmations now persist in
+  trust.json, so a "yes, run it" lasts until the launcher or its
+  command changes. TrustStore.revoke exists, saves, and has no caller:
+  the only way to withdraw trust today is to delete trust.json by hand.
+  Add a per-row action (or a Settings entry) that calls it, then the
+  next Start asks again. Remove the known-issues.md entry for revoke's
+  zero callers when this lands.
+  **Layman:** A way to take back a "yes, run this project's start script" answer, now that the app remembers it between launches.
+  Kind: ux.
+  Source: in-session-2026-09-28 (split from LWSM-1046).
+  Lanes: ui, core.
 
 ## 0.3.0 — The full state model
 

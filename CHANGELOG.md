@@ -237,6 +237,11 @@ signaling per
 
 ### Changed
 
+- **The "run this project's start script?" question is asked once per launcher, not once per session.** (LWSM-1046)
+  Your answer is kept in trust.json beside settings.json. It is asked
+  again if the script or its command changes. A damaged file only means
+  being asked again.
+
 - **Stop and Restart are greyed out for a server this app did not start** (LWSM-1197)
   Open was already restricted to servers the manager started. Stop and
   Restart were offered on any project whose port was busy, and could only

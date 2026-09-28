@@ -69,7 +69,7 @@ flowchart TB
 
     subgraph outside["Outside this app"]
         FS[(Sibling project<br/>directories)]
-        CFG[("$XDG_CONFIG_HOME/…<br/>projects.json<br/>settings.json")]
+        CFG[("$XDG_CONFIG_HOME/…<br/>projects.json<br/>settings.json<br/>trust.json")]
         LOGF[("$XDG_STATE_HOME/…<br/>per-project<br/>log files")]
         PROC([Server processes])
         NET([Listening TCP sockets])
@@ -774,8 +774,8 @@ window.
 
 ### Persistence
 
-Three files under XDG paths, and the third is deliberately not
-JSON:
+These files live under XDG paths, and `scan-roots` is
+deliberately not JSON:
 
 - `~/.config/localwebservermanager/projects.json` — the registry:
   one record per project (path, display name, launcher, declared
@@ -788,6 +788,13 @@ JSON:
   window geometry keys `width` / `height` / `x` / `y` /
   `maximized` (ADR-0007). It carries its own `schema_version` on
   the same terms.
+- `~/.config/localwebservermanager/trust.json` — which launchers
+  the user confirmed at ADR-0003's trust gate: the resolved project
+  path and the launcher fingerprint confirmed for it, plus a
+  `schema_version`. Written 0600 (LWSM-1046). **Anything it cannot
+  read is trusted nothing**, so losing or corrupting it only means
+  being asked again — which is why a newer schema is refused rather
+  than migrated.
 - `~/.config/localwebservermanager/scan-roots` — where to look
   for projects. One directory per line, `#` comments, `~`
   expanded, order preserved because it is the walk order. **No
