@@ -51,7 +51,7 @@ jobs:
       # asserting a version the pin no longer points at.
       - name: Install uv
         id: uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           # Pinned, because an unpinned setup-uv resolves whatever uv is latest
           # at run time — a floating reference of the kind
