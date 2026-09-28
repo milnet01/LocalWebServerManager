@@ -15,7 +15,8 @@ Read these in order on every session start:
 2. **`ROADMAP.md`'s open items** — what is in flight and what is
    next. Ask the store, not the file: `roadmap_query
    status:"in-progress" mode:"headline_only"`, then the release
-   section's intro for the order. After reading, **summarise back
+   section's intro for the order. With nothing in flight, that
+   intro's order names what is next. After reading, **summarise back
    to the user** before doing any work.
 3. **`docs/standards/{coding,documentation,testing,commits,dependencies}.md`**
    — the five v1 standards. `dependencies.md` is canonical for
@@ -23,11 +24,12 @@ Read these in order on every session start:
 4. **`docs/specs/<active-id>.md`** — the contract for the
    currently-active roadmap item.
 5. **`docs/audit-allowlist.md`** — read **additionally** before
-   invoking `check-code` or `review-code` so already-confirmed
-   project-specific false positives aren't re-flagged. The
-   allowlist is the closed-loop memory for this project: a
-   confirmed false positive is added there, never silenced in
-   the tool.
+   invoking `check-code` or `review-code`. It is a human-readable
+   record of past false positives and why; no skill reads it. What
+   `check-code` matches against is its two ledgers —
+   `.audit_cache/learned-fp.jsonl` for tool findings and
+   `.ants_review_falsepos.jsonl` for reviewer claims — and
+   recording a false positive in them is `close-findings`' job.
 
 ## Which skill runs which job
 
@@ -128,10 +130,11 @@ had a port-less project.
 turns up that a *contract* would have caught and a test could not have, that is
 the signal rule 1 is wrong. So far none has.
 
-**Never silently drift.** If code being written diverges from its spec, stop
-and say so. Either the spec was wrong (correct it, re-check what it touches,
-resume) or the code was wrong (fix the code, leave the spec). Never paper
-over both. Build-first changes when the spec is corrected, not whether.
+**Never silently drift.** When code diverges from its spec, decide which was
+wrong: the spec (correct it and re-check what it touches) or the code (fix the
+code, leave the spec). Never paper over both. Under rule 2 (spec-first), stop
+and say so before continuing. Under rule 1, note the divergence and fold it
+back when the build is done.
 
 **A rule-14 gate over `CLAUDE.md` must tell its lanes to read the subject
 from disk.** A dispatched lane is briefed with the session-start copy of this
@@ -252,10 +255,10 @@ context can already do.
 return** (user, 2026-09-28). This replaces the retired `/close-phase`,
 which ran the same pair at every phase close; the roadmap is now grouped
 by version, so the release is the checkpoint. Read
-`docs/audit-allowlist.md` first, as **Where state lives** says. Findings
-are filed into the release's roadmap section, and the release waits on
-them. `./scripts/local-release.sh` (below) is the mechanical pre-flight
-and does not replace this.
+`docs/audit-allowlist.md` first, as **Where state lives** says. The findings
+`close-findings` queues are filed into the release's roadmap section, and
+the release waits on those. `./scripts/local-release.sh` (below) is the
+mechanical pre-flight and does not replace this.
 
 ## Tech stack
 
@@ -338,7 +341,7 @@ anything.
 That script is the CI — the workflow calls it. CI here fires on `push`
 and `pull_request` only, with **no tag trigger and no release trigger**,
 so *nothing on GitHub ever checks a release*. This script is the only
-gate a release gets.
+automated gate a release gets; the big review above is the other.
 
 Two things to know. **The verdict never reads "ready" while a check was
 skipped** — a blocker and a check that could not run are tracked
@@ -355,16 +358,16 @@ commit, no tag and no publish.
 ## Commit conventions
 
 Per [`docs/standards/commits.md § 1.1`](docs/standards/commits.md):
-every commit subject is `<ID>: <description>`, where `<ID>` is
-either a phase ID (`P##`, `FP##`, `DS##`, `DOC##`, `R##`) or a
-stable per-bullet ID for ROADMAP_FORMAT v1 projects
-(`LWSM-NNNN`).
+every commit subject is `<ID>: <description>`, where `<ID>` is the
+roadmap item's `LWSM-NNNN`.
 
-**Phases are retired, and their prefixes are not — yet.** The project left
-the phase workflow on 2026-09-28. **Until 0.1.0 ships, a commit with no item
-id keeps using `P04:`** (user, 2026-09-28), so commit subjects stay
-consistent with the log. Revisit it with LWSM-1062, which owns this project's
-fork of `commits.md`. Prefer an item id wherever one exists.
+**Phases are retired, and one phase prefix stays — for now.** The project
+left the phase workflow on 2026-09-28. **Until 0.1.0 ships, a chore or
+doc-only commit with no item id uses `P04:`** (user, 2026-09-28), so commit
+subjects stay consistent with the log. That overrides `commits.md` § 1.2's
+`chore:` and `docs:` rows only; its release and hotfix rows stand. No new
+`P##`, `FP##`, `DS##`, `DOC##` or `R##` is opened. Revisit it with LWSM-1062,
+which owns this project's fork of `commits.md`.
 
 **A phase ID may carry a lowercase continuation suffix — `P03b`**
 (user, 2026-08-12). It names a phase that finishes a predecessor's
@@ -1430,7 +1433,8 @@ output looks authoritative and is about the wrong interpreter.
 ## Resumption flow — MANDATORY summarise-back
 
 1. **Parallel batch:** read this file, the roadmap's in-progress
-   items, and the intro of the release section they sit in (one
+   items, and the intro of the release section they sit in — or,
+   with nothing in flight, of the first unreleased section (one
    tool-call batch). Fetch an active item's body by id.
 2. Once `Kind` is known from the active item, read the
    matching `docs/standards/<which>.md` (single read).
