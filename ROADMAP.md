@@ -130,7 +130,7 @@ O8` forbids retrofitting that.
   them) is a design choice, so it belongs to this item rather than a LOW
   batch.
 
-- 🚧 [LWSM-1047] **FP01: signal process objects, never bare PIDs.**
+- ✅ [LWSM-1047] **FP01: signal process objects, never bare PIDs.**
   ADR-0003 escalates to `SIGKILL` when "anything is alive **or**
   the port is still bound" — the `or` fires when our child is
   already reaped and something else holds the port, so
@@ -167,8 +167,15 @@ O8` forbids retrofitting that.
   fail: with a launcher that *ignores* SIGTERM, a premature `poll()` finds the
   child still running and reads `None` anyway, so the assertion held whether or
   not the rule did. The launcher now exits on the signal.
+  Resolved 2026-09-28: closed as a finding; no code changed today. Every
+  signal the app sends goes through a psutil.Process handle captured at
+  spawn (e559645). The one foreign-stop path,
+  ProjectController._stop_foreign, stops a systemd unit by name and
+  refuses any holder without one, so no stale PID set is ever signalled.
+  The remaining half, signalling a unit-less foreign set with
+  re-enumeration after confirm, is LWSM-1012's and is noted there.
 
-- 📋 [LWSM-1049] **FP01: treat detection results as untrusted input.**
+- ✅ [LWSM-1049] **FP01: treat detection results as untrusted input.**
   The plausibility test ("holder's cwd is under the
   project") is forgeable with one `chdir`, and the design lets a
   forged match enable **Open in browser** — localhost phishing
@@ -203,6 +210,17 @@ O8` forbids retrofitting that.
   `mainwindow.py:459` enables Open on any running row with no disclosure — see
   LWSM-1141, which takes the interim restriction. The rest of this bullet still
   waits on LWSM-1011.
+  Resolved 2026-09-28: closed as a finding; no code changed today.
+  Checked against the code, every clause that has code to apply to is in
+  place: unit names validated and passed after --
+  (scanner.valid_unit_name, _show_argv, service.unit_argv); units bound
+  by FragmentPath/WorkingDirectory containment (scanner._bound_inside);
+  KWin geometry int()-cast in placement.kwin_script, script written 0600
+  via mkstemp; dialogs and row labels set PlainText; per-project logs
+  O_NOFOLLOW with a path-hashed name; foreign Open in browser restricted
+  by LWSM-1141. Clauses for unbuilt features moved to their owners:
+  LWSM-1121 (open_url/open_file/run_command), LWSM-1015 (plain-text log
+  view), LWSM-1011 (foreign Open disclosure, detected-only records).
 
 - ✅ [LWSM-1272] **LOW batch (registry): six small defects from lane 2.**
   registry.py:357,363,372,374,389,395,407,414 - the loader interpolates path
@@ -8996,6 +9014,11 @@ bugs in the same area.
   Also worth weighing: an ES-import hop would catch this at full
   confidence and is not in this bullet's three sources at all. File
   it separately rather than widening this item.
+  Inherited 2026-09-28 from LWSM-1049 (FP01), closed today: the open_url
+  action accepts http/https only and builds the URL with QUrl.setPort,
+  never string substitution; open_file stays inside the project and
+  refuses .desktop and executable files; run_command follows design.md's
+  constraints. ADR-0004 and design.md hold the contract.
 
 - 📋 [LWSM-1028] **P05: service-managed projects driven through `systemctl`.**
   A project owned by a systemd **user unit** gets
@@ -9108,6 +9131,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   LWSM-1154's note. The seven-state classifier remains worth having for
   `running (wrong port)` and `port blocked`, which are states this did not
   need.
+  Inherited 2026-09-28 from LWSM-1047 (FP01), closed today: signalling a
+  foreign process set (a holder with no systemd unit) must go through
+  psutil.Process handles and re-enumerate the set after the user
+  confirms (ADR-0004). Today _stop_foreign refuses such a holder rather
+  than signal it.
 
 - 📋 [LWSM-1011] **P06: the seven-state classifier.**
   One
@@ -9141,6 +9169,12 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   with its own row, or it is not derived at all and the code should say
   so. That edit changes what an implementer builds, so it re-arms rule
   14's gate on ADR-0004 and is deliberately not made ahead of the work.
+  Inherited 2026-09-28 from LWSM-1049 (FP01), closed today: the
+  holder's-cwd plausibility test is security-worthless (one chdir forges
+  it), so a foreign row's Open in browser needs the Stop path's
+  disclosure with unspoofable columns (ADR-0004). LWSM-1141's interim
+  restriction holds until then. Keep detected-only records as their own
+  type (design.md).
 
 - 📋 [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
   The first time a project is observed
@@ -9393,6 +9427,11 @@ Criterion 5: failures readable without a terminal.
   Kind: implement.
   Source: in-session-2026-08-03.
   Priority: 2.
+  Inherited 2026-09-28 from LWSM-1049 (FP01), closed today: the log view
+  renders plain text (QPlainTextEdit, never a rich-text-capable widget),
+  since Qt's auto-detected rich text loads local resources. Per-project
+  logs already open with O_NOFOLLOW under a path-hashed name
+  (Supervisor.log_path_for).
   Lanes: ui, tests.
 
 - 📋 [LWSM-1036] **P08: find the error in the log.**
@@ -9930,6 +9969,8 @@ open DS01 debt-sweep items, and the open FP02 review items.
   `docs/standards/`; decide whether the new files join that set. This changes
   what every session loads, so it is a real choice for the user, and a
   `CLAUDE.md` edit re-arms global rule 14.
+  Decision (user, 2026-09-28): do this right after 0.1.0 ships, before
+  0.2.0 work starts.
   **Layman:** The instructions file every session reads is about 90 KB; most of it is reference that only matters when touching specific code, so it could live in separate files read when needed.
   Kind: chore.
   Source: in-session-2026-09-28 (global rule 18a).
@@ -9958,6 +9999,10 @@ open DS01 debt-sweep items, and the open FP02 review items.
   and 006 contract_doc_drift. Unverified whether check-doc-facts reads any
   allowlist. The file's intro also names the dead /audit,
   /code-quality-review and /doc-lint. Not decided; the user chooses.
+  Decision (user, 2026-09-28): one pointer file. Add
+  tools/audit/audit-config.json with suppressions_doc set to
+  docs/audit-allowlist.md, and fix the file's dead skill names. Do it
+  before the 0.1.0 pre-release review, which runs check-code.
   **Layman:** A notes file about past false alarms was read automatically by the old workflow; nothing reads it any more, so either its entries move into the tools' own records or it becomes plain history.
   Kind: chore.
   Source: in-session-2026-09-28 (CFG-0645 migration).
