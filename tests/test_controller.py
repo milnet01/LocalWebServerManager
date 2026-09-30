@@ -28,6 +28,7 @@ import pytest
 from shiboken6 import isValid
 
 from lwsm import controller as controller_module
+from lwsm.configfile import MAX_DISPLAY_NAME_CHARS
 from lwsm.controller import ProjectController, ProjectStatus
 from lwsm.ports import PortSnapshot, ProbeError
 from lwsm.registry import ProjectRecord
@@ -2354,12 +2355,12 @@ def test_a_refusal_naming_a_project_carries_no_control_characters(
     """A name is hand-editable and a directory name, and the controller's own
     refusals interpolated it raw (LWSM-1275): a newline forged a second line
     in the status bar and a long name arrived whole. The window already cleaned
-    the ROW's name through `displayable_name`; the messages bypassed it.
+    the ROW's name through `display_text`; the messages bypassed it.
     """
     assert messages, "the launcher-less start was not refused"
     for text in messages:
         assert "\n" not in text and "\u2028" not in text, repr(text)
-        assert len(text) < controller_module.MAX_NAME_CHARS + 80, len(text)
+        assert len(text) < MAX_DISPLAY_NAME_CHARS + 80, len(text)
 
 
 # --- LWSM-1275: design.md's 250 ms snapshot budget, made observable -----------
@@ -2398,7 +2399,7 @@ def test_the_supervised_refusals_carry_no_control_characters(controllers) -> Non
     """The same rule on the two refusals a supervised controller reaches.
 
     The unsupervised test stops at "nothing to start it with", so a mutant
-    dropping `displayable_name` from these two survived it.
+    dropping `display_text` from these two survived it.
     """
     bare = replace(record(HOSTILE_NAME), path=Path("/srv/bare"))
     first = replace(startable("first", 6006), name=HOSTILE_NAME)
@@ -2416,4 +2417,4 @@ def test_the_supervised_refusals_carry_no_control_characters(controllers) -> Non
     assert len(messages) == 2, messages
     for text in messages:
         assert "\n" not in text and " " not in text, repr(text)
-        assert len(text) < controller_module.MAX_NAME_CHARS + 120, len(text)
+        assert len(text) < MAX_DISPLAY_NAME_CHARS + 120, len(text)

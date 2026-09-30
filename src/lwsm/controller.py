@@ -12,7 +12,6 @@ import logging
 import os
 import sys
 import time
-import unicodedata
 from collections.abc import Collection
 from concurrent.futures import Future
 from dataclasses import dataclass
@@ -22,6 +21,7 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
+from lwsm.configfile import display_text
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
 from lwsm.registry import ProjectRecord, port_claims
 from lwsm.service import UnitOutcome, drive_unit, unit_for_pid
@@ -41,31 +41,6 @@ log = logging.getLogger(__name__)
 # so a regression was unobservable (LWSM-1275). Measured 2026-10-01: ~40 ms
 # against 515 processes.
 SNAPSHOT_BUDGET_SECONDS = 0.25
-
-# The longest project name the window shows or announces. A name is the
-# user's own text and the registry stores it as written; the bound is on what
-# reaches a label, a tooltip and a screen reader (known-issue-001, LWSM-1322).
-# Here rather than in `mainwindow.py` since LWSM-1275: the controller's own
-# messages name projects too, and a core module cannot import the window.
-MAX_NAME_CHARS = 120
-
-
-def displayable_name(name: str) -> str:
-    """`name` as the window may show and announce it.
-
-    Control characters and line separators become spaces, so a name cannot
-    forge a second line in a status message or an announcement; format
-    characters stay, because emoji sequences and right-to-left names need them.
-    Then clipped, with an ellipsis, to `MAX_NAME_CHARS`.
-    """
-    cleaned = "".join(
-        " " if unicodedata.category(c) == "Cc" or c in "\u2028\u2029" else c
-        for c in name
-    )
-    if len(cleaned) <= MAX_NAME_CHARS:
-        return cleaned
-    return cleaned[: MAX_NAME_CHARS - 1] + "\u2026"
-
 
 # An alias, not a second constant: `settings.py` owns the value so the file's
 # default and the code's default cannot drift (LWSM-1018). The name stays
@@ -695,7 +670,7 @@ class ProjectController(QObject):
         if record is None or self._supervisor is None:
             self.action_failed.emit(
                 path,
-                f"cannot start {displayable_name(path.name)}: nothing to start it with",
+                f"cannot start {display_text(path.name)}: nothing to start it with",
             )
             return
         claimant = self._port_claimed_by(record)
@@ -713,8 +688,8 @@ class ProjectController(QObject):
             # records are the only evidence for it (LWSM-1205).
             self.action_failed.emit(
                 path,
-                f"{displayable_name(record.name)}: port {record.effective_port} "
-                f"is claimed by {displayable_name(claimant.name)} — change one of "
+                f"{display_text(record.name)}: port {record.effective_port} "
+                f"is claimed by {display_text(claimant.name)} — change one of "
                 "their ports first",
             )
             return
@@ -735,7 +710,7 @@ class ProjectController(QObject):
             # "failed to start".
             self.action_failed.emit(
                 path,
-                f"{displayable_name(record.name)} has no launcher recorded — "
+                f"{display_text(record.name)} has no launcher recorded — "
                 "run Rescan first",
             )
             return
@@ -749,12 +724,12 @@ class ProjectController(QObject):
             self.confirmation_required.emit(path, refusal)
             return
         except SupervisorError as exc:
-            self.action_failed.emit(path, f"{displayable_name(record.name)}: {exc}")
+            self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
             return
         except OSError as exc:
             # The log file could not be opened. Distinct from SupervisorError
             # because it is about this machine rather than about the project.
-            self.action_failed.emit(path, f"{displayable_name(record.name)}: {exc}")
+            self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
             return
         self._set_overlay(path, ProjectStatus.STARTING)
 
@@ -772,7 +747,7 @@ class ProjectController(QObject):
             self._restarting.discard(path)
             self.action_failed.emit(
                 path,
-                f"cannot stop {displayable_name(path.name)}: nothing is supervising it",
+                f"cannot stop {display_text(path.name)}: nothing is supervising it",
             )
             return
         if path not in self._supervisor.running():
@@ -847,7 +822,7 @@ class ProjectController(QObject):
         if unit is None:
             self.action_failed.emit(
                 path,
-                f"{displayable_name(record.name)} was not started by this manager "
+                f"{display_text(record.name)} was not started by this manager "
                 "and is not a systemd user service, so it cannot be stopped from here",
             )
             return
@@ -880,7 +855,7 @@ class ProjectController(QObject):
                 self._clear_overlay(path)
                 self.action_failed.emit(
                     path,
-                    f"could not {outcome.verb} {displayable_name(path.name)}: "
+                    f"could not {outcome.verb} {display_text(path.name)}: "
                     f"{outcome.reason}",
                 )
             elif isinstance(outcome, UnitOutcome):
@@ -939,7 +914,7 @@ class ProjectController(QObject):
         if isinstance(outcome, BaseException):
             self._clear_overlay(path)
             self.action_failed.emit(
-                path, f"could not stop {displayable_name(path.name)}: {outcome}"
+                path, f"could not stop {display_text(path.name)}: {outcome}"
             )
             return
         if isinstance(outcome, StopOutcome):

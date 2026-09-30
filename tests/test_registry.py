@@ -2427,3 +2427,22 @@ def test_records_past_the_cap_are_refused_rows_not_silently_dropped(
     assert result.rows_refused == 1
     with pytest.raises(RegistryError, match="refused at load"):
         save_projects(path, result.records, load=result)
+
+
+# --- LWSM-1341: one display sanitiser, not two ---------------------------------
+
+
+def test_display_text_breaks_no_line_and_shows_where_it_cut() -> None:
+    """`configfile.display_text` absorbed `controller.displayable_name`. The
+    merged rule takes the stricter half of each: U+2028/U+2029 forge a line
+    as a newline does, and a clipped name ends in an ellipsis."""
+    from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, display_text
+
+    shown = display_text("a\nb c d\x1b")
+    assert shown == "a�b�c�d�"
+
+    long = display_text("x" * 500)
+    assert len(long) == MAX_DISPLAY_NAME_CHARS
+    assert long.endswith("…")
+
+    assert display_text("sh‍ort") == "sh‍ort"  # ZWJ is kept

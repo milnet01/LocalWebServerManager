@@ -53,7 +53,9 @@ MAX_REASON_CHARS = 120
 # `'my project'`, quotes included.
 MAX_DISPLAY_NAME_CHARS = 120
 
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
+# C0, DEL and C1, lone surrogates, and U+2028/U+2029 — the two Unicode line
+# separators, which forge a second line exactly as a newline does.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff\u2028\u2029]")
 
 
 def display_text(text: str) -> str:
@@ -63,16 +65,23 @@ def display_text(text: str) -> str:
     a row's provenance as `'lib/launcher.py'`, quotes included. A filename may
     still contain a newline, which is the forged-log-record defect LWSM-1078
     closed — so every C0 and C1 control character becomes U+FFFD, and the
-    result is clipped.
+    result is clipped, with an ellipsis so a cut name reads as cut. U+FFFD
+    rather than a space or a deletion, so the user can see something was there.
+    Format characters stay: emoji sequences and right-to-left names need them.
 
     **Lives here rather than in `scanner.py`, where it was written.** LWSM-1249
     needed the identical treatment for a `.desktop` file's `Name`, which is
     untrusted in exactly the same way and reaches a combo item, a tooltip and
     an accessible name. A second, weaker copy of a sanitiser written after a
     measured defect is what `coding.md § 1.3` forbids, and it is the reason
-    this module exists at all — see the module docstring on LWSM-1031.
+    this module exists at all — see the module docstring on LWSM-1031. It is
+    also why `controller.displayable_name`, a second copy with a different
+    replacement and no surrogate handling, was folded in here (LWSM-1341).
     """
-    return _CONTROL.sub("\ufffd", text)[:MAX_DISPLAY_NAME_CHARS]
+    cleaned = _CONTROL.sub("\ufffd", text)
+    if len(cleaned) <= MAX_DISPLAY_NAME_CHARS:
+        return cleaned
+    return cleaned[: MAX_DISPLAY_NAME_CHARS - 1] + "\u2026"
 
 
 def quoted(value: object) -> str:

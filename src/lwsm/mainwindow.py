@@ -78,13 +78,12 @@ from lwsm import (
     registry,
     scanner,
 )
-from lwsm.configfile import ConfigFileError, quoted
+from lwsm.configfile import ConfigFileError, display_text, quoted
 from lwsm.controller import (
     ProjectController,
     ProjectStatus,
     RowView,
     abandon_pool,
-    displayable_name,
 )
 from lwsm.placement import Rect, centre_in
 from lwsm.registry import (
@@ -599,7 +598,7 @@ class ProjectRow(QFrame):
         self._glyph_width = 0
         # The name as it should READ, before elision fits it to the column.
         # Set before `_apply_text_metrics`, which measures it.
-        self._name_display = displayable_name(row.name)
+        self._name_display = display_text(row.name)
         # The column width `apply_column_widths` last handed down. Held rather
         # than read back from the label: `setFixedWidth` does not update
         # `width()` until Qt runs a layout pass, so eliding against `width()`
@@ -1262,7 +1261,7 @@ class ProjectRow(QFrame):
         # string. Colour alone carries no meaning to a screen reader, and the
         # announcement below is built from the rendered cells precisely so no
         # accessibility string can drift from what is on screen.
-        name = displayable_name(row.name)
+        name = display_text(row.name)
         self._name_display = hidden_name(name) if row.hidden else name
         self._elide_name()
         self.hide_action.setText(
@@ -2826,12 +2825,12 @@ class MainWindow(QMainWindow):
                         "ProjectRow",
                         "%1's browser is installed but its desktop entry could "
                         "not be read - opening in the default",
-                    ).replace("%1", displayable_name(view.name))
+                    ).replace("%1", display_text(view.name))
                     if refused
                     else QCoreApplication.translate(
                         "ProjectRow",
                         "%1's chosen browser is not installed - opening in the default",
-                    ).replace("%1", displayable_name(view.name))
+                    ).replace("%1", display_text(view.name))
                 )
             # openUrl returns False when the desktop has no handler. Silence
             # here would look identical to a browser that opened behind the
