@@ -511,7 +511,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: review-code 2026-09-01 synthesis part 5.
 
-- 📋 [LWSM-1192] **The filter box's placeholder text is asserted by nothing.**
+- ✅ [LWSM-1192] **The filter box's placeholder text is asserted by nothing.**
   Deleting `_filter.setPlaceholderText` from `_retranslate_strip` entirely
   leaves the whole suite green (measured, mutation probe).
 
@@ -524,12 +524,14 @@ O8` forbids retrofitting that.
   Pre-existing, from LWSM-1040. Surfaced by an over-correction mutant while
   shipping LWSM-1177 — the mutation asked whether that method still does the
   job it already had, and the answer was that nothing checks.
+  Resolved (2026-10-01, 9a4e234): the filter test now asserts the
+  placeholder is non-empty; the deletion mutant fails it.
   **Layman:** A test would not notice if the "Filter…" hint inside the search box disappeared.
   Kind: test.
   Source: in-session-2026-08-31, mutation probe while shipping LWSM-1177.
   Lanes: window, tests.
 
-- 📋 [LWSM-1193] **The ban on `str.format` for translated text is stated three times and enforced by nothing.**
+- ✅ [LWSM-1193] **The ban on `str.format` for translated text is stated three times and enforced by nothing.**
   `mainwindow.py` states the rule in prose three times, once as "The rule is
   the file's, not that function's", and records that it was written as
   `.format` first and caught within the hour. It was then broken again in two
@@ -544,6 +546,8 @@ O8` forbids retrofitting that.
   Out of scope for LWSM-1176, which fixed the two sites it was filed for.
   CLAUDE.md's own note applies: do not add a fifth guard to a fifth call
   site.
+  Resolved (2026-10-01): AST source invariant in test_layering.py,
+  with its own shape tests; a .format injected into port_text fails it.
   **Layman:** A rule the code explains three times has no automatic check, and it has already been broken twice.
   Kind: test.
   Source: in-session-2026-08-31, while shipping LWSM-1176.
