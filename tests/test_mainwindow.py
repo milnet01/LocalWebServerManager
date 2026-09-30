@@ -3560,6 +3560,9 @@ def test_the_filter_box_carries_an_accessible_name_of_its_own(qtbot, built) -> N
 
     assert window._filter.accessibleName().strip(), "the filter box is unnamed"
     assert window._filter.accessibleName() != window._filter.placeholderText()
+    # And the hint must exist at all. The inequality above holds against an
+    # EMPTY placeholder, so deleting it passed the whole suite (LWSM-1192).
+    assert window._filter.placeholderText().strip(), "the filter box lost its hint"
 
 
 # --- LWSM-1032: the text size the user actually reads -------------------------
