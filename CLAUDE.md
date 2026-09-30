@@ -284,9 +284,10 @@ in [`docs/discovery.md § Tech stack`](docs/discovery.md).
 
 - **Python 3.13** + **PySide6 6.11** (Qt 6) — a desktop app, not
   a website. Native on KDE; both already installed.
-- **`QProcess`** for launching and supervising servers, so
-  status, live log output and exit signals share one source of
-  truth. **`psutil`** for "who holds this port".
+- **`subprocess.Popen`** for launching servers, in
+  `supervisor.py`, which imports no Qt so the process boundary is
+  testable without a display. Phase A chose `QProcess`; the build
+  did not use it. **`psutil`** for "who holds this port".
 - **`uv`** + `pyproject.toml` for dependencies; **`pytest`** +
   **`pytest-qt`** for tests; **`ruff`** for lint and format.
 
@@ -304,8 +305,9 @@ uv sync --extra dev     # resolves from the committed uv.lock
 ./scripts/local-ci.sh --fast   # same, minus the integration tests
 ```
 
-There is no compile step. `scripts/local-ci.sh` runs, in order:
-`uv sync --locked`, `ruff check`, `ruff format --check`,
+There is no compile step. `scripts/local-ci.sh` runs, in order: the
+tool-version check against `scripts/ci-tools.env`, `uv sync --locked`, the
+version lockstep check, `ruff check`, `ruff format --check`,
 `python -m compileall src tests` (the syntax gate), `pyright` over
 `src/` at its standard level (LWSM-1066), an
 entry-point resolution check, `pytest`, `shellcheck`, and
@@ -630,10 +632,11 @@ Added at P02 (LWSM-1005), contract in
   Since LWSM-1033 it also owns
   **window geometry and Centre on screen** — `showEvent`/`eventFilter`,
   `_restore_geometry`, `closeEvent`, `centre_on_screen`, `_place_at`,
-  `_screens` and the eighth and ninth injected seams (`save_geometry`, which
-  defaults to doing NOTHING for `save_theme`'s reason, and `place`, the only
-  seam defaulting to the real function because ADR-0007 requires the
-  verification to be behavioural). **What is stored is a FRAME corner and a
+  `_screens` and two injected seams (`save_geometry`, which defaults to doing
+  NOTHING for `save_theme`'s reason, and `place`, which defaults to the real
+  function because ADR-0007 requires the verification to be behavioural).
+  **The seams are named, never numbered**: the ordinals fell out of step with
+  the constructor, which injects more than any count written down (LWSM-1281). **What is stored is a FRAME corner and a
   CLIENT size**, because those are what `move()` and `resize()` round-trip
   exactly; storing `normalGeometry()`'s corner and restoring it through
   `move()` walks the window two pixels down and right on every launch
@@ -678,16 +681,15 @@ Added at P02 (LWSM-1005), contract in
   and a row caches its own `Theme` **and its glyph colour**. LWSM-1111
   named that cache as the live edge the day the palette could change and
   predicted the fix would look like `retranslate()` — it does, both going
-  through `_rerender`. **`save_theme` is the fourth injected seam and the
-  first defaulting to doing NOTHING**: `confirm` and `open_url` default to
+  through `_rerender`. **`save_theme` is an injected seam defaulting to doing
+  NOTHING**: `confirm` and `open_url` default to
   the real behaviour safely because an untriggered test never reaches
   them, while this one would write to the developer's own `settings.json`
   the moment a test exercised the picker.
   Since LWSM-1146 it also owns the **menu bar** — `_build_menus`,
   `_retranslate_menus` and `_set_rescan_enabled`. It owns the BAR only; the
   settings dialog is LWSM-1018's and arrives through the injected
-  **`open_settings`** seam, the third of the same shape as `confirm` and
-  `open_url`. Every label carries an `&` mnemonic so the bar is keyboard-
+  **`open_settings`** seam, the same shape as `confirm` and `open_url`. Every label carries an `&` mnemonic so the bar is keyboard-
   reachable before LWSM-1040 lands, and the labels are set in
   `_retranslate_menus` rather than at construction so `LanguageChange` has one
   place to go. **The menu bar counts as chrome in `_apply_default_geometry`** —
@@ -726,7 +728,7 @@ Added at P02 (LWSM-1005), contract in
   re-applies the filter so a rescan cannot land a project into a list the user
   has narrowed.
   Since LWSM-1148 it also owns **profile export and import** — `_export_profile`,
-  `_import_profile`, `summarise_import` and the sixth and seventh injected seams,
+  `_import_profile`, `summarise_import` and two injected seams,
   `choose_profile_to_save` / `choose_profile_to_open` (a real `QFileDialog` in a
   test hangs the run, which is `choose_directory`'s reason). **Both File-menu
   entries appear or neither**: exporting needs the `LoadResult` its gate reads
@@ -821,7 +823,7 @@ Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
   **The dialog owns no I/O** — it is handed values and returns values, and
   `build_window` is the only scope where both config files and both live
   objects are in reach, which is what the `open_settings` seam was left for
-  (LWSM-1146). `choose_directory` is the sixth injected seam, for `confirm`'s
+  (LWSM-1146). `choose_directory` is an injected seam, for `confirm`'s
   reason: a real `QFileDialog` in a test hangs the run.
   **Both numbers apply without a restart** — `QTimer.setInterval` is honoured
   on a live timer, and `rotate_if_needed` re-reads `Supervisor.max_log_bytes`
@@ -832,10 +834,27 @@ Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
   interleaved ones** — a stated loss, pinned by a test: re-attaching a comment
   to the wrong surviving line is worse than dropping it.
 
-Tests: `test_appearance.py`, `test_applog.py`, `test_main.py`, `test_registry.py`,
-`test_settings.py`, `test_settingsdialog.py`, `test_placement.py`,
-`test_ports.py`, `test_controller.py`, `test_mainwindow.py`,
-`test_layering.py`, `test_scanner.py`, `test_supervisor.py`,
+Added later, both core with no Qt at all:
+
+- **`src/lwsm/browsers.py`** (LWSM-1187) — the desktop's own registered
+  `x-scheme-handler/http` handlers, and opening a URL in one. **It runs no
+  command the user typed**: the candidates are entries this session would
+  already run for a clicked link, so a per-project browser adds no surface
+  ADR-0003's trust gate would have to cover.
+- **`src/lwsm/service.py`** — ADR-0003's second column: a project whose server
+  is a systemd **user** unit is driven with `systemctl --user`, never by
+  spawning its launcher, and nothing here signals a process.
+
+Tests: `ls tests/` is the list, and it is deliberately not copied here — a
+copy fell behind and read as complete (LWSM-1303). Most files are
+`test_<module>.py` for the module of that name. The ones a name does not
+explain: `test_layering.py` (the source invariants — `§ O1`'s layering, the
+colour allowlist, no `str.format` on translated text), `test_docs.py` (prose
+invariants, fired by the shape of a past defect), `test_translatable.py` (every
+translated string is one `lupdate` can see), `test_local_release.py`,
+`test_desktop_entry.py` and `test_derive_state_tokens.py` (the scripts of those
+names), `contrast.py` (WCAG arithmetic shared by the theme tests, named so
+pytest imports rather than collects it),
 `test_ci_contract.py` (the gate's own contract — that `ci.yml` adds no
 check of its own, that both sides install the versions
 `scripts/ci-tools.env` pins, and that the `pre-push` hook is present,
@@ -909,6 +928,15 @@ self-announcing**: prose here is hard-wrapped at ~70 columns, so an anchor
 pasted as one logical sentence matches zero times. That one is safe — a zero
 count stops the run — which is exactly why the two above are worth writing
 down and it is not.
+
+**A `mutation_probe` that times out has NOT told you the file's state.**
+Measured 2026-09-03: the transport gave up with no envelope, a grep a moment
+later still showed the mutation applied, and a read seconds after that showed
+the file restored — the server finished after the caller stopped waiting, and
+`restored_clean` only ever arrives in the envelope the timeout destroyed. **After
+a timeout, re-read before concluding anything, and never hand-repair from one
+observation**: a repair races the server's own restore, and a gate or commit
+inside that window ships the mutant (LWSM-1296).
 
 **Trap: a scanner fixture cannot tell you what a matcher does to files nobody
 wrote for it — the author's own sibling projects can.** `/mnt/Games/Scripts/Linux`
@@ -1073,11 +1101,17 @@ were still holding their ports **2.5 hours and ~85 test runs later**, reparented
 to pid 1 with their pytest tmpdirs already deleted. **A supervisor fixture must
 stop everything it started before closing** — `for path in sup.running():
 sup.stop(path, grace=0.5)` in a `finally`, which is what `tests/test_supervisor.py`
-now does. Verify with `pgrep -af "start\.sh|child\.py"` after a run; the count
-before and after a full suite must be equal. **Measured 2026-08-24: it is
-not** — `test_a_live_child_has_not_exited` and `test_a_lowered_log_cap_rotates`
-leave one `sleep 30` each, every run. Filed as LWSM-1189 rather than fixed
-inside an unrelated item.
+now does. `conftest.py`'s `_no_orphans_outlive_the_run` fails the run on any
+survivor (LWSM-1189), and it matches by the process's **cwd under the run's own
+temp directory**, never by command line.
+
+**Never find or kill a process by a command-line pattern on this machine.**
+Several Claude Code sessions run here, and the user runs the real app: a
+bracketed `pkill -f 'sleep [3]0'` is a substring match that killed two other
+sessions' `sleep 300` loops (2026-09-02), and `pkill -INT -f 'bin/lwsm$'`
+meant for a test copy matched the user's own window (2026-09-28). Select by
+PID, and confirm the PID is yours before signalling — its cwd, or its
+`/proc/<pid>/environ` holding the test's private `XDG_RUNTIME_DIR` (LWSM-1287).
 
 **Trap: stopping a child that has not finished STARTING leaks its grandchild,
 and `stop()` reports success.** `killpg` sweeps the group as it stands at that

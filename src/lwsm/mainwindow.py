@@ -1468,13 +1468,13 @@ class MainWindow(QMainWindow):
         # `_open_project` has to tell the user which — "not installed" about a
         # browser that IS installed sends them to reinstall it.
         self._browsers_refused = found.refused
-        # The third injected seam, and the reason LWSM-1146 could land without
+        # An injected seam, and the reason LWSM-1146 could land without
         # LWSM-1018: this item owns the BAR, not the dialog. The dialog arrives
         # as an argument rather than as an edit to `_build_menus`.
         self._open_settings = (
             open_settings if open_settings is not None else self._settings_unavailable
         )
-        # The fourth seam, and the one that defaults to doing NOTHING rather
+        # A seam, and the one that defaults to doing NOTHING rather
         # than to the real thing. `confirm` and `open_url` can default to the
         # real behaviour because a test that never triggers them never reaches
         # it; this one would write to the developer's own
@@ -1491,7 +1491,7 @@ class MainWindow(QMainWindow):
         # which is every test that builds a window from a `Theme` alone — keeps
         # working and gets the id whose palette it passed.
         self._theme_id = theme_id if theme_id is not None else _id_of_theme(theme)
-        # The tenth seam, defaulting to the real reader for `place`'s reason
+        # A seam, defaulting to the real reader for `place`'s reason
         # rather than `save_theme`'s: reading a preference writes nothing, so a
         # test that never switches to follow-system never reaches it. What a
         # test must not do is let it RUN — it spawns `dbus-send`, so an
@@ -1503,7 +1503,7 @@ class MainWindow(QMainWindow):
             if read_high_contrast is None
             else read_high_contrast
         )
-        # The eleventh seam, and it is injected for a reason the other ten are
+        # A seam, and it is injected for a reason the others are
         # not: the offscreen platform the suite runs under IGNORES
         # `QStyleHints.setColorScheme` outright — measured, the value stays
         # `Unknown` and `colorSchemeChanged` never fires — so there is no way to
@@ -1524,7 +1524,7 @@ class MainWindow(QMainWindow):
         if self._theme_id == FOLLOW_SYSTEM:
             theme = theme_for_id(self._resolved_theme_id(FOLLOW_SYSTEM))
             self._theme = theme
-        # The fifth seam, same shape and same reason as `save_theme`: a test
+        # A seam, same shape and same reason as `save_theme`: a test
         # that exercises the picker must not write to the developer's own
         # settings.json. Kept separate from `save_theme` rather than widened
         # into one `save(Settings)` because this window does not hold a
@@ -1532,7 +1532,7 @@ class MainWindow(QMainWindow):
         # merge that stops one field overwriting the other belongs where the
         # file is read, which is `__main__`.
         self._save_text_scale = save_text_scale
-        # The sixth and seventh seams (LWSM-1148), and they default to the real
+        # Two seams (LWSM-1148), and they default to the real
         # thing for `confirm`'s reason rather than `save_theme`'s: a file dialog
         # writes nothing by itself, and a test that never triggers one never
         # reaches it. What a test must not do is OPEN one — a real
@@ -1555,27 +1555,25 @@ class MainWindow(QMainWindow):
         self._remembered_size = size
         self._remembered_maximized = maximized
         self._geometry_restored = False
-        # The eighth seam, and it defaults to doing nothing for `save_theme`'s
+        # A seam, and it defaults to doing nothing for `save_theme`'s
         # reason rather than `confirm`'s: this one fires on every close, so a
         # test that closed a window would write that window's geometry into the
         # developer's own settings.json — and unlike the theme picker, closing
         # is something a test does by accident.
         self._save_geometry = save_geometry
-        # The ninth, and the only one defaulting to the REAL function while
-        # still being injected. ADR-0007 requires the verification to be
-        # behavioural — the window ends up at the coordinates, never that a
-        # call was made — so a test must run the real arithmetic and the real
-        # script generation. What it substitutes is one argument further down:
-        # `functools.partial(place_window, environ=..., run=...)` drives the
-        # Wayland branch with a stand-in for KWin and leaves everything this
-        # project wrote in the path.
+        # `place` defaults to the REAL function while still being injected. ADR-0007
+        # requires the verification to be behavioural — the window ends up at the
+        # coordinates, never that a call was made — so a test must run the real
+        # arithmetic and the real script generation. What it substitutes is one argument
+        # further down: `functools.partial(place_window, environ=..., run=...)` drives
+        # the Wayland branch with a stand-in for KWin and leaves everything this project
+        # wrote in the path.
         #
-        # `None` rather than `placement.place_window` as the default, for the
-        # reason `placement_available` carries: a default argument is bound
-        # when the function is DEFINED, so a `monkeypatch.setattr` on the
-        # module never reaches one. That cost a cycle once in `placement.py`
-        # already, and here it decides whether a `build_window` test can keep
-        # its hands off the real compositor at all.
+        # `None` rather than `placement.place_window` as the default, for the reason
+        # `placement_available` carries: a default argument is bound when the function
+        # is DEFINED, so a `monkeypatch.setattr` on the module never reaches one. That
+        # cost a cycle once in `placement.py` already, and here it decides whether a
+        # `build_window` test can keep its hands off the real compositor at all.
         self._place = placement.place_window if place is None else place
         self._choose_profile_to_open = (
             choose_profile_to_open
