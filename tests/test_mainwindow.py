@@ -7310,3 +7310,39 @@ def test_the_rescan_summary_uses_the_users_digits() -> None:
     finally:
         QLocale.setDefault(before)
     assert "٣" in summary, summary  # ARABIC-INDIC DIGIT THREE
+
+
+# --- LWSM-1280: the rows LOW batch --------------------------------------------
+
+
+def test_every_state_has_a_glyph() -> None:
+    """The row's `.get` falls back silently, so a state added without a glyph
+    would render with two of its three signals and no test would notice."""
+    assert set(STATE_GLYPHS) == set(ProjectStatus)
+
+
+def test_a_name_holding_a_placeholder_cannot_inject_into_the_announcement(
+    qtbot, built
+) -> None:
+    """The announcement is filled from one translated template in one pass, so
+    a `%3` in a project's name stays text rather than becoming the port."""
+    window, _ = window_for(qtbot, built, [record("a%3b", 5005)], FakeProbe(5005))
+    assert rows_of(window)[0].accessibleName() == "running, a%3b, port 5005"
+
+
+def test_the_rescan_defaults_reach_a_patched_scanner_and_writer(monkeypatch) -> None:
+    """`RescanContext`'s defaults were the functions themselves, captured when
+    the class was defined, so patching the module never reached them."""
+    from lwsm.mainwindow import RescanContext
+
+    calls: list[str] = []
+    monkeypatch.setattr(scanner, "scan", lambda roots, **kw: calls.append("scan"))
+    monkeypatch.setattr(
+        registry, "save_projects", lambda *a, **kw: calls.append("save")
+    )
+    context = RescanContext(projects_path=Path("/nowhere"), roots=())
+
+    context.scan(())
+    context.save()
+
+    assert calls == ["scan", "save"]

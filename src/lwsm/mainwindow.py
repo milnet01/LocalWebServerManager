@@ -390,9 +390,16 @@ class RescanContext:
 
     projects_path: Path
     roots: tuple[Path, ...]
-    scan: Callable[[Sequence[Path]], scanner.ScanResult] = scanner.scan
-    now: Callable[[], str] = utc_stamp
-    save: Callable[..., None] = field(default=registry.save_projects)
+    # Late-bound (LWSM-1280): a default of `scanner.scan` itself is captured
+    # when the class is DEFINED, so a `monkeypatch.setattr(scanner, "scan", ...)`
+    # never reaches it — CLAUDE.md's default-argument trap in a second costume.
+    scan: Callable[[Sequence[Path]], scanner.ScanResult] = field(
+        default=lambda roots, **kwargs: scanner.scan(roots, **kwargs)
+    )
+    now: Callable[[], str] = field(default=lambda: utc_stamp())
+    save: Callable[..., None] = field(
+        default=lambda *args, **kwargs: registry.save_projects(*args, **kwargs)
+    )
 
 
 def _merge_parts(counts: dict[str, int]) -> list[str]:
@@ -582,6 +589,9 @@ class ProjectRow(QFrame):
         # "ignored" flag for a QWidget, so the only way to keep something out of
         # the tree is for it not to be a widget.
         self._glyph_text = ""
+        # Set here as well as in `update_from`, so `paintEvent` can never meet a
+        # row without it (LWSM-1280) whatever order construction takes later.
+        self._glyph_color = self._theme.state_color(row.status)
         self._view: RowView | None = None
         # contentsMargins() -> QMargins, not getContentsMargins()'s tuple:
         # PySide6 types the latter as `object`, which a checker cannot unpack.
@@ -726,38 +736,34 @@ class ProjectRow(QFrame):
         # It therefore does NOT join `natural_widths`' tuple: every row gets the
         # same width from the same font, so the column is aligned by
         # construction and there is nothing for `_align_columns` to reconcile.
-        # Guarded for `start_button`'s reason -- this runs from `__init__`
-        # before the widgets exist.
-        if hasattr(self, "browser_box"):
-            widest = max(
-                (metrics.horizontalAdvance(b.name) for b in self._browsers),
-                default=0,
+        widest = max(
+            (metrics.horizontalAdvance(b.name) for b in self._browsers),
+            default=0,
+        )
+        cap = metrics.horizontalAdvance("x") * BROWSER_COLUMN_CHARS
+        # The arrow is furniture the text may not overlap; taken from the
+        # style rather than guessed, so it follows the platform.
+        arrow = self.browser_box.style().pixelMetric(
+            QStyle.PixelMetric.PM_ScrollBarExtent
+        )
+        # Floored like `_fit_buttons` does, and for the same reason: with
+        # no browser installed `widest` is 0 and the control lands at the
+        # arrow's width alone -- around 20px, under the 24px target floor
+        # `design-accessibility.md` puts under every clickable thing. The
+        # height already took the floor and the width did not (LWSM-1253).
+        self.browser_box.setFixedWidth(
+            max(
+                min(widest, cap) + arrow + layout.spacing(),
+                MIN_TARGET_PX,
             )
-            cap = metrics.horizontalAdvance("x") * BROWSER_COLUMN_CHARS
-            # The arrow is furniture the text may not overlap; taken from the
-            # style rather than guessed, so it follows the platform.
-            arrow = self.browser_box.style().pixelMetric(
-                QStyle.PixelMetric.PM_ScrollBarExtent
-            )
-            # Floored like `_fit_buttons` does, and for the same reason: with
-            # no browser installed `widest` is 0 and the control lands at the
-            # arrow's width alone -- around 20px, under the 24px target floor
-            # `design-accessibility.md` puts under every clickable thing. The
-            # height already took the floor and the width did not (LWSM-1253).
-            self.browser_box.setFixedWidth(
-                max(
-                    min(widest, cap) + arrow + layout.spacing(),
-                    MIN_TARGET_PX,
-                )
-            )
-            self.browser_box.setMinimumHeight(MIN_TARGET_PX)
-            self._apply_browser_tooltip()
+        )
+        self.browser_box.setMinimumHeight(MIN_TARGET_PX)
+        self._apply_browser_tooltip()
 
         # The buttons are sized from the same metric and so go stale with it.
-        # Guarded because `_apply_text_metrics` runs from `__init__` before the
-        # buttons exist, and again on every later font change when they do.
-        if hasattr(self, "start_button"):
-            self._fit_buttons()
+        # No `hasattr` guard: both callers — the end of `__init__` and a later
+        # `FontChange` — run after every widget exists (LWSM-1280).
+        self._fit_buttons()
 
     def show_error(self, message: str) -> None:
         """Put a failure under this row's controls.
@@ -834,7 +840,7 @@ class ProjectRow(QFrame):
         """Each button as wide as its own label, not the style's default.
 
         `design.md § Accessibility` budgets the whole row — name, state, port
-        AND controls — to one lens view of `READABLE_BAND_PX`, and Fusion's
+        AND controls — to one 600 px lens view at 100 % text, and Fusion's
         `QPushButton` has a minimum width of 80 px whatever it says. Four of
         them spent 344 px of that budget on four words needing about half,
         which put a real sibling's row (`Ants_Projects_Hub_Website`) at 641 px
@@ -1232,10 +1238,8 @@ class ProjectRow(QFrame):
             # the palette can change: a theme swap with an unchanged RowView
             # would leave the glyph in the old palette while the *word* follows
             # the new one, because the word is restyled by the sheet and the
-            # glyph is painted from this cached value. Unreachable in P02 — the
-            # theme is built once — and LWSM-1031 is exactly when it becomes
-            # reachable, so it is named here rather than guarded speculatively
-            # (LWSM-1111). `retranslate()` is the shape the fix takes.
+            # glyph is painted from this cached value. `apply_theme` handles it
+            # through `_rerender` (LWSM-1031).
             return
         self._view = row
         # The state has moved on, so a failure describing the old one is now a
@@ -1329,7 +1333,18 @@ class ProjectRow(QFrame):
 
         # Built from the rendered cell strings, glyph excluded, so there is no
         # accessibility-only string that can drift from what is on screen.
-        announced = f"{self._state.text()}, {self._name_display}, {self._port.text()}"
+        # The separator is the translator's (LWSM-1280): not every locale lists
+        # with ", ". Filled in ONE pass, so a name holding "%3" cannot inject.
+        parts = {
+            "1": self._state.text(),
+            "2": self._name_display,
+            "3": self._port.text(),
+        }
+        announced = re.sub(
+            r"%([123])",
+            lambda match: parts[match.group(1)],
+            QCoreApplication.translate("ProjectRow", "%1, %2, %3"),
+        )
         name_changed = announced != self.accessibleName()
         self.setAccessibleName(announced)
         # Qt does NOT notify AT-SPI when an accessible name changes, so
