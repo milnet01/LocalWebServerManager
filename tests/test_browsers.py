@@ -384,7 +384,7 @@ def test_open_url_spawns_the_expanded_argv_detached_and_never_a_shell(
     def fake_popen(argv, **kwargs):
         seen["argv"] = argv
         seen["kwargs"] = kwargs
-        return None
+        return type("Proc", (), {"wait": lambda self, timeout=None: 0})()
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     browsers.open_url(
@@ -698,3 +698,69 @@ def test_a_process_with_no_home_directory_still_lists_browsers(
     assert [b.entry_id for b in browsers.installed((apps,)).browsers] == [
         "firefox.desktop"
     ]
+
+
+# --------------------------------------------------------------------------
+# LWSM-1279 — the review-code 2026-09-01 lane 9 batch
+# --------------------------------------------------------------------------
+
+
+def test_a_scheme_that_merely_starts_with_http_is_not_a_browser(
+    tmp_path: Path,
+) -> None:
+    """`MimeType` is a list of exact types; a substring test offered
+    `x-scheme-handler/httprelay` as a browser."""
+    write(tmp_path, "relay.desktop", entry(MimeType="x-scheme-handler/httprelay;"))
+    assert browsers.installed((tmp_path,)).browsers == ()
+
+
+def test_a_terminal_entry_is_not_offered(tmp_path: Path) -> None:
+    """A console browser launched with every stream on DEVNULL runs nowhere
+    visible while `open_url` reports success."""
+    write(tmp_path, "lynx.desktop", entry(Terminal="true"))
+    assert browsers.installed((tmp_path,)).browsers == ()
+
+
+def test_relative_xdg_directories_are_ignored(monkeypatch) -> None:
+    """The base-directory spec: every path in these variables must be absolute,
+    and a relative one is invalid and ignored. Used verbatim, it resolved
+    against whatever directory the app was started from."""
+    monkeypatch.setenv("HOME", "/home/x")
+    monkeypatch.setenv("XDG_DATA_HOME", "relative/share")
+    monkeypatch.setenv("XDG_DATA_DIRS", "rel/share:/usr/share")
+    assert browsers.entry_dirs() == (
+        Path("/home/x/.local/share/applications"),
+        Path("/usr/share/applications"),
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", "cfg")
+    monkeypatch.setenv("XDG_CONFIG_DIRS", "etc/xdg:/etc/xdg")
+    paths = [str(p) for p in browsers.mimeapps_paths()]
+    assert all(p.startswith("/") for p in paths), paths
+    assert "/home/x/.config/mimeapps.list" in paths
+
+
+def test_exec_string_escapes_are_undone_before_quoting(tmp_path: Path) -> None:
+    """`Exec` is a string-type value, so the general escapes (`\\\\` among them)
+    apply first and the Exec quoting rules second. A literal backslash inside a
+    quoted argument is therefore written as four in the file."""
+    write(tmp_path, "b.desktop", entry(Exec='"/opt/a\\\\\\\\b" %u'))
+    [browser] = browsers.installed((tmp_path,)).browsers
+    assert browser.argv[0] == "/opt/a\\b"
+
+
+def test_open_url_reaps_the_browser_it_started(monkeypatch) -> None:
+    """The handle was discarded, leaving a zombie until some later `Popen` ran
+    `subprocess._cleanup`."""
+    import threading
+
+    waited = threading.Event()
+
+    class Proc:
+        def wait(self, timeout=None):
+            waited.set()
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kwargs: Proc())
+    browsers.open_url(Browser("b.desktop", "B", ("/bin/b", "%u")), "http://x/")
+
+    assert waited.wait(timeout=5), "nothing ever waited on the browser process"

@@ -34,6 +34,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,6 +108,23 @@ def _under_home(*parts: str) -> str | None:
         return None
 
 
+def _xdg_home(variable: str, *default: str) -> str | None:
+    """An XDG `*_HOME` variable, or its default when unset OR relative.
+
+    The base-directory spec: every path in these variables must be absolute,
+    and a relative one is invalid and ignored (LWSM-1279). Used verbatim it
+    resolved against whatever directory the app was started from.
+    """
+    value = os.environ.get(variable, "")
+    return value if os.path.isabs(value) else _under_home(*default)
+
+
+def _xdg_dirs(variable: str, default: str) -> list[str]:
+    """An XDG `*_DIRS` list with its relative members dropped, as the spec says."""
+    value = os.environ.get(variable) or default
+    return [part for part in value.split(":") if os.path.isabs(part)]
+
+
 def entry_dirs() -> tuple[Path, ...]:
     """`applications/` under XDG_DATA_HOME then XDG_DATA_DIRS, in precedence order.
 
@@ -114,9 +132,8 @@ def entry_dirs() -> tuple[Path, ...]:
     it override the system ones — a locally-installed browser entry shadowing a
     packaged one of the same id is the case that matters.
     """
-    home = os.environ.get("XDG_DATA_HOME") or _under_home(".local", "share")
-    system = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
-    parts = [home, *system.split(":")]
+    home = _xdg_home("XDG_DATA_HOME", ".local", "share")
+    parts = [home, *_xdg_dirs("XDG_DATA_DIRS", "/usr/local/share:/usr/share")]
     return tuple(Path(p) / "applications" for p in parts if p)
 
 
@@ -130,8 +147,8 @@ def mimeapps_paths() -> tuple[Path, ...]:
     `[Default Applications]` is only honoured in the config dirs; this module
     reads associations alone, so that distinction costs nothing here.
     """
-    config_home = os.environ.get("XDG_CONFIG_HOME") or _under_home(".config")
-    config_dirs = os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg"
+    config_home = _xdg_home("XDG_CONFIG_HOME", ".config")
+    config_dirs = _xdg_dirs("XDG_CONFIG_DIRS", "/etc/xdg")
     desktops = [
         part.strip().lower()
         for part in (os.environ.get("XDG_CURRENT_DESKTOP") or "").split(":")
@@ -139,7 +156,7 @@ def mimeapps_paths() -> tuple[Path, ...]:
     ]
     names = [*(f"{d}-mimeapps.list" for d in desktops), "mimeapps.list"]
 
-    roots = [Path(p) for p in [config_home, *config_dirs.split(":")] if p]
+    roots = [Path(p) for p in [config_home, *config_dirs] if p]
     # The data-dir copies are deprecated by the spec but still shipped — this
     # machine's own KDE association file is one of them.
     roots += [d for d in entry_dirs()]
@@ -201,6 +218,28 @@ def _associations(paths: tuple[Path, ...]) -> tuple[dict[str, bool], list[str]]:
                     if entry_id.strip():
                         state.setdefault(entry_id.strip(), added)
     return state, reasons
+
+
+_STRING_ESCAPES = {"s": " ", "n": "\n", "t": "\t", "r": "\r", "\\": "\\"}
+
+
+def _unescape_string(value: str) -> str:
+    """A desktop-entry string value with its general escapes undone.
+
+    `Exec` is a string-type key, so the spec applies `\\s`, `\\n`, `\\t`,
+    `\\r` and `\\\\` FIRST and its own quoting rules second (LWSM-1279). That is
+    why a literal backslash inside a quoted argument is four in the file. An
+    unknown escape is left as written.
+    """
+    out: list[str] = []
+    chars = iter(value)
+    for char in chars:
+        if char == "\\":
+            nxt = next(chars, "")
+            out.append(_STRING_ESCAPES.get(nxt, char + nxt))
+        else:
+            out.append(char)
+    return "".join(out)
 
 
 def parse_exec(value: str) -> tuple[str, ...]:
@@ -307,9 +346,17 @@ def _browser_from(path: Path, *, mime_required: bool = True) -> Browser | None:
         return None
     if fields.get("Hidden", "").lower() == "true":
         return None
+    # A console browser. `open_url` sends every stream to DEVNULL, so it would
+    # run nowhere visible while the call reports success (LWSM-1279). Running
+    # it in a terminal needs a terminal emulator, and there is no portable way
+    # to pick one.
+    if fields.get("Terminal", "").lower() == "true":
+        return None
 
-    mime = fields.get("MimeType", "")
-    if mime_required and not any(handler in mime for handler in HTTP_HANDLERS):
+    # A list of EXACT types. A substring test offered
+    # `x-scheme-handler/httprelay` as a browser (LWSM-1279).
+    declared = {part.strip() for part in fields.get("MimeType", "").split(";")}
+    if mime_required and declared.isdisjoint(HTTP_HANDLERS):
         return None
 
     # `TryExec` is the spec's own "is this actually installed" key. Honouring it
@@ -319,7 +366,7 @@ def _browser_from(path: Path, *, mime_required: bool = True) -> Browser | None:
     if try_exec and shutil.which(try_exec) is None and not Path(try_exec).exists():
         return None
 
-    argv = parse_exec(fields.get("Exec", ""))
+    argv = parse_exec(_unescape_string(fields.get("Exec", "")))
     if not argv:
         return None
 
@@ -464,7 +511,7 @@ def open_url(browser: Browser, url: str) -> None:
 
     argv = expand(browser.argv, url)
     try:
-        subprocess.Popen(  # noqa: S603
+        proc = subprocess.Popen(  # noqa: S603
             argv,
             start_new_session=True,
             stdin=subprocess.DEVNULL,
@@ -473,3 +520,8 @@ def open_url(browser: Browser, url: str) -> None:
         )
     except OSError as exc:
         raise BrowserError(f"could not launch {browser.name}: {exc}") from exc
+    # Reaped, or it stays a zombie until some later `Popen` happens to run
+    # `subprocess._cleanup` (LWSM-1279). A daemon thread per launch is the
+    # cheapest reaper that touches no signal handling, which `supervisor.py`'s
+    # own children would notice.
+    threading.Thread(target=proc.wait, daemon=True, name="browser-reaper").start()

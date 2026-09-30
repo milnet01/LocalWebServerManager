@@ -120,7 +120,9 @@ Two rules the diagram encodes:
   coloured dot never leads) plus a detail pane for the selected
   project, and the
   **Open in browser** action, which opens
-  `http://localhost:<bound port>` via `QDesktopServices` — the
+  `http://localhost:<bound port>` in the browser chosen for that
+  project (a desktop entry, through `browsers.py`, LWSM-1187), else
+  the desktop default via `QDesktopServices` — the
   port actually bound, never the requested one, since the two
   differ exactly in the `running (wrong port)` case where opening
   the wrong one would be useless. The action is enabled in all
@@ -781,7 +783,8 @@ deliberately not JSON:
 - `~/.config/localwebservermanager/projects.json` — the registry:
   one record per project (path, display name, launcher, declared
   port, port override, `confirmed_port`, runtime kind, hidden
-  flag, notes, `actions`, `added` timestamp), plus a
+  flag, notes, `actions`, `browser` (a desktop-entry id),
+  `added` timestamp), plus a
   `schema_version`. The `added` timestamp is what breaks a
   duplicate-port tie (ADR-0005).
 - `~/.config/localwebservermanager/settings.json` — poll
