@@ -73,7 +73,10 @@ src = ["src", "tests"]
 # process groups for a living: S603/S607 are exactly the rules that would catch
 # a shell=True or an unvetted argv creeping into Supervisor, which coding.md
 # § O4 forbids outright.
-select = ["E", "W", "F", "I", "UP", "B", "RUF100", "S"]
+# RUF021 (and/or chained without parentheses) is the half of a precedence bug a
+# tool can decide (LWSM-1285). The other half, `a or b if c else d`, which is
+# the shape LWSM-1261 shipped inside the trust gate, has no ruff rule.
+select = ["E", "W", "F", "I", "UP", "B", "RUF021", "RUF100", "S"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests spawn real child processes on purpose (testing.md § T2) and assert on
