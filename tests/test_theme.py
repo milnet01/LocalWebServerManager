@@ -9,6 +9,7 @@ its acceptance criterion is met: **every** theme, **every** text token,
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,7 +21,13 @@ if TYPE_CHECKING:
 
 # tests/ has no __init__.py, so pytest puts it on sys.path itself and this is a
 # flat import rather than `tests.contrast`.
-from contrast import INDICATOR_FLOOR, TEXT_FLOOR, contrast_ratio, relative_luminance
+from contrast import (
+    HIGH_CONTRAST_FLOOR,
+    INDICATOR_FLOOR,
+    TEXT_FLOOR,
+    contrast_ratio,
+    relative_luminance,
+)
 from lwsm.controller import ProjectStatus
 from lwsm.theme import (
     DEFAULT_THEME,
@@ -35,12 +42,6 @@ from lwsm.theme import THEMES as PALETTES
 # forgotten here would be a theme with no contrast test at all, which is the
 # one failure § T8's "adding a theme that fails is a failing build" forbids.
 THEMES = [pytest.param(theme, id=name) for name, theme in PALETTES.items()]
-
-# § T8 holds the two assistive palettes to 7:1 on text pairs, "because a theme
-# whose whole purpose is contrast has to be held to more than the floor
-# everything else meets; softening them is the regression this tier exists to
-# catch".
-HIGH_CONTRAST_FLOOR = 7.0
 
 
 def floor_for(theme: Theme) -> float:
@@ -66,16 +67,25 @@ def test_the_contrast_formula_matches_published_values() -> None:
     # Order must not matter — the formula sorts by luminance, not by argument.
     assert contrast_ratio("#1a7f3c", "#f4f4f6") == contrast_ratio("#f4f4f6", "#1a7f3c")
     assert relative_luminance("#fff") == relative_luminance("#ffffff")
+    # Saturated, mid-luminance pairs. The greys above exercise one channel
+    # weighting only; the derivation script shares this function, so an error
+    # in the weights would agree with itself everywhere else (LWSM-1278).
+    assert contrast_ratio("#0000ff", "#ffffff") == pytest.approx(8.59, abs=0.01)
+    assert contrast_ratio("#ff0000", "#ffffff") == pytest.approx(4.00, abs=0.01)
+    assert contrast_ratio("#008000", "#ffffff") == pytest.approx(5.14, abs=0.01)
 
 
 # --- LWSM-1070: the focus ring has to be seen to be a focus ring --------------
 
 
+@pytest.mark.parametrize("surface", ["window", "base", "alt_base"])
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_focus_ring_clears_the_indicator_floor(theme: Theme) -> None:
-    ratio = contrast_ratio(theme.accent, theme.window)
+def test_the_focus_ring_clears_the_indicator_floor(theme: Theme, surface: str) -> None:
+    # Every surface, not only `window`: ledger's accent was 2.85:1 on
+    # `alt_base` until LWSM-1207, and nothing here would have noticed (LWSM-1278).
+    ratio = contrast_ratio(theme.accent, getattr(theme, surface))
     assert ratio >= INDICATOR_FLOOR, (
-        f"the focus ring is {ratio:.2f}:1 against the window, below § T8's "
+        f"the focus ring is {ratio:.2f}:1 against {surface}, below § T8's "
         f"{INDICATOR_FLOOR}:1 for a non-text indicator"
     )
 
@@ -320,10 +330,10 @@ def test_each_state_takes_its_own_token_and_stopping_takes_none(
     other rule, and the membership assertion holds anyway. A mutant deleting
     the STARTING row survived that test and dies on this one.
 
-    STOPPING is asserted to have NO token of its own, because `design.md
-    § Tokens, not colours` gives it none — it is the optimistic overlay's
-    transient label rather than a state derived from observation, and a token
-    appearing for it later is a design change, not a fix.
+    STOPPING is asserted to have NO token of its own, because `design-look-and-feel.md §
+    Tokens, not colours` gives it none — it is the optimistic overlay's transient label
+    rather than a state derived from observation, and a token appearing for it later is
+    a design change, not a fix.
     """
     assert theme.state_token(ProjectStatus.RUNNING) == theme.state_running
     assert theme.state_token(ProjectStatus.STARTING) == theme.state_starting
@@ -649,3 +659,19 @@ def test_a_disabled_control_looks_disabled(
     assert off_contrast <= on_contrast * DISABLED_CONTRAST_SHARE, (
         f"disabled {off_contrast:.2f}:1 against enabled {on_contrast:.2f}:1"
     )
+
+
+def test_an_unknown_theme_id_is_logged_and_follow_system_is_not(caplog) -> None:
+    """LWSM-1278: the fallback was silent, so a palette the user chose that a
+    later build removed simply never appeared, with nothing in the log saying
+    why. `FOLLOW_SYSTEM` reaches the same fallback by design and is not noise.
+    """
+    with caplog.at_level(logging.WARNING, logger="lwsm.theme"):
+        theme_for_id("no-such-theme")
+    assert "no-such-theme" in caplog.text
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="lwsm.theme"):
+        theme_for_id(FOLLOW_SYSTEM)
+        theme_for_id(DEFAULT_THEME)
+    assert not caplog.records, caplog.text

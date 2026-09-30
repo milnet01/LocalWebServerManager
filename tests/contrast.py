@@ -19,6 +19,11 @@ from __future__ import annotations
 # merely noticed; a focus ring is a non-text indicator (WCAG 1.4.11 / 2.4.11).
 TEXT_FLOOR = 4.5
 INDICATOR_FLOOR = 3.0
+# § T8 holds the two assistive palettes to 7:1 on text pairs, "because a theme
+# whose whole purpose is contrast has to be held to more than the floor
+# everything else meets". Here beside the other two so the test and
+# `scripts/derive_state_tokens.py` cannot hold different values (LWSM-1278).
+HIGH_CONTRAST_FLOOR = 7.0
 
 
 def _channel(value: int) -> float:

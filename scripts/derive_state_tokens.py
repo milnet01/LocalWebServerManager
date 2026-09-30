@@ -38,13 +38,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
 
-from contrast import INDICATOR_FLOOR, TEXT_FLOOR, contrast_ratio
+from contrast import HIGH_CONTRAST_FLOOR, INDICATOR_FLOOR, TEXT_FLOOR, contrast_ratio
 from lwsm.theme import THEMES
-
-# The 7:1 floor `docs/standards/testing.md § T8` holds the two assistive
-# palettes to. Kept here rather than imported from the test, so running this
-# script needs nothing but the arithmetic.
-HIGH_CONTRAST_FLOOR = 7.0
 
 # Hue (0-1) and saturation per state — see the module docstring. One per
 # ADR-0004 derived state, plus `state_unknown`, which is not one of the seven.

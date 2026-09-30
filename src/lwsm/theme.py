@@ -22,8 +22,11 @@ from dataclasses import dataclass
 
 from PySide6.QtGui import QColor, QPalette
 
+from lwsm import applog
 from lwsm.controller import ProjectStatus
 from lwsm.settings import DEFAULT_THEME as _SETTINGS_DEFAULT_THEME
+
+log = applog.get_logger(__name__)
 
 # How far a disabled label moves from `text` toward `window`. Solved as a blend
 # rather than a ninth token, so it cannot drift from the text it dims and adding
@@ -40,7 +43,7 @@ DISABLED_TEXT_BLEND = 0.55
 class Theme:
     """The nine base tokens adopted from finbreak, plus this project's states.
 
-    `docs/design.md § Tokens, not colours` defines the base nine and says
+    `docs/design-look-and-feel.md § Tokens, not colours` defines the base nine and says
     ADR-0004's seven derived states define the state-token set.
     """
 
@@ -73,7 +76,7 @@ class Theme:
     # separate set is a second place to forget to update.
     high_contrast: bool
 
-    # One per ADR-0004 derived state (`design.md § Tokens, not colours` is
+    # One per ADR-0004 derived state (`design-look-and-feel.md § Tokens, not colours` is
     # canonical), plus `state_unknown`, which is not one of the seven: it means
     # no observation is available, and ADR-0004 lists states derived FROM one.
     #
@@ -140,15 +143,14 @@ class Theme:
         return QColor(self.state_token(status))
 
     def state_token(self, status: ProjectStatus) -> str:
-        # .get, not [...]: same reason as the glyph lookup in mainwindow — this
-        # is reached from a signal handler, and LWSM-1011 adds four states. A
-        # state with no token of its own reads in the ordinary text colour
-        # rather than crashing the window.
-        # STOPPING is absent on purpose and is not an oversight: `design.md
-        # § Tokens, not colours` gives it no token, because it is the optimistic
-        # overlay's transient label rather than a state derived from
-        # observation. It falls through to `text`, which is what the `.get`
-        # default is for.
+        # .get, not [...]: same reason as the glyph lookup in mainwindow — this is
+        # reached from a signal handler, and LWSM-1011 adds four states. A state with no
+        # token of its own reads in the ordinary text colour rather than crashing the
+        # window. STOPPING is absent on purpose and is not an oversight:
+        # `design-look-and-feel.md § Tokens, not colours` gives it no token, because it
+        # is the optimistic overlay's transient label rather than a state derived from
+        # observation. It falls through to `text`, which is what the `.get` default is
+        # for.
         return {
             ProjectStatus.RUNNING: self.state_running,
             ProjectStatus.STARTING: self.state_starting,
@@ -164,13 +166,12 @@ class Theme:
     def style_sheet(self) -> str:
         """The app's style sheet, generated from the tokens (LWSM-1077).
 
-        `docs/design.md § Tokens, not colours` gives a `Theme` two outputs — a
-        `QPalette` **and** a generated style sheet, finbreak's two-layer split.
-        Only the palette existed, so `mainwindow.py` was hand-building
-        `f"color: {token};"` and calling `setStyleSheet` per row per tick. INV-8b
-        still passed, because there was no colour *literal*; the layer the design
-        asked for was simply absent and its job had leaked into widget code,
-        which is what `§ O7` prevents one level up.
+        `docs/design-look-and-feel.md § Tokens, not colours` gives a `Theme` two outputs
+        — a `QPalette` **and** a generated style sheet, finbreak's two-layer split. Only
+        the palette existed, so `mainwindow.py` was hand-building `f"color: {token};"`
+        and calling `setStyleSheet` per row per tick. INV-8b still passed, because there
+        was no colour *literal*; the layer the design asked for was simply absent and
+        its job had leaked into widget code, which is what `§ O7` prevents one level up.
 
         Selecting on a dynamic property rather than emitting one rule per widget
         means the sheet is a constant of the theme: it is set once on the window,
@@ -515,7 +516,15 @@ def theme_for_id(theme_id: str) -> Theme:
     that fallback too. That is the right answer for a caller that never
     resolved it — dark, which is what the default is — but it is not the
     feature. Call `resolve_theme_id` first.
+
+    Any OTHER unknown id is logged (LWSM-1278): `settings.py` logs a file it
+    cannot load, and an id it loaded that names nothing is the same fact one
+    layer later — silent, the user's chosen palette just never appears.
     """
+    if theme_id not in THEMES and theme_id != FOLLOW_SYSTEM:
+        log.warning(
+            "unknown theme id %r; using the default, %s", theme_id, DEFAULT_THEME
+        )
     return THEMES.get(theme_id, THEMES[DEFAULT_THEME])
 
 
