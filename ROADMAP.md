@@ -9460,6 +9460,33 @@ O8` forbids retrofitting that.
   Source: known-issue-019, queued from LWSM-1324 on 2026-09-28.
   Lanes: core.
 
+- 📋 [LWSM-1335] **CLAUDE.md says test_layering derives the core-module list from coding.md; both lists are hand-written.**
+  CLAUDE.md § Module map, under scanner.py: "a new source-invariant test
+  derives the list from `coding.md § O1`'s four-way split". False:
+  tests/test_layering.py says the complement is "named explicitly rather
+  than derived from `coding.md § O1`", and its completeness check
+  compares disk against two hand-written lists. A conformer adding a
+  module would edit coding.md and expect the test to follow. Fix: say a
+  new module is added to CORE_MODULES or NON_CORE_MODULES by hand.
+  Outside the gated change, so it exited the loop. Editing CLAUDE.md
+  owes rule 14's test again.
+  **Layman:** The project notes describe an automatic check that is really a hand-kept list, so someone adding a file would update the wrong place.
+  Kind: doc-fix.
+  Source: review-contract-2026-10-01 CLAUDE.md loop 1 (both lanes).
+  Lanes: docs.
+
+- 📋 [LWSM-1336] **CLAUDE.md offers `--no-verify` / LWSM_SKIP_PREPUSH=1 with no condition, against the global need-the-user rule.**
+  CLAUDE.md § Before pushing ends a paragraph: "Escape with `git push
+  --no-verify` or `LWSM_SKIP_PREPUSH=1`." Global CLAUDE.md rule 6 and
+  commits.md § 2.3 say skipping a hook needs the user. An agent reading
+  the project line alone may skip the gate unasked. Fix: add that the
+  escape is the user's to authorise. Outside the gated change, so it
+  exited the loop; owes rule 14's test.
+  **Layman:** The project notes tell an agent how to skip the pre-push checks without saying it must ask you first.
+  Kind: doc-fix.
+  Source: review-contract-2026-10-01 CLAUDE.md loop 1 (both lanes, open question; verified).
+  Lanes: docs.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart

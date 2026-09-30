@@ -1126,7 +1126,7 @@ backgrounds the real process FIRST and touches a file second (`await_ready` in
 `test_supervisor.py`), so the file existing proves the grandchild exists. A
 bare sleep only makes the race less likely, and a *shorter* sleep in the
 launcher is worse than useless: the orphan then expires on its own and the
-`pgrep` check goes quiet while the defect stands.
+orphan check goes quiet while the defect stands.
 
 **Trap: a one-row fixture cannot see a per-row bug.** Hit on 2026-08-14
 mutation-testing LWSM-1016. Every window fixture in `test_mainwindow.py` built
