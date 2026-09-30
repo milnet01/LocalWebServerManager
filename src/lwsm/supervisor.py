@@ -497,13 +497,11 @@ def validate_launcher(project: Path, launcher: Path) -> Path:
     `/proc/self/fd/N`), which changes `$0` and `__file__` for every launcher
     and breaks `cd "$(dirname "$0")"` and sibling imports — the ordinary shape
     of a launcher. What the checks below leave is narrow: to win the window an
-    account must be able to replace the file. They refuse a launcher anyone
-    but us or root can rewrite, and a parent directory other accounts can
-    write without the sticky bit; either of us already controls the account.
-    They do not check who OWNS the parent or any directory above it, so an
-    account owning one of those could still win the window (LWSM-1333). A swap
-    made outside the window changes the bytes, and the fingerprint re-arms the
-    trust gate.
+    account must be able to replace the file. They refuse it unless only we or
+    root can, on the file and on every directory up to the project root
+    (LWSM-1226, LWSM-1333), and either of us already controls the account. A
+    swap made outside the window changes the bytes, and the fingerprint
+    re-arms the trust gate.
     """
     project_resolved = Path(project).resolve()
     try:
@@ -548,24 +546,38 @@ def validate_launcher(project: Path, launcher: Path) -> Path:
             f"{resolved} is owned by uid {info.st_uid}, who can rewrite it "
             "after it is confirmed"
         )
-    # And the PARENT, because replacing a file needs write permission on its
-    # directory rather than on the file. The refusal above reads the launcher's
-    # own mode, and unlink-and-create defeats it outright — `0755` on the file
-    # is no protection in a directory anyone else can write.
+    # And every DIRECTORY from the launcher's up to the project root, because
+    # replacing a file needs write permission on its directory rather than on
+    # the file, and replacing a directory needs it on that directory's parent.
+    # The refusals above read the launcher's own inode, and unlink-and-create
+    # defeats them outright — `0755` on the file is no protection in a
+    # directory someone else can write (LWSM-1226), or that someone else owns,
+    # whatever its mode says (LWSM-1333).
     #
-    # The sticky bit is the exception and it is the common case: `/tmp` is
-    # `1777`, and with it set only the owner may unlink, so the replacement
-    # this guards against cannot happen.
-    try:
-        parent = os.stat(resolved.parent)
-    except OSError as exc:
-        raise LauncherRefused(f"cannot read {resolved.parent}: {exc}") from exc
-    writable = parent.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-    if writable and not parent.st_mode & stat.S_ISVTX:
-        raise LauncherRefused(
-            f"{resolved.parent} is group- or other-writable without the sticky "
-            "bit, so the launcher can be replaced after it is confirmed"
-        )
+    # The sticky bit exempts the mode check and it is the common case: `/tmp`
+    # is `1777`, and with it set only the owner may unlink. It exempts nothing
+    # from the ownership check, since the directory's owner is that owner.
+    #
+    # The walk stops at the project root. Directories above it are where the
+    # user chose to keep the project, and not the project's to vouch for.
+    for directory in (resolved.parent, *resolved.parent.parents):
+        try:
+            info = os.stat(directory)
+        except OSError as exc:
+            raise LauncherRefused(f"cannot read {directory}: {exc}") from exc
+        if info.st_uid not in (os.getuid(), 0):
+            raise LauncherRefused(
+                f"{directory} is owned by uid {info.st_uid}, who can replace "
+                "the launcher after it is confirmed"
+            )
+        writable = info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        if writable and not info.st_mode & stat.S_ISVTX:
+            raise LauncherRefused(
+                f"{directory} is group- or other-writable without the sticky "
+                "bit, so the launcher can be replaced after it is confirmed"
+            )
+        if directory == project_resolved:
+            break
     return resolved
 
 

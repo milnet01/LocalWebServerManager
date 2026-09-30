@@ -601,6 +601,40 @@ def test_a_root_owned_launcher_is_allowed(project: Path, monkeypatch) -> None:
     assert validate_launcher(project, launcher) == launcher.resolve()
 
 
+@pytest.mark.parametrize("owner", ["parent", "ancestor"])
+def test_a_launcher_under_a_directory_someone_else_owns_is_refused(
+    project: Path, monkeypatch, owner: str
+) -> None:
+    """Whoever owns a directory on the path can replace the launcher in it.
+
+    The mode checks cannot see this: a `0755` directory owned by another
+    account is not group- or other-writable, and its owner may still unlink
+    and recreate the launcher — inside the check-to-exec window LWSM-1320
+    accepted, where the fingerprint cannot catch it (LWSM-1333). `ancestor`
+    puts the stranger's directory one level above the launcher's, still
+    inside the project, since renaming a directory needs write on ITS parent.
+    """
+    (project / "scripts").mkdir(mode=0o755)
+    launcher = write_launcher(project, "echo hi\n", name="scripts/start.sh")
+    stranger = launcher.parent if owner == "parent" else project
+    real = os.stat
+
+    def owned_by_a_stranger(path, *args, **kwargs):
+        info = real(path, *args, **kwargs)
+        if Path(path) == stranger.resolve():
+            return os.stat_result(
+                (info.st_mode, info.st_ino, info.st_dev, info.st_nlink, 4242)
+                + tuple(info)[5:]
+            )
+        return info
+
+    monkeypatch.setattr(os, "stat", owned_by_a_stranger)
+
+    with pytest.raises(LauncherRefused) as caught:
+        validate_launcher(project, launcher)
+    assert "owned by uid 4242" in str(caught.value)
+
+
 def test_a_launcher_that_is_not_a_regular_file_is_refused(project: Path) -> None:
     (project / "start.sh").mkdir()
     with pytest.raises(LauncherRefused):

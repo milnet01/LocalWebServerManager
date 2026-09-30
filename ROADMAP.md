@@ -8940,7 +8940,7 @@ O8` forbids retrofitting that.
   Lanes: mainwindow.
   Evidence: docs/screenshots/main-window.png, docs/screenshots/light-theme.png
 
-- 📋 [LWSM-1320] **The launcher that is checked is not provably the launcher that runs.**
+- ✅ [LWSM-1320] **The launcher that is checked is not provably the launcher that runs.**
   known-issue-037's second half, re-routed 2026-09-28 when LWSM-1046
   closed (it named LWSM-1046's UI half as owner). The directory half
   shipped in LWSM-1226. Still open: the launcher's name is resolved
@@ -8957,6 +8957,9 @@ O8` forbids retrofitting that.
   sibling imports. Since LWSM-1226 only the file's owner can swap it,
   and that owner already controls the account. Remaining work: write the
   reasoning where the check lives, then close.
+  Resolved (2026-10-01, abd97c4): residual accepted and documented in
+  validate_launcher's docstring. The parent-owner gap found while
+  writing it is LWSM-1333.
   **Layman:** Make sure the start script the app checked is exactly the one it runs, with no gap for a swap in between.
   Kind: security.
   Source: code-quality-review-2026-08-15 lane-1 (known-issue-037).
@@ -9408,6 +9411,17 @@ O8` forbids retrofitting that.
   Kind: security.
   Source: in-session-2026-10-01 (found writing LWSM-1320's reasoning).
   Lanes: core.
+
+- 📋 [LWSM-1334] **test_the_managed_child_is_not_reaped_before_the_stop_sequence_ends is flaky under load.**
+  Failed once on its vacuity guard `assert len(seen) > 1`: the child
+  exited on SIGTERM before the wait loop turned twice, so the loop
+  ran once. Passed 4/4 alone right after. The guard is right (it stops
+  a vacuous pass); the fixture needs the child to outlive one wait
+  tick, e.g. a TERM trap that sleeps briefly before `exit 7`.
+  **Layman:** One test sometimes fails for timing reasons when the computer is busy, even though nothing is broken.
+  Kind: fix.
+  Source: in-session-2026-10-01 (seen running test_supervisor + test_mainwindow together).
+  Lanes: tests.
 
 ## 0.2.0 — Find and run
 
