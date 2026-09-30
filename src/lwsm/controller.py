@@ -11,6 +11,8 @@ import atexit
 import logging
 import os
 import sys
+import time
+import unicodedata
 from collections.abc import Collection
 from concurrent.futures import Future
 from dataclasses import dataclass
@@ -32,6 +34,38 @@ from lwsm.supervisor import (
 )
 
 log = logging.getLogger(__name__)
+
+# `design.md § State management`: "the snapshot carries its own budget: ≤ 250
+# ms". Exceeding it is a performance regression, not a correctness one, so it
+# is logged rather than refused — and logged at all because nothing measured it,
+# so a regression was unobservable (LWSM-1275). Measured 2026-10-01: ~40 ms
+# against 515 processes.
+SNAPSHOT_BUDGET_SECONDS = 0.25
+
+# The longest project name the window shows or announces. A name is the
+# user's own text and the registry stores it as written; the bound is on what
+# reaches a label, a tooltip and a screen reader (known-issue-001, LWSM-1322).
+# Here rather than in `mainwindow.py` since LWSM-1275: the controller's own
+# messages name projects too, and a core module cannot import the window.
+MAX_NAME_CHARS = 120
+
+
+def displayable_name(name: str) -> str:
+    """`name` as the window may show and announce it.
+
+    Control characters and line separators become spaces, so a name cannot
+    forge a second line in a status message or an announcement; format
+    characters stay, because emoji sequences and right-to-left names need them.
+    Then clipped, with an ellipsis, to `MAX_NAME_CHARS`.
+    """
+    cleaned = "".join(
+        " " if unicodedata.category(c) == "Cc" or c in "\u2028\u2029" else c
+        for c in name
+    )
+    if len(cleaned) <= MAX_NAME_CHARS:
+        return cleaned
+    return cleaned[: MAX_NAME_CHARS - 1] + "\u2026"
+
 
 # An alias, not a second constant: `settings.py` owns the value so the file's
 # default and the code's default cannot drift (LWSM-1018). The name stays
@@ -331,7 +365,15 @@ class _SnapshotTask(QRunnable):
         # where there is no longer anything to emit *on*.
         try:
             try:
+                started = time.monotonic()
                 snapshot = self._probe.snapshot()
+                elapsed = time.monotonic() - started
+                if elapsed > SNAPSHOT_BUDGET_SECONDS:
+                    log.warning(
+                        "the port snapshot took %.0f ms, over its %.0f ms budget",
+                        elapsed * 1000,
+                        SNAPSHOT_BUDGET_SECONDS * 1000,
+                    )
             except ProbeError as exc:
                 self.signals.failed.emit(exc)
             except BaseException as exc:
@@ -652,7 +694,8 @@ class ProjectController(QObject):
         record = self._record(path)
         if record is None or self._supervisor is None:
             self.action_failed.emit(
-                path, f"cannot start {path}: nothing to start it with"
+                path,
+                f"cannot start {displayable_name(path.name)}: nothing to start it with",
             )
             return
         claimant = self._port_claimed_by(record)
@@ -670,8 +713,9 @@ class ProjectController(QObject):
             # records are the only evidence for it (LWSM-1205).
             self.action_failed.emit(
                 path,
-                f"{record.name}: port {record.effective_port} is claimed by "
-                f"{claimant.name} — change one of their ports first",
+                f"{displayable_name(record.name)}: port {record.effective_port} "
+                f"is claimed by {displayable_name(claimant.name)} — change one of "
+                "their ports first",
             )
             return
         unit = self._adopted_units.get(path)
@@ -690,7 +734,9 @@ class ProjectController(QObject):
             # field, so the answer is a rescan, and saying so is more use than
             # "failed to start".
             self.action_failed.emit(
-                path, f"{record.name} has no launcher recorded — run Rescan first"
+                path,
+                f"{displayable_name(record.name)} has no launcher recorded — "
+                "run Rescan first",
             )
             return
         try:
@@ -703,12 +749,12 @@ class ProjectController(QObject):
             self.confirmation_required.emit(path, refusal)
             return
         except SupervisorError as exc:
-            self.action_failed.emit(path, f"{record.name}: {exc}")
+            self.action_failed.emit(path, f"{displayable_name(record.name)}: {exc}")
             return
         except OSError as exc:
             # The log file could not be opened. Distinct from SupervisorError
             # because it is about this machine rather than about the project.
-            self.action_failed.emit(path, f"{record.name}: {exc}")
+            self.action_failed.emit(path, f"{displayable_name(record.name)}: {exc}")
             return
         self._set_overlay(path, ProjectStatus.STARTING)
 
@@ -725,7 +771,8 @@ class ProjectController(QObject):
             # LWSM-1323). Same on the foreign branch below.
             self._restarting.discard(path)
             self.action_failed.emit(
-                path, f"cannot stop {path}: nothing is supervising it"
+                path,
+                f"cannot stop {displayable_name(path.name)}: nothing is supervising it",
             )
             return
         if path not in self._supervisor.running():
@@ -800,8 +847,8 @@ class ProjectController(QObject):
         if unit is None:
             self.action_failed.emit(
                 path,
-                f"{record.name} was not started by this manager and is not a "
-                "systemd user service, so it cannot be stopped from here",
+                f"{displayable_name(record.name)} was not started by this manager "
+                "and is not a systemd user service, so it cannot be stopped from here",
             )
             return
         # Remembered before the verb runs, not after: once the unit stops,
@@ -832,7 +879,9 @@ class ProjectController(QObject):
             if isinstance(outcome, UnitOutcome) and not outcome.ok:
                 self._clear_overlay(path)
                 self.action_failed.emit(
-                    path, f"could not {outcome.verb} {path.name}: {outcome.reason}"
+                    path,
+                    f"could not {outcome.verb} {displayable_name(path.name)}: "
+                    f"{outcome.reason}",
                 )
             elif isinstance(outcome, UnitOutcome):
                 # Exclusive with the failure above: one click must not put a
@@ -889,7 +938,9 @@ class ProjectController(QObject):
         self._restarting.discard(path)
         if isinstance(outcome, BaseException):
             self._clear_overlay(path)
-            self.action_failed.emit(path, f"could not stop {path.name}: {outcome}")
+            self.action_failed.emit(
+                path, f"could not stop {displayable_name(path.name)}: {outcome}"
+            )
             return
         if isinstance(outcome, StopOutcome):
             if outcome.warning:

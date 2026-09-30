@@ -2335,3 +2335,85 @@ def test_a_finished_stop_is_reported_after_stop_project_returns(
 
     assert len(supervisor.started) == 1, "the restart's start ran inside the call"
     qtbot.waitUntil(lambda: len(supervisor.started) == 2, timeout=2000)
+
+
+# --- LWSM-1275: what a hand-edited name can do to the screen ------------------
+
+HOSTILE_NAME = "evil\nsecond line\u2028third" + "x" * 500
+
+
+def test_a_refusal_naming_a_project_carries_no_control_characters(
+    controllers,
+) -> None:
+    controller = build(controllers, [record(HOSTILE_NAME)], FakeProbe())
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller.start_project(Path(f"/srv/{HOSTILE_NAME}"))
+
+    """A name is hand-editable and a directory name, and the controller's own
+    refusals interpolated it raw (LWSM-1275): a newline forged a second line
+    in the status bar and a long name arrived whole. The window already cleaned
+    the ROW's name through `displayable_name`; the messages bypassed it.
+    """
+    assert messages, "the launcher-less start was not refused"
+    for text in messages:
+        assert "\n" not in text and "\u2028" not in text, repr(text)
+        assert len(text) < controller_module.MAX_NAME_CHARS + 80, len(text)
+
+
+# --- LWSM-1275: design.md's 250 ms snapshot budget, made observable -----------
+
+
+def test_a_snapshot_over_budget_is_logged(
+    qtbot, controllers, caplog, monkeypatch
+) -> None:
+    """`design.md § State management`: exceeding it is a regression.
+
+    Nothing measured it, so a regression was unobservable. A timing TEST would
+    be flaky on a loaded runner; a warning in the app log is what makes a real
+    regression visible where it happens.
+    """
+    monkeypatch.setattr(controller_module, "SNAPSHOT_BUDGET_SECONDS", 0.0)
+    controller = build(controllers, [record("a")], FakeProbe())
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.controller"):
+        with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+            controller.poll_once()
+
+    assert any("budget" in r.getMessage() for r in caplog.records), caplog.text
+
+
+def test_a_snapshot_within_budget_logs_nothing(qtbot, controllers, caplog) -> None:
+    controller = build(controllers, [record("a")], FakeProbe())
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.controller"):
+        with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+            controller.poll_once()
+
+    assert not any("budget" in r.getMessage() for r in caplog.records)
+
+
+def test_the_supervised_refusals_carry_no_control_characters(controllers) -> None:
+    """The same rule on the two refusals a supervised controller reaches.
+
+    The unsupervised test stops at "nothing to start it with", so a mutant
+    dropping `displayable_name` from these two survived it.
+    """
+    bare = replace(record(HOSTILE_NAME), path=Path("/srv/bare"))
+    first = replace(startable("first", 6006), name=HOSTILE_NAME)
+    first = replace(first, added="2026-01-01T00:00:00Z")
+    second = replace(startable("second", 6006), added="2026-06-01T00:00:00Z")
+    controller = supervised(
+        controllers, [bare, first, second], FakeProbe(), FakeSupervisor()
+    )
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller.start_project(Path("/srv/bare"))
+    controller.start_project(Path("/srv/second"))
+
+    assert len(messages) == 2, messages
+    for text in messages:
+        assert "\n" not in text and " " not in text, repr(text)
+        assert len(text) < controller_module.MAX_NAME_CHARS + 120, len(text)

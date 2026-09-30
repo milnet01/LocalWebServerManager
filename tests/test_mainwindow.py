@@ -24,6 +24,7 @@ from PySide6.QtGui import QPalette, QShowEvent
 from PySide6.QtWidgets import QApplication
 
 from lwsm import __version__, browsers, mainwindow, placement, registry, scanner
+from lwsm import controller as controller_module
 from lwsm.__main__ import build_window
 from lwsm.browsers import Browser
 from lwsm.controller import (
@@ -7244,8 +7245,8 @@ def test_a_hostile_name_reaches_the_screen_reader_bounded(qtbot, built) -> None:
     name = rows_of(window)[0].accessibleName()
 
     assert "\n" not in name and "\x1b" not in name, repr(name[:80])
-    assert len(name) < mainwindow.MAX_NAME_CHARS + 40, len(name)
-    assert mainwindow.displayable_name("short") == "short"
+    assert len(name) < controller_module.MAX_NAME_CHARS + 40, len(name)
+    assert controller_module.displayable_name("short") == "short"
 
 
 # --- LWSM-1323: the window and controller findings ------------------------------

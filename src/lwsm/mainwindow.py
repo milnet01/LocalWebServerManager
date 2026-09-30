@@ -84,6 +84,7 @@ from lwsm.controller import (
     ProjectStatus,
     RowView,
     abandon_pool,
+    displayable_name,
 )
 from lwsm.placement import Rect, centre_in
 from lwsm.registry import (
@@ -1347,29 +1348,6 @@ class ProjectRow(QFrame):
             QAccessible.updateAccessibility(
                 QAccessibleEvent(self, QAccessible.Event.NameChanged)
             )
-
-
-# The longest project name the window shows or announces. A name is the
-# user's own text and the registry stores it as written; the bound is on what
-# reaches a label, a tooltip and a screen reader (known-issue-001, LWSM-1322).
-MAX_NAME_CHARS = 120
-
-
-def displayable_name(name: str) -> str:
-    """`name` as the window may show and announce it.
-
-    Control characters and line separators become spaces, so a name cannot
-    forge a second line in a status message or an announcement; format
-    characters stay, because emoji sequences and right-to-left names need them.
-    Then clipped, with an ellipsis, to `MAX_NAME_CHARS`.
-    """
-    cleaned = "".join(
-        " " if unicodedata.category(c) == "Cc" or c in "\u2028\u2029" else c
-        for c in name
-    )
-    if len(cleaned) <= MAX_NAME_CHARS:
-        return cleaned
-    return cleaned[: MAX_NAME_CHARS - 1] + "\u2026"
 
 
 def _application() -> QApplication | None:
