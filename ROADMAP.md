@@ -504,7 +504,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: review-code 2026-09-01 lane 14.
 
-- 📋 [LWSM-1285] **INFO: three fillable gaps in check-code's tool set, measured against what the lanes found.**
+- ✅ [LWSM-1285] **INFO: three fillable gaps in check-code's tool set, measured against what the lanes found.**
   review-code's synthesis part 4 is a measurement of check-code's coverage, per
   charters-item-building.md section 11. check-code ran this tree the same day,
   so its status is KNOWN, not assumed. (1) mainwindow.py:2123's operator-
@@ -517,11 +517,16 @@ O8` forbids retrofitting that.
   `python3 -c "$VAR"` interpolation - shellcheck -x ran clean because the
   variable IS quoted, and no semgrep shell pack is configured. Everything else
   the lanes found is genuinely beyond what a tool decides.
+  Resolved (2026-10-01): RUF021 enabled (clean); the or-plus-conditional
+  shape has no ruff rule (probed with --select ALL) and is recorded as
+  reading-only in pyproject.toml; non-literal translate() is already
+  decided by test_translatable.py; the local-release interpolation went
+  with LWSM-1284.
   **Layman:** Three kinds of bug the linters could have caught but currently do not.
   Kind: chore.
   Source: review-code 2026-09-01 synthesis part 4.
 
-- 📋 [LWSM-1286] **INFO: three paths no lane covered, named so the sweep is not mistaken for complete.**
+- ✅ [LWSM-1286] **INFO: three paths no lane covered, named so the sweep is not mistaken for complete.**
   The 14 lanes tiled all 15 src/ modules (mainwindow.py split 1-1086 /
   1087-1847 / 1848-2510 / 2511-2883, no gap, no overlap), all five scripts,
   .githooks/pre-push, ci.yml, ci-tools.env, .claude/bump.json and
@@ -536,6 +541,14 @@ O8` forbids retrofitting that.
   Also: no lane could RUN the app, so several findings - the U+2028 rendering,
   the KWin behaviours, the pointSizeF return - are reasoned from documented
   semantics and need a live check.
+  Resolved (2026-10-01): the three uncovered paths were read. dependabot.yml
+  registers github-actions and uv; the ci-tools.env tool pins are watched
+  by nothing, filed as LWSM-1347. FUNDING.yml holds three sponsor links
+  and nothing else. packaging/*.desktop passes desktop-file-validate
+  (exit 0), and tests/test_desktop_entry.py validates the installed copy
+  built from it, so no separate gate step. The run-the-app items are
+  covered by LWSM-1346 (font size) and by the measured KWin traps in
+  CLAUDE.md.
   **Layman:** A short list of files this review did not look at, written down so nobody assumes it checked everything.
   Kind: chore.
   Source: review-code 2026-09-01 synthesis part 5.
@@ -610,7 +623,7 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: in-session-2026-09-02.
 
-- 📋 [LWSM-1289] **settings.json still drops keys an older build does not know, as projects.json did.**
+- ✅ [LWSM-1289] **settings.json still drops keys an older build does not know, as projects.json did.**
   LWSM-1218 fixed this for `projects.json`: unrecognised keys are kept and
   written back. `settings.py` was not changed and has the same shape - the
   reader takes named keys through `document.get(...)` and the writer emits a
@@ -626,11 +639,16 @@ O8` forbids retrofitting that.
   Whether the two loaders should share it is the open question - `settings.py`
   is a core module and deliberately never raises, so it cannot simply import
   `registry.py`'s parser.
+  Resolved (2026-10-01): Settings.unknown carries unrecognised keys
+  through load and save, never overriding a known one; versioning-
+  overrides.md updated to match. Red-first tests, both mutants killed.
+  The shared-parser question is moot: settings.py reuses the pattern,
+  not registry.py's code, so it still never raises.
   **Layman:** Running an older version once can silently erase a preference a newer version added.
   Kind: fix.
   Source: in-session-2026-09-02.
 
-- 📋 [LWSM-1290] **The global config-lock hook blocks Bash writes to this project's own docs/standards/.**
+- ✅ [LWSM-1290] **The global config-lock hook blocks Bash writes to this project's own docs/standards/.**
   `~/.claude/hooks/global-config-lock.sh` guards the machine-global
   instruction surface, one of whose paths is `standards/`. Its Bash branch
   matches that as a SUBSTRING, so a `python3 - <<PY` writing
@@ -652,6 +670,10 @@ O8` forbids retrofitting that.
   here so the next session that trips it does not re-diagnose it. The likely
   fix is to anchor the Bash branch's match at the start of the path rather
   than matching anywhere in it.
+  Closed as a finding (2026-10-01): no code changed here. The fix
+  belongs to ~/.claude/hooks/global-config-lock.sh and was sent to the
+  claude-config session's mailbox the same day, with the substring
+  match, the Edit/Write asymmetry and the suggested anchoring.
   **Layman:** A safety check meant to protect the machine's own settings also blocks edits to this project's standards folder.
   Kind: chore.
   Source: in-session-2026-09-02.
@@ -9462,12 +9484,16 @@ O8` forbids retrofitting that.
   Source: in-session-2026-10-01 (found writing LWSM-1320's reasoning).
   Lanes: core.
 
-- 📋 [LWSM-1334] **test_the_managed_child_is_not_reaped_before_the_stop_sequence_ends is flaky under load.**
+- ✅ [LWSM-1334] **test_the_managed_child_is_not_reaped_before_the_stop_sequence_ends is flaky under load.**
   Failed once on its vacuity guard `assert len(seen) > 1`: the child
   exited on SIGTERM before the wait loop turned twice, so the loop
   ran once. Passed 4/4 alone right after. The guard is right (it stops
   a vacuous pass); the fixture needs the child to outlive one wait
   tick, e.g. a TERM trap that sleeps briefly before `exit 7`.
+  Resolved (2026-10-01): the trap leaves a short-lived group member and
+  exits at once. The obvious fix (sleep before exit) was mutation-tested
+  first and let a premature reap survive, so it was replaced. 10/10
+  under load; reap mutant still killed.
   **Layman:** One test sometimes fails for timing reasons when the computer is busy, even though nothing is broken.
   Kind: fix.
   Source: in-session-2026-10-01 (seen running test_supervisor + test_mainwindow together).
@@ -9821,6 +9847,19 @@ bugs in the same area.
   Kind: fix.
   Source: review-code 2026-09-01 lane 9, queued from LWSM-1279 on 2026-10-01.
   Lanes: browsers.
+
+- 📋 [LWSM-1347] **The CI tool pins in scripts/ci-tools.env have no update signal; dependabot watches none of them.**
+  .github/dependabot.yml registers github-actions and uv only.
+  SHELLCHECK_VERSION, YAMLLINT_VERSION, ACTIONLINT_VERSION and UV_VERSION
+  in scripts/ci-tools.env are pinned by plain variables no ecosystem
+  reads, so dependencies.md § 2.6's "every ecosystem registered" holds
+  for packages and not for these. Options: run check-dependencies at each
+  release (it covers CI tooling), or a small scheduled workflow that
+  compares the pins against upstream releases.
+  **Layman:** The versions of the checking tools the project uses are never flagged as out of date, so they can quietly fall behind.
+  Kind: chore.
+  Source: review-code 2026-09-01 synthesis part 5, verified 2026-10-01 closing LWSM-1286.
+  Lanes: ci.
 
 ## 0.3.0 — The full state model
 
