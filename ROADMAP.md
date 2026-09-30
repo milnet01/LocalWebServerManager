@@ -329,7 +329,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: review-code 2026-09-01 lane 4.
 
-- 📋 [LWSM-1275] **LOW batch (controller + ports): six small defects from lane 5.**
+- ✅ [LWSM-1275] **LOW batch (controller + ports): six small defects from lane 5.**
   ports.py:74 - net_connections(kind="tcp") returns every TCP socket and, on
   Linux, walks /proc/<pid>/fd for EVERY process on the machine, once per
   second, against design.md's 250ms budget - while _managed_paths only ever
@@ -342,6 +342,11 @@ O8` forbids retrofitting that.
   callers (already in known-issues.md; its docstring names the suite as the
   intended consumer). Nothing measures the 250ms snapshot budget, so a
   regression against it is unobservable.
+  Resolved (2026-10-01): 2 fixed (name cleaning on controller
+  messages via the moved displayable_name; budget-overrun warning),
+  4 dismissed with reasons in the commit body (probe measured at
+  ~40 ms; start_polling, close and wait_for_abandoned_probes already
+  handled or by design).
   **Layman:** Smaller issues in the polling loop that keeps the status column up to date.
   Kind: chore.
   Source: review-code 2026-09-01 lane 5.
