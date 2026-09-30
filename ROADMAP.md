@@ -470,7 +470,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: review-code 2026-09-01 lane 11.
 
-- 📋 [LWSM-1284] **LOW batch (shell tooling): thirteen small defects from lane 14.**
+- ✅ [LWSM-1284] **LOW batch (shell tooling): thirteen small defects from lane 14.**
   .githooks/pre-push:23 cites tests/test_hooks.py, which does not exist - that
   assertion is in test_ci_contract.py. ci.yml:41-42's "these two lines are the
   only third-party CODE that runs in this job" is false since the install step
@@ -498,6 +498,8 @@ O8` forbids retrofitting that.
   commits.md 2.3 allows a bypass only for a specific commit. DOC: CLAUDE.md
   section Build and test and CONTRIBUTING.md:60-61 both omit "Tool versions
   match CI" and "Version lockstep" from the ordered step list.
+  Resolved (2026-10-01): 9 fixed, 4 dismissed with reasons in the commit
+  body. The exported-LWSM_SKIP_PREPUSH point joined LWSM-1318.
   **Layman:** Smaller issues in the build, release and install scripts.
   Kind: chore.
   Source: review-code 2026-09-01 lane 14.
@@ -10685,6 +10687,10 @@ open DS01 debt-sweep items, and the open FP02 review items.
   (`commits.md` § 2.3)". Pre-existing; found by a cold lane gating 194ed20 and
   filed rather than fixed because it lies outside that change. A CLAUDE.md
   edit, so global rule 14 applies to the fix.
+  Also (2026-10-01, from LWSM-1284): the hook cannot tell an exported
+  LWSM_SKIP_PREPUSH from a one-command prefix, so an agent that exports
+  it skips every later push's gate silently. `git -c lwsm.skipPrepush=true
+  push`, read with `git config --bool`, would be per-invocation.
   **Layman:** The instructions tell an agent how to skip the safety check before pushing without saying it needs your permission first.
   Kind: doc-fix.
   Source: review-contract-2026-09-28 CLAUDE.md loop 4 (filed, outside the gated change).
