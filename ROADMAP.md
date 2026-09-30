@@ -9319,7 +9319,7 @@ O8` forbids retrofitting that.
   Kind: test.
   Source: audit-2026-08-06.
 
-- 📋 [LWSM-1317] **Decide what docs/audit-allowlist.md is for now that no skill reads it.**
+- ✅ [LWSM-1317] **Decide what docs/audit-allowlist.md is for now that no skill reads it.**
   Found 2026-09-28 retiring the phase workflow. The `app-workflow` skill was the
   only reader of `docs/audit-allowlist.md`; `check-code` matches against
   `.audit_cache/learned-fp.jsonl` and `.ants_review_falsepos.jsonl` instead
@@ -9346,6 +9346,10 @@ O8` forbids retrofitting that.
   tools/audit/audit-config.json with suppressions_doc set to
   docs/audit-allowlist.md, and fix the file's dead skill names. Do it
   before the 0.1.0 pre-release review, which runs check-code.
+  Resolved (2026-10-01, 6d156c9): tools/audit/audit-config.json points
+  check-code at docs/audit-allowlist.md (user decision, one pointer
+  file); dead skill names fixed; CLAUDE.md item 5 updated. Gated:
+  CLAUDE.md loops 7-8, converged.
   **Layman:** A notes file about past false alarms was read automatically by the old workflow; nothing reads it any more, so either its entries move into the tools' own records or it becomes plain history.
   Kind: chore.
   Source: in-session-2026-09-28 (CFG-0645 migration).
@@ -9445,7 +9449,7 @@ O8` forbids retrofitting that.
   Source: review-contract-2026-09-28 spec-format.md loop 7.
   Lanes: docs.
 
-- 📋 [LWSM-1331] **A long load error is cut off in the empty window, and a row announces itself as a decorative border.**
+- ✅ [LWSM-1331] **A long load error is cut off in the empty window, and a row announces itself as a decorative border.**
   Queued rather than fixed in LWSM-1323: each needs a design choice and
   verification on a real screen or screen reader, not an edit.
   1. known-issue-012 (MEDIUM). Measured 2026-09-28: with an unparseable
@@ -9461,6 +9465,10 @@ O8` forbids retrofitting that.
   Decision (user, 2026-09-28), item 1: show the load error in the empty
   list area as a wrapped, selectable label, and keep the status-bar line
   too. Render it and look before closing.
+  Resolved (2026-10-01, 19364e2): item 1 shipped as decided (wrapped,
+  selectable load-error label in the empty list plus the status bar;
+  rendered and looked at). Item 2, the row's AT-SPI role, is split to
+  LWSM-1348 because it needs a live screen reader.
   **Layman:** When the project list cannot be read, most of the explanation is cut off, and a screen reader calls each project row a decorative border.
   Kind: accessibility.
   Source: known-issues re-triage 2026-09-28, queued from LWSM-1323.
@@ -9523,7 +9531,7 @@ O8` forbids retrofitting that.
   Source: known-issue-019, queued from LWSM-1324 on 2026-09-28.
   Lanes: core.
 
-- 📋 [LWSM-1335] **CLAUDE.md says test_layering derives the core-module list from coding.md; both lists are hand-written.**
+- ✅ [LWSM-1335] **CLAUDE.md says test_layering derives the core-module list from coding.md; both lists are hand-written.**
   CLAUDE.md § Module map, under scanner.py: "a new source-invariant test
   derives the list from `coding.md § O1`'s four-way split". False:
   tests/test_layering.py says the complement is "named explicitly rather
@@ -9533,6 +9541,8 @@ O8` forbids retrofitting that.
   new module is added to CORE_MODULES or NON_CORE_MODULES by hand.
   Outside the gated change, so it exited the loop. Editing CLAUDE.md
   owes rule 14's test again.
+  Resolved (2026-10-01, 6d156c9): the module map says both layering
+  lists are hand-written. Gated: CLAUDE.md loops 7-8, converged.
   **Layman:** The project notes describe an automatic check that is really a hand-kept list, so someone adding a file would update the wrong place.
   Kind: doc-fix.
   Source: review-contract-2026-10-01 CLAUDE.md loop 1 (both lanes).
@@ -9569,7 +9579,7 @@ O8` forbids retrofitting that.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
   Lanes: theme.
 
-- 📋 [LWSM-1341] **Two display-name sanitisers do one job differently: configfile.display_text and controller.displayable_name.**
+- ✅ [LWSM-1341] **Two display-name sanitisers do one job differently: configfile.display_text and controller.displayable_name.**
   display_text: C0/C1 controls -> U+FFFD, clipped at 120 with no
   ellipsis; misses U+2028/U+2029. displayable_name: Cc and U+2028/9 ->
   space, clipped at 120 with an ellipsis. Project names go through the
@@ -9577,6 +9587,10 @@ O8` forbids retrofitting that.
   § 1.3 forbids the second copy. Pick one behaviour (U+FFFD shows that
   something was there; the ellipsis shows a cut), keep it in configfile,
   and delete the other. Pre-release standing refactoring pass.
+  Resolved (2026-10-01): configfile.display_text is the one sanitiser;
+  controller.displayable_name and MAX_NAME_CHARS are gone. Merged rule:
+  U+FFFD for controls, surrogates and U+2028/9; ellipsis when clipped;
+  format characters kept. Red-first test.
   **Layman:** Two bits of code clean up names for display in slightly different ways, so the same odd name can look different in two places.
   Kind: refactor.
   Source: in-session-2026-10-01 (found closing LWSM-1275 and LWSM-1279).
@@ -9631,6 +9645,39 @@ O8` forbids retrofitting that.
   Kind: fix.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
   Lanes: window.
+
+- 📋 [LWSM-1348] **A project row announces itself to a screen reader as a decorative border.**
+  ProjectRow is a QFrame, so its AT-SPI role is Border. Fixing it needs
+  a custom QAccessibleInterface with a list-item role (and the list a
+  list), installed through an accessible factory, then checked in Orca or
+  accerciser, since offscreen cannot answer what AT-SPI sees. Needs a
+  live screen-reader session, which is the user's machine.
+  **Layman:** A screen reader calls each project row a decorative border instead of a list item.
+  Kind: accessibility.
+  Source: known-issue-013, split from LWSM-1331 on 2026-10-01.
+  Lanes: window.
+
+- ✅ [LWSM-1318] **CLAUDE.md offers the pre-push escape with no condition, against commits.md § 2.3.**
+  `CLAUDE.md` § Before pushing ends "Escape with `git push --no-verify` or
+  `LWSM_SKIP_PREPUSH=1`." `docs/standards/commits.md` § 2.3 says such a
+  bypass is used "only when the user explicitly authorises it for a specific
+  commit". An agent reading the first could skip the gate on its own
+  judgement. Fix: append "— only when the user authorises it for that push
+  (`commits.md` § 2.3)". Pre-existing; found by a cold lane gating 194ed20 and
+  filed rather than fixed because it lies outside that change. A CLAUDE.md
+  edit, so global rule 14 applies to the fix.
+  Also (2026-10-01, from LWSM-1284): the hook cannot tell an exported
+  LWSM_SKIP_PREPUSH from a one-command prefix, so an agent that exports
+  it skips every later push's gate silently. `git -c lwsm.skipPrepush=true
+  push`, read with `git config --bool`, would be per-invocation.
+  Resolved (2026-10-01, e85709f): CLAUDE.md says escaping the hook is
+  the user's call, that LWSM_SKIP_PREPUSH=1 keeps the secrets scan and
+  --no-verify drops it, and that exporting the variable is a trap.
+  Gated: CLAUDE.md loop 8, converged. Pulled into 0.1.0.
+  **Layman:** The instructions tell an agent how to skip the safety check before pushing without saying it needs your permission first.
+  Kind: doc-fix.
+  Source: review-contract-2026-09-28 CLAUDE.md loop 4 (filed, outside the gated change).
+  Lanes: docs.
 
 ## 0.2.0 — Find and run
 
@@ -10715,24 +10762,6 @@ open DS01 debt-sweep items, and the open FP02 review items.
   **Layman:** The instructions file every session reads is about 90 KB; most of it is reference that only matters when touching specific code, so it could live in separate files read when needed.
   Kind: chore.
   Source: in-session-2026-09-28 (global rule 18a).
-  Lanes: docs.
-
-- 📋 [LWSM-1318] **CLAUDE.md offers the pre-push escape with no condition, against commits.md § 2.3.**
-  `CLAUDE.md` § Before pushing ends "Escape with `git push --no-verify` or
-  `LWSM_SKIP_PREPUSH=1`." `docs/standards/commits.md` § 2.3 says such a
-  bypass is used "only when the user explicitly authorises it for a specific
-  commit". An agent reading the first could skip the gate on its own
-  judgement. Fix: append "— only when the user authorises it for that push
-  (`commits.md` § 2.3)". Pre-existing; found by a cold lane gating 194ed20 and
-  filed rather than fixed because it lies outside that change. A CLAUDE.md
-  edit, so global rule 14 applies to the fix.
-  Also (2026-10-01, from LWSM-1284): the hook cannot tell an exported
-  LWSM_SKIP_PREPUSH from a one-command prefix, so an agent that exports
-  it skips every later push's gate silently. `git -c lwsm.skipPrepush=true
-  push`, read with `git config --bool`, would be per-invocation.
-  **Layman:** The instructions tell an agent how to skip the safety check before pushing without saying it needs your permission first.
-  Kind: doc-fix.
-  Source: review-contract-2026-09-28 CLAUDE.md loop 4 (filed, outside the gated change).
   Lanes: docs.
 
 - 📋 [LWSM-1329] **Run the test suite in parallel, once the tests are proven to share no state.**
