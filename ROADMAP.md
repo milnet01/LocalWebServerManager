@@ -351,7 +351,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: review-code 2026-09-01 lane 5.
 
-- 📋 [LWSM-1278] **LOW batch (theme): six small findings from lane 8, including three unchecked colour pairs.**
+- ✅ [LWSM-1278] **LOW batch (theme): six small findings from lane 8, including three unchecked colour pairs.**
   All eight state tokens sit AT the floor and are luminance-identical: in
   ledger, state_wrong_port #8f620c (L=0.14602) and state_unknown #7f691b
   (L=0.14696) are 1.005:1 to each other with hues 7.2 degrees apart, so for
@@ -373,6 +373,12 @@ O8` forbids retrofitting that.
   highcontrast-dark the filter box and every row outline are
   near-invisible on black, so the unchecked border finding reaches the
   high-contrast palettes too, where it matters most.
+  Resolved (2026-10-01, fe6a33f): 5 fixed (unknown theme id logged;
+  focus-ring floor over all three surfaces; HIGH_CONTRAST_FLOOR in one
+  place; saturated contrast pins; five stale design.md citations).
+  2 queued as design decisions: LWSM-1337 (border/outline contrast,
+  0.1.0) and LWSM-1338 (state-token hue separation, 0.3.0). The
+  accent-on-alt_base finding was already fixed by LWSM-1207; now locked.
   **Layman:** Smaller colour and contrast issues, plus some colours nothing ever checks.
   Kind: chore.
   Source: review-code 2026-09-01 lane 8.
@@ -558,7 +564,7 @@ O8` forbids retrofitting that.
   Source: in-session-2026-08-31, while shipping LWSM-1176.
   Lanes: tests, i18n.
 
-- 📋 [LWSM-1287] **CLAUDE.md's prescribed orphan-killing pattern also matches other sessions' processes.**
+- ✅ [LWSM-1287] **CLAUDE.md's prescribed orphan-killing pattern also matches other sessions' processes.**
   CLAUDE.md's supervisor-leak trap prescribes `pkill -f 'sleep [3]0'` and
   warns only that the unbracketed form kills your own session. The
   bracketed form is a SUBSTRING match, so it also matches `sleep 300` --
@@ -579,6 +585,9 @@ O8` forbids retrofitting that.
   since a Qt event loop does not act on SIGINT. Safe form used afterwards:
   select by PID, and confirm the PID's /proc/<pid>/environ holds the test's
   private XDG_RUNTIME_DIR before signalling it.
+  Resolved (2026-10-01, edf343b): the trap names conftest's cwd-scoped
+  orphan check and forbids finding or killing processes by command-line
+  pattern, with both incidents. Gated: CLAUDE.md loop 6, converged.
   **Layman:** The cleanup command our own notes tell you to run can kill unrelated programs on this machine.
   Kind: doc-fix.
   Source: in-session-2026-09-02.
@@ -675,7 +684,7 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
 
-- 📋 [LWSM-1296] **Record the mutation_probe timeout trap in CLAUDE.md's trap cluster.**
+- ✅ [LWSM-1296] **Record the mutation_probe timeout trap in CLAUDE.md's trap cluster.**
   Measured 2026-09-03. A `mutation_probe` batch returned
   `Ants MCP transport: timed out` with no envelope. A grep issued
   immediately afterwards showed a mutation still applied to
@@ -698,6 +707,8 @@ O8` forbids retrofitting that.
   (2026-09-03 section, unannotated). Not written into CLAUDE.md inside
   an unrelated item: that file is gated by global rule 14, and adding a
   rule a conformer would act on re-arms the cold read.
+  Resolved (2026-10-01, edf343b): the mutation_probe timeout trap sits
+  beside the other mutation traps. Gated: CLAUDE.md loop 6, converged.
   **Layman:** A tool we use a lot can look like it left broken code behind when it did not, and the obvious repair makes it worse.
   Kind: doc.
   Source: in-session-2026-09-03.
@@ -726,7 +737,7 @@ O8` forbids retrofitting that.
   Kind: test.
   Source: in-session-2026-09-06.
 
-- 📋 [LWSM-1303] **CLAUDE.md's test-file list has fallen behind the tests directory.**
+- ✅ [LWSM-1303] **CLAUDE.md's test-file list has fallen behind the tests directory.**
   Noticed while adding tests/test_local_release.py, which is why it is
   filed rather than half-fixed: appending one name to a list already
   missing several makes it no more trustworthy. Several test modules
@@ -735,11 +746,14 @@ O8` forbids retrofitting that.
   Compare the directory against the paragraph and decide whether the
   list should be exhaustive or should say it is not — an incomplete
   list that reads as complete is the defect. Gates nothing.
+  Resolved (2026-10-01, edf343b): the Tests paragraph points at
+  `ls tests/` and describes only files whose name does not say what
+  they test. Gated: CLAUDE.md loop 6, converged.
   **Layman:** The project notes list the test files, and that list no longer matches what is there.
   Kind: doc-fix.
   Source: in-session-2026-09-07.
 
-- 📋 [LWSM-1306] **Two comments in mainwindow.py's constant block describe the wrong constant.**
+- ✅ [LWSM-1306] **Two comments in mainwindow.py's constant block describe the wrong constant.**
   In `mainwindow.py`'s module-level constant block, two comments have
   drifted away from what they describe.
 
@@ -762,6 +776,8 @@ O8` forbids retrofitting that.
   trace to that item's reason for being in the file (`coding.md § 1.7`).
 
   No behaviour is affected. Gates nothing.
+  Resolved (2026-10-01): both comments moved back above their
+  constants; no code changed.
   **Layman:** Two explanatory notes in the code sit above the wrong setting, so each explains something it is not next to.
   Kind: doc-fix.
   Source: in-session-2026-09-21.
@@ -845,7 +861,7 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: in-session-2026-09-21.
 
-- 📋 [LWSM-1310] **CLAUDE.md names QProcess as the launcher and its module map omits browsers.py and service.py.**
+- ✅ [LWSM-1310] **CLAUDE.md names QProcess as the launcher and its module map omits browsers.py and service.py.**
   Filed from review-contract loop 2 on CLAUDE.md (2026-09-25, LWSM-1305). Both
   findings fall outside the change that gate covered, so they exit the loop.
   Both verified by the orchestrator.
@@ -862,6 +878,9 @@ O8` forbids retrofitting that.
 
   Editing CLAUDE.md changes what a conformer does, so the fix owes its own
   rule-14 gate.
+  Resolved (2026-10-01, edf343b): Tech stack names subprocess.Popen;
+  the module map carries browsers.py and service.py. Gated: CLAUDE.md
+  loop 6, converged.
   **Layman:** The project rulebook describes a way of starting servers the app does not use, and leaves two parts of the program off its map.
   Kind: doc-fix.
   Source: review-contract-2026-09-25 CLAUDE.md loop 2.
@@ -9475,17 +9494,36 @@ O8` forbids retrofitting that.
   Source: review-contract-2026-10-01 CLAUDE.md loop 1 (both lanes).
   Lanes: docs.
 
-- 📋 [LWSM-1336] **CLAUDE.md offers `--no-verify` / LWSM_SKIP_PREPUSH=1 with no condition, against the global need-the-user rule.**
+- 🚫 [LWSM-1336] **CLAUDE.md offers `--no-verify` / LWSM_SKIP_PREPUSH=1 with no condition, against the global need-the-user rule.**
   CLAUDE.md § Before pushing ends a paragraph: "Escape with `git push
   --no-verify` or `LWSM_SKIP_PREPUSH=1`." Global CLAUDE.md rule 6 and
   commits.md § 2.3 say skipping a hook needs the user. An agent reading
   the project line alone may skip the gate unasked. Fix: add that the
   escape is the user's to authorise. Outside the gated change, so it
   exited the loop; owes rule 14's test.
+  Dropped (2026-10-01): duplicate of LWSM-1318, filed from the same
+  finding on 2026-09-28.
   **Layman:** The project notes tell an agent how to skip the pre-push checks without saying it must ask you first.
   Kind: doc-fix.
   Source: review-contract-2026-10-01 CLAUDE.md loop 1 (both lanes, open question; verified).
   Lanes: docs.
+
+- 📋 [LWSM-1337] **Decide whether row and field outlines must clear 3:1, and make high-contrast outlines visible.**
+  The `border` token is checked against nothing: 1.19-1.75:1 on every
+  surface of the six ordinary palettes (ledger #d8d3c4 on #f5f4ef is
+  1.36). But docs/screenshots/high-contrast.png shows the high-contrast
+  failure is NOT this token (it is #ffffff, 21:1 there): the outlines
+  are what Fusion draws for frames, which the token never reaches. So a
+  token test would pass on high contrast and change nothing on screen.
+  Decision needed: is `border` a non-text indicator owed 3:1 (re-tune
+  six palettes), and how does the token reach drawn frames (a style-sheet
+  border, which theme.py records costs box sizing)? The test that would
+  catch the screenshot is a rendered-pixel one, after
+  `_rendered_button_ring`.
+  **Layman:** On the high-contrast dark theme the search box and row outlines are nearly invisible; decide how visible outlines must be and fix it.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
+  Lanes: theme.
 
 ## 0.2.0 — Find and run
 
@@ -9893,6 +9931,20 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: investigate.
   Source: in-session-2026-08-31, noticed while shipping LWSM-1191.
   Lanes: controller, security.
+
+- 📋 [LWSM-1338] **State tokens differ by hue alone; wrong-port and unknown are 1.005:1 and 7 degrees apart.**
+  derive_state_tokens.py stops each token at the first lightness that
+  clears the floor, so all eight state tokens share one luminance and
+  differ only by hue. state_wrong_port vs state_unknown: 1.000-1.009:1
+  and 6.9-7.5 degrees across all eight palettes. Not on screen together
+  until LWSM-1011 renders wrong_port. Decide a separation metric and
+  threshold (hue distance or deltaE, all pairs or co-displayed ones),
+  then re-derive and add the test beside
+  test_the_state_tokens_are_distinguishable_from_the_body_text.
+  **Layman:** Two status colours that will appear together once more states arrive look almost the same.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
+  Lanes: theme.
 
 ## 0.4.0 — Ports
 
