@@ -9398,7 +9398,7 @@ O8` forbids retrofitting that.
   Source: known-issues re-triage 2026-09-28, queued from LWSM-1323.
   Lanes: ui.
 
-- 📋 [LWSM-1333] **validate_launcher checks the parent directory's mode but not its owner, nor any directory above it.**
+- ✅ [LWSM-1333] **validate_launcher checks the parent directory's mode but not its owner, nor any directory above it.**
   validate_launcher refuses a launcher we or root do not own, and a
   parent directory group/other-writable without the sticky bit. It
   never reads the parent's st_uid, nor any ancestor. An account owning
@@ -9407,6 +9407,10 @@ O8` forbids retrofitting that.
   by the fingerprint. Fix: apply the file's rules to every directory
   from the launcher up to the project root. Low likelihood: a project
   tree holding another account's directory is unusual.
+  Resolved (2026-10-01): every directory from the launcher's up to the
+  project root must be ours or root's and not writable by others
+  without the sticky bit. Red-first test over parent and ancestor;
+  mutation-checked; the seven live sibling projects all still pass.
   **Layman:** Another account that owns the folder holding a start script could still swap the script in the instant between the check and the launch.
   Kind: security.
   Source: in-session-2026-10-01 (found writing LWSM-1320's reasoning).
