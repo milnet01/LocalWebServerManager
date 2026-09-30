@@ -220,3 +220,83 @@ def test_registry_never_imports_the_scanner() -> None:
     rules that are enforced by parsing rather than grepping.
     """
     assert "lwsm.scanner" not in imported_names("registry.py")
+
+
+def _is_translate_call(node: ast.AST) -> bool:
+    """`QCoreApplication.translate(...)`, `self.tr(...)` or a bare `tr(...)`."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+    return name in {"translate", "tr"}
+
+
+def translated_text_formatting(source: str) -> list[int]:
+    """Lines where translated text reaches `str.format` or `%`.
+
+    A translation is data from outside the program: one that drops or
+    misspells a `{field}` makes `.format` raise inside a signal handler, the
+    LWSM-1082 crash class (`port_text` carries the reasoning). The receiver
+    counts as translated when it IS a translate call, or is a name last
+    assigned one in the same function — the two shapes LWSM-1176 shipped.
+    """
+    hits: list[int] = []
+    for scope in ast.walk(ast.parse(source)):
+        if not isinstance(scope, ast.FunctionDef | ast.AsyncFunctionDef | ast.Module):
+            continue
+        translated: set[str] = set()
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Assign) and _is_translate_call(node.value):
+                translated |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+
+        def is_translated(expr: ast.AST, names: set[str] = translated) -> bool:
+            return _is_translate_call(expr) or (
+                isinstance(expr, ast.Name) and expr.id in names
+            )
+
+        for node in ast.walk(scope):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"format", "format_map"}
+                and is_translated(node.func.value)
+            ) or (
+                isinstance(node, ast.BinOp)
+                and isinstance(node.op, ast.Mod)
+                and is_translated(node.left)
+            ):
+                hits.append(node.lineno)
+    return sorted(set(hits))
+
+
+def test_translated_text_is_never_passed_to_str_format() -> None:
+    """LWSM-1193 — the rule `mainwindow.py` stated three times, enforced once.
+
+    It was broken twice and caught twice by reading (LWSM-1176). Substitute
+    Qt's `%1` with `str.replace`, which cannot raise whatever a translation
+    returns.
+    """
+    offenders = {
+        path.name: lines
+        for path in sorted(SRC.glob("*.py"))
+        if (lines := translated_text_formatting(path.read_text(encoding="utf-8")))
+    }
+    assert not offenders, f"translated text formatted with str.format or %: {offenders}"
+
+
+@pytest.mark.parametrize(
+    ("source", "caught"),
+    [
+        ('QCoreApplication.translate("C", "port {p}").format(p=1)', True),
+        ('def f():\n    text = self.tr("n {0}")\n    return text.format(1)', True),
+        ('translate("C", "%s ports") % 3', True),
+        ('QCoreApplication.translate("C", "port %1").replace("%1", "1")', False),
+        ('"plain {0}".format(1)', False),
+    ],
+    ids=["direct", "via-name", "percent", "replace-is-fine", "untranslated"],
+)
+def test_the_translated_formatting_check_sees_each_shape(
+    source: str, caught: bool
+) -> None:
+    """The check itself, so a green run above means something."""
+    assert bool(translated_text_formatting(source)) is caught
