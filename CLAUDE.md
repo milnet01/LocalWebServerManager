@@ -153,10 +153,11 @@ tooling or CI config** (user, 2026-08-03). A **docs-only push runs
 `./scripts/local-ci.sh --docs`** — the steps that read prose, not the
 whole gate, because a full gate on every typo fix trains people to skip
 it. It was a complete skip until 2026-09-28, when `local-gate.md` § 2.1
-(user, same day) ruled out dropping checks for speed. Three gate steps
-read prose: the format check reads every `.md`, because ruff formats
-the Python blocks inside markdown; the version lockstep reads
-`ROADMAP.md`; and the suite reads `CONTRIBUTING.md`.
+(user, same day) ruled out dropping checks for speed. `--docs` runs the
+steps up to and including the format check, which reads every `.md`
+because ruff formats the Python blocks inside markdown; among them, the
+version lockstep reads `ROADMAP.md`. It does **not** run the suite, which
+is why a file the suite reads takes the full gate (below).
 
 **Every push is also scanned for secrets** by the machine-wide hook's
 `--secrets-only` mode, before the gate. `LWSM_SKIP_PREPUSH=1` skips the
@@ -195,7 +196,13 @@ it governs skips the suite. And the test **runs** `docs_only()` rather
 than reading it: its predecessor scanned the case arms as strings, which
 can say which patterns are present but never which arm a path lands in.
 Every assertion in it held while the escape went through.
-Escape with `git push --no-verify` or `LWSM_SKIP_PREPUSH=1`.
+
+**Escaping the hook is the user's call, never yours** (`commits.md`
+§ 2.3; LWSM-1318). The two escapes differ: `LWSM_SKIP_PREPUSH=1` skips the
+gate and keeps the secrets scan, while `git push --no-verify` skips the
+whole hook, scan included. Use one only when the user has said so for that
+push — never on your own judgement that the push is safe, and never by
+exporting the variable, which skips every later push's gate too.
 
 **The hook runs the gate under CI's environment, not a developer's** — it
 sets `LWSM_REQUIRE_ALL_TOOLS=1`, so a check that did not run and a tool at
