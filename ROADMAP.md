@@ -383,7 +383,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: review-code 2026-09-01 lane 8.
 
-- 📋 [LWSM-1279] **LOW batch (browsers): eight small defects from lane 9.**
+- ✅ [LWSM-1279] **LOW batch (browsers): eight small defects from lane 9.**
   browsers.py:190 - `handler in mime` is a substring test against a
   semicolon-separated list, so x-scheme-handler/httprelay is offered as a
   browser. Terminal=true is never checked, so a console browser would be
@@ -403,11 +403,16 @@ O8` forbids retrofitting that.
   (spec says it is not a field code) and string escapes are never unescaped
   before tokenising. DOC: design.md section Components still describes
   QDesktopServices with no per-project choice, and Persistence omits browser.
+  Resolved (2026-10-01, 1e3e230): 6 fixed (exact MimeType, Terminal
+  entries skipped, browser reaped, relative XDG paths ignored, Exec
+  string escapes, design.md browser text); 1 already fixed (no home
+  dir); 1 dismissed (quoted field codes: spec-undefined); 2 queued as
+  LWSM-1339 (subdirectory desktop ids) and LWSM-1340 (scan budget).
   **Layman:** Smaller issues in the code that finds and launches your browsers.
   Kind: chore.
   Source: review-code 2026-09-01 lane 9.
 
-- 📋 [LWSM-1280] **LOW batch (mainwindow rows): eight small defects from lane 10.**
+- ✅ [LWSM-1280] **LOW batch (mainwindow rows): eight small defects from lane 10.**
   mainwindow.py:1003 - _glyph_color is assigned only in update_from, never in
   __init__, while _rerender's docstring contemplates a never-populated row
   reaching update(); paintEvent:819 would raise AttributeError into a swallowed
@@ -428,11 +433,17 @@ O8` forbids retrofitting that.
   no contract promises it). RescanContext.scan/.save field defaults are bound
   at class-definition time, the project's own monkeypatch trap in a second
   costume.
+  Resolved (2026-10-01): 6 fixed (glyph colour at construction and its
+  stale comment; dead hasattr guards; READABLE_BAND_PX citation;
+  translated one-pass announcement separator; glyph-coverage test;
+  late-bound RescanContext defaults). 1 dismissed (error_rect: no
+  contract). 2 queued as design decisions: the name-forged announcement
+  and the CJK column width (LWSM-1342, LWSM-1343).
   **Layman:** Smaller issues in how each project row is drawn and announced.
   Kind: chore.
   Source: review-code 2026-09-01 lane 10.
 
-- 📋 [LWSM-1281] **LOW batch (mainwindow chrome): six small defects from lane 11.**
+- ✅ [LWSM-1281] **LOW batch (mainwindow chrome): six small defects from lane 11.**
   mainwindow.py:1551 - settings.py:358 range-checks text_scale to 100-200 but
   never against TEXT_SIZE_STEPS, so a hand-edited 137 is accepted, applied, and
   matches no action: the exclusive Text size group ends up with NO item
@@ -450,6 +461,11 @@ O8` forbids retrofitting that.
   between them in the shipped configuration. _base_point_size is captured once
   and never refreshed, so a desktop font change makes the control replace
   rather than multiply the desktop size.
+  Resolved (2026-10-01, 8cef5c7): 3 fixed (off-step text_scale refused
+  at load; locale digits in text-size labels; dead File-menu separator);
+  1 fixed earlier in the CLAUDE.md batch (seam ordinals, edf343b);
+  3 queued: LWSM-1344 (profile import carries actions; blocks LWSM-1029),
+  LWSM-1345 (menu feedback placement), LWSM-1346 (desktop font change).
   **Layman:** Smaller issues in the menus and window setup.
   Kind: chore.
   Source: review-code 2026-09-01 lane 11.
@@ -9525,6 +9541,69 @@ O8` forbids retrofitting that.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
   Lanes: theme.
 
+- 📋 [LWSM-1341] **Two display-name sanitisers do one job differently: configfile.display_text and controller.displayable_name.**
+  display_text: C0/C1 controls -> U+FFFD, clipped at 120 with no
+  ellipsis; misses U+2028/U+2029. displayable_name: Cc and U+2028/9 ->
+  space, clipped at 120 with an ellipsis. Project names go through the
+  second, browser names and scanner sources through the first. coding.md
+  § 1.3 forbids the second copy. Pick one behaviour (U+FFFD shows that
+  something was there; the ellipsis shows a cut), keep it in configfile,
+  and delete the other. Pre-release standing refactoring pass.
+  **Layman:** Two bits of code clean up names for display in slightly different ways, so the same odd name can look different in two places.
+  Kind: refactor.
+  Source: in-session-2026-10-01 (found closing LWSM-1275 and LWSM-1279).
+  Lanes: core.
+
+- 📋 [LWSM-1342] **A project named like a row ("x, running, port 80") forges its screen-reader announcement.**
+  The row announces "<state>, <name>, <port>" from the rendered cells.
+  displayable_name passes commas through, so `x, running, port 80`
+  reads as a running row. The same name reaches the button names and the
+  browser combo's description. No pure edit: quote or bracket the name,
+  put it last, change the separator, or move state and port into the
+  accessible description. Each changes what a screen-reader user hears
+  and the built-from-rendered-cells rule, and must keep
+  test_an_unchanged_row_is_never_re_announced and the name_changed gate.
+  **Layman:** A project with a cleverly chosen name could make a screen reader announce a status it does not have.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 10, queued from LWSM-1280 on 2026-10-01.
+  Lanes: window.
+
+- 📋 [LWSM-1343] **The name and browser column caps measure "x", so a CJK name gets about half its intended width.**
+  `metrics.horizontalAdvance("x") * NAME_COLUMN_CHARS` (16) and the
+  browser column's 10. averageCharWidth() is still a Latin figure; a
+  wide-glyph measure (e.g. "水" * N) widens the column against
+  design-accessibility.md's 600 px lens budget and its three
+  READABLE_BAND_PX tests. Decide which width the cap promises.
+  **Layman:** Project names in Chinese, Japanese or Korean are cut off about twice as early as English ones.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 10, queued from LWSM-1280 on 2026-10-01.
+  Lanes: window.
+
+- 📋 [LWSM-1345] **Menu-level actions report through the status bar, which design-accessibility.md calls invisible to a magnifier user.**
+  set_text_scale, set_theme, _export_profile and _refuse_import report
+  with set_status_message. design-accessibility.md: feedback surfaces
+  next to the row that raised it, and a status-bar message is invisible
+  to a magnifier. A menu action has no row, so the document has to say
+  what chrome-level feedback is first: a dialog centred on the window, a
+  banner at the top of the list, or something near the menu.
+  **Layman:** Messages from the menus (text size, theme, profile export and import) appear in a far-off status bar a magnifier user won't see.
+  Kind: accessibility.
+  Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
+  Lanes: window.
+
+- 📋 [LWSM-1346] **The desktop font size is captured once, so a desktop font change is ignored until restart.**
+  _base_point_size is read once in MainWindow.__init__. Unverified:
+  set_text_scale calls app.setFont even at 100 %, which may mark the
+  application font as explicit and stop Qt applying desktop changes at
+  all. Needs measuring on a running KDE session: which event arrives
+  (ThemeChange or ApplicationFontChange) and whether
+  QFontDatabase.systemFont(GeneralFont) reports the new size. Then
+  re-read the base and re-apply the scale.
+  **Layman:** If you change your desktop's text size while the app is open, the app keeps the old size until you restart it.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
+  Lanes: window.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
@@ -9715,6 +9794,31 @@ bugs in the same area.
   Kind: doc-fix.
   Source: user-decision-2026-09-28 (split from LWSM-1062).
   Lanes: docs.
+
+- 📋 [LWSM-1339] **Browser desktop-entry ids ignore the subdirectory prefix the spec gives them.**
+  browsers.installed globs `*.desktop` non-recursively and keys every
+  entry on path.name. The spec's desktop-file ID is the path relative to
+  applications/ with '/' -> '-' (`sub/x.desktop` is `sub-x.desktop`),
+  and mimeapps.list and shadowing both use it. 45 of this machine's 374
+  entries sit in subdirectories; no browser does today. Needs choices:
+  a recursion depth limit, a symlink policy, and it makes the missing
+  scan budget (sibling item) matter more. Stored top-level ids are
+  unchanged, so no migration.
+  **Layman:** A browser installed in a sub-folder of the applications directory is never offered.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 9, queued from LWSM-1279 on 2026-10-01.
+  Lanes: browsers.
+
+- 📋 [LWSM-1340] **browsers.installed has no time budget and no entry cap, and runs on the UI thread.**
+  Called synchronously from MainWindow.__init__. Cheap today, but an
+  XDG_DATA_DIRS on NFS blocks the window. scanner.py's Deadline and caps
+  are the precedent. Choices: the cap and budget values, whether a
+  partial result is flagged, and whether to move the call off the UI
+  thread instead (a budget alone still blocks for up to the budget).
+  **Layman:** Listing browsers could freeze the window if the system's app folders are slow or huge.
+  Kind: fix.
+  Source: review-code 2026-09-01 lane 9, queued from LWSM-1279 on 2026-10-01.
+  Lanes: browsers.
 
 ## 0.3.0 — The full state model
 
@@ -10329,6 +10433,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Source: user-2026-08-03.
   Priority: 2.
   Lanes: ui, core, tests.
+  Blocked-by: LWSM-1344.
 
 - 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
   The manager sets `LWSM_MANAGED=1` in every
@@ -10598,6 +10703,20 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: perf.
   Source: session-message-161-2026-09-28.
   Lanes: tests, ci.
+
+- 📋 [LWSM-1344] **A profile import restores `actions` wholesale, a route design.md's by-type argument does not cover.**
+  USER_FIELDS includes "actions" and user_half_applied restores every
+  user field but `unknown`. design.md § Custom project actions argues
+  only that the Scanner cannot produce `actions` (enforced by type). A
+  profile file is a second route. Latent: nothing executes an action
+  until LWSM-1029. Options: (a) add "actions" to
+  _NOT_RESTORED_BY_IMPORT; (b) import behind a confirmation gate; (c)
+  keep it and say in design.md a profile is user-authored input.
+  Must be decided before LWSM-1029 ships.
+  **Layman:** Importing a settings profile from someone else could bring in custom commands; decide before custom commands can run.
+  Kind: security.
+  Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
+  Lanes: core.
 
 ## 💭 Considered — not scheduled
 
