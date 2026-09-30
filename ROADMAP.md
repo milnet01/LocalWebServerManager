@@ -9427,6 +9427,30 @@ O8` forbids retrofitting that.
   Source: in-session-2026-10-01 (seen running test_supervisor + test_mainwindow together).
   Lanes: tests.
 
+- ✅ [LWSM-1332] **The scanner's hop read can be redirected by swapping a directory between its check and its open.**
+  known-issue-019. `_accept_hop` resolves and containment-checks the target,
+  and `_open_source` then re-opens it by PATH. O_NOFOLLOW guards only the last
+  component, so swapping an intermediate directory for a symlink in between
+  reads a file outside the project. Bounded: the leak is one port number and a
+  rule name (PortFinding carries no bytes), and the attacker must already
+  write inside the scan root. Queued, not fixed, because the fix changes the
+  seam every scanner test patches: open the candidate directory O_PATH |
+  O_DIRECTORY | O_NOFOLLOW once, walk each relative component with
+  os.open(..., dir_fd=...) and O_NOFOLLOW, and open the file relative to the
+  last. `_open_source` then takes (candidate_fd, relative) rather than a path,
+  and the opened_paths fixture must follow. Needs an adversarial test that
+  swaps a directory mid-scan through a seam, not a race.
+  Resolved (2026-10-01, 5841df8): pulled forward from 0.2.0 under the
+  user's security-first order. Simpler than the queued design:
+  _open_source keeps its path signature and walks every component
+  from / with O_PATH|O_DIRECTORY|O_NOFOLLOW, since every caller
+  already passes a resolved path. Red-first adversarial test through
+  the _accept_hop seam; live-tree verdicts unchanged.
+  **Layman:** Someone who can already write inside a scanned folder could, with precise timing, make the scanner read one number from a file outside that project.
+  Kind: security.
+  Source: known-issue-019, queued from LWSM-1324 on 2026-09-28.
+  Lanes: core.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
@@ -9617,24 +9641,6 @@ bugs in the same area.
   Kind: doc-fix.
   Source: user-decision-2026-09-28 (split from LWSM-1062).
   Lanes: docs.
-
-- 📋 [LWSM-1332] **The scanner's hop read can be redirected by swapping a directory between its check and its open.**
-  known-issue-019. `_accept_hop` resolves and containment-checks the target,
-  and `_open_source` then re-opens it by PATH. O_NOFOLLOW guards only the last
-  component, so swapping an intermediate directory for a symlink in between
-  reads a file outside the project. Bounded: the leak is one port number and a
-  rule name (PortFinding carries no bytes), and the attacker must already
-  write inside the scan root. Queued, not fixed, because the fix changes the
-  seam every scanner test patches: open the candidate directory O_PATH |
-  O_DIRECTORY | O_NOFOLLOW once, walk each relative component with
-  os.open(..., dir_fd=...) and O_NOFOLLOW, and open the file relative to the
-  last. `_open_source` then takes (candidate_fd, relative) rather than a path,
-  and the opened_paths fixture must follow. Needs an adversarial test that
-  swaps a directory mid-scan through a seam, not a race.
-  **Layman:** Someone who can already write inside a scanned folder could, with precise timing, make the scanner read one number from a file outside that project.
-  Kind: security.
-  Source: known-issue-019, queued from LWSM-1324 on 2026-09-28.
-  Lanes: core.
 
 ## 0.3.0 — The full state model
 
