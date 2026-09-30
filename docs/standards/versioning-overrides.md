@@ -27,10 +27,8 @@ has no referent, and this list stands in its place.
   Adding a key is safe: unrecognised ones are carried through untouched
   (LWSM-1218).
 - **`settings.json`**. Removing a key or repurposing one is breaking; adding
-  one is not. The carry-through is what differs: this reader takes the keys it
-  knows and the writer emits a fixed set, so a key added here is dropped by an
-  older build. That is a stated limitation and not a break — the test below
-  asks what happens to someone who upgrades (LWSM-1289 closes it).
+  one is not: unrecognised keys are carried through untouched, as in
+  `projects.json` (LWSM-1289).
 - **`scan-roots`** — one directory per line, `#` comments, `~` expanded,
   order preserved because it is the walk order. An empty file means *use the
   default*, and that meaning is part of the format (LWSM-1213).

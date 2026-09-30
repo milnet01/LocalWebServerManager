@@ -704,3 +704,53 @@ def test_a_write_failure_keeps_the_reason_it_failed(
         settings.save(tmp_path / "settings.json", Settings())
 
     assert str(caught.value) == message, "the cause must survive the conversion"
+
+
+# --- LWSM-1289: a key a newer build wrote survives an older build's save -------
+
+
+def test_a_key_this_build_does_not_know_survives_a_load_and_save(
+    tmp_path: Path,
+) -> None:
+    """`projects.json` got this in LWSM-1218; settings.json kept the old shape,
+    reading named keys and writing a fixed set, so a preference added inside
+    schema v1 was erased the first time an older build saved."""
+    import json
+
+    from lwsm import settings as settings_module
+
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": settings_module.SCHEMA_VERSION,
+                "theme": "midnight",
+                "future_pref": {"nested": [1, 2]},
+            }
+        )
+    )
+
+    loaded = settings_module.load(path)
+    settings_module.save(path, loaded.settings)
+
+    written = json.loads(path.read_text())
+    assert written["future_pref"] == {"nested": [1, 2]}
+    assert written["theme"] == "midnight"
+
+
+def test_an_unknown_key_never_overrides_a_known_one(tmp_path: Path) -> None:
+    """Carried keys are written only where this build wrote nothing, so a
+    stale copy of a known key cannot win over the value just chosen."""
+    import json
+    from dataclasses import replace
+
+    from lwsm import settings as settings_module
+
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"schema_version": 1, "theme": "midnight"}))
+    loaded = settings_module.load(path).settings
+    forged = replace(loaded, unknown=(("theme", '"ledger"'),))
+
+    settings_module.save(path, forged)
+
+    assert json.loads(path.read_text())["theme"] == "midnight"

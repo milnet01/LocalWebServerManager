@@ -159,6 +159,11 @@ class Settings:
     # Not `None`: a window either is maximised or is not, and a first run's
     # answer is "not".
     maximized: bool = False
+    # Keys this build does not write, as sorted (key, canonical JSON) pairs,
+    # handed back unchanged on save (LWSM-1289). `registry.ProjectRecord.unknown`
+    # has the same job for the same reason: a preference added inside schema v1
+    # was erased the first time an older build saved.
+    unknown: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -423,7 +428,47 @@ def load(path: Path) -> LoadResult:
     if maximized is not None:
         settings = replace(settings, maximized=maximized)
 
+    # Read the way every field here is read: one that will not re-serialise
+    # loses only itself, with a reason. Nothing is interpreted.
+    known = _payload(Settings()).keys()
+    extras = sorted(key for key in document if key not in known)
+    try:
+        unknown = tuple(
+            (key, json.dumps(document[key], sort_keys=True, separators=(",", ":")))
+            for key in extras
+        )
+    except (TypeError, ValueError, RecursionError):
+        unknown = ()
+        reasons.append(f"unrecognised keys could not be kept ({', '.join(extras)})")
+    settings = replace(settings, unknown=unknown)
+
     return LoadResult(settings, reasons[:MAX_REASONS])
+
+
+def _payload(settings: Settings) -> dict[str, object]:
+    """Every key this build writes, in the order it writes them.
+
+    One function for the writer and the loader both, so a key added here is
+    written and is never mistaken for an unknown one (LWSM-1289).
+    """
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "theme": settings.theme,
+        # Written even at its default. A key that appears only when it
+        # differs is one the next reader has to guess about, and this file
+        # is meant to be hand-editable.
+        "text_scale": settings.text_scale,
+        "poll_interval_ms": settings.poll_interval_ms,
+        "log_max_mib": settings.log_max_mib,
+        # Written as `null` until the window has been closed once. The key
+        # being present is what tells a reader of the file that geometry is
+        # something this app stores, which an absent key does not.
+        "x": settings.x,
+        "y": settings.y,
+        "width": settings.width,
+        "height": settings.height,
+        "maximized": settings.maximized,
+    }
 
 
 def save(path: Path, settings: Settings) -> None:
@@ -455,24 +500,12 @@ def save(path: Path, settings: Settings) -> None:
     differently: `registry.save_projects` is gated on the `LoadResult` the
     caller read, so a write built on a refused read is refused.
     """
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "theme": settings.theme,
-        # Written even at its default. A key that appears only when it
-        # differs is one the next reader has to guess about, and this file
-        # is meant to be hand-editable.
-        "text_scale": settings.text_scale,
-        "poll_interval_ms": settings.poll_interval_ms,
-        "log_max_mib": settings.log_max_mib,
-        # Written as `null` until the window has been closed once. The key
-        # being present is what tells a reader of the file that geometry is
-        # something this app stores, which an absent key does not.
-        "x": settings.x,
-        "y": settings.y,
-        "width": settings.width,
-        "height": settings.height,
-        "maximized": settings.maximized,
-    }
+    payload = _payload(settings)
+    # Carried keys only where this build wrote nothing, so a stale copy of a
+    # known key can never win over the value just chosen (LWSM-1289).
+    for key, encoded in settings.unknown:
+        if key not in payload:
+            payload[key] = json.loads(encoded)
     try:
         text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
         data = text.encode("utf-8")
