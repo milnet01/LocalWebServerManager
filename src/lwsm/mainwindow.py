@@ -107,20 +107,17 @@ from lwsm.theme import (
 
 log = applog.get_logger(__name__)
 
-# How long to wait for a rescan worker at teardown. The same bounded shape
-# `controller.stop()` uses, and for the same reason: an unbounded wait turns a
-# slow scan into an app that cannot be quit.
 # `place_window`'s signature is keyword-heavy on purpose, and a test
 # substitutes it with a `functools.partial` of itself, so the alias says what
 # comes BACK — the rectangle actually asked for, or `None` where placement is
 # unavailable — and leaves the arguments to the function's own definition.
 PlaceWindow = Callable[..., "Rect | None"]
 
+# How long to wait for a rescan worker at teardown. The same bounded shape
+# `controller.stop()` uses, and for the same reason: an unbounded wait turns a
+# slow scan into an app that cannot be quit.
 RESCAN_STOP_WAIT_MS = 5000
 
-# How many rows the window shows before the list starts scrolling, and the
-# fewest it stays legible at (LWSM-1149). Counts of rows, not pixels: the
-# height each implies is measured off a real row at the current text size.
 TEXT_SIZE_STEPS = (MIN_TEXT_SCALE, 125, 150, 175, MAX_TEXT_SCALE)
 """The steps the text-size control offers, as percentages (LWSM-1032).
 
@@ -128,6 +125,9 @@ The two ends are `settings.MIN/MAX_TEXT_SCALE` rather than literals, so the
 menu cannot come to offer a size the settings file would refuse to store.
 """
 
+# How many rows the window shows before the list starts scrolling, and the
+# fewest it stays legible at (LWSM-1149). Counts of rows, not pixels: the
+# height each implies is measured off a real row at the current text size.
 DEFAULT_VISIBLE_ROWS = 8
 MIN_VISIBLE_ROWS = 3
 # The largest fraction of a screen this window opens at BY DEFAULT — that is,
