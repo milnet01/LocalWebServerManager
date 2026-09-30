@@ -9395,6 +9395,20 @@ O8` forbids retrofitting that.
   Source: known-issues re-triage 2026-09-28, queued from LWSM-1323.
   Lanes: ui.
 
+- 📋 [LWSM-1333] **validate_launcher checks the parent directory's mode but not its owner, nor any directory above it.**
+  validate_launcher refuses a launcher we or root do not own, and a
+  parent directory group/other-writable without the sticky bit. It
+  never reads the parent's st_uid, nor any ancestor. An account owning
+  the parent (mode 0755) can unlink and recreate the launcher inside
+  LWSM-1320's accepted race window. A swap outside the window is caught
+  by the fingerprint. Fix: apply the file's rules to every directory
+  from the launcher up to the project root. Low likelihood: a project
+  tree holding another account's directory is unusual.
+  **Layman:** Another account that owns the folder holding a start script could still swap the script in the instant between the check and the launch.
+  Kind: security.
+  Source: in-session-2026-10-01 (found writing LWSM-1320's reasoning).
+  Lanes: core.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart

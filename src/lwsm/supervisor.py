@@ -488,6 +488,22 @@ def validate_launcher(project: Path, launcher: Path) -> Path:
     account can rewrite. A symlink that stays inside the project is fine — the
     ordinary `start.sh -> scripts/start.sh` arrangement — since refusing it
     would fire on the legitimate case, and a rule that does that gets disabled.
+
+    A residual race is accepted here, deliberately (LWSM-1320, user decision
+    2026-09-28). The launcher's name is resolved three times: the `stat` below,
+    the open in `_launcher_bytes` that fingerprints it, and the kernel's at
+    `Popen`. A file swapped between them is not the one that was checked
+    (CWE-367). Closing it means executing the checked descriptor (`fexecve` or
+    `/proc/self/fd/N`), which changes `$0` and `__file__` for every launcher
+    and breaks `cd "$(dirname "$0")"` and sibling imports — the ordinary shape
+    of a launcher. What the checks below leave is narrow: to win the window an
+    account must be able to replace the file. They refuse a launcher anyone
+    but us or root can rewrite, and a parent directory other accounts can
+    write without the sticky bit; either of us already controls the account.
+    They do not check who OWNS the parent or any directory above it, so an
+    account owning one of those could still win the window (LWSM-1333). A swap
+    made outside the window changes the bytes, and the fingerprint re-arms the
+    trust gate.
     """
     project_resolved = Path(project).resolve()
     try:
