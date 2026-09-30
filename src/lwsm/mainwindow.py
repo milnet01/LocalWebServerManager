@@ -1729,6 +1729,7 @@ class MainWindow(QMainWindow):
         self._outer = outer
 
         self._rows: dict[Path, ProjectRow] = {}
+        self._load_error: QLabel | None = None
         self._geometry_applied = False
         # Before `_sync_rows`, and the order is load-bearing at both ends. The
         # menu must already exist, because a scale restored from settings.json
@@ -2603,6 +2604,30 @@ class MainWindow(QMainWindow):
             self.set_status_message(message)
             return
         row.show_error(message)
+
+    def show_load_error(self, text: str) -> None:
+        """The project list could not be read: say so in the list, and below.
+
+        A status bar cannot wrap, and the window opens narrow when it has no
+        rows — measured, 239 px against a message needing 780, so about a third
+        was readable (known-issue-012, LWSM-1331). `design-accessibility.md`
+        puts feedback where the action happened, and here that is the list the
+        user is looking at, which is empty because of this very error. Plain
+        text, because it carries a path; selectable, so the path can be copied.
+        The status-bar line stays too (user decision, 2026-09-28).
+        """
+        if self._load_error is None:
+            label = QLabel(self._rows_host)
+            label.setTextFormat(Qt.TextFormat.PlainText)
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
+            self._rows_layout.insertWidget(0, label)
+            self._load_error = label
+        self._load_error.setText(text)
+        self.set_status_message(text)
 
     def set_status_message(self, text: str) -> None:
         self.statusBar().showMessage(text)

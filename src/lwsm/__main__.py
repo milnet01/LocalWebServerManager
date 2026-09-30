@@ -351,7 +351,7 @@ def build_window(
     controller.set_poll_interval_ms(poll_interval_ms)
     supervisor.max_log_bytes = log_max_mib * 1024 * 1024
     if error is not None:
-        window.set_status_message(error)
+        window.show_load_error(error)
     # Still polls with zero records: INV-5's zero-record case depends on it.
     controller.start_polling()
     return window, controller

@@ -1772,3 +1772,34 @@ def test_a_trust_confirmation_survives_a_restart_of_the_app(
         assert controller._supervisor.trust.is_confirmed(project, fingerprint)
     finally:
         controller.stop()
+
+
+@pytest.mark.gui
+def test_a_project_list_that_cannot_be_read_is_explained_in_the_list(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1331 (known-issue-012): the status bar cannot wrap, and the empty
+    window opens narrow, so about a third of the reason was readable. The
+    reason goes in the empty list area as well, wrapped, plain and
+    selectable; the status-bar line stays (user decision, 2026-09-28).
+    Rendered and looked at on 2026-10-01: the path wraps at its slashes."""
+    from PySide6.QtCore import Qt
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    projects = tmp_path / "projects.json"
+    projects.write_text("{ this is not json")
+
+    window, controller = build_window(projects)
+    qtbot.addWidget(window)
+    try:
+        label = window._load_error
+        assert label is not None, "the error was left to the status bar alone"
+        assert "not valid JSON" in label.text()
+        assert label.wordWrap()
+        assert label.textFormat() == Qt.TextFormat.PlainText
+        assert (
+            label.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        assert "not valid JSON" in window.statusBar().currentMessage()
+    finally:
+        controller.stop()

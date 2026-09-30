@@ -604,7 +604,7 @@ Added at P02 (LWSM-1005), contract in
   no D-Bus binding is a dependency. **Every failure answers False**, because
   a wrong True forces an assistive palette on someone who never asked and a
   wrong False leaves them where they already were.
-- **`src/lwsm/placement.py`** — core, and the only module importing **no Qt
+- **`src/lwsm/placement.py`** — core, and like `ports.py` imports **no Qt
   at all**, not even `QtCore`: the arithmetic in it is ADR-0007's security
   boundary, and a boundary is worth testing with no display. `Rect`,
   `clamp_to_screens`, `centre_in`, `pair_or_none`, `on_wayland`,
