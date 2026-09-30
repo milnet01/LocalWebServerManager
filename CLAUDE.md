@@ -26,14 +26,13 @@ Read these in order on every session start:
 4. **`docs/specs/<active-id>.md`** — the contract for the
    currently-active roadmap item.
 5. **`docs/audit-allowlist.md`** — read **additionally** before
-   invoking `check-code` or `review-code`. It is a human-readable
-   record of past false positives and why, frozen on 2026-09-28 until
-   LWSM-1317 decides its fate; no skill reads it and nothing new is
-   added to it. What
-   `check-code` matches against is its two ledgers —
-   `.audit_cache/learned-fp.jsonl` for tool findings and
-   `.ants_review_falsepos.jsonl` for reviewer claims — and
-   recording a false positive in them is `close-findings`' job.
+   invoking `check-code` or `review-code`. It records past false
+   positives and why. `check-code` matches its tool-and-rule entries
+   through `tools/audit/audit-config.json` (LWSM-1317); nothing new is
+   added to it. A new false positive goes in the two ledgers
+   `check-code` also reads — `.audit_cache/learned-fp.jsonl` for tool
+   findings and `.ants_review_falsepos.jsonl` for reviewer claims —
+   and recording it there is `close-findings`' job.
 
 ## Which skill runs which job
 
@@ -758,9 +757,11 @@ Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
   tests patch to prove no file outside a candidate is ever touched.
   `port is None` means *unknown*; it is never a guess.
   **`CORE_MODULES` in `tests/test_layering.py` now covers
-  `applog.py` too**, and a new source-invariant test derives the
-  list from `coding.md § O1`'s four-way split so a core module can
-  no longer be silently missing from it.
+  `applog.py` too**, and a source-invariant test fails on any file in
+  `src/lwsm/` that is in neither `CORE_MODULES` nor `NON_CORE_MODULES`.
+  Both lists are written by hand: a new module goes into one of them,
+  and editing `coding.md § O1` alone changes nothing the test reads
+  (LWSM-1335).
 
 Added at P05 (LWSM-1009, which also lands LWSM-1048 and the core
 halves of LWSM-1046 and LWSM-1047). **No spec** — the first item

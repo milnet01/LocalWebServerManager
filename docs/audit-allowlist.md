@@ -7,11 +7,17 @@
 > list. There is no global allowlist.
 
 This file is the **closed-loop memory** for false positives from
-`/audit`, `/code-quality-review` and the deterministic document
-checkers `/doc-lint` and `/debt-sweep` run (`doc_integrity`,
+`check-code`, `review-code` and the deterministic document checkers
+`check-doc-facts` and `/debt-sweep` run (`doc_integrity`,
 `spec_lint`, `doc_citations`, `doc_dedup`). Without it, the same
 false positive gets surfaced and dismissed every run, burning
 tokens and tempting "skip without thinking" reflexes.
+
+**`check-code` reads it** through `tools/audit/audit-config.json`'s
+`suppressions_doc` (LWSM-1317). It matches only entries whose
+`Tool / rule` names a tool and a rule id, or a path glob; a narrative
+entry is skipped and counted. The doc-checker entries below are never
+matched by it — they are a record for a human.
 
 **The doc checkers were added to this file's scope on 2026-08-06
 (DS01).** They were left out originally, and the first debt sweep
@@ -78,7 +84,7 @@ Do not delete revoked entries — the history is the value.
 - **Status:** retired 2026-09-28 — the project's plan skeleton was deleted
   and `/write-spec` now copies the machine-wide one, so the file this
   entry covers no longer exists.
-- **Tool / rule:** `doc_integrity` (via `/doc-lint`, `/debt-sweep`) — `broken_link`
+- **Tool / rule:** `doc_integrity` (via `check-doc-facts`, `/debt-sweep`) — `broken_link`
 - **Location:** `docs/standards/plan-skeleton.md:3` —
   `[docs/specs/<ID>-<topic>.md](../specs/<ID>-<topic>.md)`
 - **Why this is a false positive:** the file is a skeleton, and
@@ -99,7 +105,7 @@ Do not delete revoked entries — the history is the value.
 ## allowlist-002 — spec_lint:invariant_no_test — testing.md's INV format examples
 
 - **Status:** active
-- **Tool / rule:** `spec_lint` (via `/doc-lint`, `/debt-sweep`) —
+- **Tool / rule:** `spec_lint` (via `check-doc-facts`, `/debt-sweep`) —
   `invariant_no_test`
 - **Location:** `docs/standards/testing.md`, INV-1 / INV-2 / INV-3
   (the worked example under the invariant-numbering section)
