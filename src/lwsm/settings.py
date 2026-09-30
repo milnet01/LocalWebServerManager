@@ -73,6 +73,13 @@ THEME_ID_CHARSET = re.compile(r"\A[A-Za-z0-9_-]+\Z")
 MIN_TEXT_SCALE = 100
 MAX_TEXT_SCALE = 200
 
+TEXT_SIZE_STEPS = (MIN_TEXT_SCALE, 125, 150, 175, MAX_TEXT_SCALE)
+"""The steps the text-size control offers, as percentages (LWSM-1032).
+
+Here rather than in `mainwindow.py` so `load()` can refuse a value off them
+(LWSM-1281): a hand-edited 137 was applied with no menu entry checked.
+"""
+
 # How often the controller re-reads the socket table (LWSM-1018). This module
 # owns the value and `controller.POLL_INTERVAL_MS` is an alias for it, rather
 # than the other way round: `controller` imports QtCore and this one may not
@@ -398,6 +405,17 @@ def load(path: Path) -> LoadResult:
             reasons.append(reason)
         if number is not None:
             settings = replace(settings, **{field: number})
+
+    # In range is not enough: the menu offers steps, and a value between them
+    # was applied with no entry checked (LWSM-1281). Refused like a value out of
+    # range, so the fallback and the reason are the ones the user already sees.
+    if settings.text_scale not in TEXT_SIZE_STEPS:
+        reasons.append(
+            f"text_scale {settings.text_scale} is not one of the offered sizes "
+            f"{', '.join(str(step) for step in TEXT_SIZE_STEPS)}; using "
+            f"{MIN_TEXT_SCALE}"
+        )
+        settings = replace(settings, text_scale=MIN_TEXT_SCALE)
 
     maximized, reason = _bool_or_reason("maximized", document.get("maximized"))
     if reason is not None:

@@ -95,7 +95,7 @@ from lwsm.registry import (
     RegistryNotDurable,
 )
 from lwsm.service import describe_holder
-from lwsm.settings import MAX_TEXT_SCALE, MIN_TEXT_SCALE
+from lwsm.settings import MIN_TEXT_SCALE, TEXT_SIZE_STEPS
 from lwsm.theme import (
     DEFAULT_THEME,
     FOLLOW_SYSTEM,
@@ -117,13 +117,6 @@ PlaceWindow = Callable[..., "Rect | None"]
 # `controller.stop()` uses, and for the same reason: an unbounded wait turns a
 # slow scan into an app that cannot be quit.
 RESCAN_STOP_WAIT_MS = 5000
-
-TEXT_SIZE_STEPS = (MIN_TEXT_SCALE, 125, 150, 175, MAX_TEXT_SCALE)
-"""The steps the text-size control offers, as percentages (LWSM-1032).
-
-The two ends are `settings.MIN/MAX_TEXT_SCALE` rather than literals, so the
-menu cannot come to offer a size the settings file would refuse to store.
-"""
 
 # How many rows the window shows before the list starts scrolling, and the
 # fewest it stays legible at (LWSM-1149). Counts of rows, not pixels: the
@@ -1790,7 +1783,8 @@ class MainWindow(QMainWindow):
         self._export_action: QAction | None = None
         self._import_action: QAction | None = None
         if self._rescan is not None and self._load is not None:
-            self._file_menu.addSeparator()
+            # No separator of its own: the Rescan entry's already sits above,
+            # and this block only exists when that one does (LWSM-1281).
             self._export_action = self._file_menu.addAction("")
             self._export_action.triggered.connect(self._export_profile)
             self._import_action = self._file_menu.addAction("")
@@ -2079,7 +2073,7 @@ class MainWindow(QMainWindow):
             # half-retranslated. The rule is the file's, not that function's.
             action.setText(
                 QCoreApplication.translate("ProjectRow", "%1 %").replace(
-                    "%1", str(percent)
+                    "%1", QLocale().toString(percent)
                 )
             )
         self._settings_action.setText(

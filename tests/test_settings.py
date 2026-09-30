@@ -450,6 +450,7 @@ def test_a_stored_text_scale_survives_the_round_trip(tmp_path: Path) -> None:
     [
         99,  # below the floor
         201,  # above the ceiling
+        137,  # in range but not a step the menu offers (LWSM-1281)
         0,
         -100,
         "150",  # the shape a hand-editor most plausibly writes

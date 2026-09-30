@@ -7346,3 +7346,29 @@ def test_the_rescan_defaults_reach_a_patched_scanner_and_writer(monkeypatch) -> 
     context.save()
 
     assert calls == ["scan", "save"]
+
+
+# --- LWSM-1281: the chrome LOW batch ------------------------------------------
+
+
+def test_the_text_size_labels_use_the_users_digits(qtbot, built) -> None:
+    """`str(percent)` is always ASCII digits; the rescan summary already used
+    the user's own (known-issue-056)."""
+    from PySide6.QtCore import QLocale
+
+    before = QLocale()
+    QLocale.setDefault(QLocale(QLocale.Language.Arabic, QLocale.Country.Egypt))
+    try:
+        window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+        window._retranslate_menus()
+        text = window._text_size_actions[100].text()
+    finally:
+        QLocale.setDefault(before)
+    assert "١٠٠" in text, text  # ARABIC-INDIC ONE, ZERO, ZERO
+
+
+def test_the_file_menu_has_no_two_separators_in_a_row(qtbot, built, tmp_path) -> None:
+    """Qt collapses them by default, which is why the dead one went unseen."""
+    window, _ = profile_window(qtbot, built, two_rows(), tmp_path)
+    kinds = [action.isSeparator() for action in window._file_menu.actions()]
+    assert not any(a and b for a, b in zip(kinds, kinds[1:], strict=False)), kinds
