@@ -492,6 +492,13 @@ otherwise. What is missing is the thing that would notice it stopping.
 - **Logged:** 2026-08-12
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1324.**
 - **Queued 2026-09-28 as LWSM-1332**, with the dir_fd design.
+- **RESOLVED 2026-10-01 (LWSM-1332)**: `_open_source` walks every component
+  from `/` with `O_PATH | O_DIRECTORY | O_NOFOLLOW`, so a directory swapped
+  for a symlink after the check is refused. Every caller passes a resolved
+  path, which is why no seam signature changed.
+  `test_a_directory_swapped_for_a_symlink_after_the_hop_check_is_not_followed`
+  swaps it through the `_accept_hop` seam; it read port 9999 from outside the
+  project before the fix.
 
 ## known-issue-020 — A hard link reads outside the project through the `_open_source` seam
 

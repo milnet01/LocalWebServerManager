@@ -273,8 +273,30 @@ def _open_source(path: Path) -> int:
     through otherwise: `S_ISREG` and `os.access(X_OK)` both describe the
     *target*, so neither can see it. This is also the seam INV-20's test patches
     to record every path the scan touches.
+
+    **Every component is walked with `O_NOFOLLOW`, not only the last**
+    (LWSM-1332). The containment check that precedes an open resolves the path,
+    and the open used to re-walk it by name — so a directory swapped for a
+    symlink between the two was followed out of the project (CWE-367). Every
+    caller passes a RESOLVED path, which holds no symlink, so a symlink met
+    here appeared after the check and is refused: `O_DIRECTORY` makes it
+    `ENOTDIR` rather than letting `O_PATH` open the link itself.
     """
-    return os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    parts = Path(path).parts
+    if not parts or parts[0] != os.sep:
+        raise OSError(errno.EINVAL, "not an absolute path", str(path))
+    walk = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(os.sep, walk)
+    try:
+        for part in parts[1:-1]:
+            child = os.open(part, walk, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return os.open(
+            parts[-1], os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=fd
+        )
+    finally:
+        os.close(fd)
 
 
 def _checked_descriptor(path: Path) -> int:

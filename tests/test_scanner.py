@@ -937,6 +937,52 @@ def test_a_hop_out_of_the_project_is_refused(
     assert secret.resolve() not in [path.resolve() for path in opened_paths]
 
 
+def test_a_directory_swapped_for_a_symlink_after_the_hop_check_is_not_followed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check and the open must see the same path (LWSM-1332).
+
+    `_accept_hop` resolves the target and checks it is contained; the open
+    then re-walks it by name. `O_NOFOLLOW` guards only the last component, so
+    an intermediate directory replaced by a symlink between the two was
+    followed out of the project. The swap is made through the `_accept_hop`
+    seam, so the window is entered rather than raced for.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "app.py").write_text("PORT = 9999\n", encoding="utf-8")
+    make_project(
+        root,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nexec python3 sub/app.py\n",
+            "sub/app.py": "PORT = 1111\n",
+        },
+        "start.sh",
+    )
+    sub = root / "proj" / "sub"
+    real = scanner._accept_hop
+    swapped: list[bool] = []
+
+    def swap_after_check(token, candidate, launcher):
+        result = real(token, candidate, launcher)
+        if result[0] is not None and not swapped:
+            (sub / "app.py").unlink()
+            sub.rmdir()
+            sub.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return result
+
+    monkeypatch.setattr(scanner, "_accept_hop", swap_after_check)
+
+    project = by_name(scan_root(root))["proj"]
+
+    assert swapped, "the hop was never accepted, so the window was never entered"
+    assert project.port is None or project.port.port != 9999
+
+
 def test_a_hop_token_holding_a_nul_byte_does_not_raise(tmp_path: Path) -> None:
     """`os.path.commonpath` accepts a NUL happily, and then `Path.resolve()` and
     `os.open()` both raise **`ValueError`** — not an `OSError`, so § 4.3's
