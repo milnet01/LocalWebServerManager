@@ -1424,11 +1424,18 @@ def test_the_managed_child_is_not_reaped_before_the_stop_sequence_ends(
     so the assertion holds whether or not the rule does. Measured by mutation on
     2026-08-14: the first version of this test survived a reap injected straight
     into the wait loop.
+
+    The trap leaves a short-lived member in the group and exits AT ONCE, so the
+    child dies at the start of the window and the loop keeps turning after it —
+    which is what lets a premature reap be seen. An immediate exit with nothing
+    left behind let the loop turn only once on a loaded machine and trip the
+    vacuity guard; a sleep BEFORE the exit fixed that and let an injected reap
+    survive, because the loop then ended on the turn that reaped (LWSM-1334).
     """
     write_launcher(
         project,
         """
-        trap 'exit 7' TERM
+        trap '(sleep 0.3 &); exit 7' TERM
         echo trap-installed
         while true; do sleep 0.05; done
         """,
