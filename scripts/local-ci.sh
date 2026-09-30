@@ -317,6 +317,11 @@ fi
 # point is that it must not read as a detail inside a green run. A drifted tool
 # does not make this run wrong; it makes it non-predictive, which is worse to
 # discover from a red push than from four lines here.
+#
+# Neither block exits on its own under LWSM_REQUIRE_ALL_TOOLS=1: exiting in the
+# drift block meant CI never listed the checks that were also skipped
+# (LWSM-1284). Both lists print, then the run fails once, at the end.
+fatal=0
 if ((${#DRIFTED[@]})); then
     printf '\n%sTOOL DRIFT — %d tool(s) differ from what CI installs:%s\n' \
         "$YELLOW" "${#DRIFTED[@]}" "$RESET"
@@ -331,7 +336,7 @@ if ((${#DRIFTED[@]})); then
         # is decorative.
         printf '%sLWSM_REQUIRE_ALL_TOOLS=1: CI installed a version it did not promise.%s\n' \
             "$RED" "$RESET" >&2
-        exit 1
+        fatal=1
     fi
 fi
 
@@ -347,8 +352,10 @@ if ((${#SKIPPED[@]})); then
     if [[ ${LWSM_REQUIRE_ALL_TOOLS:-0} == 1 ]]; then
         printf '%sLWSM_REQUIRE_ALL_TOOLS=1 and %d check(s) did not run.%s\n' \
             "$RED" "${#SKIPPED[@]}" "$RESET" >&2
-        exit 1
+        fatal=1
     fi
+elif ((fatal)); then
+    : # The drift block above already said why this run fails.
 elif ((${#DRIFTED[@]})); then
     # A distinct final line, not the plain green one. "Local CI passed." is
     # what a reader takes as "GitHub will pass too", and with a drifted tool
@@ -357,4 +364,7 @@ elif ((${#DRIFTED[@]})); then
         "$YELLOW" "${#DRIFTED[@]}" "$RESET"
 else
     printf '\n%sLocal CI passed.%s\n' "$GREEN" "$RESET"
+fi
+if ((fatal)); then
+    exit 1
 fi

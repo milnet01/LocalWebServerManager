@@ -37,9 +37,10 @@ jobs:
     # default is 360 minutes; the whole gate runs in well under one.
     timeout-minutes: 15
     steps:
-      # Pinned to a commit SHA, not a tag: a major tag is a moving reference,
-      # and these two lines are the only third-party CODE that runs in this
-      # job. dependabot updates SHA pins and rewrites the trailing comment.
+      # Pinned to a commit SHA, not a tag: a major tag is a moving reference.
+      # Every `uses:` in this job is pinned that way; the tools the install
+      # step runs are pinned by version in scripts/ci-tools.env instead.
+      # dependabot updates SHA pins and rewrites the trailing comment.
       # persist-credentials: nothing here pushes, so leaving the job token in
       # .git/config for the rest of the run buys nothing.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -66,9 +66,10 @@ Before opening a PR:
    `core.hooksPath` is a local setting and cannot be committed,
    so this is the one step a checkout cannot do for you.
 
-   The gate is `./scripts/local-ci.sh` — lint, format check,
-   syntax, entry-point resolution, tests, shellcheck and workflow
-   YAML. CI runs that same script rather than restating its
+   The gate is `./scripts/local-ci.sh` — tool versions against
+   `scripts/ci-tools.env`, a locked dependency sync, version
+   lockstep, lint, format check, syntax, type check (pyright),
+   entry-point resolution, tests, shellcheck and workflow YAML. CI runs that same script rather than restating its
    steps, so the two cannot drift apart.
 
    **Running it by hand is more forgiving than CI**, and that is

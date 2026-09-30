@@ -30,6 +30,13 @@ cd "$(dirname "$0")/.."
 
 RECIPE=.claude/bump.json
 
+# Every check below reads the recipe with it, so a missing interpreter was
+# reported as a malformed recipe (LWSM-1284).
+command -v python3 >/dev/null 2>&1 || {
+    printf 'local-release: python3 is not on PATH, and every check needs it\n' >&2
+    exit 2
+}
+
 usage() {
     printf 'usage: %s [X.Y.Z] [--dry-bump]\n' "$0"
     printf '  X.Y.Z       the version you intend to cut; omitted, the checks\n'
@@ -48,8 +55,15 @@ for arg in "$@"; do
             usage
             exit 0
             ;;
-        [0-9]*.[0-9]*.[0-9]*) TARGET=$arg ;;
         *)
+            # A version, validated whole: the old `[0-9]*.[0-9]*.[0-9]*` glob
+            # admitted `1.2.3'+...`, which then reached Python source and
+            # grep patterns (LWSM-1284). `-rc.N` is what `cut-release --pre`
+            # cuts.
+            if [[ $arg =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+                TARGET=$arg
+                continue
+            fi
             printf 'unknown argument: %s\n' "$arg" >&2
             usage >&2
             exit 2
@@ -233,10 +247,12 @@ step "0d  Already published"
 if [[ -z $TARGET ]]; then
     skip "tag and release existence (needs a target version)"
 else
-    TAG=$(python3 -c "
-import json,sys
-recipe=json.loads(open('$RECIPE').read())
-print(recipe.get('tag','').replace('{NEW}','$TARGET'))")
+    TAG=$(python3 - "$RECIPE" "$TARGET" <<'PY'
+import json, sys
+recipe = json.loads(open(sys.argv[1]).read())
+print(recipe.get("tag", "").replace("{NEW}", sys.argv[2]))
+PY
+)
     if [[ -z $TAG ]]; then
         ok "recipe has no tag template — nothing to check"
     else
@@ -386,9 +402,12 @@ dry_bump() {
     local old=$1 new=$2 recipe=$3 post_check bump_failed=0
 
     # Revert only the recipe's own paths, never `git checkout -- .`.
-    mapfile -t BUMPED_PATHS < <(python3 -c "
-import json
-for e in json.loads(open('$recipe').read())['files']: print(e['path'])")
+    mapfile -t BUMPED_PATHS < <(python3 - "$recipe" <<'PY'
+import json, sys
+for e in json.loads(open(sys.argv[1]).read())["files"]:
+    print(e["path"])
+PY
+)
     trap 'git checkout -- "${BUMPED_PATHS[@]}" 2>/dev/null || true' EXIT
 
     python3 - "$recipe" "$old" "$new" <<'PY'
@@ -404,9 +423,11 @@ for entry in recipe["files"]:
     print(f"  bumped {path}")
 PY
 
-    post_check=$(python3 -c "
-import json
-print(json.loads(open('$recipe').read()).get('post_check',''))")
+    post_check=$(python3 - "$recipe" <<'PY'
+import json, sys
+print(json.loads(open(sys.argv[1]).read()).get("post_check", ""))
+PY
+)
     if [[ -n $post_check ]]; then
         # Not under the ERR trap: the revert MUST run even when this fails.
         if eval "$post_check"; then

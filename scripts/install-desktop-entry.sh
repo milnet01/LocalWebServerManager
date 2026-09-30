@@ -141,10 +141,14 @@ trap - EXIT
 # push on 2026-08-18. The tool versions are pinned now (scripts/ci-tools.env),
 # but the explicit form is clearer anyway and cannot re-open the argument.
 if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database "$apps_dir" || true
+    # Best-effort, but said aloud (LWSM-1284): "Installed:" below was printed
+    # whether or not the launcher's caches knew about the entry.
+    update-desktop-database "$apps_dir" ||
+        echo "note: update-desktop-database failed; the launcher may be slow to list the entry" >&2
 fi
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
-    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 ||
+        echo "note: kbuildsycoca6 failed; KDE may not list the entry until next login" >&2
 fi
 
 echo "Installed:"

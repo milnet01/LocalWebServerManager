@@ -359,7 +359,7 @@ def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> N
     )
 
 
-def _hook_verdict(tmp_path: Path, changed: str) -> str:
+def _hook_verdict(tmp_path: Path, changed: str, gate_extra: str = "") -> str:
     """Run the REAL hook in a throwaway clone whose gate is a stub, pushing one
     commit that touches `changed`, and return everything the run printed.
 
@@ -379,7 +379,7 @@ def _hook_verdict(tmp_path: Path, changed: str) -> str:
     gate.write_text(
         "#!/usr/bin/env bash\n"
         'printf "GATE-RAN REQUIRE=%s ARGS=[%s]\\n" '
-        '"${LWSM_REQUIRE_ALL_TOOLS:-unset}" "$*"\n'
+        '"${LWSM_REQUIRE_ALL_TOOLS:-unset}" "$*"\n' + gate_extra
     )
     gate.chmod(0o755)
 
@@ -816,3 +816,67 @@ def test_the_hook_asks_about_the_remote_git_named(tmp_path) -> None:
         "the hook ignored the remote git named it and exempted a push origin "
         "has never seen"
     )
+
+
+def test_a_worktree_that_will_not_go_away_is_reported_and_does_not_refuse_the_push(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1284: cleanup sent `git worktree remove`'s error to /dev/null, beside
+    a comment saying a leftover "is a git failure worth seeing rather than
+    hiding". A locked worktree makes a single `--force` refuse, which is the
+    failure driven here — after a green gate, where it must not fail the push.
+    """
+    out = _hook_verdict(tmp_path, "src/x.py", gate_extra='git worktree lock "$PWD"\n')
+    assert "GATE-RAN" in out
+    assert "could not remove" in out, out
+
+
+def test_the_drift_check_takes_the_first_version_line_as_the_recipe_does(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1284: every `sed -n ...p` printed EVERY match, so a second
+    `version = "x.y.z"` in another TOML table made a two-line value that
+    matched nothing, while the recipe's `re.search` takes the first."""
+    (tmp_path / "scripts").mkdir()
+    shutil.copy(DRIFT, tmp_path / "scripts" / DRIFT.name)
+    (tmp_path / "src/lwsm").mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nversion = "1.2.3"\n\n[tool.other]\nversion = "9.9.9"\n'
+    )
+    (tmp_path / "src/lwsm/__init__.py").write_text('__version__ = "1.2.3"\n')
+    (tmp_path / "README.md").write_text("Current version: **1.2.3** (x)\n")
+    (tmp_path / "ROADMAP.md").write_text("> **Current version:** 1.2.3 (x)\n")
+
+    done = subprocess.run(
+        ["bash", str(tmp_path / "scripts" / DRIFT.name)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+
+
+def test_under_ci_both_drift_and_skips_are_listed_before_the_run_fails(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1284: the drift block exited under LWSM_REQUIRE_ALL_TOOLS=1 before
+    the skip block printed, so CI never listed the checks that also did not
+    run. The summary is executed, extracted from the real script, with both
+    lists preset — the whole gate would take a minute to reach it."""
+    text = LOCAL_CI.read_text()
+    start = text.index("# Reported BEFORE the pass/skip line")
+    block = (
+        'RED="" YELLOW="" GREEN="" RESET=""\n'
+        "DRIFTED=(shellcheck-drifted)\nSKIPPED=(actionlint)\n" + text[start:]
+    )
+    script = tmp_path / "summary.sh"
+    script.write_text(block)
+    env = {**os.environ, "LWSM_REQUIRE_ALL_TOOLS": "1"}
+
+    done = subprocess.run(
+        ["bash", str(script)], capture_output=True, text=True, env=env
+    )
+
+    out = done.stdout + done.stderr
+    assert done.returncode == 1, out
+    assert "shellcheck-drifted" in out and "actionlint" in out, out

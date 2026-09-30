@@ -30,7 +30,11 @@ cd "$(dirname "$0")/.."
 # 0002-port-contract.md contains `0.0.0.0`, a bind address, and a tree-wide
 # grep cannot tell a version from an IP or from a historical marker
 # ("added in 0.6.29") that becomes false the moment it is bumped.
-source_of_truth=$(sed -n 's/^version = "\([0-9]\+\.[0-9]\+\.[0-9]\+\)"$/\1/p' pyproject.toml)
+# POSIX BRE (`[0-9][0-9]*`, not GNU's `\+`), and the FIRST match only, which
+# is what the release recipe's `re.search` takes: a second `version = "..."`
+# line in another TOML table made this a two-line value (LWSM-1284).
+V='\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)'
+source_of_truth=$(sed -n "/^version = \"$V\"\$/{s//\1/p;q;}" pyproject.toml)
 if [[ -z $source_of_truth ]]; then
     printf 'check-version-drift: no version found in pyproject.toml\n' >&2
     exit 1
@@ -51,16 +55,15 @@ expect() {
 # ROADMAP capture was anchored to a trailing period and the line continues
 # " See", so it matched nothing and reported <not found> against a file that
 # was correct.
-V='\([0-9]\+\.[0-9]\+\.[0-9]\+\)'
 expect "__version__" src/lwsm/__init__.py \
-    "$(sed -n "s/^__version__ = \"$V\"\$/\1/p" src/lwsm/__init__.py)"
+    "$(sed -n "/^__version__ = \"$V\"\$/{s//\1/p;q;}" src/lwsm/__init__.py)"
 expect "README current version" README.md \
-    "$(sed -n "s/^Current version: \*\*$V\*\*.*\$/\1/p" README.md)"
+    "$(sed -n "/^Current version: \*\*$V\*\*.*\$/{s//\1/p;q;}" README.md)"
 # Whatever follows the triple, not a period specifically: ROADMAP.md is
 # rendered from Ants MCP's roadmap store and the tail of that line is the
 # store's to decide, not ours.
 expect "ROADMAP current version" ROADMAP.md \
-    "$(sed -n "s/^> \*\*Current version:\*\* $V.*\$/\1/p" ROADMAP.md)"
+    "$(sed -n "/^> \*\*Current version:\*\* $V.*\$/{s//\1/p;q;}" ROADMAP.md)"
 
 if ((drift)); then
     printf '\ncheck-version-drift: files disagree about the version.\n' >&2

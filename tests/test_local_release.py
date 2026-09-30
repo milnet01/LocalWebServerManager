@@ -359,3 +359,39 @@ def test_a_push_only_workflow_declares_no_tag_or_release_trigger(tmp_path) -> No
     assert "branch push" in triggers
     assert "tag push" not in triggers
     assert "release published" not in triggers
+
+
+# --- LWSM-1284: what the argument loop admits ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "arg",
+    ["1.2.3'+__import__('os').getcwd()+'", "1.2.3|.*", "1x.2.3", "1.2.3-beta"],
+)
+def test_a_version_that_is_not_one_is_refused_before_anything_runs(arg) -> None:
+    """The old `[0-9]*.[0-9]*.[0-9]*` glob admitted each of these, and the
+    first then reached Python source through string interpolation. The loop
+    refuses before any check runs, so this touches nothing."""
+    result = subprocess.run(
+        ["bash", str(RELEASE), arg], cwd=REPO, capture_output=True, text=True
+    )
+    assert result.returncode == 2, result.stderr
+    assert "unknown argument" in result.stderr
+
+
+def test_a_missing_python_is_named_rather_than_blamed_on_the_recipe(tmp_path) -> None:
+    """Every check reads the recipe through python3, so its absence surfaced as
+    "recipe is not in the dialect cut-release reads"."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for tool in ("bash", "dirname", "git"):
+        (bin_dir / tool).symlink_to(shutil.which(tool))
+    result = subprocess.run(
+        [str(bin_dir / "bash"), str(RELEASE)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        env={"PATH": str(bin_dir)},
+    )
+    assert result.returncode == 2, result.stderr
+    assert "python3 is not on PATH" in result.stderr

@@ -25,7 +25,7 @@
 #   LWSM_SKIP_PREPUSH=1 git push  the gate only, when a wrapper eats --no-verify
 #
 # Enable with:  git config core.hooksPath .githooks
-# That is per-clone and cannot be committed, which is why tests/test_hooks.py
+# That is per-clone and cannot be committed, which is why tests/test_ci_contract.py
 # checks the file is present and executable rather than that it is active.
 set -Eeuo pipefail
 
@@ -175,9 +175,12 @@ fi
 # the checkout and `uv sync` cost 5.2s against the gate's own runtime.
 WORKTREE=""
 cleanup() {
-    [[ -n $WORKTREE ]] && git worktree remove --force "$WORKTREE" 2>/dev/null
     # Not `rm -rf` as a fallback: WORKTREE is a mktemp path and git empties it,
-    # so anything left is a git failure worth seeing rather than hiding.
+    # so anything left is a git failure worth seeing rather than hiding. Shown,
+    # and never fatal: this runs after a green gate, and under `set -e` a
+    # failed remove refused the push with exit 128 and no message (LWSM-1284).
+    [[ -z $WORKTREE ]] || git worktree remove --force "$WORKTREE" ||
+        printf 'pre-push: could not remove worktree %s\n' "$WORKTREE" >&2
     return 0
 }
 trap cleanup EXIT
