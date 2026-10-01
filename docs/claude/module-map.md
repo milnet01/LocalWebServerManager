@@ -72,8 +72,10 @@ Added at P02 (LWSM-1005), contract in
   refreshes the detected half and preserves the user half, an import does the
   reverse, and both are driven by `DETECTED_FIELDS` / `USER_FIELDS` so
   LWSM-1007 INV-1 keeps each complete. **One exception: an import never
-  takes `actions`** (LWSM-1344), on either branch of `merge_imported`; the
-  rescan's use of `user_half_applied` does. **`user_half_applied` takes the
+  takes `NEVER_IMPORTED_FIELDS`** — `actions`, `launcher_override`,
+  `start_at_login`, the fields that run something (LWSM-1344, LWSM-1369) —
+  on either branch of `merge_imported`; the rescan's use of
+  `user_half_applied` does. **`user_half_applied` takes the
   user half whole except `unknown`** (LWSM-1218; its docstring says why),
   where `_detected_half_applied` qualifies `port`: a scan's `None` means
   *unknown*, a profile's `None` is a real value. Taking the rest whole rests

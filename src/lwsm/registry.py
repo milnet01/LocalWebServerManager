@@ -1459,8 +1459,23 @@ def export_profile(
         raise RegistryError(str(exc)) from exc
 
 
-# The one user field an import does not restore. See `user_half_applied`.
+# The one user field `user_half_applied` does not restore; see its docstring.
+# `NEVER_IMPORTED_FIELDS` below are excluded by `merge_imported` instead.
 _NOT_RESTORED_BY_IMPORT = frozenset({"unknown"})
+
+# The user fields that run something, which an import never takes, on either
+# branch: a profile is a file someone can hand you (LWSM-1344 for `actions`,
+# LWSM-1369 for the other two; user, 2026-10-01). Excluded in `merge_imported`
+# rather than in `user_half_applied`, whose other caller is the rescan, where
+# these ARE the user's. Each maps to the words the import report uses.
+NEVER_IMPORTED_FIELDS: frozenset[str] = frozenset(
+    {"actions", "launcher_override", "start_at_login"}
+)
+_NEVER_IMPORTED_WORDS = {
+    "actions": "custom actions were",
+    "launcher_override": "start command was",
+    "start_at_login": "start at login setting was",
+}
 
 
 def user_half_applied(record: ProjectRecord, profile: ProjectRecord) -> ProjectRecord:
@@ -1522,7 +1537,12 @@ def _detected_half_cleared(record: ProjectRecord) -> ProjectRecord:
     INV-1 keeps this complete: a field added to `ProjectRecord` and classified
     detected is cleared without this function being touched.
     """
-    defaults = {
+    return replace(record, **_defaults(DETECTED_FIELDS - {"path"}))
+
+
+def _defaults(names: frozenset[str]) -> dict[str, object]:
+    """`ProjectRecord`'s own default for each field in `names`."""
+    return {
         entry.name: (
             entry.default_factory()
             # `_NO_DEFAULT`, not `MISSING`: this module defines its own
@@ -1533,9 +1553,8 @@ def _detected_half_cleared(record: ProjectRecord) -> ProjectRecord:
             else entry.default
         )
         for entry in dataclass_fields(ProjectRecord)
-        if entry.name in DETECTED_FIELDS and entry.name != "path"
+        if entry.name in names
     }
-    return replace(record, **defaults)
 
 
 def merge_imported(
@@ -1595,15 +1614,15 @@ def merge_imported(
             continue
         claimed_by_profile.add(resolved)
 
-        # `actions` are commands, and an import never takes them (LWSM-1344,
-        # user 2026-10-01): a profile is a file someone can hand you, and
-        # `design.md § Custom project actions` argues only that the Scanner
-        # cannot author one. Done here rather than in `user_half_applied`,
-        # whose other caller is the rescan, where the actions ARE the user's.
-        if record.actions:
-            note(
-                f"{quoted(record.name)}: the profile's custom actions were not imported"
-            )
+        # `NEVER_IMPORTED_FIELDS`: reported where the profile carried a value,
+        # because a silent drop reads as a profile that had none.
+        defaults = _defaults(NEVER_IMPORTED_FIELDS)
+        for name in sorted(NEVER_IMPORTED_FIELDS):
+            if getattr(record, name) != defaults[name]:
+                note(
+                    f"{quoted(record.name)}: the profile's "
+                    f"{_NEVER_IMPORTED_WORDS[name]} not imported"
+                )
 
         index = owner.get(resolved)
         if index is None:
@@ -1613,12 +1632,15 @@ def merge_imported(
             # The USER half only. The profile's detected fields describe the
             # machine it came from, and this one has never scanned this path
             # (LWSM-1216); a rescan derives them here.
-            records.append(replace(_detected_half_cleared(record), actions=()))
+            records.append(replace(_detected_half_cleared(record), **defaults))
             flag(NEW, f"{quoted(record.name)}: added from the profile")
             continue
 
         current = records[index]
-        restored = replace(user_half_applied(current, record), actions=current.actions)
+        restored = replace(
+            user_half_applied(current, record),
+            **{name: getattr(current, name) for name in NEVER_IMPORTED_FIELDS},
+        )
         if restored == current:
             counts[UNCHANGED] += 1
             continue

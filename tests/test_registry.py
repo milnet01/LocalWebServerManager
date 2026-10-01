@@ -2040,13 +2040,14 @@ def test_an_import_restores_every_user_field_and_no_detected_one() -> None:
     assert len(merged.records) == 1
     restored = merged.records[0]
 
-    # `actions` is the one user field an import never takes (LWSM-1344); its
-    # own tests are below.
-    for name in registry.USER_FIELDS - {"actions"}:
+    # The fields that run something are never imported (LWSM-1344,
+    # LWSM-1369); their own tests are below.
+    for name in registry.USER_FIELDS - registry.NEVER_IMPORTED_FIELDS:
         assert getattr(restored, name) == getattr(profile, name), (
             f"user field {name!r} was not restored from the profile"
         )
-    assert restored.actions == stored.actions
+    for name in registry.NEVER_IMPORTED_FIELDS:
+        assert getattr(restored, name) == getattr(stored, name), name
     for name in registry.DETECTED_FIELDS:
         assert getattr(restored, name) == getattr(stored, name), (
             f"detected field {name!r} was taken from the profile and must not be"
@@ -2124,6 +2125,35 @@ def test_an_imported_project_this_machine_has_never_seen_brings_no_actions() -> 
     assert added.actions == (), "an action arrived from another machine"
     assert added.notes == profile.notes, "the rest of the user half arrives"
     assert any("actions" in reason for reason in merged.reasons), merged.reasons
+
+
+@pytest.mark.parametrize(
+    ("field", "mine", "theirs"),
+    [
+        ("launcher_override", "./mine.sh", "./theirs.sh"),
+        ("start_at_login", False, True),
+    ],
+)
+def test_an_import_never_takes_a_start_command_or_start_at_login(
+    field: str, mine: object, theirs: object
+) -> None:
+    """LWSM-1369 (user, 2026-10-01). A start command is a command, and
+    start-at-login makes something run unasked: a profile someone hands you
+    sets neither, on either branch, for LWSM-1344's reason. Nothing reads
+    either field yet, which is why this lands before the features do.
+    """
+    stored = dataclasses.replace(every_field_record(), **{field: mine})
+    profile = dataclasses.replace(every_field_record(), **{field: theirs})
+    elsewhere = dataclasses.replace(profile, path=Path("/srv/elsewhere"))
+
+    merged = registry.merge_imported([stored], [profile, elsewhere])
+
+    kept, added = merged.records
+    assert getattr(kept, field) == mine, "the profile's value replaced this one"
+    default = getattr(registry.ProjectRecord(path=Path("/x"), name="x"), field)
+    assert getattr(added, field) == default, "a new project brought the value in"
+    words = {"launcher_override": "start command", "start_at_login": "at login"}
+    assert any(words[field] in reason for reason in merged.reasons), merged.reasons
 
 
 def test_an_import_with_no_actions_says_nothing_about_them() -> None:
