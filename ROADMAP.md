@@ -9974,7 +9974,7 @@ O8` forbids retrofitting that.
   Source: refactor-pass-2026-10-01 R-7.
   Lanes: persistence.
 
-- 📋 [LWSM-1363] **The npm trust fingerprint covers only the chosen script, so a new pre/post script or a project .npmrc runs without asking again.**
+- ✅ [LWSM-1363] **The npm trust fingerprint covers only the chosen script, so a new pre/post script or a project .npmrc runs without asking again.**
   supervisor._npm_script hashes scripts[argv[2]] only. `npm run dev` also
   runs `predev` and `postdev`, and reads the project's .npmrc (script-shell,
   node-options), none of which reach the fingerprint. A git pull that adds
@@ -9983,12 +9983,15 @@ O8` forbids retrofitting that.
   post<name> and the project .npmrc bytes under their own markers. Still
   not the whole manifest, for the docstring's reason (dependency bumps).
   Verified 2026-10-01 by reading _npm_script.
+  Resolved (2026-10-01, a8903f5): pre/post scripts and the project
+  .npmrc are hashed, length-framed; start() checks .npmrc's owner and
+  mode. Tests red first, mutation-checked.
   **Layman:** After you approve a project's start command once, the project can add extra steps that run with it, and the app will not ask you again.
   Kind: security.
   Source: security-pass-2026-10-01 S-1.
   Lanes: supervisor.
 
-- 📋 [LWSM-1364] **A symlinked package.json fingerprints as the constant nofile marker, so once confirmed its scripts change freely.**
+- ✅ [LWSM-1364] **A symlinked package.json fingerprints as the constant nofile marker, so once confirmed its scripts change freely.**
   _npm_script reads project/package.json through _launcher_bytes (O_NOFOLLOW),
   so a symlink fails to read and the fingerprint becomes \0nofile\0, a
   constant. validate_launcher resolves the symlink and accepts an inside
@@ -9996,6 +9999,9 @@ O8` forbids retrofitting that.
   for the npm branch. Fix: resolve before reading, and refuse the npm shape
   in start() when the script cannot be read, so unreadable is never a state
   that can be confirmed.
+  Resolved (2026-10-01, a8903f5): package.json and .npmrc are resolved
+  before reading; start() refuses an unreadable npm script instead of
+  offering it.
   **Layman:** If a project's package file is a link to another file, approving it once lets that other file change what runs without asking again.
   Kind: security.
   Source: security-pass-2026-10-01 S-2.
@@ -10025,12 +10031,14 @@ O8` forbids retrofitting that.
   Source: security-pass-2026-10-01 S-4.
   Lanes: ports.
 
-- 📋 [LWSM-1367] **A package.json script holding a lone surrogate makes Start fail with no message.**
+- ✅ [LWSM-1367] **A package.json script holding a lone surrogate makes Start fail with no message.**
   `"dev": "\ud800"` is valid JSON; _npm_script's
   value.encode("utf-8", "surrogateescape") raises UnicodeEncodeError, which
   controller.start_project does not catch (SupervisorError, OSError only), so
   the slot dies silently. Fix: surrogatepass, or return None and refuse as in
   the symlinked-package.json item.
+  Resolved (2026-10-01, a8903f5): scripts encode with surrogatepass;
+  RecursionError caught on the same parse.
   **Layman:** A deliberately broken project file can make the Start button silently do nothing.
   Kind: security.
   Source: security-pass-2026-10-01 S-5.
