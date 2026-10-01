@@ -1049,6 +1049,12 @@ O8` forbids retrofitting that.
   NEXT: the two standing passes (refactor, security), then LWSM-1344
   (option a, confirm with the user once), the open fix/doc-fix items
   oldest first, then cut-release.
+  Progress (2026-10-01, 8cb5977, pushed): LWSM-1344 shipped (ba4f51d).
+  User decisions recorded on LWSM-1337, 1342, 1343, 1345, 1349 and 1355
+  (each now buildable; no longer waiting on the user). LWSM-1356 filed.
+  NEXT: the two standing passes (refactor, then security), then the open
+  fix/doc-fix/accessibility items in this section oldest first, then
+  cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
