@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "localwebservermanager"
-version = "0.0.0"
+version = "0.1.0"
 description = "Find, start, stop and watch the local web servers your projects run."
 readme = "README.md"
 requires-python = ">=3.13"

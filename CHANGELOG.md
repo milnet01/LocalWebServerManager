@@ -23,6 +23,8 @@ signaling per
 
 ## [0.1.0] - 2026-10-01
 
+**Theme:** Looks finished
+
 ### Added
 
 - **The checks before every push now include a type checker over the app's source.** (LWSM-1066)

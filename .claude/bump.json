@@ -36,7 +36,9 @@
 
   "tag": "v{NEW}",
 
-  "$no-todos": "No AppStream metainfo, no Debian changelog, no packaged artifact yet — those arrive with P10. Archive rotation (roadmap-format.md § 3.9) is not listed either: it fires on a minor or major bump only when ROADMAP.md is over the size threshold, and it has never run here. Add it as a todo the first time it is needed rather than carrying a step nobody has exercised.",
+  "$todos-note": "uv.lock records the project's own version, and the gate runs `uv sync --locked`, so a bump that leaves the lock behind fails its own pipeline. Found on the first real cut, 0.1.0 (2026-10-01). Mechanical: re-lock, no judgement. Still no AppStream metainfo, Debian changelog or packaged artifact — those arrive with P10. Archive rotation (roadmap-format.md § 3.9) is not listed either: add it the first time it is needed.",
+
+  "todos": ["uv lock"],
 
   "post_check": "bash scripts/check-version-drift.sh"
 }
