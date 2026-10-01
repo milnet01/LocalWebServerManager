@@ -1058,6 +1058,15 @@ O8` forbids retrofitting that.
   NEXT: the two standing passes (refactor, then security), then the open
   fix/doc-fix/accessibility items in this section oldest first, then
   cut-release.
+  Progress (2026-10-01, pushed): standing passes done. Refactor pass filed
+  LWSM-1357 to 1362 and 1368; security pass filed LWSM-1363 to 1367 and
+  1369 (user decision on 1369: an import never takes launcher_override or
+  start_at_login). Closed: 1299 and 1312 (built earlier, flips missed),
+  1356, 1346 (measured: this Qt relays no live desktop font change; user
+  chose apply-at-restart, documented), 1363, 1364, 1367 (a8903f5).
+  LWSM-1348: user has no screen reader, so check AT-SPI directly.
+  NEXT: security LWSM-1365, 1366, 1369; then accessibility 1337/1349,
+  1342, 1343, 1345, 1348; then the refactor items; then cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
@@ -10057,13 +10066,17 @@ O8` forbids retrofitting that.
   Source: refactor-pass-2026-10-01 R-2.
   Lanes: supervisor, scanner.
 
-- 📋 [LWSM-1369] **A profile import takes launcher_override and start_at_login, two fields a later feature will act on.**
+- ✅ [LWSM-1369] **A profile import takes launcher_override and start_at_login, two fields a later feature will act on.**
   Both are USER_FIELDS, so merge_imported restores them; nothing reads them
   yet. launcher_override is a command (LWSM-1344's reasoning) and
   start_at_login makes something run unasked (LWSM-1027).
   Decision (user, 2026-10-01): an import never takes either, as with
   actions. Not decided: unknown keys a profile carries, which a later
   version might honour; decide before such a field ships.
+  Resolved (2026-10-01, 113f1f9): registry.NEVER_IMPORTED_FIELDS
+  (actions, launcher_override, start_at_login); both branches of
+  merge_imported keep or default them and report what was left out.
+  Unknown keys remain undecided, as noted above.
   **Layman:** A settings profile someone hands you should never be able to set a start command or make a project start on its own.
   Kind: security.
   Source: security-pass-2026-10-01 latent.
