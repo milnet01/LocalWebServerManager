@@ -284,7 +284,10 @@ value and ignoring the wrong one are two different properties.
 
 - Stopping a project stops the whole tree, so ports are actually
   released — the single most important correctness property of
-  the Stop button.
+  the Stop button. The one exception is a launcher that calls
+  `setsid` to daemonise: its server leaves the group, survives
+  Stop, and is reported only as the port still being bound
+  (review-code 2026-10-01).
 - Service-managed projects are driven by the thing that already
   owns them, rather than fought with.
 - No sibling project has to change to be launchable, which was

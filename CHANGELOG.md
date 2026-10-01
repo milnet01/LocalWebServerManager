@@ -321,6 +321,14 @@ signaling per
 
 ### Fixed
 
+- **A server that runs several worker processes is recognised as one server**
+
+- **Logs of servers left running from an earlier session are kept to the size limit too**
+
+- **A stop or start that fails part-way no longer loses track of the running server**
+
+- **A system service is never mistaken for one of your own services**
+
 - **A line like `parseInt(process.env.PORT, 10) || 3000` is read as port 3000, not 10**
   The port finder took the first number after `port =`. It now reads the
   fallback value and skips number bases and list indexes.

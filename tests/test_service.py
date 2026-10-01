@@ -249,7 +249,6 @@ def test_the_disclosure_carries_the_four_fields_the_adr_names() -> None:
     assert holder.cmdline == "/usr/bin/node serve.mjs"
     assert holder.started == 1788718035.0
     assert holder.unit == "ants-stats.service"
-    assert holder.service_managed
 
 
 def test_one_refused_field_does_not_cost_the_whole_disclosure() -> None:
@@ -268,12 +267,11 @@ def test_one_refused_field_does_not_cost_the_whole_disclosure() -> None:
     assert holder.unit == "ants-stats.service"
 
 
-def test_a_holder_with_no_unit_is_not_service_managed() -> None:
+def test_a_holder_with_no_unit_has_none() -> None:
     """Which is what sends the caller down the signalling path instead."""
     holder = describe_holder(7, process=FakeProcess(), read_cgroup=lambda pid: "0::/\n")
 
     assert holder.unit is None
-    assert not holder.service_managed
 
 
 def test_a_holder_is_still_returned_when_the_process_is_gone() -> None:
@@ -282,4 +280,26 @@ def test_a_holder_is_still_returned_when_the_process_is_gone() -> None:
     holder = Holder(pid=99)
 
     assert holder.pid == 99
-    assert not holder.service_managed
+    assert holder.unit is None
+
+
+def test_a_system_service_is_never_named_as_a_user_unit() -> None:
+    """review-code 2026-10-01 L3-L5: a holder under `/system.slice/` named
+    `foo.service`, which was then driven with `--user` — harmless unless a user
+    unit of the same name exists, when a different unit is stopped. Only a
+    unit under a user manager (`user@<uid>.service/`) is ours to drive."""
+    raw = "0::/system.slice/nginx.service\n"
+    assert unit_for_pid(5, read_cgroup=lambda pid: raw) is None
+
+
+def test_systemctl_stderr_that_is_not_utf8_is_a_reason_not_an_exception() -> None:
+    """L3-L4: `text=True` decodes strictly, and a `UnicodeDecodeError` is a
+    `ValueError` — against "Never raises to the caller"."""
+
+    def run(argv, **kwargs):
+        return subprocess.run(["sh", "-c", "printf 'bad \\377' >&2; exit 1"], **kwargs)
+
+    outcome = drive_unit("stop", "ants-stats.service", run=run)
+
+    assert not outcome.ok
+    assert outcome.reason.startswith("bad")

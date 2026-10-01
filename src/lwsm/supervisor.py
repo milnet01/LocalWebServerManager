@@ -22,11 +22,13 @@ item, not an oversight.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import threading
@@ -934,53 +936,79 @@ class Supervisor:
             fd = os.dup(managed.log_fd)
 
         try:
-            size = os.fstat(fd).st_size
-            if size <= self.max_log_bytes:
-                return False
-
-            backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
-            # The same open as the log's, and it was NOT until LWSM-1229: this
-            # one carried `O_NOFOLLOW` alone, so a FIFO planted here blocked
-            # the poll thread forever -- `O_NOFOLLOW` refuses a symlink and
-            # says nothing about a pipe.
-            #
-            # Emptying it is `ftruncate` AFTER the check rather than `O_TRUNC`
-            # in the flags, which is not a detail: `O_TRUNC` destroys the
-            # target as part of opening it, so on a hard link planted here the
-            # file would be blanked and the refusal would arrive too late to
-            # matter. The check has to gate the destruction to be worth having.
-            out = _open_private_regular(backup, os.O_WRONLY | os.O_CREAT)
-            try:
-                os.ftruncate(out, 0)
-                offset = 0
-                while offset < size:
-                    # Read through our own descriptor, never by reopening the
-                    # path: reopening is a second chance for a symlink to be
-                    # swapped in between the check and the copy.
-                    chunk = os.pread(fd, _COPY_CHUNK_BYTES, offset)
-                    if not chunk:
-                        break
-                    offset += len(chunk)
-                    # Until every byte is taken (LWSM-1274): a regular file may
-                    # accept fewer than offered, and the original is emptied
-                    # below, so a dropped remainder would be gone for good.
-                    pending = memoryview(chunk)
-                    while pending:
-                        written = os.write(out, pending)
-                        if written == 0:
-                            # Never spin the poll thread on a write that takes
-                            # nothing; refuse and leave the original alone.
-                            raise OSError(
-                                errno.ENOSPC, "rotation copy made no progress"
-                            )
-                        pending = pending[written:]
-            finally:
-                os.close(out)
-            os.ftruncate(fd, 0)
-            log.info("rotated the log for %s at %d bytes", managed.name, size)
-            return True
+            return self._rotate_through(fd, managed.log_path, managed.name)
         finally:
             os.close(fd)
+
+    def rotate_log_at(self, project: Path, name: str) -> bool:
+        """`rotate_if_needed` for a log this session holds no descriptor for.
+
+        Servers outlive the manager (ADR-0003), so after a Quit, or for one
+        re-adopted after a relaunch, nothing here held its log and it grew
+        without the cap `design.md § Observability` promises (review-code
+        2026-10-01 L3-M5). Opened by path with `_open_log`'s discipline; the
+        child's `O_APPEND` makes truncating under it safe. A project this
+        session is running is skipped, since `rotate_if_needed` owns it.
+        """
+        resolved = Path(project).resolve()
+        with self._registry.lock:
+            if resolved in self._registry.processes:
+                return False
+        log_path = self.log_path_for(resolved, name)
+        try:
+            fd = _open_private_regular(log_path, os.O_RDWR)
+        except FileNotFoundError:
+            return False
+        try:
+            return self._rotate_through(fd, log_path, name)
+        finally:
+            os.close(fd)
+
+    def _rotate_through(self, fd: int, log_path: Path, name: str) -> bool:
+        """The copy-then-truncate itself, through a descriptor the caller owns."""
+        size = os.fstat(fd).st_size
+        if size <= self.max_log_bytes:
+            return False
+
+        backup = log_path.with_name(log_path.name + ROTATION_SUFFIX)
+        # The same open as the log's, and it was NOT until LWSM-1229: this
+        # one carried `O_NOFOLLOW` alone, so a FIFO planted here blocked
+        # the poll thread forever -- `O_NOFOLLOW` refuses a symlink and
+        # says nothing about a pipe.
+        #
+        # Emptying it is `ftruncate` AFTER the check rather than `O_TRUNC`
+        # in the flags, which is not a detail: `O_TRUNC` destroys the
+        # target as part of opening it, so on a hard link planted here the
+        # file would be blanked and the refusal would arrive too late to
+        # matter. The check has to gate the destruction to be worth having.
+        out = _open_private_regular(backup, os.O_WRONLY | os.O_CREAT)
+        try:
+            os.ftruncate(out, 0)
+            offset = 0
+            while offset < size:
+                # Read through our own descriptor, never by reopening the
+                # path: reopening is a second chance for a symlink to be
+                # swapped in between the check and the copy.
+                chunk = os.pread(fd, _COPY_CHUNK_BYTES, offset)
+                if not chunk:
+                    break
+                offset += len(chunk)
+                # Until every byte is taken (LWSM-1274): a regular file may
+                # accept fewer than offered, and the original is emptied
+                # below, so a dropped remainder would be gone for good.
+                pending = memoryview(chunk)
+                while pending:
+                    written = os.write(out, pending)
+                    if written == 0:
+                        # Never spin the poll thread on a write that takes
+                        # nothing; refuse and leave the original alone.
+                        raise OSError(errno.ENOSPC, "rotation copy made no progress")
+                    pending = pending[written:]
+        finally:
+            os.close(out)
+        os.ftruncate(fd, 0)
+        log.info("rotated the log for %s at %d bytes", name, size)
+        return True
 
     # -- starting --------------------------------------------------------
 
@@ -1126,7 +1154,17 @@ class Supervisor:
         # Captured now, while the process is certainly alive, so psutil holds its
         # creation time. That is what makes `_raise_if_pid_reused` able to fire
         # later — a handle built from a scanned PID has nothing to compare.
-        handle = psutil.Process(popen.pid)
+        try:
+            handle = psutil.Process(popen.pid)
+        except BaseException:
+            # A child with no handle is registered nowhere and nothing could
+            # stop it (L3-L3). Its group was created a line ago and is
+            # entirely ours, and `popen` is the live handle to its leader, so
+            # this is not the bare-PID signal ADR-0003 forbids.
+            with contextlib.suppress(OSError):
+                os.killpg(popen.pid, signal.SIGKILL)
+            popen.wait()
+            raise
         return ManagedProcess(
             project=project,
             name=name,
@@ -1185,14 +1223,21 @@ class Supervisor:
             return StopOutcome()
 
         try:
-            return self._stop_sequence(key, managed, grace, _on_wait)
-        except SupervisorError:
-            # The self-group refusal fires before anything is signalled, and
-            # the entry was popped above. Put it back, or the child is
-            # forgotten and its log descriptor leaks (LWSM-1274).
-            with self._registry.lock:
-                self._registry.processes[key] = managed
-            raise
+            try:
+                members = self._group_members(managed)
+            except Exception:
+                # Nothing has been signalled yet and the entry was popped
+                # above. Put it back, or the child is forgotten and its log
+                # descriptor leaks (LWSM-1274). Any error, not only the
+                # self-group `SupervisorError`: an `OSError` from enumerating
+                # the group lost the child the same way (review-code
+                # 2026-10-01 L3-L2). Only HERE — after the first signal the
+                # child may be dead and reaped, and putting it back would lock
+                # the project out of `start()`.
+                with self._registry.lock:
+                    self._registry.processes[key] = managed
+                raise
+            return self._stop_sequence(key, managed, members, grace, _on_wait)
         finally:
             with self._registry.lock:
                 self._registry.stopping.discard(key)
@@ -1201,11 +1246,14 @@ class Supervisor:
         self,
         key: Path,
         managed: ManagedProcess,
+        members: list[psutil.Process],
         grace: float,
         _on_wait: Callable[[], None] | None,
     ) -> StopOutcome:
-        """The signal, wait, escalate and reap half, with the key reserved."""
-        members = self._group_members(managed)
+        """The signal, wait, escalate and reap half, with the key reserved.
+
+        `members` is the group as enumerated before the first signal.
+        """
         # Pids we were not allowed to signal. `design.md`: "nothing is reported
         # as success that was not verified" — and a `psutil.Error` here was
         # logged at INFO and dropped, so a member the kernel refused left

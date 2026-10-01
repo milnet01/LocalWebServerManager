@@ -1148,6 +1148,26 @@ class ProjectController(QObject):
                 # dialog, and one unreadable log would silently stop every other
                 # project's being capped.
                 log.warning("could not rotate the log for %s", path, exc_info=True)
+        # A row reading `running` that this session did not start — a server
+        # left running by an earlier session — has a log nothing above holds
+        # (review-code 2026-10-01 L3-M5). Rotated by path, and only for rows
+        # the last poll saw running, so an ordinary tick costs nothing for the
+        # stopped majority.
+        rotate_at = getattr(supervisor, "rotate_log_at", None)
+        if rotate_at is None:
+            return
+        managed = supervisor.running()
+        for record in self._records:
+            if record.path in managed:
+                continue
+            if self._statuses.get(record.path) is not ProjectStatus.RUNNING:
+                continue
+            try:
+                rotate_at(record.path, record.name)
+            except Exception:
+                log.warning(
+                    "could not rotate the log for %s", record.path, exc_info=True
+                )
 
     def _on_snapshot(self, snapshot: PortSnapshot) -> None:
         if self._stopped:

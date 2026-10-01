@@ -72,11 +72,6 @@ class Holder:
     started: float | None = None
     unit: str | None = None
 
-    @property
-    def service_managed(self) -> bool:
-        """Whether Stop should drive `systemctl` rather than signal a group."""
-        return self.unit is not None
-
 
 @dataclass(frozen=True)
 class UnitOutcome:
@@ -86,6 +81,10 @@ class UnitOutcome:
     verb: str
     unit: str
     reason: str = ""
+
+
+# A unit under a user's own service manager, the only kind `--user` drives.
+_USER_MANAGER = re.compile(r"/user@\d+\.service/")
 
 
 def _read_cgroup(pid: int) -> str:
@@ -119,6 +118,11 @@ def unit_for_pid(pid: int, *, read_cgroup: object = None) -> str | None:
     # Last path segment of the deepest line: cgroup v2 writes one `0::/...`
     # line, v1 writes several, and in both the unit is the leaf of the path.
     for line in reversed([entry for entry in raw.splitlines() if entry.strip()]):
+        if not _USER_MANAGER.search(line):
+            # A system service is not one `systemctl --user` can drive, and a
+            # user unit of the same name is a DIFFERENT unit (review-code
+            # 2026-10-01 L3-L5).
+            continue
         leaf = line.strip().rsplit("/", 1)[-1]
         if not leaf.endswith(".service"):
             continue
@@ -203,6 +207,9 @@ def drive_unit(verb: str, unit: str, *, run: object = None) -> UnitOutcome:
             argv,
             capture_output=True,
             text=True,
+            # "Never raises": strict decoding makes undecodable stderr a
+            # `UnicodeDecodeError`, which is a `ValueError` (L3-L4).
+            errors="replace",
             timeout=UNIT_VERB_TIMEOUT_SECONDS,
             check=False,
         )

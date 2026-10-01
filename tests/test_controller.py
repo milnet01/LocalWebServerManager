@@ -2418,3 +2418,48 @@ def test_the_supervised_refusals_carry_no_control_characters(controllers) -> Non
     for text in messages:
         assert "\n" not in text and " " not in text, repr(text)
         assert len(text) < MAX_DISPLAY_NAME_CHARS + 120, len(text)
+
+
+def test_a_running_row_this_session_did_not_start_has_its_log_capped(
+    qtbot, controllers
+) -> None:
+    """review-code 2026-10-01 L3-M5, the caller half: a server still running
+    from an earlier session is `running` here but not in `running()`, and only
+    the latter was ever rotated. Its log is now rotated by path."""
+
+    class Supervisor:
+        def __init__(self) -> None:
+            self.by_path: list[tuple[Path, str]] = []
+
+        def running(self):
+            return {}
+
+        def exited(self, project):
+            return False
+
+        def is_stopping(self, project):
+            return False
+
+        def rotate_if_needed(self, project: Path) -> bool:
+            return False
+
+        def rotate_log_at(self, project: Path, name: str) -> bool:
+            self.by_path.append((project, name))
+            return False
+
+    supervisor = Supervisor()
+    controller = build(
+        controllers, [record("b", 5005), record("c", 6006)], FakeProbe(5005)
+    )
+    controller._supervisor = supervisor
+
+    # The first poll classifies the rows; rotation runs synchronously at the
+    # start of the next one, which is all this needs to observe.
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    qtbot.waitUntil(lambda: not controller._in_flight, timeout=2000)
+    controller.poll_once()
+
+    assert supervisor.by_path == [(Path("/srv/b"), "b")], (
+        "only the running row's log is a candidate, and it must be asked"
+    )

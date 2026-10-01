@@ -14,8 +14,10 @@ property a passing acceptance test would not have noticed.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
+import signal
 import socket
 import stat
 import subprocess
@@ -2638,3 +2640,93 @@ def test_a_store_with_no_path_writes_nothing(project: Path, tmp_path: Path) -> N
     """The default every test's `Supervisor` gets: memory only."""
     TrustStore().confirm(project, FINGERPRINT)
     assert list(tmp_path.rglob("trust.json")) == []
+
+
+def test_a_stop_that_fails_with_any_error_before_signalling_keeps_the_project(
+    supervisor, project, monkeypatch
+) -> None:
+    """review-code 2026-10-01 L3-L2: only `SupervisorError` put the popped
+    entry back. An `OSError` from enumerating the group — `psutil` reading
+    /proc — lost the child and leaked its log descriptor, and the project
+    could then be started a second time."""
+    write_launcher(project, "sleep 30\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+
+    def unreadable(_managed):
+        raise OSError(errno.EACCES, "Permission denied")
+
+    try:
+        monkeypatch.setattr(supervisor, "_group_members", unreadable)
+        with pytest.raises(OSError):
+            supervisor.stop(project, grace=0.5)
+        monkeypatch.undo()
+        assert project.resolve() in supervisor.running(), "the child was forgotten"
+        os.fstat(managed.log_fd)  # raises if the descriptor was closed
+    finally:
+        monkeypatch.undo()
+        supervisor.stop(project, grace=0.5)
+
+
+def test_a_child_whose_handle_cannot_be_built_is_not_left_running(
+    supervisor, project, monkeypatch
+) -> None:
+    """L3-L3: if `psutil.Process(popen.pid)` raised, `start()` closed the
+    descriptor and re-raised while the child kept running, registered
+    nowhere — a server nothing could stop."""
+    write_launcher(project, "sleep 30\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    spawned: list[subprocess.Popen] = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(*args, **kwargs):
+        child = real_popen(*args, **kwargs)
+        spawned.append(child)
+        return child
+
+    def no_handle(_pid):
+        raise psutil.AccessDenied(_pid)
+
+    monkeypatch.setattr(subprocess, "Popen", recording_popen)
+    monkeypatch.setattr(psutil, "Process", no_handle)
+    with pytest.raises(psutil.AccessDenied):
+        supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    monkeypatch.undo()
+
+    (child,) = spawned
+    try:
+        # Already collected when `start()` raised: nothing else will ever wait
+        # on it, so "it exits eventually" would be a zombie at best.
+        assert child.returncode is not None, "the child was left running"
+    finally:
+        if child.poll() is None:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
+
+
+def test_the_log_of_a_server_this_session_did_not_start_is_still_capped(
+    supervisor, project
+) -> None:
+    """review-code 2026-10-01 L3-M5: servers outlive the manager by design, and
+    rotation ran only through the descriptor THIS session holds — so after a
+    Quit, or for a server re-adopted after a relaunch, its log grew without
+    the cap `design.md § Observability` promises. Rotated by path instead,
+    with the same copy-then-truncate, which the child's `O_APPEND` keeps safe.
+    """
+    log_path = supervisor.log_path_for(project, "demo")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    body = b"x" * (supervisor.max_log_bytes + 1)
+    log_path.write_bytes(body)
+    log_path.chmod(0o600)
+
+    assert supervisor.rotate_log_at(project, "demo") is True
+    assert log_path.stat().st_size == 0
+    backup = log_path.with_name(log_path.name + ROTATION_SUFFIX)
+    assert backup.read_bytes() == body
+    assert supervisor.rotate_log_at(project, "demo") is False, "under the cap now"
+
+
+def test_rotating_by_path_leaves_a_missing_log_alone(supervisor, project) -> None:
+    """A row that never had a log here must cost one failed open, not a file."""
+    assert supervisor.rotate_log_at(project, "demo") is False
+    assert not supervisor.log_path_for(project, "demo").exists()

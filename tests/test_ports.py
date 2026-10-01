@@ -8,7 +8,10 @@ Ports come from binding 0 and asking the socket, never a literal
 from __future__ import annotations
 
 import os
+import signal
 import socket
+import subprocess
+import time
 from collections.abc import Iterator
 
 import psutil
@@ -332,3 +335,67 @@ def test_a_holder_is_not_reported_for_a_port_nobody_holds() -> None:
     from lwsm.ports import PortSnapshot
 
     assert PortSnapshot(frozenset({5005})).holder(5005) is None
+
+
+def test_a_pre_fork_server_is_held_by_its_master(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """review-code 2026-10-01 L3-M3: psutil lists one entry per process holding
+    the socket, so a pre-fork server (gunicorn workers, node cluster) shows
+    several pids on one port, and `len(pids) == 1` made its holder None — the
+    row read as not managed. Several pids in ONE process group, one of them
+    the parent of the rest, are one server: its master holds the port.
+    """
+    master = subprocess.Popen(["sh", "-c", "sleep 30 & wait"], start_new_session=True)
+    try:
+        deadline = time.monotonic() + 5
+        while not psutil.Process(master.pid).children():
+            assert time.monotonic() < deadline, "the worker never started"
+            time.sleep(0.01)
+        (worker,) = psutil.Process(master.pid).children()
+        monkeypatch.setattr(
+            psutil,
+            "net_connections",
+            lambda **_: [
+                FakeConn(psutil.CONN_LISTEN, FakeAddr(5005, "127.0.0.1"), pid=pid)
+                for pid in (worker.pid, master.pid)
+            ],
+        )
+
+        assert PortProbe().snapshot().holder(5005) == master.pid
+    finally:
+        os.killpg(master.pid, signal.SIGKILL)
+        master.wait()
+
+
+def test_a_listener_that_left_the_group_is_not_attributed_to_its_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of L3-M3: a child that called `setsid` is a separate
+    server however it was born, so one parent among the pids is not enough."""
+    parent = subprocess.Popen(
+        ["sh", "-c", "setsid sleep 30 & wait"], start_new_session=True
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not psutil.Process(parent.pid).children():
+            assert time.monotonic() < deadline, "the child never started"
+            time.sleep(0.01)
+        (child,) = psutil.Process(parent.pid).children()
+        while os.getpgid(child.pid) == parent.pid:
+            assert time.monotonic() < deadline, "the child never left the group"
+            time.sleep(0.01)
+        monkeypatch.setattr(
+            psutil,
+            "net_connections",
+            lambda **_: [
+                FakeConn(psutil.CONN_LISTEN, FakeAddr(5005, "127.0.0.1"), pid=pid)
+                for pid in (child.pid, parent.pid)
+            ],
+        )
+
+        assert PortProbe().snapshot().holder(5005) is None
+    finally:
+        child.kill()
+        os.killpg(parent.pid, signal.SIGKILL)
+        parent.wait()

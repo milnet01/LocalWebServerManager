@@ -1019,6 +1019,17 @@ O8` forbids retrofitting that.
   L4-H2, L5-H1, L6-H1, L3-H2; check L3-H2 against LWSM-1028 first),
   then MEDs, LOWs and the vulture list. Then the two standing passes,
   the open fix/doc-fix items, and cut-release.
+  Progress (2026-10-01, later): close-findings continued, one commit per
+  lane. Lane 05 (persistence) closed: 10 fixed, L5-L5 queued as
+  LWSM-1353. Lane 04 (scanner) closed: 10 fixed, L4-L5 dismissed. Lane 03
+  (process control) closed: 9 fixed, L3-H2 recorded on LWSM-1028, L3-M4
+  recorded on LWSM-1012 (needs a decision, measured). LWSM-1352 shipped.
+  39 ledger rows still open (disposition null in
+  build/review-code-2026-10-01/ledger.json): lanes 01, 02, 06, 07 and the
+  vulture list V-1. NEXT: lane 06 (L6-H1 first), then 01, 02, 07, V-1.
+  Then the two standing passes, the open fix/doc-fix items oldest first,
+  and cut-release. LWSM-1344 (security) waits on a user decision:
+  options (a)/(b)/(c) in its body; recommended (a).
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
@@ -9938,6 +9949,14 @@ bugs in the same area.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 1.
+  Progress (2026-10-01): review-code 2026-10-01 L3-H2 lands here. ADR-0003
+  § Service-managed projects and design.md § Data flow step 2 require the
+  drop-in `~/.config/systemd/user/<unit>.d/50-lwsm-port.conf` carrying
+  `PORT` and `LWSM_MANAGED`, then `daemon-reload`, before `start` and
+  `restart`. Nothing in src/ writes it today, so the adopted-unit path
+  LWSM-1012 shipped starts a unit with neither variable. This item must
+  write and remove the drop-in; until then a port override cannot reach a
+  systemd project.
   Lanes: core, tests.
 
 - 📋 [LWSM-1295] **Stop and Restart are unavailable whenever the socket table is unreadable.**
@@ -10115,6 +10134,25 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   psutil.Process handles and re-enumerate the set after the user
   confirms (ADR-0004). Today _stop_foreign refuses such a holder rather
   than signal it.
+  Open (2026-10-01): review-code 2026-10-01 L3-M4. `controller._holder_unit`
+  takes the unit from whatever process holds the port and drives it,
+  never checking ADR-0003's rule that a unit binds to a row only when its
+  `FragmentPath` or `WorkingDirectory` resolves inside the project. A
+  terminal launched from an autostarted IDE holding the port would have
+  Stop drive the IDE's unit; the disclosure dialog shows the unit first,
+  which softens it. Not fixed in the close-findings run because it needs a
+  decision: the autostart units this item was built for are generated
+  under /run/user/<uid>/systemd/generator* and may carry no
+  WorkingDirectory, so the ADR's rule applied literally could refuse the
+  very servers adoption exists for. Measure their properties first, then
+  decide whether the ADR or the code changes.
+  Measured (2026-10-01) for L3-M4: two running XDG-autostart units on
+  this machine report `FragmentPath=/run/user/1000/systemd/generator.late/
+  app-...@autostart.service`, `SourcePath=` the .desktop file, and
+  `WorkingDirectory=!/home/ants`. Neither is ever inside a project, so the
+  ADR-0003 rule as written refuses every autostarted server. The binding
+  test for adopted units needs another anchor (the .desktop `Exec=` path,
+  or the holder's cwd), and the ADR changes with it.
 
 - 📋 [LWSM-1011] **P06: the seven-state classifier.**
   One

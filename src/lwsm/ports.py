@@ -7,6 +7,7 @@ Contract: `docs/specs/LWSM-1005-vertical-slice.md § 4.2`.
 from __future__ import annotations
 
 import ipaddress
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -168,13 +169,33 @@ class PortProbe:
             # first made the answer depend on psutil's undocumented return
             # order (LWSM-1232); no answer is ADR-0004's safe direction, the
             # same one already taken for a holder the kernel will not name.
-            holders = {
-                port: next(iter(pids))
-                for port, pids in claimants.items()
-                if len(pids) == 1
-            }
+            holders: dict[int, int] = {}
+            for port, pids in claimants.items():
+                holder = next(iter(pids)) if len(pids) == 1 else _master_of(pids)
+                if holder is not None:
+                    holders[port] = holder
             return PortSnapshot(frozenset(listening), holders, frozenset(local))
         except Exception as exc:
             raise ProbeError(
                 f"could not read the socket table: {type(exc).__name__}: {exc}"
             ) from exc
+
+
+def _master_of(pids: set[int]) -> int | None:
+    """The one process the others descend from, when they are one server.
+
+    A pre-fork server — gunicorn or uvicorn workers, a node cluster — holds one
+    socket from several processes, and psutil lists each (review-code
+    2026-10-01 L3-M3). They are one server when they share a process group and
+    exactly one of them has no parent among the rest. Anything else stays
+    `None`, LWSM-1232's safe direction: two unrelated listeners on two loopback
+    addresses are not told apart here.
+    """
+    try:
+        groups = {os.getpgid(pid) for pid in pids}
+        roots = [pid for pid in pids if psutil.Process(pid).ppid() not in pids]
+    except (OSError, psutil.Error):
+        return None
+    if len(groups) != 1 or len(roots) != 1:
+        return None
+    return roots[0]

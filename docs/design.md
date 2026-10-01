@@ -661,9 +661,9 @@ correctness one, and the poll skips a tick rather than queueing.
    reads `starting (slow — 42s)`.
 
 **Stopping.** `SIGTERM` to the **process group**, then `SIGKILL`
-after the grace period if anything in the group is still alive or
-the port is still bound (both conditions — ADR-0003, which is
-canonical). Stopping a `running (foreign)` server is allowed but
+after the grace period if anything in the group is still alive. A
+port still bound after that is a reason to warn, never to signal
+(ADR-0003, which is canonical). Stopping a `running (foreign)` server is allowed but
 asks for confirmation naming every process that will be
 signalled, because the app did not create it (user decision,
 2026-08-03; mechanics in ADR-0004). A `systemd` project stops with
