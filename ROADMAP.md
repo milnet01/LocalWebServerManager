@@ -9419,7 +9419,7 @@ O8` forbids retrofitting that.
   Source: session-message-161-2026-09-28.
   Lanes: ci.
 
-- 📋 [LWSM-1330] **spec-format.md, testing.md and documentation.md still carry stale rules the 2026-09-28 gate found outside its change.**
+- ✅ [LWSM-1330] **spec-format.md, testing.md and documentation.md still carry stale rules the 2026-09-28 gate found outside its change.**
   Do not re-review; fold in directly, then gate each standard once.
   1. [Q2] spec-format.md header, the paragraph starting "This is the project's
      copy": it says keep a verbatim copy of `~/.claude/skills/_shared/spec-format.md`
@@ -9473,6 +9473,16 @@ O8` forbids retrofitting that.
      environment" and tests/conftest.py cites T1 for pinning XDG_DATA_HOME,
      XDG_DATA_DIRS and XDG_SESSION_TYPE. State T1's scope as any per-user
      state the code reads, or narrow the heading. Loop 5, one lane.
+  Resolved (2026-10-01): all ten items closed (item 8 earlier). Each
+  standard gated once for the batch, two cold lanes per loop, genre
+  standard: spec-format.md converged at loop 1; testing.md converged at
+  loop 3 of this run (log row 8); documentation.md capped calm at loop 3.
+  The gate found 13 more defects beyond the batch, 12 fixed. The largest
+  was a real test-isolation gap: the suite created a directory under the
+  developer's real XDG_STATE_HOME, so conftest.py now pins every XDG_*
+  variable src/ reads (sentinel run empty, 1798 pass). Filed LWSM-1350
+  (wrapped prose counts escape test_docs) and LWSM-1351 (T9's commit-body
+  record against § 2.2's commit order).
   **Layman:** Two of the project's rulebooks still contain a few instructions that contradict the rest.
   Kind: doc-fix.
   Source: review-contract-2026-09-28 spec-format.md loop 7.
