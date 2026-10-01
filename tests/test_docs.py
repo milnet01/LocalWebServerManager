@@ -67,13 +67,34 @@ def offending_lines(path: Path) -> list[str]:
     """
     dated = re.compile(r"\b20\d\d-\d\d-\d\d\b")
     quoted = re.compile(r"[\"“][^\"”]*[\"”]|`[^`]*`")
-    hits = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+
+    def prose(line: str) -> bool:
         stripped = line.strip()
-        if stripped.startswith("|") or dated.search(line):
+        return (
+            bool(stripped) and not stripped.startswith("|") and not dated.search(line)
+        )
+
+    label = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+    lines = path.read_text(encoding="utf-8").splitlines()
+    hits = []
+    for index, line in enumerate(lines):
+        if not prose(line):
             continue
-        if PROSE_COUNT.search(quoted.sub("", line)):
-            hits.append(f"{path.relative_to(ROOT)}:{number}: {stripped}")
+        # Prose is hard-wrapped, so a count may end one line and its noun start
+        # the next (LWSM-1350). Each prose line is read with the next prose line
+        # joined on; a hit inside the next line alone is that line's to report.
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        joined = line
+        if prose(following):
+            joined = f"{line} {following.strip()}"
+        own = PROSE_COUNT.search(quoted.sub("", line))
+        spans_the_wrap = (
+            joined is not line
+            and PROSE_COUNT.search(quoted.sub("", joined))
+            and not PROSE_COUNT.search(quoted.sub("", following))
+        )
+        if own or spans_the_wrap:
+            hits.append(f"{label}:{index + 1}: {line.strip()}")
     return hits
 
 
@@ -130,3 +151,22 @@ def test_the_design_documents_name_the_theme_ids_the_code_ships() -> None:
         assert unknown == [], (
             f"{path.name} names theme ids that do not exist: {unknown}"
         )
+
+
+def test_a_count_wrapped_across_two_lines_is_still_found(tmp_path: Path) -> None:
+    """LWSM-1350. Prose here is hard-wrapped, and `documentation.md § 2.1` read
+    "the four" / "standards docs" on two lines, so a per-line match never saw
+    it. A count split by a wrap is the same count."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("Links to `docs/`, including the four\n   standards docs.\n")
+
+    assert len(offending_lines(doc)) == 1
+
+
+def test_a_wrap_into_a_table_row_is_not_joined(tmp_path: Path) -> None:
+    """The join keeps the per-line exclusions: a number word ending a prose
+    line is not joined to a table row below it."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("It found four\n| standards | row |\n")
+
+    assert offending_lines(doc) == []

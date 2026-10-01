@@ -54,9 +54,9 @@ author? If not, it's too clever or too long.
 **Version policy lives in
 [dependencies.md](dependencies.md), which is canonical** — what
 counts as pinned, when an older version may be held, and what an
-exception must record. Don't restate its rules here; two
-standards stating the same rule at different strictness is two
-rules that will disagree.
+exception must record. Don't restate its rules here; the same
+rule stated in two places at different strictness is two rules
+that will disagree.
 
 What remains this standard's business is the *code*: when calling
 library APIs, use the current idiomatic syntax for the version in
@@ -326,8 +326,8 @@ actually enforces this, and
 `::test_the_core_module_list_matches_the_criterion` now derives
 the same set from the table above and asserts equality — so a
 module the criterion covers can no longer be quietly missing from
-the check, which is how `applog.py` came to be absent for two
-phases.
+the check, which is how `applog.py` came to be absent from it
+until LWSM-1006 added it.
 
 ### O2. Nothing touches a widget off the UI thread
 
