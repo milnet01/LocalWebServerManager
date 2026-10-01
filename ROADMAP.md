@@ -678,7 +678,7 @@ O8` forbids retrofitting that.
   Kind: chore.
   Source: in-session-2026-09-02.
 
-- 📋 [LWSM-1291] **The text-size control's "multiplies, does not replace" promise has no check row.**
+- ✅ [LWSM-1291] **The text-size control's "multiplies, does not replace" promise has no check row.**
   design-accessibility.md promises an in-app text-size control independent of
   the desktop's scaling that "multiplies that, it does not replace it". The
   nearest check row asserts only that no widget pins a font and that an
@@ -686,11 +686,15 @@ O8` forbids retrofitting that.
   the two scales, so a control that replaced the desktop's scaling would pass.
   If that is a genuine gap the document's exhaustiveness claim is false, which
   is the invariant that section rests on.
+  Resolved (2026-10-01): new
+  test_the_text_size_multiplies_the_desktop_size_and_does_not_replace_it
+  (9 pt and 14 pt desktop sizes; a fixed-size mutant fails both). The
+  system-font row now names it.
   **Layman:** The app's own text-size setting is promised to stack on top of your desktop's, and nothing tests that it does.
   Kind: doc-fix.
   Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
 
-- 📋 [LWSM-1292] **The focus-ring promise is checked by contrast arithmetic that passes when no ring renders.**
+- ✅ [LWSM-1292] **The focus-ring promise is checked by contrast arithmetic that passes when no ring renders.**
   design-accessibility.md promises a thick, high-contrast focus ring on every
   focusable widget in every theme. Its only check row is contrast arithmetic
   over focus-ring/background palette PAIRS, which passes on a palette whose
@@ -698,21 +702,29 @@ O8` forbids retrofitting that.
   tab order, not a visible ring. So the existence half of the promise is
   covered by nothing - the same shape as LWSM-1136, where a mechanism was
   correct, tested and called by nothing.
+  Resolved (2026-10-01): the rendered Fusion-ring test now covers the
+  line edit and combo box as well as buttons, in every theme, and
+  requires the first changed pixel at the control's edge (else a line
+  edit's text cursor passes for a ring; mutant fails all 16 new cases).
+  The focus-ring row describes the rendered checks.
   **Layman:** Every focusable control is promised a thick visible outline; the test only checks the colour would be visible, not that the outline exists.
   Kind: doc-fix.
   Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
 
-- 📋 [LWSM-1293] **Whether setAccessibleDescription is covered by T8's accessible-names check is unstated.**
+- ✅ [LWSM-1293] **Whether setAccessibleDescription is covered by T8's accessible-names check is unstated.**
   design-accessibility.md requires a description where the name is not
   self-explanatory, on coding.md O8 clause 1's condition. testing.md T8's
   accessible-names check names accessible NAMES only. Either the description
   half has a row somewhere and the document should say which, or it has none
   and the exhaustiveness claim is false for it.
+  Resolved (2026-10-01): a description row names the browser picker's
+  test, now read through the accessibility interface, and says the rest
+  is review judgement under coding.md O8.
   **Layman:** The docs require a longer description on controls whose name is not self-explanatory, and it is unclear whether anything checks it.
   Kind: doc-fix.
   Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
 
-- 📋 [LWSM-1294] **The 600 px lens budget names four cells and predates the browser column.**
+- ✅ [LWSM-1294] **The 600 px lens budget names four cells and predates the browser column.**
   design-accessibility.md fixes the budget at 600 px for "name, state, port and
   controls", and its check row repeats the same four nouns. The browser combo
   is a fifth cell added later, and whether it counts inside the budget is not
@@ -720,6 +732,10 @@ O8` forbids retrofitting that.
   A mainwindow.py comment measuring 593 px is dated "before a browser column
   existed at all", which is the evidence the list is stale rather than
   deliberate.
+  Resolved (2026-10-01): the lens-budget prose and row name the browser
+  picker; test_the_row_still_fits_one_lens_view_with_a_browser_picker
+  already held it. Gate: review-contract adr, 3 loops to the cap, calm;
+  see commit bodies 0835fe4..close.
   **Layman:** The rule about everything fitting in one magnifier view lists the parts by name, and the browser dropdown was added afterwards and never added to the list.
   Kind: doc-fix.
   Source: review-contract 2026-09-02 loop 2, lane open question (LWSM-1254 gate).
@@ -9678,6 +9694,27 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: review-contract-2026-09-28 CLAUDE.md loop 4 (filed, outside the gated change).
   Lanes: docs.
+
+- 📋 [LWSM-1349] **design-accessibility.md promises a "thick" focus ring, and the ring Fusion draws on buttons, the filter box and the browser picker is 1-2 px.**
+  § Focus is unmissable and the high-contrast bullet both say "thick focus
+  ring". The row paints its own ring and it grows with the text
+  (test_the_focus_ring_grows_with_the_text). Every other focusable control
+  takes Fusion's ring. Measured 2026-10-01 at mid-height, unfocused against
+  focused by Backtab, under the theme palette and style sheet: the changed
+  run at the left edge is 1 px on a button and on the combo box, 2 px on
+  an empty line edit, in every theme. No check-table row holds thickness.
+  LWSM-1238 (user, 2026-09-25) declined a custom-outline fork for colour;
+  whether "thick" binds Fusion controls is a design call: either narrow
+  the promise to the row, or draw a thicker ring (the style-sheet route
+  theme.py records costs box sizing).
+  Loop 3 of the same gate (2026-10-01, both lanes): the high-contrast
+  bullet's "heavy borders" has no check row either. That half belongs to
+  LWSM-1337, which already asks how drawn outlines reach the token; decide
+  the two together.
+  **Layman:** The design promises a thick outline around the control the keyboard is on, but the buttons and boxes get a thin one, and nothing checks thickness.
+  Kind: accessibility.
+  Source: review-contract 2026-10-01 loop 2, lane open question (LWSM-1292 gate).
+  Lanes: theme.
 
 ## 0.2.0 — Find and run
 
