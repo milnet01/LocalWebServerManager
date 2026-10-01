@@ -520,6 +520,9 @@ are back to a mutation each.
 
 Record the mutation and its result in the commit body. "Verified red on
 deletion" is one line and it is the whole evidence that the guard exists.
+Where § 2.2's block ran after the fix was committed, amend that commit's
+body with the result; a commit already pushed takes the record in the next
+commit instead, naming the fix commit.
 
 **This does not license a spy on every call — and it narrows the assertion
 style, not the section.** Steps 1–3 and the commit record apply to every change

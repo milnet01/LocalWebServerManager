@@ -9760,7 +9760,7 @@ O8` forbids retrofitting that.
   Source: review-contract 2026-10-01 documentation.md loop 1 (LWSM-1330 gate).
   Lanes: docs.
 
-- 📋 [LWSM-1351] **testing.md says commit the fix before the must-FAIL block, and T9 wants that block's result in the same commit's body.**
+- ✅ [LWSM-1351] **testing.md says commit the fix before the must-FAIL block, and T9 wants that block's result in the same commit's body.**
   § 2.2: "Commit the fix before running this block." T9 sends a single-site
   fix to § 2.2's block and then says "Record the mutation and its result in
   the commit body." The commit already exists, so a conformer amends,
@@ -9768,6 +9768,10 @@ O8` forbids retrofitting that.
   evidence the guard exists, which is what T9 is for. Say in T9 where the
   record goes when § 2.2's block is used (amend the fix commit, or the
   next commit naming it). One lane, loop 2; pre-existing text.
+  Resolved (2026-10-01): T9 now says that where § 2.2's block ran after the
+  fix was committed, the result amends that commit's body; a pushed commit
+  takes the record in the next commit, naming the fix commit. A rule about
+  where a record is kept, so no gate under rule 14.
   **Layman:** The testing rules ask for a proof to be written into a commit that, by their own order, already exists.
   Kind: doc-fix.
   Source: review-contract 2026-10-01 testing.md loop 2, outside the gated change (LWSM-1330 gate).
