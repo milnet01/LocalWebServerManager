@@ -23,6 +23,7 @@ tests promise.
 from __future__ import annotations
 
 import errno
+import json
 import os
 import re
 import stat
@@ -107,6 +108,31 @@ def quoted(value: object) -> str:
     if len(escaped) <= MAX_REASON_CHARS:
         return escaped
     return f"{escaped[:MAX_REASON_CHARS]}…"
+
+
+def canonical_json(value: object) -> str:
+    """`value` as the canonical text a config file carries opaquely.
+
+    Raises `ValueError` for a value `json.loads` accepted that this project's
+    writers then refuse, so the loader can refuse the FIELD rather than every
+    later save failing on it (review-code 2026-10-01 L5-M1, L5-M2): a
+    non-finite float, which `1e999` decodes to, and a string holding an
+    unpaired surrogate, which a `\\ud800` escape decodes to. The writers emit
+    `ensure_ascii=False` UTF-8 with `allow_nan=False`, and both of those raise
+    on exactly these. `UnicodeEncodeError` is a `ValueError`.
+    """
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    json.dumps(value, ensure_ascii=False).encode("utf-8")
+    return text
+
+
+def is_writable_text(text: str) -> bool:
+    """Whether `text` survives the writers' UTF-8 encode — no unpaired surrogate."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 class ConfigFileNotDurable(ConfigFileError):

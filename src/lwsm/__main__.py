@@ -121,6 +121,9 @@ def build_window(
         for reason in chosen.reasons:
             log.warning("settings: %s", reason)
             notices.append(reason)
+        for note in chosen.notes:
+            log.info("settings: %s", note)
+            notices.append(note)
 
     def save_field(**changes: object) -> None:
         """Write ONE setting without dropping the others.
@@ -167,7 +170,10 @@ def build_window(
         #
         # LWSM-1289 is the fuller answer — preserving values this build cannot
         # use instead of defaulting them — and is filed separately.
-        if current.reasons:
+        # `document_refused` is named although `reasons` is never empty with
+        # it set: it is the flag `settings.LoadResult` documents as the
+        # writer's gate, and a gate nothing reads is not one (L5-L2).
+        if current.document_refused or current.reasons:
             raise SettingsError(
                 "refusing to overwrite the settings file with defaults: "
                 + "; ".join(current.reasons)

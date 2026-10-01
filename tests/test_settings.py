@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from lwsm import settings
+from lwsm import configfile, settings
 from lwsm.configfile import ConfigFileError
 from lwsm.settings import Settings, SettingsError
 
@@ -167,7 +167,10 @@ def test_a_document_that_is_not_newer_is_read_forward_and_stays_writable(
     result = settings.load(path)
 
     assert result.settings.theme == "emerald", why
-    assert result.reasons, why
+    # Said, and as a note rather than a reason: the save gate refuses on any
+    # reason, so a reason here made the file unwritable (L5-H1).
+    assert result.notes, why
+    assert result.reasons == [], why
     assert result.document_refused is False, why
 
 
@@ -754,3 +757,56 @@ def test_an_unknown_key_never_overrides_a_known_one(tmp_path: Path) -> None:
     settings_module.save(path, forged)
 
     assert json.loads(path.read_text())["theme"] == "midnight"
+
+
+@pytest.mark.parametrize(
+    ("body", "refused"),
+    [
+        ('{"schema_version": 1, "later_key": 1e999}', False),
+        ('{"schema_version": 1, "later_key": "\\ud800"}', False),
+        ('{"schema_version": 1, "later_key": NaN}', True),
+    ],
+)
+def test_a_value_the_writer_cannot_emit_never_reaches_it(
+    tmp_path: Path, body: str, refused: bool
+) -> None:
+    """review-code 2026-10-01 L5-M2: the registry's two guards were missing
+    here. `1e999` and `NaN` were written back bare, which is not JSON, and a
+    lone surrogate made every save raise. An unknown value that cannot be
+    written now loses only itself; `NaN` is refused as the invalid JSON it is.
+    """
+    path = tmp_path / "settings.json"
+    path.write_text(body, encoding="utf-8")
+
+    result = settings.load(path)
+
+    assert result.document_refused is refused
+    assert result.reasons
+    if not refused:
+        assert result.settings.unknown == ()
+        settings.save(path, result.settings)
+        json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_a_written_but_not_durable_save_says_so_by_type(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """L5-L4, the settings half."""
+
+    def not_durable(*_args, **_kwargs):
+        raise configfile.ConfigFileNotDurable("written, but not durable")
+
+    monkeypatch.setattr(settings, "write_json_atomically", not_durable)
+    with pytest.raises(settings.SettingsNotDurable):
+        settings.save(tmp_path / "settings.json", Settings())
+
+
+def test_an_unkept_key_name_is_quoted_in_its_reason(tmp_path: Path) -> None:
+    """L5-L3, the settings half: a newline in a key name stays escaped."""
+    path = tmp_path / "settings.json"
+    path.write_text('{"schema_version": 1, "bad\\nkey": 1e999}', encoding="utf-8")
+
+    reasons = settings.load(path).reasons
+
+    assert reasons
+    assert all("\n" not in reason for reason in reasons)

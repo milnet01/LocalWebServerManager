@@ -12,6 +12,7 @@ display at all.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -721,8 +722,17 @@ def test_a_stored_theme_that_no_longer_exists_opens_the_default(
 
 
 @pytest.mark.gui
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ('{"schema_version": 1, "theme": 7}\n', "theme"),
+        # A file read forward carries a NOTE, not a reason (L5-H1), and the
+        # note travels the same wire.
+        ('{"theme": "midnight"}\n', "schema_version"),
+    ],
+)
 def test_a_refused_settings_field_is_reported_and_not_silently_defaulted(
-    qtbot, tmp_path, monkeypatch
+    qtbot, tmp_path, monkeypatch, body: str, expected: str
 ) -> None:
     """`load` returning the defaults is only half the contract.
 
@@ -734,9 +744,7 @@ def test_a_refused_settings_field_is_reported_and_not_silently_defaulted(
     """
     config = tmp_path / "config" / "localwebservermanager"
     config.mkdir(parents=True)
-    (config / "settings.json").write_text(
-        '{"schema_version": 1, "theme": 7}\n', encoding="utf-8"
-    )
+    (config / "settings.json").write_text(body, encoding="utf-8")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     # A VALID project list, deliberately. With none, `build_window` ends by
     # calling `set_status_message(error)` for the missing registry, which
@@ -751,7 +759,7 @@ def test_a_refused_settings_field_is_reported_and_not_silently_defaulted(
     window, controller = build_window(projects)
     qtbot.addWidget(window)
     try:
-        assert "theme" in window.statusBar().currentMessage()
+        assert expected in window.statusBar().currentMessage()
     finally:
         controller.stop()
 
@@ -1045,6 +1053,35 @@ def test_a_refused_field_is_not_overwritten_with_its_default(
         "the user's text_scale was replaced by a default, so the value they "
         f"could have corrected is gone: {written}"
     )
+
+
+@pytest.mark.gui
+def test_a_file_read_forward_stays_writable(qtbot, monkeypatch, tmp_path) -> None:
+    """Reading forward is a note, not a refusal (review-code 2026-10-01 L5-H1).
+
+    A file with no `schema_version` line is read forward and every value kept
+    (LWSM-1235). The note saying so was a `reason`, and `save_field` refuses on
+    any reason (LWSM-1271) — so the file could never be saved again, and at the
+    next schema bump every user's v1 file would have been locked the same way.
+    """
+    from lwsm.settings import default_settings_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    settings_path = default_settings_path()
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.parent.chmod(0o700)
+    settings_path.write_text('{\n  "theme": "midnight"\n}\n', encoding="utf-8")
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window.close()
+    finally:
+        controller.stop()
+
+    written = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert written.get("schema_version") == 1, written
+    assert written["theme"] == "midnight"
 
 
 @pytest.mark.gui

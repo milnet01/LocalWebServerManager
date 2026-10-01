@@ -321,6 +321,19 @@ signaling per
 
 ### Fixed
 
+- **A settings file with no version line can be saved again**
+  It was read correctly but then refused every save, including the window
+  position on close. The note about the missing line is still shown.
+
+- **One unusual value in the project list or settings no longer blocks every later save**
+  A huge number such as 1e999 or a broken text escape is now refused when
+  the file is read, with a message naming the field, instead of making
+  every save fail.
+
+- **Settings a newer version wrote at the top of the project list survive a save**
+
+- **Importing a profile warns when it gives two projects the same port**
+
 - **A server started through a wrapper script that exits is still recognised as yours**
   Stop and Open no longer show the "this manager did not start it"
   warning for a project the app started itself.

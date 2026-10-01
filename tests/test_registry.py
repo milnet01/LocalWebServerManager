@@ -2508,3 +2508,131 @@ def test_display_text_breaks_no_line_and_shows_where_it_cut() -> None:
     assert long.endswith("…")
 
     assert display_text("sh‍ort") == "sh‍ort"  # ZWJ is kept
+
+
+@pytest.mark.parametrize(
+    ("extra", "field"),
+    [
+        ('"notes": "\\ud800"', "notes"),
+        ('"unit": "\\ud800"', "unit"),
+        ('"argv": ["\\ud800"]', "argv"),
+        ('"actions": [1e999]', "actions"),
+        ('"actions": ["\\ud800"]', "actions"),
+        ('"later_key": 1e999', "unrecognised"),
+        ('"later_key": "\\ud800"', "unrecognised"),
+    ],
+)
+def test_a_value_the_writer_cannot_emit_is_refused_at_load(
+    tmp_path: Path, extra: str, field: str
+) -> None:
+    """review-code 2026-10-01 L5-M1: `json.loads` accepts `1e999` (as `inf`)
+    and a lone `\\ud800` escape, and the writer's `allow_nan=False` and UTF-8
+    encode refuse both — so one such value made every later save fail, with a
+    reason naming a serialisation error rather than the field. Refused at load
+    instead, as a FIELD, so the row survives and the file stays writable.
+    """
+    path = tmp_path / "projects.json"
+    path.write_text(
+        '{"schema_version": 1, "projects": '
+        f'[{{"path": "/srv/a", "name": "a", {extra}}}]}}',
+        encoding="utf-8",
+    )
+    result = load_projects(path)
+
+    assert [record.name for record in result.records] == ["a"]
+    assert any(field in reason for reason in result.reasons), result.reasons
+    save_projects(path, result.records, load=result)
+    assert load_projects(path).records[0].name == "a"
+
+
+@pytest.mark.parametrize("key", ["name", "path"])
+def test_an_unwritable_name_or_path_refuses_the_row_by_name(
+    tmp_path: Path, key: str
+) -> None:
+    """The two required keys cannot lose only themselves, so the row goes —
+    with a reason saying why, rather than a save that fails on every rescan
+    (L5-M1)."""
+    entry = {"name": "a", "path": "/srv/a"}
+    entry[key] = "\\ud800" if key == "name" else "/srv/\\ud800"
+    path = tmp_path / "projects.json"
+    body = json.dumps({"schema_version": 1, "projects": [entry]})
+    path.write_text(body.replace("\\\\ud800", "\\ud800"), encoding="utf-8")
+
+    result = load_projects(path)
+
+    assert result.records == []
+    assert result.rows_refused == 1
+    assert "surrogate" in result.reasons[0]
+
+
+def test_an_unknown_top_level_key_survives_a_save(tmp_path: Path) -> None:
+    """review-code 2026-10-01 L5-M3: a record's unknown keys were kept
+    (LWSM-1218) and the document's were erased on the first save, so a key a
+    newer build added inside v1 was lost on downgrade with nothing said."""
+    path = write(
+        tmp_path,
+        {"schema_version": 1, "later_key": {"a": [1, 2]}, "projects": [one_good()]},
+    )
+    result = load_projects(path)
+
+    save_projects(path, result.records, load=result)
+
+    assert json.loads(path.read_text(encoding="utf-8"))["later_key"] == {"a": [1, 2]}
+
+
+def test_the_writer_refuses_more_records_than_the_reader_loads(tmp_path: Path) -> None:
+    """L5-L1: written past `MAX_RECORDS`, the next load refuses the extra rows
+    and the session goes read-only — "written and then found unreadable"."""
+    records = [
+        ProjectRecord(path=Path(f"/srv/p{index}"), name=f"p{index}")
+        for index in range(registry.MAX_RECORDS + 1)
+    ]
+    path = tmp_path / "projects.json"
+
+    with pytest.raises(RegistryError, match="over the"):
+        save_projects(path, records, load=RegistryMissing("first run"))
+    assert not path.exists()
+
+
+def test_an_unkept_key_name_is_quoted_in_its_reason() -> None:
+    """L5-L3: a hand-typed key name reaches the log and status bar, so a
+    newline in it would forge a log line unless it is `quoted()` like every
+    other file-sourced value."""
+    _unknown, reason = registry._unknown_or_reason(
+        {"path": "/a", "name": "a", "bad\nkey": float("nan")}, "'a'"
+    )
+    assert reason is not None
+    assert "\n" not in reason
+
+
+def test_a_written_but_not_durable_profile_says_so_by_type(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """L5-L4: `save_projects` kept `ConfigFileNotDurable` as
+    `RegistryNotDurable`; `export_profile` folded it into the plain error, so a
+    caller could not tell "written" from "not written" by type."""
+
+    def not_durable(*_args, **_kwargs):
+        raise configfile.ConfigFileNotDurable("written, but not durable")
+
+    monkeypatch.setattr(registry, "write_json_atomically", not_durable)
+    with pytest.raises(registry.RegistryNotDurable):
+        registry.export_profile(
+            tmp_path / "profile.json", [every_field_record()], load=RegistryMissing("x")
+        )
+
+
+def test_an_import_that_creates_a_duplicate_port_flags_it() -> None:
+    """L5-Q1: ADR-0005 flags duplicate ports "at merge time", and `merge()`
+    calls `_flag_duplicate_ports`; `merge_imported` did not, so a profile
+    restoring a `port_override` another project holds said nothing."""
+    stored = [
+        ProjectRecord(path=Path("/srv/a"), name="a", port=5005),
+        ProjectRecord(path=Path("/srv/b"), name="b", port=6006),
+    ]
+    imported = [ProjectRecord(path=Path("/srv/b"), name="b", port_override=5005)]
+
+    result = registry.merge_imported(stored, imported)
+
+    assert result.counts[registry.DUPLICATE_PORT] == 1
+    assert any("5005" in reason for reason in result.reasons)

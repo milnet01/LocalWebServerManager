@@ -29,10 +29,13 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from pathlib import Path
 
 from lwsm.configfile import (
     ConfigFileError,
+    ConfigFileNotDurable,
+    canonical_json,
     quoted,
     read_bounded,
     write_json_atomically,
@@ -132,6 +135,14 @@ class SettingsError(ConfigFileError):
     """The file could not be *written*. There is no read-side failure."""
 
 
+class SettingsNotDurable(SettingsError):
+    """The file WAS written; only the directory fsync failed (known-issue-047).
+
+    `registry.RegistryNotDurable`'s analogue, so a caller can tell "written"
+    from "not written" by type rather than by message text (L5-L4).
+    """
+
+
 @dataclass(frozen=True)
 class Settings:
     """What the user chose. Defaults are what a first run gets."""
@@ -188,6 +199,11 @@ class LoadResult:
     # False on the two paths that read the document: a clean file, and a
     # missing one. A first run has nothing to lose and must stay writable.
     document_refused: bool = False
+    # Said to the user and never a reason to refuse a write. A file read
+    # forward lost nothing, and its note sat in `reasons` until review-code
+    # 2026-10-01 (L5-H1), where the save gate's any-reason rule (LWSM-1271)
+    # made every such file unwritable.
+    notes: list[str] = dataclass_field(default_factory=list)
 
 
 def default_settings_path() -> Path:
@@ -289,6 +305,7 @@ def load(path: Path) -> LoadResult:
     here the same condition reaches them as the default theme and a log line.
     """
     reasons: list[str] = []
+    notes: list[str] = []
     try:
         raw = read_bounded(path)
     except FileNotFoundError:
@@ -310,7 +327,7 @@ def load(path: Path) -> LoadResult:
         # while a refusal only meant defaults — LWSM-1163's write gate made it
         # permanent, since a refused document blocks every later save and no
         # preference persists for as long as the BOM is there.
-        document = json.loads(raw.decode("utf-8-sig"))
+        document = json.loads(raw.decode("utf-8-sig"), parse_constant=_refuse_constant)
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         # `RecursionError` is named because it is NOT a `ValueError` — it is
         # `RecursionError` -> `RuntimeError` -> `Exception` — and deeply nested
@@ -371,7 +388,7 @@ def load(path: Path) -> LoadResult:
         # own value and falls back to its default, and an unknown key is
         # ignored. A real v0 -> v1 rename would go HERE, before the field
         # reads, rather than in a second parser.
-        reasons.append(
+        notes.append(
             f"{quoted(str(path))}: schema_version is {quoted(version)}, "
             f"not {SCHEMA_VERSION}; read as version {SCHEMA_VERSION}"
         )
@@ -433,16 +450,24 @@ def load(path: Path) -> LoadResult:
     known = _payload(Settings()).keys()
     extras = sorted(key for key in document if key not in known)
     try:
-        unknown = tuple(
-            (key, json.dumps(document[key], sort_keys=True, separators=(",", ":")))
-            for key in extras
-        )
+        unknown = tuple((key, canonical_json(document[key])) for key in extras)
     except (TypeError, ValueError, RecursionError):
         unknown = ()
-        reasons.append(f"unrecognised keys could not be kept ({', '.join(extras)})")
+        reasons.append(
+            f"unrecognised keys could not be kept ({quoted(', '.join(extras))})"
+        )
     settings = replace(settings, unknown=unknown)
 
-    return LoadResult(settings, reasons[:MAX_REASONS])
+    return LoadResult(settings, reasons[:MAX_REASONS], notes=notes)
+
+
+def _refuse_constant(name: str) -> object:
+    """`json.loads`' hook for `NaN` and `Infinity` — `registry._refuse_constant`'s.
+
+    They are not JSON, and Python re-emits them bare (L5-M2). The `ValueError`
+    reaches `load`'s existing branch for an unparseable document.
+    """
+    raise ValueError(f"{name} is not a JSON value")
 
 
 def _payload(settings: Settings) -> dict[str, object]:
@@ -507,7 +532,9 @@ def save(path: Path, settings: Settings) -> None:
         if key not in payload:
             payload[key] = json.loads(encoded)
     try:
-        text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+        # allow_nan=False, as `registry._encoded` has: bare `NaN` is not JSON
+        # and another tool reading the file refuses it (L5-M2).
+        text = json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
         data = text.encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise SettingsError(
@@ -517,6 +544,8 @@ def save(path: Path, settings: Settings) -> None:
 
     try:
         write_json_atomically(path, data, prefix=".settings-")
+    except ConfigFileNotDurable as exc:
+        raise SettingsNotDurable(str(exc)) from exc
     except ConfigFileError as exc:
         # Whole, like `registry`'s sibling converter. The clip that used to be
         # here bounded nothing hostile — the only attacker-controlled part of a

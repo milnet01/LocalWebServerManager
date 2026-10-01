@@ -110,7 +110,7 @@ item closes it**: known-issue-025 (identity — § 4.2, INV-5).
   | INV-11 | **INV-7** | duplicate effective ports, earliest `added` winning |
   | INV-15 | **INV-8** | a merge never rewrites a stored `path` |
   | INV-17 | **INV-9** | `added` is compared as a parsed instant |
-  | INV-13 (merge half) | **INV-10** | no merge-report value skips `_quoted` |
+  | INV-13 (merge half) | **INV-10** | no merge-report value skips `configfile.quoted` |
 
   Umbrella INV-1, -7, -8, -9, -12, -14, -16 and the writer half of -13 are all
   format-and-writer rules and stayed with LWSM-1007, whose § 3 carries the
@@ -261,12 +261,11 @@ contains zero projects silently stops marking its records missing. The **roots
 requested** are used rather than "the roots actually walked", because a partial
 scan does not report which it reached.
 
-The return shape is a plain `(records, reasons)` tuple. It **used** to be
-described as mirroring `load_projects`, and no longer does: LWSM-1007 § 4.3
-replaces that loader's two-tuple with a `LoadResult` dataclass carrying a
-`rows_refused` count, which the merge has no equivalent of — nothing a merge
-produces is refused at row level. The two shapes are deliberately different, so
-an implementer should not reach for `LoadResult` here.
+The return shape is `MergeResult` — `records`, `reasons` and per-outcome
+`counts`. It is not `LoadResult`: that carries a `rows_refused` count, which the
+merge has no equivalent of — nothing a merge produces is refused at row level.
+The two shapes are deliberately different, so an implementer should not reach
+for `LoadResult` here.
 
 **The merge replaces `DETECTED_FIELDS - {"path"}`, except that `port` is
 replaced only when the scan value is known (§ 4.1), and keeps the user half**,
@@ -603,7 +602,7 @@ has to replace.
   the bug would not show up until a user hand-edited one.
 
 - **INV-10** — No value read from the file or from a scan reaches a **merge
-  report entry** without passing `_quoted`.
+  report entry** without passing `configfile.quoted`.
   *Test:* `tests/test_registry.py::test_no_merge_value_is_interpolated_without_the_clip`,
   mirroring the existing `test_no_file_sourced_value_is_interpolated_without_the_clip`
   at `tests/test_registry.py:463`.

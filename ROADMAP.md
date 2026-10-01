@@ -10047,6 +10047,23 @@ bugs in the same area.
   Source: review-code 2026-09-01 synthesis part 5, verified 2026-10-01 closing LWSM-1286.
   Lanes: ci.
 
+- 📋 [LWSM-1353] **Decide whether an older build should keep an enum value it does not know, such as a newer launcher kind.**
+  `registry._kind_or_reason` refuses a `kind` string that is not a
+  `LauncherKind` value, and the next save writes `null` over it. Unknown
+  KEYS survive a downgrade (LWSM-1218); unknown VALUES do not. LWSM-1007
+  § 4.2 and § 8 accept the loss because "a refused field's text is by
+  definition not a valid value", which is false across versions: a fifth
+  kind added inside schema v1 is valid to the build that wrote it.
+  Options: (a) keep an unrecognised value verbatim and treat the record
+  as kind-unknown; (b) keep the rule and say in the spec that a new enum
+  value needs a schema bump. Either way the spec changes, so this takes
+  rule 14's gate. Not fixed in the 2026-10-01 close-findings run because
+  it is a design decision, not an edit.
+  **Layman:** If a newer version of the app records a new kind of project, an older version would forget it; decide whether that is acceptable.
+  Kind: investigate.
+  Source: review-code 2026-10-01 lane 05 (L5-L5), queued by close-findings.
+  Lanes: core.
+
 ## 0.3.0 — The full state model
 
 Criterion 3: tell the truth in every case, including the awkward ones.

@@ -135,7 +135,7 @@ actually adds a subpackage.
   | INV-12 | **INV-5** | a pre-existing file still loads; `SCHEMA_VERSION` is 1 |
   | INV-16 | **INV-6** | a row refusal or a `RegistryError` makes the session read-only |
   | INV-14 | **INV-7** | the shipped bounds are pinned at their literal values |
-  | INV-13 (writer half) | **INV-8** | no writer-refusal reason skips `_quoted` |
+  | INV-13 (writer half) | **INV-8** | no writer-refusal reason skips `configfile.quoted` |
 
   Umbrella INV-13 is the one finding that genuinely splits. It covered "no value
   reaches **a report entry**" across both halves, and the halves are two
@@ -177,6 +177,8 @@ USER_FIELDS: frozenset[str] = frozenset(
         "start_at_login",
         "actions",
         "added",
+        "browser",
+        "unknown",
     }
 )
 ```
@@ -402,7 +404,9 @@ class LoadResult:
     records: list[ProjectRecord]
     reasons: list[str]  # every refusal, row-level and field-level alike
     rows_refused: int  # ROW refusals only; `reasons` is not a proxy for it
+    user_fields_refused: frozenset[str] = frozenset()  # read by `export_profile`
     path: Path | None = None  # the file read; binds the write gate to it (LWSM-1322)
+    unknown: tuple[tuple[str, str], ...] = ()  # top-level keys kept for the writer
 
 
 class RegistryNotDurable(RegistryError):
@@ -490,7 +494,7 @@ silently converted to a plain file — which is precisely what the refusal exist
 to prevent, and what a following stat would have permitted.
 
 **The `lstat`-then-`replace` race is accepted, and saying so is the point.**
-Both `_read_bounded` and `applog._require_private_regular_file` interrogate a
+Both `configfile.read_bounded` and `applog._require_private_regular_file` interrogate a
 *descriptor*; this check interrogates a *path*, so a symlink planted between the
 `lstat` and the `os.replace` is destroyed anyway. It is accepted rather than
 closed because the fd-based form is not available: `os.replace` takes paths, so
@@ -500,7 +504,7 @@ already write to a `0700` directory owned by the user. An implementer should
 **not** add a retry loop; there is no state to re-check into.
 
 This stays deliberately narrower than `applog._require_private_regular_file`,
-for the reason `_read_bounded` already records: a config file may reasonably be
+for the reason `configfile.read_bounded` already records: a config file may reasonably be
 hard-linked or installed for the user, so ownership and link count are not
 demanded. A **symlink** is refused rather than followed because replacing one
 destroys it; a **hard link** is not, because replacing the path leaves the other
@@ -542,9 +546,11 @@ reads.
 
 A file holding more than `MAX_RECORDS` (1000) projects loads the first 1000 and
 counts the rest as refused rows, so it is never written over (LWSM-1322).
+The writer refuses to write more than `MAX_RECORDS`, for the same reason
+(review-code 2026-10-01).
 
 **The absent file is a `RegistryError` today, and that is why `RegistryMissing`
-exists.** `_read_bounded` opens with `os.open`, so a missing
+exists.** `configfile.read_bounded` opens with `os.open`, so a missing
 file raises `FileNotFoundError`; `load_projects` converts **any** `OSError` into
 `RegistryError` in its `except OSError` handler, whose own comment says so — "Any
 OSError, not just FileNotFoundError". An earlier draft of this table listed "no
@@ -574,9 +580,9 @@ and its tie-break between two records with no `added` — and each write becomes
 the next load's file order, so a writer that sorted by name would silently flip
 both on every run. INV-3 asserts a sequence rather than a set for this reason.
 
-**Every value that reaches a refusal reason passes `_quoted` first** (INV-8).
+**Every value that reaches a refusal reason passes `configfile.quoted` first** (INV-8).
 The writer's reasons interpolate file-sourced text — a path that could not be
-replaced, a name in a row-refusal count — and `_quoted` is the existing clip
+replaced, a name in a row-refusal count — and `configfile.quoted` is the existing clip
 that stops a hand-edited newline reaching the status bar or the log.
 
 ## 5. Invariants
@@ -665,13 +671,13 @@ that stops a hand-edited newline reaching the status bar or the log.
   single mistyped port would disable persistence for the whole session, and the
   first two fixtures pass either way.
 
-- **INV-7** — `registry.MAX_REASON_CHARS`, `registry.MAX_REASONS`,
+- **INV-7** — `configfile.MAX_REASON_CHARS`, `registry.MAX_REASONS`,
   `scanner.MAX_REASON_CHARS` and `scanner.MAX_DISPLAY_NAME_CHARS` are each
   asserted at their **literal** shipped values in one place, and the existing
   product bound is kept.
   *Test:* `tests/test_registry.py::test_the_shipped_bounds_are_pinned`. **The
   widening is strictly additive** — the test today asserts
-  `registry.MAX_REASON_CHARS == 120`, `registry.MAX_REASONS == 100` and
+  `configfile.MAX_REASON_CHARS == 120`, `registry.MAX_REASONS == 100` and
   `MAX_REASON_CHARS * MAX_REASONS < 20_000`, and all three stay. This item adds
   the **two** `scanner` constants and no more. Naming only those two would have
   had an implementer rewrite the test to that list and **delete the
@@ -694,7 +700,7 @@ that stops a hand-edited newline reaching the status bar or the log.
   message **contains no raw newline** and is bounded the way the loader's
   existing test bounds one — `<= len(str(path)) + 3 * MAX_REASON_CHARS`, not
   `<= MAX_REASON_CHARS`. **The tighter form is unachievable and would fail
-  against a correct writer:** `_quoted` clips the *value* to `MAX_REASON_CHARS`
+  against a correct writer:** `configfile.quoted` clips the *value* to `MAX_REASON_CHARS`
   and appends an ellipsis, so a single quoted value is already 121 characters
   before any template text, and a reason interpolates the value into a
   sentence. The loader test states the same bound with the same reasoning in a

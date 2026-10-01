@@ -25,6 +25,8 @@ from lwsm.configfile import (
     MAX_FILE_BYTES,
     ConfigFileError,
     ConfigFileNotDurable,
+    canonical_json,
+    is_writable_text,
     quoted,
     read_bounded,
     write_json_atomically,
@@ -207,6 +209,12 @@ class LoadResult:
     # write to another (known-issue-056, LWSM-1322). None for a result built
     # by hand, which binds nothing.
     path: Path | None = None
+    # Top-level keys this build has no name for, as sorted (key, canonical
+    # JSON) pairs, handed back by `save_projects`. A record's unknown keys
+    # were kept (LWSM-1218) and the document's were erased on the first save,
+    # so a key a newer build added inside v1 was lost on downgrade with no
+    # message (review-code 2026-10-01 L5-M3).
+    unknown: tuple[tuple[str, str], ...] = ()
 
 
 def default_projects_path() -> Path:
@@ -274,6 +282,8 @@ def _string_or_reason(
         return None, None
     if not isinstance(value, str):
         return None, f"{name}: {field} {quoted(value)} is not a string"
+    if not is_writable_text(value):
+        return None, f"{name}: {field} {quoted(value)} holds an unpaired surrogate"
     return value, None
 
 
@@ -283,6 +293,8 @@ def _text_or_reason(value: object, field: str, name: str) -> tuple[str, str | No
         return "", None
     if not isinstance(value, str):
         return "", f"{name}: {field} {quoted(value)} is not a string"
+    if not is_writable_text(value):
+        return "", f"{name}: {field} {quoted(value)} holds an unpaired surrogate"
     return value, None
 
 
@@ -322,6 +334,8 @@ def _argv_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str | No
         return (), None
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         return (), f"{name}: argv {quoted(value)} is not a list of strings"
+    if not all(is_writable_text(item) for item in value):
+        return (), f"{name}: argv {quoted(value)} holds an unpaired surrogate"
     return tuple(value), None
 
 
@@ -346,10 +360,7 @@ def _actions_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str |
     if not isinstance(value, list):
         return (), f"{name}: actions {quoted(value)} is not a list"
     try:
-        return tuple(
-            json.dumps(element, sort_keys=True, separators=(",", ":"))
-            for element in value
-        ), None
+        return tuple(canonical_json(element) for element in value), None
     except (TypeError, ValueError, RecursionError):
         # `RecursionError` is not a `ValueError` and has to be named, which is
         # the guard `load_projects` carries around its own `json.loads` and
@@ -398,13 +409,12 @@ def _unknown_or_reason(
     if not extras:
         return (), None
     try:
-        return tuple(
-            (key, json.dumps(entry[key], sort_keys=True, separators=(",", ":")))
-            for key in extras
-        ), None
+        return tuple((key, canonical_json(entry[key])) for key in extras), None
     except (TypeError, ValueError, RecursionError):
         # `_actions_or_reason`'s guard, and for its reason (LWSM-1217).
-        return (), f"{name}: unrecognised keys could not be kept ({', '.join(extras)})"
+        return (), (
+            f"{name}: unrecognised keys could not be kept ({quoted(', '.join(extras))})"
+        )
 
 
 def _added_or_reason(value: object, name: str) -> tuple[str | None, str | None]:
@@ -549,6 +559,19 @@ def load_projects(path: Path) -> LoadResult:
     records: list[ProjectRecord] = []
     reasons: list[str] = []
     suppressed = 0
+    top_level_extras = sorted(
+        key for key in data if key not in ("schema_version", "projects")
+    )
+    try:
+        top_level_unknown = tuple(
+            (key, canonical_json(data[key])) for key in top_level_extras
+        )
+    except (TypeError, ValueError, RecursionError):
+        top_level_unknown = ()
+        reasons.append(
+            "unrecognised top-level keys could not be kept "
+            f"({quoted(', '.join(top_level_extras))})"
+        )
     rows_refused = 0
     user_fields_refused: set[str] = set()
     seen: set[Path] = set()
@@ -609,12 +632,20 @@ def load_projects(path: Path) -> LoadResult:
         if not isinstance(raw_name, str) or not raw_name:
             refuse_row(f"projects[{index}]: 'name' must be a non-empty string")
             continue
+        if not is_writable_text(raw_name):
+            # Refused here, by name, rather than by every later save failing
+            # to encode it (review-code 2026-10-01 L5-M1).
+            refuse_row(f"projects[{index}]: 'name' holds an unpaired surrogate")
+            continue
 
         name = quoted(raw_name)
 
         raw_path = entry.get("path")
         if not isinstance(raw_path, str) or not raw_path:
             refuse_row(f"{name}: 'path' must be a non-empty string")
+            continue
+        if not is_writable_text(raw_path):
+            refuse_row(f"{name}: path {quoted(raw_path)} holds an unpaired surrogate")
             continue
         if "\x00" in raw_path:
             # It passes is_absolute() and would load, but every later os call on
@@ -744,6 +775,7 @@ def load_projects(path: Path) -> LoadResult:
         rows_refused=rows_refused,
         user_fields_refused=frozenset(user_fields_refused),
         path=path,
+        unknown=top_level_unknown,
     )
 
 
@@ -794,7 +826,11 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
     return payload
 
 
-def _encoded(path: Path, records: Sequence[ProjectRecord]) -> bytes:
+def _encoded(
+    path: Path,
+    records: Sequence[ProjectRecord],
+    unknown: tuple[tuple[str, str], ...] = (),
+) -> bytes:
     """The file's bytes, or `RegistryError` naming why they could not be made.
 
     Extracted from `save_projects` by LWSM-1148, which writes the same format
@@ -810,10 +846,17 @@ def _encoded(path: Path, records: Sequence[ProjectRecord]) -> bytes:
         # stored JSON text, and a record built any way but the loader can hold
         # text that does not decode — a bare `ValueError` here escaped the
         # `RegistryError` contract.
-        payload = {
+        if len(records) > MAX_RECORDS:
+            # The reader refuses rows past this, so a file written with more
+            # would load read-only next time — the "written and then found
+            # unreadable" case the byte bound below exists for (L5-L1).
+            raise ValueError(f"{len(records)} records, over the {MAX_RECORDS} limit")
+        payload: dict[str, object] = {
             "schema_version": SCHEMA_VERSION,
             "projects": [_serialised(record) for record in records],
         }
+        for key, encoded in unknown:
+            payload[key] = json.loads(encoded)
         # ensure_ascii=False so a non-Latin project name stays readable in the
         # file the user is invited to hand-edit; the bound below is on the
         # encoded bytes, which is what the reader's cap measures.
@@ -844,10 +887,11 @@ def _refuse_unwritable_load(path: Path, load: LoadResult | RegistryError) -> Non
     implements — and LWSM-1131 § 4.4 says the merge "calls a writer that enforces
     it" rather than re-implementing the check.
 
-    Only the first two states may write: `RegistryMissing` (first run,
-    so a fresh file is created), a `LoadResult` with no ROW refusal (including
-    one that dropped fields), a `LoadResult` read from a different file, a
-    `LoadResult` that refused a row, and any other `RegistryError`.
+    Two states may write: `RegistryMissing` (first run, so a fresh file is
+    created), and a `LoadResult` of this file with no ROW refusal (including one
+    that dropped fields). Three are refused: a `LoadResult` read from a
+    different file, a `LoadResult` that refused a row, and any other
+    `RegistryError`.
 
     The last is the one a `reasons`-only gate misses entirely: a raised
     `RegistryError` produces **no reasons at all**, so such a gate would write a
@@ -895,7 +939,8 @@ def save_projects(
     so a writer that sorted by name would silently flip both on every run.
     """
     _refuse_unwritable_load(path, load)
-    data = _encoded(path, records)
+    # The gate above guarantees `load` is a `LoadResult` or a first run.
+    data = _encoded(path, records, load.unknown if isinstance(load, LoadResult) else ())
 
     try:
         # The directory, the hostile-target refusal and the durable write, in
@@ -1404,6 +1449,10 @@ def export_profile(
     data = _encoded(path, records)
     try:
         write_json_atomically(path, data, prefix=".profile-")
+    except ConfigFileNotDurable as exc:
+        # Written, and the caller must be able to say so, as `save_projects`
+        # does (known-issue-047, L5-L4).
+        raise RegistryNotDurable(str(exc)) from exc
     except ConfigFileError as exc:
         # Converted for `save_projects`' reason: this function promises the
         # narrow type, and `except RegistryError` does not catch its base.
@@ -1574,6 +1623,10 @@ def merge_imported(
             f"{quoted(current.name)}: restored from the profile "
             f"({quoted(', '.join(changed))})",
         )
+
+    # ADR-0005 flags a duplicate port at merge time, and a restored
+    # `port_override` can create one exactly as a rescan can (L5-Q1).
+    _flag_duplicate_ports(records, flag)
 
     if suppressed:
         reasons.append(f"... and {suppressed} more")
