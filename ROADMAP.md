@@ -10027,7 +10027,7 @@ O8` forbids retrofitting that.
   Source: security-pass-2026-10-01 S-3.
   Lanes: window, supervisor.
 
-- 📋 [LWSM-1366] **A listener the app cannot name on the other loopback address lets it call a stranger's server managed.**
+- ✅ [LWSM-1366] **A listener the app cannot name on the other loopback address lets it call a stranger's server managed.**
   ports.py records a claimant only when conn.pid is not None; psutil gives
   None for another account's socket. Our server on 127.0.0.1:P plus another
   account on [::1]:P leaves claimants {ours}, so holder(P) is ours, the row
@@ -10035,6 +10035,9 @@ O8` forbids retrofitting that.
   LWSM-1232 already treats two named holders as ambiguous. Fix: record
   unnamed localhost-reachable listeners per port and return no holder when
   one sits beside a named one. Verified 2026-10-01 in PortProbe.snapshot.
+  Resolved (2026-10-01, 07cf367): an unnamed localhost-reachable
+  listener makes the port holderless; LAN-only unnamed listeners do not
+  count.
   **Layman:** If another user account on this computer runs a server on the same port, the app can send you to it while showing it as your own project.
   Kind: security.
   Source: security-pass-2026-10-01 S-4.
