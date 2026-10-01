@@ -9730,7 +9730,7 @@ O8` forbids retrofitting that.
   Source: in-session-2026-10-01 (found closing LWSM-1275 and LWSM-1279).
   Lanes: core.
 
-- 📋 [LWSM-1342] **A project named like a row ("x, running, port 80") forges its screen-reader announcement.**
+- ✅ [LWSM-1342] **A project named like a row ("x, running, port 80") forges its screen-reader announcement.**
   The row announces "<state>, <name>, <port>" from the rendered cells.
   displayable_name passes commas through, so `x, running, port 80`
   reads as a running row. The same name reaches the button names and the
@@ -9741,12 +9741,15 @@ O8` forbids retrofitting that.
   test_an_unchanged_row_is_never_re_announced and the name_changed gate.
   Decision (user, 2026-10-01): facts first, then the name after the word
   "named" — e.g. "stopped, port 3000, named x, running, port 80".
+  Resolved (2026-10-01, ae5e0db): template is now "%1, %3, named %2"
+  (state, port, named name). Locked by
+  test_a_name_shaped_like_a_row_cannot_forge_the_announcement.
   **Layman:** A project with a cleverly chosen name could make a screen reader announce a status it does not have.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 10, queued from LWSM-1280 on 2026-10-01.
   Lanes: window.
 
-- 📋 [LWSM-1343] **The name and browser column caps measure "x", so a CJK name gets about half its intended width.**
+- ✅ [LWSM-1343] **The name and browser column caps measure "x", so a CJK name gets about half its intended width.**
   `metrics.horizontalAdvance("x") * NAME_COLUMN_CHARS` (16) and the
   browser column's 10. averageCharWidth() is still a Latin figure; a
   wide-glyph measure (e.g. "水" * N) widens the column against
@@ -9755,6 +9758,8 @@ O8` forbids retrofitting that.
   Decision (user, 2026-10-01): the cap promises the same on-screen WIDTH
   for every script; wide glyphs fit fewer characters. Reword the promise
   to say width; no layout change.
+  Resolved (2026-10-01): the two cap comments now promise a WIDTH (N "x"
+  characters), so wide scripts fit fewer characters. No code changed.
   **Layman:** Project names in Chinese, Japanese or Korean are cut off about twice as early as English ones.
   Kind: fix.
   Source: review-code 2026-09-01 lane 10, queued from LWSM-1280 on 2026-10-01.
