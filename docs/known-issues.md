@@ -339,6 +339,8 @@ in the current build. Owners are named, not implied.
 - **Logged:** 2026-08-07
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1323** (the `role=Border` half).
 - **Queued 2026-09-28 as LWSM-1331.**
+- **Resolved 2026-10-01 by LWSM-1348:** a row is a list item inside a list,
+  read off the AT-SPI bus.
 
 ## known-issue-014 — The port cell reserves the width of its shortest possible string
 

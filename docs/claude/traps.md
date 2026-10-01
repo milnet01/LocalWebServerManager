@@ -509,6 +509,16 @@ sample the region the change lives in: a fill sample taken from a button's
 interior cannot see a ring drawn at its border, which was the second half of
 the same wrong answer.
 
+**Trap: `offscreen` cannot show what a screen reader hears, but the bus
+can be read directly.** The system `python3` has `gi` with the `Atspi`
+typelib; the venv does not. Run a test copy of the window on a private
+`Xvfb` display with `QT_QPA_PLATFORM=xcb` and
+`QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`, then walk
+`Atspi.get_desktop(0)` for the child whose `get_process_id()` is that copy's
+PID, printing `get_role_name()` and `get_name()`. Nothing appears on the
+user's screen. Measured 2026-10-01 for LWSM-1348: Qt's `Border` role reads
+as `panel` on the bus.
+
 **Trap: "the most common colour" is not a control's fill once it has a
 one-colour outline.** Fusion shades a button's fill across many near-equal
 colours, so the 1 px outline `OutlineStyle` paints round the perimeter

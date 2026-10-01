@@ -53,6 +53,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtGui import Qt as GuiQt
 from PySide6.QtWidgets import (
+    QAccessibleWidget,
     QApplication,
     QComboBox,
     QFileDialog,
@@ -1451,6 +1452,45 @@ def _id_of_theme(theme: Theme) -> str:
     return DEFAULT_THEME
 
 
+class _RowList(QWidget):
+    """The widget holding the rows. A class of its own so that
+    `_accessible_for` can tell assistive technology it is a list."""
+
+
+def _accessible_for(_class_name: str, obj: QObject) -> QAccessibleWidget | None:
+    """Give a row and its container the roles of a list (LWSM-1348).
+
+    A row is a `QFrame`, which Qt presents as a Border and AT-SPI as a panel,
+    and the container as a filler (read off the accessibility bus,
+    2026-10-01), so nothing told a screen reader these were items of a list.
+    `QAccessibleWidget` keeps the widget's accessible name, so the row's
+    announcement is unchanged. Anything else returns None and gets Qt's own
+    interface.
+
+    Not held on the Python side: Qt's accessibility cache owns what this
+    returns and deletes it with the widget. A stress run creating and
+    destroying 50 rounds of 20 rows, then exiting, was clean (measured
+    2026-10-01).
+    """
+    if isinstance(obj, ProjectRow):
+        return QAccessibleWidget(obj, QAccessible.Role.ListItem)
+    if isinstance(obj, _RowList):
+        return QAccessibleWidget(obj, QAccessible.Role.List)
+    return None
+
+
+_accessible_factory_installed = False
+
+
+def _install_accessible_factory() -> None:
+    """Once per process: Qt keeps every factory installed, so a second would
+    run alongside the first."""
+    global _accessible_factory_installed
+    if not _accessible_factory_installed:
+        QAccessible.installFactory(_accessible_for)
+        _accessible_factory_installed = True
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -1794,7 +1834,8 @@ class MainWindow(QMainWindow):
         # height is every row it holds, so a user with twenty projects gets a
         # window taller than the screen that cannot be shrunk — the opposite
         # failure to the one this item was filed for, and worse.
-        self._rows_host = QWidget()
+        _install_accessible_factory()
+        self._rows_host = _RowList()
         self._rows_layout = QVBoxLayout(self._rows_host)
         self._rows_layout.setContentsMargins(0, 0, 0, 0)
         self._rows_layout.addStretch(1)

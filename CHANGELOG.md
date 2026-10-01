@@ -332,6 +332,11 @@ signaling per
 
 ### Fixed
 
+- **A screen reader now hears the project rows as items in a list** (LWSM-1348)
+  Each row used to present itself as a plain panel, so nothing said
+  "list" or where in the list you were. The rows are now list items in
+  a list, and what each one says is unchanged.
+
 - **A project's name can no longer make a screen reader announce a false status** (LWSM-1342)
   A row is now read as its status and port first, then "named"
   and the project's name, so a name like "x, running, port 80"

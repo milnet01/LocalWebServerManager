@@ -7754,6 +7754,27 @@ def test_a_name_shaped_like_a_row_cannot_forge_the_announcement(qtbot, built) ->
     )
 
 
+def test_a_row_is_a_list_item_in_a_list(qtbot, built) -> None:
+    """LWSM-1348. A row is a `QFrame`, so assistive technology was told it is
+    a panel (read off the AT-SPI bus, 2026-10-01) and the rows' container a
+    filler: nothing said "list" or "item 2 of 5". The row's spoken name must
+    survive the new role, since it carries the state, port and name.
+
+    Asserted on Qt's interface, which offscreen answers. What reaches AT-SPI
+    from it is Qt's mapping; that half was read off the bus with this role
+    in place ("list" holding "list item"), and is not re-checked here.
+    """
+    from PySide6.QtGui import QAccessible
+
+    window, _ = window_for(qtbot, built, many(2), FakeProbe(3001))
+    row = rows_of(window)[0]
+    item = QAccessible.queryAccessibleInterface(row)
+
+    assert item.role() == QAccessible.Role.ListItem
+    assert item.text(QAccessible.Text.Name) == row.accessibleName()
+    assert item.parent().role() == QAccessible.Role.List
+
+
 def test_the_rescan_defaults_reach_a_patched_scanner_and_writer(monkeypatch) -> None:
     """`RescanContext`'s defaults were the functions themselves, captured when
     the class was defined, so patching the module never reached them."""
