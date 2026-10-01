@@ -146,7 +146,7 @@ The test names the invariant it enforces, in its name or docstring:
 ### 3.1 Unit tests
 
 Test a single function or class in isolation. Deterministic, no
-I/O, no external services — **one exception, the source-invariant
+I/O outside the test's own `tmp_path`, no external services — **one exception, the source-invariant
 test (§ 3.6), which reads a module's source on purpose.**
 
 **Speed budget is § 6's and stated only there.** This line used to
@@ -288,14 +288,15 @@ carries enough context that the CI log alone is diagnosable.
 - **Every audit / review finding has a regression test** (per
   `Kind: audit-fix` / `review-fix`).
 - **Refactors don't get new tests** — they must keep the existing
-  ones passing. If the refactor reveals untested behaviour, that's
+  ones passing. One exception: a refactor that closes a mechanism
+  with three or more call sites owes § 3.6's source-invariant test. If the refactor reveals untested behaviour, that's
   a separate `Kind: test` ROADMAP item.
 
 
 ## 8. Test commits
 
-A test-only change uses `Kind: test` and the corresponding commit
-prefix. With the `<ID>: <description>` mandate from
+A test-only change uses `Kind: test`. With the `<ID>: <description>`
+mandate from
 [commits § 1.1](commits.md):
 
 ```
@@ -353,8 +354,10 @@ reads the same on any checkout — and so the ban's extent is
 decidable without asking, which a bare `<scan root>` placeholder
 was not. Config paths
 are injected, and every fixture builds its own throwaway project
-tree in `tmp_path`. A test that starts `project-f` is not a
-test, it is a side effect.
+tree in `tmp_path`. Nor may it read any other per-user state the
+code consults: `tests/conftest.py` pins each `XDG_*` variable the
+code reads to a value the test owns. A test that starts `project-f`
+is not a test, it is a side effect.
 
 ### T2. Spawn real processes — of fake projects
 
@@ -400,6 +403,11 @@ widgets and need no display. Widget tests use `pytest-qt` and run
 under an offscreen platform (`QT_QPA_PLATFORM=offscreen`) so CI
 needs no X server. If a test needs a visible window to pass, the
 thing it is testing is in the wrong layer — see coding § O1.
+
+A test that needs a Qt application object — one taking `qtbot` or
+`app_font` — carries the `gui` marker, on the test or through the
+module's `pytestmark`. No run selects on it; it says which tests need
+Qt. `tests/test_layering.py` fails on one without it.
 
 ### T7. The state table is a parametrised test, not prose
 

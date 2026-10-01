@@ -167,6 +167,7 @@ def test_starts_even_when_there_is_no_home_directory(monkeypatch, capsys, tmp_pa
     )
 
 
+@pytest.mark.gui
 def test_no_home_directory_offers_no_rescan_it_cannot_perform(
     qtbot, monkeypatch
 ) -> None:
@@ -884,6 +885,7 @@ def test_a_settings_file_with_a_typo_is_not_overwritten_with_defaults(
     assert path.read_text(encoding="utf-8") == malformed
 
 
+@pytest.mark.gui
 def test_a_refused_settings_write_still_saves_the_scan_roots(
     qtbot, monkeypatch, tmp_path
 ) -> None:
@@ -957,6 +959,7 @@ def test_a_refused_settings_write_still_saves_the_scan_roots(
     assert "settings.json" in message, message
 
 
+@pytest.mark.gui
 def test_the_registry_load_record_is_not_given_the_settings_reasons(
     qtbot, monkeypatch, tmp_path
 ) -> None:
@@ -997,6 +1000,7 @@ def test_the_registry_load_record_is_not_given_the_settings_reasons(
         controller.stop()
 
 
+@pytest.mark.gui
 def test_a_refused_field_is_not_overwritten_with_its_default(
     qtbot, monkeypatch, tmp_path
 ) -> None:
@@ -1043,6 +1047,7 @@ def test_a_refused_field_is_not_overwritten_with_its_default(
     )
 
 
+@pytest.mark.gui
 @pytest.mark.parametrize("accepted", [True, False])
 def test_the_settings_dialog_is_released_on_both_paths(
     qtbot, monkeypatch, tmp_path, accepted: bool
@@ -1098,6 +1103,7 @@ def test_the_settings_dialog_is_released_on_both_paths(
     )
 
 
+@pytest.mark.gui
 def test_both_write_failures_are_named_not_just_the_first(
     qtbot, monkeypatch, tmp_path
 ) -> None:
@@ -1160,6 +1166,7 @@ def test_both_write_failures_are_named_not_just_the_first(
     )
 
 
+@pytest.mark.gui
 def test_clearing_every_scan_root_means_the_same_thing_after_a_restart(
     qtbot, monkeypatch, tmp_path
 ) -> None:
@@ -1214,6 +1221,7 @@ def test_clearing_every_scan_root_means_the_same_thing_after_a_restart(
         controller.stop()
 
 
+@pytest.mark.gui
 def test_a_settings_save_that_works_says_nothing(qtbot, monkeypatch, tmp_path) -> None:
     """The other half, and neither holds alone.
 
@@ -1744,6 +1752,7 @@ def test_a_scan_roots_comment_block_that_would_cross_the_cap_is_refused(
     assert path.read_bytes() == before, "the previous list survives"
 
 
+@pytest.mark.gui
 def test_a_trust_confirmation_survives_a_restart_of_the_app(
     qtbot, tmp_path, monkeypatch
 ) -> None:

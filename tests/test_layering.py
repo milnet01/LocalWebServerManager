@@ -300,3 +300,41 @@ def test_the_translated_formatting_check_sees_each_shape(
 ) -> None:
     """The check itself, so a green run above means something."""
     assert bool(translated_text_formatting(source)) is caught
+
+
+QT_FIXTURES = {"qtbot", "app_font"}
+
+
+def test_every_test_needing_a_qt_application_carries_the_gui_marker() -> None:
+    """`testing.md § T6`: a test that needs a Qt application object carries the
+    `gui` marker, set on the test or by the module's `pytestmark`.
+
+    Nothing selects on the marker; it says which tests need Qt. Ten carried no
+    marker when this was written, so the label had stopped meaning that
+    (LWSM-1330).
+    """
+    tests_dir = SRC.parent.parent / "tests"
+    unmarked = []
+    for path in sorted(tests_dir.glob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        module_marked = any(
+            isinstance(node, ast.Assign)
+            and any(getattr(t, "id", "") == "pytestmark" for t in node.targets)
+            and "gui" in ast.unparse(node.value)
+            for node in tree.body
+        )
+        for node in tree.body:
+            if not (
+                isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+            ):
+                continue
+            if not QT_FIXTURES & {arg.arg for arg in node.args.args}:
+                continue
+            marked = module_marked or any(
+                "mark.gui" in ast.unparse(d) for d in node.decorator_list
+            )
+            if not marked:
+                unmarked.append(f"{path.name}::{node.name}")
+    assert unmarked == [], "tests using a Qt fixture with no `gui` marker:\n" + (
+        "\n".join(unmarked)
+    )

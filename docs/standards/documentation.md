@@ -129,7 +129,7 @@ the end of the file:*
 
 | Rule | What catches a breach |
 |------|----------------------|
-| §1.7 no `path:line` citations | `/doc-lint` `links` |
+| §1.7 cited symbols exist | `check-doc-facts` `symbols` |
 | §6 screenshots current | **nothing** — a cold reader; tracked by `<PREFIX>-NNNN` |
 
 The right-hand cell says exactly one of two things and never
@@ -306,10 +306,10 @@ Findings from a doc review fold into the ROADMAP under
 
 ### 8.1 The review gate
 
-Every spec, design doc, ADR, standard and reference runs through
-`/cold-eyes` before the work it governs starts, looped until it
-converges. The skill owns the procedure — the loop, the severity
-tally, the convergence test, the post-fix blast-radius check.
+A document gated under `CLAUDE.md` § Review cadence runs through
+`review-contract`, looped until it converges or reaches its cap; that
+section says when. The skill owns the procedure — the loop, the
+per-loop tally, the convergence test, the post-fix blast-radius check.
 This standard does not restate them (§1.5); read the skill.
 
 Two requirements this standard adds:
@@ -327,7 +327,7 @@ Two requirements this standard adds:
 
 **When a reviewer or a human catches the same *class* of defect
 twice, it stops being a review finding and becomes a mechanical
-check** — added to `/doc-lint` or a CI gate, not to a
+check** — added to `check-doc-facts` or a CI gate, not to a
 checklist someone must remember.
 
 Spend a cold reader only on what a script cannot do. The
@@ -335,9 +335,9 @@ catchers, cheapest first:
 
 | Catcher | Cost | Use for |
 |---------|------|---------|
-| a deterministic gate (`/doc-lint`, CI) | seconds, every run | anything countable or greppable |
+| a deterministic gate (`check-doc-facts`, CI) | seconds, every run | anything countable or greppable |
 | a checklist with a fixed trigger | a minute, when triggered | judgement a script cannot make |
-| a cold reader (`/cold-eyes`) | a review pass | reasoning, contradictions, a wrong approach |
+| a cold reader (`review-contract`) | a review pass | reasoning, contradictions, a wrong approach |
 | the user | a bug report | what the first three missed |
 
 A finding paid for at cold-reader prices that a grep could have
@@ -386,17 +386,17 @@ Unnumbered, so adding it renumbered nothing (§1.8).
 
 | Rule | What catches a breach |
 |------|----------------------|
-| §1.3 ISO 8601 dates | **nothing** — `/doc-lint` has no date check; a cold reader, or add one to its catalogue (both forms are greppable) |
+| §1.3 ISO 8601 dates | **nothing** — `check-doc-facts` has no date check; a cold reader, or add one to its catalogue (both forms are greppable) |
 | §1.3 no relative dates in committed docs | **nothing** — same gap as above |
 | §1.4 don't reference what isn't shipped | **nothing** — forward-reference-vs-defect is a judgement |
-| §1.7 no `path:line` citations | `/doc-lint` `links` |
-| §1.7 cited symbols exist | `/doc-lint` `symbols` — but defect-vs-forward-reference is a lane's judgement, not the check's |
-| §1.5 one source of truth per fact | **nothing mechanical** — `/cold-eyes` Phase 4 diagnoses it from the finding pattern (findings of the form "§A and §B disagree") |
-| §1.6 length yardsticks | `/doc-lint` `size` reports line counts; the judgement is a cold reader's |
-| §1.8 every standard carries this section | `/doc-lint` `sections` |
+| §1.7 no `path:line` citations | **nothing** — `paths` resolves the file and passes the citation, and `links` checks Markdown links, anchors and the table of contents |
+| §1.7 cited symbols exist | `check-doc-facts` `symbols` — but defect-vs-forward-reference is a lane's judgement, not the check's |
+| §1.5 one source of truth per fact | **nothing mechanical** — `review-contract` Phase 4 diagnoses it from the finding pattern (findings of the form "§A and §B disagree") |
+| §1.6 length yardsticks | **nothing** — `check-doc-facts` dropped its `size` check; the judgement is a cold reader's |
+| §1.8 every standard carries this section | `check-doc-facts` `mandated-section` |
 | §3 ROADMAP / CHANGELOG format | `roadmap_query` / `changelog_query` parse failures |
 | §6 screenshots show the current UI | **nothing** — a cold reader, or the user noticing |
-| §8.1 loop log present, tally balances | `/doc-lint` `loop-log` |
+| §8.1 loop log present, tally balances | `check-doc-facts` `loop-log` |
 | §8.2 repeated class becomes a check | **nothing** — a habit, and the only evidence it is working is the `nothing` rows in these tables falling over time |
 | §10 spec/plan split respected | **nothing mechanical** — a cold reader; a plan containing rationale is a judgement call |
 

@@ -17,12 +17,9 @@ converged on independently (`Ants_Terminal/docs/standards/specs.md`,
 reverse-engineering the format from old specs, and so specs stay parseable
 by the `spec_query` MCP verb (§7).
 
-**This is the project's copy** and it wins for work in this repo. The
-upstream original is `~/.claude/skills/_shared/spec-format.md`. Keep this a
-verbatim copy: project-specific changes go at the bottom under
-`## <Project> overrides`, immediately before `## What checks this`, so the
-two stay diffable. A silently-forked copy is worse than no copy — it wins,
-and it wins with the upstream's fixes missing.
+**This is the project's own standard** and it wins for work in this repo.
+It is edited in place, as the `OWNED-HERE` marker above says; reconciling
+it with the global `~/.claude/standards/spec-format.md` is LWSM-1062's job.
 
 ---
 
@@ -83,9 +80,6 @@ menu entry, a dependency bump. A regression test is more useful than a
 document, and for a single-invariant behaviour the test is the whole
 contract. `docs/specs/` is for designs whose contract
 spans files.
-
-When unsure, write the spec. It is cheaper than the rewrite that follows an
-unstated assumption.
 
 ## 2. Files and naming
 
@@ -399,10 +393,8 @@ owns the procedure — the loop, the per-loop tally, the definition of
 convergence, and the post-fix blast-radius check.
 **This standard does not restate those rules** (§5.2); read the skill.
 
-`documentation.md` §8.1 owns the loop-log requirements — that it is written
-as the loops happen rather than back-filled, that every row carries an
-outcome, and that a gated document without one has not been through the
-gate. They apply to a spec with one exception: §8.1 puts the log last, and
+`documentation.md` §8.1 owns the loop-log requirements. They apply to a
+spec with one exception: §8.1 puts the log last, and
 in a spec it is §12, with §4's recommended sections after it (§3).
 
 One spec-side specific: `spec_log op:append_loop` writes **bullet** form. If
@@ -488,7 +480,7 @@ Unnumbered because this is a standard — see `documentation.md` §1.8.
 | §5.1 cited symbols exist | `check-doc-facts` `symbols` produces the unresolved list; **defect-vs-forward-reference is a lane's judgement**, not the check's |
 | §5.2 one fact, one place | **nothing mechanical** — `review-contract` Phase 4 diagnoses it from the finding pattern |
 | §5.4 size gate | **nothing** — the split is a judgement made before dispatch |
-| §6 loop log present, every row has an outcome | `check-doc-facts` `loop-log` |
+| §6 loop log present and meets `documentation.md` §8.1 | `check-doc-facts` `loop-log` |
 | §3 the twelve required headings present and numbered | `spec_lint` `missing_section`, which reads §3's `required-sections` block |
 | §3.12 that section holds a table, not prose | **nothing** — `missing_section` reads the heading only |
 | §8 every plan step has a verification | **nothing mechanical** — a cold reader |

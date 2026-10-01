@@ -168,6 +168,7 @@ def _rendered_ring(qtbot, theme: Theme, kind: str = "button") -> tuple[str, str]
     return hexed(focused.pixel(changed[0], row)), hexed(focused.pixel(edge + 3, row))
 
 
+@pytest.mark.gui
 @pytest.mark.parametrize("kind", ["button", "line_edit", "combo_box"])
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_ring_fusion_draws_clears_the_indicator_floor(
