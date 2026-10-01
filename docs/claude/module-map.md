@@ -319,6 +319,12 @@ Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
   Both lists are written by hand: a new module goes into one of them,
   and editing `coding.md § O1` alone changes nothing the test reads
   (LWSM-1335).
+- **`src/lwsm/scanroots.py`** — core, no Qt. The scan-roots file that
+  says which directories a Rescan walks: `default_scan_roots()`,
+  `save_scan_roots()`, `scan_roots_path()`, `scan_root_fallback()`, and
+  `_is_root_line()`, the one statement of which lines are directories.
+  Moved out of `__main__.py` (LWSM-1359), where the reader and the writer
+  each spelled that rule out.
 
 Added at P05 (LWSM-1009, which also lands LWSM-1048 and the core
 halves of LWSM-1046 and LWSM-1047). **No spec** — the first item

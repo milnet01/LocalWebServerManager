@@ -24,7 +24,7 @@ import pytest
 
 from banner import message_of
 from lwsm import __main__ as entry
-from lwsm import __version__, applog, configfile
+from lwsm import __version__, applog, configfile, scanroots
 from lwsm.__main__ import build_window, main
 
 
@@ -582,7 +582,7 @@ def test_main_releases_the_socket_when_it_exits(monkeypatch, tmp_path: Path) -> 
 def test_scan_roots_fall_back_to_projects_when_no_config_exists(tmp_path) -> None:
     """The documented default, and the only behaviour that existed before."""
     absent = tmp_path / "scan-roots"
-    assert entry.default_scan_roots(absent) == (Path.home() / "projects",)
+    assert scanroots.default_scan_roots(absent) == (Path.home() / "projects",)
 
 
 def test_scan_roots_are_read_in_order_ignoring_comments_and_blanks(tmp_path) -> None:
@@ -597,7 +597,10 @@ def test_scan_roots_are_read_in_order_ignoring_comments_and_blanks(tmp_path) -> 
         "   # indented comment\n",
         encoding="utf-8",
     )
-    assert entry.default_scan_roots(config) == (Path("/srv/first"), Path("/srv/second"))
+    assert scanroots.default_scan_roots(config) == (
+        Path("/srv/first"),
+        Path("/srv/second"),
+    )
 
 
 def test_a_scan_root_expands_a_leading_tilde(tmp_path) -> None:
@@ -605,7 +608,7 @@ def test_a_scan_root_expands_a_leading_tilde(tmp_path) -> None:
     as a literal directory named `~`, which exists nowhere."""
     config = tmp_path / "scan-roots"
     config.write_text("~/code\n", encoding="utf-8")
-    assert entry.default_scan_roots(config) == (Path.home() / "code",)
+    assert scanroots.default_scan_roots(config) == (Path.home() / "code",)
 
 
 def test_a_config_with_nothing_in_it_falls_back_rather_than_scanning_nowhere(
@@ -616,7 +619,7 @@ def test_a_config_with_nothing_in_it_falls_back_rather_than_scanning_nowhere(
     silently scanning nothing is the failure this feature exists to fix."""
     config = tmp_path / "scan-roots"
     config.write_text("# I meant to fill this in\n\n", encoding="utf-8")
-    assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+    assert scanroots.default_scan_roots(config) == (Path.home() / "projects",)
 
 
 def test_an_unreadable_config_falls_back_instead_of_raising(tmp_path) -> None:
@@ -624,7 +627,7 @@ def test_an_unreadable_config_falls_back_instead_of_raising(tmp_path) -> None:
     without a window is a worse failure than scanning the default."""
     config = tmp_path / "scan-roots"
     config.mkdir()  # a directory where a file is expected: the read raises
-    assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+    assert scanroots.default_scan_roots(config) == (Path.home() / "projects",)
 
 
 # --- LWSM-1173: the scan-roots file gets the hardened reader too ---------------
@@ -655,7 +658,7 @@ def test_a_fifo_scan_roots_file_falls_back_rather_than_blocking(tmp_path) -> Non
     previous = signal.signal(signal.SIGALRM, _too_slow)
     signal.alarm(5)
     try:
-        assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+        assert scanroots.default_scan_roots(config) == (Path.home() / "projects",)
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
@@ -670,7 +673,7 @@ def test_an_oversized_scan_roots_file_falls_back_rather_than_being_read_whole(
     config = tmp_path / "scan-roots"
     config.write_bytes(b"/srv/x\n" * ((configfile.MAX_FILE_BYTES // 7) + 1))
 
-    assert entry.default_scan_roots(config) == (Path.home() / "projects",)
+    assert scanroots.default_scan_roots(config) == (Path.home() / "projects",)
 
 
 def test_a_leading_bom_leaves_the_header_a_comment(tmp_path) -> None:
@@ -682,7 +685,7 @@ def test_a_leading_bom_leaves_the_header_a_comment(tmp_path) -> None:
     config = tmp_path / "scan-roots"
     config.write_bytes("﻿# where my projects live\n/srv/first\n".encode())
 
-    assert entry.default_scan_roots(config) == (Path("/srv/first"),)
+    assert scanroots.default_scan_roots(config) == (Path("/srv/first"),)
 
 
 # --- LWSM-1031: the theme survives a restart ---------------------------------
@@ -942,7 +945,7 @@ def test_a_refused_settings_write_still_saves_the_scan_roots(
     other with it.
     """
     from lwsm import settingsdialog as dialog_module
-    from lwsm.__main__ import scan_roots_path
+    from lwsm.scanroots import scan_roots_path
     from lwsm.settings import default_settings_path
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
@@ -1184,7 +1187,7 @@ def test_both_write_failures_are_named_not_just_the_first(
     trailing comma, the scan-roots path by being a directory.
     """
     from lwsm import settingsdialog as dialog_module
-    from lwsm.__main__ import scan_roots_path
+    from lwsm.scanroots import scan_roots_path
     from lwsm.settings import default_settings_path
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
@@ -1252,7 +1255,7 @@ def test_clearing_every_scan_root_means_the_same_thing_after_a_restart(
     the fallback here would pass even if both ends changed together.
     """
     from lwsm import settingsdialog as dialog_module
-    from lwsm.__main__ import default_scan_roots
+    from lwsm.scanroots import default_scan_roots
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -1343,7 +1346,7 @@ def test_written_roots_are_read_back_in_order(tmp_path) -> None:
     Order is the walk order, so a writer that sorted would silently change
     which of two overlapping roots claims a project.
     """
-    from lwsm.__main__ import default_scan_roots, save_scan_roots
+    from lwsm.scanroots import default_scan_roots, save_scan_roots
 
     config = tmp_path / "scan-roots"
     roots = (Path("/srv/z-last"), Path("/srv/a-first"))
@@ -1359,7 +1362,7 @@ def test_the_users_own_header_survives_a_save(tmp_path) -> None:
     A dialog that erased them the first time it saved would take that away
     without asking. Dies on dropping `_leading_comment_block`.
     """
-    from lwsm.__main__ import default_scan_roots, save_scan_roots
+    from lwsm.scanroots import default_scan_roots, save_scan_roots
 
     config = tmp_path / "scan-roots"
     config.write_text(
@@ -1387,7 +1390,7 @@ def test_the_users_own_header_survives_a_save_through_a_bom(tmp_path) -> None:
     The sibling above passes on the unfixed code, which is the point of having
     both: the defect is entirely in a character the assertion cannot show.
     """
-    from lwsm.__main__ import default_scan_roots, save_scan_roots
+    from lwsm.scanroots import default_scan_roots, save_scan_roots
 
     config = tmp_path / "scan-roots"
     config.write_text(
@@ -1422,8 +1425,8 @@ def test_a_scan_roots_file_that_cannot_be_read_is_not_written_over(
     pinned is that the save REFUSES and the bytes survive; which of the two it
     refuses with is the caller's business and is stated in the docstring.
     """
-    from lwsm.__main__ import default_scan_roots, save_scan_roots
     from lwsm.configfile import ConfigFileError
+    from lwsm.scanroots import default_scan_roots, save_scan_roots
 
     config = tmp_path / "scan-roots"
     payload = b"# my own header\n# and its second line\n\n/srv/one\n/srv/two\n"
@@ -1460,8 +1463,8 @@ def test_a_root_the_file_cannot_represent_is_refused_not_silently_lost(
     directory the user picked without saying so. Nothing is written, so the
     previous list survives the refusal.
     """
-    from lwsm.__main__ import save_scan_roots
     from lwsm.configfile import ConfigFileError
+    from lwsm.scanroots import save_scan_roots
 
     config = tmp_path / "scan-roots"
 
@@ -1478,7 +1481,7 @@ def test_a_root_with_an_interior_space_still_saves(tmp_path) -> None:
     check written as "reject spaces" would reject it. Dies on widening the
     refusal above.
     """
-    from lwsm.__main__ import default_scan_roots, save_scan_roots
+    from lwsm.scanroots import default_scan_roots, save_scan_roots
 
     config = tmp_path / "scan-roots"
     roots = (Path("/srv/my projects"),)
@@ -1498,7 +1501,7 @@ def test_a_comment_between_roots_is_not_kept_and_that_is_the_contract(
     worse than one that is gone. If this test is ever changed, the docstring on
     `save_scan_roots` has to change with it.
     """
-    from lwsm.__main__ import save_scan_roots
+    from lwsm.scanroots import save_scan_roots
 
     config = tmp_path / "scan-roots"
     config.write_text("/srv/one\n# about the next one\n/srv/two\n", encoding="utf-8")
@@ -1510,7 +1513,7 @@ def test_a_comment_between_roots_is_not_kept_and_that_is_the_contract(
 
 def test_a_file_we_create_explains_itself(tmp_path) -> None:
     """A config file with no header is one the next reader has to guess at."""
-    from lwsm.__main__ import default_scan_roots, save_scan_roots
+    from lwsm.scanroots import default_scan_roots, save_scan_roots
 
     config = tmp_path / "scan-roots"
 
@@ -1566,7 +1569,7 @@ def test_accepting_the_dialog_applies_and_persists_every_field(
     Dies on dropping `open_settings=` from the `MainWindow` call, on either
     apply line, and on either save.
     """
-    from lwsm.__main__ import default_scan_roots
+    from lwsm.scanroots import default_scan_roots
     from lwsm.settings import default_settings_path
     from lwsm.settings import load as load_settings
     from lwsm.settingsdialog import SettingsDialog
@@ -1801,8 +1804,8 @@ def test_a_scan_roots_comment_block_that_would_cross_the_cap_is_refused(
     header plus body can cross it on WRITE. The file is then unreadable -- and
     since LWSM-1178 refuses to be overwritten when it cannot be read, it is
     unwritable as well (LWSM-1236)."""
-    from lwsm.__main__ import save_scan_roots
     from lwsm.configfile import MAX_FILE_BYTES, ConfigFileError
+    from lwsm.scanroots import save_scan_roots
 
     # `config` IS the file here, not a directory holding one.
     path = tmp_path / "scan-roots"
