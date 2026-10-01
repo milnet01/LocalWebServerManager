@@ -10118,7 +10118,7 @@ O8` forbids retrofitting that.
   Source: security-pass-2026-10-01 S-5.
   Lanes: supervisor.
 
-- 📋 [LWSM-1368] **_launcher_bytes claims scanner._open_source's guarantees but guards only the last path component.**
+- ✅ [LWSM-1368] **_launcher_bytes claims scanner._open_source's guarantees but guards only the last path component.**
   _open_source walks every component with O_PATH|O_DIRECTORY|O_NOFOLLOW
   (LWSM-1332); _launcher_bytes opens with O_NOFOLLOW on the final component
   only, while its docstring cites _open_source's reasons. Not exploitable
@@ -10126,6 +10126,10 @@ O8` forbids retrofitting that.
   another account owns or can write, so only the user could swap one (checked
   by the security pass 2026-10-01). Fix: one hardened reader both import, or
   correct the docstring.
+  Resolved (2026-10-01, 9861269): docstring corrected (the item's second
+  option) to say it guards the final component only and that
+  validate_launcher's ownership walk covers the directories on the start
+  path. No code changed.
   **Layman:** A code comment says two file readers are equally careful when one checks less; fix the comment or share one reader.
   Kind: refactor.
   Source: refactor-pass-2026-10-01 R-2.
