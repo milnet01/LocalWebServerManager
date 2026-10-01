@@ -9750,7 +9750,7 @@ O8` forbids retrofitting that.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
   Lanes: window.
 
-- 📋 [LWSM-1346] **The desktop font size is captured once, so a desktop font change is ignored until restart.**
+- ✅ [LWSM-1346] **The desktop font size is captured once, so a desktop font change is ignored until restart.**
   _base_point_size is read once in MainWindow.__init__. Unverified:
   set_text_scale calls app.setFont even at 100 %, which may mark the
   application font as explicit and stop Qt applying desktop changes at
@@ -9758,6 +9758,20 @@ O8` forbids retrofitting that.
   (ThemeChange or ApplicationFontChange) and whether
   QFontDatabase.systemFont(GeneralFont) reports the new size. Then
   re-read the base and re-apply the scale.
+  Measured (2026-10-01, KDE Plasma 6.7.5, Wayland, the venv's PySide6, whose
+  only platform themes are gtk3 and xdgdesktopportal; probe at
+  build/font-probe.py): two probe windows, one calling app.setFont at
+  100 % as the app does and one not. Desktop General font changed
+  13 -> 11 pt with Apply. Neither received ApplicationFontChange,
+  FontChange, ThemeChange, StyleChange, a palette change or the
+  fontChanged signal, and systemFont(GeneralFont) still read 13. A freshly
+  started process read the new size. So the explicit setFont is not the
+  cause: this Qt never relays a live desktop font change.
+  Decision (user, 2026-10-01): pick it up on restart. No live watching;
+  document that a desktop font change applies at the next start, and that
+  the in-app text-size control covers a change mid-session.
+  Resolved (2026-10-01, 1476c98): documented per the user's decision; no
+  code change.
   **Layman:** If you change your desktop's text size while the app is open, the app keeps the old size until you restart it.
   Kind: fix.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
@@ -9769,6 +9783,10 @@ O8` forbids retrofitting that.
   list), installed through an accessible factory, then checked in Orca or
   accerciser, since offscreen cannot answer what AT-SPI sees. Needs a
   live screen-reader session, which is the user's machine.
+  Update (user, 2026-10-01): the user has no screen reader; they use a
+  magnifier. No longer waiting on the user: check the role by querying
+  AT-SPI on the accessibility bus directly (it is what a screen reader
+  reads), with the app running under the session.
   **Layman:** A screen reader calls each project row a decorative border instead of a list item.
   Kind: accessibility.
   Source: known-issue-013, split from LWSM-1331 on 2026-10-01.
