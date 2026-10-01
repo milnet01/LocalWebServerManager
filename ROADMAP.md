@@ -9790,6 +9790,20 @@ O8` forbids retrofitting that.
   Source: review-contract 2026-10-01 testing.md loop 2, outside the gated change (LWSM-1330 gate).
   Lanes: docs.
 
+- 📋 [LWSM-1352] **validate_launcher walks the resolved target's directories, not the path argv names.**
+  `execve` follows the path as written (`./bin/start.sh`). If a directory
+  on that path is group-writable and holds a symlink, the link can be
+  swapped inside the race window LWSM-1320 accepts, which is wider than
+  its premise that only we or root can swap it. Fix: walk the written
+  path's parent directories too. Not fixed in the close-findings run
+  because `_launcher_path` returns the RESOLVED path, so the written one
+  has to be carried through to `validate_launcher` first: a signature
+  change across the trust gate.
+  **Layman:** A start script reached through a folder link could in theory be swapped after you approve it; close that gap.
+  Kind: security.
+  Source: review-code 2026-10-01 lane 03 (L3-L1), queued by close-findings.
+  Lanes: core.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
@@ -10857,7 +10871,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: refactor.
   Source: in-session-2026-08-21 (noted while shipping LWSM-1018).
 
-- 📋 [LWSM-1316] **Cut CLAUDE.md's always-loaded cost: move the module map and the trap notes into on-demand docs.**
+- ✅ [LWSM-1316] **Cut CLAUDE.md's always-loaded cost: move the module map and the trap notes into on-demand docs.**
   Measured 2026-09-28: `CLAUDE.md` is 90,081 bytes, roughly 22k tokens, paid by
   every session in this project and again by every subagent it dispatches (each
   review lane, each Explore). About two thirds of it is § Module map and the
@@ -10870,6 +10884,12 @@ open DS01 debt-sweep items, and the open FP02 review items.
   `CLAUDE.md` edit re-arms global rule 14.
   Decision (user, 2026-09-28): do this right after 0.1.0 ships, before
   0.2.0 work starts.
+  Resolved (2026-10-01, d7dcc3b): the module map, the traps, the gate's
+  background and the review-cadence history moved word for word into
+  docs/claude/. CLAUDE.md went from 94.2k to 19.4k chars, which clears
+  Claude Code's instruction-size warning. A word-count diff shows nothing
+  lost. docs/claude/*.md is under test_docs' prose-count check and always
+  takes the full pre-push gate.
   **Layman:** The instructions file every session reads is about 90 KB; most of it is reference that only matters when touching specific code, so it could live in separate files read when needed.
   Kind: chore.
   Source: in-session-2026-09-28 (global rule 18a).

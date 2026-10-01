@@ -229,6 +229,24 @@ def test_a_manager_started_without_path_still_gives_the_child_one() -> None:
     assert build_child_env(port=None, base={"PATH": "/opt/x"})["PATH"] == "/opt/x"
 
 
+def test_a_relative_or_empty_path_entry_never_reaches_the_child() -> None:
+    """review-code 2026-10-01: `Popen` resolves a bare `argv[0]` against the
+    child's PATH AFTER changing into the project directory. So an empty entry
+    (a leading `:`), `.` or `node_modules/.bin` makes `npm`, `python3` or
+    `node` name a file inside the project — one `validate_launcher` and the
+    fingerprint never read, which walks straight past the trust gate.
+    """
+    base = {"PATH": ":/usr/bin:.:node_modules/.bin::/opt/x/bin:"}
+    assert build_child_env(port=None, base=base)["PATH"] == "/usr/bin:/opt/x/bin"
+
+
+def test_a_path_with_only_relative_entries_falls_back_to_the_system_default() -> None:
+    """Filtering must not hand the child an empty PATH, which is the
+    known-issue-056 defect the default exists for.
+    """
+    assert build_child_env(port=None, base={"PATH": ".:bin"})["PATH"] == os.defpath
+
+
 def test_locale_variables_pass_by_prefix_but_arbitrary_ones_do_not() -> None:
     env = build_child_env(
         port=None, base={"LC_ALL": "C", "LC_TIME": "en_GB.UTF-8", "LCD_BRIGHT": "9"}
@@ -1793,6 +1811,24 @@ def test_a_rewritten_npm_script_is_refused_after_confirmation(
     )
 
     with pytest.raises(LauncherUntrusted):
+        supervisor.start(project, name="demo", argv=argv, port=None)
+
+
+def test_npm_run_refuses_a_package_json_others_can_rewrite(
+    supervisor, project: Path
+) -> None:
+    """review-code 2026-10-01: for `npm run` the untrusted content is
+    `package.json`, and nothing checked its mode or owner. ADR-0003 § Trust
+    refuses a group- or other-writable launcher outright, so the same file in
+    this role is refused the same way — before the trust gate, not after it.
+    """
+    package = project / "package.json"
+    argv = ["npm", "run", "dev"]
+    package.write_text(json.dumps({"scripts": {"dev": "sleep 30"}}), encoding="utf-8")
+    package.chmod(0o664)
+    supervisor.trust.confirm(project, launcher_fingerprint(project, tuple(argv)))
+
+    with pytest.raises(LauncherRefused, match="group- or other-writable"):
         supervisor.start(project, name="demo", argv=argv, port=None)
 
 

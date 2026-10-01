@@ -389,7 +389,16 @@ def build_child_env(
     # A launcher and everything it runs resolve commands against PATH. Where
     # the manager itself was started without one, the child gets the system
     # default rather than none (known-issue-056, LWSM-1321).
-    env.setdefault("PATH", os.defpath)
+    #
+    # Only ABSOLUTE entries survive. `Popen` resolves a bare `argv[0]` against
+    # this PATH after changing into the project, so an empty entry, `.` or
+    # `node_modules/.bin` would make `npm`, `python3` or `node` name a file
+    # inside the project that the trust gate never read (review-code
+    # 2026-10-01).
+    absolute = [
+        entry for entry in env.get("PATH", "").split(os.pathsep) if os.path.isabs(entry)
+    ]
+    env["PATH"] = os.pathsep.join(absolute) if absolute else os.defpath
     if port is not None:
         env["PORT"] = str(port)
     # ADR-0006: a presentation hint with no security value. It is unauthenticated
@@ -954,7 +963,14 @@ class Supervisor:
             launcher = _launcher_path(resolved_project, argv)
             if launcher is not None:
                 launcher = validate_launcher(resolved_project, launcher)
-            elif not _is_npm_run(argv):
+            elif _is_npm_run(argv):
+                # The untrusted content of this shape is `package.json`, so it
+                # meets the same refusals a launcher file does: rewritable by
+                # another account, owned by one, or outside the project
+                # (review-code 2026-10-01). The return is discarded — `launcher`
+                # stays None, which is what tells the dialog no file was named.
+                validate_launcher(resolved_project, resolved_project / "package.json")
+            else:
                 # Neither a file we can check nor the one shape whose content
                 # lives in `package.json`. `bash -x start.sh` and
                 # `env node serve.mjs` reach `validate_launcher` nowhere, so

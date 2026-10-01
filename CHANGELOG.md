@@ -1078,6 +1078,12 @@ signaling per
 
 ### Security
 
+- **An `npm run` project whose package.json another account can rewrite is now refused, and a launched server no longer resolves commands from relative PATH entries**
+  Both were ways past the confirmation the app asks for before it first
+  runs a project. package.json now meets the same ownership and
+  writability checks a start script does, and an empty, `.` or relative
+  PATH entry is dropped before the child starts (review-code 2026-10-01).
+
 - **MEDIUM: an argv of three or more elements names no launcher, so it skips validate_launcher entirely.** (LWSM-1228)
   A start command the manager cannot classify — `bash -x start.sh`,
   `env node serve.mjs`, `npm start` — is now refused instead of run
