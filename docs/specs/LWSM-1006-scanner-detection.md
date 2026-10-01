@@ -1465,7 +1465,7 @@ is the property the derivation exists for.
   `source` names the file actually read, and the only coverage § 4.5's
   tokenise-and-select rule gets outside the conformance corpus — each asserting
   the exact `(rule, source)` pair, and
-  `::test_project_e_shape_comes_back_unknown`.
+  `::test_the_wrapped_walk_is_bounded_at_one_invocation_and_one_import` (on `project-e-deep`, since LWSM-1184 moved `project-e` to detected).
   *Breaks when:* a port read from the one-hop file is labelled as coming from
   the launcher, or the framework default is applied to a project whose
   launcher identifies no framework, turning *unknown* into 5000.
@@ -1844,7 +1844,7 @@ orders of magnitude rather than by a hair — which is what keeps it off
 | INV-8 | `tests/test_scanner.py::test_a_hostile_unit_name_is_rejected` |
 | INV-9 | `tests/test_scanner.py::test_port_rule_2_keys`, `::test_port_rule_1_forms`, `::test_the_literal_ends_in_port_rule_would_accept_four_more` |
 | INV-10 | `tests/test_scanner.py::test_the_launcher_outranks_the_hop_file` |
-| INV-11 | `tests/test_scanner.py::test_a_finding_reports_the_rule_that_matched`, `::test_project_e_shape_comes_back_unknown` |
+| INV-11 | `tests/test_scanner.py::test_a_finding_reports_the_rule_that_matched`, `::test_the_wrapped_walk_is_bounded_at_one_invocation_and_one_import` (on `project-e-deep`, since LWSM-1184 moved `project-e` to detected) |
 | INV-12 | `tests/test_scanner.py::test_a_detected_project_has_no_user_owned_field` |
 | INV-13 | `tests/test_scanner.py::test_a_scan_leaves_the_tree_untouched` |
 | INV-14 | `tests/test_layering.py::test_core_never_imports_qtwidgets`, `::test_the_core_module_list_matches_the_criterion` |

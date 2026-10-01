@@ -1121,6 +1121,45 @@ def test_a_dropped_field_does_not_block_the_write(tmp_path: Path) -> None:
     assert load_projects(path).records == result.records
 
 
+def test_the_writer_does_not_resolve_a_stored_path(tmp_path: Path) -> None:
+    """LWSM-1007 § 4.2: `path` is stored as the user's spelling. A writer that
+    resolved it would turn a symlinked project into its target on disk, and
+    the next load would no longer match the scan's spelling."""
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    path = tmp_path / "config" / "projects.json"
+    with pytest.raises(RegistryMissing) as caught:
+        load_projects(path)
+
+    save_projects(
+        path, [ProjectRecord(path=link / "web", name="web")], load=caught.value
+    )
+
+    written = json.loads(path.read_text(encoding="utf-8"))["projects"][0]["path"]
+    assert written == str(link / "web")
+
+
+def test_the_production_now_stamps_a_value_the_loader_accepts(tmp_path: Path) -> None:
+    """LWSM-1131 § 4.3. Every rescan test injects a fake `now`, so the real
+    callable is otherwise never round-tripped: a naive stamp would be dropped
+    silently on the next start rather than failing here."""
+    from lwsm.mainwindow import utc_stamp
+
+    stamped = utc_stamp()
+    path = tmp_path / "config" / "projects.json"
+    with pytest.raises(RegistryMissing) as caught:
+        load_projects(path)
+    record = ProjectRecord(path=tmp_path / "web", name="web", added=stamped)
+
+    save_projects(path, [record], load=caught.value)
+
+    loaded = load_projects(path)
+    assert loaded.records[0].added == stamped
+    assert loaded.reasons == []
+
+
 def test_a_missing_file_is_first_run_and_writes(tmp_path: Path) -> None:
     """INV-6's second discriminating case, plus § 4.3 step 0.
 
@@ -1195,6 +1234,8 @@ def test_a_registry_over_the_size_limit_is_refused_before_anything_is_written(
     [
         ("kind", "rust", "kind", None),
         ("kind", 7, "kind", None),
+        ("port", "3000", "port", None),
+        ("port_override", "8080", "port_override", None),
         ("argv", "npm run dev", "argv", ()),
         ("argv", ["npm", 3], "argv", ()),
         ("unit", 7, "unit", None),
@@ -1340,6 +1381,7 @@ class FakeScan:
     projects: tuple[FakeProject, ...] = ()
     timed_out: bool = False
     unlistable_roots: tuple[Path, ...] = ()
+    skipped: tuple[str, ...] = ()
 
 
 def a_root(tmp_path: Path, name: str = "projects") -> Path:
@@ -1516,11 +1558,31 @@ def test_an_unlistable_root_marks_nothing_missing_under_it(tmp_path: Path) -> No
 
 
 def test_an_ordinary_skip_does_not_suppress_the_missing_check(tmp_path: Path) -> None:
-    """The other half of the same distinction, asserted rather than assumed."""
+    """The other half of the same distinction, asserted rather than assumed.
+
+    The scan carries a per-entry skip naming the very project, which is the
+    case a blanket reading of `skipped` would suppress (LWSM-1307: the fixture
+    had no `skipped` at all, so this test could not tell the two apart).
+    """
     root = a_root(tmp_path)
     stored = ProjectRecord(path=root / "web", name="web")
+    scan = FakeScan((), skipped=(f"{root / 'web'}: no launcher found",))
 
-    result = registry.merge([stored], FakeScan(()), (root,), stamp)
+    result = registry.merge([stored], scan, (root,), stamp)
+
+    assert result.counts[registry.MISSING] == 1
+
+
+def test_a_symlinked_scan_root_still_scopes_missing(tmp_path: Path) -> None:
+    """LWSM-1131 § 4.3: containment resolves BOTH sides. A root given as a
+    symlink to the directory the record lives in still covers that record, or
+    *missing* is unreachable for anyone whose scan root is a link."""
+    real = a_root(tmp_path, "real")
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    stored = ProjectRecord(path=real / "web", name="web")
+
+    result = registry.merge([stored], FakeScan(()), (link,), stamp)
 
     assert result.counts[registry.MISSING] == 1
 

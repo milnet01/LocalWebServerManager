@@ -838,7 +838,7 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: in-session-2026-09-21.
 
-- 📋 [LWSM-1307] **Spec what-checks-this rows cite tests that do not exist.**
+- ✅ [LWSM-1307] **Spec what-checks-this rows cite tests that do not exist.**
   Measured 2026-09-21 by parsing every `| Rule | What catches a
   breach |` table in `docs/specs/` and resolving each catcher cell
   against the `def test_` inventory in `tests/`. Of 111 rows, 88
@@ -913,6 +913,19 @@ O8` forbids retrofitting that.
   Unblocked by anything; the sweep that produced the list is
   reproducible by parsing the catcher cells and resolving each
   against `def test_` in `tests/`.
+  Resolved (2026-10-01): every catcher cell in docs/specs/ now names a test
+  that exists (the sweep returns zero). Decided per row by reading the
+  test, not its name. 13 repointed to a test asserting the rule (e.g. the
+  three LWSM-1007 wrong-type rows to the one parametrised test, the
+  project-e row to project-e-deep). 4 had no test and now do, each
+  mutation-checked: the writer keeps a symlinked path, a first run finding
+  nothing still writes, the real utc_stamp round-trips, a symlinked scan
+  root still scopes missing. Partial ones completed: port/port_override
+  wrong-type cases, a summary test over all six labels, and the
+  ordinary-skip fixture now carries a skip (FakeScan had no `skipped`, so
+  the test could not tell a blanket reading apart). LWSM-1005 INV-19
+  corrected from "exactly its three cells" to the cells plus the named
+  controls, as built since LWSM-1010.
   **Layman:** Four specs claim their rules are covered by tests, naming tests that are not in the project. The claim of coverage may be the only thing missing, or the coverage may be too.
   Kind: doc-fix.
   Source: in-session-2026-09-21.

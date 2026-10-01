@@ -1592,6 +1592,24 @@ def test_a_rescan_adds_a_new_project_and_says_so(qtbot, built, tmp_path) -> None
     window.shutdown()
 
 
+def test_a_first_run_finding_nothing_still_creates_the_file(
+    qtbot, built, tmp_path
+) -> None:
+    """LWSM-1131 § 4.4: with no file yet, a rescan writes even when it finds
+    nothing — both sets are empty, so the difference trigger alone says no,
+    and projects.json would never come into existence."""
+    saves: list = []
+    window, _ = rescan_window(
+        qtbot, built, [], tmp_path, FakeScanResult(projects=()), saves=saves
+    )
+
+    run_rescan(qtbot, window)
+
+    assert saves, "a first run that found nothing did not create the file"
+    assert saves[0][1] == []
+    window.shutdown()
+
+
 def test_a_rescan_that_changes_nothing_says_so_and_does_not_write(
     qtbot, built, tmp_path
 ) -> None:
@@ -1843,6 +1861,27 @@ def test_a_writer_that_escapes_the_slot_still_re_enables_the_button(
     )
     assert "the disk went away" in window.statusBar().currentMessage()
     window.shutdown()
+
+
+def test_the_rescan_summary_names_each_outcome_count() -> None:
+    """LWSM-1131 § 4.4: one count per rendered outcome, all six of them. The
+    test below covers three, so a label lost from the other three went
+    unseen (LWSM-1307)."""
+    from lwsm import registry as reg
+
+    counts = {
+        reg.NEW: 1,
+        reg.CHANGED: 2,
+        reg.NOT_REOBSERVED: 3,
+        reg.OVERRIDE_DIFFERS: 4,
+        reg.DUPLICATE_IDENTITY: 5,
+        reg.MISSING: 6,
+    }
+
+    assert mainwindow.summarise_merge(counts) == (
+        "Rescan: 1 new, 2 changed, 3 port no longer detected, "
+        "4 override differs, 5 duplicate, 6 missing"
+    )
 
 
 def test_the_summary_omits_zero_counts_and_never_renders_unchanged() -> None:

@@ -743,19 +743,19 @@ scratch. Both are honest limits of a unit suite.
 | INV-8 | `test_registry.py::test_a_merge_does_not_rewrite_the_stored_path` |
 | INV-9 | `test_registry.py::test_the_added_tie_break_compares_instants_not_text` |
 | INV-10 | `test_registry.py::test_no_merge_value_is_interpolated_without_the_clip` |
-| § 4.3 write trigger | `test_registry.py::test_an_all_unchanged_merge_does_not_write`, `::test_a_missing_only_merge_does_not_write` |
-| § 4.4 first run writes even with zero projects | `test_registry.py::test_a_first_run_finding_nothing_still_creates_the_file` — the case where both sets are empty and the difference trigger says no |
-| § 4.4 the slot owns the gate, not `merge()` | `test_mainwindow.py::test_a_row_refusing_load_blocks_the_rescan_write` (`gui`) — asserts the merge still ran and reported |
+| § 4.3 write trigger | `test_mainwindow.py::test_a_rescan_that_changes_nothing_says_so_and_does_not_write`, `::test_a_flag_only_outcome_does_not_write` (`gui`) |
+| § 4.4 first run writes even with zero projects | `test_mainwindow.py::test_a_first_run_finding_nothing_still_creates_the_file` (`gui`) — the case where both sets are empty and the difference trigger says no |
+| § 4.4 the slot owns the gate, not `merge()` | `test_mainwindow.py::test_a_read_only_session_reports_rather_than_writing` (`gui`) — asserts the merge still ran and reported |
 | § 4.3 `now()` returns a `Z`-suffixed RFC 3339 instant | `test_registry.py::test_the_production_now_stamps_a_value_the_loader_accepts` — round-trips the real callable through `load_projects`, so a naive stamp fails here rather than silently on the next start |
 | § 4.4 the summary is counts per outcome | `test_mainwindow.py::test_the_rescan_summary_names_each_outcome_count` (`gui`) |
 | § 4.3 scope of *missing* | `test_registry.py::test_a_project_outside_every_scan_root_is_not_missing` |
 | § 4.3 containment resolves BOTH sides | `test_registry.py::test_a_symlinked_scan_root_still_scopes_missing` — a root symlinked to the directory the records resolve under; unresolved-vs-resolved makes *missing* unreachable |
-| § 4.3 only an unlistable root suppresses *missing* | `test_registry.py::test_an_ordinary_per_entry_skip_does_not_suppress_missing`, `::test_an_unlistable_root_suppresses_missing_only_under_that_root` |
-| § 4.3 *new*-record seeding | `test_registry.py::test_a_new_record_takes_its_name_from_the_scan_and_a_stamped_added` |
-| § 4.3 *changed* on a first detection | `test_registry.py::test_a_first_detected_port_is_reported_as_changed` |
+| § 4.3 only an unlistable root suppresses *missing* | `test_registry.py::test_an_ordinary_skip_does_not_suppress_the_missing_check`, `::test_an_unlistable_root_marks_nothing_missing_under_it` |
+| § 4.3 *new*-record seeding | `test_registry.py::test_a_new_project_is_seeded_with_a_name_and_a_stamp` |
+| § 4.3 *changed* on a first detection | `test_registry.py::test_a_first_detection_is_changed_not_silent` |
 | § 4.2 an unresolvable path does not abort the merge | **nothing** — measured: non-strict `Path.resolve()` returns normally even where `exists()` raises `PermissionError`, so no fixture here produces the raise. The per-record handler stays as defence-in-depth; the test is not written rather than written green against a branch that never runs |
-| § 4.4 Rescan disabled while in flight | `test_mainwindow.py::test_rescan_is_disabled_while_a_merge_is_in_flight` (`gui`) |
-| § 4.4 the worker's catch-all | `test_mainwindow.py::test_a_raising_rescan_worker_re_enables_the_button` (`gui`) |
+| § 4.4 Rescan disabled while in flight | `test_mainwindow.py::test_rescan_from_the_menu_greys_the_button_with_it` (`gui`) |
+| § 4.4 the worker's catch-all | `test_mainwindow.py::test_a_rescan_that_raises_re_enables_the_button` (`gui`) |
 | § 4.1 per-field unknown table | **nothing** — only `port` has an unknown sentinel, so the other three rows assert an absence; INV-2 covers the one field that can break |
 | § 4.2 duplicate still polled | **nothing** — a stated limitation (§ 9), not a rule; no channel carries the excluded set to the poller |
 | § 4.3 `hidden` / `launcher_override` preserved but inert | **nothing** — deliberate; LWSM-1007's INV-3 round-trip proves they survive, and nothing reads them |

@@ -860,16 +860,16 @@ by asserting harder.
 | INV-6 | `test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back`, `::test_an_unparseable_file_is_never_written_over`, `::test_a_dropped_field_does_not_block_the_write`, `::test_a_missing_file_is_first_run_and_writes` |
 | INV-7 | `test_registry.py::test_the_shipped_bounds_are_pinned` (widened additively; the existing `MAX_REASONS` and product assertions stay) |
 | INV-8 | `test_registry.py::test_a_writer_refusal_reason_is_clipped_and_escaped` |
-| § 4.1 `LauncherKind` moves without closing an import cycle | `tests/test_layering.py::test_registry_does_not_import_scanner` — an AST check, not a subprocess: a fresh-interpreter import test would spawn a process, earn the `integration` marker and be skipped by `--fast`, which is the run most likely to be the only one anybody does |
-| § 4.2 `kind` rejected when not a `LauncherKind` | `test_registry.py::test_an_unrecognised_kind_loses_the_field_and_keeps_the_row` |
-| § 4.2 the wrong-type rule, over every optional key | `test_registry.py::test_a_wrong_typed_field_is_dropped_and_reported`, parametrised over all **eleven** optional keys — not the table's eight rows, three of which pair two keys, which would leave `port_override`, `launcher_override` and `start_at_login` with no case |
-| § 4.2 a non-string `name` or `path` is a ROW refusal | `test_registry.py::test_a_wrong_typed_required_field_refuses_the_row` |
-| § 4.2 `added` verbatim on write, `Z` only when stamped | `test_registry.py::test_a_stored_added_offset_is_written_back_verbatim` |
-| § 4.2 `added` unparseable is dropped and reported | `test_registry.py::test_an_unparseable_added_is_dropped_and_reported` |
-| § 4.2 `actions` round-trips opaquely, and a record carrying one stays hashable | `test_registry.py::test_an_opaque_actions_array_round_trips_by_value`, which also calls `hash()` on the record — the assertion a `tuple[dict, ...]` would fail |
+| § 4.1 `LauncherKind` moves without closing an import cycle | `tests/test_layering.py::test_registry_never_imports_the_scanner` — an AST check, not a subprocess: a fresh-interpreter import test would spawn a process, earn the `integration` marker and be skipped by `--fast`, which is the run most likely to be the only one anybody does |
+| § 4.2 `kind` rejected when not a `LauncherKind` | `test_registry.py::test_a_wrong_typed_field_loses_the_field_and_keeps_the_row`, its `kind` cases |
+| § 4.2 the wrong-type rule, over every optional key | `test_registry.py::test_a_wrong_typed_field_loses_the_field_and_keeps_the_row`, parametrised over every optional key — not the table's eight rows, three of which pair two keys, which would leave `port_override`, `launcher_override` and `start_at_login` with no case |
+| § 4.2 a non-string `name` or `path` is a ROW refusal | `test_registry.py::test_bad_record_skipped_others_load`, its non-string `name` and `path` cases |
+| § 4.2 `added` verbatim on write, `Z` only when stamped | `test_registry.py::test_an_added_stamp_carrying_an_offset_is_kept_verbatim` |
+| § 4.2 `added` unparseable is dropped and reported | `test_registry.py::test_a_wrong_typed_field_loses_the_field_and_keeps_the_row`, its `added` cases |
+| § 4.2 `actions` round-trips opaquely, and a record carrying one stays hashable | `test_registry.py::test_an_action_is_persisted_opaquely_with_its_keys_normalised`, and `::test_argv_and_actions_load_back_as_tuples`, which calls `hash()` on the record — the assertion a `tuple[dict, ...]` would fail |
 | § 4.2 `argv` tuple round-trip | covered by INV-3's round-trip over a fully-populated record |
 | § 4.2 `path` is not resolved, though `Path` normalises it | `test_registry.py::test_the_writer_does_not_resolve_a_stored_path` |
-| § 4.3 the `MAX_FILE_BYTES` write bound | `test_registry.py::test_an_oversized_registry_is_refused_before_writing` |
+| § 4.3 the `MAX_FILE_BYTES` write bound | `test_registry.py::test_a_registry_over_the_size_limit_is_refused_before_anything_is_written` |
 | § 4.3 the gate lives inside `save_projects` | covered by INV-6, whose fixtures call the writer directly |
 | § 4.2 a dropped field's original text is lost | **nothing** — an accepted cost, stated in § 4.2 and § 8, not a rule |
 | § 4.2 port provenance not persisted | **nothing** — deliberate (§ 9); `rule` and `source` are recomputed by the next scan |

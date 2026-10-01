@@ -1086,10 +1086,10 @@ importing `lwsm.__main__` in a test does not require a display.
   passes every palette silently and that is indistinguishable from a clean
   one.
 
-- **INV-19** — The row's accessibility tree contains exactly its three cells
-  — `["running", "a", "port 5005"]` — and no glyph, while the glyph is still
+- **INV-19** — The row's accessibility tree contains its three cells
+  — `["running", "a", "port 5005"]` — followed by its named controls, and no glyph, while the glyph is still
   drawn on screen.
-  *Test:* `tests/test_mainwindow.py::test_the_row_exposes_only_its_three_cells`
+  *Test:* `tests/test_mainwindow.py::test_the_row_exposes_its_cells_and_its_buttons`
   and `::test_the_glyph_is_never_a_child_of_the_accessibility_tree`, plus
   `::test_the_glyph_is_still_painted_after_leaving_the_label`, which blanks
   the glyph and re-renders so the difference *is* the glyph.
@@ -1446,7 +1446,7 @@ empty return, the suite is run red, and only then is the body written.
 | INV-16 | `tests/test_controller.py::test_stop_waits_for_the_outstanding_task` |
 | INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held` |
 | INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
-| INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_only_its_three_cells` |
+| INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_its_cells_and_its_buttons` |
 | INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide` |
 | INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`, plus `::test_no_file_sourced_value_is_interpolated_without_the_clip` for the mechanism-wide sweep |
 | INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced` |
