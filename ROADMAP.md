@@ -997,6 +997,19 @@ O8` forbids retrofitting that.
   Progress (2026-09-28): when 0.1.0 is cut, tell the Ants Projects Hub
   website session. It is a source release, so the page's button stays
   "Download source"; only the AppImage (LWSM-1021) switches it.
+  Progress (2026-10-01): pre-release review half done. check-code --tree
+  clean (ruff, pyright, bandit -ll, semgrep, shellcheck, actionlint,
+  zizmor, yamllint, gitleaks; typos hits all deliberate or valid); 10
+  vulture 60% candidates saved for review. review-code ran 7 lanes:
+  0 critical, 7 high, 26 medium. Reports, verbatim per lane:
+  build/review-code-2026-10-01/ (gitignored; index.md, lane-NN-*.md,
+  check-code-vulture.txt). NEXT: close-findings over those reports,
+  filing confirmed findings into this section; 0.1.0 waits on them.
+  Calibration notes from the synthesis: H1 (Enter on Open/Restart stops
+  the project) is the lane's recall of Qt, reproduce before filing; H3
+  (systemd drop-in never written) check against LWSM-1012 first, it may
+  be planned 0.3.0 work. Then the two standing quality passes
+  (refactor, security) and cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
