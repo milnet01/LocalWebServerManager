@@ -9990,13 +9990,16 @@ O8` forbids retrofitting that.
   Source: refactor-pass-2026-10-01 R-3.
   Lanes: window.
 
-- 📋 [LWSM-1359] **__main__.py owns the scan-roots file format, and its reader and writer state the root-line rule twice.**
+- ✅ [LWSM-1359] **__main__.py owns the scan-roots file format, and its reader and writer state the root-line rule twice.**
   SCAN_ROOTS_FILENAME, scan_roots_path, save_scan_roots,
   _leading_comment_block, scan_root_fallback and default_scan_roots live in
   __main__.py; module-map.md's __main__ entry names none of them. The
   `line.strip() and not line.lstrip().startswith("#")` test is written in
   both the reader and the writer. Fix: a core scanroots.py with the predicate
   once, added to CORE_MODULES and module-map.md.
+  Resolved (2026-10-01, 027b302): src/lwsm/scanroots.py (core) holds the
+  scan-roots file code; _is_root_line states the root-line rule once;
+  added to CORE_MODULES and module-map.md.
   **Layman:** The code that reads and writes the list of folders to scan lives in the app's start-up file and repeats one rule twice; move it to its own module.
   Kind: refactor.
   Source: refactor-pass-2026-10-01 R-4.
