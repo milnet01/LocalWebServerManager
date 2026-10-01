@@ -166,19 +166,23 @@ _JUMP_BLOCKED_MODIFIERS = (
 # Decorative only. One of the three signals design.md § Accessibility requires,
 # and excluded from the accessible name — a screen reader announcing "black
 # circle, running" is noise wearing the costume of redundancy.
-# The browser column is capped at this many average characters. A cap rather
+# The browser column is capped at the WIDTH of this many "x" characters: the
+# same on-screen width in every script, so a wide script such as Chinese fits
+# about half as many characters (LWSM-1343, the user 2026-10-01). A cap rather
 # than a natural width because LWSM-1174 is open and says a long project name
 # already pushes the buttons out of reach unrecoverably -- so a column that grew
-# with its content would make a live defect worse. Measured in characters and
-# resolved through the font metric, never in pixels (`§ O7`), so the 100-200 %
-# text-size control still reaches it.
+# with its content would make a live defect worse. Resolved through the font
+# metric, never in pixels (`§ O7`), so the 100-200 % text-size control still
+# reaches it.
 BROWSER_COLUMN_CHARS = 10
 
-# The name column is capped at this many average characters and elided past it
-# (LWSM-1174, needed by LWSM-1187). Uncapped, a long project name pushed the
-# whole row's controls out of the ~600 px lens a magnifier user reads through,
-# with no way to recover -- measured 2026-08-24 at 593 px for a 30-character
-# name, 7 px inside the limit before a browser column existed at all.
+# The name column is capped at the WIDTH of this many "x" characters and
+# elided past it (LWSM-1174, needed by LWSM-1187). A width, not a character
+# count, so a wide script fits fewer characters (LWSM-1343). Uncapped, a long
+# project name pushed the whole row's controls out of the ~600 px lens a
+# magnifier user reads through, with no way to recover -- measured 2026-08-24
+# at 593 px for a 30-character name, 7 px inside the limit before a browser
+# column existed at all.
 # `design-accessibility.md` derives that band from who this app is for, so it
 # is the name that gives way, not the controls.
 NAME_COLUMN_CHARS = 16
