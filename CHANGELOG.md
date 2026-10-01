@@ -251,6 +251,12 @@ signaling per
 
 ### Changed
 
+- **Messages from the menus now appear in a banner above the project list** (LWSM-1345)
+  Text size, theme, profile and rescan messages used to go to a
+  status bar at the bottom edge of the window, out of a magnifier's
+  view. They now show above the list and stay until you press
+  Dismiss or a new message replaces them.
+
 - **A desktop font size change applies the next time the app starts** (LWSM-1346)
   The bundled Qt sends a running app no notice of the change
   (measured on KDE Plasma 6.7). The View menu's text size works

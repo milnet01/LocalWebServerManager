@@ -474,7 +474,7 @@ class _UnitStateTask(QRunnable):
 class ProjectController(QObject):
     projects_changed = Signal()
     # A Start or Stop that could not even be attempted — no launcher, a bound
-    # port, a refused launcher. The window puts it in the status bar.
+    # port, a refused launcher. The window puts it in its message banner.
     # (path, message). The PATH is what lets the window put the message beside
     # the row that raised it rather than in a corner — `design.md
     # § Accessibility`: "a message in a far-off status bar is invisible to
@@ -1298,7 +1298,7 @@ class ProjectController(QObject):
         # recovery is logged again rather than folded into the old count.
         #
         # And it is told to the user, because a warning that appears and never
-        # clears is its own defect — the status bar would otherwise keep
+        # clears is its own defect — the message banner would otherwise keep
         # saying the table is unreadable long after it was readable again
         # (LWSM-1203). Read BEFORE the flush, which clears it.
         if self._last_error is not None:
@@ -1406,11 +1406,11 @@ class ProjectController(QObject):
             #
             # No path: an unreadable socket table is a fact about the whole
             # table, and `_report_failure` already routes a path-less message
-            # to the status bar instead of to a row.
+            # to the message banner instead of to a row.
             #
             # Behind the same suppression as the log line, and for the same
             # reason: at one poll a second, reporting every failure would be a
-            # status bar nobody can read rather than a warning.
+            # message banner nobody can read rather than a warning.
             self.action_failed.emit(None, f"port status unavailable: {message}")
         # Handed `self._statuses`, the same object it compares against, so the
         # change branch is false every time — deliberately. Nothing derived HAS

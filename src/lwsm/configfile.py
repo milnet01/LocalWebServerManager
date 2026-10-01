@@ -43,7 +43,7 @@ class ConfigFileError(Exception):
 # why `registry.MAX_RECORDS` exists (known-issue-002).
 MAX_FILE_BYTES = 1 << 20
 
-# A rejection reason reaches both the app log and the status bar, and the name
+# A rejection reason reaches both the app log and the message banner, and the name
 # in it is hand-edited text. Long enough to identify a project, short enough
 # that a hostile file cannot flood either.
 MAX_REASON_CHARS = 120
@@ -89,7 +89,7 @@ def quoted(value: object) -> str:
     """Escape and clip a hand-edited value before it reaches a log or the UI.
 
     The file is attacker-editable, and a rejection reason travels to both
-    `log.warning` and the status bar. `repr` is what makes that safe (LWSM-1078):
+    `log.warning` and the message banner. `repr` is what makes that safe (LWSM-1078):
     it escapes a newline, so a name cannot forge what looks like a second log
     record, and the clip bounds it — a 50 MB name produced a 50 MB status string.
 

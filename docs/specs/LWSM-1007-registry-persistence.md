@@ -583,7 +583,7 @@ both on every run. INV-3 asserts a sequence rather than a set for this reason.
 **Every value that reaches a refusal reason passes `configfile.quoted` first** (INV-8).
 The writer's reasons interpolate file-sourced text — a path that could not be
 replaced, a name in a row-refusal count — and `configfile.quoted` is the existing clip
-that stops a hand-edited newline reaching the status bar or the log.
+that stops a hand-edited newline reaching the message banner or the log.
 
 ## 5. Invariants
 
@@ -707,7 +707,7 @@ that stops a hand-edited newline reaching the status bar or the log.
   comment — "the bound is the quoted value plus the fixed template, not the
   constant alone". The no-newline half is the absolute clause and carries the
   actual security property.
-  *Breaks when:* a hand-edited path containing a newline reaches the status bar
+  *Breaks when:* a hand-edited path containing a newline reaches the message banner
   or the log through a refused write — the defect LWSM-1078, LWSM-1102 and
   LWSM-1114 each closed at one call site, arriving on a new one.
   **A second source grep would have been untestable.** The existing
@@ -732,7 +732,7 @@ that stops a hand-edited newline reaching the status bar or the log.
   is what stops a clean machine being permanently unable to persist anything.
 - **The file is unreadable at start** — a directory, a FIFO, a permission
   denial, bad UTF-8, bad JSON, or the wrong `schema_version`. Unchanged from
-  today: `RegistryError`, empty window, reason in the status bar — and now also
+  today: `RegistryError`, empty window, reason in the message banner — and now also
   read-only for the session (§ 4.3). LWSM-1039 adds the restore-from-backup
   offer; this item deliberately does not.
 - **The disk is full.** The temporary write fails, the temporary file is

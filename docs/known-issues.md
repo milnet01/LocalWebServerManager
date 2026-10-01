@@ -1206,6 +1206,8 @@ the phase that owns the code. Owners are named, not implied.
 - **Logged:** 2026-08-15
 - **RESOLVED (re-triaged 2026-09-28)**: the failure half: a failure lands on its row (91ed699, LWSM-1032). The screen-reader half is still live, in LWSM-1323.
 - **Resolved 2026-09-28 by LWSM-1323:** status messages are announced.
+- **Resolved 2026-10-01 by LWSM-1345:** window-level messages show in a
+  dismissable banner above the list; the status bar is gone.
 
 ## known-issue-050 — A transition steals keyboard focus
 

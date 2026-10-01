@@ -543,7 +543,7 @@ def load_projects(path: Path) -> LoadResult:
         # and this was the last call site still carrying the defect after
         # LWSM-1078 fixed name/path and LWSM-1102 fixed the port fields. It is
         # the worst of the three: this string is raised, so it reaches both the
-        # log and the status bar with no per-reason bound anywhere in its path
+        # log and the message banner with no per-reason bound anywhere in its path
         # (LWSM-1114).
         raise RegistryError(
             f"{quoted(str(path))}: schema_version {quoted(version)} "

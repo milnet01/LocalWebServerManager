@@ -687,8 +687,8 @@ silently overwritten (ADR-0005).
 
 Every failure has a visible home: a project-scoped failure shows
 on that project's row and in its log panel; an app-scoped failure
-(config unreadable, scan root missing) shows in a status bar
-message. Nothing is swallowed, and nothing is reported as success
+(config unreadable, scan root missing) shows in a message banner
+above the list (LWSM-1345). Nothing is swallowed, and nothing is reported as success
 that was not verified — the two shapes this app must get right
 are:
 

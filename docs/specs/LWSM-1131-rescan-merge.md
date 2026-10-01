@@ -606,7 +606,7 @@ has to replace.
   *Test:* `tests/test_registry.py::test_no_merge_value_is_interpolated_without_the_clip`,
   mirroring the existing `test_no_file_sourced_value_is_interpolated_without_the_clip`
   at `tests/test_registry.py:463`.
-  *Breaks when:* a hand-edited name containing a newline reaches the status bar
+  *Breaks when:* a hand-edited name containing a newline reaches the message banner
   or the log through the merge report — the defect LWSM-1078, LWSM-1102 and
   LWSM-1114 each closed at one call site, arriving on a new one. LWSM-1007's
   INV-8 is the same rule for writer refusals, which is a different surface with

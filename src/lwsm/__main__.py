@@ -84,7 +84,7 @@ def build_window(
         records, error, load = [], str(exc), exc
         log.warning("no project list: %s", exc)
     for notice in notices:
-        # The status bar gets a summary; the log gets the record.
+        # The message banner gets a summary; the log gets the record.
         log.warning("project list: %s", notice)
 
     # The theme, before the window, because the window is built with it.
@@ -141,7 +141,7 @@ def build_window(
         hand while the app is open loses only the field being written.
 
         Raises rather than returning quietly when there is nowhere to write:
-        the window reports the failure in the status bar, and a change that
+        the window reports the failure in its message banner, and a change that
         silently will not be remembered is worse than one that says so.
 
         **And it raises when the re-read refused the whole document**

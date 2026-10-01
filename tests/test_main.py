@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from banner import message_of
 from lwsm import __main__ as entry
 from lwsm import __version__, applog, configfile
 from lwsm.__main__ import build_window, main
@@ -151,7 +152,7 @@ def test_starts_even_when_there_is_no_home_directory(monkeypatch, capsys, tmp_pa
     monkeypatch.setattr(
         mainwindow_module.MainWindow,
         "show",
-        lambda self: shown.append(self.statusBar().currentMessage()),
+        lambda self: shown.append(message_of(self)),
     )
 
     assert main([]) == 0, "a machine with no home directory must not stop the app"
@@ -790,7 +791,7 @@ def test_a_refused_settings_field_is_reported_and_not_silently_defaulted(
     window, controller = build_window(projects)
     qtbot.addWidget(window)
     try:
-        assert expected in window.statusBar().currentMessage()
+        assert expected in message_of(window)
     finally:
         controller.stop()
 
@@ -993,7 +994,7 @@ def test_a_refused_settings_write_still_saves_the_scan_roots(
 
     # And the refusal is SHOWN. `settings.py` records the shape: a version
     # that logged the reason and never displayed it survived every other test.
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert "could not be saved" in message, message
     assert "settings.json" in message, message
 
@@ -1227,7 +1228,7 @@ def test_both_write_failures_are_named_not_just_the_first(
     finally:
         controller.stop()
 
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert "settings.json" in message, message
     assert "scan-roots" in message, (
         f"the second failure is not in the message: {message}"
@@ -1330,7 +1331,7 @@ def test_a_settings_save_that_works_says_nothing(qtbot, monkeypatch, tmp_path) -
     finally:
         controller.stop()
 
-    assert "could not be saved" not in window.statusBar().currentMessage()
+    assert "could not be saved" not in message_of(window)
 
 
 # --- LWSM-1018: the scan-roots file the dialog edits ---------------------------
@@ -1877,7 +1878,7 @@ def test_a_project_list_that_cannot_be_read_is_explained_in_the_list(
         assert (
             label.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        assert "not valid JSON" in window.statusBar().currentMessage()
+        assert "not valid JSON" in message_of(window)
     finally:
         controller.stop()
 

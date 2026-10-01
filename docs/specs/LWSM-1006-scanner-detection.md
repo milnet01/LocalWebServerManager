@@ -201,7 +201,7 @@ LWSM-1038 — this item never produces it.
 
 **`PortFinding` does not carry the matched line.** An earlier draft did, and it
 was the one string in this design that carried a hostile file's bytes to the
-log and the status bar with neither `configfile.py::quoted`'s escape nor its
+log and the message banner with neither `configfile.py::quoted`'s escape nor its
 120-character clip — the defect LWSM-1078, LWSM-1102 and LWSM-1114 each closed
 at one call site. `rule` plus `source` is the whole of the provenance
 `design.md § Robustness` measure 2 asks for ("port 5000 — from a framework
@@ -225,7 +225,7 @@ control character is replaced with U+FFFD and the result is clipped to
 `MAX_DISPLAY_NAME_CHARS = 120`, the same bound `configfile.py::MAX_REASON_CHARS`
 uses and for the same reason. Without this, a directory named
 `evil<newline>PORT=1 detected` **that has a valid launcher** reaches the log and
-the status bar raw — the forged-log-record defect LWSM-1078 closed, arriving by
+the message banner raw — the forged-log-record defect LWSM-1078 closed, arriving by
 the one path that survives detection, while the identical name is escaped and
 clipped when the candidate is *rejected* and lands in `skipped`. One mechanism,
 two call sites, applied to one of them: `coding.md § 1.6` again.
@@ -323,7 +323,7 @@ newline**, which is exactly the forged-log-record defect LWSM-1078 closed with
 `configfile.py::quoted` applies — reimplemented rather than imported, per § 8's
 reasoning about `_read_bounded` — and the same applies to `PortFinding.source`,
 which is a file or unit name from the same untrusted tree and reaches the same
-status bar.
+message banner.
 
 Each value interpolated into a reason is clipped at `MAX_REASON_CHARS = 120` —
 the same name and value `registry.py` uses, since it bounds the same thing for

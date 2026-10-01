@@ -23,6 +23,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QPalette, QShowEvent
 from PySide6.QtWidgets import QApplication
 
+from banner import message_of
 from lwsm import __version__, browsers, mainwindow, placement, registry, scanner
 from lwsm.__main__ import build_window
 from lwsm.browsers import Browser
@@ -142,6 +143,70 @@ def window_for(
 
 def rows_of(window: MainWindow) -> list:
     return list(window._rows.values())
+
+
+# --- LWSM-1345: window-level feedback sits above the list -------------------
+
+
+def test_a_window_message_shows_in_a_banner_above_the_list(qtbot, built) -> None:
+    """`design-accessibility.md`: feedback surfaces next to what raised it,
+    and a status bar is invisible to a magnifier. A menu action has no row,
+    so its feedback goes in a banner at the top of the list (the user,
+    2026-10-01), and the status bar is gone rather than kept as a copy.
+    """
+    from PySide6.QtWidgets import QStatusBar
+
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+
+    window.set_status_message("The text size cannot be changed on this desktop")
+
+    assert message_of(window) == "The text size cannot be changed on this desktop"
+    banner_bottom = window._banner.mapTo(window, QPoint(0, window._banner.height()))
+    list_top = window._scroll.mapTo(window, QPoint(0, 0))
+    assert banner_bottom.y() <= list_top.y(), "the banner is not above the list"
+    assert window.findChild(QStatusBar) is None, "a status bar was still built"
+
+
+def test_the_banner_draws_markup_as_text(qtbot, built) -> None:
+    """A message carries names from hand-edited files and scanned folders.
+    The status bar drew markup literally (LWSM-1005 spec, measured); a
+    `QLabel` defaults to `AutoText` and would render it, so a project name
+    could restyle or forge the message. Measured by width rather than by
+    the format property: drawn literally, `<b>bold</b>` is far wider than
+    `bold`; rendered, the two are about the same.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    label = window._banner_text
+
+    window.set_status_message("bold")
+    plain = label.sizeHint().width()
+    window.set_status_message("<b>bold</b>")
+    marked = label.sizeHint().width()
+
+    assert marked > plain * 2, (
+        f"'<b>bold</b>' is {marked} px against {plain} px for 'bold': the "
+        "banner rendered the markup instead of showing it"
+    )
+
+
+def test_dismiss_hides_the_banner_and_an_empty_message_shows_none(qtbot, built) -> None:
+    """Dismissable, as the user asked: the message stays until it is dismissed
+    or replaced, rather than timing out while a magnifier is elsewhere."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    assert message_of(window) == "", "a banner showed before any message"
+
+    window.set_status_message("Saved")
+    assert window._banner_dismiss.accessibleName() == "Dismiss message"
+    qtbot.mouseClick(window._banner_dismiss, Qt.MouseButton.LeftButton)
+    assert message_of(window) == ""
+
+    window.set_status_message("Saved")
+    window.set_status_message("")
+    assert message_of(window) == ""
 
 
 # --- INV-6: state as a word, and no glyph in the accessible name --------------
@@ -881,7 +946,7 @@ def test_registry_error_opens_an_empty_window(qtbot, built, tmp_path) -> None:
     qtbot.addWidget(window)
 
     assert rows_of(window) == []
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert "projects.json" in message, message
 
 
@@ -936,7 +1001,7 @@ def test_notices_reach_the_status_bar(qtbot, built, tmp_path) -> None:
     built.append(controller)
     qtbot.addWidget(window)
 
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert "bad-one" in message, message
     assert "(+1 more)" in message, message
     assert len(rows_of(window)) == 1, "the good record still renders"
@@ -1286,9 +1351,7 @@ def test_the_status_bar_summary_is_translatable(qtbot, built) -> None:
             ["first notice", "second notice", "third notice"],
         )
         qtbot.addWidget(window)
-        assert "MORE" in window.statusBar().currentMessage(), (
-            window.statusBar().currentMessage()
-        )
+        assert "MORE" in message_of(window), message_of(window)
     finally:
         app.removeTranslator(translator)
 
@@ -1421,11 +1484,11 @@ def test_a_broken_translation_of_a_save_failure_is_shown_not_raised(
         )
 
         window._text_size_actions[200].trigger()
-        assert window.statusBar().currentMessage() == broken
+        assert message_of(window) == broken
 
-        window.statusBar().clearMessage()
+        window.set_status_message("")
         window.set_theme("emerald")
-        assert window.statusBar().currentMessage() == broken
+        assert message_of(window) == broken
     finally:
         app.removeTranslator(translator)
 
@@ -1588,7 +1651,7 @@ def test_a_rescan_adds_a_new_project_and_says_so(qtbot, built, tmp_path) -> None
     run_rescan(qtbot, window)
 
     assert [row.name for row in controller.rows()] == ["web"]
-    assert "1 new" in window.statusBar().currentMessage()
+    assert "1 new" in message_of(window)
     assert saves, "first run must write, or projects.json never comes into existence"
     window.shutdown()
 
@@ -1664,7 +1727,7 @@ def test_a_rescan_that_changes_nothing_says_so_and_does_not_write(
 
     run_rescan(qtbot, window)
 
-    assert window.statusBar().currentMessage() == "Rescan: no changes"
+    assert message_of(window) == "Rescan: no changes"
     assert saves == [], "an all-unchanged merge must not rewrite the file"
     window.shutdown()
 
@@ -1685,7 +1748,7 @@ def test_a_flag_only_outcome_does_not_write(qtbot, built, tmp_path) -> None:
 
     run_rescan(qtbot, window)
 
-    assert "1 missing" in window.statusBar().currentMessage()
+    assert "1 missing" in message_of(window)
     assert saves == []
     window.shutdown()
 
@@ -1749,7 +1812,7 @@ def test_a_read_only_session_reports_rather_than_writing(
 
     run_rescan(qtbot, window)
 
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert "not saved" in message
     assert "refused at load" in message
     assert [row.name for row in controller.rows()] == ["web"], (
@@ -1798,13 +1861,13 @@ def test_a_refused_write_is_retried_by_the_next_rescan(qtbot, built, tmp_path) -
 
     run_rescan(qtbot, window)
     assert len(attempts) == 1
-    assert "not saved" in window.statusBar().currentMessage()
+    assert "not saved" in message_of(window)
 
     run_rescan(qtbot, window)
     assert len(attempts) == 2, (
         "the second rescan must try again: nothing has reached the disk yet"
     )
-    assert "not saved" in window.statusBar().currentMessage(), (
+    assert "not saved" in message_of(window), (
         "and must still say so, rather than reporting no changes"
     )
     window.shutdown()
@@ -1832,7 +1895,7 @@ def test_a_rescan_that_raises_re_enables_the_button(qtbot, built, tmp_path) -> N
     run_rescan(qtbot, window)
 
     assert window._rescan_button.isEnabled()
-    assert "Rescan failed" in window.statusBar().currentMessage()
+    assert "Rescan failed" in message_of(window)
     window.shutdown()
 
 
@@ -1877,10 +1940,10 @@ def test_a_writer_that_escapes_the_slot_still_re_enables_the_button(
         "Rescan must come back however the slot ended"
     )
     assert not window._rescan_in_flight
-    assert "Rescan failed" in window.statusBar().currentMessage(), (
+    assert "Rescan failed" in message_of(window), (
         "Qt swallows what escapes this slot, so it is reported here or nowhere"
     )
-    assert "the disk went away" in window.statusBar().currentMessage()
+    assert "the disk went away" in message_of(window)
     window.shutdown()
 
 
@@ -2343,7 +2406,7 @@ def test_a_browser_that_will_not_open_is_reported(qtbot, built) -> None:
 
     rows_of(window)[0].open_button.click()
 
-    assert "Could not open a browser" in window.statusBar().currentMessage()
+    assert "Could not open a browser" in message_of(window)
 
 
 def test_the_url_is_built_not_concatenated() -> None:
@@ -2543,6 +2606,27 @@ def test_a_short_list_opens_with_every_row_visible(qtbot, built) -> None:
     )
 
 
+def test_a_short_list_with_a_message_opens_with_every_row_visible(qtbot, built) -> None:
+    """LWSM-1345: a message at startup shows in the banner above the list, so
+    the opening height has to count it, as it counts the menu bar (LWSM-1146).
+    Left out, the window opens one banner short and a list that fits scrolls.
+    """
+    controller = build_controller(built, many(5), FakeProbe())
+    window = MainWindow(controller, Theme.default(), ["projects.json: a notice"])
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    with qtbot.waitExposed(window):
+        window.show()
+
+    assert message_of(window), "precondition: the notice is showing"
+    bar = window._scroll.verticalScrollBar()
+    assert bar.maximum() == 0, (
+        f"5 rows and a message should need no scrolling, but the list "
+        f"overflows by {bar.maximum()} px at {window.width()}x{window.height()}"
+    )
+
+
 def test_the_opening_height_tracks_the_list_up_to_a_cap(qtbot, built) -> None:
     """Both halves in one test, because either alone is vacuous.
 
@@ -2725,7 +2809,7 @@ def test_preferences_with_no_dialog_says_so_rather_than_doing_nothing(
 
     window._settings_action.trigger()
 
-    assert window.statusBar().currentMessage() == "Settings are not available yet."
+    assert message_of(window) == "Settings are not available yet."
 
 
 def test_a_window_with_nothing_to_rescan_has_no_rescan_entry(qtbot, built) -> None:
@@ -3006,7 +3090,7 @@ def test_a_save_failure_is_reported_and_does_not_undo_the_switch(qtbot, built) -
     assert window._theme is THEMES["graphite"]
     for row in rows_of(window):
         assert row._theme is THEMES["graphite"]
-    assert "read-only file system" in window.statusBar().currentMessage()
+    assert "read-only file system" in message_of(window)
 
 
 # --- LWSM-1141: Open is offered only for a server this manager started --------
@@ -3980,7 +4064,7 @@ def test_a_size_that_cannot_be_saved_is_reported_and_still_applied(
     qtbot.wait(50)
 
     assert text_heights(rows_of(window)[0])["state"] > before
-    assert "nowhere to write" in window.statusBar().currentMessage()
+    assert "nowhere to write" in message_of(window)
 
 
 def test_restoring_a_stored_size_writes_nothing(qtbot, built, app_font) -> None:
@@ -4523,7 +4607,7 @@ def test_a_failure_for_no_particular_project_still_reaches_the_user(
     controller.action_failed.emit(Path("/srv/gone"), "nothing to start it with")
     qtbot.wait(20)
 
-    assert "nothing to start it with" in window.statusBar().currentMessage()
+    assert "nothing to start it with" in message_of(window)
 
 
 def test_the_failure_is_announced_and_leaves_nothing_unnamed_behind(
@@ -4997,7 +5081,7 @@ def test_export_writes_a_profile_that_loads_back(qtbot, built, tmp_path) -> None
     window._export_action.trigger()
 
     assert registry.load_projects(profile).records == records
-    assert str(profile) in window.statusBar().currentMessage()
+    assert str(profile) in message_of(window)
 
 
 def test_a_cancelled_export_writes_nothing(qtbot, built, tmp_path) -> None:
@@ -5008,7 +5092,7 @@ def test_a_cancelled_export_writes_nothing(qtbot, built, tmp_path) -> None:
     window._export_action.trigger()
 
     assert list(tmp_path.glob("*.json")) == []
-    assert window.statusBar().currentMessage() == ""
+    assert message_of(window) == ""
 
 
 def test_an_export_refusal_reaches_the_status_bar(qtbot, built, tmp_path) -> None:
@@ -5025,7 +5109,7 @@ def test_an_export_refusal_reaches_the_status_bar(qtbot, built, tmp_path) -> Non
 
     window._export_action.trigger()
 
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert "Profile not saved" in message
     assert "incomplete" in message
     assert not (tmp_path / "saved.json").exists()
@@ -5062,7 +5146,7 @@ def test_import_restores_the_user_half_saves_it_and_updates_the_controller(
     assert restored.port == 5005
     assert len(saves) == 1
     assert saves[0][1] == controller.records()
-    assert "Import:" in window.statusBar().currentMessage()
+    assert "Import:" in message_of(window)
 
 
 def test_an_import_is_refused_when_the_profile_had_any_refusal(
@@ -5089,7 +5173,7 @@ def test_an_import_is_refused_when_the_profile_had_any_refusal(
 
     assert controller.records() == before
     assert saves == []
-    assert "Profile not loaded" in window.statusBar().currentMessage()
+    assert "Profile not loaded" in message_of(window)
 
 
 def test_an_unreadable_profile_is_refused(qtbot, built, tmp_path) -> None:
@@ -5107,7 +5191,7 @@ def test_an_unreadable_profile_is_refused(qtbot, built, tmp_path) -> None:
 
     assert controller.records() == before
     assert saves == []
-    assert "Profile not loaded" in window.statusBar().currentMessage()
+    assert "Profile not loaded" in message_of(window)
 
 
 def test_a_cancelled_import_changes_nothing(qtbot, built, tmp_path) -> None:
@@ -5121,7 +5205,7 @@ def test_a_cancelled_import_changes_nothing(qtbot, built, tmp_path) -> None:
 
     assert controller.records() == before
     assert saves == []
-    assert window.statusBar().currentMessage() == ""
+    assert message_of(window) == ""
 
 
 def test_import_is_disabled_while_a_rescan_is_in_flight(qtbot, built, tmp_path) -> None:
@@ -5478,7 +5562,7 @@ def test_centre_reports_when_no_screen_answers(qtbot, built, monkeypatch) -> Non
 
     window.centre_on_screen()
 
-    assert window.statusBar().currentMessage(), (
+    assert message_of(window), (
         "Centre on screen found no screen and reported nothing at all"
     )
 
@@ -5918,7 +6002,7 @@ def test_centre_reports_when_the_desktop_refuses(qtbot, built) -> None:
 
     window.centre_on_screen()
 
-    assert "would not let the window be moved" in window.statusBar().currentMessage()
+    assert "would not let the window be moved" in message_of(window)
 
 
 def test_rows_arriving_after_the_restore_do_not_undo_the_remembered_size(
@@ -6245,7 +6329,7 @@ def test_opening_with_an_uninstalled_browser_says_so(
     window._open_project(controller.records()[0].path)
 
     assert opened == ["http://localhost:3000/"], "it must still open"
-    assert "not installed" in window.statusBar().currentMessage()
+    assert "not installed" in message_of(window)
 
 
 def test_opening_with_no_browser_chosen_says_nothing(qtbot, built, tmp_path) -> None:
@@ -6260,7 +6344,7 @@ def test_opening_with_no_browser_chosen_says_nothing(qtbot, built, tmp_path) -> 
 
     window._open_project(controller.records()[0].path)
 
-    assert "not installed" not in window.statusBar().currentMessage()
+    assert "not installed" not in message_of(window)
 
 
 def test_choosing_a_browser_writes_it_to_the_registry(qtbot, built, tmp_path) -> None:
@@ -6379,7 +6463,7 @@ def test_a_browser_that_fails_to_launch_is_reported_not_silent(
 
     window._open_project(controller.records()[0].path)
 
-    assert "Could not open a browser" in window.statusBar().currentMessage()
+    assert "Could not open a browser" in message_of(window)
 
 
 # --- LWSM-1174: the name column is capped so the row stays in the lens ---------
@@ -6886,7 +6970,7 @@ def test_a_browser_whose_entry_could_not_be_read_is_not_called_uninstalled(
 
     window._open_project(controller.records()[0].path)
 
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert opened == ["http://localhost:3000/"], "it must still open"
     assert "not installed" not in message, message
     assert "could not be read" in message
@@ -7163,7 +7247,7 @@ def test_a_completed_verb_reaches_the_status_bar(qtbot, built) -> None:
 
     controller.action_done.emit(Path("/srv/a"), "restart")
 
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert "a" in message
     assert "restart" in message.lower(), (
         f"the status bar does not say what happened: {message!r}"
@@ -7188,7 +7272,7 @@ def test_every_verb_gets_its_own_sentence(qtbot, built, verb: str) -> None:
 
     controller.action_done.emit(Path("/srv/a"), verb)
 
-    assert verb in window.statusBar().currentMessage().lower()
+    assert verb in message_of(window).lower()
 
 
 # --- LWSM-1256: the text-size control under a pixel-sized desktop font --------
@@ -7285,7 +7369,7 @@ def test_a_scale_that_cannot_be_applied_is_not_reported_as_applied(
     action = window._text_size_actions.get(200)
     if action is not None:
         assert not action.isChecked(), "the menu ticked a size nothing was set to"
-    assert window.statusBar().currentMessage(), "the failure was silent"
+    assert message_of(window), "the failure was silent"
 
 
 # --- LWSM-1259: a jump the user can see --------------------------------------
@@ -7426,7 +7510,7 @@ def test_a_failed_rescan_apply_is_escaped_and_clipped_too(qtbot, built) -> None:
     window._apply_rescan = explode
     window._on_rescan_done(object())
 
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert message
     assert "\n" not in message
     assert len(message) <= MAX_REASON_CHARS + 40, f"unclipped: {len(message)}"
@@ -7536,7 +7620,7 @@ def test_a_save_that_was_not_made_durable_reads_as_saved(
 
     run_rescan(qtbot, window)
 
-    message = window.statusBar().currentMessage()
+    message = message_of(window)
     assert "not saved" not in message, message
     assert "may not survive a crash" in message, message
     assert isinstance(window._load, LoadResult), "a written file left the load stale"

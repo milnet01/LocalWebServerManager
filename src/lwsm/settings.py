@@ -62,7 +62,7 @@ MAX_THEME_ID_CHARS = 64
 # And an identifier is not free text. Every id `theme.py` ships matches this,
 # so the charset costs nothing and closes the case a bounded non-empty string
 # still lets through: `"theme": "a\nb"` is stored, written back, and reaches a
-# `log.warning` and the status bar, where the newline forges what reads as a
+# `log.warning` and the message banner, where the newline forges what reads as a
 # second record. `configfile.quoted` escapes that at the point of USE and this
 # refuses it at the point of ENTRY — LWSM-1078's lesson is that only the
 # second one bounds what gets persisted.

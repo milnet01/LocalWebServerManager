@@ -179,7 +179,7 @@ and ADR-0005 forbids partially parsing it:
 
 **A rejection reason is built with `repr` and clipped, never interpolated
 raw** (LWSM-1078). The file is attacker-editable and a reason travels to two
-places — `log.warning` in §4.5 and the status bar — so both properties are
+places — `log.warning` in §4.5 and the message banner — so both properties are
 load-bearing: `repr` escapes a newline, without which a project name forges
 what reads as a second log record, and the clip bounds it, without which a
 50 MB name produced a 50 MB status string. `MAX_REASON_CHARS` is 120.
@@ -203,14 +203,12 @@ reproduced:
 - **A NUL byte.** It passes `is_absolute()` and loads, though every later `os`
   call on it raises `ValueError`.
 
-**The status bar needs no `PlainText` call, and this was checked rather than
-assumed.** The P02 review held that `statusBar().showMessage(...)` leaves Qt's
-`AutoText` free to render markup, unlike the row labels which set `PlainText`
-explicitly. Measured against the pinned PySide6 6.11.1: `QStatusBar` has no
-child `QLabel` and paints the message through `style()->drawItemText`, which is
-plain-text only. Rendering `<b>bold</b>` drew **508** ink pixels against **232**
-for `bold` — the markup is drawn literally. That quarter of the finding is
-**dismissed as unverified**; the other three were real and are fixed above.
+**The message banner sets `PlainText`** (LWSM-1345). It is a `QLabel`, and a
+`QLabel`'s default `AutoText` renders markup, so a name from a hand-edited file
+could restyle the message. The status bar it replaced drew markup literally
+(measured against PySide6 6.11.1: `<b>bold</b>` drew 508 ink pixels against 232
+for `bold`), which is why the P02 finding on it was dismissed.
+*Test:* `tests/test_mainwindow.py::test_the_banner_draws_markup_as_text`.
 
 Each **element** of `projects` that is not a JSON object is skipped with a
 reason — it has no fields to check, and indexing it would raise a
@@ -546,15 +544,15 @@ class MainWindow(QMainWindow):
 
 `notices` is `load_projects`'s second tuple element — the per-record
 rejection reasons — and `set_status_message` is what §6 and INV-15 mean by
-"reaches the status bar". §4.5 routes both: the rejection list into the
+"reaches the message banner". §4.5 routes both: the rejection list into the
 constructor, and a `RegistryError`'s own message through the same slot.
 Without these two the plumbing for a behaviour INV-15 tests would have to
 be invented by the implementer.
 
-**N notices become one status-bar line**: the first, then `(+N more)` when
+**N notices become one banner message**: the first, then `(+N more)` when
 there is more than one — the bar is one line and a join would truncate
 unpredictably. **Every notice is logged in full**, one line each at
-WARNING, by `build_window`, so the status bar is a summary and the log is
+WARNING, by `build_window`, so the message banner is a summary and the log is
 the record. `Theme.default()` supplies the single palette; it is the light
 one, since that is what a first run gets with no settings file to say
 otherwise.
@@ -674,7 +672,7 @@ choice rather than a wrapper:
   INV-14 forbids.
 - **A `LanguageChange` branch retranslates the rows**, and translating at call
   time is not enough on its own. Three gaps went with that assumption, all
-  three verified by running (LWSM-1107): the status bar's `(+N more)` was an
+  three verified by running (LWSM-1107): the banner's `(+N more)` was an
   f-string and reached no translator at all; the window title used `self.tr`,
   which resolves under the *class* — so it landed in `"MainWindow"` (and Qt
   then walked `QMainWindow`, `QWidget`, `QObject`, `QPaintDevice`) rather than
@@ -691,7 +689,7 @@ choice rather than a wrapper:
   user-visible impact in P02, which has no language switcher; a switcher
   installs the translator itself and can send the event.
 
-  The status bar is deliberately **not** re-derived on a language change:
+  The message banner is deliberately **not** re-derived on a language change:
   `build_window` may have replaced the notice summary with a `RegistryError`,
   and re-applying the summary would silently overwrite it.
 
@@ -1006,14 +1004,14 @@ importing `lwsm.__main__` in a test does not require a display.
   `parse_args` — which turns `--version` on a headless box into an abort.
 
 - **INV-15** — A `RegistryError` does not stop the app: `build_window`
-  returns a window with no rows whose status bar names the file and the
+  returns a window with no rows whose message banner names the file and the
   reason, and does not raise.
   *Test:* `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window`,
   calling `build_window` on a path with no file. It targets `build_window`
   rather than `main` because `main` blocks in `app.exec()`, so a test that
   called it would never return. `tests/test_main.py::test_starts_even_when_there_is_no_home_directory`
   covers the half that test cannot: it drives `main` with the event loop stubbed
-  and asserts the window is **shown** with the reason in its status bar, which
+  and asserts the window is **shown** with the reason in its message banner, which
   is the only way to observe a `RegistryError` raised by resolving the *default*
   path rather than by reading a given one.
   *Breaks when:* the exception propagates — a missing `projects.json` is
@@ -1219,14 +1217,14 @@ importing `lwsm.__main__` in a test does not require a display.
 ## 6. Failure modes
 
 - **`projects.json` absent.** `RegistryError`; the window opens empty with
-  a status-bar line naming the path it looked at (INV-15). First run is not
+  a banner message naming the path it looked at (INV-15). First run is not
   an error state until LWSM-1008 lands the scan-and-confirm flow.
 - **`projects.json` unparsable, not an object, or missing / wrong
   `schema_version` or `projects`.** `RegistryError` naming the file and
   which of §4.1's four shapes it hit. Nothing is written back — P02 never
   writes the file at all.
 - **A record is rejected, or one of its port fields is.** The reason
-  reaches the status bar and the app log; the other rows render, and a
+  reaches the message banner and the app log; the other rows render, and a
   record rejected only on a port field still renders with `no port`. Silent
   skipping would make a typo look like a deleted project.
 - **Two records name the same `path`.** The second is skipped with a

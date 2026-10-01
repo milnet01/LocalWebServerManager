@@ -235,7 +235,8 @@ def _filled(template: str, *values: str) -> str:
     a scanned directory. `re.sub` never rescans its own output.
 
     A placeholder with no value is left as written rather than raising: these
-    are status-bar paths, and several of them are already reporting a failure.
+    are message-banner paths, and several of them are already reporting a
+    failure.
     """
     fields = {f"%{index}": value for index, value in enumerate(values, start=1)}
     return _PLACEHOLDER.sub(
@@ -540,7 +541,7 @@ class _RescanTask(QRunnable):
                 # What the scanner looked at and refused. It bounds and quotes
                 # these for an operator, and nothing read them (review-code
                 # 2026-10-01 L4-H1). The log only: one stray folder in a scan
-                # root is a skip, so a status-bar line would fire on every
+                # root is a skip, so a banner message would fire on every
                 # rescan of every populated machine.
                 for reason in result.skipped:
                     log.info("rescan: skipped %s", reason)
@@ -1764,6 +1765,30 @@ class MainWindow(QMainWindow):
         # because the filter box is in it either way.
         outer.addLayout(strip)
         self._strip = strip
+        # Window-level feedback, at the top of the list rather than in a status
+        # bar (LWSM-1345, the user 2026-10-01). `design-accessibility.md` puts
+        # feedback next to what raised it, and a status bar sits at the far
+        # edge of the window, outside a magnifier's view; a menu action has no
+        # row to sit beside, so this is the nearest place to where the user is
+        # reading. It stays until dismissed or replaced: a message that timed
+        # out could expire while the magnifier was elsewhere.
+        self._banner = QFrame(central)
+        self._banner.setFrameShape(QFrame.Shape.StyledPanel)
+        banner_layout = QHBoxLayout(self._banner)
+        self._banner_text = QLabel(self._banner)
+        # Wrapped, never elided: the whole message is the point of showing it.
+        self._banner_text.setWordWrap(True)
+        # PlainText for the cells' reason: a message carries names from
+        # hand-edited files and scanned folders, and `AutoText` would render
+        # their markup. The status bar this replaced drew it literally.
+        self._banner_text.setTextFormat(Qt.TextFormat.PlainText)
+        banner_layout.addWidget(self._banner_text, 1)
+        self._banner_dismiss = QPushButton(self._banner)
+        self._banner_dismiss.setMinimumSize(MIN_TARGET_PX, MIN_TARGET_PX)
+        self._banner_dismiss.clicked.connect(lambda: self.set_status_message(""))
+        banner_layout.addWidget(self._banner_dismiss)
+        self._banner.hide()
+        outer.addWidget(self._banner)
         self._retranslate_strip()
         # The list scrolls (LWSM-1149). Without this the window's minimum
         # height is every row it holds, so a user with twenty projects gets a
@@ -1796,15 +1821,17 @@ class MainWindow(QMainWindow):
         # the window to its rows, so scaling afterwards leaves a window
         # measured for 100 % text holding 175 % text. `changeEvent` reaches
         # `_align_columns` from here with no rows yet, which returns early.
+        # The notices before `_sync_rows` as well (LWSM-1345): they show in the
+        # banner above the list, and `_sync_rows` sizes the window once, so a
+        # banner shown afterwards opened the window one banner short.
+        if notices:
+            self.set_status_message(self._notice_summary(notices))
         self.set_text_scale(text_scale, remember=False)
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
         controller.action_failed.connect(self._report_failure)
         controller.action_done.connect(self._report_done)
         controller.confirmation_required.connect(self._ask_to_trust)
-
-        if notices:
-            self.set_status_message(self._notice_summary(notices))
 
     def _build_menus(self) -> None:
         """The bar every later item hangs off (LWSM-1146).
@@ -2231,7 +2258,7 @@ class MainWindow(QMainWindow):
 
         Chosen over a disabled entry: an entry that does nothing when chosen
         is indistinguishable from a broken one, and a greyed one says nothing
-        about why. The status bar is already this window's notice channel.
+        about why. The message banner is already this window's notice channel.
         """
         self.set_status_message(
             QCoreApplication.translate("ProjectRow", "Settings are not available yet.")
@@ -2392,6 +2419,14 @@ class MainWindow(QMainWindow):
         )
         if self._rescan_button is not None:
             self._rescan_button.setText(self._rescan_label())
+        # The banner's button lives here for the same reason: it is built with
+        # the strip, after `_build_menus` (LWSM-1345).
+        self._banner_dismiss.setText(
+            QCoreApplication.translate("ProjectRow", "Dismiss")
+        )
+        self._banner_dismiss.setAccessibleName(
+            QCoreApplication.translate("ProjectRow", "Dismiss message")
+        )
 
     def _ordered_rows(self) -> list[ProjectRow]:
         """Every row in LAYOUT order — the order the user sees (LWSM-1040).
@@ -2565,7 +2600,7 @@ class MainWindow(QMainWindow):
             # propagate it to children, so the rows are retranslated from here
             # — the same shape as a generated `retranslateUi`.
             #
-            # The status bar is deliberately not re-derived: `build_window`
+            # The banner message is deliberately not re-derived: `build_window`
             # may have replaced the notice summary with a RegistryError, and
             # re-applying the summary here would silently overwrite it.
             self.setWindowTitle(self._window_title())
@@ -2627,7 +2662,7 @@ class MainWindow(QMainWindow):
             self._schedule_size_floor()
 
     def _report_done(self, path: Path, verb: str) -> None:
-        """Say that an action finished, in the status bar (LWSM-1302).
+        """Say that an action finished, in the message banner (LWSM-1302).
 
         The STATUS BAR and not the row, which is the opposite of where
         `_report_failure` puts a message, so the reason matters. A row message
@@ -2652,8 +2687,8 @@ class MainWindow(QMainWindow):
         self.set_status_message(_filled(template, path.name, verb))
 
     def _report_failure(self, path: Path, message: str) -> None:
-        """A failure goes to the row it is about, and to the status bar if
-        there is no such row (LWSM-1032).
+        """A failure goes to the row it is about, and to the message banner
+        if there is no such row (LWSM-1032).
 
         `design.md § Accessibility`: feedback surfaces next to the row or
         control that caused it, because a message in a far-off status bar is
@@ -2678,7 +2713,7 @@ class MainWindow(QMainWindow):
         puts feedback where the action happened, and here that is the list the
         user is looking at, which is empty because of this very error. Plain
         text, because it carries a path; selectable, so the path can be copied.
-        The status-bar line stays too (user decision, 2026-09-28).
+        The banner message stays too (user decision, 2026-09-28).
         """
         if self._load_error is None:
             label = QLabel(self._rows_host)
@@ -2694,7 +2729,13 @@ class MainWindow(QMainWindow):
         self.set_status_message(text)
 
     def set_status_message(self, text: str) -> None:
-        self.statusBar().showMessage(text)
+        """Show `text` in the banner above the list, or hide it when empty.
+
+        The name is kept from when this was the status bar, so its callers
+        did not change (LWSM-1345).
+        """
+        self._banner_text.setText(text)
+        self._banner.setVisible(bool(text))
         # `showMessage` raises no accessibility event, so a screen-reader user
         # was never told any of it (known-issue-049, LWSM-1323). Announced
         # politely: it waits for whatever is being read out now. Not yet
@@ -3155,7 +3196,7 @@ class MainWindow(QMainWindow):
             self._finish_rescan(message)
 
     def _apply_rescan(self, merged: MergeResult) -> str:
-        """The write and the UI update, returning the status-bar message.
+        """The write and the UI update, returning the banner message.
 
         Split out of `_on_rescan_done` so that slot is nothing but the
         always-finish guard above — a body and its own `finally` in one
@@ -3209,7 +3250,7 @@ class MainWindow(QMainWindow):
         if self._rescan is None:
             return ""
         for reason in merged.reasons:
-            # The full report goes to the log, one record each; the status bar
+            # The full report goes to the log, one record each; the banner
             # gets the summary. INV-6's bound already applies to the entries.
             log.info("%s: %s", source, reason)
 
@@ -3679,7 +3720,7 @@ class MainWindow(QMainWindow):
                     placement.position_is_readable(),
                 )
             except (ConfigFileError, OSError) as exc:
-                # Logged, not shown: the window is going away, so a status bar
+                # Logged, not shown: the window is going away, so a banner
                 # message has nobody left to read it.
                 log.warning("could not remember the window geometry: %s", exc)
         super().closeEvent(event)
@@ -3755,12 +3796,12 @@ class MainWindow(QMainWindow):
         row_height = rows[0].sizeHint().height() + max(self._rows_layout.spacing(), 0)
         # Everything that is not the list — the menu bar included (LWSM-1146),
         # or the window opens one bar too short and a list that fits scrolls.
-        chrome = (
-            margins.top()
-            + margins.bottom()
-            + self.menuBar().sizeHint().height()
-            + self.statusBar().sizeHint().height()
-        )
+        chrome = margins.top() + margins.bottom() + self.menuBar().sizeHint().height()
+        # The banner, where a status bar used to be counted (LWSM-1345) --
+        # and only while it shows: asking for `statusBar()` BUILDS one, which
+        # put an empty bar back at the bottom of the window.
+        if not self._banner.isHidden():
+            chrome += self._banner.sizeHint().height() + outer.spacing()
         # The STRIP, not the button in it. The filter box is the taller of the
         # two on most styles, so measuring the button would under-count the
         # chrome by the difference and open the window that much short — the
