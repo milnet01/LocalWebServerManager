@@ -957,7 +957,7 @@ O8` forbids retrofitting that.
   Kind: doc-fix.
   Source: review-contract-2026-09-25 CLAUDE.md loop 2.
 
-- 📋 [LWSM-1152] **Cut 0.1.0 once FP09 and FP01 close — the first tagged release.**
+- ✅ [LWSM-1152] **Cut 0.1.0 once FP09 and FP01 close — the first tagged release.**
   Decided with the user 2026-08-18. Nothing has ever been released: the
   version is 0.0.0 in all four files, there is no version tag (P02/P03
   tags are phase markers), no GitHub release, and every entry sits in
@@ -1078,6 +1078,13 @@ O8` forbids retrofitting that.
   Progress (2026-10-01, 24e800b): accessibility items done: 1342, 1343,
   1345 (banner), 1348 (list roles, read live off AT-SPI). NEXT: refactor
   items 1357 to 1362 and 1368, oldest first; then cut-release.
+  Resolved (2026-10-01, def1c4d, tag v0.1.0): 0.1.0 released,
+  https://github.com/milnet01/LocalWebServerManager/releases/tag/v0.1.0.
+  Local gate and remote CI green on the bumped tree; release notes are
+  the changelog section verbatim. Recipe fixed on the way: a "uv lock"
+  todo (uv.lock records the version and the gate syncs --locked).
+  LWSM-1012's shipped half was split out as LWSM-1370 so the notes cite
+  a shipped id. Website session told.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
