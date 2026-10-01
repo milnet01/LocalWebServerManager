@@ -95,8 +95,8 @@ class Theme:
     state_stopped: str
     state_unknown: str
 
-    @classmethod
-    def default(cls) -> Theme:
+    @staticmethod
+    def default() -> Theme:
         """The palette named by `DEFAULT_THEME` — **dark** (LWSM-1147).
 
         **No production caller, and the docstring used to imply one.** It read
