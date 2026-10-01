@@ -1078,6 +1078,10 @@ signaling per
 
 ### Security
 
+- **A project or browser name holding markup is shown as typed in tooltips, not rendered**
+  A name like `<b>x</b>` was drawn as formatting and could forge a
+  sentence inside the tooltip that explains whose server is running.
+
 - **An `npm run` project whose package.json another account can rewrite is now refused, and a launched server no longer resolves commands from relative PATH entries**
   Both were ways past the confirmation the app asks for before it first
   runs a project. package.json now meets the same ownership and

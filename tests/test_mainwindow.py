@@ -6256,7 +6256,9 @@ def test_a_long_project_name_is_elided_and_keeps_its_full_name(qtbot, built) -> 
     assert row._name.text() != long_name, "an uncapped name blows the lens budget"
     assert row._name.text().endswith("…")
     assert long_name.startswith(row._name.text().rstrip("…"))
-    assert row._name.toolTip() == long_name, "the whole name must stay reachable"
+    assert tooltip_text(row._name.toolTip()) == long_name, (
+        "the whole name must stay reachable"
+    )
     assert row.accessibleName() == f"running, {long_name}, port 5005", (
         "a screen reader is read the FULL name — elision is a fitting concern, "
         "and an announcement of a truncated name helps nobody"
@@ -6595,6 +6597,43 @@ def test_a_control_acting_on_a_foreign_server_says_so(qtbot, button_name) -> Non
     assert tip, f"{button_name} says nothing about acting on a stranger's server"
     assert "did not start" in tip, (
         f"{button_name}'s tooltip does not say whose server this is: {tip!r}"
+    )
+
+
+def tooltip_text(tip: str) -> str:
+    """What a tooltip DISPLAYS: `QToolTip` renders rich text whenever
+    `Qt.mightBeRichText` says so, and plain text otherwise."""
+    from PySide6.QtGui import Qt as GuiQt
+    from PySide6.QtGui import QTextDocumentFragment
+
+    if GuiQt.mightBeRichText(tip):
+        return QTextDocumentFragment.fromHtml(tip).toPlainText()
+    return tip
+
+
+def test_a_name_holding_markup_is_shown_literally_in_the_tooltip(qtbot) -> None:
+    """review-code 2026-10-01: the cells are `PlainText` so a project named with
+    markup is not rendered as it, and the tooltips undid that. This one is the
+    tooltip that explains a trust decision, so a name like `<b>x</b>` could
+    restyle it or forge a sentence inside it. The name must read back as typed.
+    """
+    from lwsm.controller import RowView
+
+    name = "<i>x</i> Safe: started by you"
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name=name,
+            effective_port=5005,
+            status=ProjectStatus.RUNNING,
+            managed=False,
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    assert tooltip_text(row.open_button.toolTip()).startswith(name), (
+        "the project name was rendered as markup rather than shown as typed"
     )
 
 

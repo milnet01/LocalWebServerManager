@@ -51,6 +51,7 @@ from PySide6.QtGui import (
     QPen,
     QShowEvent,
 )
+from PySide6.QtGui import Qt as GuiQt
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -254,6 +255,24 @@ _FORGING_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
 # Kept readable where a reader would recognise the name; everything else in
 # those categories has no conventional spelling and goes out as its code point.
 _NAMED_ESCAPES = {"\r": "\\r", "\n": "\\n", "\t": "\\t"}
+
+
+def _plain_tooltip(text: str) -> str:
+    """A tooltip carrying a name someone else chose, shown exactly as typed.
+
+    `QToolTip` renders rich text whenever `Qt.mightBeRichText` matches, so a
+    project called `<b>x</b>` — or a browser whose `.desktop` `Name` is one —
+    would be drawn as markup, and could forge a sentence inside the one tooltip
+    that explains a trust decision (review-code 2026-10-01). The cells are
+    `PlainText` for this reason; converting to escaped rich text here is the
+    tooltip's equivalent, since a tooltip has no text-format switch. Empty
+    stays empty, because an empty tooltip is how one is cleared.
+    """
+    # `WhiteSpaceNormal`: the default, `WhiteSpacePre`, turns every space into a
+    # no-break space, so a long tooltip could no longer wrap.
+    if not text:
+        return ""
+    return GuiQt.convertFromPlainText(text, GuiQt.WhiteSpaceMode.WhiteSpaceNormal)
 
 
 def _no_layout_forgery(value: str) -> str:
@@ -826,7 +845,7 @@ class ProjectRow(QFrame):
                 QCoreApplication.translate("ProjectRow", "Default browser")
             )
             return
-        self.browser_box.setToolTip("" if fits else text)
+        self.browser_box.setToolTip("" if fits else _plain_tooltip(text))
 
     def _fit_buttons(self) -> None:
         """Each button as wide as its own label, not the style's default.
@@ -929,7 +948,7 @@ class ProjectRow(QFrame):
         # Only when something was actually cut. A tooltip repeating the visible
         # text is noise a magnifier user has to read and dismiss.
         self._name.setToolTip(
-            "" if elided == self._name_display else self._name_display
+            "" if elided == self._name_display else _plain_tooltip(self._name_display)
         )
 
     def changeEvent(self, event: QEvent) -> None:
@@ -1139,11 +1158,13 @@ class ProjectRow(QFrame):
         foreign = running and not row.managed
         for gated in (self.stop_button, self.restart_button, self.open_button):
             gated.setToolTip(
-                QCoreApplication.translate(
-                    "ProjectRow",
-                    "%1 is running, but this manager did not start it. You will "
-                    "be shown what is holding the port before anything happens.",
-                ).replace("%1", self._name_display)
+                _plain_tooltip(
+                    QCoreApplication.translate(
+                        "ProjectRow",
+                        "%1 is running, but this manager did not start it. You will "
+                        "be shown what is holding the port before anything happens.",
+                    ).replace("%1", self._name_display)
+                )
                 if foreign
                 else ""
             )
