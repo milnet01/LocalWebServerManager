@@ -10031,10 +10031,12 @@ O8` forbids retrofitting that.
   Source: refactor-pass-2026-10-01 R-6.
   Lanes: persistence, scanner.
 
-- 📋 [LWSM-1362] **configfile.write_json_atomically writes any bytes, and the scan-roots caller apologises for its name.**
+- ✅ [LWSM-1362] **configfile.write_json_atomically writes any bytes, and the scan-roots caller apologises for its name.**
   __main__.save_scan_roots writes plain text through it and says
   "(`write_json_atomically` takes bytes; only its name is about JSON.)".
   Fix: rename to write_atomically.
+  Resolved (2026-10-01, e17dc1f): renamed to configfile.write_atomically
+  everywhere current; the scan-roots apology removed.
   **Layman:** A file-saving helper is named as if it only saves JSON, but it also saves the plain-text folder list; a future JSON check added to it would break that.
   Kind: refactor.
   Source: refactor-pass-2026-10-01 R-7.
