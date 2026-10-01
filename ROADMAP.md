@@ -9868,6 +9868,12 @@ O8` forbids retrofitting that.
   Source: review-code 2026-10-01 lane 03 (L3-L1), queued by close-findings.
   Lanes: core.
 
+- 📋 [LWSM-1356] **module-map.md says `user_half_applied` needs no per-field qualifier, but it has carried one for `unknown` since LWSM-1218.**
+  **Layman:** A note for developers describes one function wrongly; correct it so nobody changes the code on a false premise.
+  Kind: doc-fix.
+  Source: in-session-2026-10-01 (seen while editing for LWSM-1344).
+  Lanes: docs.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
