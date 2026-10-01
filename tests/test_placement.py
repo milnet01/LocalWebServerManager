@@ -29,6 +29,7 @@ from lwsm.placement import (
     Rect,
     centre_in,
     clamp_to_screens,
+    kwin_on_bus,
     kwin_script,
     on_wayland,
     pair_or_none,
@@ -190,7 +191,7 @@ def test_a_position_can_be_set_under_wayland_but_never_read() -> None:
     still works there, through KWin, which is why `placement_available` says
     yes to the same session this says no to.
     """
-    assert placement_available(WAYLAND, have_dbus_send)
+    assert placement_available(WAYLAND, have_dbus_send, has_kwin=lambda: True)
     assert not position_is_readable(WAYLAND)
     assert position_is_readable(X11)
     assert position_is_readable({})
@@ -248,8 +249,31 @@ def test_placement_is_available_on_wayland_with_dbus_send_and_always_on_x11() ->
     """Optimistic off Wayland on purpose — nothing inside the process tells an
     X11 session from a non-KWin Wayland one, and disabling the action on every
     X11 desktop to be honest about GNOME is the worse trade."""
-    assert placement_available(WAYLAND, have_dbus_send)
+    assert placement_available(WAYLAND, have_dbus_send, has_kwin=lambda: True)
     assert placement_available(X11, no_dbus_send)
+
+
+def test_placement_is_unavailable_on_a_wayland_session_without_kwin() -> None:
+    """GNOME or wlroots with `dbus-send` installed: the action could only
+    fail, and ADR-0007 has it disabled there (2026-10-01 review, L2-L2).
+
+    Dies on not asking whether KWin owns its bus name.
+    """
+    assert not placement_available(WAYLAND, have_dbus_send, has_kwin=lambda: False)
+
+
+def test_kwin_on_bus_reads_the_bus_answer() -> None:
+    def answer(reply: bytes, code: int = 0):
+        return lambda argv, **kw: subprocess.CompletedProcess(argv, code, reply, b"")
+
+    assert kwin_on_bus(answer(b"   boolean true\n"))
+    assert not kwin_on_bus(answer(b"   boolean false\n"))
+    assert not kwin_on_bus(answer(b"", code=1))
+
+    def no_bus(argv, **kw):
+        raise FileNotFoundError("dbus-send")
+
+    assert not kwin_on_bus(no_bus)
 
 
 # --- The script, which runs inside the compositor -------------------------
@@ -412,7 +436,9 @@ def test_the_three_dbus_calls_are_argument_vectors_with_a_deadline(
     assert run_kwin_script("// script", tmp_path, run)
 
     verbs = [argv[5] for argv in run.calls]
+    # A leading unload clears a stale registration first (L2-M2).
     assert verbs == [
+        "org.kde.kwin.Scripting.unloadScript",
         "org.kde.kwin.Scripting.loadScript",
         "org.kde.kwin.Scripting.start",
         "org.kde.kwin.Scripting.unloadScript",
@@ -420,8 +446,8 @@ def test_the_three_dbus_calls_are_argument_vectors_with_a_deadline(
     for argv, kwargs in zip(run.calls, run.kwargs, strict=True):
         assert argv[0] == "dbus-send"
         assert 0 < float(kwargs["timeout"]) <= DBUS_TIMEOUT_S
-    assert f"string:{KWIN_SCRIPT_NAME}" in run.calls[0]
-    assert f"string:{KWIN_SCRIPT_NAME}" in run.calls[2]
+    for index in (0, 1, 3):
+        assert f"string:{KWIN_SCRIPT_NAME}" in run.calls[index]
 
 
 def test_a_failed_dbus_call_is_a_false_and_still_cleans_up(tmp_path: Path) -> None:
@@ -433,7 +459,9 @@ def test_a_failed_dbus_call_is_a_false_and_still_cleans_up(tmp_path: Path) -> No
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("failing_call", [0, 1])
+# 1 and 2 are `loadScript` and `start`; 0 is the leading unload, whose result
+# is ignored (L2-M2).
+@pytest.mark.parametrize("failing_call", [1, 2])
 def test_a_dbus_call_that_reports_an_error_is_a_false(
     tmp_path: Path, failing_call: int, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -538,7 +566,7 @@ def test_a_rect_that_is_not_integers_is_refused(
 def test_a_failed_unload_still_reports_the_placement(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The third call is cleanup, so its failure is logged and not fatal.
+    """The last call is cleanup, so its failure is logged and not fatal.
 
     Reaching the unload means `loadScript` and `start` were both accepted, so
     the script has run and the window has almost certainly already moved.
@@ -552,12 +580,11 @@ def test_a_failed_unload_still_reports_the_placement(
     unload is a KWin that accepted the first two — which is not a failed
     placement.
 
-    Still LOGGED, and still cleaned up: the registration is left behind, and
-    the script name is a constant so the next run replaces it rather than
-    accumulating (LWSM-1243). The temporary file is the `finally`'s job either
-    way.
+    Still LOGGED: the registration is left behind, and the next run's leading
+    unload clears it (L2-M2) — KWin would otherwise refuse that run's load. The
+    temporary file is the `finally`'s job either way.
     """
-    run = FakeRun(rc_on=2)
+    run = FakeRun(rc_on=3)
 
     with caplog.at_level(logging.WARNING, logger="lwsm.placement"):
         assert run_kwin_script("// script", tmp_path, run)
@@ -700,9 +727,9 @@ def test_the_three_kwin_calls_share_one_deadline(tmp_path: Path) -> None:
     assert run_kwin_script("// js", tmp_path, run=run)
 
     budgets = [float(kw["timeout"]) for kw in run.kwargs]  # type: ignore[arg-type]
-    assert len(budgets) == 3, "precondition: load, start, unload"
+    assert len(budgets) == 4, "precondition: unload, load, start, unload"
     assert budgets[0] <= DBUS_TIMEOUT_S
-    assert budgets[0] > budgets[1] > budgets[2], (
+    assert budgets[0] > budgets[1] > budgets[2] > budgets[3], (
         f"each call was handed its own full budget, not the remainder: {budgets}"
     )
 
@@ -839,12 +866,13 @@ def test_a_failed_start_still_unloads_the_script(tmp_path: Path) -> None:
     name that was never registered exits 0, re-measured against real KWin on
     2026-09-06.
     """
-    run = FakeRun(rc_on=1)  # loadScript accepted, start refused
+    run = FakeRun(rc_on=2)  # loadScript accepted, start refused
 
     assert run_kwin_script("// js", tmp_path, run=run) is False
 
     verbs = [argv[5] for argv in run.calls]
     assert verbs == [
+        "org.kde.kwin.Scripting.unloadScript",
         "org.kde.kwin.Scripting.loadScript",
         "org.kde.kwin.Scripting.start",
         "org.kde.kwin.Scripting.unloadScript",
@@ -861,11 +889,72 @@ def test_a_failed_load_still_attempts_the_unload(tmp_path: Path) -> None:
     conclusion available here, and the cheap unload is preferred to the
     assumption.
     """
-    run = FakeRun(rc_on=0)
+    run = FakeRun(rc_on=1)
 
     assert run_kwin_script("// js", tmp_path, run=run) is False
 
     assert run.calls[-1][5] == "org.kde.kwin.Scripting.unloadScript"
+
+
+def _scripted_run(on_verb: dict[str, object]):
+    """A runner that answers per verb: an exception to raise, or stdout bytes."""
+    calls: list[str] = []
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        verb = argv[5].rsplit(".", 1)[-1]
+        calls.append(verb)
+        outcome = on_verb.get(verb, b"")
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return subprocess.CompletedProcess(argv, 0, outcome, b"")
+
+    return run, calls
+
+
+def test_a_slow_final_unload_still_reports_the_placement(tmp_path: Path) -> None:
+    """LWSM-1277's rule held for a nonzero status only: a `TimeoutExpired` from
+    the last call reached the outer `except` and reported a window that had
+    moved as unplaced (2026-10-01 review, L2-M1).
+
+    Dies on letting `issue` raise.
+    """
+    run, calls = _scripted_run({})
+    unloads = iter([b"", subprocess.TimeoutExpired("dbus-send", 1.0)])
+
+    def slow_last_unload(argv, **kwargs):
+        if argv[5].endswith("unloadScript"):
+            outcome = next(unloads)
+            if isinstance(outcome, BaseException):
+                raise outcome
+        return run(argv, **kwargs)
+
+    assert run_kwin_script("// js", tmp_path, run=slow_last_unload)
+
+
+def test_a_load_that_times_out_still_unloads(tmp_path: Path) -> None:
+    """The exception path skipped the cleanup entirely (L2-M2).
+
+    Dies on letting `issue` raise.
+    """
+    run, calls = _scripted_run(
+        {"loadScript": subprocess.TimeoutExpired("dbus-send", 1.0)}
+    )
+
+    assert run_kwin_script("// js", tmp_path, run=run) is False
+    assert calls == ["unloadScript", "loadScript", "unloadScript"]
+
+
+def test_a_load_kwin_refuses_is_a_false(tmp_path: Path) -> None:
+    """Measured on KWin 2026-10-01: `loadScript` under a name still loaded
+    replies `int32 -1` and `dbus-send` exits 0. Reading only the status made
+    that placement a silent no-op reported as asked (L2-M2).
+
+    Dies on not reading the load's reply.
+    """
+    run, calls = _scripted_run({"loadScript": b"   int32 -1\n"})
+
+    assert run_kwin_script("// js", tmp_path, run=run) is False
+    assert calls == ["unloadScript", "loadScript", "unloadScript"]
 
 
 # --- LWSM-1242: who applies the size, and on which platform ------------------

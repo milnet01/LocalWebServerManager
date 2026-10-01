@@ -71,8 +71,9 @@ centre, so there is one code path and one set of failure modes.
 - **X11:** `move()` to the target, after clamping the frame
   geometry to `screen.availableGeometry()`. Direct and reliable.
 - **Wayland:** run a one-shot KWin script over D-Bus
-  (`org.kde.KWin` `/Scripting`: `loadScript` → `start` →
-  `unloadScript`) that finds this process's own window by PID,
+  (`org.kde.KWin` `/Scripting`: `unloadScript` of any stale
+  registration, then `loadScript` → `start` → `unloadScript`; KWin
+  refuses a load under a name still loaded) that finds this process's own window by PID,
   skips transients so it never places a dialog instead of the
   main window, and sets `frameGeometry`. The target is either the
   remembered `x`/`y` or the centre of

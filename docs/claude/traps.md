@@ -387,7 +387,9 @@ that found nothing.**
 Measured against real KWin on 2026-08-25 (LWSM-1170): `dbus-send` exits 1 with
 `ServiceUnknown` on stderr when nothing owns the destination — and exits **0**
 for a `loadScript` naming a file that does not exist, and for an `unloadScript`
-of a name never registered. So the status says the call landed and nothing
+of a name never registered. And a `loadScript` under a name that is still
+loaded is REFUSED in the reply (`int32 -1`, measured 2026-10-01) while the
+status is still 0. So the status says the call landed and nothing
 more, and a check written as "did the load succeed?" asks a question the tool
 never answers. **Measure what a nonzero status actually means before building a
 check on it**, and say in the code what it does not cover. Third costume of the

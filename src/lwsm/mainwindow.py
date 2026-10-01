@@ -1724,6 +1724,9 @@ class MainWindow(QMainWindow):
             # Unlabelled here: `_retranslate_strip` below sets the text, so one
             # place owns it and the two cannot drift (LWSM-1177).
             self._rescan_button = QPushButton(central)
+            # The filter box's floor, for its reason: a small system font drew
+            # this 19 px high (L2-M3).
+            self._rescan_button.setMinimumSize(MIN_TARGET_PX, MIN_TARGET_PX)
             # Visual order is tab order, and the button is a real QPushButton so
             # it is focusable and carries its own accessible name from its text
             # (`§ O8`).
@@ -1958,6 +1961,8 @@ class MainWindow(QMainWindow):
         One exclusive `QActionGroup`, so the checkmark is the stored choice
         rather than something cleared by hand — the theme picker's rule, and
         the reason `set_text_scale` can be called with no action triggered.
+        A stored value between the steps (the settings file accepts any whole
+        percent from 100 to 200) is applied as stored and ticks nothing (L2-L3).
         """
         self._text_size_menu = parent.addMenu("")
         self._text_size_group = QActionGroup(self)
@@ -2024,6 +2029,9 @@ class MainWindow(QMainWindow):
         try:
             self._save_text_scale(percent)
         except Exception as exc:
+            # `design.md § Observability`: every config write reaches the log,
+            # failures included (L2-L4).
+            log.warning("the text size could not be saved: %s", exc)
             self.set_status_message(
                 QCoreApplication.translate(
                     "ProjectRow", "The text size could not be saved: %1"
@@ -2190,6 +2198,7 @@ class MainWindow(QMainWindow):
         try:
             self._save_theme(theme_id)
         except Exception as exc:
+            log.warning("the theme could not be saved: %s", exc)
             self.set_status_message(
                 QCoreApplication.translate(
                     "ProjectRow", "The theme could not be saved: %1"

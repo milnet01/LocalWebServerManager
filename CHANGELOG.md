@@ -321,6 +321,12 @@ signaling per
 
 ### Fixed
 
+- **"Centre on screen" no longer silently does nothing after a previous placement was interrupted, and no longer reports a failure for a window that did move.**
+
+- **"Centre on screen" is disabled, with a reason, on Wayland desktops that are not KDE, where it could only fail.**
+
+- **The Rescan button meets the minimum click-target size at small system font sizes.**
+
 - **A failure shown under a project's row is now read out by a screen reader.**
 
 - **The note that a server was not started by this app is now available to keyboard and screen-reader users, not only on mouse hover.**

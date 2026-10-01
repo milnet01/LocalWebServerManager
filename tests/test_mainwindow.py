@@ -3994,7 +3994,7 @@ def clickable(window: MainWindow) -> dict[str, object]:
 
 @pytest.mark.parametrize("base_point_size", [None, 6.0])
 def test_every_clickable_target_clears_the_floor_and_grows_with_the_text(
-    qtbot, built, app_font, base_point_size
+    qtbot, built, app_font, base_point_size, tmp_path
 ) -> None:
     """Two properties in one test on purpose: a target can clear 24x24 by being
     a fixed size, which is the failure the second half names. `§ O7` forbids
@@ -4016,12 +4016,22 @@ def test_every_clickable_target_clears_the_floor_and_grows_with_the_text(
         font = app.font()
         font.setPointSizeF(base_point_size)
         app.setFont(font)
-    window, _ = scaled_window(qtbot, built)
+    # With a Rescan button, which the window builds only when it has a rescan
+    # context: without one this test never measured it (2026-10-01 review,
+    # L2-M3).
+    window, _ = scaled_window(
+        qtbot,
+        built,
+        rescan=mainwindow.RescanContext(
+            projects_path=tmp_path / "projects.json", roots=(tmp_path,)
+        ),
+    )
     with qtbot.waitExposed(window):
         window.show()
 
     targets = clickable(window)
     assert targets, "no clickable widget was found — the test is measuring nothing"
+    assert any(name.startswith("QPushButton(Rescan") for name in targets), targets
     too_small = {
         name: widget.size()
         for name, widget in targets.items()
@@ -7607,3 +7617,23 @@ def test_the_glyph_column_fits_the_widest_glyph(qtbot, monkeypatch) -> None:
     qtbot.addWidget(row)
 
     assert row._glyph_width >= row.fontMetrics().horizontalAdvance("WWW")
+
+
+def test_a_failed_theme_or_text_size_save_reaches_the_log(qtbot, built, caplog) -> None:
+    """`design.md § Observability`: the app log records every config write.
+    These two failures reached the status bar only, while export, import and
+    rescan failures beside them were logged (2026-10-01 review, L2-L4).
+
+    Dies on removing either `log.warning`.
+    """
+
+    def refuse(_value) -> None:
+        raise SettingsError("nowhere to write")
+
+    window, _ = scaled_window(qtbot, built, save_text_scale=refuse, save_theme=refuse)
+    with caplog.at_level(logging.WARNING, logger="lwsm.mainwindow"):
+        window._text_size_actions[200].trigger()
+        window.set_theme("emerald")
+
+    assert "the text size could not be saved" in caplog.text
+    assert "the theme could not be saved" in caplog.text

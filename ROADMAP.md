@@ -10092,6 +10092,23 @@ bugs in the same area.
   Source: review-code 2026-10-01 lane 05 (L5-L5), queued by close-findings.
   Lanes: core.
 
+- 📋 [LWSM-1354] **On X11, clamp the window's frame to the work area, not its client rectangle.**
+  ADR-0007 says the X11 branch moves "after clamping the frame geometry
+  to availableGeometry()". `placement.clamp_to_screens` clamps a rectangle
+  whose x/y are the frame corner (QWidget.move positions the frame) and
+  whose width/height are the CLIENT size, so the frame can overhang the
+  work area by the decoration height; its own docstring admits the bound
+  is on the client rectangle.
+  Not fixed in the close-findings run: the decoration size is known only
+  after a window manager has framed the window, and this session is KWin
+  Wayland. Measure on an X11 session with a real WM (Xvfb plus a WM, or a
+  KDE X11 login), then either add the measured offset before clamping or
+  amend the ADR to say client rectangle.
+  **Layman:** On older X11 desktops, a window remembered at the bottom of the screen can come back with its edge hanging just off-screen.
+  Kind: review-fix.
+  Source: review-code-2026-10-01 lane-02 L2-L1.
+  Lanes: core, ui.
+
 ## 0.3.0 — The full state model
 
 Criterion 3: tell the truth in every case, including the awkward ones.

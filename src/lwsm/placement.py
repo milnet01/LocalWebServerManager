@@ -52,9 +52,9 @@ log = applog.get_logger(__name__)
 DBUS_TIMEOUT_S = 3.0
 
 # The name the script is loaded under. Constant rather than generated: it is
-# unloaded in the same call — on every path since LWSM-1243, where it had been
-# true only when nothing failed — and a stale entry from a crashed run is then
-# replaced rather than accumulating.
+# unloaded before the load and after it, on every path, so a stale entry from a
+# crashed run is cleared rather than accumulating. KWin refuses a load under a
+# name still loaded, so the leading unload is what makes that true (L2-M2).
 KWIN_SCRIPT_NAME = "lwsm_place"
 
 
@@ -223,9 +223,41 @@ def on_wayland(environ: dict[str, str] | None = None) -> bool:
     return bool(env.get("WAYLAND_DISPLAY", ""))
 
 
+def kwin_on_bus(
+    run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
+) -> bool:
+    """Whether anything owns `org.kde.KWin` on the session bus.
+
+    The only placement this module can ask for under Wayland is a KWin script,
+    so on GNOME or a wlroots compositor the Centre action could only fail.
+    ADR-0007 has it disabled there (L2-L2). Unreadable is False: if the bus
+    cannot be asked, neither can KWin.
+    """
+    runner = subprocess.run if run is None else run
+    try:
+        result = runner(
+            [
+                "dbus-send",
+                "--session",
+                "--print-reply",
+                "--dest=org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus.NameHasOwner",
+                "string:org.kde.KWin",
+            ],
+            capture_output=True,
+            timeout=DBUS_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("could not ask the session bus whether KWin runs: %s", exc)
+        return False
+    return result.returncode == 0 and b"boolean true" in (result.stdout or b"")
+
+
 def placement_available(
     environ: dict[str, str] | None = None,
     which: Callable[[str], str | None] | None = None,
+    has_kwin: Callable[[], bool] | None = None,
 ) -> bool:
     """Whether asking for a position can do anything at all.
 
@@ -237,8 +269,9 @@ def placement_available(
     disabled-action branch has no other way to reach, since that branch
     depends on a tool being absent. Cost one cycle on 2026-08-21.
 
-    False only where the session is Wayland and `dbus-send` is missing: there
-    the compositor owns placement and we have no way to ask it, so the Centre
+    False only where the session is Wayland and there is no KWin to ask —
+    `dbus-send` is missing, or nothing owns `org.kde.KWin` (L2-L2). There the
+    compositor owns placement and we have no way to ask it, so the Centre
     action is disabled and says why rather than being offered and doing
     nothing (ADR-0007).
 
@@ -249,7 +282,9 @@ def placement_available(
     """
     if not on_wayland(environ):
         return True
-    return bool((shutil.which if which is None else which)("dbus-send"))
+    if not (shutil.which if which is None else which)("dbus-send"):
+        return False
+    return (kwin_on_bus if has_kwin is None else has_kwin)()
 
 
 def kwin_script(target: Rect, pid: int, centre: bool = False) -> str:
@@ -415,8 +450,14 @@ def run_kwin_script(
             f"string:{KWIN_SCRIPT_NAME}",
         ]
 
-        def issue(call: list[str]) -> bool:
-            """One D-Bus call inside the shared budget. False if it did not land."""
+        def issue(call: list[str]) -> bytes | None:
+            """One D-Bus call inside the shared budget: its reply, or None.
+
+            Never raises. A timeout or an OS error is the call not landing, the
+            same as a nonzero status, so the cleanup below runs on every path
+            and a slow final unload cannot turn a placement into a failure
+            (L2-M1, L2-M2).
+            """
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 # Refused rather than given a fresh budget: restarting the
@@ -426,9 +467,13 @@ def run_kwin_script(
                     DBUS_TIMEOUT_S,
                     call[len(base)],
                 )
-                return False
-            # An argument vector, never a shell string (`coding.md § O4`).
-            result = runner(call, capture_output=True, timeout=remaining)
+                return None
+            try:
+                # An argument vector, never a shell string (`coding.md § O4`).
+                result = runner(call, capture_output=True, timeout=remaining)
+            except (OSError, subprocess.SubprocessError) as exc:
+                log.warning("KWin did not answer %s: %s", call[len(base)], exc)
+                return None
             if result.returncode != 0:
                 # `dbus-send` puts the reason on stderr, which is why the calls
                 # capture output they otherwise never read.
@@ -438,8 +483,16 @@ def run_kwin_script(
                     result.stderr.decode("utf-8", "replace").strip()
                     or f"exit status {result.returncode}",
                 )
-                return False
-            return True
+                return None
+            return result.stdout or b""
+
+        # Cleared first. The name is a CONSTANT, and a registration a previous
+        # run left behind (one killed between calls, say) makes KWin refuse the
+        # load: measured on KWin 2026-10-01, a second `loadScript` under a
+        # loaded name replies `int32 -1` while `dbus-send` still exits 0, so
+        # that placement silently did nothing (L2-M2). Its result is ignored:
+        # an unload of a name never registered is harmless.
+        issue(unload)
 
         for call in (
             [
@@ -450,11 +503,14 @@ def run_kwin_script(
             ],
             [*base, "org.kde.kwin.Scripting.start"],
         ):
-            if not issue(call):
+            reply = issue(call)
+            if reply is None or b"int32 -1" in reply:
+                if reply is not None:
+                    log.warning("KWin refused to load the placement script")
                 # Unload anyway. The name is a CONSTANT, so a registration left
                 # behind here outlives the file the `finally` is about to
-                # delete, and the next run replaces a stale entry rather than
-                # meeting a clean slate (LWSM-1243). Nearly free: `unloadScript`
+                # delete (LWSM-1243); the next run's leading unload would clear
+                # it, but there is no reason to leave it. Nearly free: `unloadScript`
                 # for a name that was never registered exits 0, re-measured
                 # against real KWin on 2026-09-06.
                 #
@@ -483,9 +539,9 @@ def run_kwin_script(
         # first two calls. That is not a failed placement.
         #
         # `issue` has already logged the reason. What is lost is the cleanup,
-        # not the placement: the script name is a CONSTANT, so a registration
-        # left behind is replaced by the next run rather than accumulating
-        # (LWSM-1243), and the temporary file is still deleted by the `finally`.
+        # not the placement: a registration left behind is cleared by the next
+        # run's leading unload, and the temporary file is still deleted by the
+        # `finally`.
         issue(unload)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         log.warning("could not ask KWin to place the window: %s", exc)
@@ -559,7 +615,9 @@ def place_window(
     the work area, and this module cannot read a position back under Wayland
     anyway. The size and the not-`None` are what the caller uses.
     """
-    if not placement_available(environ, which):
+    # KWin's presence is not re-asked here: the script's own calls answer
+    # `ServiceUnknown` without it, and fail honestly (LWSM-1170).
+    if not placement_available(environ, which, has_kwin=lambda: True):
         return None
     # Guarded (LWSM-1277). `clamp_to_screens` and `kwin_script` do arithmetic
     # and formatting on `target`'s fields, and `move` is a Qt call — none of
