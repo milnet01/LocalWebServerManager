@@ -9957,7 +9957,7 @@ O8` forbids retrofitting that.
   Source: in-session-2026-10-01 (seen while editing for LWSM-1344).
   Lanes: docs.
 
-- 📋 [LWSM-1357] **Three JSON config readers repeat one load sequence, and their guards have already drifted.**
+- ✅ [LWSM-1357] **Three JSON config readers repeat one load sequence, and their guards have already drifted.**
   registry.load_projects, settings.load and supervisor.TrustStore._load each
   do read_bounded, missing-vs-OSError, utf-8-sig, json.loads, ValueError/
   RecursionError, dict check. registry refuses NaN/Infinity and duplicate
@@ -9966,6 +9966,9 @@ O8` forbids retrofitting that.
   registry.py and settings.py. Fix: one configfile.load_json_object raising
   ConfigFileError, missing distinguishable; each module keeps its wording and
   field checks. Verified 2026-10-01 by grep of json.loads.
+  Resolved (2026-10-01, bc2df5e): configfile.load_json_object is the one
+  reader; JsonFileRefused names the stage so each caller keeps its
+  wording. The trust store now refuses NaN/Infinity like the other two.
   **Layman:** Three places read settings files the same way by hand, and safety checks added to one were missed in another; share one reader.
   Kind: refactor.
   Source: refactor-pass-2026-10-01 R-1.
