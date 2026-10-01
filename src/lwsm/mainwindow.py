@@ -995,8 +995,19 @@ class ProjectRow(QFrame):
         `_apply_button_state` enables Start only when not running and not in
         transition, and Stop only when running. The order is what happens when
         neither is enabled, not a precedence between two live actions.
+
+        Only when the row ITSELF has focus. A button outside a dialog and a
+        non-editable combo box both ignore Return, so the key bubbles up here
+        from Open, Restart or the browser picker — and clicking Stop for it
+        stopped the server the user was trying to open (review-code
+        2026-10-01).
         """
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        # `focusWidget()` names the child that last took focus inside this
+        # row, which `QApplication.focusWidget()` does not do for a window that
+        # is not active.
+        focus = self.focusWidget()
+        from_child = focus is not None and focus is not self
+        if not from_child and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             for button in (self.start_button, self.stop_button):
                 if button.isEnabled():
                     button.click()

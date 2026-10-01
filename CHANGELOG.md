@@ -321,6 +321,11 @@ signaling per
 
 ### Fixed
 
+- **Pressing Enter on a row's Open or Restart button, or its browser picker, no longer stops the project**
+  Those controls ignore Enter, so the key reached the row, which treats
+  Enter as Start or Stop. The row now acts on Enter only when it has
+  focus itself.
+
 - **Keyboard and screen-reader users keep their place, and status messages are read out.** (LWSM-1323)
   Pressing Start or Stop from the keyboard used to throw focus somewhere
   else in the window as the button greyed out; it now stays on that

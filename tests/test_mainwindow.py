@@ -6600,6 +6600,47 @@ def test_a_control_acting_on_a_foreign_server_says_so(qtbot, button_name) -> Non
     )
 
 
+@pytest.mark.parametrize("child_name", ["open_button", "restart_button", "browser_box"])
+def test_enter_on_a_row_child_does_not_stop_the_project(qtbot, child_name) -> None:
+    """review-code 2026-10-01 L1-H1: Enter on a child that ignores it must not
+    reach the row's own Enter handler, which clicks Start or Stop.
+
+    A `QPushButton` outside a dialog ignores Return unless `autoDefault` is
+    set, and a non-editable `QComboBox` ignores it too, so the key propagates
+    to `ProjectRow.keyPressEvent`. A keyboard user pressing Enter on "Open" or
+    on the browser picker would stop their own server.
+    """
+    row = ProjectRow(running_row(managed=True), Theme.default())
+    qtbot.addWidget(row)
+    row.show()
+    child = getattr(row, child_name)
+    stops: list[bool] = []
+    row.stop_button.clicked.connect(lambda: stops.append(True))
+    assert row.stop_button.isEnabled(), "precondition: Stop is live"
+
+    child.setFocus()
+    qtbot.keyClick(child, Qt.Key.Key_Return)
+
+    assert not stops, f"Enter on {child_name} stopped the project"
+
+
+def test_enter_on_the_focused_row_still_stops_it(qtbot) -> None:
+    """The guard above must not cost the row its own Enter: with a child
+    focused first and the row focused after, Enter on the row still acts.
+    """
+    row = ProjectRow(running_row(managed=True), Theme.default())
+    qtbot.addWidget(row)
+    row.show()
+    stops: list[bool] = []
+    row.stop_button.clicked.connect(lambda: stops.append(True))
+
+    row.open_button.setFocus()
+    row.setFocus()
+    qtbot.keyClick(row, Qt.Key.Key_Return)
+
+    assert stops, "Enter on the focused row no longer stops it"
+
+
 def tooltip_text(tip: str) -> str:
     """What a tooltip DISPLAYS: `QToolTip` renders rich text whenever
     `Qt.mightBeRichText` says so, and plain text otherwise."""
