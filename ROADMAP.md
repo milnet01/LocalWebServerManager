@@ -9974,13 +9974,17 @@ O8` forbids retrofitting that.
   Source: refactor-pass-2026-10-01 R-1.
   Lanes: persistence.
 
-- 📋 [LWSM-1358] **RescanContext is the persistence context for every registry writer, not just Rescan.**
+- ✅ [LWSM-1358] **RescanContext is the persistence context for every registry writer, not just Rescan.**
   mainwindow._write_records saves through self._rescan.save(projects_path);
   hide, browser choice, import and export all depend on _rescan being set
   (the Export/Import menu gate checks it; __main__ explains it in a comment).
   _apply_merge still opens with `if self._rescan is None: return ""`.
   Fix: split a Qt-free persistence object (path, load, save, write gate)
   from a RescanContext holding roots, scan and now.
+  Resolved (2026-10-01, b55fbca): registry.ProjectsFile (path, save) is
+  the window's projects_file; RescanContext keeps roots, scan, now. The
+  write gate and LoadResult stay on the window. Locked by
+  test_saving_needs_the_registry_file_and_not_a_rescan.
   **Layman:** One internal object is named after the Rescan button but also controls saving hides, browser choices, import and export; removing it for Rescan would silently break those.
   Kind: refactor.
   Source: refactor-pass-2026-10-01 R-3.
