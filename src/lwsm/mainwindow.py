@@ -1369,6 +1369,9 @@ class ProjectRow(QFrame):
         # accessibility-only string that can drift from what is on screen.
         # The separator is the translator's (LWSM-1280): not every locale lists
         # with ", ". Filled in ONE pass, so a name holding "%3" cannot inject.
+        # The name goes LAST, after "named" (LWSM-1342, the user 2026-10-01):
+        # in the middle, a project named "x, running, port 80" read as a
+        # running row, and the facts must come before anything a name holds.
         parts = {
             "1": self._state.text(),
             "2": self._name_display,
@@ -1377,7 +1380,7 @@ class ProjectRow(QFrame):
         announced = re.sub(
             r"%([123])",
             lambda match: parts[match.group(1)],
-            QCoreApplication.translate("ProjectRow", "%1, %2, %3"),
+            QCoreApplication.translate("ProjectRow", "%1, %3, named %2"),
         )
         name_changed = announced != self.accessibleName()
         self.setAccessibleName(announced)

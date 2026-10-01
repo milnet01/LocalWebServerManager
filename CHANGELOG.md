@@ -326,6 +326,11 @@ signaling per
 
 ### Fixed
 
+- **A project's name can no longer make a screen reader announce a false status** (LWSM-1342)
+  A row is now read as its status and port first, then "named"
+  and the project's name, so a name like "x, running, port 80"
+  cannot pass for the row's own status.
+
 - **Outlines round buttons, fields, lists and rows are now visible in every theme** (LWSM-1337)
   They used to blend into the background, most of all in the
   high-contrast dark theme. Every outline now stands out at least 3:1

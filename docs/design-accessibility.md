@@ -220,7 +220,7 @@ name, and a description (`setAccessibleName` /
 `coding.md § O8` clause 1 sets that condition, and this section does
 not widen it. Status reaches a screen reader as
 the same text *Never colour alone* already requires, so Orca
-announces "running, project-b, port 5005" rather than an unnamed
+announces "running, port 5005, named project-b" rather than an unnamed
 icon — no separate accessibility-only string to drift, with the one
 exception § Eliding governs: where a cell renders a cut string the
 announcement keeps the whole one, so there the accessible text is

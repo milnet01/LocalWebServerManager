@@ -584,8 +584,8 @@ Each row is, in visual and tab order:
 | port | `port 5005` — the word and the number — or the literal `no port` |
 
 The port cell carries the **word** `port`, not a bare number, because
-`docs/design-accessibility.md § Accessibility` gives the announcement as "project-b,
-running, port 5005" and the cell text is what a screen reader reads. A bare
+`docs/design-accessibility.md § Accessibility` gives the announcement as "running,
+port 5005, named project-b" and the cell text is what a screen reader reads. A bare
 `5005` would leave a listener with an unlabelled number.
 
 **The glyph is decorative and is excluded from the accessible name.** It
@@ -625,13 +625,12 @@ LWSM-1032's own acceptance is that every cell falls inside a 600 px-wide window
 
 The state cell is first, which `docs/design-accessibility.md § Accessibility` requires
 ("the state word is first in the row"). Each row is a focusable widget
-whose accessible name is built **from the rendered cell strings, in their
-visual order, glyph excluded** —
-`f"{state_text}, {name_text}, {port_text}"`, giving
-`"running, project-a, port 5005"` and `"unknown, project-b, no port"`.
-The order differs from the design's example sentence because the design
-separately requires the state word first in the row; the *content* is the
-same three facts. Building the name from the cells rather than from the
+whose accessible name is built **from the rendered cell strings, glyph
+excluded** — state, port, then the name after the word "named", giving
+`"running, port 5005, named project-a"` and
+`"unknown, no port, named project-b"`. Not the visual order: the name goes
+last so that nothing a project's name holds can come before the facts
+(LWSM-1342). Building the name from the cells rather than from the
 model is what makes `docs/design-accessibility.md § Accessibility`'s "no separate
 accessibility-only string to drift" literally true, and it is why no row
 can announce `port None`.

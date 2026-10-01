@@ -177,12 +177,12 @@ def test_accessible_name_never_says_port_none(qtbot, built) -> None:
     name = rows_of(window)[0].accessibleName()
 
     assert "None" not in name
-    assert name == "unknown, a, no port"
+    assert name == "unknown, no port, named a"
 
 
 def test_accessible_name_carries_the_word_port(qtbot, built) -> None:
     window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
-    assert rows_of(window)[0].accessibleName() == "running, a, port 5005"
+    assert rows_of(window)[0].accessibleName() == "running, port 5005, named a"
 
 
 def test_a_row_is_keyboard_focusable(qtbot, built) -> None:
@@ -1212,7 +1212,7 @@ def test_the_untranslated_words_are_unchanged(qtbot, built) -> None:
     """With no translator installed the source strings render as before, so
     INV-6's announcement and every existing assertion still hold."""
     window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
-    assert rows_of(window)[0].accessibleName() == "running, a, port 5005"
+    assert rows_of(window)[0].accessibleName() == "running, port 5005, named a"
 
 
 def test_a_translator_installed_later_reaches_an_existing_row(qtbot, built) -> None:
@@ -1260,7 +1260,7 @@ def test_a_translator_installed_later_reaches_an_existing_row(qtbot, built) -> N
         assert row._port.text() == "PORT 5005"
         assert window.windowTitle() == f"LOCAL WEB SERVER MANAGER {__version__}"
         # The announcement must follow the words a listener actually hears.
-        assert row.accessibleName() == "RUNNING, a, PORT 5005"
+        assert row.accessibleName() == "RUNNING, PORT 5005, NAMED a"
     finally:
         app.removeTranslator(translator)
 
@@ -6396,7 +6396,7 @@ def test_a_long_project_name_is_elided_and_keeps_its_full_name(qtbot, built) -> 
     assert tooltip_text(row._name.toolTip()) == long_name, (
         "the whole name must stay reachable"
     )
-    assert row.accessibleName() == f"running, {long_name}, port 5005", (
+    assert row.accessibleName() == f"running, port 5005, named {long_name}", (
         "a screen reader is read the FULL name — elision is a fitting concern, "
         "and an announcement of a truncated name helps nobody"
     )
@@ -7652,7 +7652,22 @@ def test_a_name_holding_a_placeholder_cannot_inject_into_the_announcement(
     """The announcement is filled from one translated template in one pass, so
     a `%3` in a project's name stays text rather than becoming the port."""
     window, _ = window_for(qtbot, built, [record("a%3b", 5005)], FakeProbe(5005))
-    assert rows_of(window)[0].accessibleName() == "running, a%3b, port 5005"
+    assert rows_of(window)[0].accessibleName() == "running, port 5005, named a%3b"
+
+
+def test_a_name_shaped_like_a_row_cannot_forge_the_announcement(qtbot, built) -> None:
+    """LWSM-1342. With the name in the middle, a stopped project named
+    `x, running, port 80` was announced as "stopped, x, running, port 80,
+    no port", whose first words a listener cannot tell from a running row.
+    The facts come first and the name last, after the word "named" (the
+    user, 2026-10-01), so nothing a name holds can come before them.
+    """
+    forged = record("x, running, port 80", 5005)
+    window, _ = window_for(qtbot, built, [forged], FakeProbe())
+    assert (
+        rows_of(window)[0].accessibleName()
+        == "stopped, port 5005, named x, running, port 80"
+    )
 
 
 def test_the_rescan_defaults_reach_a_patched_scanner_and_writer(monkeypatch) -> None:
