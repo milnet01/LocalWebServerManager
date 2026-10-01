@@ -1075,6 +1075,9 @@ O8` forbids retrofitting that.
   1368; then cut-release.
   Progress (2026-10-01, dc4dbc5): LWSM-1337 and 1349 shipped together (outlines 3:1 and a thick ring on every control, Fusion shading kept by user choice). Full gate 2091 passed.
   NEXT: 1342, 1343, 1345, 1348; then the refactor items 1357 to 1362 and 1368; then cut-release.
+  Progress (2026-10-01, 24e800b): accessibility items done: 1342, 1343,
+  1345 (banner), 1348 (list roles, read live off AT-SPI). NEXT: refactor
+  items 1357 to 1362 and 1368, oldest first; then cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
@@ -9811,7 +9814,7 @@ O8` forbids retrofitting that.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
   Lanes: window.
 
-- 📋 [LWSM-1348] **A project row announces itself to a screen reader as a decorative border.**
+- ✅ [LWSM-1348] **A project row announces itself to a screen reader as a decorative border.**
   ProjectRow is a QFrame, so its AT-SPI role is Border. Fixing it needs
   a custom QAccessibleInterface with a list-item role (and the list a
   list), installed through an accessible factory, then checked in Orca or
@@ -9821,6 +9824,10 @@ O8` forbids retrofitting that.
   magnifier. No longer waiting on the user: check the role by querying
   AT-SPI on the accessibility bus directly (it is what a screen reader
   reads), with the app running under the session.
+  Resolved (2026-10-01, 24e800b): an accessibility factory makes each
+  row a ListItem in a List; checked live on the AT-SPI bus (system
+  python3 gi Atspi, private Xvfb) and by
+  test_a_row_is_a_list_item_in_a_list.
   **Layman:** A screen reader calls each project row a decorative border instead of a list item.
   Kind: accessibility.
   Source: known-issue-013, split from LWSM-1331 on 2026-10-01.
