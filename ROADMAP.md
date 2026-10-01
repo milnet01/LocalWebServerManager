@@ -9668,6 +9668,9 @@ O8` forbids retrofitting that.
   Also raised by review-code 2026-10-01 lane 01 (L1-M3): style_sheet
   emits no border rule, so high-contrast themes vary only colour. Closed
   there as this item's scope; no code changed.
+  Decision (user, 2026-10-01): visible everywhere. Every theme's
+  outlines clear 3:1 against their surfaces, and every focusable control
+  gets a thick focus ring. Decided together with LWSM-1349.
   **Layman:** On the high-contrast dark theme the search box and row outlines are nearly invisible; decide how visible outlines must be and fix it.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
@@ -9699,6 +9702,8 @@ O8` forbids retrofitting that.
   accessible description. Each changes what a screen-reader user hears
   and the built-from-rendered-cells rule, and must keep
   test_an_unchanged_row_is_never_re_announced and the name_changed gate.
+  Decision (user, 2026-10-01): facts first, then the name after the word
+  "named" — e.g. "stopped, port 3000, named x, running, port 80".
   **Layman:** A project with a cleverly chosen name could make a screen reader announce a status it does not have.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 10, queued from LWSM-1280 on 2026-10-01.
@@ -9710,6 +9715,9 @@ O8` forbids retrofitting that.
   wide-glyph measure (e.g. "水" * N) widens the column against
   design-accessibility.md's 600 px lens budget and its three
   READABLE_BAND_PX tests. Decide which width the cap promises.
+  Decision (user, 2026-10-01): the cap promises the same on-screen WIDTH
+  for every script; wide glyphs fit fewer characters. Reword the promise
+  to say width; no layout change.
   **Layman:** Project names in Chinese, Japanese or Korean are cut off about twice as early as English ones.
   Kind: fix.
   Source: review-code 2026-09-01 lane 10, queued from LWSM-1280 on 2026-10-01.
@@ -9722,6 +9730,9 @@ O8` forbids retrofitting that.
   to a magnifier. A menu action has no row, so the document has to say
   what chrome-level feedback is first: a dialog centred on the window, a
   banner at the top of the list, or something near the menu.
+  Decision (user, 2026-10-01): menu-level feedback goes in a dismissable
+  banner at the top of the project list, not the status bar and not a
+  modal dialog.
   **Layman:** Messages from the menus (text size, theme, profile export and import) appear in a far-off status bar a magnifier user won't see.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
@@ -9792,6 +9803,9 @@ O8` forbids retrofitting that.
   Also raised by review-code 2026-10-01 lane 01 (L1-M3):
   focus_ring_width is the same in every theme. Closed there as this
   item's scope; no code changed.
+  Decision (user, 2026-10-01): visible everywhere. Keep the "thick"
+  promise and make Fusion controls meet it (style-sheet route), in every
+  theme. Decided together with LWSM-1337.
   **Layman:** The design promises a thick outline around the control the keyboard is on, but the buttons and boxes get a thin one, and nothing checks thickness.
   Kind: accessibility.
   Source: review-contract 2026-10-01 loop 2, lane open question (LWSM-1292 gate).
@@ -10134,6 +10148,9 @@ bugs in the same area.
   Not fixed in the close-findings run: which side is wrong is a decision —
   support pre-releases end to end, or refuse `-rc` in the pre-flight.
   Recommendation: refuse it until a pre-release is actually wanted.
+  Decision (user, 2026-10-01): refuse -rc versions in the release
+  pre-flight with a clear message, until a pre-release is actually
+  wanted.
   **Layman:** The release check accepts test-release version numbers that the rest of the release tooling cannot read, so one could never pass.
   Kind: review-fix.
   Source: review-code-2026-10-01 lane-07 L7-L1.
@@ -11034,7 +11051,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Source: session-message-161-2026-09-28.
   Lanes: tests, ci.
 
-- 📋 [LWSM-1344] **A profile import restores `actions` wholesale, a route design.md's by-type argument does not cover.**
+- ✅ [LWSM-1344] **A profile import restores `actions` wholesale, a route design.md's by-type argument does not cover.**
   USER_FIELDS includes "actions" and user_half_applied restores every
   user field but `unknown`. design.md § Custom project actions argues
   only that the Scanner cannot produce `actions` (enforced by type). A
@@ -11046,6 +11063,17 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Decision (user, 2026-10-01, relayed by the Pressless session, message
   361): option (a) — a profile import does NOT restore custom `actions`.
   Not yet confirmed in this project's own session; confirm, then build.
+  Confirmed (user, 2026-10-01, in this project's session): option (a).
+  Resolved (2026-10-01): merge_imported never takes `actions` on either
+  branch: an existing project keeps this machine's, a project the
+  profile adds arrives with none, and a profile carrying actions adds a
+  reason saying they were not imported. Done in merge_imported, not via
+  _NOT_RESTORED_BY_IMPORT, because user_half_applied's other caller is
+  the rescan, where the actions are the user's own. Three new tests in
+  test_registry.py, red before; each of the four parts mutation-checked.
+  The reason is logged like every import reason; showing it on screen
+  rides with LWSM-1345's banner. No CHANGELOG entry: no build yet lets a
+  user author an action (LWSM-1029).
   **Layman:** Importing a settings profile from someone else could bring in custom commands; decide before custom commands can run.
   Kind: security.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.

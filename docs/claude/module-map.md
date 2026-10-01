@@ -71,7 +71,9 @@ Added at P02 (LWSM-1005), contract in
   was built rather than specced. The two merges are **mirrors**: a rescan
   refreshes the detected half and preserves the user half, an import does the
   reverse, and both are driven by `DETECTED_FIELDS` / `USER_FIELDS` so
-  LWSM-1007 INV-1 keeps each complete. **`user_half_applied` needs no
+  LWSM-1007 INV-1 keeps each complete. **One exception: an import never
+  takes `actions`** (LWSM-1344), on either branch of `merge_imported`; the
+  rescan's use of `user_half_applied` does. **`user_half_applied` needs no
   per-field qualifier where `_detected_half_applied` needs one for `port`** —
   a scan's `None` means *unknown*, a profile's `None` is a real value — and
   that rests entirely on the window refusing an import whose load reported

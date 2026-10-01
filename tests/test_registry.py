@@ -2040,10 +2040,13 @@ def test_an_import_restores_every_user_field_and_no_detected_one() -> None:
     assert len(merged.records) == 1
     restored = merged.records[0]
 
-    for name in registry.USER_FIELDS:
+    # `actions` is the one user field an import never takes (LWSM-1344); its
+    # own tests are below.
+    for name in registry.USER_FIELDS - {"actions"}:
         assert getattr(restored, name) == getattr(profile, name), (
             f"user field {name!r} was not restored from the profile"
         )
+    assert restored.actions == stored.actions
     for name in registry.DETECTED_FIELDS:
         assert getattr(restored, name) == getattr(stored, name), (
             f"detected field {name!r} was taken from the profile and must not be"
@@ -2086,6 +2089,52 @@ def test_an_imported_project_this_machine_has_never_seen_brings_no_launcher() ->
     assert added.kind is None
     assert added.port is None
     assert added.unit is None
+
+
+def test_an_import_keeps_this_machines_actions_not_the_profiles() -> None:
+    """LWSM-1344, option (a) (user, 2026-10-01). `actions` is a user field, so
+    "the user half, taken whole" carried a stranger's commands in from a file.
+    `design.md § Custom project actions` argues only that the Scanner cannot
+    author one; a profile was a second route that argument does not cover.
+
+    The stored actions survive, the profile's are not taken, and the report
+    says so — a silent drop reads as a profile that had none.
+    """
+    mine = ('{"kind":"open_url","label":"Mine"}',)
+    stored = dataclasses.replace(every_field_record(), actions=mine, notes="old")
+    profile = dataclasses.replace(every_field_record(), notes="new")
+
+    merged = registry.merge_imported([stored], [profile])
+
+    (restored,) = merged.records
+    assert restored.actions == mine, "the profile's actions replaced this machine's"
+    assert restored.notes == "new", "the rest of the user half is still restored"
+    assert any("actions" in reason for reason in merged.reasons), merged.reasons
+
+
+def test_an_imported_project_this_machine_has_never_seen_brings_no_actions() -> None:
+    """LWSM-1344 on the branch that APPENDS, which keeps the profile's user
+    half and so carried its actions in with it."""
+    profile = dataclasses.replace(every_field_record(), path=Path("/srv/elsewhere"))
+    assert profile.actions, "precondition: the profile carries an action"
+
+    merged = registry.merge_imported([], [profile])
+
+    (added,) = merged.records
+    assert added.actions == (), "an action arrived from another machine"
+    assert added.notes == profile.notes, "the rest of the user half arrives"
+    assert any("actions" in reason for reason in merged.reasons), merged.reasons
+
+
+def test_an_import_with_no_actions_says_nothing_about_them() -> None:
+    """The LWSM-1344 notice fires only where something was left out; a profile
+    with no actions is not news."""
+    stored = dataclasses.replace(every_field_record(), actions=(), notes="old")
+    profile = dataclasses.replace(every_field_record(), actions=(), notes="new")
+
+    merged = registry.merge_imported([stored], [profile])
+
+    assert not any("actions" in reason for reason in merged.reasons), merged.reasons
 
 
 def test_a_recursion_error_while_re_serialising_actions_is_a_reason(

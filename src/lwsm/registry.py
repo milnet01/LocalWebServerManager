@@ -1595,6 +1595,16 @@ def merge_imported(
             continue
         claimed_by_profile.add(resolved)
 
+        # `actions` are commands, and an import never takes them (LWSM-1344,
+        # user 2026-10-01): a profile is a file someone can hand you, and
+        # `design.md § Custom project actions` argues only that the Scanner
+        # cannot author one. Done here rather than in `user_half_applied`,
+        # whose other caller is the rescan, where the actions ARE the user's.
+        if record.actions:
+            note(
+                f"{quoted(record.name)}: the profile's custom actions were not imported"
+            )
+
         index = owner.get(resolved)
         if index is None:
             # Not on this machine. Appended with the profile's own `path`, not
@@ -1603,12 +1613,12 @@ def merge_imported(
             # The USER half only. The profile's detected fields describe the
             # machine it came from, and this one has never scanned this path
             # (LWSM-1216); a rescan derives them here.
-            records.append(_detected_half_cleared(record))
+            records.append(replace(_detected_half_cleared(record), actions=()))
             flag(NEW, f"{quoted(record.name)}: added from the profile")
             continue
 
         current = records[index]
-        restored = user_half_applied(current, record)
+        restored = replace(user_half_applied(current, record), actions=current.actions)
         if restored == current:
             counts[UNCHANGED] += 1
             continue
