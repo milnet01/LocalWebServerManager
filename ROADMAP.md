@@ -1073,6 +1073,8 @@ O8` forbids retrofitting that.
   NEXT: accessibility 1337/1349 (decided together), 1342, 1343, 1345,
   1348 (query AT-SPI directly); then the refactor items 1357 to 1362 and
   1368; then cut-release.
+  Progress (2026-10-01, dc4dbc5): LWSM-1337 and 1349 shipped together (outlines 3:1 and a thick ring on every control, Fusion shading kept by user choice). Full gate 2091 passed.
+  NEXT: 1342, 1343, 1345, 1348; then the refactor items 1357 to 1362 and 1368; then cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
@@ -9680,7 +9682,7 @@ O8` forbids retrofitting that.
   Source: review-contract-2026-10-01 CLAUDE.md loop 1 (both lanes, open question; verified).
   Lanes: docs.
 
-- 📋 [LWSM-1337] **Decide whether row and field outlines must clear 3:1, and make high-contrast outlines visible.**
+- ✅ [LWSM-1337] **Decide whether row and field outlines must clear 3:1, and make high-contrast outlines visible.**
   The `border` token is checked against nothing: 1.19-1.75:1 on every
   surface of the six ordinary palettes (ledger #d8d3c4 on #f5f4ef is
   1.36). But docs/screenshots/high-contrast.png shows the high-contrast
@@ -9701,6 +9703,11 @@ O8` forbids retrofitting that.
   Decision (user, 2026-10-01, second round): keep Fusion's shading, so
   the outline is painted over Fusion's rendering (proxy style), not set
   by a style-sheet border. See LWSM-1349.
+  Resolved (2026-10-01, dc4dbc5): OutlineStyle (theme.py) paints every
+  control's outline in the border token over Fusion; six border tokens
+  re-solved to 3:1 on all surfaces; disabled outlines dim. Checked by
+  test_every_outline_clears_the_indicator_floor and
+  test_the_outline_on_screen_is_the_border_token.
   **Layman:** On the high-contrast dark theme the search box and row outlines are nearly invisible; decide how visible outlines must be and fix it.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
@@ -9832,7 +9839,7 @@ O8` forbids retrofitting that.
   Source: review-contract-2026-09-28 CLAUDE.md loop 4 (filed, outside the gated change).
   Lanes: docs.
 
-- 📋 [LWSM-1349] **design-accessibility.md promises a "thick" focus ring, and the ring Fusion draws on buttons, the filter box and the browser picker is 1-2 px.**
+- ✅ [LWSM-1349] **design-accessibility.md promises a "thick" focus ring, and the ring Fusion draws on buttons, the filter box and the browser picker is 1-2 px.**
   § Focus is unmissable and the high-contrast bullet both say "thick focus
   ring". The row paints its own ring and it grows with the text
   (test_the_focus_ring_grows_with_the_text). Every other focusable control
@@ -9859,6 +9866,10 @@ O8` forbids retrofitting that.
   it is dropped; draw the ring over Fusion's own rendering instead (a
   proxy style). Ring width matches the row's: font height / 8, growing
   with the text size.
+  Resolved (2026-10-01, dc4dbc5): every focusable control gets a ring at
+  least the row's width (font height / 8) at 100 % and 200 %, painted
+  over Fusion so its shading stays. Checked by
+  test_every_focus_ring_is_as_thick_as_the_rows.
   **Layman:** The design promises a thick outline around the control the keyboard is on, but the buttons and boxes get a thin one, and nothing checks thickness.
   Kind: accessibility.
   Source: review-contract 2026-10-01 loop 2, lane open question (LWSM-1292 gate).
