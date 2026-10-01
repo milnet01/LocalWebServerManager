@@ -1245,8 +1245,8 @@ class Supervisor:
         the machine: this is asked once per project per poll and the question is
         about ONE pid.
 
-        **`_alive` is not belt-and-braces, it is the PID-reuse guard.** A dead
-        child's pid is free to be reallocated as some unrelated process's group
+        **`is_running()` is not belt-and-braces, it is the PID-reuse guard.** A
+        dead child's pid is free to be reallocated as some unrelated process's group
         id, at which point a bare `getpgid` comparison would call a stranger
         ours. The handle captured at spawn carries the `create_time` that tells
         them apart -- ADR-0004: "for a *managed* server, identity is the
@@ -1259,7 +1259,21 @@ class Supervisor:
         so gating here would report exactly that project as not ours.
         """
         managed = self._get(project)
-        if managed is None or not _alive(managed.handle):
+        if managed is None:
+            return False
+        # The PID-reuse guard is `is_running()`, which checks `create_time` and
+        # counts a ZOMBIE as running. That is the point: a wrapper launcher
+        # that exited stays an unreaped zombie while the server it left lives,
+        # and an unreaped pid cannot be reused, so the group is still ours
+        # (review-code 2026-10-01). `_alive` here called that server a
+        # stranger's. The dead launcher's OWN pid holds nothing, so it alone
+        # still needs `_alive`.
+        try:
+            if not managed.handle.is_running():
+                return False
+        except psutil.Error:
+            return False
+        if pid == managed.pid and not _alive(managed.handle):
             return False
         try:
             return os.getpgid(pid) == managed.pid

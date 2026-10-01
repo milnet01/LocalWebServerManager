@@ -2301,6 +2301,46 @@ def test_owns_pid_refuses_a_child_that_has_already_exited(
     assert not supervisor.owns_pid(project, managed.pid)
 
 
+def test_owns_pid_accepts_the_server_a_wrapper_left_behind(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """review-code 2026-10-01 L3-H1: the wrapper case `owns_pid`'s own
+    docstring names. A `start.sh` that backgrounds the server and exits stays
+    an unreaped zombie while its group lives, and `_alive` counts a zombie as
+    dead — so the server it left was reported as a stranger's, and Stop and
+    Open put the foreign-server disclosure in front of our own project.
+
+    The zombie's pid cannot be reused while it is unreaped, so the PID-reuse
+    guard is not what is at stake here; the test above still holds that.
+    """
+    write_launcher(project, "sleep 30 &\ntouch ready\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+    launcher = psutil.Process(managed.pid)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and launcher.status() != psutil.STATUS_ZOMBIE:
+        time.sleep(0.02)
+    assert launcher.status() == psutil.STATUS_ZOMBIE, "precondition: launcher exited"
+    server = [
+        proc
+        for proc in psutil.process_iter(["name"])
+        if proc.info["name"] == "sleep" and _pgid(proc.pid) == managed.pid
+    ]
+    assert server, "precondition: the server it backgrounded is still running"
+
+    assert supervisor.owns_pid(project, server[0].pid), (
+        "the server a wrapper left running was reported as not ours"
+    )
+
+
+def _pgid(pid: int) -> int | None:
+    try:
+        return os.getpgid(pid)
+    except OSError:
+        return None
+
+
 # --- LWSM-1169: rotation works through a descriptor nothing else can close ----
 
 

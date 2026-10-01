@@ -321,6 +321,10 @@ signaling per
 
 ### Fixed
 
+- **A server started through a wrapper script that exits is still recognised as yours**
+  Stop and Open no longer show the "this manager did not start it"
+  warning for a project the app started itself.
+
 - **Pressing Enter on a row's Open or Restart button, or its browser picker, no longer stops the project**
   Those controls ignore Enter, so the key reached the row, which treats
   Enter as Start or Stop. The row now acts on Enter only when it has
