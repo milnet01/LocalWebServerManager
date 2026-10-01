@@ -147,9 +147,10 @@ name is built from the full project name, so it carries the whole
 string while the name label inside it reads the cut one;
 the browser combo elides only when it paints and its item text stays
 whole, so a screen reader is already read the full name. Elision is
-a fitting concern and must never reach the accessibility tree, so
-every control is named, or for the browser picker described, from
-the full project name rather than from the rendered one.
+a fitting concern and must never reach a control's name, the
+picker's description or the row's announcement, so every control is
+named, or for the browser picker described, from the full project
+name rather than from the rendered one.
 
 Until 2026-09-02 this said "never clip or truncate", and that the
 200 % test asserted no text was elided. Both were wrong: the app has
@@ -256,7 +257,7 @@ LWSM-1032 landed them alongside the four:
 |---|---|
 | Readable in greyscale (never colour alone) | every state's rendered **state cell** differs from every other after a luminance-only transform, thresholded to ink-or-no-ink. Not the whole row: button enablement differs by state, so a whole-row comparison passes without the state cell rendering anything distinct — measured 2026-08-19, and greyscale alone is not enough either, since two colours of different luminance are two different greys |
 | High-contrast pair clears 7:1 | **already covered by `testing.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `highcontrast-light` / `highcontrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
-| Focus ring drawn, and meeting contrast, on every focusable widget in every theme | render each kind of focusable control in every theme and compare it unfocused and focused. The row paints its own ring: assert the focused render changes more pixels than the row's perimeter, and that the ring is painted in the `accent` token. A button, the filter box and the browser picker take Fusion's ring: move focus with a real Backtab, assert the first changed pixel is at the control's edge, and hold that pixel at 3:1 against the control's fill and against the window. Rendered rather than computed: a check over palette pairs passes on a theme whose ring is never drawn (LWSM-1292), and Fusion draws a darker ring than the `accent` token it starts from (LWSM-1238). The edge clause stops the filter box's text cursor passing for a ring |
+| Focus ring drawn, and meeting contrast, on every focusable widget in every theme | render each kind of focusable control unfocused and focused. The row paints its own ring: in the default theme, assert the focused render changes more pixels than the row's perimeter and that the ring is painted in the `accent` token, whose contrast a palette check holds in every theme. A button, the filter box and the browser picker take Fusion's ring: in every theme, move focus with a real Backtab, assert the first changed pixel is at the control's edge, and hold that pixel at 3:1 against the control's fill and against the window. Rendered rather than computed: a check over palette pairs passes on a theme whose ring is never drawn (LWSM-1292), and Fusion draws a darker ring than the `accent` token it starts from (LWSM-1238). The edge clause stops the filter box's text cursor passing for a ring |
 | A description where the name is not self-explanatory | assert the browser picker's accessible description names its project, read from the accessibility interface rather than the widget property: a property check can pass while nothing is announced. It is the one control whose name cannot, because a combo box reports its current text as its name (`CLAUDE.md`'s `QComboBox` trap). `testing.md § T8`'s check covers names only. Whether some other name needs a description is a reviewer's judgement under `coding.md § O8`, and no test makes it (LWSM-1293) |
 | Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % **and** at 200 %: none below 24×24 at 100 %, and every one strictly larger at 200 % than at 100 %. The second half is the one that can fail — a target pinned at 24×24 passes "≥ 24 at each step", which is the defect the promise names. Not a fixed 200 % threshold: the rect follows the font metric, so it does not double |
 | A state change announces itself once, not per poll | count accessibility notifications across N polls with no state change; assert zero |
