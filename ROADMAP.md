@@ -1030,6 +1030,9 @@ O8` forbids retrofitting that.
   Then the two standing passes, the open fix/doc-fix items oldest first,
   and cut-release. LWSM-1344 (security) waits on a user decision:
   options (a)/(b)/(c) in its body; recommended (a).
+  Progress (2026-10-01, f1e5b80): lane 06 (controller + entry) closed,
+  all 9 fixed. 30 ledger rows still open: lanes 01, 02, 07 and V-1.
+  NEXT: lane 01, then 02, 07, V-1.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
@@ -9646,6 +9649,9 @@ O8` forbids retrofitting that.
   border, which theme.py records costs box sizing)? The test that would
   catch the screenshot is a rendered-pixel one, after
   `_rendered_button_ring`.
+  Also raised by review-code 2026-10-01 lane 01 (L1-M3): style_sheet
+  emits no border rule, so high-contrast themes vary only colour. Closed
+  there as this item's scope; no code changed.
   **Layman:** On the high-contrast dark theme the search box and row outlines are nearly invisible; decide how visible outlines must be and fix it.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
@@ -9767,6 +9773,9 @@ O8` forbids retrofitting that.
   bullet's "heavy borders" has no check row either. That half belongs to
   LWSM-1337, which already asks how drawn outlines reach the token; decide
   the two together.
+  Also raised by review-code 2026-10-01 lane 01 (L1-M3):
+  focus_ring_width is the same in every theme. Closed there as this
+  item's scope; no code changed.
   **Layman:** The design promises a thick outline around the control the keyboard is on, but the buttons and boxes get a thin one, and nothing checks thickness.
   Kind: accessibility.
   Source: review-contract 2026-10-01 loop 2, lane open question (LWSM-1292 gate).

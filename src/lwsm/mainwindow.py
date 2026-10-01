@@ -447,6 +447,15 @@ def _merge_parts(counts: dict[str, int]) -> list[str]:
     return parts
 
 
+def _list_join(parts: list[str]) -> str:
+    """Join a user-visible list with the translator's separator (L1-L3).
+
+    Not every locale lists with ", " — the row announcement made the same
+    separator translatable for that reason (LWSM-1280).
+    """
+    return QCoreApplication.translate("ProjectRow", ", ", "list separator").join(parts)
+
+
 def summarise_merge(counts: dict[str, int]) -> str:
     """`MergeResult.counts` as one line, in a fixed order, omitting zeroes.
 
@@ -464,7 +473,7 @@ def summarise_merge(counts: dict[str, int]) -> str:
     if not parts:
         return QCoreApplication.translate("ProjectRow", "Rescan: no changes")
     return QCoreApplication.translate("ProjectRow", "Rescan: %1").replace(
-        "%1", ", ".join(parts)
+        "%1", _list_join(parts)
     )
 
 
@@ -479,7 +488,7 @@ def summarise_import(counts: dict[str, int]) -> str:
     if not parts:
         return QCoreApplication.translate("ProjectRow", "Import: no changes")
     return QCoreApplication.translate("ProjectRow", "Import: %1").replace(
-        "%1", ", ".join(parts)
+        "%1", _list_join(parts)
     )
 
 
@@ -743,7 +752,12 @@ class ProjectRow(QFrame):
         # and the failure line, and widening its left margin would indent the
         # message as well as the cells.
         layout = self._cells_layout
-        self._glyph_width = metrics.horizontalAdvance("●") + layout.spacing()
+        # The widest of every state's glyph, not "●" alone: equal in the fonts
+        # measured, but a fallback font for one of them may not be (L1-Q1).
+        self._glyph_width = (
+            max(metrics.horizontalAdvance(g) for g in STATE_GLYPHS.values())
+            + layout.spacing()
+        )
         layout.setContentsMargins(
             self._base_margins.left() + self._glyph_width,
             self._base_margins.top(),
@@ -784,11 +798,13 @@ class ProjectRow(QFrame):
         self._fit_buttons()
 
     def show_error(self, message: str) -> None:
-        """Put a failure under this row's controls.
+        """Put a failure under this row's controls, and announce it.
 
-        Announced as part of the row rather than as a separate control: it is
-        not interactive, and a screen-reader user reaching it by Tab would have
-        found a stop with nothing to do.
+        Not a separate focusable control: it is not interactive, and a
+        screen-reader user reaching it by Tab would have found a stop with
+        nothing to do. So it is announced instead, the way `set_status_message`
+        is — a row failure replaces the status message, and without this it
+        reached a screen reader as nothing at all (L1-M1).
         """
         if self._error is None:
             self._error = QLabel(self)
@@ -800,6 +816,8 @@ class ProjectRow(QFrame):
             self._outer_layout.addWidget(self._error)
         self._error.setText(message)
         self._error.show()
+        if message:
+            QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, message))
 
     def clear_error(self) -> None:
         """Destroy the label rather than blanking it — see `__init__` on why an
@@ -1127,14 +1145,6 @@ class ProjectRow(QFrame):
         ):
             self.setFocus(Qt.FocusReason.OtherFocusReason)
         self.start_button.setEnabled(start_ok)
-        # Running AND ours, for the same reason Open is below — and the two
-        # buttons that SIGNAL had neither the gate nor a substitute
-        # (LWSM-1197). Nothing foreign was ever signalled: `stop_project`
-        # refuses a project the supervisor holds no handle for, and Restart
-        # falls through to a Start the pre-flight then refuses for the bound
-        # port. What was wrong is that both were offered and could only fail,
-        # so the gate makes the control say what it can do rather than adding
-        # a defence.
         # Running is the whole condition, ours or not (LWSM-1012). The
         # `row.managed` gate that used to sit here was an INTERIM: ADR-0004 asks
         # for disclosure before acting on a foreign server, never for the action
@@ -1143,49 +1153,39 @@ class ProjectRow(QFrame):
         # `MainWindow._may_act_on`, which every one of these three goes through.
         self.stop_button.setEnabled(running)
         self.restart_button.setEnabled(running)
-        # Running AND ours. ADR-0004 carries the threat model and governs here
-        # (user decision, 2026-08-15): `chdir()` is free, so any local process
-        # can bind a project's port and be classified `running`, and opening a
-        # browser on it is localhost phishing with this app's credibility behind
-        # it. The ADR's full mitigation is a disclosure dialog naming the
-        # holder's path, uid, cmdline and start time — which needs the
-        # seven-state model P06 adds, since `_classify` cannot yet tell foreign
-        # from managed. Until then Open is restricted to servers this manager
-        # started, which the supervisor's own running set answers exactly
-        # (LWSM-1141).
+        # Running is the whole condition here too. ADR-0004 carries the threat
+        # model: `chdir()` is free, so any local process can bind a project's
+        # port, and opening a browser on it is localhost phishing with this
+        # app's credibility behind it. Its mitigation is the disclosure dialog
+        # naming the holder, which `_open_project` goes through
+        # (`MainWindow._may_act_on`); the old managed-only gate was its interim.
         #
         # **Not** enabled while starting: there is no bound port yet, so the
         # browser would open on nothing and the user would blame the app rather
         # than the wait.
         self.open_button.setEnabled(running)
-        # A disabled button swallows a click in SILENCE, and the `managed`
-        # gate is the one reason a user cannot guess from the row: the project
-        # is running and the row says so. Reported live 2026-09-06 as "nothing
-        # happened when I clicked Open" on two running projects the supervisor
-        # had not started (LWSM-1297).
+        # A foreign server is the one case the row cannot explain by itself:
+        # these three act on it only after a disclosure dialog, and the user
+        # should know that before the click (LWSM-1297).
         #
-        # A tooltip is the channel because it is the one that still reaches a
-        # DISABLED widget — measured 2026-09-06: `QApplication.widgetAt`
-        # returns a disabled child and the `ToolTip` event is delivered to it,
-        # where a click is not.
-        #
-        # Narrow to the gate on purpose. A control disabled because the project
-        # is stopped needs no explanation — the row already reads "stopped" —
-        # and a tooltip on every disabled state is noise that teaches the user
-        # to ignore the one that carries a reason.
+        # Narrow to that case on purpose. A tooltip on every state is noise
+        # that teaches the user to ignore the one that carries a reason.
         foreign = running and not row.managed
+        explanation = (
+            QCoreApplication.translate(
+                "ProjectRow",
+                "%1 is running, but this manager did not start it. You will "
+                "be shown what is holding the port before anything happens.",
+            ).replace("%1", self._name_display)
+            if foreign
+            else ""
+        )
         for gated in (self.stop_button, self.restart_button, self.open_button):
-            gated.setToolTip(
-                _plain_tooltip(
-                    QCoreApplication.translate(
-                        "ProjectRow",
-                        "%1 is running, but this manager did not start it. You will "
-                        "be shown what is holding the port before anything happens.",
-                    ).replace("%1", self._name_display)
-                )
-                if foreign
-                else ""
-            )
+            gated.setToolTip(_plain_tooltip(explanation) if explanation else "")
+            # A tooltip never appears on keyboard focus, and nothing important
+            # may be hover-only (`design-accessibility.md`; L1-L4). The
+            # description is what a screen reader reads after the name.
+            gated.setAccessibleDescription(explanation)
         # An accessible name of its own on each, because the label alone reads
         # as "Start" three times over in a list of three projects (`§ O8`).
         for button, accessible in (

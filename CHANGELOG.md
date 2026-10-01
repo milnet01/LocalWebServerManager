@@ -321,6 +321,10 @@ signaling per
 
 ### Fixed
 
+- **A failure shown under a project's row is now read out by a screen reader.**
+
+- **The note that a server was not started by this app is now available to keyboard and screen-reader users, not only on mouse hover.**
+
 - **A project whose launcher crashes before its server starts no longer sits at "starting" with every button disabled.**
 
 - **A systemd service that fails right after it was started no longer leaves its row at "starting"; the row says the service did not stay up.**

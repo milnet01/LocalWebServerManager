@@ -3209,6 +3209,10 @@ def test_ownership_alone_is_not_re_announced_to_a_screen_reader(
     # what proves the row took the new view. The subject is unchanged: a field
     # that alters no rendered TEXT must not reach a screen reader.
     assert row.open_button.toolTip(), "the row did not take the new view"
+    # And not hover-only (2026-10-01 review, L1-L4): a keyboard or screen-reader
+    # user gets the same explanation. Dies on dropping the description.
+    for button in (row.stop_button, row.restart_button, row.open_button):
+        assert "did not start it" in button.accessibleDescription()
     assert row.accessibleName() == announced_before
     assert announcements == [], (
         "a change no screen reader can hear was announced to one"
@@ -7467,6 +7471,25 @@ def test_a_status_message_is_announced_to_a_screen_reader(
     assert sent == ["a could not start: port taken"], sent
 
 
+def test_a_row_error_is_announced_to_a_screen_reader(qtbot, built, monkeypatch) -> None:
+    """A failure shown under a row replaces the status message, so it was the
+    one failure Orca never heard (2026-10-01 review, L1-M1).
+
+    Dies on removing the announcement from `ProjectRow.show_error`.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    sent: list[str] = []
+
+    def spy(event) -> None:
+        if hasattr(event, "message"):
+            sent.append(event.message())
+
+    monkeypatch.setattr(mainwindow.QAccessible, "updateAccessibility", spy)
+    window._ordered_rows()[0].show_error("a could not start: port taken")
+
+    assert sent == ["a could not start: port taken"], sent
+
+
 def test_the_rescan_summary_uses_the_users_digits() -> None:
     """known-issue-056 (LWSM-1323): `str(count)` is always ASCII digits."""
     from PySide6.QtCore import QLocale
@@ -7559,3 +7582,28 @@ def test_a_stop_carries_the_holder_the_disclosure_showed(qtbot, built) -> None:
     window._stop_project(Path("/srv/alpha"))
 
     assert calls == [{"disclosed_holder": shown}]
+
+
+def test_the_glyph_column_fits_the_widest_glyph(qtbot, monkeypatch) -> None:
+    """The column was sized from "●" alone; a fallback font can draw another
+    state's glyph wider, and it would then overlap the word (2026-10-01
+    review, L1-Q1).
+
+    Dies on measuring one glyph rather than all of them.
+    """
+    from lwsm.controller import RowView
+    from lwsm.mainwindow import ProjectRow
+
+    monkeypatch.setitem(mainwindow.STATE_GLYPHS, ProjectStatus.STARTING, "WWW")
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            effective_port=5005,
+            status=ProjectStatus.RUNNING,
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    assert row._glyph_width >= row.fontMetrics().horizontalAdvance("WWW")

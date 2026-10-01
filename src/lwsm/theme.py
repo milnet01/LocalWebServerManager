@@ -534,10 +534,8 @@ def theme_for_id(theme_id: str) -> Theme:
 FOLLOW_SYSTEM = "follow-system"
 
 # Keyed by (is_dark, wants_high_contrast), which is exactly what the desktop
-# reports. `design-look-and-feel.md § Themes` states these four targets; the
-# two assistive ids here are the ones actually shipped in `THEMES` above, and
-# LWSM-1245 owns the fact that the document spells them `contrast-*`. Should
-# that item rename them, this table is the one place the rename lands.
+# reports. `design-look-and-feel.md § Look and feel` states these four
+# targets, and the two assistive ids are spelled there as in `THEMES` above.
 _FOLLOW_TARGETS = {
     (False, False): "ledger",
     (True, False): DEFAULT_THEME,
