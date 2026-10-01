@@ -70,15 +70,16 @@ ZERO=0000000000000000000000000000000000000000
 # nobody had made it for prose. On 2026-08-19 a docs-only push edited CLAUDE.md,
 # skipped the gate on that basis, and GitHub found the prose count that
 # test_docs.py forbids. The list is DERIVED, not copied: the contract test runs
-# this very function against test_docs.GOVERNED, so the two cannot part.
+# this very function against test_docs.ASSERTED, so the two cannot part.
 # CONTRIBUTING.md is the one addition, since test_ci_contract.py reads it; the
-# same test names it beside GOVERNED.
+# same test names it beside ASSERTED.
 docs_only() {
     local path
     while IFS= read -r path; do
         [[ -z $path ]] && continue
         case $path in
             CLAUDE.md | README.md | CONTRIBUTING.md | docs/standards/*.md) return 1 ;;
+            docs/design-look-and-feel.md | docs/design-accessibility.md) return 1 ;;
             docs/* | .claude/* | *.md | LICENSE) ;;
             *) return 1 ;;
         esac

@@ -35,6 +35,18 @@ GOVERNED = [
     ROOT / "README.md",
 ]
 
+# The design documents that name theme ids a reader then types into the app.
+# Not GOVERNED: the prose-count rule is about standards, and these hold counts
+# of their own on purpose (LWSM-1299).
+THEME_DOCS = [
+    ROOT / "docs" / "design-look-and-feel.md",
+    ROOT / "docs" / "design-accessibility.md",
+]
+
+# Every markdown file this module asserts against. The pre-push hook must never
+# exempt one of them, and `test_ci_contract.py` imports this to say so.
+ASSERTED = [*GOVERNED, *THEME_DOCS]
+
 
 def offending_lines(path: Path) -> list[str]:
     """Prose counts in `path`, excluding the two forms that legitimately hold one.
@@ -89,3 +101,31 @@ def test_no_prose_count_of_a_growing_set(path: Path) -> None:
         "name the list and link it instead (documentation.md § 1.5):\n  "
         + "\n  ".join(hits)
     )
+
+
+THEME_ID = re.compile(r"`([a-z]+-(?:light|dark))`")
+THEME_ROW = re.compile(r"^\| \*\*([a-z-]+)\*\*", re.MULTILINE)
+
+
+def test_the_design_documents_name_the_theme_ids_the_code_ships() -> None:
+    """LWSM-1299. The docs once named `contrast-light` and `contrast-dark`, which
+    no theme is called (LWSM-1245). Nothing failed: `theme_for_id` falls back
+    to the default, so a reader following the docs got Midnight with no error.
+
+    The table is held to `THEMES` in both directions, so a renamed theme, an
+    added one and a deleted one all fail. A theme id quoted in prose is held
+    one way: it must name a theme.
+    """
+    from lwsm.theme import THEMES
+
+    table = THEME_ROW.findall(THEME_DOCS[0].read_text(encoding="utf-8"))
+    assert sorted(table) == sorted(THEMES), (
+        "design-look-and-feel.md's theme table does not list the themes "
+        "theme.THEMES ships"
+    )
+
+    for path in THEME_DOCS:
+        named = THEME_ID.findall(path.read_text(encoding="utf-8"))
+        unknown = sorted(set(named) - set(THEMES))
+        assert unknown == [], f"{path.name} names theme ids that do not exist: {unknown}"
+

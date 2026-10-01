@@ -82,7 +82,8 @@ Before opening a PR:
 
    **A docs-only change runs only the documentation checks**
    (`./scripts/local-ci.sh --docs`), with exceptions. `CLAUDE.md`,
-   `README.md`, `CONTRIBUTING.md` and everything under
+   `README.md`, `CONTRIBUTING.md`, `docs/design-look-and-feel.md`,
+   `docs/design-accessibility.md` and everything under
    `docs/standards/` are asserted against by the suite, so
    editing one can turn it red — they always run the full gate.
    `scripts/`, `.github/`, `src/` and `tests/` always do too: a

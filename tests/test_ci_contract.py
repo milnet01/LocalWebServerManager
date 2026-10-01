@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from test_docs import GOVERNED
+from test_docs import ASSERTED, GOVERNED
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github/workflows/ci.yml"
@@ -287,7 +287,7 @@ def test_contributing_does_not_contradict_the_gate_it_describes() -> None:
     followed that sentence, skipped the gate and reddened CI — the measured
     2026-08-19 incident, re-enabled by the documentation (LWSM-1208).
 
-    Asserted against `GOVERNED` for the sibling test's reason: naming the
+    Asserted against `ASSERTED` for the sibling test's reason: naming the
     three files here would be a second copy of a list that can grow, and a
     standard added to `test_docs.py` alone would leave this green.
     """
@@ -311,7 +311,7 @@ def test_contributing_does_not_contradict_the_gate_it_describes() -> None:
     marker = "docs-only change runs only the documentation checks"
     assert marker in text, "the exemption is not described at all"
     carve_out = text[text.index(marker) :]
-    for path in GOVERNED:
+    for path in ASSERTED:
         name = path.relative_to(REPO).as_posix()
         stem = "docs/standards/" if name.startswith("docs/standards/") else name
         assert stem in carve_out, (
@@ -330,14 +330,14 @@ def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> N
     The hook's own comment already made this argument for `scripts/` and
     `.github/`; nobody had made it for prose.
 
-    `GOVERNED` is IMPORTED rather than restated. A copy of that list here is a
+    `ASSERTED` is IMPORTED rather than restated. A copy of that list here is a
     second place to update, and a standard added to `test_docs.py` alone would
     leave this test green while the file it governs pushes ungated.
     """
     assert GOVERNED, "test_docs governs nothing, so this test proves nothing"
 
-    # CONTRIBUTING.md beside GOVERNED: the test above this one reads it.
-    for path in [*GOVERNED, REPO / "CONTRIBUTING.md"]:
+    # CONTRIBUTING.md beside ASSERTED: the test above this one reads it.
+    for path in [*ASSERTED, REPO / "CONTRIBUTING.md"]:
         relative = path.relative_to(REPO).as_posix()
         assert not _hook_says_docs_only([relative]), (
             f"a push touching only {relative} skips the gate, but test_docs.py "

@@ -184,13 +184,15 @@ never exempt — a change to the checker must run the check.
 grew to cover `scripts/` would let an edit to the gate skip the gate.
 
 **Some markdown takes the FULL gate, and that was missed until
-2026-08-19**: `CLAUDE.md`, `README.md` and every file under
-`docs/standards/` are asserted against by `tests/test_docs.py`, and
+2026-08-19**: `CLAUDE.md`, `README.md`, every file under
+`docs/standards/` and the two design documents that name theme ids
+(`design-look-and-feel.md`, `design-accessibility.md`) are asserted
+against by `tests/test_docs.py`, and
 `CONTRIBUTING.md` by `tests/test_ci_contract.py`, so an edit to one can
 redden the suite. They never take the docs mode. The cost of learning this was a red CI run on
 `5f1891f`, a markdown-only push that skipped the gate on the strength of
 its paths and was caught by GitHub instead. **The carve-out list is
-imported from `test_docs.GOVERNED`, never copied** — a standard added
+imported from `test_docs.ASSERTED`, never copied** — a standard added
 there alone would otherwise leave the contract test green while the file
 it governs skips the suite. And the test **runs** `docs_only()` rather
 than reading it: its predecessor scanned the case arms as strings, which
