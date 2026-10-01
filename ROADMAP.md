@@ -10005,11 +10005,14 @@ O8` forbids retrofitting that.
   Source: refactor-pass-2026-10-01 R-4.
   Lanes: entry.
 
-- 📋 [LWSM-1360] **The abandoned-pool helpers report every stuck thread pool as a stuck port probe.**
+- ✅ [LWSM-1360] **The abandoned-pool helpers report every stuck thread pool as a stuck port probe.**
   controller.wait_for_abandoned_probes, exit_without_waiting_for_abandoned_probes
   and their messages ("port probe(s) never returned") cover every pool passed to
   abandon_pool: the port pool, the systemctl pool and the window's rescan pool.
   Fix: rename to *_abandoned_pools with a neutral message.
+  Resolved (2026-10-01, 660a652): renamed to *_abandoned_pools; messages
+  say "background task(s) never returned". Locked in
+  test_an_unreaped_probe_says_so_before_the_process_blocks.
   **Layman:** If the app hangs on quit because a service stop or a rescan got stuck, the log blames a port check instead, sending whoever debugs it to the wrong place.
   Kind: refactor.
   Source: refactor-pass-2026-10-01 R-5.
