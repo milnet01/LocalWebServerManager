@@ -1087,6 +1087,11 @@ signaling per
 
 ### Security
 
+- **A launcher reached through a folder link is refused when another account could swap that link** (LWSM-1352)
+  The trust gate checked the folders around the file a launcher resolves
+  to, but not the folders the path as written passes through. A link
+  in a group-writable folder could be swapped after approval.
+
 - **A project or browser name holding markup is shown as typed in tooltips, not rendered**
   A name like `<b>x</b>` was drawn as formatting and could forge a
   sentence inside the tooltip that explains whose server is running.

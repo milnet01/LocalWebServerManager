@@ -653,6 +653,48 @@ def test_a_launcher_under_a_directory_someone_else_owns_is_refused(
     assert "owned by uid 4242" in str(caught.value)
 
 
+def test_a_symlink_on_the_written_path_in_a_writable_directory_is_refused(
+    project: Path,
+) -> None:
+    """The walk covers every directory resolution looks a name up in.
+
+    `./via/bin/start.sh`, where `via` is a group-writable directory holding a
+    symlink `bin -> ../scripts`. The resolved launcher is `scripts/start.sh`,
+    and walking only ITS directories checks `scripts` and the project root —
+    never `via`, where an account with group write can swap the `bin` link
+    inside the window LWSM-1320 accepts (LWSM-1352).
+    """
+    (project / "scripts").mkdir(mode=0o755)
+    write_launcher(project, "echo hi\n", name="scripts/start.sh")
+    via = project / "via"
+    via.mkdir()
+    (via / "bin").symlink_to("../scripts")
+    via.chmod(0o775)
+    try:
+        launcher = _launcher_path(project, ("./via/bin/start.sh",))
+        assert launcher is not None
+        with pytest.raises(LauncherRefused) as caught:
+            validate_launcher(project, launcher)
+        assert str(via.resolve()) in str(caught.value)
+    finally:
+        via.chmod(0o755)
+
+
+def test_a_symlink_on_the_written_path_in_a_safe_directory_is_allowed(
+    project: Path,
+) -> None:
+    """The same arrangement with `via` at `0755` passes — the new walk refuses
+    on the directory's mode, not on the mere presence of a link."""
+    (project / "scripts").mkdir(mode=0o755)
+    target = write_launcher(project, "echo hi\n", name="scripts/start.sh")
+    (project / "via").mkdir(mode=0o755)
+    (project / "via" / "bin").symlink_to("../scripts")
+
+    launcher = _launcher_path(project, ("./via/bin/start.sh",))
+    assert launcher is not None
+    assert validate_launcher(project, launcher) == target.resolve()
+
+
 def test_a_launcher_that_is_not_a_regular_file_is_refused(project: Path) -> None:
     (project / "start.sh").mkdir()
     with pytest.raises(LauncherRefused):
@@ -1734,7 +1776,9 @@ def test_an_interpreter_argv_names_its_script_as_the_launcher(
     """
     (project / filename).write_text("", encoding="utf-8")
 
-    assert _launcher_path(project, argv) == (project / filename).resolve()
+    launcher = _launcher_path(project, argv)
+    assert launcher is not None
+    assert launcher.resolve() == (project / filename).resolve()
 
 
 @pytest.mark.parametrize("argv", [("npm", "run", "dev"), ("npm", "run")])
@@ -1755,7 +1799,9 @@ def test_npm_never_names_a_launcher_file_whatever_its_argv_length(
 
 def test_a_relative_launcher_still_resolves_inside_the_project(project: Path) -> None:
     """The one kind that already worked, pinned so the fix cannot regress it."""
-    assert _launcher_path(project, ("./start.sh",)) == (project / "start.sh").resolve()
+    launcher = _launcher_path(project, ("./start.sh",))
+    assert launcher is not None
+    assert launcher.resolve() == (project / "start.sh").resolve()
 
 
 def test_an_interpreter_script_outside_the_project_is_still_the_launcher(
@@ -1772,7 +1818,9 @@ def test_an_interpreter_script_outside_the_project_is_still_the_launcher(
     `start()` and is the test this one could never be.
     """
     escape = (project / ".." / "escape.py").resolve()
-    assert _launcher_path(project, ("python3", "../escape.py")) == escape
+    launcher = _launcher_path(project, ("python3", "../escape.py"))
+    assert launcher is not None
+    assert launcher.resolve() == escape
 
 
 def test_rewriting_an_npm_script_re_arms_the_trust_gate(project: Path) -> None:

@@ -466,7 +466,12 @@ def _launcher_path(project: Path, argv: tuple[str, ...]) -> Path | None:
 
 
 def _contained(project: Path, name: str) -> Path | None:
-    """`name` resolved, or `None` when it names nothing or is the project root.
+    """`name` as written under the project, or `None` when it names nothing or
+    resolves to the project root.
+
+    The path is returned UNRESOLVED, because `validate_launcher` has to walk the
+    directories `execve` looks each written component up in, and a symlink on
+    the way is invisible once resolved (LWSM-1352).
 
     **Escaping is deliberately NOT filtered here** — that is the whole of
     LWSM-1162. A symlink leaving the project is a launcher to REFUSE, not a
@@ -480,13 +485,14 @@ def _contained(project: Path, name: str) -> Path | None:
     names.
     """
     try:
-        resolved = (project / Path(name)).resolve()
         project_resolved = Path(project).resolve()
+        written = project_resolved / Path(name)
+        resolved = written.resolve()
     except OSError:
         return None
     if resolved == project_resolved:
         return None
-    return resolved
+    return written
 
 
 def validate_launcher(project: Path, launcher: Path) -> Path:
@@ -569,25 +575,97 @@ def validate_launcher(project: Path, launcher: Path) -> Path:
     #
     # The walk stops at the project root. Directories above it are where the
     # user chose to keep the project, and not the project's to vouch for.
+    checked: set[Path] = set()
     for directory in (resolved.parent, *resolved.parent.parents):
-        try:
-            info = os.stat(directory)
-        except OSError as exc:
-            raise LauncherRefused(f"cannot read {directory}: {exc}") from exc
-        if info.st_uid not in (os.getuid(), 0):
-            raise LauncherRefused(
-                f"{directory} is owned by uid {info.st_uid}, who can replace "
-                "the launcher after it is confirmed"
-            )
-        writable = info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-        if writable and not info.st_mode & stat.S_ISVTX:
-            raise LauncherRefused(
-                f"{directory} is group- or other-writable without the sticky "
-                "bit, so the launcher can be replaced after it is confirmed"
-            )
+        _refuse_replaceable_directory(directory)
+        checked.add(directory)
         if directory == project_resolved:
             break
+    # And every directory resolution looks a WRITTEN component up in. A
+    # symlink on the path as argv names it — `./bin/start.sh` with `bin` a
+    # link — lives in a directory the walk above never visits, since that walk
+    # starts from the resolved target. Swapping the link needs write on the
+    # directory holding it, so that directory meets the same refusals
+    # (LWSM-1352). Ancestors of the project root are skipped for the reason
+    # above. A path written under the project as passed is rebased onto the
+    # resolved root, so a symlink in the project's OWN location is not walked.
+    written = Path(launcher)
+    if written.is_relative_to(project):
+        written = project_resolved / written.relative_to(project)
+    for directory in _lookup_directories(project_resolved, written):
+        if directory in checked:
+            continue
+        if directory != project_resolved and project_resolved.is_relative_to(directory):
+            continue
+        _refuse_replaceable_directory(directory)
+        checked.add(directory)
     return resolved
+
+
+# Linux's limit on symlinks followed in one resolution (`SYMLOOP_MAX`).
+_MAX_SYMLINK_HOPS = 40
+
+
+def _lookup_directories(project: Path, launcher: Path) -> list[Path]:
+    """Every directory in which resolving `launcher` looks a name up.
+
+    Resolved one component at a time, as the kernel does, so a symlink met on
+    the way contributes the directories ITS target is looked up in too. A
+    relative `launcher` and one under `project` start from `project`; any
+    other absolute one from `/`.
+    """
+    try:
+        parts = list(launcher.relative_to(project).parts)
+        current = project
+    except ValueError:
+        parts = list(launcher.parts)
+        current = Path("/")
+    directories: list[Path] = []
+    hops = 0
+    while parts:
+        part = parts.pop(0)
+        if part == "/":
+            current = Path("/")
+            continue
+        if part in ("", "."):
+            continue
+        if part == "..":
+            current = current.parent
+            continue
+        if current not in directories:
+            directories.append(current)
+        candidate = current / part
+        if candidate.is_symlink():
+            hops += 1
+            if hops > _MAX_SYMLINK_HOPS:
+                raise LauncherRefused(f"{launcher}: too many levels of symbolic links")
+            try:
+                target = os.readlink(candidate)
+            except OSError as exc:
+                raise LauncherRefused(f"cannot read {candidate}: {exc}") from exc
+            parts = list(Path(target).parts) + parts
+        else:
+            current = candidate
+    return directories
+
+
+def _refuse_replaceable_directory(directory: Path) -> None:
+    """Refuse a directory another account can use to replace what is in it."""
+    try:
+        info = os.stat(directory)
+    except OSError as exc:
+        raise LauncherRefused(f"cannot read {directory}: {exc}") from exc
+    if info.st_uid not in (os.getuid(), 0):
+        raise LauncherRefused(
+            f"{directory} is owned by uid {info.st_uid}, who can replace "
+            "the launcher after it is confirmed"
+        )
+    writable = info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+    if writable and not info.st_mode & stat.S_ISVTX:
+        raise LauncherRefused(
+            f"{directory} is group- or other-writable without the sticky "
+            "bit, so the launcher can be replaced after it is confirmed"
+        )
 
 
 def launcher_fingerprint(project: Path, argv: tuple[str, ...]) -> str:
@@ -608,8 +686,15 @@ def launcher_fingerprint(project: Path, argv: tuple[str, ...]) -> str:
     # identically to `npm run dev`, which has no file at all — two different
     # situations reading as one. A third kind needs a third marker for the same
     # reason, so a script's bytes cannot collide with a manifest string.
+    # Resolved here because `_launcher_path` returns the path as written and
+    # `_launcher_bytes` opens with `O_NOFOLLOW`, which would read a launcher
+    # that is itself a symlink as missing (LWSM-1352).
     candidate = _launcher_path(project, argv)
-    content = _launcher_bytes(candidate) if candidate is not None else None
+    try:
+        target = candidate.resolve() if candidate is not None else None
+    except OSError:
+        target = None
+    content = _launcher_bytes(target) if target is not None else None
     if content is not None:
         digest.update(b"\0content\0")
         digest.update(content)

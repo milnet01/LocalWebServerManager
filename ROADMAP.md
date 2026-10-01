@@ -9799,7 +9799,7 @@ O8` forbids retrofitting that.
   Source: review-contract 2026-10-01 testing.md loop 2, outside the gated change (LWSM-1330 gate).
   Lanes: docs.
 
-- 📋 [LWSM-1352] **validate_launcher walks the resolved target's directories, not the path argv names.**
+- ✅ [LWSM-1352] **validate_launcher walks the resolved target's directories, not the path argv names.**
   `execve` follows the path as written (`./bin/start.sh`). If a directory
   on that path is group-writable and holds a symlink, the link can be
   swapped inside the race window LWSM-1320 accepts, which is wider than
@@ -9808,6 +9808,11 @@ O8` forbids retrofitting that.
   because `_launcher_path` returns the RESOLVED path, so the written one
   has to be carried through to `validate_launcher` first: a signature
   change across the trust gate.
+  Resolved (2026-10-01): `_launcher_path` now returns the path as written;
+  `validate_launcher` resolves it one component at a time
+  (`_lookup_directories`) and applies the directory refusals to every
+  directory a name is looked up in. The fingerprint resolves before its
+  O_NOFOLLOW read. Two tests added; the refusing one was red before.
   **Layman:** A start script reached through a folder link could in theory be swapped after you approve it; close that gap.
   Kind: security.
   Source: review-code 2026-10-01 lane 03 (L3-L1), queued by close-findings.
