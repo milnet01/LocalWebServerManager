@@ -40,6 +40,9 @@ asks for.
 socket there, so unpinned, a test calling `main()` while the developer has the
 real app open would find it, ask it to come to the front, and return early —
 and a test run would leave its own socket where the real app looks.
+
+`XDG_STATE_HOME`, `XDG_CONFIG_DIRS` and `XDG_CURRENT_DESKTOP` complete the set:
+every `XDG_*` variable `src/` reads is pinned here (LWSM-1330).
 """
 
 from __future__ import annotations
@@ -75,6 +78,13 @@ def _isolated_config_home(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("XDG_DATA_DIRS", str(empty))
     # mktemp makes it 0700, which Qt requires of a runtime directory.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path_factory.mktemp("xdg-rt")))
+    # The rest of what `src/` reads (LWSM-1330). Unpinned, a run created
+    # `localwebservermanager/` under the developer's real XDG_STATE_HOME
+    # (measured with a sentinel), and `mimeapps_paths` read the host's
+    # /etc/xdg and its desktop name.
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path_factory.mktemp("xdg-state")))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(empty))
+    monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
 
 
 @pytest.fixture(scope="session", autouse=True)

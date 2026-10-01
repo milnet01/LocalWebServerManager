@@ -9729,6 +9729,20 @@ O8` forbids retrofitting that.
   Source: review-contract 2026-10-01 loop 2, lane open question (LWSM-1292 gate).
   Lanes: theme.
 
+- 📋 [LWSM-1350] **test_docs' prose-count check reads one line at a time, so a count wrapped across two lines passes.**
+  documentation.md § 2.1 said "including the four\n   standards docs"
+  (fixed 2026-10-01): "four standards" is exactly PROSE_COUNT's shape, and
+  test_no_prose_count_of_a_growing_set passed because offending_lines()
+  matches per line. Prose here is hard-wrapped at ~70 columns, so any
+  count whose noun falls on the next line escapes. Fix: match across a
+  single line break (join each paragraph, or allow \s+ spanning one
+  newline), keeping the table-row and dated-line exclusions per line.
+  Add a fixture with a wrapped count and prove it red first.
+  **Layman:** The check that stops the docs writing numbers that go stale misses a number split over two lines.
+  Kind: test.
+  Source: review-contract 2026-10-01 documentation.md loop 1 (LWSM-1330 gate).
+  Lanes: docs.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart

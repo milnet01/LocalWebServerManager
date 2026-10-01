@@ -162,8 +162,8 @@ Required sections, in order:
 5. **Quickstart** — minimal command sequence to use the project.
 6. **Plugin / extension** (if applicable) — link to the plugin
    author contract.
-7. **Documentation** — links to `docs/`, including the four
-   standards docs.
+7. **Documentation** — links to `docs/`, including the standards
+   index (`docs/standards/README.md`).
 8. **License** — single line + link.
 
 Avoid: a TOC for a short README; "About" / "Why" sections without
@@ -284,7 +284,7 @@ docstrings.
 ## 8. Review discipline
 
 Three distinct activities, in order of when they apply: the
-pre-implementation gate every spec and standard passes (§8.1), the
+review gate, run when `CLAUDE.md` § Review cadence says (§8.1), the
 escalation rule that keeps that gate cheap (§8.2), and the
 periodic sweep for drift in docs that already shipped (below).
 
@@ -396,7 +396,8 @@ Unnumbered, so adding it renumbered nothing (§1.8).
 | §1.8 every standard carries this section | `check-doc-facts` `mandated-section` |
 | §3 ROADMAP / CHANGELOG format | `roadmap_query` / `changelog_query` parse failures |
 | §6 screenshots show the current UI | **nothing** — a cold reader, or the user noticing |
-| §8.1 loop log present, tally balances | `check-doc-facts` `loop-log` |
+| §8.1 tally balances | `check-doc-facts` `loop-log` |
+| §8.1 a gated document carries a loop log | **nothing** — `loop-log` reads a log's rows and cannot see one that is missing |
 | §8.2 repeated class becomes a check | **nothing** — a habit, and the only evidence it is working is the `nothing` rows in these tables falling over time |
 | §10 spec/plan split respected | **nothing mechanical** — a cold reader; a plan containing rationale is a judgement call |
 
@@ -406,3 +407,4 @@ Unnumbered, so adding it renumbered nothing (§1.8).
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
 | — | — | — | — | — | — | — | Sections 1.5–1.8, 8.1–8.2, 10 added 2026-07-27; not yet reviewed. |
+| 1 | 2026-10-01 | 2 (`review-contract`, genre standard pinned, both lanes holding every question; `neutral-lane`, no project context) | — | — | — | — | **Q1 1 · Q2 2 — verified 3, fixed 3, dismissed 0.** Gate armed by 953f950 (LWSM-1330 item 3: retired skill names, the `size` and `path:line` rows, § 1.8's catcher, § 8.1's timing). Fixed: § 8's opening still called the gate "pre-implementation" for "every spec and standard", against § 8.1's new deferral to `CLAUDE.md` § Review cadence (both lanes); the § 8.1 row credited `loop-log` with catching a missing log, which it cannot see (measured from its definition; split into a `nothing` row); § 2.1's "the four standards docs", a prose count of a growing set, false today (both lanes; pre-existing, fixed as a corrected count). Filed: LWSM-1350, the prose-count test reads per line and missed that wrapped count. Open questions left as reported: whether `versioning-overrides.md` owes a What-checks-this section; whether `mandated-section` resolves this project's § 1.8. |

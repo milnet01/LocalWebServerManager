@@ -43,7 +43,7 @@ think.
 body):
 
 - Pure refactors with no behaviour change — keep existing tests
-  passing; no new test required.
+  passing; no new test required, except § 7's source-invariant case.
 - Documentation-only changes (`Kind: doc` / `doc-fix`) — no test
   needed.
 - Generated code (`moc_*`, `ui_*`, etc.) — not tested directly;
@@ -188,8 +188,9 @@ Measure throughput / latency / memory. Mark them `perf`, registering
 an unregistered marker stops the run: pytest warns about it and
 `filterwarnings = ["error"]` makes the warning an error. Nothing
 deselects `perf` yet; keeping a noisy one out of a gate means adding
-`-m "not perf"` to `local-ci.sh`. Markers go on tests, never on
-files. Compare against a baseline,
+`-m "not perf"` to `local-ci.sh`. `integration` and `perf` go on
+tests, never on files, because a run deselects by them; `gui` selects
+nothing and may be set by a module's `pytestmark` (T6). Compare against a baseline,
 not absolute thresholds, so machine differences don't fail the
 test.
 
@@ -233,7 +234,9 @@ mechanism found once is served by the grep and the commit line.
 - **Name it for the invariant, not for the grep** — what must not
   be true, not what regex you ran.
 - **Scope it to one module.** A tree-wide scan fires on unrelated
-  code and gets deleted rather than fixed. Where the mechanism's
+  code and gets deleted rather than fixed. The exception is a
+  convention every test file keeps, such as T6's `gui` marker: its
+  check reads the test files, since that is where the convention lives. Where the mechanism's
   sites span modules, that means **one test per module holding a
   site** — a scoped test covers only what it can read, and T9 and
   § 7 are discharged only for those sites.
@@ -541,3 +544,4 @@ each loop happens, never back-filled.
 | 3 | 2026-09-28 | 2 (`review-contract`, genre standard pinned, both lanes holding every question; `neutral-lane`, no project context) | — | — | — | — | 1 verified, 0 dismissed, 1 fixed | Gate armed by c660263 + e7aee3b (pytest forms for § 3.2/§ 3.4/§ 3.5/§ 5/§ 6/§ 8; § 2.3 and § 4 now point at `docs/specs/` and `spec-format.md` § 3.7). **Q2 1**, both lanes: § 6 told a slow test to take `integration`, whose registered meaning is a real child process or socket and which `--fast` skips; now `perf`, with the marker's meaning stated in § 3.3. Measured and true: `local-ci.sh` exports `PYTHONDONTWRITEBYTECODE`; `-k` matching nothing exits 5. **Filed on LWSM-1330, outside the change:** § 7's no-new-tests-for-refactors against § 3.6; § 3.1's "no I/O" against T1's `tmp_path` trees; § 8's "corresponding commit prefix". |
 | 4 | 2026-09-28 | 2 (same brief, cold, rebuilt from disk; `neutral-lane`) | — | — | — | — | 1 verified, 0 dismissed, 1 fixed | **Q3 1**, one lane: § 3.4 said `perf` tests are marked "so they can be excluded from CI", and nothing deselects `perf` (measured: `local-ci.sh`'s only `-m` is `"not integration"`); "once registered" read two ways. Now: register it with the first such test, and say that excluding one needs `-m "not perf"` added to `local-ci.sh`. **Filed on LWSM-1330, outside the change:** § 2.2's claim that a mistyped `-k` cannot satisfy the must-FAIL step (it exits 5, which reads as red; both lanes); T6 never says when to apply the registered `gui` marker. |
 | 5 | 2026-09-28 | 2 (same brief, cold, rebuilt from disk; `neutral-lane`) | — | — | — | — | 1 verified, 0 dismissed, 1 fixed | **Capped (loop 3 of 3 for a standard). Q2 1**, one lane: § 6 sent every slow test to `perf` while § 3.4 defines `perf` as measurement tests and names `-m "not perf"` as the way to exclude them, which would drop slow correctness tests from the gate; now no marker excuses a slow test. Both lanes re-raised § 2.2's exit-5 claim and T6's `gui` marker, which the packet listed as facts instead of as surfaced; merged into the filed entries. At the cap § 2.2's exit-5 claim and T9 step 1 were fixed too (out-of-change, the run's last loop): a must-FAIL run counts only on exit 1 with the test reported failed (measured). **Final-loop share on this run's own text: 1 of 1** — the § 6 marker rule, rewritten in loops 3 and 4 and wrong again in 5. Read as a violent cap on that one rule, calm on the rest of the document: this review ends here. **Share inside the gated change (c660263 + e7aee3b): 3 of 3** in-change findings; 7 more pre-existing ones filed on LWSM-1330. **Filed, outside the change:** T1's scope against `tests/conftest.py`. |
+| 6 | 2026-10-01 | 2 (`review-contract`, genre standard pinned, both lanes holding every question; `neutral-lane`, no project context) | — | — | — | — | 4 verified, 0 dismissed, 4 fixed | **Q1 1 · Q2 3.** Gate armed by 953f950 (LWSM-1330 items 5, 6, 7, 9, 10). Fixed: T1's new claim that conftest pins every `XDG_*` the code reads was false — `XDG_STATE_HOME`, `XDG_CONFIG_DIRS`, `XDG_CURRENT_DESKTOP` were unpinned, and a sentinel run showed the suite creating `localwebservermanager/` under the real state directory; `tests/conftest.py` now pins all three and the sentinel stays empty (both lanes); § 1's "no new test required" for refactors against § 7's new exception (both lanes); § 3.4's "markers go on tests, never on files" against T6's `pytestmark` allowance (now scoped to the selecting markers); § 3.6's one-module rule against T6's check reading every test file (the convention case now named). |
