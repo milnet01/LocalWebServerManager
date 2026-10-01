@@ -127,5 +127,6 @@ def test_the_design_documents_name_the_theme_ids_the_code_ships() -> None:
     for path in THEME_DOCS:
         named = THEME_ID.findall(path.read_text(encoding="utf-8"))
         unknown = sorted(set(named) - set(THEMES))
-        assert unknown == [], f"{path.name} names theme ids that do not exist: {unknown}"
-
+        assert unknown == [], (
+            f"{path.name} names theme ids that do not exist: {unknown}"
+        )
