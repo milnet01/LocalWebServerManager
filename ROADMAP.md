@@ -769,7 +769,7 @@ O8` forbids retrofitting that.
   Kind: doc.
   Source: in-session-2026-09-03.
 
-- 📋 [LWSM-1299] **LOW: no test holds the design documents to the theme ids the code actually ships.**
+- ✅ [LWSM-1299] **LOW: no test holds the design documents to the theme ids the code actually ships.**
   LWSM-1245 corrected `contrast-light` / `contrast-dark` to the shipped
   `highcontrast-light` / `highcontrast-dark` in `design-look-and-feel.md` and
   `design-accessibility.md`. Nothing stops that drifting again, and the
@@ -789,6 +789,9 @@ O8` forbids retrofitting that.
 
   That is an edit to the push gate, which this project treats as load-bearing,
   and is well outside a doc-fix. Filed rather than folded in.
+  Resolved (2026-10-01): built in baf561b and on main; the roadmap flip
+  was missed. Re-checked today: the theme-id test and
+  tests/test_ci_contract.py pass.
   **Layman:** The fix for the wrong theme names in the docs is not protected against drifting wrong again.
   Kind: test.
   Source: in-session-2026-09-06.
@@ -1060,7 +1063,7 @@ O8` forbids retrofitting that.
   Source: user-decision-2026-08-18.
   Lanes: release.
 
-- 📋 [LWSM-1312] **roadmap-format.md § 3.7 still requires a target date that no version heading carries.**
+- ✅ [LWSM-1312] **roadmap-format.md § 3.7 still requires a target date that no version heading carries.**
   Local § 3.7 says a release block names "a version + theme + target
   date". None of the seven version headings LWSM-1311 created has a date,
   and § 3.2's own example never had one. The global standard settled this
@@ -1069,6 +1072,9 @@ O8` forbids retrofitting that.
   covers only the decision that run made (CFG-0321, the block shape).
   First check whether the global § 3.7 row was itself gated, and cite
   that run if it was. Otherwise this edit goes through review-contract.
+  Resolved (2026-10-01): built in ccf3011 and on main, as a write-back
+  of the global gate's decision (941ff27, CFG-0321); the roadmap flip
+  was missed. § 3.7 now reads the date as optional.
   **Layman:** The roadmap rules say every version heading needs a target date, but none of ours has one, so the rules and the roadmap disagree.
   Kind: doc-fix.
   Source: in-session-2026-09-25, found while updating § 3.2 for LWSM-1311.
@@ -9874,7 +9880,10 @@ O8` forbids retrofitting that.
   Source: review-code 2026-10-01 lane 03 (L3-L1), queued by close-findings.
   Lanes: core.
 
-- 📋 [LWSM-1356] **module-map.md says `user_half_applied` needs no per-field qualifier, but it has carried one for `unknown` since LWSM-1218.**
+- ✅ [LWSM-1356] **module-map.md says `user_half_applied` needs no per-field qualifier, but it has carried one for `unknown` since LWSM-1218.**
+  Resolved (2026-10-01, 40e4f2a): module-map now says the function takes
+  the user half whole except `unknown`, and points at its docstring for
+  why.
   **Layman:** A note for developers describes one function wrongly; correct it so nobody changes the code on a false premise.
   Kind: doc-fix.
   Source: in-session-2026-10-01 (seen while editing for LWSM-1344).
