@@ -98,6 +98,7 @@ class FakeScanResult:
     projects: tuple[FakeDetected, ...] = ()
     timed_out: bool = False
     unlistable_roots: tuple[Path, ...] = ()
+    skipped: tuple[str, ...] = ()
 
 
 def record(name: str, port: int | None) -> ProjectRecord:
@@ -1589,6 +1590,26 @@ def test_a_rescan_adds_a_new_project_and_says_so(qtbot, built, tmp_path) -> None
     assert [row.name for row in controller.rows()] == ["web"]
     assert "1 new" in window.statusBar().currentMessage()
     assert saves, "first run must write, or projects.json never comes into existence"
+    window.shutdown()
+
+
+def test_what_a_rescan_skipped_reaches_the_app_log(
+    qtbot, built, tmp_path, caplog
+) -> None:
+    """review-code 2026-10-01 L4-H1: `ScanResult.skipped` had no reader, so a
+    refused launcher, a masked unit or a missing `systemctl` vanished — while
+    the scanner bounds and quotes those reasons for a surface meant to show
+    them, and the spec calls one "the branch an operator will want to see"."""
+    scan = FakeScanResult(skipped=("'web': launcher 'start.sh' is group-writable",))
+    window, _controller = rescan_window(qtbot, built, [], tmp_path, scan)
+
+    with caplog.at_level(logging.INFO, logger="lwsm.mainwindow"):
+        run_rescan(qtbot, window)
+
+    assert any(
+        "group-writable" in message and "skipped" in message
+        for message in caplog.messages
+    ), caplog.messages
     window.shutdown()
 
 

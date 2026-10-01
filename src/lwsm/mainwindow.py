@@ -520,6 +520,13 @@ class _RescanTask(QRunnable):
         try:
             try:
                 result = self._context.scan(self._context.roots)
+                # What the scanner looked at and refused. It bounds and quotes
+                # these for an operator, and nothing read them (review-code
+                # 2026-10-01 L4-H1). The log only: one stray folder in a scan
+                # root is a skip, so a status-bar line would fire on every
+                # rescan of every populated machine.
+                for reason in result.skipped:
+                    log.info("rescan: skipped %s", reason)
                 merged = registry.merge(
                     self._stored, result, self._context.roots, self._context.now
                 )

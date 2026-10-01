@@ -321,6 +321,20 @@ signaling per
 
 ### Fixed
 
+- **A line like `parseInt(process.env.PORT, 10) || 3000` is read as port 3000, not 10**
+  The port finder took the first number after `port =`. It now reads the
+  fallback value and skips number bases and list indexes.
+
+- **Projects whose start script names a locked folder or a very long argument stay in the list**
+  Only the port is unknown now; before, the whole project vanished from
+  the list.
+
+- **The port finder looks next to the file doing the importing, not at the project's top folder**
+
+- **A start script that passes a folder after the program, like `node server.js public`, still finds the port**
+
+- **Why a rescan skipped a folder is now written to the app log**
+
 - **A settings file with no version line can be saved again**
   It was read correctly but then refused every save, including the window
   position on close. The note about the missing line is still shown.

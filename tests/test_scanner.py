@@ -2030,12 +2030,12 @@ def _plant_long_hop_token(root: Path) -> str:
 
 
 @pytest.mark.parametrize(
-    "plant",
-    [_plant_unreadable_directory, _plant_long_hop_token],
+    ("plant", "listed"),
+    [(_plant_unreadable_directory, False), (_plant_long_hop_token, True)],
     ids=["unreadable directory", "hop token longer than NAME_MAX"],
 )
 def test_one_hostile_candidate_does_not_destroy_the_whole_scan(
-    tmp_path: Path, plant: Callable[[Path], str]
+    tmp_path: Path, plant: Callable[[Path], str], listed: bool
 ) -> None:
     """§ 4.3: *"Any `OSError` rejects that file with a reason and continues. A
     permission denial on one project is not a failure of the scan."*
@@ -2043,6 +2043,10 @@ def test_one_hostile_candidate_does_not_destroy_the_whole_scan(
     The hostile candidate sorts **first**, so a scan that gives up on it loses
     every project behind it — which is what shipped: `scan()` caught only
     `_BudgetExpired`, so the caller got no `ScanResult` at all.
+
+    The long hop token costs only the port since review-code 2026-10-01
+    (L4-M1): its launcher is readable, so the project is listed with the port
+    unknown, as § 4.3 says of a refused hop target.
     """
     hostile = plant(tmp_path)
     for index in range(3):
@@ -2053,8 +2057,13 @@ def test_one_hostile_candidate_does_not_destroy_the_whole_scan(
     finally:
         (tmp_path / hostile).chmod(0o700)
 
-    assert sorted(by_name(result)) == ["good-0", "good-1", "good-2"]
-    assert any(hostile in reason for reason in result.skipped)
+    good = ["good-0", "good-1", "good-2"]
+    assert sorted(by_name(result)) == ([hostile] if listed else []) + good
+    if listed:
+        assert by_name(result)[hostile].port is None
+        assert any("cannot be examined" in reason for reason in result.skipped)
+    else:
+        assert any(hostile in reason for reason in result.skipped)
 
 
 def test_the_budget_stops_a_scan_mid_candidate(corpus_tree: Path) -> None:
@@ -2875,3 +2884,179 @@ def test_a_symlinked_import_target_is_refused_with_a_reason(
 
     assert by_name(result)["linked"].port is None
     assert any("symlink" in reason for reason in result.skipped), result.skipped
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        # The radix ESLint's `radix` rule requires, then the real default.
+        ("const port = parseInt(process.env.PORT, 10) || 3000", 3000),
+        ("const port = parseInt(process.env.PORT, 10)", None),
+        ("PORT = int(os.environ['PORT'], 16)", None),
+        ("PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000", 8000),
+        ("PORT = int(sys.argv[1])", None),
+        ("const port = process.env.PORT ?? 4000", 4000),
+        ("port = os.environ.get('PORT') or 5000", 5000),
+        # A default passed INTO a call is still the declaration.
+        ('PORT = int(os.environ.get("PORT", 8080))', 8080),
+    ],
+)
+def test_rule_2_does_not_take_a_radix_index_or_condition_for_the_port(
+    line: str, expected: int | None
+) -> None:
+    """review-code 2026-10-01 L4-H2: rule 2 took the FIRST integer on the
+    right, so `parseInt(process.env.PORT, 10) || 3000` gave 10 and
+    `int(sys.argv[1]) if ... else 8000` gave 1 — confidently wrong, which
+    LWSM-1190 calls worse than blank. After a fallback operator the default is
+    what follows the last one; a subscript and a radix are never the port."""
+    assert rule_2(line) == expected
+
+
+def test_an_unreadable_shell_hop_costs_the_port_not_the_project(
+    tmp_path: Path,
+) -> None:
+    """review-code 2026-10-01 L4-M1: LWSM-1221 contained `_accept_hop`'s OSError
+    on the IMPORT walk only. On the shell walk the same EACCES reached `scan()`'s
+    per-candidate handler and dropped the whole project."""
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions, so 0o000 plants nothing")
+    make_project(
+        tmp_path,
+        "proj",
+        {"start.sh": "#!/bin/sh\nexec python3 sub/app.py\n", "sub/app.py": ""},
+        "start.sh",
+    )
+    locked = tmp_path / "proj" / "sub"
+    locked.chmod(0o000)
+    try:
+        result = scanner.scan([tmp_path], units=FakeUnits())
+    finally:
+        locked.chmod(0o755)
+
+    assert [project.name for project in result.projects] == ["proj"]
+    assert result.projects[0].port is None
+
+
+def test_a_directory_argument_does_not_hide_the_script_before_it(
+    tmp_path: Path,
+) -> None:
+    """L4-M2: § 4.5 step 4 takes the last token satisfying the constraints, and
+    "a regular file" is one of them. `exec node server.js public` — `public`
+    failed the read and the walk returned there, so `server.js` was never
+    tried and its port was lost."""
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nexec node server.js public\n",
+            "server.js": "const PORT = 4321;\n",
+            "public/index.html": "",
+        },
+        "start.sh",
+    )
+
+    result = scanner.scan([tmp_path], units=FakeUnits())
+
+    (project,) = result.projects
+    assert project.port is not None and project.port.port == 4321
+
+
+def test_an_import_resolves_from_the_importing_file(tmp_path: Path) -> None:
+    """L4-M3: a script's own directory is on `sys.path`, and a JS relative
+    specifier is relative to its file. Imports were resolved against the
+    project root, so `src/launcher.py`'s `from config import PORT` read
+    `<root>/config.py` — a different file, believed."""
+    make_project(
+        tmp_path,
+        "proj",
+        {
+            "start.sh": "#!/bin/sh\nexec python3 src/launcher.py\n",
+            "src/launcher.py": "from config import PORT\n",
+            "src/config.py": "PORT = 5555\n",
+            "config.py": "PORT = 1111\n",
+        },
+        "start.sh",
+    )
+
+    result = scanner.scan([tmp_path], units=FakeUnits())
+
+    (project,) = result.projects
+    assert project.port is not None and project.port.port == 5555
+
+
+@pytest.mark.parametrize("into", ["unreadable", "regular"])
+def test_a_manage_py_symlink_is_no_django_evidence_and_cannot_drop_the_project(
+    tmp_path: Path, into: str
+) -> None:
+    """review-code 2026-10-01 L4-M4: `(root / "manage.py").is_file()` follows a
+    symlink and re-raises EACCES on 3.13, so a link into an unreadable
+    directory dropped a project with a valid launcher — the denial of service
+    § 4.3 says it closes. And a link to any regular file counted as Django."""
+    if into == "unreadable" and os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions, so 0o000 plants nothing")
+    base = make_project(tmp_path / "roots", "proj", {"serve.py": "print(1)\n"})
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "manage.py").write_text("", encoding="utf-8")
+    (base / "manage.py").symlink_to(outside / "manage.py")
+    if into == "unreadable":
+        outside.chmod(0o000)
+    try:
+        result = scanner.scan([tmp_path / "roots"], units=FakeUnits())
+    finally:
+        outside.chmod(0o755)
+
+    (project,) = result.projects
+    assert project.port is None, "a symlinked manage.py is not Django evidence"
+
+
+@pytest.mark.parametrize(
+    "line", ["cd app;PORT=8080 node x", "(PORT=8080 node x)", "true&&PORT=8080 node x"]
+)
+def test_a_port_assignment_right_after_a_separator_is_read(line: str) -> None:
+    """review-code 2026-10-01 L4-L1: `match.start()` pointed at the boundary
+    character the regex consumed, so with no space after a separator the token
+    BEFORE it was judged and the declaration refused. § 4.6 allows one "after a
+    separator (`;&|({[,`)"."""
+    assert scanner.rule_1(line) == 8080
+
+
+def test_systemctl_output_that_is_not_utf8_does_not_escape_as_valueerror() -> None:
+    """review-code 2026-10-01 L4-L3: `text=True` decodes strictly, and a
+    `UnicodeDecodeError` is a `ValueError` — not the `OSError` the Protocol
+    says is the only exception, so it escaped `scan()` whole."""
+    out = scanner.SystemctlUnits._run(["printf", "\\377ok"], 5.0)
+    assert out.endswith("ok")
+
+
+@pytest.mark.parametrize("value", ["~", "relative/dir", "."])
+def test_a_relative_working_directory_binds_nothing(
+    tmp_path: Path, monkeypatch, value: str
+) -> None:
+    """L4-L2: only the empty value was refused. Any relative one resolves
+    against the manager's own cwd, so launching from inside a candidate bound
+    a foreign unit to it — the outcome the empty-value rule exists to stop."""
+    candidate = tmp_path / "proj"
+    (candidate / "relative" / "dir").mkdir(parents=True)
+    (candidate / "~").mkdir()
+    monkeypatch.chdir(candidate)
+    assert scanner._bound_inside(value, candidate) is False
+
+
+def test_a_root_past_the_entry_cap_is_cut_short_and_reported_unlistable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """review-code 2026-10-01 L4-L4: a root's entries were all collected before
+    sorting, bounded only by the time budget, so a huge root used memory in
+    proportion to its size and could spend the whole budget listing. Past the
+    cap the root counts as unlistable, so the merge does not mark the
+    projects it never saw as missing."""
+    monkeypatch.setattr(scanner, "MAX_ROOT_ENTRIES", 3)
+    for index in range(5):
+        make_project(tmp_path, f"p{index}", {"serve.py": "PORT = 8000\n"})
+
+    result = scan_root(tmp_path)
+
+    assert len(result.projects) <= 3
+    assert tmp_path in result.unlistable_roots
+    assert any("more than 3" in reason for reason in result.skipped)

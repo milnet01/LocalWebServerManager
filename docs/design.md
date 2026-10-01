@@ -317,7 +317,9 @@ refused until they do. Guessing would be worse than asking.
    `PORT=${PORT:-8080}` declares 8080.
 2. An assignment whose left-hand side **is** `port` — either
    exactly, or preceded by a **non-alphanumeric character** —
-   case-insensitive, with an integer literal anywhere on the right
+   case-insensitive, with an integer literal on the right — past
+   the last fallback operator (`||`, `??`, `or`, `else`) when there
+   is one, and never inside `[...]` or as a number base
    — `PORT = 8765`, `DEFAULT_PORT = 4322`, `'server_port': 5000`,
    `"port": 5173`, and
    `const PORT = Number(process.env.PROJECT_A_PORT) || 4321`. The

@@ -55,7 +55,7 @@ __all__ = ["MAX_DISPLAY_NAME_CHARS", "LauncherKind"]
 MAX_SOURCE_FILE_BYTES = 256 * 1024
 MAX_SOURCE_LINE_CHARS = 4096
 
-# A rejection reason reaches the app log and the status bar, and the name in it
+# A rejection reason reaches the app log, and the name in it
 # is a scan-root subdirectory name — attacker-supplied, and a Linux filename may
 # contain a newline. Same name and value as `configfile.py::MAX_REASON_CHARS`,
 # since it bounds the same thing for the same reason. It clips each VALUE
@@ -73,6 +73,12 @@ MAX_REASON_CHARS = 120
 # two bound different populations — hand-edited records in one file against
 # subdirectories on disk — so they will move independently.
 MAX_SKIP_REASONS = 100
+
+# Entries read from one scan root. Each is held until the sort, so without a
+# cap a huge root costs memory in proportion to its size and can spend the
+# whole budget listing (review-code 2026-10-01 L4-L4). Far above any folder of
+# projects a person keeps.
+MAX_ROOT_ENTRIES = 10_000
 
 # Checked before each candidate and, inside a file read, before each line. A
 # wall-clock check between files cannot interrupt work already under way.
@@ -503,8 +509,11 @@ def _declaration_position(line: str, end: int) -> bool:
 
 
 RULE_1 = re.compile(
-    r"(?:^|[^A-Za-z0-9_])PORT=\$\{PORT:-(\d{1,5})\}(?![0-9])"  # PORT=${PORT:-N}
-    r"|(?:^|[^A-Za-z0-9_])PORT=(\d{1,5})(?![0-9])"  # PORT=N
+    # Lookbehinds, not a consumed boundary character: `match.start()` must land
+    # on the `P`, or `_declaration_position` judges the token before a
+    # separator written with no space after it (L4-L1).
+    r"(?<![A-Za-z0-9_])PORT=\$\{PORT:-(\d{1,5})\}(?![0-9])"  # PORT=${PORT:-N}
+    r"|(?<![A-Za-z0-9_])PORT=(\d{1,5})(?![0-9])"  # PORT=N
     r"|--port[= ](\d{1,5})(?![0-9])"  # --port N / --port=N
     r"|(?:localhost|127\.0\.0\.1):(\d{1,5})(?![0-9])",  # localhost:N
     re.IGNORECASE,
@@ -542,6 +551,30 @@ def rule_1(line: str) -> int | None:
 
 
 KEY_IS_PORT = re.compile(r"(?:^|[^A-Za-z0-9])port$", re.IGNORECASE)
+
+# What separates a value from its fallback. After the LAST of these, the rest
+# of the right-hand side is the default the program falls back to — the one
+# number on the line that is the port when nothing overrides it.
+_FALLBACK = re.compile(r"\|\||\?\?|\bor\b|\belse\b")
+# A number base passed to a parse call: `parseInt(x, 10)`, `int(x, 16)`.
+_RADIX = re.compile(r"\b(?:parseInt|int)\([^()]*,\s*(\d+)\s*\)")
+
+
+def _not_a_port_spans(text: str) -> list[tuple[int, int]]:
+    """Where in `text` a number is a subscript or a radix, never a port."""
+    spans = [match.span(1) for match in _RADIX.finditer(text)]
+    depth = 0
+    start = 0
+    for index, char in enumerate(text):
+        if char == "[":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "]" and depth:
+            depth -= 1
+            if depth == 0:
+                spans.append((start, index))
+    return spans
 
 
 def rule_2(line: str) -> int | None:
@@ -583,7 +616,19 @@ def rule_2(line: str) -> int | None:
         # in a *search*: the engine, unable to match at the first digit,
         # advances and matches the tail — ` 123456` yields `23456`. Rule 1 is
         # immune only because `PORT=` anchors its digits to a fixed position.
+        #
+        # Not the FIRST integer on the right, which is what this took until
+        # review-code 2026-10-01 (L4-H2): `parseInt(process.env.PORT, 10) ||
+        # 3000` gave 10, and `int(sys.argv[1]) if ... else 8000` gave 1. After
+        # a fallback operator only the text past the last one is read, and a
+        # number in a subscript or a radix position is never the port.
+        fallbacks = list(_FALLBACK.finditer(right))
+        if fallbacks:
+            right = right[fallbacks[-1].end() :]
+        excluded = _not_a_port_spans(right)
         for digits in re.finditer(r"(?<![0-9-])\d{1,5}(?![0-9])", right):
+            if any(low <= digits.start() < high for low, high in excluded):
+                continue
             # The range check lives HERE, not at the call site: an out-of-range
             # value must let the search carry on to the next separator, the next
             # line and the next source, which a returned int cannot express.
@@ -696,12 +741,26 @@ def _framework_finding(name: str) -> PortFinding:
     )
 
 
+def _is_plain_file(path: Path) -> bool:
+    """A regular file that is not a symlink, never raising.
+
+    `Path.is_file` follows a link and re-raises EACCES on 3.13, so a planted
+    `manage.py` link into an unreadable directory dropped the project it sat
+    in, and a link to any regular file counted as evidence (review-code
+    2026-10-01 L4-M4). `lstat` judges the entry itself.
+    """
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
 def _python_framework(root: Path, lines: Sequence[str]) -> PortFinding | None:
     """Django before Flask, because the table order is the precedence: a project
     with a root-level `manage.py` *and* an `import flask` matches both, and
     nothing else breaks the tie. `source` names the framework that won, so a
     wrong guess is diagnosable rather than mysterious."""
-    if (root / "manage.py").is_file() or _imports(lines, "django"):
+    if _is_plain_file(root / "manage.py") or _imports(lines, "django"):
         return _framework_finding("Django")
     if _imports(lines, "flask"):
         return _framework_finding("Flask")
@@ -736,9 +795,14 @@ _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def _accept_hop(
-    token: str, root: Path, launcher: Path
+    token: str, root: Path, launcher: Path, base: Path | None = None
 ) -> tuple[Path | None, str | None]:
     """§ 4.5's six constraints, on a path.
+
+    `token` is resolved against `base`, the project root when omitted; every
+    constraint is still judged against `root`. An import passes the importing
+    file's directory, since that is where Python's `sys.path[0]` and a JS
+    relative specifier both start (review-code 2026-10-01 L4-M3).
 
     Returns `(target, None)` when the token passes all six and `(None, reason)`
     when it does not; there is no third outcome (LWSM-1273). Whether a passing
@@ -754,8 +818,9 @@ def _accept_hop(
         # the whole scan raises. `registry.py` already refuses a NUL in a path,
         # and its comment names P03 as the consumer; the guard did not arrive.
         return None, f"hop target {_quoted(token)} contains a NUL byte"
+    written = (root if base is None else base) / token
     try:
-        target = (root / token).resolve()
+        target = written.resolve()
     except (OSError, ValueError):
         return None, f"hop target {_quoted(token)} cannot be resolved"
     try:
@@ -773,7 +838,7 @@ def _accept_hop(
         return None, f"hop target {_quoted(token)} is more than {MAX_HOP_DEPTH} deep"
     if target == launcher:
         return None, f"hop target {_quoted(token)} is the launcher itself"
-    if (root / token).is_symlink():
+    if written.is_symlink():
         # Constraints 1-5 all pass for an in-project symlink whose target is
         # also in-project, and `O_NOFOLLOW` would then refuse it unread — a
         # rejection with no reason attached to the thing that caused it.
@@ -929,7 +994,9 @@ def _walk_imports(
                 # looking, and an unknown port here IS honest.
                 return None
             try:
-                target, reason = _accept_hop(specifier, candidate, launcher)
+                target, reason = _accept_hop(
+                    specifier, candidate, launcher, launcher.parent
+                )
             except OSError as exc:
                 # Contained at the HOP, which is the unit, and deliberately
                 # not at the `is_symlink` inside it — `Path.exists` /
@@ -1026,7 +1093,18 @@ def _hop_target(
                 # rather than listed with a port nobody finished looking for
                 # (LWSM-1220, `_BudgetExpired`).
                 raise _BudgetExpired
-            target, reason = _accept_hop(token, root, launcher)
+            try:
+                target, reason = _accept_hop(token, root, launcher)
+            except OSError as exc:
+                # `_walk_imports`' containment, for its reason (LWSM-1221):
+                # `is_symlink` re-raises EACCES and ENAMETOOLONG on 3.13, and
+                # uncontained it dropped the whole project (L4-M1). A refusal,
+                # so the token before it is still tried.
+                target = None
+                reason = (
+                    f"hop target {_quoted(token)} cannot be examined "
+                    f"({exc.strerror or exc})"
+                )
             if reason is not None:
                 # Step 4 takes the last token that satisfies the six
                 # constraints, which is not the same as *the last token*: a
@@ -1049,9 +1127,14 @@ def _hop_target(
                 continue
             except OSError as exc:
                 # A refused hop target leaves the project listed: the launcher
-                # is still runnable and only the port is unknown.
-                unreadable = f"{_quoted(token)} cannot be read ({exc.strerror or exc})"
-                return None, [], unreadable
+                # is still runnable and only the port is unknown. And it is a
+                # REFUSAL like any other, so the token before it is tried: "a
+                # regular file" is one of § 4.5's constraints, and returning
+                # here let `exec node server.js public` stop at the directory
+                # and never reach `server.js` (L4-M2).
+                if refusal is None:
+                    refusal = f"{_quoted(token)} cannot be read ({exc.strerror or exc})"
+                continue
         # LWSM-1183 — "the last invocation" is the last one that RESOLVES, not
         # the last line carrying the keyword. A line can hold the keyword and
         # name no runnable file at all — a trailing `echo "re-run with python3
@@ -1189,6 +1272,9 @@ class SystemctlUnits:
                 argv,
                 capture_output=True,
                 text=True,
+                # Not strict: a `UnicodeDecodeError` is a `ValueError`, which
+                # the Protocol's "OSError only" does not admit (L4-L3).
+                errors="replace",
                 timeout=max(timeout, 0.0),
                 check=True,
             )
@@ -1270,7 +1356,9 @@ def _bound_inside(value: str, candidate: Path) -> bool:
     exist and nothing ever binds.
     """
     cleaned = value.lstrip("-!")
-    if not cleaned:
+    if not cleaned or not Path(cleaned).is_absolute():
+        # A relative value resolves against OUR cwd, the empty value's hazard
+        # by another spelling (review-code 2026-10-01 L4-L2).
         return False
     try:
         resolved = Path(cleaned).resolve()
@@ -1713,6 +1801,17 @@ def scan(
                     for entry in listing:
                         if deadline.expired():
                             raise _BudgetExpired
+                        if len(entries) >= MAX_ROOT_ENTRIES:
+                            # Partly listed is unlistable to the merge: the
+                            # projects past the cap were never seen, and must
+                            # not be reported missing.
+                            note(
+                                f"{_quoted(str(root))}: holds more than "
+                                f"{MAX_ROOT_ENTRIES} entries; the rest were "
+                                "not examined"
+                            )
+                            unlistable.append(Path(root))
+                            break
                         entries.append(entry)
                     entries.sort(key=lambda entry: entry.name)
             except OSError as exc:

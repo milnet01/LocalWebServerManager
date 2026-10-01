@@ -339,6 +339,9 @@ are and nothing bounds how *many* — the gap LWSM-1115 closed in the registry
 after a file at its size cap produced **524,271** reasons totalling 20,859,730
 characters, 8.7 s of them logged before the window appeared. A scan root with a
 large subdirectory count reaches the same shape by a different road.
+`MAX_ROOT_ENTRIES = 10_000` bounds how many entries one root is read for; past
+it the root is reported in `unlistable_roots`, so the merge does not mark the
+projects it never saw as missing (review-code 2026-10-01).
 
 **Same value as `registry.py::MAX_REASONS`, and deliberately not shared.** The
 two bound different populations — hand-edited records in one file against
@@ -775,6 +778,12 @@ constraint 3 exists to prevent. `from ..x import` names a parent package, is
 outside the project by construction, and is refused rather than stripped to a
 root-relative name.
 
+**A specifier is resolved from the importing file's directory**, which is where
+both `sys.path[0]` and a JavaScript relative specifier start; the six
+constraints are still judged against the project root. Resolving from the root
+read `<root>/config.py` for `src/launcher.py`'s `from config import PORT` — a
+different file, believed (review-code 2026-10-01).
+
 The keyword must be in **statement position**, not merely present on the line:
 `\bimport\b` matches inside `not-an-import`, because `-` is a word boundary, so
 a presence test hops on any line carrying the word beside a relative-looking
@@ -971,7 +980,7 @@ inside a docstring and still run.
 `(?<![0-9-])\d{1,5}(?![0-9])`, excluding a preceding `-` as well as a digit:
 without it `PORT = -1` yields **1** (measured), inventing a plausible port from
 a line that declares an impossible one. `PORT = 80.80` still yields 80, which
-is correct — the first whole number on the right is the declaration, and a
+is correct — the first whole number the rule reads is the declaration, and a
 fractional port is not a form anyone writes.
 
 **Within one source the scan is line-major: each line is offered to rule 1
@@ -1056,6 +1065,10 @@ line or out of the left side `=` produced — and they differ on
 
 ```python
 KEY_IS_PORT = re.compile(r"(?:^|[^A-Za-z0-9])port$", re.IGNORECASE)
+_FALLBACK = re.compile(r"\|\||\?\?|\bor\b|\belse\b")
+_RADIX = re.compile(r"\b(?:parseInt|int)\([^()]*,\s*(\d+)\s*\)")
+# `_not_a_port_spans(text)`: the spans of every `_RADIX` group and every
+# top-level `[...]` in `text`.
 
 
 def rule_2(line: str) -> int | None:
@@ -1078,7 +1091,18 @@ def rule_2(line: str) -> int | None:
         # the engine, unable to match at the first digit, advances and matches
         # the tail — ` 123456` yields `23456`. Rule 1 is immune only because
         # `PORT=` anchors its digits to a fixed position.
+        #
+        # After a fallback operator (`||`, `??`, `or`, `else`) only the text
+        # past the LAST one is read, and a number inside `[...]` or in a
+        # radix position (`parseInt(x, 10)`, `int(x, 16)`) is skipped:
+        # `parseInt(process.env.PORT, 10) || 3000` is 3000, not 10.
+        fallbacks = list(_FALLBACK.finditer(right))
+        if fallbacks:
+            right = right[fallbacks[-1].end() :]
+        excluded = _not_a_port_spans(right)
         for digits in re.finditer(r"(?<![0-9-])\d{1,5}(?![0-9])", right):
+            if any(low <= digits.start() < high for low, high in excluded):
+                continue
             # The range check lives HERE, not at the call site: an out-of-range
             # value must let the search carry on to the next separator, the next
             # line and the next source, which a returned int cannot express.
