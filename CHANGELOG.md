@@ -251,6 +251,11 @@ signaling per
 
 ### Changed
 
+- **A desktop font size change applies the next time the app starts** (LWSM-1346)
+  The bundled Qt sends a running app no notice of the change
+  (measured on KDE Plasma 6.7). The View menu's text size works
+  immediately.
+
 - **The "run this project's start script?" question is asked once per launcher, not once per session.** (LWSM-1046)
   Your answer is kept in trust.json beside settings.json. It is asked
   again if the script or its command changes. A damaged file only means
@@ -320,6 +325,10 @@ signaling per
   default.
 
 ### Fixed
+
+- **A broken script in package.json no longer makes Start silently do nothing** (LWSM-1367)
+  A lone surrogate character in the script crashed the start
+  with no message.
 
 - **`install-desktop-entry.sh` writes an absolute path when given a relative one, and handles a `%` in the install path.**
 
@@ -1143,6 +1152,27 @@ signaling per
   one.
 
 ### Security
+
+- **Approving an npm project now covers its pre and post scripts and its .npmrc** (LWSM-1363)
+  A project could add a predev or postdev script, or an .npmrc
+  that changes how npm runs, and the next Start ran it with no new
+  question. Every npm project approved before this asks once more.
+
+- **A package.json that is a link no longer makes one approval cover any later change** (LWSM-1364)
+  Its scripts are read through the link, and an npm launch whose
+  script cannot be read is refused rather than offered.
+
+- **The approval window for an npm project lists the commands npm will run** (LWSM-1365)
+  It showed only "npm run dev". It now lists each script and each
+  .npmrc line, escaped so none can fake the window's layout.
+
+- **A server another account runs on the same port is no longer shown as yours** (LWSM-1366)
+  With your server on 127.0.0.1 and theirs on ::1, the row showed
+  as managed and Open could reach theirs without a warning.
+
+- **An imported profile never sets a start command or start at login** (LWSM-1369)
+  Like custom actions, these run something, and a profile is a
+  file someone can hand you.
 
 - **A launcher reached through a folder link is refused when another account could swap that link** (LWSM-1352)
   The trust gate checked the folders around the file a launcher resolves

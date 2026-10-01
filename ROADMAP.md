@@ -1067,6 +1067,12 @@ O8` forbids retrofitting that.
   LWSM-1348: user has no screen reader, so check AT-SPI directly.
   NEXT: security LWSM-1365, 1366, 1369; then accessibility 1337/1349,
   1342, 1343, 1345, 1348; then the refactor items; then cut-release.
+  Progress (2026-10-01, pushed, 010424d): every security item from the
+  pass is closed: 1363, 1364, 1367 (a8903f5), 1369 (113f1f9), 1366
+  (07cf367), 1365 (010424d). Full gate green on each push (1922 tests).
+  NEXT: accessibility 1337/1349 (decided together), 1342, 1343, 1345,
+  1348 (query AT-SPI directly); then the refactor items 1357 to 1362 and
+  1368; then cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
