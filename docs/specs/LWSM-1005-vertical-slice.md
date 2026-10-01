@@ -352,8 +352,8 @@ probe runs on a worker so a slow `psutil` call cannot freeze the window" —
 and `§ O2` requires a worker to reach the UI **only** through a queued
 signal. §8 records why this lands in P02 rather than later.
 
-So `poll_once` does not probe. It submits a task to
-`QThreadPool.globalInstance()`:
+So `poll_once` does not probe. It submits a task to the controller's
+private `QThreadPool` (why private, below):
 
 ```python
 class _SnapshotSignals(QObject):
@@ -755,9 +755,10 @@ finds the log when the window misbehaves.
 1. `argparse` runs first and is untouched, so `--version` and `--help` still
    exit without constructing a `QApplication` and therefore work with no
    display.
-2. Logging is configured exactly as now, including the stderr fallback.
-3. `QApplication` is constructed, and then **all the wiring happens in a
-   separate function**:
+2. `QApplication` is constructed and the single-instance socket claimed
+   (LWSM-1065), so a second launch exits before it opens `app.log`. Logging
+   is then configured as now, including the stderr fallback.
+3. **All the wiring happens in a separate function**:
 
    ```python
    def build_window(
@@ -1238,7 +1239,9 @@ importing `lwsm.__main__` in a test does not require a display.
   into a controller being torn down during interpreter shutdown.
 - **The socket table cannot be read.** `ProbeError`, logged at WARNING **on
   the first failure and then only when the message changes** (LWSM-1079);
-  every row keeps its previous status and no signal is emitted (INV-4b).
+  every row keeps its previous status (INV-4b). The failure is reported
+  through `action_failed`, behind the same suppression, and `projects_changed`
+  may fire because `managed` is dropped (LWSM-1203, LWSM-1231).
   The poll is 1000 ms, so a permanently unreadable socket table — a hardened
   kernel, a persistent `AccessDenied` — wrote roughly **86,400 lines a day**
   into a handler that rotates at 1 MiB keeping 5, scrubbing away the history
@@ -1313,10 +1316,10 @@ importing `lwsm.__main__` in a test does not require a display.
 - **Two records share a port.** Both rows read `running` off the same
   socket. ADR-0005 catches this at merge time, and there is no merge in
   P02 — LWSM-1007 owns it. Named here so a reviewer knows it was seen.
-- **A server binds only IPv6, or only a non-loopback address.** The
-  snapshot keys on port alone, so it is seen. This is deliberately looser
-  than "the project is reachable at `localhost:<port>`"; the health check
-  that closes that gap is LWSM-1034.
+- **A server binds only IPv6, or only a non-loopback address.** IPv6
+  loopback is seen. A listener on a LAN address only is NOT `running`: the
+  status asks `answers_localhost`, because Open builds
+  `http://localhost:<port>/` (LWSM-1232).
 
 ## 7. Tests
 

@@ -2842,13 +2842,25 @@ class MainWindow(QMainWindow):
         )
         return bool(self._disclose(path, holder))
 
+    def _shown_holder(self, path: Path) -> int | None:
+        """The holder PID the disclosure is about to describe, read BEFORE it.
+
+        Handed to the controller with the action, so a holder that changed
+        while the dialog was open is refused rather than acted on — ADR-0004:
+        a set that changed during the dialog is asked again (L6-L5).
+        """
+        view = next((row for row in self._controller.rows() if row.path == path), None)
+        return view.holder_pid if view is not None else None
+
     def _stop_project(self, path: Path) -> None:
+        shown = self._shown_holder(path)
         if self._may_act_on(path):
-            self._controller.stop_project(path)
+            self._controller.stop_project(path, disclosed_holder=shown)
 
     def _restart_project(self, path: Path) -> None:
+        shown = self._shown_holder(path)
         if self._may_act_on(path):
-            self._controller.restart_project(path)
+            self._controller.restart_project(path, disclosed_holder=shown)
 
     def _open_project(self, path: Path) -> None:
         """Open the running server in the desktop's browser.

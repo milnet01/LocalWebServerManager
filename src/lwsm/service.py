@@ -242,3 +242,37 @@ def drive_unit(verb: str, unit: str, *, run: object = None) -> UnitOutcome:
         unit=unit,
         reason=detail[:MAX_REASON_CHARS] or f"systemctl {verb} failed",
     )
+
+
+# The `ActiveState` values that end a start: the unit is not running and is not
+# about to be. `activating` and `reloading` are still on their way, and a slow
+# start is not a failure (ADR-0004 § Slowness is not failure).
+ENDED_STATES = frozenset({"failed", "inactive"})
+
+
+def unit_state(unit: str, *, run: object = None) -> str | None:
+    """A unit's `ActiveState` from `systemctl --user is-active`, or `None`.
+
+    The service-side counterpart of `Supervisor.exited()` (L6-M3): a verb's
+    exit code says only that systemd accepted it, so a unit that crashes right
+    after `start` is visible here and nowhere else. A query, not a verb, so it
+    is not in `VERBS` and cannot change anything.
+
+    `None` means unreadable, which is not evidence of anything. `is-active`
+    exits non-zero for every state but `active`, so stdout is read regardless.
+    """
+    if not valid_unit_name(unit) or SESSION_UNIT.match(unit):
+        return None
+    runner = run if run is not None else subprocess.run
+    try:
+        completed = runner(  # type: ignore[operator]
+            ["systemctl", "--user", "is-active", "--", unit],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=UNIT_VERB_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return (getattr(completed, "stdout", "") or "").strip() or None

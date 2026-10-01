@@ -310,6 +310,37 @@ def test_run_bounds_the_exit_when_main_raises(monkeypatch) -> None:
     assert bounded == [1], "an exception out of main() skipped the bounded exit"
 
 
+@pytest.mark.parametrize("flag", ["--version", "--help"])
+def test_version_and_help_print_no_crash_traceback(monkeypatch, caplog, flag) -> None:
+    """argparse ends `--version` and `--help` by raising `SystemExit(0)`.
+
+    `run()` caught it as a crash and logged it before any handler existed, so
+    `logging.lastResort` printed "the app ended on an exception" and a
+    traceback on every use of a documented flag (2026-10-01 review, L6-M1).
+    The exit code and the bound are unchanged.
+
+    Dies on removing the `SystemExit` branch from `run()`.
+    """
+    from lwsm import controller as controller_module
+
+    bounded: list[int] = []
+    monkeypatch.setattr(sys, "argv", ["lwsm", flag])
+    monkeypatch.setattr(
+        controller_module,
+        "exit_without_waiting_for_abandoned_probes",
+        lambda code: bounded.append(code),
+    )
+
+    with pytest.raises(SystemExit) as exited:
+        entry.run()
+
+    assert exited.value.code == 0
+    # pytest's own handler replaces `lastResort`, so stderr cannot show it here;
+    # the record is what reached stderr outside pytest.
+    assert "the app ended on an exception" not in caplog.text
+    assert bounded == [0], "the SystemExit path skipped the bounded exit"
+
+
 @pytest.mark.gui
 @pytest.mark.usefixtures("_no_event_loop")
 def test_main_stops_the_controller_when_the_loop_returns(
@@ -1849,3 +1880,44 @@ def test_a_project_list_that_cannot_be_read_is_explained_in_the_list(
         assert "not valid JSON" in window.statusBar().currentMessage()
     finally:
         controller.stop()
+
+
+def test_a_relative_socket_name_runs_unguarded_rather_than_in_tmp() -> None:
+    """Qt answers "" for the runtime location when it cannot make its private
+    fallback, which turned the socket name relative, and `QLocalServer` puts a
+    relative name in the shared `/tmp` (2026-10-01 review, L6-L2).
+
+    Dies on removing the absolute-path check from `claim_single_instance`.
+    """
+    claim = entry.claim_single_instance(
+        str(Path("") / entry.INSTANCE_SOCKET_NAME), lambda: None
+    )
+    try:
+        assert claim.primary
+        assert claim.server is None
+        assert claim.problem
+    finally:
+        if claim.server is not None:
+            claim.server.close()
+
+
+def test_a_crashed_copys_socket_is_recovered(tmp_path: Path) -> None:
+    """A socket file with no listener is a crashed copy's leftover: the next
+    launch must run, not report "already running" (LWSM-1065). Exercises the
+    locked recovery added for L6-L3; the two-launch race itself needs two
+    processes interleaved inside one call and has no deterministic red run.
+    """
+    import socket
+
+    path = str(tmp_path / entry.INSTANCE_SOCKET_NAME)
+    stale = socket.socket(socket.AF_UNIX)
+    stale.bind(path)
+    stale.close()  # the file stays, with nobody behind it
+
+    claim = entry.claim_single_instance(path, lambda: None)
+    try:
+        assert claim.primary
+        assert claim.server is not None, claim.problem
+    finally:
+        if claim.server is not None:
+            claim.server.close()

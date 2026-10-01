@@ -24,7 +24,13 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 from lwsm.configfile import display_text
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
 from lwsm.registry import ProjectRecord, port_claims
-from lwsm.service import UnitOutcome, drive_unit, unit_for_pid
+from lwsm.service import (
+    ENDED_STATES,
+    UnitOutcome,
+    drive_unit,
+    unit_for_pid,
+    unit_state,
+)
 from lwsm.settings import DEFAULT_POLL_INTERVAL_MS
 from lwsm.supervisor import (
     LauncherUntrusted,
@@ -402,6 +408,7 @@ class _ServiceSignals(QObject):
     """A `systemctl` verb finishing on a worker thread, delivered to the GUI."""
 
     done = Signal(object, object)  # path, UnitOutcome
+    state = Signal(object, object)  # path, ActiveState or None
 
 
 class _ServiceTask(QRunnable):
@@ -431,7 +438,37 @@ class _ServiceTask(QRunnable):
             outcome = UnitOutcome(
                 ok=False, verb=self._verb, unit=self._unit, reason=str(exc)
             )
-        self._signals.done.emit(self._path, outcome)
+        try:
+            self._signals.done.emit(self._path, outcome)
+        except RuntimeError:
+            # `_SnapshotTask`'s outer layer, for its reason: a task abandoned by
+            # stop() can outlive its signaller, and the docstring promises the
+            # body is wrapped whole (L6-L1).
+            log.debug("service verb ended with no live signaller", exc_info=True)
+
+
+class _UnitStateTask(QRunnable):
+    """One `systemctl --user is-active`, off the GUI thread (L6-M3).
+
+    Wrapped whole for `_ServiceTask`'s reason; an unreadable state is `None`,
+    which the slot treats as no evidence.
+    """
+
+    def __init__(self, path: Path, unit: str, signals: _ServiceSignals) -> None:
+        super().__init__()
+        self._path = path
+        self._unit = unit
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            state = unit_state(self._unit)
+        except BaseException:
+            state = None
+        try:
+            self._signals.state.emit(self._path, state)
+        except RuntimeError:
+            log.debug("unit state ended with no live signaller", exc_info=True)
 
 
 class ProjectController(QObject):
@@ -478,6 +515,10 @@ class ProjectController(QObject):
         # a widget, so it cannot become the second store `design.md § State
         # management` forbids.
         self._overlay: tuple[Path, ProjectStatus] | None = None
+        # Projects the poll reaped since the last snapshot. The reap drops the
+        # supervisor's entry, after which `exited()` answers False, so this is
+        # the only place the settle can still learn the child died (L6-H1).
+        self._reaped: set[Path] = set()
         self._action_signals = _ActionSignals(self)
         # Queued, never auto: a future that is already done runs its callback
         # INLINE on the GUI thread, and an auto connection then called
@@ -534,6 +575,12 @@ class ProjectController(QObject):
         # shutdown would hold the poll for the whole of it.
         self._service_signals = _ServiceSignals(self)
         self._service_signals.done.connect(self._on_service_done)
+        self._service_signals.state.connect(self._on_unit_state)
+        # The unit a successful start or restart handed to systemd, watched
+        # while its row reads `starting`: the exit code said only that systemd
+        # accepted the verb (L6-M3). One at a time, like the overlay itself.
+        self._watched_unit: tuple[Path, str] | None = None
+        self._unit_check_in_flight = False
         self._service_pool = QThreadPool(self)
         self._service_pool.setMaxThreadCount(2)
 
@@ -733,11 +780,14 @@ class ProjectController(QObject):
             return
         self._set_overlay(path, ProjectStatus.STARTING)
 
-    def stop_project(self, path: Path) -> None:
+    def stop_project(self, path: Path, *, disclosed_holder: int | None = None) -> None:
         """Signal the group, and show `stopping` immediately.
 
         The stop itself runs on a worker: a five-second grace period on the UI
         thread would freeze the window (ADR-0003).
+
+        `disclosed_holder` is the holder PID the window's disclosure showed; a
+        foreign stop is refused when the port's holder is no longer that one.
         """
         record = self._record(path)
         if record is None or self._supervisor is None:
@@ -752,6 +802,8 @@ class ProjectController(QObject):
             return
         if path not in self._supervisor.running():
             self._restarting.discard(path)
+            if self._holder_changed(path, disclosed_holder):
+                return
             # A `running (foreign)` project — this manager did not spawn it, so
             # there is no handle to signal through, and ADR-0003 forbids
             # signalling a bare PID. Its systemd unit is an identity rather than
@@ -762,7 +814,9 @@ class ProjectController(QObject):
         future = self._supervisor.stop_async(path)
         future.add_done_callback(lambda done: self._report_stop(path, done))
 
-    def restart_project(self, path: Path) -> None:
+    def restart_project(
+        self, path: Path, *, disclosed_holder: int | None = None
+    ) -> None:
         """Stop then start, with the same pre-flight check (ADR-0003).
 
         Sequenced through the stop's completion rather than run back to back:
@@ -772,6 +826,8 @@ class ProjectController(QObject):
         if self._supervisor is not None and path in self._supervisor.running():
             self._restarting.add(path)
             self.stop_project(path)
+            return
+        if self._holder_changed(path, disclosed_holder):
             return
         unit = self._holder_unit(path)
         if unit is not None:
@@ -791,6 +847,23 @@ class ProjectController(QObject):
             return
         self._supervisor.trust.confirm(path, fingerprint)
         self.start_project(path)
+
+    def _holder_changed(self, path: Path, disclosed: int | None) -> bool:
+        """Refuse a foreign action whose holder changed after it was disclosed.
+
+        The window's disclosure is modal, and polls go on underneath it. If the
+        port's holder is now a different process, the user said yes to a server
+        that is no longer there, and ADR-0004 asks again rather than acting on
+        the new one (L6-L5). `None` means nothing was disclosed.
+        """
+        if disclosed is None or self._holders.get(path) == disclosed:
+            return False
+        self.action_failed.emit(
+            path,
+            f"the server holding {display_text(path.name)}'s port changed while "
+            "you were deciding — nothing was done; try again",
+        )
+        return True
 
     def _holder_unit(self, path: Path) -> str | None:
         """The systemd unit holding this project's port, if any.
@@ -863,6 +936,11 @@ class ProjectController(QObject):
                 # success and a failure on screen together, since the user would
                 # believe whichever arrived last.
                 self.action_done.emit(path, outcome.verb)
+                if outcome.verb in ("start", "restart") and self._overlay == (
+                    path,
+                    ProjectStatus.STARTING,
+                ):
+                    self._watched_unit = (path, outcome.unit)
         finally:
             self.projects_changed.emit()
 
@@ -944,6 +1022,9 @@ class ProjectController(QObject):
         return next((record for record in self._records if record.path == path), None)
 
     def _set_overlay(self, path: Path, status: ProjectStatus) -> None:
+        # A reap before this is about the previous child, not the one this
+        # action is about to spawn.
+        self._reaped.discard(path)
         self._overlay = (path, status)
         self.projects_changed.emit()
 
@@ -1073,6 +1154,7 @@ class ProjectController(QObject):
         # out.
         self._reap_exited()
         self._rotate_logs()
+        self._check_watched_unit()
         if self._in_flight:
             # design.md § Data flow: "the poll skips a tick rather than
             # queueing". Queueing is how a briefly-slow socket table becomes a
@@ -1108,9 +1190,48 @@ class ProjectController(QObject):
         if reap is None:
             return
         try:
-            reap()
+            self._reaped.update(reap() or ())
         except Exception:
             log.warning("could not release exited projects", exc_info=True)
+
+    def _check_watched_unit(self) -> None:
+        """Ask systemd about a unit whose start is still showing `starting`.
+
+        Only while that overlay stands, so an ordinary tick costs nothing and
+        a settled start stops being asked about. Skipped rather than queued
+        while a check is out, for the poll's own reason.
+        """
+        watched = self._watched_unit
+        if watched is None:
+            return
+        path, unit = watched
+        if self._overlay != (path, ProjectStatus.STARTING):
+            self._watched_unit = None
+            return
+        if self._unit_check_in_flight:
+            return
+        self._unit_check_in_flight = True
+        self._service_pool.start(_UnitStateTask(path, unit, self._service_signals))
+
+    def _on_unit_state(self, path: Path, state: object) -> None:
+        """Settle a service start on the unit's own evidence that it ended.
+
+        ADR-0004's `failed` needs evidence, not a timer, and a unit in
+        `failed` or `inactive` is that evidence. Anything else, including an
+        unreadable state, leaves the overlay to the poll.
+        """
+        self._unit_check_in_flight = False
+        if self._stopped or state not in ENDED_STATES:
+            return
+        if self._watched_unit is None or self._watched_unit[0] != path:
+            return
+        self._watched_unit = None
+        if self._overlay != (path, ProjectStatus.STARTING):
+            return
+        self._clear_overlay(path)
+        self.action_failed.emit(
+            path, f"{display_text(path.name)} did not stay up: its service is {state}"
+        )
 
     def _rotate_logs(self) -> None:
         """Hold every managed log to `MAX_LOG_BYTES`, once a tick.
@@ -1195,7 +1316,9 @@ class ProjectController(QObject):
         # scope that holds one.
         self._managed = self._managed_paths(snapshot)
         self._holders = self._holder_pids(snapshot)
-        if self._settle_overlay():
+        settled = self._settle_overlay()
+        self._reaped.clear()
+        if settled:
             # Probing always wins, so a settled overlay is a visible change even
             # when the derived map happens to match the previous one.
             self.projects_changed.emit()
@@ -1240,7 +1363,7 @@ class ProjectController(QObject):
         if (
             pending is ProjectStatus.STARTING
             and self._supervisor is not None
-            and self._supervisor.exited(path)
+            and (path in self._reaped or self._supervisor.exited(path))
         ):
             # ADR-0004's own definition of `failed`: the child exited without
             # ever binding (LWSM-1134). The derived status stays `stopped`,

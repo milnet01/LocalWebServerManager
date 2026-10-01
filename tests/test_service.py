@@ -23,6 +23,7 @@ from lwsm.service import (
     drive_unit,
     unit_argv,
     unit_for_pid,
+    unit_state,
 )
 
 # Verbatim from `/proc/<pid>/cgroup` on the reporting machine, escaped name and
@@ -130,8 +131,9 @@ def test_a_name_that_redirects_or_destroys_is_refused(unit: str) -> None:
 class FakeRun:
     """Records the argv it was handed and returns a chosen result."""
 
-    def __init__(self, returncode: int = 0, stderr: str = "") -> None:
+    def __init__(self, returncode: int = 0, stderr: str = "", stdout: str = "") -> None:
         self.returncode = returncode
+        self.stdout = stdout
         self.stderr = stderr
         self.argv: list[str] | None = None
         self.timeout: float | None = None
@@ -139,7 +141,9 @@ class FakeRun:
     def __call__(self, argv, **kwargs):
         self.argv = argv
         self.timeout = kwargs.get("timeout")
-        return subprocess.CompletedProcess(argv, self.returncode, "", self.stderr)
+        return subprocess.CompletedProcess(
+            argv, self.returncode, self.stdout, self.stderr
+        )
 
 
 def test_a_stop_drives_systemctl_and_never_a_signal() -> None:
@@ -303,3 +307,29 @@ def test_systemctl_stderr_that_is_not_utf8_is_a_reason_not_an_exception() -> Non
 
     assert not outcome.ok
     assert outcome.reason.startswith("bad")
+
+
+# --- reading a unit's state (L6-M3) -------------------------------------------
+
+
+def test_a_failed_unit_reports_its_state_despite_the_nonzero_exit() -> None:
+    """`is-active` exits 3 for every state but `active`, so stdout is the
+    answer — reading the exit code would make `failed` look unreadable."""
+    run = FakeRun(returncode=3, stdout="failed\n")
+
+    assert unit_state("ants-stats.service", run=run) == "failed"
+    assert run.argv == ["systemctl", "--user", "is-active", "--", "ants-stats.service"]
+
+
+def test_an_unreadable_state_is_none_never_a_guess() -> None:
+    def absent(argv, **kwargs):
+        raise FileNotFoundError("systemctl")
+
+    assert unit_state("ants-stats.service", run=absent) is None
+    assert unit_state("ants-stats.service", run=FakeRun(stdout="")) is None
+
+
+def test_the_session_manager_is_never_queried() -> None:
+    run = FakeRun(stdout="active")
+    assert unit_state("user@1000.service", run=run) is None
+    assert run.argv is None

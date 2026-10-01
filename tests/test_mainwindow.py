@@ -3544,7 +3544,7 @@ def test_enter_stops_a_running_project(qtbot, built) -> None:
         managed=[Path("/srv/beta")],
     )
     stopped: list[Path] = []
-    controller.stop_project = stopped.append
+    controller.stop_project = lambda path, **_kw: stopped.append(path)
     row = window._ordered_rows()[1]
     assert row.stop_button.isEnabled(), "precondition: beta reads as running"
 
@@ -3564,7 +3564,7 @@ def test_enter_does_nothing_while_a_project_is_in_transition(qtbot, built) -> No
     started: list[Path] = []
     stopped: list[Path] = []
     controller.start_project = started.append
-    controller.stop_project = stopped.append
+    controller.stop_project = lambda path, **_kw: stopped.append(path)
 
     qtbot.keyClick(row, Qt.Key.Key_Return)
 
@@ -7540,3 +7540,22 @@ def test_the_file_menu_has_no_two_separators_in_a_row(qtbot, built, tmp_path) ->
     window, _ = profile_window(qtbot, built, two_rows(), tmp_path)
     kinds = [action.isSeparator() for action in window._file_menu.actions()]
     assert not any(a and b for a, b in zip(kinds, kinds[1:], strict=False)), kinds
+
+
+def test_a_stop_carries_the_holder_the_disclosure_showed(qtbot, built) -> None:
+    """The window reads the holder BEFORE its modal disclosure and hands it to
+    the controller, which refuses if the port changed hands meanwhile
+    (2026-10-01 review, L6-L5).
+
+    Dies on calling `stop_project` without `disclosed_holder`.
+    """
+    window, controller = keyboard_window(
+        qtbot, built, ["alpha"], listening=(3000,), managed=[Path("/srv/alpha")]
+    )
+    calls: list[dict] = []
+    controller.stop_project = lambda path, **kw: calls.append(kw)
+    shown = window._shown_holder(Path("/srv/alpha"))
+
+    window._stop_project(Path("/srv/alpha"))
+
+    assert calls == [{"disclosed_holder": shown}]

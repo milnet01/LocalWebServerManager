@@ -6,7 +6,8 @@ Both name `run()`, not `main()`. See `run()` for why the two are separate.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -656,6 +657,28 @@ def instance_socket_path() -> str:
     return str(Path(runtime) / INSTANCE_SOCKET_NAME)
 
 
+@contextmanager
+def _claim_lock(path: str) -> Iterator[None]:
+    """Serialise stale-socket recovery between copies launched together.
+
+    An advisory lock beside the socket, in the same private directory. It
+    remembers nothing — it is held for the few milliseconds of a recovery and
+    released with the file descriptor — so it is not ADR-0004's lock file. An
+    unopenable lock file degrades to the unlocked recovery rather than refusing
+    to start.
+    """
+    import fcntl
+
+    try:
+        handle = open(f"{path}.lock", "a", encoding="utf-8")
+    except OSError:
+        yield
+        return
+    with handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+
+
 def claim_single_instance(path: str, on_activated: Callable[[], None]) -> InstanceClaim:
     """Become the one running copy, or wake the one that already is (LWSM-1065).
 
@@ -684,6 +707,15 @@ def claim_single_instance(path: str, on_activated: Callable[[], None]) -> Instan
     """
     from PySide6.QtNetwork import QAbstractSocket, QLocalServer, QLocalSocket
 
+    if not Path(path).is_absolute():
+        # Qt answers "" for the runtime location when it cannot create its
+        # private fallback, and a relative name makes `QLocalServer` listen in
+        # the shared temporary directory, where another user could claim it
+        # first and stop every launch (L6-L2). Run unguarded instead.
+        return InstanceClaim(
+            primary=True,
+            problem="no private runtime directory, so a second copy is not prevented",
+        )
     server = QLocalServer()
     if not server.listen(path):
         if server.serverError() != QAbstractSocket.SocketError.AddressInUseError:
@@ -693,10 +725,19 @@ def claim_single_instance(path: str, on_activated: Callable[[], None]) -> Instan
         if probe.waitForConnected(INSTANCE_CONNECT_MS):
             probe.disconnectFromServer()
             return InstanceClaim(primary=False)
-        # Nobody answered, so the file is a crashed copy's leftover.
-        QLocalServer.removeServer(path)
-        if not server.listen(path):
-            return InstanceClaim(primary=True, problem=server.errorString())
+        # Nobody answered, so the file is a crashed copy's leftover. Removed
+        # under a lock and only after asking again: two copies launched
+        # together after a crash both miss above, and without this the second
+        # removed the first one's fresh socket and both ran (L6-L3).
+        with _claim_lock(path):
+            probe = QLocalSocket()
+            probe.connectToServer(path)
+            if probe.waitForConnected(INSTANCE_CONNECT_MS):
+                probe.disconnectFromServer()
+                return InstanceClaim(primary=False)
+            QLocalServer.removeServer(path)
+            if not server.listen(path):
+                return InstanceClaim(primary=True, problem=server.errorString())
 
     def answer() -> None:
         while server.hasPendingConnections():
@@ -871,6 +912,14 @@ def run() -> int:
 
     try:
         code = main()
+    except SystemExit as exc:
+        # argparse ends `--version`, `--help` and a mistyped option this way.
+        # Not a crash, so no traceback (L6-M1); the bound still applies.
+        status = exc.code
+        exit_without_waiting_for_abandoned_probes(
+            status if isinstance(status, int) else int(status is not None)
+        )
+        raise
     except BaseException:
         # The bound applies to an exception too (known-issue-008, LWSM-1323):
         # without it, `main()`'s own `finally` had already abandoned the pool,

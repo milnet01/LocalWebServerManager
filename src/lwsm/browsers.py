@@ -199,7 +199,7 @@ def _associations(paths: tuple[Path, ...]) -> tuple[dict[str, bool], list[str]]:
     reasons: list[str] = []
     for path in paths:
         try:
-            groups = _groups(read_bounded(path).decode("utf-8"))
+            groups = _groups(read_bounded(path).decode("utf-8-sig"))
         except FileNotFoundError:
             # Absent is the normal case, not a failure: the spec lists many
             # candidate paths and a desktop writes few of them.
@@ -338,7 +338,7 @@ def _browser_from(path: Path, *, mime_required: bool = True) -> Browser | None:
     refusal below still applies to it — an added entry that is hidden, or whose
     binary is gone, is no more launchable than any other.
     """
-    fields = _entry_fields(read_bounded(path).decode("utf-8"))
+    fields = _entry_fields(read_bounded(path).decode("utf-8-sig"))
 
     if fields.get("Type", "Application") != "Application":
         return None
@@ -437,6 +437,10 @@ def installed(
     )
     found: dict[str, Browser] = {}
     refused: set[str] = set()
+    # Every id an earlier directory DEFINED, browser or not. The first file
+    # with an id is authoritative, so a user entry that is hidden, not a
+    # browser, or refused still shadows the packaged copy (L6-M2).
+    seen: set[str] = set()
     for directory in entry_dirs() if dirs is None else dirs:
         try:
             entries = sorted(directory.glob("*.desktop"))
@@ -449,8 +453,9 @@ def installed(
             log.info("ignoring applications directory %s: %s", directory, exc)
             continue
         for path in entries:
-            if path.name in found:
+            if path.name in seen:
                 continue
+            seen.add(path.name)
             association = associations.get(path.name)
             if association is False:
                 # Explicitly removed by the desktop. Skipped before the read,

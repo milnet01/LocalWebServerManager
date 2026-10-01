@@ -757,12 +757,13 @@ There is no timeout on it: a slow start keeps the overlay until a
 poll reports it running, because nothing here may time out into a
 wrong state (ADR-0004 § Slowness is not failure).
 
-Three other things end it, and each is an observation rather than
-a timer: the project leaving the list, which a rescan can do; a
+Other things end it, and each is an observation rather than a
+timer: the project leaving the list, which a rescan can do; a
 project with no port, which has nothing to wait for and whose
 honest answer `unknown` is already available; and, for a start
-only, the supervisor reporting that the child exited, which is
-ADR-0004's `failed`.
+only, the supervisor reporting that the child exited, or a
+systemd unit reporting `failed` or `inactive` after systemd
+accepted the start — each is ADR-0004's `failed`.
 
 Runtime state is **derived, never remembered across restarts.**
 Closing and reopening the app re-derives every status from the

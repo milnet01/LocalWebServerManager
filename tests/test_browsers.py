@@ -257,6 +257,24 @@ def test_the_user_directory_shadows_a_system_entry_of_the_same_id(
     assert found.argv == ("/mine", "%u")
 
 
+def test_a_hidden_user_entry_hides_the_system_entry_of_the_same_id(
+    tmp_path: Path,
+) -> None:
+    """`Hidden=true` is the Desktop Entry spec's "deleted" marker.
+
+    The shadowing above held only when the user's entry was itself a browser,
+    so a user who deleted a browser this way still had the packaged copy
+    offered — LWSM-1248's failure by the standard route (2026-10-01 review,
+    L6-M2).
+
+    Dies on skipping on the found set rather than on every id seen.
+    """
+    user, system = tmp_path / "user", tmp_path / "system"
+    write(user, "firefox.desktop", entry(Hidden="true"))
+    write(system, "firefox.desktop", entry(Name="Packaged", Exec="/packaged %u"))
+    assert browsers.installed((user, system)).browsers == ()
+
+
 def test_the_list_is_sorted_by_name(tmp_path: Path) -> None:
     """Stable order, so the dropdown does not reshuffle between runs.
 
@@ -764,3 +782,31 @@ def test_open_url_reaps_the_browser_it_started(monkeypatch) -> None:
     browsers.open_url(Browser("b.desktop", "B", ("/bin/b", "%u")), "http://x/")
 
     assert waited.wait(timeout=5), "nothing ever waited on the browser process"
+
+
+def test_an_entry_saved_with_a_byte_order_mark_is_still_read(tmp_path: Path) -> None:
+    """An editor-added BOM is invisible in that editor and turned the first
+    group header into `\\ufeff[Desktop Entry]`, so the entry silently vanished
+    (2026-10-01 review, L6-L4; LWSM-1182's rule for user-edited files).
+
+    Dies on decoding desktop entries as plain `utf-8`.
+    """
+    write(tmp_path, "b.desktop", "﻿" + entry(Name="Marked"))
+    (found,) = browsers.installed((tmp_path,), mimeapps=()).browsers
+    assert found.name == "Marked"
+
+
+def test_a_removal_in_a_mimeapps_list_with_a_bom_still_applies(tmp_path: Path) -> None:
+    """The same BOM in `mimeapps.list` discarded a leading
+    `[Removed Associations]`, offering the browser the user had removed.
+
+    Dies on decoding `mimeapps.list` as plain `utf-8`.
+    """
+    apps = tmp_path / "apps"
+    write(apps, "b.desktop", entry())
+    mimeapps = write(
+        tmp_path,
+        "mimeapps.list",
+        "﻿[Removed Associations]\nx-scheme-handler/http=b.desktop;\n",
+    )
+    assert browsers.installed((apps,), mimeapps=(mimeapps,)).browsers == ()

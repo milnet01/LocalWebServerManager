@@ -1710,6 +1710,61 @@ def test_a_start_that_exits_without_binding_does_not_freeze_on_starting(
     assert controller._overlay is None
 
 
+def test_a_start_reaped_before_the_snapshot_still_settles(qtbot, controllers) -> None:
+    """The ordinary shape of a crashed start, which the test above misses.
+
+    `poll_once` reaps BEFORE it probes, and a real `Supervisor` drops the entry
+    of a launcher whose group is gone. `exited()` answers False for a project it
+    holds no entry for, so by the time the snapshot arrives the evidence the
+    settle reads is gone, and the row sat at `starting` with both buttons dead
+    (2026-10-01 review, L6-H1). The fake above never reaps, which is why it
+    passed.
+
+    Dies on dropping the reaped set from `_reap_exited` or from the settle.
+    """
+
+    class ReapingSupervisor(FakeSupervisor):
+        def reap_exited(self):
+            gone = {path: 1 for path in self.exited_projects}
+            for path in gone:
+                self._running.pop(path, None)
+            self.exited_projects.clear()
+            return gone
+
+    supervisor = ReapingSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+
+    supervisor.exited_projects.add(Path("/srv/a"))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller._overlay is None
+    assert controller.rows()[0].status is ProjectStatus.STOPPED
+
+
+def test_a_new_start_after_a_reap_is_not_settled_by_the_old_exit(
+    qtbot, controllers
+) -> None:
+    """The reaped set is evidence about the child that died, not the next one.
+
+    A Start clicked between the reap and the snapshot spawns a fresh child; the
+    old exit must not end its `starting`.
+
+    Dies on not discarding the path from the reaped set when an overlay is set.
+    """
+    controller = supervised(controllers, [startable()], FakeProbe(), FakeSupervisor())
+    controller._reaped.add(Path("/srv/a"))
+    controller.start_project(Path("/srv/a"))
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller._overlay == (Path("/srv/a"), ProjectStatus.STARTING)
+
+
 def test_a_stop_whose_port_is_still_held_does_not_freeze_on_stopping(
     qtbot, controllers
 ) -> None:
@@ -2156,6 +2211,76 @@ def test_restarting_a_service_project_is_one_verb(
     assert drive.calls == [("restart", "ants-stats.service")]
 
 
+def _restarted_unit_that_reports(qtbot, controllers, monkeypatch, state):
+    """A service restart systemd accepted, after which the unit reports `state`.
+
+    The port is free afterwards, so the derived status is `stopped` and the
+    poll alone can never settle the `starting` overlay.
+    """
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "ants-stats.service")
+    asked: list[str] = []
+
+    def fake_state(unit: str) -> str:
+        asked.append(unit)
+        return state
+
+    monkeypatch.setattr(controller_module, "unit_state", fake_state)
+    probe = HoldingProbe({4321: 1290})
+    controller = supervised(
+        controllers, [startable("a", 4321)], probe, FakeSupervisor()
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    with qtbot.waitSignal(controller.action_done, timeout=2000):
+        controller.restart_project(Path("/srv/a"))
+    probe.holders = {}
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+    controller.poll_once()
+    qtbot.waitUntil(lambda: bool(asked), timeout=2000)
+    qtbot.waitUntil(lambda: not controller._unit_check_in_flight, timeout=2000)
+    return controller, messages, asked
+
+
+def test_a_service_that_fails_after_start_does_not_freeze_on_starting(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """systemd accepting a verb is not the unit staying up (2026-10-01 review,
+    L6-M3).
+
+    A `Type=simple` unit that crashes right after `start` exits 0 from
+    `systemctl`, and there is no child of ours for `exited()` to report. The
+    unit's own `failed` state is ADR-0004's evidence, and before this nothing
+    read it: the row kept Start and Stop disabled for the session.
+
+    Dies on removing the `_check_watched_unit()` call from `poll_once`, and on
+    not recording the watched unit in `_on_service_done`.
+    """
+    controller, messages, asked = _restarted_unit_that_reports(
+        qtbot, controllers, monkeypatch, "failed"
+    )
+
+    assert asked == ["ants-stats.service"]
+    assert controller._overlay is None
+    assert messages == ["a did not stay up: its service is failed"]
+
+
+def test_a_service_still_activating_keeps_its_starting_overlay(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """A slow start is not a failure (ADR-0004), so only an ENDED state settles.
+
+    Dies on settling on any state the query returns.
+    """
+    controller, messages, _ = _restarted_unit_that_reports(
+        qtbot, controllers, monkeypatch, "activating"
+    )
+
+    assert controller._overlay == (Path("/srv/a"), ProjectStatus.STARTING)
+    assert messages == []
+
+
 def test_a_failed_verb_clears_the_overlay_and_says_why(
     qtbot, controllers, monkeypatch
 ) -> None:
@@ -2463,3 +2588,74 @@ def test_a_running_row_this_session_did_not_start_has_its_log_capped(
     assert supervisor.by_path == [(Path("/srv/b"), "b")], (
         "only the running row's log is a candidate, and it must be asked"
     )
+
+
+def test_a_service_task_with_a_deleted_signaller_does_not_raise() -> None:
+    """A task abandoned by `stop()` can outlive its signaller, and `emit` then
+    raises `RuntimeError`. PySide6 swallows what escapes `run()`, so the
+    docstring's "wrapped whole" has to be true (2026-10-01 review, L6-L1).
+
+    Dies on moving the emit back outside its `try`.
+    """
+    from lwsm.controller import _ServiceTask
+
+    class DeadSignal:
+        def emit(self, *args):
+            raise RuntimeError("Signal source has been deleted")
+
+    class DeadSignals:
+        done = DeadSignal()
+
+    task = _ServiceTask(Path("/srv/a"), "frobnicate", "a.service", DeadSignals())
+    task.run()
+
+
+def test_a_foreign_stop_is_refused_when_the_holder_changed_after_disclosure(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """The disclosure is modal and polls go on under it. A Yes given about PID
+    1290 must not stop whatever holds the port now (2026-10-01 review, L6-L5;
+    ADR-0004: a set that changed during the dialog is asked again).
+
+    Dies on removing the `_holder_changed` check from `stop_project`.
+    """
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "other.service")
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 7777}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller.stop_project(Path("/srv/a"), disclosed_holder=1290)
+
+    assert drive.calls == []
+    assert messages and "changed while you were deciding" in messages[0]
+
+
+def test_a_foreign_restart_is_refused_when_the_holder_changed_after_disclosure(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """Restart's foreign branch, for the same reason.
+
+    Dies on removing the `_holder_changed` check from `restart_project`.
+    """
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "other.service")
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 7777}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    controller.restart_project(Path("/srv/a"), disclosed_holder=1290)
+
+    assert controller._overlay is None, "the restart went ahead on a new holder"

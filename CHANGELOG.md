@@ -321,6 +321,16 @@ signaling per
 
 ### Fixed
 
+- **A project whose launcher crashes before its server starts no longer sits at "starting" with every button disabled.**
+
+- **A systemd service that fails right after it was started no longer leaves its row at "starting"; the row says the service did not stay up.**
+
+- **`lwsm --version` and `lwsm --help` no longer print a crash traceback.**
+
+- **A browser you removed by hiding its desktop entry in your own applications folder is no longer offered, and desktop files saved with a byte-order mark are read correctly.**
+
+- **Stopping or restarting a server this app did not start is refused if a different server took the port while the confirmation was open.**
+
 - **A server that runs several worker processes is recognised as one server**
 
 - **Logs of servers left running from an earlier session are kept to the size limit too**
