@@ -592,7 +592,7 @@ def changed_pixels(first, second) -> int:
 
 
 def test_focus_is_visible_not_merely_held(qtbot, built) -> None:
-    """The row is the only focusable widget in the app, and `QFrame` paints no
+    """The row paints its own focus ring, because `QFrame` paints no
     focus indicator: `StyledPanel` never consults `State_HasFocus`.
 
     Asserted by rendering, because every property this could check instead —
@@ -6239,6 +6239,12 @@ def test_every_control_in_the_row_is_named_with_the_FULL_project_name(
     long_name = "customer-dashboard-frontend-v2"
     window, _ = browser_window(qtbot, built, tmp_path, [record(long_name, 5005)])
     row = rows_of(window)[0]
+    # The picker's description as ANNOUNCED, not the property: a combo box
+    # ignores its accessible-name property, which is how "Browser for" once
+    # never reached a screen reader while a property check stayed green.
+    from PySide6.QtGui import QAccessible
+
+    picker = QAccessible.queryAccessibleInterface(row.browser_box)
 
     assert row._name.text() != long_name, "precondition: the label IS elided"
     assert [
@@ -6246,7 +6252,7 @@ def test_every_control_in_the_row_is_named_with_the_FULL_project_name(
         row.stop_button.accessibleName(),
         row.restart_button.accessibleName(),
         row.open_button.accessibleName(),
-        row.browser_box.accessibleDescription(),
+        picker.text(QAccessible.Text.Description),
     ] == [
         f"Start {long_name}",
         f"Stop {long_name}",
