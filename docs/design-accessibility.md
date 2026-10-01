@@ -229,7 +229,11 @@ once, not on every poll.
 **Respects the desktop, not our preferences.** System font family
 and size, honouring the desktop's font scaling and high-DPI
 settings rather than pinning pixel sizes — the in-app text-size
-control multiplies that, it does not replace it. No animation
+control multiplies that, it does not replace it. The desktop's size
+is read at start: a desktop font change made while the app is open
+applies at its next start, because the bundled Qt delivers no event
+for it (measured 2026-10-01, LWSM-1346). The text-size control covers
+a change mid-session. No animation
 conveys information, and any decorative animation honours a
 reduce-motion preference.
 
