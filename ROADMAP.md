@@ -1010,6 +1010,15 @@ O8` forbids retrofitting that.
   (systemd drop-in never written) check against LWSM-1012 first, it may
   be planned 0.3.0 work. Then the two standing quality passes
   (refactor, security) and cut-release.
+  Progress (2026-10-01): close-findings over the 2026-10-01 review is
+  under way. Ledger: build/review-code-2026-10-01/ledger.json (78 rows,
+  `disposition` null = still open; gitignored, real disk). Closed so far:
+  L3-M1, L3-M2 (trust-gate bypasses), L1-M2 (tooltip markup), L1-H1
+  (Enter on Open stopped the server), L3-H1 (wrapper server read as
+  foreign); L3-L1 queued as LWSM-1352. Next: the remaining HIGHs (L4-H1,
+  L4-H2, L5-H1, L6-H1, L3-H2; check L3-H2 against LWSM-1028 first),
+  then MEDs, LOWs and the vulture list. Then the two standing passes,
+  the open fix/doc-fix items, and cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
