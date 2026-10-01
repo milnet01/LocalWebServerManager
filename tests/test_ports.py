@@ -280,6 +280,48 @@ def test_two_processes_on_one_port_leave_it_without_a_holder(
     assert snapshot.holder(5005) is None
 
 
+def test_a_listener_the_kernel_will_not_name_beside_ours_leaves_no_holder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LWSM-1366. psutil reports `pid=None` for another account's socket, and
+    only named sockets were counted. Ours on 127.0.0.1 plus a stranger's on
+    ::1 therefore read as ours alone: the row showed managed and Open went to
+    `localhost`, which many browsers try on ::1 first. An unnamed listener is
+    a second claimant, so this is LWSM-1232's two-holders case.
+    """
+    monkeypatch.setattr(
+        psutil,
+        "net_connections",
+        lambda **_: [
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5005, "127.0.0.1"), pid=111),
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5005, "::1"), pid=None),
+        ],
+    )
+
+    snapshot = PortProbe().snapshot()
+    assert snapshot.is_bound(5005)
+    assert snapshot.holder(5005) is None
+
+
+def test_an_unnamed_listener_off_localhost_does_not_hide_ours(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The LWSM-1366 rule counts only listeners `localhost` reaches: a stranger
+    on a LAN address does not answer `http://localhost:5005/`, so it is no
+    rival for the answer.
+    """
+    monkeypatch.setattr(
+        psutil,
+        "net_connections",
+        lambda **_: [
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5005, "127.0.0.1"), pid=111),
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5005, "192.168.1.5"), pid=None),
+        ],
+    )
+
+    assert PortProbe().snapshot().holder(5005) == 111
+
+
 def test_a_listener_on_a_lan_address_is_bound_but_does_not_answer_localhost(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -152,6 +152,10 @@ class PortProbe:
             # A set rather than one pid, because "two processes" and "one
             # process on two sockets" have to be told apart below.
             claimants: dict[int, set[int]] = {}
+            # Ports `localhost` reaches where some listener has no pid: psutil
+            # names no socket of another account's. That listener is a second
+            # claimant we cannot see, so the port has no holder (LWSM-1366).
+            unnamed: set[int] = set()
             for conn in connections:
                 if conn.status != psutil.CONN_LISTEN or not conn.laddr:
                     continue
@@ -162,6 +166,8 @@ class PortProbe:
                 local.add(port)
                 if conn.pid is not None:
                     claimants.setdefault(port, set()).add(conn.pid)
+                else:
+                    unnamed.add(port)
             # A port normally carries two listening sockets, IPv4 and IPv6,
             # belonging to one process -- one pid, no ambiguity. Two DIFFERENT
             # pids on one port is possible on two loopback addresses, and there
@@ -171,6 +177,8 @@ class PortProbe:
             # same one already taken for a holder the kernel will not name.
             holders: dict[int, int] = {}
             for port, pids in claimants.items():
+                if port in unnamed:
+                    continue
                 holder = next(iter(pids)) if len(pids) == 1 else _master_of(pids)
                 if holder is not None:
                     holders[port] = holder
