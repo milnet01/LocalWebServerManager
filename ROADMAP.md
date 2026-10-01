@@ -9889,6 +9889,160 @@ O8` forbids retrofitting that.
   Source: in-session-2026-10-01 (seen while editing for LWSM-1344).
   Lanes: docs.
 
+- 📋 [LWSM-1357] **Three JSON config readers repeat one load sequence, and their guards have already drifted.**
+  registry.load_projects, settings.load and supervisor.TrustStore._load each
+  do read_bounded, missing-vs-OSError, utf-8-sig, json.loads, ValueError/
+  RecursionError, dict check. registry refuses NaN/Infinity and duplicate
+  keys; settings refuses NaN only; TrustStore._load (supervisor.py, the
+  json.loads on raw.decode) refuses neither. _refuse_constant is copied in
+  registry.py and settings.py. Fix: one configfile.load_json_object raising
+  ConfigFileError, missing distinguishable; each module keeps its wording and
+  field checks. Verified 2026-10-01 by grep of json.loads.
+  **Layman:** Three places read settings files the same way by hand, and safety checks added to one were missed in another; share one reader.
+  Kind: refactor.
+  Source: refactor-pass-2026-10-01 R-1.
+  Lanes: persistence.
+
+- 📋 [LWSM-1358] **RescanContext is the persistence context for every registry writer, not just Rescan.**
+  mainwindow._write_records saves through self._rescan.save(projects_path);
+  hide, browser choice, import and export all depend on _rescan being set
+  (the Export/Import menu gate checks it; __main__ explains it in a comment).
+  _apply_merge still opens with `if self._rescan is None: return ""`.
+  Fix: split a Qt-free persistence object (path, load, save, write gate)
+  from a RescanContext holding roots, scan and now.
+  **Layman:** One internal object is named after the Rescan button but also controls saving hides, browser choices, import and export; removing it for Rescan would silently break those.
+  Kind: refactor.
+  Source: refactor-pass-2026-10-01 R-3.
+  Lanes: window.
+
+- 📋 [LWSM-1359] **__main__.py owns the scan-roots file format, and its reader and writer state the root-line rule twice.**
+  SCAN_ROOTS_FILENAME, scan_roots_path, save_scan_roots,
+  _leading_comment_block, scan_root_fallback and default_scan_roots live in
+  __main__.py; module-map.md's __main__ entry names none of them. The
+  `line.strip() and not line.lstrip().startswith("#")` test is written in
+  both the reader and the writer. Fix: a core scanroots.py with the predicate
+  once, added to CORE_MODULES and module-map.md.
+  **Layman:** The code that reads and writes the list of folders to scan lives in the app's start-up file and repeats one rule twice; move it to its own module.
+  Kind: refactor.
+  Source: refactor-pass-2026-10-01 R-4.
+  Lanes: entry.
+
+- 📋 [LWSM-1360] **The abandoned-pool helpers report every stuck thread pool as a stuck port probe.**
+  controller.wait_for_abandoned_probes, exit_without_waiting_for_abandoned_probes
+  and their messages ("port probe(s) never returned") cover every pool passed to
+  abandon_pool: the port pool, the systemctl pool and the window's rescan pool.
+  Fix: rename to *_abandoned_pools with a neutral message.
+  **Layman:** If the app hangs on quit because a service stop or a rescan got stuck, the log blames a port check instead, sending whoever debugs it to the wrong place.
+  Kind: refactor.
+  Source: refactor-pass-2026-10-01 R-5.
+  Lanes: controller.
+
+- 📋 [LWSM-1361] **The capped-reasons accumulator is hand-written four times with three different tail lines.**
+  note closure + suppressed counter + tail line in scanner.py (scan),
+  registry.load_projects, registry.merge and registry.merge_imported. Tails:
+  "more problems in this file, not shown", "more merge notes, not shown",
+  "... and N more". Fix: one BoundedReasons(cap, tail) in configfile.py.
+  **Layman:** Four places each build a list of problems that stops after a limit, written separately and worded differently; share one helper.
+  Kind: refactor.
+  Source: refactor-pass-2026-10-01 R-6.
+  Lanes: persistence, scanner.
+
+- 📋 [LWSM-1362] **configfile.write_json_atomically writes any bytes, and the scan-roots caller apologises for its name.**
+  __main__.save_scan_roots writes plain text through it and says
+  "(`write_json_atomically` takes bytes; only its name is about JSON.)".
+  Fix: rename to write_atomically.
+  **Layman:** A file-saving helper is named as if it only saves JSON, but it also saves the plain-text folder list; a future JSON check added to it would break that.
+  Kind: refactor.
+  Source: refactor-pass-2026-10-01 R-7.
+  Lanes: persistence.
+
+- 📋 [LWSM-1363] **The npm trust fingerprint covers only the chosen script, so a new pre/post script or a project .npmrc runs without asking again.**
+  supervisor._npm_script hashes scripts[argv[2]] only. `npm run dev` also
+  runs `predev` and `postdev`, and reads the project's .npmrc (script-shell,
+  node-options), none of which reach the fingerprint. A git pull that adds
+  one of them runs it on the next Start with no re-confirmation, against
+  LWSM-1140 and ADR-0003's re-arm rule. Fix: hash pre<name>, <name>,
+  post<name> and the project .npmrc bytes under their own markers. Still
+  not the whole manifest, for the docstring's reason (dependency bumps).
+  Verified 2026-10-01 by reading _npm_script.
+  **Layman:** After you approve a project's start command once, the project can add extra steps that run with it, and the app will not ask you again.
+  Kind: security.
+  Source: security-pass-2026-10-01 S-1.
+  Lanes: supervisor.
+
+- 📋 [LWSM-1364] **A symlinked package.json fingerprints as the constant nofile marker, so once confirmed its scripts change freely.**
+  _npm_script reads project/package.json through _launcher_bytes (O_NOFOLLOW),
+  so a symlink fails to read and the fingerprint becomes \0nofile\0, a
+  constant. validate_launcher resolves the symlink and accepts an inside
+  target. LWSM-1352 fixed this for file launchers (resolve before read), not
+  for the npm branch. Fix: resolve before reading, and refuse the npm shape
+  in start() when the script cannot be read, so unreadable is never a state
+  that can be confirmed.
+  **Layman:** If a project's package file is a link to another file, approving it once lets that other file change what runs without asking again.
+  Kind: security.
+  Source: security-pass-2026-10-01 S-2.
+  Lanes: supervisor.
+
+- 📋 [LWSM-1365] **The trust dialog for an npm project shows `npm run dev`, not the script text that will run.**
+  mainwindow builds the dialog from resolved-or-argv[0]; for npm resolved is
+  None, so the scripts.dev string the fingerprint is bound to never appears.
+  ADR-0003: the dialog is not theatre only if it shows what will run. Fix:
+  carry the hashed script strings (and S-1's pre/post) on LauncherUntrusted
+  and show them through _no_layout_forgery. Build with the S-1 item.
+  **Layman:** When the app asks you to approve an npm project, it shows the short command name instead of what that command actually does.
+  Kind: security.
+  Source: security-pass-2026-10-01 S-3.
+  Lanes: window, supervisor.
+
+- 📋 [LWSM-1366] **A listener the app cannot name on the other loopback address lets it call a stranger's server managed.**
+  ports.py records a claimant only when conn.pid is not None; psutil gives
+  None for another account's socket. Our server on 127.0.0.1:P plus another
+  account on [::1]:P leaves claimants {ours}, so holder(P) is ours, the row
+  is managed, and Open goes to localhost:P (often ::1) with no disclosure.
+  LWSM-1232 already treats two named holders as ambiguous. Fix: record
+  unnamed localhost-reachable listeners per port and return no holder when
+  one sits beside a named one. Verified 2026-10-01 in PortProbe.snapshot.
+  **Layman:** If another user account on this computer runs a server on the same port, the app can send you to it while showing it as your own project.
+  Kind: security.
+  Source: security-pass-2026-10-01 S-4.
+  Lanes: ports.
+
+- 📋 [LWSM-1367] **A package.json script holding a lone surrogate makes Start fail with no message.**
+  `"dev": "\ud800"` is valid JSON; _npm_script's
+  value.encode("utf-8", "surrogateescape") raises UnicodeEncodeError, which
+  controller.start_project does not catch (SupervisorError, OSError only), so
+  the slot dies silently. Fix: surrogatepass, or return None and refuse as in
+  the symlinked-package.json item.
+  **Layman:** A deliberately broken project file can make the Start button silently do nothing.
+  Kind: security.
+  Source: security-pass-2026-10-01 S-5.
+  Lanes: supervisor.
+
+- 📋 [LWSM-1368] **_launcher_bytes claims scanner._open_source's guarantees but guards only the last path component.**
+  _open_source walks every component with O_PATH|O_DIRECTORY|O_NOFOLLOW
+  (LWSM-1332); _launcher_bytes opens with O_NOFOLLOW on the final component
+  only, while its docstring cites _open_source's reasons. Not exploitable
+  today: validate_launcher refuses any directory up to the project root that
+  another account owns or can write, so only the user could swap one (checked
+  by the security pass 2026-10-01). Fix: one hardened reader both import, or
+  correct the docstring.
+  **Layman:** A code comment says two file readers are equally careful when one checks less; fix the comment or share one reader.
+  Kind: refactor.
+  Source: refactor-pass-2026-10-01 R-2.
+  Lanes: supervisor, scanner.
+
+- 📋 [LWSM-1369] **A profile import takes launcher_override and start_at_login, two fields a later feature will act on.**
+  Both are USER_FIELDS, so merge_imported restores them; nothing reads them
+  yet. launcher_override is a command (LWSM-1344's reasoning) and
+  start_at_login makes something run unasked (LWSM-1027).
+  Decision (user, 2026-10-01): an import never takes either, as with
+  actions. Not decided: unknown keys a profile carries, which a later
+  version might honour; decide before such a field ships.
+  **Layman:** A settings profile someone hands you should never be able to set a start command or make a project start on its own.
+  Kind: security.
+  Source: security-pass-2026-10-01 latent.
+  Lanes: persistence.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
