@@ -175,11 +175,11 @@ def test_no_home_directory_offers_no_rescan_it_cannot_perform(
 ) -> None:
     """With nowhere to save, Rescan and the profile entries must not appear.
 
-    `RescanContext.projects_path` is typed `Path` and the dataclass checks
-    nothing, so on the branch where `default_projects_path()` raises the
-    context was still built — with `None` — and the window offered Rescan,
-    Export and Import because `_rescan is not None`. All three end at
-    `self._rescan.save(self._rescan.projects_path, ...)` (LWSM-1210).
+    `RescanContext.projects_path` (now `ProjectsFile.path`) is typed `Path`
+    and the dataclass checks nothing, so on the branch where
+    `default_projects_path()` raises the context was still built — with
+    `None` — and the window offered Rescan, Export and Import. All three end
+    at a save to that path (LWSM-1210).
 
     Asserted on what a user can reach as well as on the attribute: the
     window's own rule is that a control it cannot honour is not offered, and

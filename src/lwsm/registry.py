@@ -16,6 +16,7 @@ import os
 from collections.abc import Callable, Sequence
 from dataclasses import MISSING as _NO_DEFAULT
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime
 from pathlib import Path
@@ -920,6 +921,24 @@ def save_projects(
         # four tests all promise `RegistryError`, and `ConfigFileError` is its
         # base, so an `except RegistryError` would not catch it.
         raise RegistryError(str(exc)) from exc
+
+
+@dataclass(frozen=True)
+class ProjectsFile:
+    """Where the registry lives and how it is written, for every writer.
+
+    Split out of the window's `RescanContext` (LWSM-1358): Rescan was one of
+    five writers that saved through it, alongside hiding a project, choosing
+    its browser, and profile import and export, so taking Rescan away would
+    have silently taken the other four with it. `save` is injected so a test
+    never writes the developer's own registry.
+    """
+
+    path: Path
+    # Late-bound, so a `monkeypatch` of `save_projects` reaches it (LWSM-1280).
+    save: Callable[..., None] = dataclass_field(
+        default=lambda *args, **kwargs: save_projects(*args, **kwargs)
+    )
 
 
 # --------------------------------------------------------------------------

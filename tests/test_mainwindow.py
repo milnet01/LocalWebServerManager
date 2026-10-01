@@ -1558,18 +1558,21 @@ def rescan_window(
         if saves is not None:
             saves.append((path, list(merged), load))
 
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=fake_save,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=lambda _roots: scan_result,
         now=lambda: "2026-08-14T09:00:00Z",
-        save=fake_save,
     )
     window = MainWindow(
         controller,
         Theme.default(),
         [],
         rescan=context,
+        projects_file=files,
         size=size,
         load=load if load is not None else RegistryMissing("first run"),
         # Injected, never scanned: conftest points XDG_DATA_DIRS at an empty
@@ -1794,18 +1797,21 @@ def test_a_read_only_session_reports_rather_than_writing(
         raise RegistryError("2 row(s) were refused at load")
 
     controller = build_controller(built, [], FakeProbe())
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=refusing_save,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=lambda _roots: FakeScanResult(projects=(FakeDetected(project, "web"),)),
         now=lambda: "2026-08-14T09:00:00Z",
-        save=refusing_save,
     )
     window = MainWindow(
         controller,
         Theme.default(),
         [],
         rescan=context,
+        projects_file=files,
         load=LoadResult(records=[], reasons=["bad row"], rows_refused=2),
     )
     qtbot.addWidget(window)
@@ -1843,18 +1849,21 @@ def test_a_refused_write_is_retried_by_the_next_rescan(qtbot, built, tmp_path) -
         raise RegistryError("read-only file system")
 
     controller = build_controller(built, [], FakeProbe())
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=refusing_save,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=lambda _roots: FakeScanResult(projects=(FakeDetected(project, "web"),)),
         now=lambda: "2026-08-14T09:00:00Z",
-        save=refusing_save,
     )
     window = MainWindow(
         controller,
         Theme.default(),
         [],
         rescan=context,
+        projects_file=files,
         load=LoadResult(records=[], reasons=[], rows_refused=0),
     )
     qtbot.addWidget(window)
@@ -1882,14 +1891,18 @@ def test_a_rescan_that_raises_re_enables_the_button(qtbot, built, tmp_path) -> N
     def exploding_scan(_roots):
         raise RuntimeError("the scanner fell over")
 
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=lambda *a, **k: None,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=exploding_scan,
         now=lambda: "2026-08-14T09:00:00Z",
-        save=lambda *a, **k: None,
     )
-    window = MainWindow(controller, Theme.default(), [], rescan=context)
+    window = MainWindow(
+        controller, Theme.default(), [], rescan=context, projects_file=files
+    )
     qtbot.addWidget(window)
 
     run_rescan(qtbot, window)
@@ -1916,20 +1929,23 @@ def test_a_writer_that_escapes_the_slot_still_re_enables_the_button(
     def escaping_save(path, merged, *, load) -> None:
         raise OSError("the disk went away")
 
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=escaping_save,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=lambda _roots: FakeScanResult(
             projects=(FakeDetected(tmp_path / "roots" / "web", "web"),)
         ),
         now=lambda: "2026-08-14T09:00:00Z",
-        save=escaping_save,
     )
     window = MainWindow(
         controller,
         Theme.default(),
         [],
         rescan=context,
+        projects_file=files,
         load=RegistryMissing("first run"),
     )
     qtbot.addWidget(window)
@@ -2144,18 +2160,21 @@ def test_a_hide_made_while_a_rescan_is_in_flight_is_not_discarded(
 
     records = [record("gone", 3001)]
     controller = build_controller(built, list(records), FakeProbe())
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=fake_save,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=blocking_scan,
         now=lambda: "2026-08-14T09:00:00Z",
-        save=fake_save,
     )
     window = MainWindow(
         controller,
         Theme.default(),
         [],
         rescan=context,
+        projects_file=files,
         load=LoadResult(records=list(records), reasons=[], rows_refused=0),
     )
     qtbot.addWidget(window)
@@ -3347,18 +3366,21 @@ def blocking_rescan_window(qtbot, built, tmp_path, saves: list, release):
         saves.append((path, list(merged), load))
 
     controller = build_controller(built, [], FakeProbe())
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=fake_save,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=held_scan,
         now=lambda: "2026-08-14T09:00:00Z",
-        save=fake_save,
     )
     window = MainWindow(
         controller,
         Theme.default(),
         [],
         rescan=context,
+        projects_file=files,
         load=RegistryMissing("first run"),
     )
     qtbot.addWidget(window)
@@ -4129,9 +4151,8 @@ def test_every_clickable_target_clears_the_floor_and_grows_with_the_text(
     window, _ = scaled_window(
         qtbot,
         built,
-        rescan=mainwindow.RescanContext(
-            projects_path=tmp_path / "projects.json", roots=(tmp_path,)
-        ),
+        rescan=mainwindow.RescanContext(roots=(tmp_path,)),
+        projects_file=registry.ProjectsFile(tmp_path / "projects.json"),
     )
     with qtbot.waitExposed(window):
         window.show()
@@ -5024,20 +5045,23 @@ def profile_window(
         if saves is not None:
             saves.append((path, list(merged), load))
 
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=fake_save,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=lambda _roots: scanner.ScanResult(
             projects=(), timed_out=False, unlistable_roots=()
         ),
         now=lambda: "2026-08-21T09:00:00Z",
-        save=fake_save,
     )
     window = MainWindow(
         controller,
         Theme.default(),
         [],
         rescan=context,
+        projects_file=files,
         load=load if load is not None else LoadResult([], [], 0),
         choose_profile_to_save=lambda: to_save,
         choose_profile_to_open=lambda: to_open,
@@ -5069,6 +5093,38 @@ def test_the_profile_entries_are_absent_without_a_registry(qtbot, built) -> None
     assert window._export_action is None
     assert window._import_action is None
     assert "&Export profile..." not in entry_texts(window._file_menu)
+
+
+def test_saving_needs_the_registry_file_and_not_a_rescan(
+    qtbot, built, tmp_path
+) -> None:
+    """LWSM-1358. Every writer saved through the Rescan context, so a window
+    without Rescan could not hide a project, store a browser choice, export
+    or import. Given the registry file and no rescan, all of those work and
+    only Rescan is missing."""
+    saves: list = []
+    controller = build_controller(built, [record("a", 3000)], FakeProbe())
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        projects_file=registry.ProjectsFile(
+            tmp_path / "projects.json",
+            save=lambda path, records, *, load: saves.append(list(records)),
+        ),
+        load=LoadResult([], [], 0),
+    )
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert entry_texts(window._file_menu) == [
+        "&Export profile...",
+        "&Import profile...",
+        "&Quit",
+    ]
+    window.set_project_hidden(controller.records()[0].path, True)
+    assert saves and [r.hidden for r in saves[-1]] == [True]
 
 
 def test_export_writes_a_profile_that_loads_back(qtbot, built, tmp_path) -> None:
@@ -7107,8 +7163,9 @@ def test_hiding_a_project_applies_without_a_rescan_context(qtbot, built) -> None
 
     `_write_records` returned at `if self._rescan is None` — BEFORE
     `set_records` — so hiding a project or choosing its browser was a no-op that
-    handed back the success message anyway (LWSM-1282). Only the SAVE needs a
-    rescan context; the in-memory update never did.
+    handed back the success message anyway (LWSM-1282). Only the SAVE needs the
+    registry file (`ProjectsFile` since LWSM-1358); the in-memory update never
+    did.
 
     Same family as LWSM-1136 and the `semgrep` note in CLAUDE.md: a mechanism
     that did nothing is indistinguishable from one that found nothing to do.
@@ -7476,8 +7533,6 @@ def test_a_rescan_failure_is_escaped_and_clipped_before_it_is_shown(
     context = RescanContext(
         roots=[tmp_path],
         scan=exploding_scan,
-        save=lambda *a, **k: None,
-        projects_path=tmp_path / "projects.json",
     )
     _RescanTask(context, [], signals).run()
 
@@ -7538,11 +7593,9 @@ class RaisingSignals:
 def run_rescan_whose_emit_raises(exc: BaseException, tmp_path: Path) -> None:
     """A rescan that succeeds and then cannot report it."""
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=lambda _roots: FakeScanResult(),
         now=lambda: "2026-09-07T09:00:00Z",
-        save=lambda *_a, **_k: None,
     )
     mainwindow._RescanTask(context, [], RaisingSignals(exc)).run()
 
@@ -7602,18 +7655,21 @@ def test_a_save_that_was_not_made_durable_reads_as_saved(
         raise registry.RegistryNotDurable("written, but the directory entry ...")
 
     controller = build_controller(built, [], FakeProbe())
+    files = registry.ProjectsFile(
+        tmp_path / "projects.json",
+        save=unsynced_save,
+    )
     context = mainwindow.RescanContext(
-        projects_path=tmp_path / "projects.json",
         roots=(tmp_path / "roots",),
         scan=lambda _roots: FakeScanResult(projects=(FakeDetected(project, "web"),)),
         now=lambda: "2026-08-14T09:00:00Z",
-        save=unsynced_save,
     )
     window = MainWindow(
         controller,
         Theme.default(),
         [],
         rescan=context,
+        projects_file=files,
         load=registry.RegistryMissing("first run"),
     )
     qtbot.addWidget(window)
@@ -7785,10 +7841,8 @@ def test_the_rescan_defaults_reach_a_patched_scanner_and_writer(monkeypatch) -> 
     monkeypatch.setattr(
         registry, "save_projects", lambda *a, **kw: calls.append("save")
     )
-    context = RescanContext(projects_path=Path("/nowhere"), roots=())
-
-    context.scan(())
-    context.save()
+    RescanContext(roots=()).scan(())
+    registry.ProjectsFile(Path("/nowhere")).save()
 
     assert calls == ["scan", "save"]
 

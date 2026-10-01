@@ -51,6 +51,7 @@ def build_window(
     from lwsm.ports import PortProbe
     from lwsm.registry import (
         LoadResult,
+        ProjectsFile,
         RegistryError,
         default_projects_path,
         load_projects,
@@ -325,17 +326,15 @@ def build_window(
         # it: a session whose registry refused a row must not have that row
         # deleted by a rescan (LWSM-1007 § 4.3).
         load=load,
-        # No path, no context. `RescanContext.projects_path` is typed `Path`
+        # No path, no file and no rescan. `ProjectsFile.path` is typed `Path`
         # and the dataclass checks nothing, so the branch where
-        # `default_projects_path()` raised still built one holding `None` —
-        # and the window offers Rescan, Export and Import on `_rescan is not
-        # None`, all three of which end at `save(self._rescan.projects_path)`
-        # (LWSM-1210). A control that cannot work is not offered, which is the
-        # same answer this file already gives for the log and the theme.
+        # `default_projects_path()` raised would build one holding `None` —
+        # and every writer the window offers ends at `save(path)` (LWSM-1210).
+        # A control that cannot work is not offered, which is the same answer
+        # this file already gives for the log and the theme.
+        projects_file=(None if projects_path is None else ProjectsFile(projects_path)),
         rescan=(
-            None
-            if projects_path is None
-            else RescanContext(projects_path=projects_path, roots=default_scan_roots())
+            None if projects_path is None else RescanContext(roots=default_scan_roots())
         ),
         save_theme=save_theme,
         # The stored id as well as the palette it names, because `follow-system`

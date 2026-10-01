@@ -202,7 +202,8 @@ Added at P02 (LWSM-1005), contract in
   Settings is a choice that then stays chosen.
   Since LWSM-1131 it also
   owns the **Rescan** seam: `RescanContext` (scan roots, the scan
-  function and the writer, all injected so `testing.md § T1` holds),
+  function and the clock, all injected so `testing.md § T1` holds; the
+  writer is `registry.ProjectsFile`, which every writer shares, LWSM-1358),
   `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`.
   **The write happens in the slot, never in `merge()`** — the merge
   runs on the pool thread and is handed no `LoadResult`, so the

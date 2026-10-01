@@ -403,13 +403,15 @@ def utc_stamp() -> str:
 class RescanContext:
     """Everything a Rescan needs that the window does not already hold.
 
+    Where the registry is written is NOT here: that is `registry.ProjectsFile`,
+    which four other writers share (LWSM-1358).
+
     `roots` is passed in rather than read from a settings file: settings
     persistence is LWSM-1018, and a window that read the real config could not
     satisfy `testing.md § T1`. `scan` and `now` are injected for the same
     reason — the tests supply fakes rather than walking a real tree.
     """
 
-    projects_path: Path
     roots: tuple[Path, ...]
     # Late-bound (LWSM-1280): a default of `scanner.scan` itself is captured
     # when the class is DEFINED, so a `monkeypatch.setattr(scanner, "scan", ...)`
@@ -418,9 +420,6 @@ class RescanContext:
         default=lambda roots, **kwargs: scanner.scan(roots, **kwargs)
     )
     now: Callable[[], str] = field(default=lambda: utc_stamp())
-    save: Callable[..., None] = field(
-        default=lambda *args, **kwargs: registry.save_projects(*args, **kwargs)
-    )
 
 
 def _merge_parts(counts: dict[str, int]) -> list[str]:
@@ -1500,6 +1499,7 @@ class MainWindow(QMainWindow):
         parent: QWidget | None = None,
         *,
         rescan: RescanContext | None = None,
+        projects_file: registry.ProjectsFile | None = None,
         load: LoadResult | RegistryError | None = None,
         confirm: Callable[
             [Path, str, tuple[str, ...], tuple[tuple[str, str], ...]], bool
@@ -1530,7 +1530,9 @@ class MainWindow(QMainWindow):
         # which is what every pre-LWSM-1131 test does, and what a session with
         # no scan roots configured would do. No context, no button: an enabled
         # control that cannot work is worse than an absent one.
-        self._rescan = rescan
+        # Rescan needs both; every other writer needs only the file (LWSM-1358).
+        self._rescan = rescan if projects_file is not None else None
+        self._projects_file = projects_file
         self._load = load
         self._rescan_in_flight = False
         self._show_hidden = False
@@ -1908,9 +1910,12 @@ class MainWindow(QMainWindow):
         # extra that is true.
         self._export_action: QAction | None = None
         self._import_action: QAction | None = None
-        if self._rescan is not None and self._load is not None:
-            # No separator of its own: the Rescan entry's already sits above,
-            # and this block only exists when that one does (LWSM-1281).
+        if self._projects_file is not None and self._load is not None:
+            # No separator of its own when the Rescan entry's already sits
+            # above (LWSM-1281). Profiles need only the registry file, not a
+            # rescan context (LWSM-1358), so the two can now differ.
+            if self._rescan_action is None:
+                self._file_menu.addSeparator()
             self._export_action = self._file_menu.addAction("")
             self._export_action.triggered.connect(self._export_profile)
             self._import_action = self._file_menu.addAction("")
@@ -2364,7 +2369,7 @@ class MainWindow(QMainWindow):
         what lets `user_half_applied` take the user half whole, with no
         per-field qualifier.
         """
-        if self._rescan is None or self._load is None:
+        if self._projects_file is None or self._load is None:
             return
         chosen = self._choose_profile_to_open()
         if not chosen:
@@ -3288,7 +3293,7 @@ class MainWindow(QMainWindow):
         second copy of them would be a second place for the refresh to be
         forgotten. Only the leading word and the log prefix differ.
         """
-        if self._rescan is None:
+        if self._projects_file is None:
             return ""
         for reason in merged.reasons:
             # The full report goes to the log, one record each; the banner
@@ -3315,10 +3320,12 @@ class MainWindow(QMainWindow):
         # changed nothing at all and still reported success — the shape this
         # project has now met several times, where a mechanism that did nothing
         # is indistinguishable from one that found nothing to do.
-        if self._rescan is not None and self._should_write(records):
+        if self._projects_file is not None and self._should_write(records):
             saved = True
             try:
-                self._rescan.save(self._rescan.projects_path, records, load=self._load)
+                self._projects_file.save(
+                    self._projects_file.path, records, load=self._load
+                )
             except RegistryNotDurable as exc:
                 # Written: only its survival across a crash is in doubt, so it
                 # is neither called unsaved nor left out of the refresh below
@@ -3348,7 +3355,7 @@ class MainWindow(QMainWindow):
                     records=list(records),
                     reasons=[],
                     rows_refused=0,
-                    path=self._rescan.projects_path,
+                    path=self._projects_file.path,
                 )
 
         self._controller.set_records(records)
