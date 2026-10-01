@@ -21,6 +21,8 @@ signaling per
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-01
+
 ### Added
 
 - **The checks before every push now include a type checker over the app's source.** (LWSM-1066)
@@ -42,7 +44,7 @@ signaling per
   service name if it has one. Nothing happens until you agree, and the
   default is no.
 
-- **Stop, Restart and Open now work for servers started at logon, not just ones the app launched** (LWSM-1012)
+- **Stop, Restart and Open now work for servers started at logon, not just ones the app launched** (LWSM-1370)
   A server systemd starts at login is driven through systemd, so stopping
   it from here does not stop it coming back at the next logon. Starting it
   again uses the same service rather than launching a second copy.

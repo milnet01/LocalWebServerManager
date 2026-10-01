@@ -10151,6 +10151,20 @@ O8` forbids retrofitting that.
   Source: security-pass-2026-10-01 latent.
   Lanes: persistence.
 
+- ✅ [LWSM-1370] **Stop, Restart and Open drive the systemd unit of a server started at logon.**
+  Split out of LWSM-1012 on 2026-10-01 so 0.1.0's changelog can cite what
+  shipped. This half was built under LWSM-1012: the unit is read off the
+  port holder's own cgroup, Stop and Restart go through `systemctl --user`
+  after the LWSM-1154 disclosure, Start drives the remembered unit, and
+  `disable` and `mask` are absent from service.VERBS. LWSM-1012 keeps the
+  rest: signalling a holder with no unit (descendant enumeration,
+  re-enumerated after confirming) and L3-M4's unit-binding rule.
+  **Layman:** A server that starts when you log in can now be stopped, restarted and opened from the app, through the system's own service manager.
+  Kind: feature.
+  Source: split-from-LWSM-1012-2026-10-01.
+  Lanes: core, ui.
+  Splits-from: LWSM-1012.
+
 ## 0.2.0 — Find and run
 
 Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
@@ -10509,6 +10523,10 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   ADR-0003 rule as written refuses every autostarted server. The binding
   test for adopted units needs another anchor (the .desktop `Exec=` path,
   or the holder's cwd), and the ADR changes with it.
+  Split (2026-10-01): the shipped half (systemd-driven Stop, Restart and
+  Open for servers started at logon) is LWSM-1370, so 0.1.0's changelog
+  cites a shipped id. This item keeps the unit-less holder signalling
+  and L3-M4.
 
 - 📋 [LWSM-1011] **P06: the seven-state classifier.**
   One
