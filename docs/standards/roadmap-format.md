@@ -392,8 +392,8 @@ I write the changelog" workflows.
 
 ### 3.7 Release blocks
 
-A release block is a `##` heading naming a version + theme +
-target date:
+A release block is a `##` heading naming a version, optionally
+followed by a theme and a target date:
 
 ```markdown
 ## 0.7.0 — shell integration (target: 2026-06)
@@ -402,7 +402,9 @@ target date:
 ```
 
 The `**Theme:**` line is optional but recommended — it gives
-the filter dialog one-line context per release.
+the filter dialog one-line context per release. **The target date is
+optional too, and § 3.2's examples omit it** — add `(target: YYYY-MM)`
+once there is a date worth stating.
 
 Released versions move from `(target: YYYY-MM)` to
 `shipped (YYYY-MM-DD)`. The viewer treats released blocks as
