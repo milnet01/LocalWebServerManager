@@ -9377,6 +9377,11 @@ O8` forbids retrofitting that.
   (3) dependencies.md § 1 already carries the latest-stable rule,
   nothing restored. Remaining findings the gates found outside the
   change: LWSM-1330. Full reconciliation stays LWSM-1326.
+  Progress (2026-10-01): 0.1.0 shipped, so CLAUDE.md's "until 0.1.0
+  ships, a chore or doc-only commit with no item id uses P04:" has
+  expired. Until this item settles the fork, use commits.md section
+  1.2's chore: and docs: rows. CLAUDE.md's Commit conventions paragraph
+  still says P04 and needs updating here.
 
 - ✅ [LWSM-1065] **Decide whether two instances may share one app.log.**
   `RotatingFileHandler` is not multi-process safe, and ADR-0004 rules out
@@ -10459,6 +10464,17 @@ bugs in the same area.
   Kind: review-fix.
   Source: review-code-2026-10-01 lane-07 L7-L1.
   Lanes: release, tooling.
+
+- 📋 [LWSM-1371] **CLAUDE.md still says chore and doc commits use "P04:", a rule that ended when 0.1.0 shipped.**
+  CLAUDE.md § Commit conventions: "Until 0.1.0 ships, a chore or doc-only
+  commit with no item id uses P04:" (user, 2026-09-28), to be revisited with
+  LWSM-1062 (now closed). 0.1.0 shipped 2026-10-01, so that override has
+  lapsed and commits.md § 1.2's chore: and docs: rows apply. Update the
+  paragraph; it is a project CLAUDE.md, so put the edit to rule 14's test.
+  **Layman:** The project's notes still tell future sessions to label small commits the old way; update them now that the first release is out.
+  Kind: doc-fix.
+  Source: in-session-2026-10-01 (0.1.0 release).
+  Lanes: docs.
 
 ## 0.3.0 — The full state model
 
