@@ -1042,6 +1042,13 @@ O8` forbids retrofitting that.
   disposition null). NEXT: V-1, then the two standing passes (refactor,
   security), then LWSM-1344 (option a, relayed), the open fix/doc-fix
   items oldest first, then cut-release.
+  Progress (2026-10-01, d83a9e4): V-1 closed, so the 2026-10-01
+  close-findings ledger has no open row. Of 19 vulture candidates: 1
+  fixed (Theme.default to staticmethod), 3 already fixed earlier in the
+  run, 15 dismissed as tool noise into .audit_cache/learned-fp.jsonl.
+  NEXT: the two standing passes (refactor, security), then LWSM-1344
+  (option a, confirm with the user once), the open fix/doc-fix items
+  oldest first, then cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
