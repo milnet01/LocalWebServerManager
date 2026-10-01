@@ -9765,7 +9765,7 @@ O8` forbids retrofitting that.
   Source: review-code 2026-09-01 lane 10, queued from LWSM-1280 on 2026-10-01.
   Lanes: window.
 
-- 📋 [LWSM-1345] **Menu-level actions report through the status bar, which design-accessibility.md calls invisible to a magnifier user.**
+- ✅ [LWSM-1345] **Menu-level actions report through the status bar, which design-accessibility.md calls invisible to a magnifier user.**
   set_text_scale, set_theme, _export_profile and _refuse_import report
   with set_status_message. design-accessibility.md: feedback surfaces
   next to the row that raised it, and a status-bar message is invisible
@@ -9775,6 +9775,10 @@ O8` forbids retrofitting that.
   Decision (user, 2026-10-01): menu-level feedback goes in a dismissable
   banner at the top of the project list, not the status bar and not a
   modal dialog.
+  Resolved (2026-10-01, 3da556d): set_status_message fills a dismissable
+  banner between the filter strip and the list; no status bar is built.
+  Also fixed: startup notices now show before the window sizes itself,
+  and the banner is PlainText.
   **Layman:** Messages from the menus (text size, theme, profile export and import) appear in a far-off status bar a magnifier user won't see.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
