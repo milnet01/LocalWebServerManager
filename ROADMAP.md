@@ -1033,6 +1033,15 @@ O8` forbids retrofitting that.
   Progress (2026-10-01, f1e5b80): lane 06 (controller + entry) closed,
   all 9 fixed. 30 ledger rows still open: lanes 01, 02, 07 and V-1.
   NEXT: lane 01, then 02, 07, V-1.
+  Progress (2026-10-01, bc71615, pushed): close-findings lanes 06, 01,
+  02 and 07 closed (f1e5b80, a81f6c6, b118ad1, bc71615). Queued:
+  LWSM-1354 (X11 frame clamp), LWSM-1355 (rc versions); L1-M3 folded
+  into LWSM-1349/1337. Local CI 1885+ passed. ONE ledger row open: V-1,
+  the vulture dead-code list
+  (build/review-code-2026-10-01/check-code-vulture.txt; ledger.json,
+  disposition null). NEXT: V-1, then the two standing passes (refactor,
+  security), then LWSM-1344 (option a, relayed), the open fix/doc-fix
+  items oldest first, then cut-release.
   **Layman:** Publish a first proper version once the appearance work is done, so people get something with a real version number instead of 0.0.0.
   Kind: release.
   Source: user-decision-2026-08-18.
@@ -11027,6 +11036,9 @@ open DS01 debt-sweep items, and the open FP02 review items.
   _NOT_RESTORED_BY_IMPORT; (b) import behind a confirmation gate; (c)
   keep it and say in design.md a profile is user-authored input.
   Must be decided before LWSM-1029 ships.
+  Decision (user, 2026-10-01, relayed by the Pressless session, message
+  361): option (a) — a profile import does NOT restore custom `actions`.
+  Not yet confirmed in this project's own session; confirm, then build.
   **Layman:** Importing a settings profile from someone else could bring in custom commands; decide before custom commands can run.
   Kind: security.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
