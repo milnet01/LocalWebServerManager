@@ -509,6 +509,16 @@ sample the region the change lives in: a fill sample taken from a button's
 interior cannot see a ring drawn at its border, which was the second half of
 the same wrong answer.
 
+**Trap: "the most common colour" is not a control's fill once it has a
+one-colour outline.** Fusion shades a button's fill across many near-equal
+colours, so the 1 px outline `OutlineStyle` paints round the perimeter
+out-counts every one of them, and a sampler taking the mode as the fill
+reads the outline instead (LWSM-1337, measured 2026-10-01). Sample a fill
+from inside the edge band. Related: **a child widget paints over its
+parent's ring** — a list's viewport and a spin box's text field are
+children drawn after the style, so a ring painted on the parent loses its
+inner pixels unless the child is moved in.
+
 **Trap: the app never loads Breeze — it resolves to Fusion.** PySide6 ships its
 own Qt, so the system `breeze6.so` cannot bind to it: `QStyleFactory.keys()` is
 `['Windows', 'Fusion']` on the venv interpreter and the system one alike.

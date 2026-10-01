@@ -101,6 +101,8 @@ from lwsm.theme import (
     FOLLOW_SYSTEM,
     THEMES,
     Theme,
+    focus_ring_width,
+    install_outline_style,
     resolve_theme_id,
     theme_for_id,
 )
@@ -1045,11 +1047,10 @@ class ProjectRow(QFrame):
     def focus_ring_width(self) -> int:
         """Derived from the text metric, never a pixel constant (`§ O7`).
 
-        A fixed width would thin to a hairline under LWSM-1032's 200 % text-size
-        control, which is precisely the setting the users who depend on the ring
-        are most likely to be running.
+        The formula is `theme.focus_ring_width`'s, shared with every Fusion
+        control's ring so the two cannot drift apart (LWSM-1349).
         """
-        return max(1, round(self.fontMetrics().height() / 8))
+        return focus_ring_width(self.fontMetrics())
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """Paint the state glyph, and the focus ring `QFrame` does not.
@@ -1672,6 +1673,9 @@ class MainWindow(QMainWindow):
         # is the LWSM-1113 defect this pass exists to close.
         app = _application()
         if app is not None:
+            # The style first: `setStyle` re-polishes, and the palette goes on
+            # after it (LWSM-1337, LWSM-1349).
+            install_outline_style(app)
             app.setPalette(theme.to_palette())
         # Set once for the whole window; rows carry a state property the rules
         # in it select on.

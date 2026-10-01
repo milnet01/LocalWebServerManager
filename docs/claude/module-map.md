@@ -174,7 +174,12 @@ Added at P02 (LWSM-1005), contract in
   beside its value: finbreak tuned them against `window` alone and
   `alt_base` is darker. `high_contrast` is a flag **on the theme** rather
   than a set of ids beside it, because the floor a palette is judged
-  against is a property of the palette.
+  against is a property of the palette. **It also owns `OutlineStyle`**
+  (LWSM-1337, LWSM-1349), a proxy over Fusion that paints each control's
+  outline in `Mid` and a thick focus ring in `Highlight` after Fusion has
+  drawn, so the shading stays; `install_outline_style` puts it on the
+  application, before the palette. `focus_ring_width` is the one ring-width
+  formula, shared with the row.
 - **`src/lwsm/mainwindow.py`** — UI layer.
   Since LWSM-1033 it also owns
   **window geometry and Centre on screen** — `showEvent`/`eventFilter`,

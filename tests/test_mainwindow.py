@@ -2957,6 +2957,29 @@ def test_the_swap_reaches_the_application_palette_not_only_the_window(
     assert expected.state_running in window.styleSheet()
 
 
+def test_the_window_puts_the_outline_style_on_the_application(qtbot, built) -> None:
+    """LWSM-1337 / LWSM-1349: the outlines and the thick ring are painted by
+    `OutlineStyle`, so a window that never installs it shows Fusion's
+    near-invisible outline and 1 px ring, and every rendered test in
+    `test_theme.py` would still pass, since each installs it for itself.
+
+    Plain Fusion first: the style lives on the application for the whole
+    session, so without the reset an earlier test would satisfy this one.
+    """
+    from PySide6.QtWidgets import QStyleFactory
+
+    from lwsm.theme import OutlineStyle
+
+    app = QApplication.instance()
+    assert app is not None
+    app.setStyle(QStyleFactory.create("Fusion"))
+    assert not isinstance(app.style(), OutlineStyle)
+
+    themed_window(qtbot, built)
+
+    assert isinstance(app.style(), OutlineStyle)
+
+
 def test_the_choice_is_handed_to_the_saver(qtbot, built) -> None:
     """The seam exists so a test cannot write to the developer's own
     ~/.config. `build_window` injects the real one."""

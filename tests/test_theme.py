@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 
@@ -33,6 +33,7 @@ from lwsm.theme import (
     DEFAULT_THEME,
     FOLLOW_SYSTEM,
     Theme,
+    install_outline_style,
     resolve_theme_id,
     theme_for_id,
 )
@@ -90,46 +91,89 @@ def test_the_focus_ring_clears_the_indicator_floor(theme: Theme, surface: str) -
     )
 
 
-def _rendered_ring(qtbot, theme: Theme, kind: str = "button") -> tuple[str, str]:
-    """The ring Fusion DRAWS on a keyboard-focused control, and its inside fill.
+class _Ring(NamedTuple):
+    ring: str  # the colour drawn at the control's edge once focused
+    inside: str  # the control's own fill just inside the ring
+    width: int  # how many pixels in from the edge the focus change runs
+    row_width: int  # what `ProjectRow.focus_ring_width` gives this font
 
-    `kind` is every focusable control the app shows: a button, the filter box
-    (a line edit) and the browser picker (a combo box). The row paints its
-    own ring and has its own tests in `test_mainwindow.py` (LWSM-1292).
 
-    Real widgets, the application palette and the window style sheet, and
-    focus moved by a real Backtab: Qt draws a focus ring only when
+def _hexed(pixel: int) -> str:
+    return f"#{pixel & 0xFFFFFF:06x}"
+
+
+# Every kind of focusable control the app builds: the row's buttons, the
+# filter box, the browser picker, and the settings dialog's port fields and
+# folder list. The row paints its own ring and has its own tests in
+# `test_mainwindow.py` (LWSM-1292).
+FOCUSABLE = ["button", "line_edit", "combo_box", "spin_box", "list"]
+
+
+def _control(kind: str) -> QWidget:
+    from PySide6.QtWidgets import (
+        QComboBox,
+        QFrame,
+        QLineEdit,
+        QListWidget,
+        QPushButton,
+        QSpinBox,
+    )
+
+    if kind == "button":
+        return QPushButton("Start")
+    if kind == "line_edit":
+        # Empty, as the filter box opens: tabbing into a line edit selects
+        # its text, and the "inside" sample would then be the selection.
+        return QLineEdit()
+    if kind == "combo_box":
+        box = QComboBox()
+        box.addItems(["Firefox", "Chromium"])
+        return box
+    if kind == "spin_box":
+        return QSpinBox()
+    if kind == "list":
+        # Empty, so the inside sample is the list's own fill, not an item.
+        listing = QListWidget()
+        listing.setFixedHeight(60)
+        return listing
+    frame = QFrame()
+    frame.setFrameShape(QFrame.Shape.StyledPanel)
+    frame.setMinimumSize(60, 30)
+    return frame
+
+
+def _rendered_ring(
+    qtbot, theme: Theme, kind: str = "button", scale: int = 100
+) -> _Ring:
+    """The ring the app DRAWS on a keyboard-focused control, and its inside fill.
+
+    `kind` is one of `FOCUSABLE`.
+
+    Real widgets, the application style, palette and font, the window style
+    sheet, and focus moved by a real Backtab: Qt draws a focus ring only when
     `WA_KeyboardFocusChange` is set, which `setFocus` alone never sets
     (CLAUDE.md's `QStyleOption` trap). The ring is the pixels that change
     when focus arrives, sampled at mid-height on the left edge.
+
+    `scale` multiplies the application font as the text-size control does,
+    because the ring's width is promised to follow it (LWSM-1349).
     """
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import (
-        QApplication,
-        QComboBox,
-        QHBoxLayout,
-        QLineEdit,
-        QPushButton,
-        QWidget,
-    )
+    from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
 
     app = QApplication.instance()
-    previous = app.palette()
+    install_outline_style(app)
+    previous, previous_font = app.palette(), app.font()
     app.setPalette(theme.to_palette())
+    font = app.font()
+    font.setPointSizeF(font.pointSizeF() * scale / 100)
+    app.setFont(font)
     try:
         window = QWidget()
         qtbot.addWidget(window)
         window.setStyleSheet(theme.style_sheet())
         layout = QHBoxLayout(window)
-        if kind == "button":
-            target = QPushButton("Start")
-        elif kind == "line_edit":
-            # Empty, as the filter box opens: tabbing into a line edit selects
-            # its text, and the "inside" sample would then be the selection.
-            target = QLineEdit()
-        else:
-            target = QComboBox()
-            target.addItems(["Firefox", "Chromium"])
+        target = _control(kind)
         other = QPushButton("Stop")
         layout.addWidget(target)
         layout.addWidget(other)
@@ -142,8 +186,12 @@ def _rendered_ring(qtbot, theme: Theme, kind: str = "button") -> tuple[str, str]
         qtbot.keyClick(other, Qt.Key.Key_Backtab)
         assert target.hasFocus()
         focused = target.grab().toImage()
+        # The row's own formula, on this control's font: the user chose one
+        # ring width for every focusable thing (LWSM-1349, 2026-10-01).
+        row_width = max(1, round(target.fontMetrics().height() / 8))
     finally:
         app.setPalette(previous)
+        app.setFont(previous_font)
     row = focused.height() // 2
     changed = [
         x
@@ -162,14 +210,16 @@ def _rendered_ring(qtbot, theme: Theme, kind: str = "button") -> tuple[str, str]
     while edge + 1 in changed:
         edge += 1
 
-    def hexed(pixel: int) -> str:
-        return f"#{pixel & 0xFFFFFF:06x}"
-
-    return hexed(focused.pixel(changed[0], row)), hexed(focused.pixel(edge + 3, row))
+    return _Ring(
+        ring=_hexed(focused.pixel(changed[0], row)),
+        inside=_hexed(focused.pixel(edge + 3, row)),
+        width=edge - changed[0] + 1,
+        row_width=row_width,
+    )
 
 
 @pytest.mark.gui
-@pytest.mark.parametrize("kind", ["button", "line_edit", "combo_box"])
+@pytest.mark.parametrize("kind", FOCUSABLE)
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_ring_fusion_draws_clears_the_indicator_floor(
     qtbot, theme: Theme, kind: str
@@ -182,14 +232,95 @@ def test_the_ring_fusion_draws_clears_the_indicator_floor(
     Held against both neighbours of the ring, the control's own fill inside it
     and the window outside it (WCAG 1.4.11's adjacent colours).
     """
-    ring, inside = _rendered_ring(qtbot, theme, kind)
+    drawn = _rendered_ring(qtbot, theme, kind)
 
-    for name, neighbour in (("its own fill", inside), ("the window", theme.window)):
-        ratio = contrast_ratio(ring, neighbour)
+    for name, neighbour in (
+        ("its own fill", drawn.inside),
+        ("the window", theme.window),
+    ):
+        ratio = contrast_ratio(drawn.ring, neighbour)
         assert ratio >= INDICATOR_FLOOR, (
-            f"the drawn focus ring {ring} is {ratio:.2f}:1 against {name} "
+            f"the drawn focus ring {drawn.ring} is {ratio:.2f}:1 against {name} "
             f"{neighbour}, below § T8's {INDICATOR_FLOOR}:1"
         )
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("scale", [100, 200])
+@pytest.mark.parametrize("kind", FOCUSABLE)
+@pytest.mark.parametrize("theme", THEMES)
+def test_every_focus_ring_is_as_thick_as_the_rows(
+    qtbot, theme: Theme, kind: str, scale: int
+) -> None:
+    """LWSM-1349. `design-accessibility.md` promises a THICK ring on every
+    focusable control, and Fusion drew 1 px on a button and a combo box and
+    2 px on a line edit, the same at every text size. The user chose the
+    row's width for all of them (2026-10-01), which grows with the text.
+
+    At 200 % as well as 100 %: Fusion's line edit already met the 100 %
+    width, so only the larger size can tell a ring that follows the text
+    from one that happens to match it once.
+    """
+    drawn = _rendered_ring(qtbot, theme, kind, scale)
+
+    assert drawn.width >= drawn.row_width, (
+        f"the focus ring is {drawn.width} px at {scale} % text, thinner than "
+        f"the row's {drawn.row_width} px"
+    )
+
+
+@pytest.mark.parametrize("surface", ["window", "base", "alt_base"])
+@pytest.mark.parametrize("theme", THEMES)
+def test_every_outline_clears_the_indicator_floor(theme: Theme, surface: str) -> None:
+    """LWSM-1337. The `border` token outlines rows and fields, and nothing
+    held it to anything: 1.19-1.42:1 on every surface of the six ordinary
+    palettes, so the outline was there and could not be seen. An outline is
+    a non-text indicator, so it takes § T8's 3:1 (the user, 2026-10-01).
+    """
+    ratio = contrast_ratio(theme.border, getattr(theme, surface))
+    assert ratio >= INDICATOR_FLOOR, (
+        f"the outline {theme.border} is {ratio:.2f}:1 against {surface}, "
+        f"below § T8's {INDICATOR_FLOOR}:1 for a non-text indicator"
+    )
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("kind", [*FOCUSABLE, "frame"])
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_outline_on_screen_is_the_border_token(
+    qtbot, theme: Theme, kind: str
+) -> None:
+    """LWSM-1337. The token clearing 3:1 changes nothing unless it is what
+    gets drawn: Fusion outlines a control in a shade it derives from the
+    window colour, so high-contrast dark showed near-invisible outlines
+    while its `border` token was white (docs/screenshots/high-contrast.png).
+
+    Read at the control's left edge, mid-height, unfocused. `frame` is the
+    project row's shape, a `QFrame` with a styled panel.
+    """
+    from PySide6.QtWidgets import QApplication, QHBoxLayout, QWidget
+
+    app = QApplication.instance()
+    install_outline_style(app)
+    previous = app.palette()
+    app.setPalette(theme.to_palette())
+    try:
+        window = QWidget()
+        qtbot.addWidget(window)
+        window.setStyleSheet(theme.style_sheet())
+        layout = QHBoxLayout(window)
+        target = _control(kind)
+        layout.addWidget(target)
+        with qtbot.waitExposed(window):
+            window.show()
+        image = target.grab().toImage()
+    finally:
+        app.setPalette(previous)
+
+    edge = _hexed(image.pixel(0, image.height() // 2))
+    assert edge == theme.border, (
+        f"the {kind}'s outline is drawn in {edge}, not the border token {theme.border}"
+    )
 
 
 # --- LWSM-1075: every token that renders as TEXT clears the text floor --------
@@ -601,8 +732,16 @@ DISABLED_LABEL_DELTA = 2.0
 DISABLED_CONTRAST_SHARE = 0.5
 
 
-def _fill_and_label(widget: QWidget) -> tuple[str, str]:
-    """A rendered button's own fill, and the colour furthest from it: its label.
+# How far in from the edge the fill and label are read. The outline is drawn
+# in ONE colour round the whole perimeter while Fusion shades a button's fill
+# across many, so read over the whole widget the outline out-counted every
+# fill shade and was taken for the fill (LWSM-1337, measured 2026-10-01).
+_EDGE_BAND = 3
+
+
+def _fill_and_label(widget: QWidget) -> tuple[str, str, str]:
+    """A rendered control's own fill, the colour furthest from it (its label),
+    and its outline: the pixel at its left edge, mid-height.
 
     Read off a REAL widget in a REAL state. `CLAUDE.md` records why: a hand-built
     `QStyleOption` with `State_Enabled` cleared does not reproduce the disabled
@@ -610,13 +749,14 @@ def _fill_and_label(widget: QWidget) -> tuple[str, str]:
     closure. Contrast, never a changed-pixel count, for the same reason.
     """
     image = widget.grab().toImage()
+    edge = image.pixelColor(0, image.height() // 2).name()
     seen: dict[str, int] = {}
-    for y in range(image.height()):
-        for x in range(image.width()):
+    for y in range(_EDGE_BAND, image.height() - _EDGE_BAND):
+        for x in range(_EDGE_BAND, image.width() - _EDGE_BAND):
             name = image.pixelColor(x, y).name()
             seen[name] = seen.get(name, 0) + 1
     fill = max(seen, key=lambda name: seen[name])
-    return fill, max(seen, key=lambda name: contrast_ratio(name, fill))
+    return fill, max(seen, key=lambda name: contrast_ratio(name, fill)), edge
 
 
 # Three roles carry disabled text and each reaches a different control: a
@@ -662,6 +802,8 @@ def test_a_disabled_control_looks_disabled(
         "field": lambda parent: QLineEdit("Filter", parent),
     }
     make = makers[kind]
+    # The app's style, so this reads what the app draws whatever ran first.
+    install_outline_style(qapp)
     original = qapp.palette()
     try:
         qapp.setPalette(theme.to_palette())
@@ -677,10 +819,18 @@ def test_a_disabled_control_looks_disabled(
         holder.resize(200, 80)
         holder.show()
         qapp.processEvents()
-        on_fill, on_label = _fill_and_label(enabled)
-        off_fill, off_label = _fill_and_label(disabled)
+        on_fill, on_label, on_edge = _fill_and_label(enabled)
+        off_fill, off_label, off_edge = _fill_and_label(disabled)
     finally:
         qapp.setPalette(original)
+
+    # The outline dims with the label (LWSM-1337): at full strength round a
+    # dimmed label it made a disabled button read as live again. A label has
+    # no outline, so only the outlined kinds are held to this.
+    if kind != "label":
+        assert contrast_ratio(off_edge, theme.window) < contrast_ratio(
+            on_edge, theme.window
+        ), f"disabled outline {off_edge} is as strong as enabled {on_edge}"
 
     assert contrast_ratio(on_label, off_label) >= DISABLED_LABEL_DELTA, (
         f"disabled label {off_label} against enabled {on_label}"

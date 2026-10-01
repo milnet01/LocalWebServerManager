@@ -326,6 +326,17 @@ signaling per
 
 ### Fixed
 
+- **Outlines round buttons, fields, lists and rows are now visible in every theme** (LWSM-1337)
+  They used to blend into the background, most of all in the
+  high-contrast dark theme. Every outline now stands out at least 3:1
+  from what is behind it, and a disabled control's outline fades with
+  its label.
+
+- **The keyboard focus ring is thick on every control, not just on project rows** (LWSM-1349)
+  Buttons, the filter box, the browser picker, number boxes and lists
+  now get the same thick ring as a project row, and it grows with the
+  text size. The controls keep their usual shading.
+
 - **A broken script in package.json no longer makes Start silently do nothing** (LWSM-1367)
   A lone surrogate character in the script crashed the start
   with no message.

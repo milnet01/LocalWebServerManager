@@ -19,8 +19,18 @@ and the divergence recorded beside it: finbreak tuned `muted_text` against
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPalette, QPen
+from PySide6.QtWidgets import (
+    QAbstractScrollArea,
+    QApplication,
+    QProxyStyle,
+    QStyle,
+    QStyleOption,
+    QWidget,
+)
 
 from lwsm import applog
 from lwsm.controller import ProjectStatus
@@ -263,24 +273,38 @@ class Theme:
         # tried first and backed out: it took `muted_text`, which is tuned to stay
         # READABLE, so it replaced the dimming with something brighter. A disabled
         # label is meant to fall below the reading floors, not to clear them.
-        text, ground = QColor(self.text), QColor(self.window)
-        dim = QColor(
-            *(
-                round(near + (far - near) * DISABLED_TEXT_BLEND)
-                for near, far in (
-                    (text.red(), ground.red()),
-                    (text.green(), ground.green()),
-                    (text.blue(), ground.blue()),
-                )
-            )
-        )
+        dim = self._toward_window(self.text)
         for role in (
             QPalette.ColorRole.WindowText,
             QPalette.ColorRole.Text,
             QPalette.ColorRole.ButtonText,
         ):
             palette.setColor(QPalette.ColorGroup.Disabled, role, dim)
+        # The outline dims with the label (LWSM-1337). `OutlineStyle` paints
+        # `Mid` at full strength over every control, and on a disabled one that
+        # out-shouted the dimmed label: the button read as live again, which
+        # `test_a_disabled_control_looks_disabled` caught. WCAG 1.4.11 exempts
+        # an inactive control, so the 3:1 floor does not bind here.
+        palette.setColor(
+            QPalette.ColorGroup.Disabled,
+            QPalette.ColorRole.Mid,
+            self._toward_window(self.border),
+        )
         return palette
+
+    def _toward_window(self, token: str) -> QColor:
+        """`token` moved `DISABLED_TEXT_BLEND` of the way toward `window`."""
+        near, ground = QColor(token), QColor(self.window)
+        return QColor(
+            *(
+                round(a + (b - a) * DISABLED_TEXT_BLEND)
+                for a, b in (
+                    (near.red(), ground.red()),
+                    (near.green(), ground.green()),
+                    (near.blue(), ground.blue()),
+                )
+            )
+        )
 
 
 # The eight palettes, keyed by the id stored in settings.json. Insertion order
@@ -297,6 +321,11 @@ class Theme:
 # a dark palette, which is legible and carries no meaning at all. The measured
 # ratio is beside each value; `tests/test_theme.py` recomputes all of them, so
 # a comment that drifts from its colour is a failing build rather than a lie.
+#
+# `border` was solved the same way against the 3:1 indicator floor
+# (LWSM-1337): finbreak's values kept their hue and saturation and were walked
+# in lightness until the worst surface cleared it. They were 1.19-1.42:1, an
+# outline that was there and could not be seen.
 THEMES: dict[str, Theme] = {
     "ledger": Theme(
         label="Ledger",
@@ -310,7 +339,7 @@ THEMES: dict[str, Theme] = {
         accent="#977024",  # ledger: 4.5:1 on base (LWSM-1207)
         accent_soft="#e6d5a3",
         attention="#a53a24",
-        border="#d8d3c4",
+        border="#948762",  # 3.01:1 (LWSM-1337)
         is_dark=False,
         high_contrast=False,
         state_running="#167c26",  # 4.50:1
@@ -334,7 +363,7 @@ THEMES: dict[str, Theme] = {
         accent="#9d611c",  # parchment: 4.5:1 on base (LWSM-1207)
         accent_soft="#e0c48f",
         attention="#96331d",
-        border="#d0c2a4",
+        border="#8f794a",  # 3.03:1 (LWSM-1337)
         is_dark=False,
         high_contrast=False,
         state_running="#147022",  # 4.50:1
@@ -358,7 +387,7 @@ THEMES: dict[str, Theme] = {
         accent="#1b8749",  # mint: 4.5:1 on base (LWSM-1207)
         accent_soft="#bce7cd",
         attention="#b03a1e",
-        border="#cde0d4",
+        border="#5c9571",  # 3.03:1 (LWSM-1337)
         is_dark=False,
         high_contrast=False,
         state_running="#167d27",  # 4.54:1
@@ -380,7 +409,7 @@ THEMES: dict[str, Theme] = {
         accent="#d4af37",
         accent_soft="#6b5d2e",
         attention="#e0654f",
-        border="#2a3450",
+        border="#566ba4",  # 3.01:1 (LWSM-1337)
         is_dark=True,
         high_contrast=False,
         state_running="#1c9f31",  # 4.52:1
@@ -408,7 +437,7 @@ THEMES: dict[str, Theme] = {
         accent="#8ca6cb",
         accent_soft="#34435c",
         attention="#e2775c",
-        border="#3a3f47",
+        border="#6e7887",  # 3.01:1 (LWSM-1337)
         is_dark=True,
         high_contrast=False,
         state_running="#1ead35",  # 4.54:1
@@ -430,7 +459,7 @@ THEMES: dict[str, Theme] = {
         accent="#1fae6a",
         accent_soft="#2a5a44",
         attention="#e8836a",
-        border="#234636",
+        border="#3e7c5f",  # 3.03:1 (LWSM-1337)
         is_dark=True,
         high_contrast=False,
         state_running="#1da332",  # 4.51:1
@@ -526,6 +555,139 @@ def theme_for_id(theme_id: str) -> Theme:
             "unknown theme id %r; using the default, %s", theme_id, DEFAULT_THEME
         )
     return THEMES.get(theme_id, THEMES[DEFAULT_THEME])
+
+
+def focus_ring_width(metrics: QFontMetrics) -> int:
+    """How thick a focus ring is, from the text metric — never a pixel constant.
+
+    One formula for the row and for every Fusion control, because the user
+    chose one width for both (LWSM-1349, 2026-10-01). A fixed width would thin
+    to a hairline under LWSM-1032's 200 % text-size control, which is the
+    setting the users who depend on the ring are most likely to be running.
+    """
+    return max(1, round(metrics.height() / 8))
+
+
+class OutlineStyle(QProxyStyle):
+    """Fusion, with the theme's outline and a thick focus ring painted on top.
+
+    `design-accessibility.md` promises outlines that clear 3:1 and a thick
+    ring on every focusable control. Fusion draws neither: its outline is a
+    shade derived from the window colour, so the `border` token reached no
+    drawn frame (LWSM-1337), and its ring is 1-2 px at any text size
+    (LWSM-1349).
+
+    **A proxy, not a style-sheet border, and the user chose that.** A border
+    in the style sheet hands the control to `QStyleSheetStyle`, which drops
+    Fusion's shading and leaves every button flat; the user wanted the shading
+    kept (2026-10-01). Painting AFTER Fusion keeps its rendering and its
+    sizes, since nothing here changes a size hint.
+
+    No colour is named here: the outline is the palette's `Mid` and the ring
+    its `Highlight`, which `Theme.to_palette` binds to `border` and `accent`.
+    So a theme switch needs nothing from this class.
+    """
+
+    # The panels that carry a control's outline. `PE_Frame` is the project
+    # row and the settings dialog's folder list; the row paints its own ring
+    # over this one, in the same width and colour.
+    _PRIMITIVES = (
+        QStyle.PrimitiveElement.PE_PanelLineEdit,
+        QStyle.PrimitiveElement.PE_Frame,
+    )
+    _COMPLEX = (
+        QStyle.ComplexControl.CC_ComboBox,
+        QStyle.ComplexControl.CC_SpinBox,
+    )
+
+    # Two controls hold a CHILD widget that is painted after this style, over
+    # the inner edge of the ring: a list's viewport sits 1 px in and a spin
+    # box's text field 3 px in, so the ring showed 1 px of its 2 and 3 of its
+    # 5 at 200 % (measured 2026-10-01). Each child is moved in by the ring's
+    # width instead. Read when the widget is polished or resized, so a dialog
+    # built after a text-size change gets the new width.
+
+    def pixelMetric(self, metric, option=None, widget=None) -> int:
+        value = super().pixelMetric(metric, option, widget)
+        if metric == QStyle.PixelMetric.PM_DefaultFrameWidth and isinstance(
+            widget, QAbstractScrollArea
+        ):
+            return max(value, focus_ring_width(widget.fontMetrics()))
+        return value
+
+    def subControlRect(self, control, option, sub, widget=None) -> QRect:
+        # PySide6's stub types `widget` as required, but Qt's C++ default is
+        # null and a null works here (measured 2026-10-01), so the cast tells
+        # the type checker what the runtime already accepts.
+        rect = super().subControlRect(control, option, sub, cast(QWidget, widget))
+        if (
+            control == QStyle.ComplexControl.CC_SpinBox
+            and sub == QStyle.SubControl.SC_SpinBoxEditField
+        ):
+            inset = focus_ring_width(option.fontMetrics)
+            rect = rect.intersected(option.rect.adjusted(inset, inset, -inset, -inset))
+        return rect
+
+    def drawControl(self, element, option, painter, widget=None) -> None:
+        super().drawControl(element, option, painter, widget)
+        if element == QStyle.ControlElement.CE_PushButtonBevel:
+            self._outline(option, painter)
+
+    def drawPrimitive(self, element, option, painter, widget=None) -> None:
+        super().drawPrimitive(element, option, painter, widget)
+        # A frameless line edit — the one inside an editable combo box, say —
+        # reports a zero line width and gets no outline, as under Fusion.
+        if element in self._PRIMITIVES and getattr(option, "lineWidth", 1) > 0:
+            self._outline(option, painter)
+
+    def drawComplexControl(self, control, option, painter, widget=None) -> None:
+        super().drawComplexControl(control, option, painter, widget)
+        if control in self._COMPLEX and getattr(option, "frame", True):
+            self._outline(option, painter)
+
+    @staticmethod
+    def _outline(option: QStyleOption, painter: QPainter) -> None:
+        # Fusion's own test for showing focus: it needs the keyboard to have
+        # moved it, so a click does not draw a ring (CLAUDE.md's
+        # `QStyleOption` trap).
+        state = option.state
+        focused = bool(state & QStyle.StateFlag.State_HasFocus) and bool(
+            state & QStyle.StateFlag.State_KeyboardFocusChange
+        )
+        if focused:
+            width = focus_ring_width(option.fontMetrics)
+            pen = QPen(option.palette.highlight().color(), width)
+        else:
+            width = 1
+            pen = QPen(option.palette.mid().color(), width)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        painter.save()
+        # Square and unblended, so the edge pixel IS the token: an
+        # antialiased line would be a mix of it and the surface, below the
+        # contrast the token was solved for.
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        # Inset by half the pen, which straddles the path it is given — the
+        # row's reason in `ProjectRow.paintEvent`.
+        inset = width / 2
+        painter.drawRect(QRectF(option.rect).adjusted(inset, inset, -inset, -inset))
+        painter.restore()
+
+
+def install_outline_style(app: QApplication) -> None:
+    """Put `OutlineStyle` on the application, once.
+
+    On the APPLICATION, like the palette: the window's style sheet wraps the
+    application style, so a style set on a widget would reach that widget
+    alone. Idempotent because every window construction calls it, and
+    `setStyle` re-polishes every widget in the process.
+
+    **Before the palette is set, not after**: `setStyle` re-polishes, and the
+    caller then sets the theme's palette over whatever that left.
+    """
+    if not isinstance(app.style(), OutlineStyle):
+        app.setStyle(OutlineStyle("Fusion"))
 
 
 # Not a palette but a rule for choosing one, so it is deliberately absent from

@@ -9698,6 +9698,9 @@ O8` forbids retrofitting that.
   Decision (user, 2026-10-01): visible everywhere. Every theme's
   outlines clear 3:1 against their surfaces, and every focusable control
   gets a thick focus ring. Decided together with LWSM-1349.
+  Decision (user, 2026-10-01, second round): keep Fusion's shading, so
+  the outline is painted over Fusion's rendering (proxy style), not set
+  by a style-sheet border. See LWSM-1349.
   **Layman:** On the high-contrast dark theme the search box and row outlines are nearly invisible; decide how visible outlines must be and fix it.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
@@ -9851,6 +9854,11 @@ O8` forbids retrofitting that.
   Decision (user, 2026-10-01): visible everywhere. Keep the "thick"
   promise and make Fusion controls meet it (style-sheet route), in every
   theme. Decided together with LWSM-1337.
+  Decision (user, 2026-10-01, second round): keep Fusion's shading. The
+  style-sheet route flattens buttons, the filter box and the picker, so
+  it is dropped; draw the ring over Fusion's own rendering instead (a
+  proxy style). Ring width matches the row's: font height / 8, growing
+  with the text size.
   **Layman:** The design promises a thick outline around the control the keyboard is on, but the buttons and boxes get a thin one, and nothing checks thickness.
   Kind: accessibility.
   Source: review-contract 2026-10-01 loop 2, lane open question (LWSM-1292 gate).
