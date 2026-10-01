@@ -6958,6 +6958,28 @@ def test_the_text_size_control_works_under_a_pixel_sized_desktop_font(
         app.setFont(original)
 
 
+@pytest.mark.parametrize("desktop_points", [9.0, 14.0])
+def test_the_text_size_multiplies_the_desktop_size_and_does_not_replace_it(
+    qtbot, built, app_font, desktop_points
+) -> None:
+    """`design-accessibility.md`: the control "multiplies that, it does not
+    replace it" (LWSM-1291). Two desktop sizes, because a control that set a
+    fixed size per step would pass against one of them by coincidence."""
+    from PySide6.QtGui import QFont, QFontInfo
+
+    app = QApplication.instance()
+    desktop_font = QFont(app.font())
+    desktop_font.setPointSizeF(desktop_points)
+    app.setFont(desktop_font)
+    window = scaling_window(qtbot, built)
+
+    window.set_text_scale(200, remember=False)
+
+    assert QFontInfo(app.font()).pointSizeF() == pytest.approx(
+        desktop_points * 2, abs=0.5
+    ), "200 % is not twice the size the desktop gave"
+
+
 def test_a_scale_that_cannot_be_applied_is_not_reported_as_applied(
     qtbot, built
 ) -> None:

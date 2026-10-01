@@ -90,8 +90,12 @@ def test_the_focus_ring_clears_the_indicator_floor(theme: Theme, surface: str) -
     )
 
 
-def _rendered_button_ring(qtbot, theme: Theme) -> tuple[str, str]:
-    """The ring Fusion DRAWS on a keyboard-focused button, and its inside fill.
+def _rendered_ring(qtbot, theme: Theme, kind: str = "button") -> tuple[str, str]:
+    """The ring Fusion DRAWS on a keyboard-focused control, and its inside fill.
+
+    `kind` is every focusable control the app shows: a button, the filter box
+    (a line edit) and the browser picker (a combo box). The row paints its
+    own ring and has its own tests in `test_mainwindow.py` (LWSM-1292).
 
     Real widgets, the application palette and the window style sheet, and
     focus moved by a real Backtab: Qt draws a focus ring only when
@@ -100,7 +104,14 @@ def _rendered_button_ring(qtbot, theme: Theme) -> tuple[str, str]:
     when focus arrives, sampled at mid-height on the left edge.
     """
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
+    from PySide6.QtWidgets import (
+        QApplication,
+        QComboBox,
+        QHBoxLayout,
+        QLineEdit,
+        QPushButton,
+        QWidget,
+    )
 
     app = QApplication.instance()
     previous = app.palette()
@@ -110,7 +121,16 @@ def _rendered_button_ring(qtbot, theme: Theme) -> tuple[str, str]:
         qtbot.addWidget(window)
         window.setStyleSheet(theme.style_sheet())
         layout = QHBoxLayout(window)
-        target, other = QPushButton("Start"), QPushButton("Stop")
+        if kind == "button":
+            target = QPushButton("Start")
+        elif kind == "line_edit":
+            # Empty, as the filter box opens: tabbing into a line edit selects
+            # its text, and the "inside" sample would then be the selection.
+            target = QLineEdit()
+        else:
+            target = QComboBox()
+            target.addItems(["Firefox", "Chromium"])
+        other = QPushButton("Stop")
         layout.addWidget(target)
         layout.addWidget(other)
         with qtbot.waitExposed(window):
@@ -131,6 +151,13 @@ def _rendered_button_ring(qtbot, theme: Theme) -> tuple[str, str]:
         if focused.pixel(x, row) != plain.pixel(x, row)
     ]
     assert changed, "no focus ring was drawn at all"
+    # A ring sits at the control's own edge. A focused line edit also shows a
+    # text cursor a few pixels in, and with the ring gone that cursor is the
+    # only change, which contrasts well and would pass for one (measured).
+    assert changed[0] <= 1, (
+        f"the first change is at x={changed[0]}, inside the control: that is "
+        f"not a ring around it"
+    )
     edge = changed[0]
     while edge + 1 in changed:
         edge += 1
@@ -141,19 +168,22 @@ def _rendered_button_ring(qtbot, theme: Theme) -> tuple[str, str]:
     return hexed(focused.pixel(changed[0], row)), hexed(focused.pixel(edge + 3, row))
 
 
+@pytest.mark.parametrize("kind", ["button", "line_edit", "combo_box"])
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_ring_fusion_draws_clears_the_indicator_floor(qtbot, theme: Theme) -> None:
+def test_the_ring_fusion_draws_clears_the_indicator_floor(
+    qtbot, theme: Theme, kind: str
+) -> None:
     """LWSM-1238. The test above holds the accent TOKEN against the window, and
     that is not what reaches the screen: Fusion draws a button's ring in a
     darkened accent. Graphite's token cleared 3:1 while its drawn ring was
     2.26:1 against the button and 2.75:1 against the window.
 
-    Held against both neighbours of the ring, the button's own fill inside it
+    Held against both neighbours of the ring, the control's own fill inside it
     and the window outside it (WCAG 1.4.11's adjacent colours).
     """
-    ring, inside = _rendered_button_ring(qtbot, theme)
+    ring, inside = _rendered_ring(qtbot, theme, kind)
 
-    for name, neighbour in (("the button fill", inside), ("the window", theme.window)):
+    for name, neighbour in (("its own fill", inside), ("the window", theme.window)):
         ratio = contrast_ratio(ring, neighbour)
         assert ratio >= INDICATOR_FLOOR, (
             f"the drawn focus ring {ring} is {ratio:.2f}:1 against {name} "
