@@ -202,7 +202,7 @@ def test_an_entry_that_fails_validation_never_reaches_the_launcher(
     Validating it in place means a malformed entry has already appeared in the
     launcher, and `set -e` then exits leaving it there for the user to find.
     Write to a temporary file beside the target, validate that, and only then
-    rename — the discipline `configfile.write_json_atomically` holds in Python.
+    rename — the discipline `configfile.write_atomically` holds in Python.
     """
     done = run_installer(tmp_path, validator="fails")
 

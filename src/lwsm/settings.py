@@ -39,7 +39,7 @@ from lwsm.configfile import (
     canonical_json,
     load_json_object,
     quoted,
-    write_json_atomically,
+    write_atomically,
 )
 from lwsm.registry import default_projects_path
 
@@ -481,7 +481,7 @@ def save(path: Path, settings: Settings) -> None:
     **LAST WRITER WINS ACROSS PROCESSES, and that is a stated limit rather than
     a defect** (LWSM-1276). Every caller read-modify-writes: it loads the file,
     changes a field, and hands the whole `Settings` back here, where
-    `write_json_atomically` replaces the file. So two instances of the app that
+    `write_atomically` replaces the file. So two instances of the app that
     both have preferences open will each write the whole document, and the
     loser's change disappears with no message.
 
@@ -513,7 +513,7 @@ def save(path: Path, settings: Settings) -> None:
         ) from exc
 
     try:
-        write_json_atomically(path, data, prefix=".settings-")
+        write_atomically(path, data, prefix=".settings-")
     except ConfigFileNotDurable as exc:
         raise SettingsNotDurable(str(exc)) from exc
     except ConfigFileError as exc:

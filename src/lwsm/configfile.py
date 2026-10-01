@@ -374,7 +374,7 @@ def refuse_existing_target(path: Path) -> None:
         )
 
 
-def write_json_atomically(path: Path, data: bytes, *, prefix: str) -> None:
+def write_atomically(path: Path, data: bytes, *, prefix: str) -> None:
     """Create the directory, refuse a hostile target, and write `data` durably.
 
     The order is the one that survives a failure at any step, and it is the
@@ -383,7 +383,9 @@ def write_json_atomically(path: Path, data: bytes, *, prefix: str) -> None:
 
     `data` is bytes rather than an object to serialise, so a caller that wants
     a domain-specific message can bound the encoded length itself before
-    calling — `registry._encoded` does, and keeps its own wording.
+    calling — `registry._encoded` does, and keeps its own wording. Any bytes:
+    the scan-roots file is plain text, which is why this is no longer named
+    `write_json_atomically` (LWSM-1362).
 
     The cap is enforced HERE as well, and that is the point: it was stated as a
     caller obligation in this docstring and two of the four callers did not

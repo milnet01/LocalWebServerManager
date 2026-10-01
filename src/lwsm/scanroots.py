@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from lwsm.configfile import ConfigFileError, read_bounded, write_json_atomically
+from lwsm.configfile import ConfigFileError, read_bounded, write_atomically
 from lwsm.registry import RegistryError, default_projects_path
 
 
@@ -68,7 +68,6 @@ def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
 
     Atomic, through the same writer `projects.json` and `settings.json` use, so
     a third config file cannot grow a third and subtly different write path.
-    (`write_json_atomically` takes bytes; only its name is about JSON.)
 
     Raises `ConfigFileError` — or whatever `scan_roots_path` raises — when there
     is nowhere to write, for `save_field`'s reason: a change that silently will
@@ -97,7 +96,7 @@ def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
     path = scan_roots_path(config)
     body = "".join(f"{root}\n" for root in roots)
     data = (_leading_comment_block(path) + body).encode("utf-8")
-    write_json_atomically(path, data, prefix=".scan-roots-")
+    write_atomically(path, data, prefix=".scan-roots-")
 
 
 def _leading_comment_block(path: Path) -> str:

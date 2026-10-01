@@ -113,7 +113,7 @@ Added at P02 (LWSM-1005), contract in
 - **`src/lwsm/configfile.py`** — core. `ConfigFileError`,
   `MAX_FILE_BYTES`, `MAX_REASON_CHARS`, `quoted()`, `read_bounded()`,
   `prepare_config_dir()`, `refuse_existing_target()`,
-  `write_json_atomically()`, and **`load_json_object()`**: the one JSON
+  `write_atomically()`, and **`load_json_object()`**: the one JSON
   config reader, used by `registry`, `settings` and the trust store, which
   raises `JsonFileRefused` naming the stage that failed so each caller keeps
   its own wording (LWSM-1357), and **`BoundedReasons`**, the capped reason

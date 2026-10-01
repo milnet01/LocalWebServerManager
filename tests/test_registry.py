@@ -1980,7 +1980,7 @@ def test_an_exported_profile_is_private(tmp_path: Path) -> None:
 
 
 def test_a_symlinked_export_target_is_refused_not_followed(tmp_path: Path) -> None:
-    """`write_json_atomically`'s refusal reaches the profile writer, so a
+    """`write_atomically`'s refusal reaches the profile writer, so a
     deliberate indirection the user set up is not silently flattened."""
     real = tmp_path / "real.json"
     real.write_text("{}", encoding="utf-8")
@@ -2402,7 +2402,7 @@ def test_no_imported_value_is_interpolated_without_the_clip() -> None:
 # --- LWSM-1236: the size cap is the writer's, not each caller's ---------------
 
 
-def test_write_json_atomically_refuses_data_over_the_cap(tmp_path: Path) -> None:
+def test_write_atomically_refuses_data_over_the_cap(tmp_path: Path) -> None:
     """The cap was a CALLER obligation stated in a docstring, and two of the
     four callers did not meet it (LWSM-1236). A file written over the cap is
     then unreadable by `read_bounded` -- and, where a caller refuses to
@@ -2410,30 +2410,30 @@ def test_write_json_atomically_refuses_data_over_the_cap(tmp_path: Path) -> None
 
     Enforced where the data is, so a fifth caller inherits it.
     """
-    from lwsm.configfile import MAX_FILE_BYTES, ConfigFileError, write_json_atomically
+    from lwsm.configfile import MAX_FILE_BYTES, ConfigFileError, write_atomically
 
     path = tmp_path / "config" / "big.json"
     with pytest.raises(ConfigFileError) as caught:
-        write_json_atomically(path, b"x" * (MAX_FILE_BYTES + 1), prefix=".big-")
+        write_atomically(path, b"x" * (MAX_FILE_BYTES + 1), prefix=".big-")
 
     assert "too large" in str(caught.value)
     assert not path.exists(), "nothing was created"
     assert list(tmp_path.glob("config/.big-*")) == [], "no temporary was left"
 
 
-def test_write_json_atomically_leaves_an_existing_file_intact_when_it_refuses(
+def test_write_atomically_leaves_an_existing_file_intact_when_it_refuses(
     tmp_path: Path,
 ) -> None:
     """The refusal is before the directory work and before mkstemp, so the
     previous file survives -- the property every other refusal in this writer
     has (INV-2)."""
-    from lwsm.configfile import MAX_FILE_BYTES, ConfigFileError, write_json_atomically
+    from lwsm.configfile import MAX_FILE_BYTES, ConfigFileError, write_atomically
 
     path = tmp_path / "keep.json"
     path.write_text("previous\n", encoding="utf-8")
 
     with pytest.raises(ConfigFileError):
-        write_json_atomically(path, b"x" * (MAX_FILE_BYTES + 1), prefix=".keep-")
+        write_atomically(path, b"x" * (MAX_FILE_BYTES + 1), prefix=".keep-")
 
     assert path.read_text(encoding="utf-8") == "previous\n"
 
@@ -2695,7 +2695,7 @@ def test_a_written_but_not_durable_profile_says_so_by_type(
     def not_durable(*_args, **_kwargs):
         raise configfile.ConfigFileNotDurable("written, but not durable")
 
-    monkeypatch.setattr(registry, "write_json_atomically", not_durable)
+    monkeypatch.setattr(registry, "write_atomically", not_durable)
     with pytest.raises(registry.RegistryNotDurable):
         registry.export_profile(
             tmp_path / "profile.json", [every_field_record()], load=RegistryMissing("x")

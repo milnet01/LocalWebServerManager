@@ -32,7 +32,7 @@ from lwsm.configfile import (
     is_writable_text,
     load_json_object,
     quoted,
-    write_json_atomically,
+    write_atomically,
 )
 
 SCHEMA_VERSION = 1
@@ -907,7 +907,7 @@ def save_projects(
         # the order that survives a failure at any step — `configfile.py` owns
         # it now because `settings.json` needs the same sequence and a second
         # copy of it would be a second set of the four defects it records.
-        write_json_atomically(path, data, prefix=".projects-")
+        write_atomically(path, data, prefix=".projects-")
     except ConfigFileNotDurable as exc:
         # Written, and the caller must be able to say so (known-issue-047).
         raise RegistryNotDurable(str(exc)) from exc
@@ -1414,7 +1414,7 @@ def export_profile(
 
     data = _encoded(path, records)
     try:
-        write_json_atomically(path, data, prefix=".profile-")
+        write_atomically(path, data, prefix=".profile-")
     except ConfigFileNotDurable as exc:
         # Written, and the caller must be able to say so, as `save_projects`
         # does (known-issue-047, L5-L4).

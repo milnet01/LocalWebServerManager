@@ -51,7 +51,7 @@ from lwsm.configfile import (
     JsonFileRefused,
     load_json_object,
     quoted,
-    write_json_atomically,
+    write_atomically,
 )
 from lwsm.ports import ProbeError, SupportsSnapshot
 from lwsm.settings import DEFAULT_LOG_MAX_MIB, default_settings_path
@@ -332,7 +332,7 @@ class TrustStore:
         }
         data = (json.dumps(payload, indent=2) + "\n").encode("utf-8", "surrogateescape")
         try:
-            write_json_atomically(self._path, data, prefix=".trust-")
+            write_atomically(self._path, data, prefix=".trust-")
         except (ConfigFileError, OSError) as exc:
             self._refuse(f"not saved, so this lasts until the app closes: {exc}")
 

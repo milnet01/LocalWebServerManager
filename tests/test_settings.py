@@ -387,7 +387,7 @@ def test_a_write_failure_raises_settings_error_not_config_file_error(
     def refuse(*args: object, **kwargs: object) -> None:
         raise ConfigFileError("could not be written (read-only file system)")
 
-    monkeypatch.setattr(settings, "write_json_atomically", refuse)
+    monkeypatch.setattr(settings, "write_atomically", refuse)
 
     with pytest.raises(SettingsError, match="read-only"):
         settings.save(tmp_path / "settings.json", Settings())
@@ -701,7 +701,7 @@ def test_a_write_failure_keeps_the_reason_it_failed(
     def boom(*_args: object, **_kwargs: object) -> None:
         raise ConfigFileError(message)
 
-    monkeypatch.setattr(settings, "write_json_atomically", boom)
+    monkeypatch.setattr(settings, "write_atomically", boom)
 
     with pytest.raises(settings.SettingsError) as caught:
         settings.save(tmp_path / "settings.json", Settings())
@@ -796,7 +796,7 @@ def test_a_written_but_not_durable_save_says_so_by_type(
     def not_durable(*_args, **_kwargs):
         raise configfile.ConfigFileNotDurable("written, but not durable")
 
-    monkeypatch.setattr(settings, "write_json_atomically", not_durable)
+    monkeypatch.setattr(settings, "write_atomically", not_durable)
     with pytest.raises(settings.SettingsNotDurable):
         settings.save(tmp_path / "settings.json", Settings())
 
