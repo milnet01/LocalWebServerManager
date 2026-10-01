@@ -10016,12 +10016,15 @@ O8` forbids retrofitting that.
   Source: security-pass-2026-10-01 S-2.
   Lanes: supervisor.
 
-- 📋 [LWSM-1365] **The trust dialog for an npm project shows `npm run dev`, not the script text that will run.**
+- ✅ [LWSM-1365] **The trust dialog for an npm project shows `npm run dev`, not the script text that will run.**
   mainwindow builds the dialog from resolved-or-argv[0]; for npm resolved is
   None, so the scripts.dev string the fingerprint is bound to never appears.
   ADR-0003: the dialog is not theatre only if it shows what will run. Fix:
   carry the hashed script strings (and S-1's pre/post) on LauncherUntrusted
   and show them through _no_layout_forgery. Build with the S-1 item.
+  Resolved (2026-10-01, 010424d): LauncherUntrusted.npm_shown carries
+  the scripts and .npmrc lines from the hashed parse; the dialog lists
+  them, escaped, and now escapes lone surrogates.
   **Layman:** When the app asks you to approve an npm project, it shows the short command name instead of what that command actually does.
   Kind: security.
   Source: security-pass-2026-10-01 S-3.
