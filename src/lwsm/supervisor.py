@@ -843,9 +843,17 @@ def _resolved_bytes(path: Path) -> bytes | None:
 def _launcher_bytes(path: Path) -> bytes | None:
     """The launcher's content, or `None` when it is unreadable or over the cap.
 
-    `O_NOFOLLOW` and `O_NONBLOCK` for `scanner.py::_open_source`'s reasons: this
-    is somebody else's file, a symlink here would be read straight through, and
-    a FIFO planted at `start.sh` would block the fingerprint forever.
+    `O_NOFOLLOW` and `O_NONBLOCK` because a symlink here would be read straight
+    through, and a FIFO planted at `start.sh` would block the fingerprint
+    forever.
+
+    **On the LAST path component only.** `scanner.py::_open_source` opens
+    every component with `O_PATH|O_DIRECTORY|O_NOFOLLOW` (LWSM-1332); this does
+    not, so a directory on the way could be swapped by whoever can write its
+    parent. What covers that on the start path is `validate_launcher`, which
+    refuses the launch unless only we or root can replace the launcher and
+    every directory up to the project root — so only the user could make the
+    swap (security pass, 2026-10-01; LWSM-1368).
     """
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
