@@ -17,6 +17,10 @@ out="$PWD/docs/screenshots"
 config="$work/config/localwebservermanager"
 rm -rf "$work"
 mkdir -p "$config" "$work/state" "$work/projects" "$out"
+# A private runtime directory: the app claims its single-instance socket there,
+# and with the real one a running copy of the app is woken instead and the
+# screenshot shows an empty display (L7-M4).
+mkdir -m 700 "$work/run"
 
 # Five sample projects, each a real directory with a real launcher.
 python3 - "$work/projects" "$config/projects.json" <<'EOF'
@@ -52,7 +56,19 @@ cleanup() {
     fi
     rm -rf "$work"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# Exit rather than return: a returning INT trap let the script carry on into
+# the next shot against a deleted $work (L7-L8). EXIT then cleans up once.
+trap 'exit 130' INT TERM
+
+# Every sample port must be free, or a row shows someone else's server — or a
+# sample server fails to start with its output thrown away (L7-L7).
+for port in 8601 8602 8603 8604 8605; do
+    if ! python3 -c 'import socket, sys; socket.socket().bind(("127.0.0.1", int(sys.argv[1])))' "$port" 2>/dev/null; then
+        printf 'take-screenshots: port %s is in use; free it and run again\n' "$port" >&2
+        exit 1
+    fi
+done
 
 for port in 8602 8604; do
     python3 -m http.server "$port" --bind 127.0.0.1 --directory "$work/projects" \
@@ -70,6 +86,7 @@ shoot() {  # shoot <theme> <output name> [demoreel -a steps...]
     demoreel shot -o "$out/$name.png" -s 1280x800 -a 'wait 3' "$@" -- \
         env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb XDG_SESSION_TYPE=x11 \
         XDG_CONFIG_HOME="$work/config" XDG_STATE_HOME="$work/state" \
+        XDG_RUNTIME_DIR="$work/run" \
         uv run --quiet lwsm
 }
 

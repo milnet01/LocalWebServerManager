@@ -18,6 +18,17 @@
 #   ./scripts/install-desktop-entry.sh /path/to/lwsm
 set -Eeuo pipefail
 
+# A path given on the command line is made absolute BEFORE the cd below, so it
+# means what it meant where the user typed it, and the Exec line a launcher
+# runs from no particular directory is absolute (L7-L4).
+given=""
+if [ $# -ge 1 ]; then
+    case $1 in
+        /*) given=$1 ;;
+        *) given="$PWD/$1" ;;
+    esac
+fi
+
 cd "$(dirname "$0")/.."
 
 app_id="io.github.milnet01.LocalWebServerManager"
@@ -27,8 +38,8 @@ icon_dir="$data_home/icons/hicolor/scalable/apps"
 
 # The executable, in order of preference: one named on the command line, this
 # checkout's venv, then whatever is on PATH.
-if [ $# -ge 1 ]; then
-    exec_path="$1"
+if [ -n "$given" ]; then
+    exec_path="$given"
 elif [ -x ".venv/bin/lwsm" ]; then
     exec_path="$PWD/.venv/bin/lwsm"
 elif exec_path="$(command -v lwsm)"; then
@@ -66,7 +77,10 @@ install -m 0644 "packaging/$app_id.svg" "$icon_dir/$app_id.svg"
 #
 # The path is the INPUT to this sed, never its replacement, which is the whole
 # point (LWSM-1209).
-exec_quoted=$(printf '%s' "$exec_path" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g')
+#
+# And `%` is doubled first: the spec reserves it for field codes in Exec, so a
+# checkout under `.../50%u/` would have had `%u` replaced by a URL (L7-L5).
+exec_quoted=$(printf '%s' "$exec_path" | sed -e 's/%/%%/g' -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g')
 
 # awk via ENVIRON, not `sed s|...|$exec_path|` and not `awk -v`. A path is data
 # and both of those treat it as syntax: in a sed replacement `&` expands to the

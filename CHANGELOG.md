@@ -321,6 +321,8 @@ signaling per
 
 ### Fixed
 
+- **`install-desktop-entry.sh` writes an absolute path when given a relative one, and handles a `%` in the install path.**
+
 - **"Centre on screen" no longer silently does nothing after a previous placement was interrupted, and no longer reports a failure for a window that did move.**
 
 - **"Centre on screen" is disabled, with a reason, on Wayland desktops that are not KDE, where it could only fail.**

@@ -271,9 +271,13 @@ else
     # em dash, and `changelog_log op:release` closes one with an ASCII hyphen.
     # The DATE is what decides, not the dash — an undated `## [X.Y.Z]` is an
     # RC-flow placeholder and publishing from it puts "unreleased" in the notes.
-    if grep -qE "^## \[$TARGET\] [—-] [0-9]{4}-[0-9]{2}-[0-9]{2}" CHANGELOG.md; then
+    #
+    # Alternation, never `[—-]`: the em dash is three bytes, and inside a
+    # bracket expression it matches as one character only under a UTF-8 locale
+    # and a multibyte-aware awk — not under LC_ALL=C or mawk (L7-L2).
+    if grep -qE "^## \[$TARGET\] (—|-) [0-9]{4}-[0-9]{2}-[0-9]{2}" CHANGELOG.md; then
         LINES=$(awk -v v="$TARGET" '
-            $0 ~ "^## \\[" v "\\] [—-] [0-9]" {f=1; next}
+            $0 ~ "^## \\[" v "\\] (—|-) [0-9]" {f=1; next}
             /^## \[/ {f=0}
             f && NF' CHANGELOG.md | wc -l)
         if ((LINES == 0)); then
@@ -291,17 +295,33 @@ fi
 
 # --- 0f: does the roadmap agree the cited work shipped? ----------------------
 
+# The roadmap IDs a version's changelog section cites, one per line.
+#
+# Only an ID on a bullet's OWN line is a claim that it shipped. One in
+# continuation prose is a cross-reference, and firing on those turns one real
+# finding into a list nobody reads.
+#
+# And only an ID in a prefix this roadmap issues, as a whole word. Any
+# ID-shaped token used to count, so `GHSA-4gg8…` gave `GHSA-4` and `UTF-8`
+# gave itself, each a "cited as shipped but in no roadmap" BLOCKER (L7-M5).
+cited_ids() {
+    local target=$1 prefixes
+    prefixes=$(grep -ohE '\[[A-Z][A-Z0-9]*-[0-9]+\]' ROADMAP.md docs/roadmap/*.md 2>/dev/null |
+        sed -E 's/^\[([A-Z][A-Z0-9]*)-.*/\1/' | sort -u | paste -sd '|' || true)
+    [[ -n $prefixes ]] || return 0
+    awk -v v="$target" '
+        $0 ~ "^## \\[" v "\\] (—|-) [0-9]" {f=1; next}
+        /^## \[/ {f=0}
+        f && /^- /' CHANGELOG.md |
+        grep -oE "(^|[^A-Za-z0-9])($prefixes)-[0-9]+([^A-Za-z0-9]|$)" |
+        grep -oE "($prefixes)-[0-9]+" | sort -u || true
+}
+
 step "0f  Roadmap agrees with the changelog"
 if ((SECTION_FOUND == 0)); then
     skip "roadmap cross-check (needs the changelog section)"
 else
-    # Only an ID that STARTS a bullet is a claim that it shipped. One in
-    # continuation prose is a cross-reference, and firing on those turns one
-    # real finding into a list nobody reads.
-    ids=$(awk -v v="$TARGET" '
-        $0 ~ "^## \\[" v "\\] [—-] [0-9]" {f=1; next}
-        /^## \[/ {f=0}
-        f && /^- /' CHANGELOG.md | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u)
+    ids=$(cited_ids "$TARGET")
     if [[ -z $ids ]]; then
         ok "the section cites no roadmap IDs — an observation, not a stop"
     else
@@ -343,18 +363,43 @@ fi
 release_triggers() {
     local dir=$1 on_block found=""
 
+    # A one-line `on:` (`on: push` or `on: [push, release]`) is rewritten as
+    # the block form, one indented `<event>:` per event, so one reader answers
+    # both. It used to be skipped outright (L7-L3).
     on_block=$(awk '
         FNR == 1 { inside = 0 }
+        /^on:[[:space:]]*[^[:space:]#]/ {
+            line = $0
+            sub(/^on:[[:space:]]*/, "", line)
+            gsub(/[][,]/, " ", line)
+            n = split(line, events, " ")
+            for (i = 1; i <= n; i++) print "  " events[i] ":"
+            next
+        }
         /^on:/ { inside = 1; next }
         /^[^[:space:]]/ { inside = 0 }
         inside
     ' "$dir"/*.yml 2>/dev/null || true)
 
-    if grep -qE '^[[:space:]]+branches:' <<<"$on_block"; then
-        found="branch push"
-    fi
-    if grep -qE '^[[:space:]]+tags:' <<<"$on_block"; then
-        found="${found:+$found, }tag push"
+    # The `push:` event's own lines, so a `branches:` under `pull_request:`
+    # is not read as a filter on push.
+    local push_block
+    push_block=$(awk '
+        /^[[:space:]]+push:/ { match($0, /^[[:space:]]*/); ind = RLENGTH; inside = 1; print; next }
+        inside { match($0, /^[[:space:]]*/); if (RLENGTH <= ind) inside = 0; else print }
+    ' <<<"$on_block")
+
+    if [[ -n $push_block ]]; then
+        local branches=0 tags=0
+        grep -qE '^[[:space:]]+(branches|branches-ignore):' <<<"$push_block" && branches=1
+        grep -qE '^[[:space:]]+(tags|tags-ignore):' <<<"$push_block" && tags=1
+        # Neither filter: GitHub runs it for every branch AND every tag (L7-L3).
+        if ((branches == 0 && tags == 0)); then
+            branches=1
+            tags=1
+        fi
+        ((branches)) && found="branch push"
+        ((tags)) && found="${found:+$found, }tag push"
     fi
     if grep -qE '^[[:space:]]+release:' <<<"$on_block"; then
         found="${found:+$found, }release published"

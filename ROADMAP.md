@@ -10109,6 +10109,20 @@ bugs in the same area.
   Source: review-code-2026-10-01 lane-02 L2-L1.
   Lanes: core, ui.
 
+- 📋 [LWSM-1355] **Decide whether release candidates are supported, and make the pre-flight and the version recipe agree.**
+  `scripts/local-release.sh` accepts `X.Y.Z-rc.N` ("what `cut-release --pre`
+  cuts"), but `scripts/check-version-drift.sh` and `.claude/bump.json`'s
+  `version_pattern` parse only `X.Y.Z`, so `--dry-bump 0.2.0-rc.1` writes a
+  version the post-check then reports as "no version found": a pre-release
+  can never pass. PEP 440 would also spell it `0.2.0rc1` in pyproject.
+  Not fixed in the close-findings run: which side is wrong is a decision —
+  support pre-releases end to end, or refuse `-rc` in the pre-flight.
+  Recommendation: refuse it until a pre-release is actually wanted.
+  **Layman:** The release check accepts test-release version numbers that the rest of the release tooling cannot read, so one could never pass.
+  Kind: review-fix.
+  Source: review-code-2026-10-01 lane-07 L7-L1.
+  Lanes: release, tooling.
+
 ## 0.3.0 — The full state model
 
 Criterion 3: tell the truth in every case, including the awkward ones.

@@ -22,7 +22,8 @@ grew to cover `scripts/` would let an edit to the gate skip the gate.
 (`design-look-and-feel.md`, `design-accessibility.md`) are asserted
 against by `tests/test_docs.py`, and
 `CONTRIBUTING.md` by `tests/test_ci_contract.py`, so an edit to one can
-redden the suite. They never take the docs mode. The cost of learning this was a red CI run on
+redden the suite. `.claude/bump.json` takes the full gate for the same
+reason, though it is not markdown. They never take the docs mode. The cost of learning this was a red CI run on
 `5f1891f`, a markdown-only push that skipped the gate on the strength of
 its paths and was caught by GitHub instead. **The carve-out list is
 imported from `test_docs.ASSERTED`, never copied** — a standard added

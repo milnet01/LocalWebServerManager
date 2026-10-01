@@ -361,6 +361,88 @@ def test_a_push_only_workflow_declares_no_tag_or_release_trigger(tmp_path) -> No
     assert "release published" not in triggers
 
 
+def test_a_one_line_on_is_read(tmp_path) -> None:
+    """`on: [push, release]` was skipped outright by the block reader, so the
+    script said "no tag trigger" about a workflow that has both (2026-10-01
+    review, L7-L3).
+
+    Dies on dropping the one-line branch of the `on:` reader.
+    """
+    triggers = _release_triggers(
+        tmp_path, "name: CI\non: [push, release]\njobs:\n  a:\n    runs-on: x\n"
+    )
+    assert "tag push" in triggers
+    assert "release published" in triggers
+
+
+def test_a_push_with_no_filter_fires_on_tags(tmp_path) -> None:
+    """A bare `push:` runs for every branch and every tag, and a `branches:`
+    under `pull_request:` filters nothing on push (L7-L3).
+
+    Dies on reading filters from the whole `on:` block instead of `push:`'s.
+    """
+    workflow = """\
+name: CI
+on:
+  push:
+  pull_request:
+    branches: [main]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+"""
+    assert "tag push" in _release_triggers(tmp_path, workflow)
+
+
+def _cited_ids(tmp_path: Path, changelog: str, *, env: dict | None = None) -> list[str]:
+    body = re.search(r"^cited_ids\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M)
+    assert body, "the release script has no cited_ids() to run"
+    (tmp_path / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+    (tmp_path / "ROADMAP.md").write_text(
+        "- ✅ [LWSM-1234] **Shipped.**\n", encoding="utf-8"
+    )
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    done = subprocess.run(
+        [bash, "-c", f"set -Eeuo pipefail\n{body.group(0)}\ncited_ids 0.1.0"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout.split()
+
+
+def test_only_this_roadmap_s_ids_count_as_shipping_claims(tmp_path) -> None:
+    """Any ID-shaped token counted, so an advisory id or `UTF-8` on a bullet
+    each became a "cited as shipped but in no roadmap" BLOCKER (L7-M5).
+    Continuation prose stays a cross-reference.
+
+    Dies on matching ID-shaped tokens without the roadmap's prefixes.
+    """
+    changelog = (
+        "## [0.1.0] — 2026-10-01\n\n"
+        "- **Fixed a thing** (LWSM-1234), see GHSA-4gg8-xxxx and UTF-8.\n"
+        "  Also relates to LWSM-9999.\n"
+    )
+    assert _cited_ids(tmp_path, changelog) == ["LWSM-1234"]
+
+
+def test_the_em_dash_heading_is_found_under_the_c_locale(tmp_path) -> None:
+    """`[—-]` matched the three-byte em dash as one character only under a
+    UTF-8 locale; under `LC_ALL=C` the dated section was not found (L7-L2).
+
+    Dies on going back to a bracket expression.
+    """
+    import os
+
+    changelog = "## [0.1.0] — 2026-10-01\n\n- **Fixed** (LWSM-1234)\n"
+    env = {**os.environ, "LC_ALL": "C"}
+    assert _cited_ids(tmp_path, changelog, env=env) == ["LWSM-1234"]
+
+
 # --- LWSM-1284: what the argument loop admits ---------------------------------
 
 

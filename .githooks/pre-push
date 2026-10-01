@@ -81,6 +81,12 @@ docs_only() {
             CLAUDE.md | README.md | CONTRIBUTING.md | docs/standards/*.md) return 1 ;;
             docs/claude/*.md) return 1 ;;
             docs/design-look-and-feel.md | docs/design-accessibility.md) return 1 ;;
+            # The version recipe: test_ci_contract.py asserts against it (L7-M1).
+            .claude/bump.json) return 1 ;;
+            # Never exempt, whatever the extension. `*` matches `/` in a case
+            # pattern, so without this arm `*.md` below exempted markdown in
+            # every one of them (L7-M2).
+            scripts/* | .github/* | src/* | tests/*) return 1 ;;
             docs/* | .claude/* | *.md | LICENSE) ;;
             *) return 1 ;;
         esac
@@ -109,8 +115,16 @@ push_base() {
     local local_sha=$1 remote_sha=$2 remote=$3 oldest base
 
     if [[ $remote_sha != "$ZERO" ]]; then
-        printf '%s' "$remote_sha"
-        return 0
+        if git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+            printf '%s' "$remote_sha"
+            return 0
+        fi
+        # A force push over commits this clone never fetched: there is nothing
+        # here to diff against, and `git diff` died with a bare `bad object`
+        # (L7-L6). Fall through to "everything the remote is not known to
+        # hold", which runs the gate — the safe direction.
+        printf 'pre-push: the remote is at %s, which was not fetched here; checking every commit it is not known to hold\n' \
+            "${remote_sha:0:12}" >&2
     fi
 
     oldest=$(git rev-list "$local_sha" --not "--remotes=$remote" | tail -n 1)
@@ -190,7 +204,10 @@ trap cleanup EXIT
 for tip in "${tips[@]}"; do
     printf 'pre-push: running ./scripts/local-ci.sh%s against %s\n' \
         "${GATE_ARGS[*]:+ ${GATE_ARGS[*]}}" "${tip:0:12}" >&2
-    WORKTREE=$(mktemp -d)
+    # Beside the git directory, on the repository's own disk. A bare
+    # `mktemp -d` used `$TMPDIR`, which is RAM on the author's machine, and
+    # the gate's `uv sync` builds a whole `.venv` in it on every push (L7-M3).
+    WORKTREE=$(mktemp -d "$(git rev-parse --path-format=absolute --git-common-dir)/lwsm-gate.XXXXXX")
     git worktree add --detach --quiet "$WORKTREE" "$tip"
     # The subshell keeps the cd local, so cleanup above still runs from the
     # repo root where `git worktree remove` has to be invoked.

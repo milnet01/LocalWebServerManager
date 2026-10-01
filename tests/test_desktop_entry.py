@@ -75,7 +75,10 @@ def unescape_exec(value: str) -> str:
                 out.append(char)
                 index += 1
         value = "".join(out)
-    return value
+    # Then the field-code rule: `%%` is one literal percent sign, and a lone
+    # `%` is a field code the launcher would substitute — so it fails here.
+    assert "%" not in value.replace("%%", ""), f"an undoubled % in Exec: {value!r}"
+    return value.replace("%%", "%")
 
 
 def field(entry: str, key: str) -> str:
@@ -96,6 +99,9 @@ def field(entry: str, key: str) -> str:
         'quote"d/lwsm',
         "back\\slash/lwsm",
         "dollar$x/lwsm",
+        # The spec reserves `%` for field codes; undoubled, `%u` here is
+        # replaced by a URL at launch (2026-10-01 review, L7-L5).
+        "50%u/lwsm",
     ],
 )
 def test_the_entry_names_the_executable_that_was_installed(
@@ -218,3 +224,34 @@ def test_an_entry_that_validates_is_published(tmp_path: Path) -> None:
     entry = tmp_path / "data" / "applications" / f"{APP_ID}.desktop"
     assert entry.exists(), done.stderr
     assert entry.stat().st_mode & 0o777 == 0o644, oct(entry.stat().st_mode)
+
+
+@pytest.mark.integration
+def test_a_relative_path_is_written_as_the_absolute_path_it_named(
+    tmp_path: Path,
+) -> None:
+    """A relative argument was checked and written AFTER the script's `cd` to
+    the repository root, so it named the wrong file and went into `Exec=` as a
+    relative path no launcher can run (2026-10-01 review, L7-L4).
+
+    Dies on resolving the argument after the `cd`.
+    """
+    target = tmp_path / "bin" / "lwsm"
+    target.parent.mkdir()
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+    data_home = tmp_path / "data"
+    subprocess.run(
+        [str(SCRIPT), "bin/lwsm"],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "XDG_DATA_HOME": str(data_home),
+        },
+        check=True,
+        capture_output=True,
+    )
+    entry = (data_home / "applications" / f"{APP_ID}.desktop").read_text()
+    assert field(entry, "TryExec") == str(target)
+    assert unescape_exec(field(entry, "Exec")) == str(target)

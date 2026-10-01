@@ -233,20 +233,33 @@ def test_the_hook_runs_the_same_gate_and_does_not_shortcut_it() -> None:
         assert "--fast" not in call, f"the hook runs a reduced gate: {call}"
 
 
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
 def test_the_hook_exempts_docs_but_never_the_gate_s_own_inputs() -> None:
-    """The exemption is by path, and these three directories decide what the
+    """The exemption is by path, and these four directories decide what the
     gate CHECKS — scripts/ holds the gate itself, .github/ is what actionlint
     reads, and src/tests are the suite. Exempting any of them would let a
-    change to the checker skip the check."""
-    text = HOOK.read_text()
-    case_body = text[text.index("case $path in") : text.index("esac")]
+    change to the checker skip the check.
 
-    assert "docs/*" in case_body, "docs/ is not exempt, so the exemption is dead"
+    RUN, not scanned. The scan asserted the four names were absent from the
+    `case` body, and held while `*.md` — where `*` matches `/` — exempted
+    markdown inside every one of them (2026-10-01 review, L7-M2). Markdown is
+    the probe because that is the arm that leaked.
+
+    `.claude/bump.json` too: the version recipe, which this file asserts
+    against, sat under the `.claude/*` exemption (L7-M1).
+    """
+    assert _hook_says_docs_only(["docs/design.md"]), (
+        "docs/ is not exempt, so the exemption is dead"
+    )
     for never in ("scripts/", ".github/", "src/", "tests/"):
-        assert never not in case_body, (
-            f"{never} appears in the docs-only exemption; a change there must "
-            f"always run the gate"
-        )
+        for name in ("notes.md", "x.sh"):
+            assert not _hook_says_docs_only([never + name]), (
+                f"{never + name} takes the docs-only exemption; a change there "
+                f"must always run the gate"
+            )
+    assert not _hook_says_docs_only([".claude/bump.json"]), (
+        "the version recipe skips the suite that asserts against it"
+    )
 
 
 def _hook_says_docs_only(paths: list[str]) -> bool:
@@ -363,7 +376,9 @@ def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> N
     )
 
 
-def _hook_verdict(tmp_path: Path, changed: str, gate_extra: str = "") -> str:
+def _hook_verdict(
+    tmp_path: Path, changed: str, gate_extra: str = "", remote_sha: str | None = None
+) -> str:
     """Run the REAL hook in a throwaway clone whose gate is a stub, pushing one
     commit that touches `changed`, and return everything the run printed.
 
@@ -439,7 +454,7 @@ def _hook_verdict(tmp_path: Path, changed: str, gate_extra: str = "") -> str:
         ["bash", str(repo / ".githooks/pre-push"), "origin", "url"],
         cwd=repo,
         env=env,
-        input=f"refs/heads/main {head} refs/heads/main {base}\n",
+        input=f"refs/heads/main {head} refs/heads/main {remote_sha or base}\n",
         capture_output=True,
         text=True,
         check=False,
@@ -833,6 +848,34 @@ def test_a_worktree_that_will_not_go_away_is_reported_and_does_not_refuse_the_pu
     out = _hook_verdict(tmp_path, "src/x.py", gate_extra='git worktree lock "$PWD"\n')
     assert "GATE-RAN" in out
     assert "could not remove" in out, out
+
+
+def test_the_gate_worktree_is_on_the_repository_s_own_disk(tmp_path: Path) -> None:
+    """`mktemp -d` put the worktree, and the full `.venv` the gate's `uv sync`
+    builds in it, under `$TMPDIR` — `/tmp`, which is RAM on this machine
+    (2026-10-01 review, L7-M3). Beside the repository's git directory instead.
+
+    Dies on going back to a bare `mktemp -d`.
+    """
+    out = _hook_verdict(tmp_path, "src/x.py", gate_extra='printf "WT=%s\\n" "$PWD"\n')
+    worktree = next(line[3:] for line in out.splitlines() if line.startswith("WT="))
+    common = (tmp_path / "clone" / ".git").resolve()
+    assert Path(worktree).resolve().is_relative_to(common), (worktree, common)
+
+
+def test_a_remote_commit_never_fetched_here_still_runs_the_gate(
+    tmp_path: Path,
+) -> None:
+    """A force push over commits this clone never fetched hands the hook a
+    remote sha it does not have, and `git diff` died with `fatal: bad object`
+    and no word from the hook (2026-10-01 review, L7-L6). Treated as a push
+    of everything the remote is not known to hold, which runs the gate.
+
+    Dies on diffing against a remote sha that is not present.
+    """
+    out = _hook_verdict(tmp_path, "src/x.py", remote_sha="de" * 20)
+    assert "GATE-RAN" in out, out
+    assert "not fetched here" in out, out
 
 
 def test_the_drift_check_takes_the_first_version_line_as_the_recipe_does(
