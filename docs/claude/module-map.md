@@ -116,7 +116,9 @@ Added at P02 (LWSM-1005), contract in
   `write_json_atomically()`, and **`load_json_object()`**: the one JSON
   config reader, used by `registry`, `settings` and the trust store, which
   raises `JsonFileRefused` naming the stage that failed so each caller keeps
-  its own wording (LWSM-1357). **Extracted from `registry.py` by LWSM-1031,
+  its own wording (LWSM-1357), and **`BoundedReasons`**, the capped reason
+  list with its "and N more, not shown" tail that the scanner, the
+  registry load, the merge and the import all use (LWSM-1361). **Extracted from `registry.py` by LWSM-1031,
   which needed a second config file** — every function in it was written
   after a measured defect (a FIFO that made the read block forever with no
   window and no log line, a symlink destroyed by `os.replace`, a

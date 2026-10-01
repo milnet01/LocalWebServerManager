@@ -99,3 +99,28 @@ def test_duplicate_keys_keep_the_last_and_are_reported(tmp_path: Path) -> None:
     )
     assert loaded.data == {"a": 2, "b": {"c": 3}}
     assert loaded.duplicate_keys == ("c", "a")
+
+
+# --- LWSM-1361: one capped reason list ----------------------------------------
+
+
+def test_bounded_reasons_keeps_the_first_cap_and_counts_the_rest() -> None:
+    """Hand-written four times before (scanner, registry load, merge, import).
+    A cap with no tail reads exactly like completeness, so the count of what
+    was dropped is always said once anything was."""
+    from lwsm.configfile import BoundedReasons
+
+    bounded = BoundedReasons(cap=2, tail="and {count} more, not shown")
+    for n in range(5):
+        bounded.note(f"r{n}")
+
+    assert bounded.close() == ["r0", "r1", "and 3 more, not shown"]
+
+
+def test_bounded_reasons_says_nothing_extra_when_nothing_was_dropped() -> None:
+    from lwsm.configfile import BoundedReasons
+
+    bounded = BoundedReasons(cap=2, tail="and {count} more, not shown")
+    bounded.note("only")
+
+    assert bounded.close() == ["only"]

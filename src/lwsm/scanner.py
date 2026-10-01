@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Protocol
 
 import lwsm
-from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, display_text
+from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, BoundedReasons, display_text
 from lwsm.registry import DECLARED_PORT_RANGE, LauncherKind
 
 # Re-exported deliberately. `LauncherKind` moved to `registry.py` with LWSM-1007
@@ -1770,16 +1770,9 @@ def scan(
     filesystem instead, and are refused.
     """
     deadline = Deadline(expires_at=now() + budget_seconds, now=now)
-    reasons: list[str] = []
-    suppressed = 0
-
-    def note(reason: str) -> None:
-        """Record a reason, or count it once `MAX_SKIP_REASONS` are held."""
-        nonlocal suppressed
-        if len(reasons) < MAX_SKIP_REASONS:
-            reasons.append(reason)
-        else:
-            suppressed += 1
+    bounded = BoundedReasons(MAX_SKIP_REASONS, "and {count} more problems, not shown")
+    reasons = bounded.reasons
+    note = bounded.note
 
     lookup = _UnitLookup(
         units if units is not None else SystemctlUnits(), deadline, note
@@ -1897,11 +1890,10 @@ def scan(
         # The candidate in progress is abandoned: not listed, no partial port.
         timed_out = True
 
-    if suppressed:
-        # Always, never conditionally quiet: a cap with no tail reads exactly
-        # like completeness, and nothing downstream could tell a root with 100
-        # unusable subdirectories from one with half a million.
-        reasons.append(f"and {suppressed} more problems, not shown")
+    # The tail is always said once anything was dropped: nothing downstream
+    # could otherwise tell a root with 100 unusable subdirectories from one
+    # with half a million.
+    bounded.close()
 
     return ScanResult(
         projects=tuple(projects),

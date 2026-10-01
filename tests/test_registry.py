@@ -2377,7 +2377,8 @@ def test_the_import_report_is_bounded() -> None:
 
     assert len(merged.records) == len(profile)
     assert len(merged.reasons) == registry.MAX_REASONS + 1
-    assert merged.reasons[-1].startswith("... and ")
+    # Worded as the merge's tail, since an import is a merge (LWSM-1361).
+    assert merged.reasons[-1].endswith("more merge notes, not shown")
     assert str(len(profile) - registry.MAX_REASONS) in merged.reasons[-1]
 
 

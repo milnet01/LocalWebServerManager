@@ -49,6 +49,40 @@ MAX_FILE_BYTES = 1 << 20
 # that a hostile file cannot flood either.
 MAX_REASON_CHARS = 120
 
+
+class BoundedReasons:
+    """A list of reasons held to `cap`, counting what it drops.
+
+    `MAX_REASON_CHARS` bounds how long each reason is; this bounds how many.
+    `close()` adds `tail`, formatted with `count`, whenever anything was
+    dropped, and only then: a cap with no tail reads exactly like
+    completeness, and nothing downstream could tell a file with 100 problems
+    from one with half a million. Written four times by hand before
+    LWSM-1361 (scanner, registry load, merge, import), with three tails.
+
+    `reasons` is the live list, for a caller that reads what it has so far.
+    """
+
+    def __init__(self, cap: int, tail: str) -> None:
+        self.reasons: list[str] = []
+        self._cap = cap
+        self._tail = tail
+        self._dropped = 0
+
+    def note(self, reason: str) -> None:
+        if len(self.reasons) < self._cap:
+            self.reasons.append(reason)
+        else:
+            self._dropped += 1
+
+    def close(self) -> list[str]:
+        """The reasons, with the tail when anything was dropped."""
+        if self._dropped:
+            self.reasons.append(self._tail.format(count=self._dropped))
+            self._dropped = 0
+        return self.reasons
+
+
 # A separate constant because it bounds a *display* string under a different
 # sanitiser: a name reaches the UI as a row label or a picker entry, so
 # `repr`'s escaping would put something on screen literally named

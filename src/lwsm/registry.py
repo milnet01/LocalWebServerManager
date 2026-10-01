@@ -24,6 +24,7 @@ from typing import Protocol, TypeGuard
 
 from lwsm.configfile import (
     MAX_FILE_BYTES,
+    BoundedReasons,
     ConfigFileError,
     ConfigFileNotDurable,
     JsonFileRefused,
@@ -522,8 +523,10 @@ def load_projects(path: Path) -> LoadResult:
         )
 
     records: list[ProjectRecord] = []
-    reasons: list[str] = []
-    suppressed = 0
+    bounded = BoundedReasons(
+        MAX_REASONS, "and {count} more problems in this file, not shown"
+    )
+    reasons = bounded.reasons
     top_level_extras = sorted(
         key for key in data if key not in ("schema_version", "projects")
     )
@@ -541,13 +544,7 @@ def load_projects(path: Path) -> LoadResult:
     user_fields_refused: set[str] = set()
     seen: set[Path] = set()
 
-    def note(reason: str) -> None:
-        """Record a reason, or count it once `MAX_REASONS` are already held."""
-        nonlocal suppressed
-        if len(reasons) < MAX_REASONS:
-            reasons.append(reason)
-        else:
-            suppressed += 1
+    note = bounded.note
 
     def note_field(field: str, reason: str) -> None:
         """A field refusal: the row survives, and the FIELD is named.
@@ -728,11 +725,9 @@ def load_projects(path: Path) -> LoadResult:
             )
         )
 
-    if suppressed:
-        # Always, never conditionally quiet: a cap with no tail reads as
-        # completeness, and nothing downstream could tell a file with 100
-        # problems from one with 524,271.
-        reasons.append(f"and {suppressed} more problems in this file, not shown")
+    # The tail is always said once anything was dropped: nothing downstream
+    # could otherwise tell a file with 100 problems from one with 524,271.
+    bounded.close()
 
     return LoadResult(
         records=records,
@@ -1136,17 +1131,10 @@ def merge(
     timestamp, leaving the duplicate-port tie-break with nothing to compare on
     exactly the records the app made itself.
     """
-    reasons: list[str] = []
     counts: dict[str, int] = dict.fromkeys(OUTCOMES, 0)
-    suppressed = 0
-
-    def note(reason: str) -> None:
-        """`load_projects`' bound, on a second surface (INV-6)."""
-        nonlocal suppressed
-        if len(reasons) < MAX_REASONS:
-            reasons.append(reason)
-        else:
-            suppressed += 1
+    # `load_projects`' bound, on a second surface (INV-6).
+    bounded = BoundedReasons(MAX_REASONS, "and {count} more merge notes, not shown")
+    note = bounded.note
 
     def flag(outcome: str, reason: str) -> None:
         counts[outcome] += 1
@@ -1242,12 +1230,7 @@ def merge(
 
     _flag_duplicate_ports(merged, flag)
 
-    if suppressed:
-        # Always, never conditionally quiet: a cap with no tail reads as
-        # completeness, which is `load_projects`' rule on its own surface.
-        reasons.append(f"and {suppressed} more merge notes, not shown")
-
-    return MergeResult(records=merged, reasons=reasons, counts=counts)
+    return MergeResult(records=merged, reasons=bounded.close(), counts=counts)
 
 
 def _identity_owners(
@@ -1557,17 +1540,11 @@ def merge_imported(
     not news, and a project stored here but absent from the profile is simply
     kept — an import is a merge, never a replacement.
     """
-    reasons: list[str] = []
     counts: dict[str, int] = dict.fromkeys(OUTCOMES, 0)
-    suppressed = 0
-
-    def note(reason: str) -> None:
-        """`load_projects`' bound, on a third surface (LWSM-1007 INV-6)."""
-        nonlocal suppressed
-        if len(reasons) < MAX_REASONS:
-            reasons.append(reason)
-        else:
-            suppressed += 1
+    # `load_projects`' bound, on a third surface (LWSM-1007 INV-6). The merge's
+    # own tail, since an import is a merge (LWSM-1361).
+    bounded = BoundedReasons(MAX_REASONS, "and {count} more merge notes, not shown")
+    note = bounded.note
 
     def flag(outcome: str, reason: str) -> None:
         counts[outcome] += 1
@@ -1643,6 +1620,4 @@ def merge_imported(
     # `port_override` can create one exactly as a rescan can (L5-Q1).
     _flag_duplicate_ports(records, flag)
 
-    if suppressed:
-        reasons.append(f"... and {suppressed} more")
-    return MergeResult(records=records, reasons=reasons, counts=counts)
+    return MergeResult(records=records, reasons=bounded.close(), counts=counts)
