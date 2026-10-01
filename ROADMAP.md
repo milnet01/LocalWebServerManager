@@ -10018,11 +10018,14 @@ O8` forbids retrofitting that.
   Source: refactor-pass-2026-10-01 R-5.
   Lanes: controller.
 
-- 📋 [LWSM-1361] **The capped-reasons accumulator is hand-written four times with three different tail lines.**
+- ✅ [LWSM-1361] **The capped-reasons accumulator is hand-written four times with three different tail lines.**
   note closure + suppressed counter + tail line in scanner.py (scan),
   registry.load_projects, registry.merge and registry.merge_imported. Tails:
   "more problems in this file, not shown", "more merge notes, not shown",
   "... and N more". Fix: one BoundedReasons(cap, tail) in configfile.py.
+  Resolved (2026-10-01, bd413f3): configfile.BoundedReasons(cap, tail)
+  replaces the four hand-written accumulators; the import's tail now
+  matches the merge's.
   **Layman:** Four places each build a list of problems that stops after a limit, written separately and worded differently; share one helper.
   Kind: refactor.
   Source: refactor-pass-2026-10-01 R-6.
