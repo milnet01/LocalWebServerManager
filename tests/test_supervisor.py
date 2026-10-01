@@ -2864,3 +2864,30 @@ def test_npm_run_refuses_an_npmrc_others_can_rewrite(supervisor, project: Path) 
 
     with pytest.raises(LauncherRefused, match="group- or other-writable"):
         supervisor.start(project, name="demo", argv=argv, port=None)
+
+
+def test_the_npm_trust_refusal_carries_what_npm_will_run(
+    supervisor, project: Path
+) -> None:
+    """LWSM-1365. The dialog for `npm run dev` showed "npm" and its arguments,
+    and never the strings `/bin/sh` will run or the `.npmrc` that shapes them:
+    the material the fingerprint is bound to. ADR-0003: "not security theatre
+    only if it shows what will actually run". Unrelated scripts stay out.
+    """
+    (project / "package.json").write_text(
+        json.dumps({"scripts": {"predev": "a", "dev": "b", "build": "c"}}),
+        encoding="utf-8",
+    )
+    (project / ".npmrc").write_text(
+        "fund=false\nscript-shell=./x.sh\n", encoding="utf-8"
+    )
+
+    with pytest.raises(LauncherUntrusted) as caught:
+        supervisor.start(project, name="demo", argv=["npm", "run", "dev"], port=None)
+
+    assert caught.value.npm_shown == (
+        ("predev", "a"),
+        ("dev", "b"),
+        (".npmrc", "fund=false"),
+        (".npmrc", "script-shell=./x.sh"),
+    )

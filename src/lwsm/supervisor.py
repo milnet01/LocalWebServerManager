@@ -161,13 +161,22 @@ class LauncherUntrusted(SupervisorError):
     argv, never a friendly summary".
     """
 
-    def __init__(self, resolved: Path | None, argv: tuple[str, ...], fingerprint: str):
+    def __init__(
+        self,
+        resolved: Path | None,
+        argv: tuple[str, ...],
+        fingerprint: str,
+        npm_shown: tuple[tuple[str, str], ...] = (),
+    ):
         super().__init__(
             f"{resolved or argv[0]} has not been confirmed for this project"
         )
         self.resolved = resolved
         self.argv = argv
         self.fingerprint = fingerprint
+        # For `npm run`, what `/bin/sh` will run and the `.npmrc` that shapes
+        # it, as (label, text) pairs: `npm` itself shows nothing (LWSM-1365).
+        self.npm_shown = npm_shown
 
 
 class PortAlreadyBound(SupervisorError):
@@ -747,6 +756,54 @@ def _npm_material(project: Path, argv: tuple[str, ...]) -> bytes | None:
     that has none, so an unreadable script is never a state the user can
     confirm (LWSM-1364).
     """
+    parts = _npm_parts(project, argv)
+    if parts is None:
+        return None
+    scripts, config = parts
+
+    # Length-prefixed, because a JSON string may hold `\0` and the marker text:
+    # without the length, a script could be written to read as two.
+    def framed(marker: bytes, content: bytes) -> bytes:
+        return b"\0" + marker + b"\0" + str(len(content)).encode() + b":" + content
+
+    material = b""
+    for _, value in scripts:
+        if value is None:
+            material += framed(b"absent", b"")
+        else:
+            material += framed(b"script", value.encode("utf-8", "surrogatepass"))
+    if config is None:
+        return material + framed(b"no-npmrc", b"")
+    return material + framed(b"npmrc", config)
+
+
+def npm_shown(project: Path, argv: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    """What the trust dialog shows for `npm run <name>`: each script npm will
+    run, then each line of the project's `.npmrc`, as (label, text) pairs.
+
+    Read from the same parse `_npm_material` hashes, so the dialog cannot show
+    one thing while the confirmation binds to another (LWSM-1365). Empty for
+    any other shape, or where the material could not be read — `start()` has
+    already refused that case.
+    """
+    parts = _npm_parts(project, argv)
+    if parts is None:
+        return ()
+    scripts, config = parts
+    shown = [(key, value) for key, value in scripts if value is not None]
+    if config is not None:
+        text = config.decode("utf-8", "replace")
+        shown += [(".npmrc", line) for line in text.splitlines() if line.strip()]
+    return tuple(shown)
+
+
+def _npm_parts(
+    project: Path, argv: tuple[str, ...]
+) -> tuple[tuple[tuple[str, str | None], ...], bytes | None] | None:
+    """The three scripts in run order, each `None` where absent, and the
+    `.npmrc` bytes, `None` where there is none. `None` overall when any of it
+    cannot be read, or the named script itself is missing.
+    """
     if not _is_npm_run(argv):
         return None
     raw = _resolved_bytes(project / "package.json")
@@ -759,28 +816,19 @@ def _npm_material(project: Path, argv: tuple[str, ...]) -> bytes | None:
     scripts = data.get("scripts") if isinstance(data, dict) else None
     if not isinstance(scripts, dict) or not isinstance(scripts.get(argv[2]), str):
         return None
-
-    # Length-prefixed, because a JSON string may hold `\0` and the marker text:
-    # without the length, a script could be written to read as two.
-    def framed(marker: bytes, content: bytes) -> bytes:
-        return b"\0" + marker + b"\0" + str(len(content)).encode() + b":" + content
-
-    material = b""
+    found: list[tuple[str, str | None]] = []
     for key in (f"pre{argv[2]}", argv[2], f"post{argv[2]}"):
         value = scripts.get(key)
-        if value is None:
-            material += framed(b"absent", b"")
-            continue
-        if not isinstance(value, str):
+        if value is not None and not isinstance(value, str):
             return None
-        material += framed(b"script", value.encode("utf-8", "surrogatepass"))
+        found.append((key, value))
     npmrc = project / ".npmrc"
     if not os.path.lexists(npmrc):
-        return material + framed(b"no-npmrc", b"")
+        return tuple(found), None
     config = _resolved_bytes(npmrc)
     if config is None:
         return None
-    return material + framed(b"npmrc", config)
+    return tuple(found), config
 
 
 def _resolved_bytes(path: Path) -> bytes | None:
@@ -1154,7 +1202,9 @@ class Supervisor:
                 )
             fingerprint = launcher_fingerprint(resolved_project, argv)
             if not self.trust.is_confirmed(resolved_project, fingerprint):
-                raise LauncherUntrusted(launcher, argv, fingerprint)
+                raise LauncherUntrusted(
+                    launcher, argv, fingerprint, npm_shown(resolved_project, argv)
+                )
 
             log_path = self.log_path_for(resolved_project, name)
             fd = self._open_log(log_path)

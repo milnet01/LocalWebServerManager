@@ -214,10 +214,10 @@ STATE_GLYPHS = {
 # all, and `test_every_translated_string_uses_one_context` holds the one-context
 # rule the constant used to hold by construction.
 
-# The trust prompt's placeholders, matched so all three can be substituted on
+# The trust prompt's placeholders, matched so all of them can be substituted on
 # one pass (LWSM-1181). Sequential `.replace` calls let the first value land in
-# a template that still held the other two.
-_TRUST_FIELD = re.compile(r"%[123]")
+# a template that still held the others.
+_TRUST_FIELD = re.compile(r"%[1234]")
 
 
 def _filled(template: str, *values: str) -> str:
@@ -249,8 +249,10 @@ _DISCLOSE_FIELD = re.compile(r"%[1-6]")
 # NEL — so a fix written from the obvious literals would have added three dead
 # branches and still missed the two live ones. Cf earns its place separately:
 # U+202E renders `start<RLO>abc.sh` pixel-identically to `starths.cba`, which
-# is a forged path in the one dialog whose job is naming what will run.
-_FORGING_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
+# is a forged path in the one dialog whose job is naming what will run. Cs, a
+# lone surrogate, because Qt drops it without a word (measured 2026-10-01), so
+# the prompt would show text that differs from what runs (LWSM-1365).
+_FORGING_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 
 # Kept readable where a reader would recognise the name; everything else in
 # those categories has no conventional spelling and goes out as its code point.
@@ -1450,7 +1452,10 @@ class MainWindow(QMainWindow):
         *,
         rescan: RescanContext | None = None,
         load: LoadResult | RegistryError | None = None,
-        confirm: Callable[[Path, str, tuple[str, ...]], bool] | None = None,
+        confirm: Callable[
+            [Path, str, tuple[str, ...], tuple[tuple[str, str], ...]], bool
+        ]
+        | None = None,
         disclose: Callable[[Path, object], bool] | None = None,
         open_url: Callable[[QUrl], bool] | None = None,
         list_browsers: Callable[[], browsers.LoadResult] | None = None,
@@ -2687,7 +2692,11 @@ class MainWindow(QMainWindow):
             QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, text))
 
     def _confirm_dialog(
-        self, project: Path, resolved: str, argv: tuple[str, ...]
+        self,
+        project: Path,
+        resolved: str,
+        argv: tuple[str, ...],
+        npm_shown: tuple[tuple[str, str], ...] = (),
     ) -> bool:
         """ADR-0003 § Trust, on screen.
 
@@ -2712,6 +2721,11 @@ class MainWindow(QMainWindow):
         holding a line break. That is a stated loss: distinguishing them costs
         escaping every backslash in every path, and neither can forge the
         dialog, which is what this is defending.
+
+        **For `npm run`, the launcher is `npm`**, so the scripts it will run and
+        the project's `.npmrc` lines are listed under a heading of their own,
+        one `label: text` line each, each escaped like the other fields
+        (LWSM-1365). They are what the confirmation is bound to.
         """
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
@@ -2719,26 +2733,32 @@ class MainWindow(QMainWindow):
         box.setWindowTitle(
             QCoreApplication.translate("ProjectRow", "Run this launcher?")
         )
+        # Each value escaped BEFORE substitution: `%4` joins its lines with
+        # line breaks of ours, which escaping afterwards would take for forged.
         fields = {
-            "%1": project.name,
-            "%2": resolved,
+            "%1": _no_layout_forgery(project.name),
+            "%2": _no_layout_forgery(resolved),
             # Quoted per argument, never `" ".join(argv)` (LWSM-1282). This is
             # the one dialog that must not misrepresent what is about to run,
             # and joining on a space renders `["./s.sh", "a b"]` and
             # `["./s.sh", "a", "b"]` identically. `quoted` is already the
             # project's answer for an attacker-editable value reaching the UI.
-            "%3": " ".join(quoted(argument) for argument in argv),
+            "%3": _no_layout_forgery(" ".join(quoted(argument) for argument in argv)),
+            "%4": "\n".join(
+                f"{_no_layout_forgery(label)}: {_no_layout_forgery(text)}"
+                for label, text in npm_shown
+            ),
         }
-        box.setText(
-            _TRUST_FIELD.sub(
-                lambda match: _no_layout_forgery(fields[match.group()]),
-                QCoreApplication.translate(
-                    "ProjectRow",
-                    "%1 has not been run from here before.\n\n"
-                    "This will execute:\n%2\n\nwith arguments:\n%3",
-                ),
-            )
+        template = QCoreApplication.translate(
+            "ProjectRow",
+            "%1 has not been run from here before.\n\n"
+            "This will execute:\n%2\n\nwith arguments:\n%3",
         )
+        if npm_shown:
+            template += QCoreApplication.translate(
+                "ProjectRow", "\n\nwhich runs, from the project's own files:\n%4"
+            )
+        box.setText(_TRUST_FIELD.sub(lambda match: fields[match.group()], template))
         box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
@@ -2768,7 +2788,8 @@ class MainWindow(QMainWindow):
                 ).replace("%1", project.name)
             )
             return
-        if self._confirm(project, launcher, argv):
+        npm_shown = getattr(refusal, "npm_shown", ())
+        if self._confirm(project, launcher, argv, npm_shown):
             self._controller.confirm_and_start(project, fingerprint)
         else:
             self.set_status_message(
