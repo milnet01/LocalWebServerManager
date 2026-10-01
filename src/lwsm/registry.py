@@ -25,10 +25,11 @@ from lwsm.configfile import (
     MAX_FILE_BYTES,
     ConfigFileError,
     ConfigFileNotDurable,
+    JsonFileRefused,
     canonical_json,
     is_writable_text,
+    load_json_object,
     quoted,
-    read_bounded,
     write_json_atomically,
 )
 
@@ -363,7 +364,7 @@ def _actions_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str |
         return tuple(canonical_json(element) for element in value), None
     except (TypeError, ValueError, RecursionError):
         # `RecursionError` is not a `ValueError` and has to be named, which is
-        # the guard `load_projects` carries around its own `json.loads` and
+        # the guard `configfile.load_json_object` carries around its `json.loads` and
         # this call site did not (LWSM-1217, and LWSM-1164 before it).
         #
         # MEASURED, and the filed reasoning does not hold: there is no depth
@@ -449,29 +450,36 @@ def _added_or_reason(value: object, name: str) -> tuple[str | None, str | None]:
     return value, None
 
 
-def _refuse_constant(name: str) -> object:
-    """`json.loads`' hook for `NaN`, `Infinity` and `-Infinity`.
+def _refusal_reason(path: Path, refused: JsonFileRefused) -> str:
+    """The registry's wording for each way `load_json_object` refuses a file.
 
-    Python accepts them and re-emits them bare, which is not JSON: another tool
-    reading the file refuses it (known-issue-056, LWSM-1322). A `ValueError`
-    here reaches `load_projects`' existing branch for an unparseable file.
+    The causes behind each stage were measured here first (LWSM-1357 moved the
+    reading itself to `configfile.load_json_object`):
+
+    - `unreadable` is any OSError but a missing file: a directory at that
+      path, a permission denial, a FIFO or an oversized file must all arrive as
+      RegistryError, the only exception `build_window` tolerates.
+      `exc.strerror` rather than `exc` keeps the reason readable.
+    - `unparseable` is a `NaN`/`Infinity` (known-issue-056), a 5000-digit
+      `port` past CPython's 4300-digit integer-parse cap, or nesting deep
+      enough to raise RecursionError. Before they were caught, each escaped as
+      itself and the app died with a traceback and no window. RecursionError
+      is RecursionError -> RuntimeError -> Exception, not BaseException: a
+      reader who believed otherwise would widen ports.py's `except Exception`
+      and start swallowing KeyboardInterrupt (LWSM-1108).
     """
-    raise ValueError(f"{name} is not a JSON value")
-
-
-class _DuplicateKeys:
-    """An `object_pairs_hook` that keeps `json`'s last-wins and remembers the loss."""
-
-    def __init__(self) -> None:
-        self.keys: list[str] = []
-
-    def pairs(self, pairs: list[tuple[str, object]]) -> dict[str, object]:
-        result: dict[str, object] = {}
-        for key, value in pairs:
-            if key in result:
-                self.keys.append(key)
-            result[key] = value
-        return result
+    where = quoted(str(path))
+    cause = refused.cause
+    if refused.stage == "unreadable" and isinstance(cause, OSError):
+        return f"{where}: cannot be read ({cause.strerror or cause})"
+    if refused.stage == "not_utf8":
+        return f"{where}: not valid UTF-8 ({cause})"
+    if refused.stage == "not_json":
+        return f"{where}: not valid JSON ({cause})"
+    if refused.stage == "not_object":
+        # json.loads happily returns a list or a string; nothing raises for these.
+        return f"{where}: top level is {refused.found}, not an object"
+    return f"{where}: cannot be parsed ({type(cause).__name__}: {cause})"
 
 
 def load_projects(path: Path) -> LoadResult:
@@ -483,59 +491,15 @@ def load_projects(path: Path) -> LoadResult:
     write gate treats as writable (LWSM-1007 § 4.3).
     """
     try:
-        raw = read_bounded(path)
+        loaded = load_json_object(path)
     except FileNotFoundError as exc:
-        # Ahead of the OSError clause below, which would otherwise fold first
-        # run into "unreadable" and leave a clean machine permanently unable to
-        # persist anything — the write gate would refuse to create the very file
-        # whose absence it is reading.
+        # Not "unreadable": that would leave a clean machine permanently unable
+        # to persist anything — the write gate would refuse to create the very
+        # file whose absence it is reading.
         raise RegistryMissing(f"{quoted(str(path))}: does not exist yet") from exc
-    except OSError as exc:
-        # Any OSError, not just FileNotFoundError: a directory at that path, a
-        # permission denial, a FIFO or an oversized file must all arrive as
-        # RegistryError, because that is the only exception `build_window`
-        # tolerates. `exc.strerror` rather than `exc` keeps the reason readable.
-        raise RegistryError(
-            f"{quoted(str(path))}: cannot be read ({exc.strerror or exc})"
-        ) from exc
-
-    duplicates = _DuplicateKeys()
-    try:
-        # utf-8-sig, not utf-8: an editor-added BOM is invisible in that
-        # editor and would otherwise refuse the whole file with a reason
-        # naming byte 0, which sends the user looking at the wrong thing.
-        data = json.loads(
-            raw.decode("utf-8-sig"),
-            parse_constant=_refuse_constant,
-            object_pairs_hook=duplicates.pairs,
-        )
-    except UnicodeDecodeError as exc:
-        # Not a JSONDecodeError, so it has to be caught by name.
-        raise RegistryError(f"{quoted(str(path))}: not valid UTF-8 ({exc})") from exc
-    except json.JSONDecodeError as exc:
-        raise RegistryError(f"{quoted(str(path))}: not valid JSON ({exc})") from exc
-    except (ValueError, RecursionError) as exc:
-        # Both reproduced, and neither is a JSONDecodeError, so both escaped as
-        # themselves past a caller that tolerates only RegistryError — the app
-        # died with a traceback and no window. A 5000-digit `port` hits CPython's
-        # 4300-digit integer-parse cap and raises plain ValueError; deeply nested
-        # arrays exhaust the stack and raise RecursionError, which is not a
-        # ValueError — it is RecursionError -> RuntimeError -> Exception, so it
-        # needs naming here whatever `except ValueError` would catch. This
-        # comment used to say RecursionError "is not even an Exception", which
-        # is false, and dangerously so: a reader who believed it would widen
-        # ports.py's `except Exception` to BaseException and start swallowing
-        # KeyboardInterrupt (LWSM-1108). JSONDecodeError is matched above
-        # because it subclasses ValueError and its message is more useful.
-        raise RegistryError(
-            f"{quoted(str(path))}: cannot be parsed ({type(exc).__name__}: {exc})"
-        ) from exc
-
-    # json.loads happily returns a list or a string; nothing raises for these.
-    if not isinstance(data, dict):
-        raise RegistryError(
-            f"{quoted(str(path))}: top level is {type(data).__name__}, not an object"
-        )
+    except JsonFileRefused as exc:
+        raise RegistryError(_refusal_reason(path, exc)) from exc
+    data = loaded.data
 
     version = data.get("schema_version")
     if not _is_int(version) or version != SCHEMA_VERSION:
@@ -620,7 +584,7 @@ def load_projects(path: Path) -> LoadResult:
 
     # Last-wins is what `json` does and what the user sees in their editor is
     # both values, so the loss is said out loud (known-issue-056, LWSM-1322).
-    for key in duplicates.keys:
+    for key in loaded.duplicate_keys:
         note(f"duplicate key {quoted(key)}; the last value was used")
 
     for index, entry in enumerate(projects):

@@ -32,6 +32,7 @@ import psutil
 import pytest
 
 from lwsm import supervisor as supervisor_module
+from lwsm.configfile import quoted
 from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.supervisor import (
     ENV_ALLOWLIST,
@@ -2671,6 +2672,35 @@ def test_an_unreadable_trust_file_trusts_nothing_and_says_why(
     # And the next confirmation replaces it rather than failing on it.
     store.confirm(project, FINGERPRINT)
     assert TrustStore(path).is_confirmed(project, FINGERPRINT)
+
+
+def test_a_trust_file_holding_nan_is_refused_like_the_other_two(
+    project: Path, tmp_path: Path
+) -> None:
+    """LWSM-1357. `NaN` is Python's, not JSON's, and the registry and the
+    settings file refused it while this reader took it. Refused here too,
+    which trusts nothing: the safe direction, as for any unreadable file."""
+    path = tmp_path / "trust.json"
+    path.write_text(
+        f'{{"schema_version": 1, "confirmed": {{"{project.resolve()}": '
+        f'"{FINGERPRINT}"}}, "note": NaN}}',
+        encoding="utf-8",
+    )
+
+    store = TrustStore(path)
+    assert not store.is_confirmed(project, FINGERPRINT)
+    assert store.reasons == [f"{quoted(str(path))}: not valid JSON (ValueError)"]
+
+
+def test_a_trust_file_that_is_not_an_object_says_so(
+    project: Path, tmp_path: Path
+) -> None:
+    """LWSM-1357 moved the reading to `load_json_object`; this file keeps its
+    own words for each refusal, and this one was pinned by nothing."""
+    path = tmp_path / "trust.json"
+    path.write_text("[]", encoding="utf-8")
+
+    assert TrustStore(path).reasons == [f"{quoted(str(path))}: not a JSON object"]
 
 
 def test_a_malformed_entry_is_dropped_and_the_rest_kept(

@@ -251,6 +251,13 @@ signaling per
 
 ### Changed
 
+- **The three settings files are now read by one shared reader** (LWSM-1357)
+  The project list, the preferences and the list of approved launchers
+  each had their own copy of the same reading steps, and the copies had
+  drifted. The approved-launchers file now refuses NaN and Infinity
+  values like the other two, which means it trusts nothing and asks
+  again, the safe direction.
+
 - **Messages from the menus now appear in a banner above the project list** (LWSM-1345)
   Text size, theme, profile and rescan messages used to go to a
   status bar at the bottom edge of the window, out of a magnifier's

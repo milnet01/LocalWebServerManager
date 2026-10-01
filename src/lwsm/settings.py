@@ -35,9 +35,10 @@ from pathlib import Path
 from lwsm.configfile import (
     ConfigFileError,
     ConfigFileNotDurable,
+    JsonFileRefused,
     canonical_json,
+    load_json_object,
     quoted,
-    read_bounded,
     write_json_atomically,
 )
 from lwsm.registry import default_projects_path
@@ -307,55 +308,18 @@ def load(path: Path) -> LoadResult:
     reasons: list[str] = []
     notes: list[str] = []
     try:
-        raw = read_bounded(path)
+        # The shared reader (LWSM-1357) brings the guards this file needed one
+        # at a time: a BOM tolerated (LWSM-1182, since a refused document
+        # blocks every later save), and nesting deep enough to raise
+        # `RecursionError`, which killed the app on every launch (LWSM-1164).
+        document = load_json_object(path).data
     except FileNotFoundError:
         # First run. Not a refusal, so it earns no reason — a clean machine
         # must not report a problem it does not have.
         return LoadResult(Settings(), reasons)
-    except OSError as exc:
+    except JsonFileRefused as exc:
         return LoadResult(
-            Settings(),
-            [f"{quoted(str(path))}: cannot be read ({exc.strerror or exc})"],
-            document_refused=True,
-        )
-
-    try:
-        # `utf-8-sig`, matching `registry.load_projects` and `scanner`: an
-        # editor-added BOM is invisible in the editor that added it, so
-        # refusing the file reports a problem at byte 0 that the user cannot
-        # see. This decoded plain `utf-8` until LWSM-1182, which was cosmetic
-        # while a refusal only meant defaults — LWSM-1163's write gate made it
-        # permanent, since a refused document blocks every later save and no
-        # preference persists for as long as the BOM is there.
-        document = json.loads(raw.decode("utf-8-sig"), parse_constant=_refuse_constant)
-    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
-        # `RecursionError` is named because it is NOT a `ValueError` — it is
-        # `RecursionError` -> `RuntimeError` -> `Exception` — and deeply nested
-        # arrays exhaust the stack rather than failing to parse. 40 KB of `[`
-        # is well inside `MAX_FILE_BYTES`, so the size cap never sees it, and
-        # the error escaped `load()` as itself: past `build_window`, whose
-        # `try` catches only `RegistryError`, and out of `main()`. The app died
-        # with a traceback and no window on every launch until the file was
-        # deleted by hand (LWSM-1164).
-        #
-        # `registry.py` has caught this since LWSM-1108 and its comment carries
-        # the reasoning at length, including the warning not to "fix" it by
-        # widening some other handler to `BaseException`. This is LWSM-1116's
-        # shape: a guard that exists next door and is missing here.
-        #
-        # `str(exc)` is quoted for the same reason every other reason is: it
-        # interpolates a fragment of the hostile file, newlines included.
-        return LoadResult(
-            Settings(),
-            [f"{quoted(str(path))}: is not valid JSON ({quoted(str(exc))})"],
-            document_refused=True,
-        )
-
-    if not isinstance(document, dict):
-        return LoadResult(
-            Settings(),
-            [f"{quoted(str(path))}: is {type(document).__name__}, not an object"],
-            document_refused=True,
+            Settings(), [_refusal_reason(path, exc)], document_refused=True
         )
 
     version = document.get("schema_version")
@@ -461,13 +425,19 @@ def load(path: Path) -> LoadResult:
     return LoadResult(settings, reasons[:MAX_REASONS], notes=notes)
 
 
-def _refuse_constant(name: str) -> object:
-    """`json.loads`' hook for `NaN` and `Infinity` — `registry._refuse_constant`'s.
+def _refusal_reason(path: Path, refused: JsonFileRefused) -> str:
+    """This file's wording for each way `load_json_object` refuses it.
 
-    They are not JSON, and Python re-emits them bare (L5-M2). The `ValueError`
-    reaches `load`'s existing branch for an unparseable document.
+    Every parse failure reads as "is not valid JSON", with the cause quoted:
+    it interpolates a fragment of the hostile file, newlines included.
     """
-    raise ValueError(f"{name} is not a JSON value")
+    where = quoted(str(path))
+    cause = refused.cause
+    if refused.stage == "unreadable" and isinstance(cause, OSError):
+        return f"{where}: cannot be read ({cause.strerror or cause})"
+    if refused.stage == "not_object":
+        return f"{where}: is {refused.found}, not an object"
+    return f"{where}: is not valid JSON ({quoted(str(cause))})"
 
 
 def _payload(settings: Settings) -> dict[str, object]:

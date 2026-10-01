@@ -48,8 +48,9 @@ from lwsm.applog import (
 )
 from lwsm.configfile import (
     ConfigFileError,
+    JsonFileRefused,
+    load_json_object,
     quoted,
-    read_bounded,
     write_json_atomically,
 )
 from lwsm.ports import ProbeError, SupportsSnapshot
@@ -279,22 +280,22 @@ class TrustStore:
         log.warning("trust store: %s", reason)
 
     def _load(self, path: Path) -> None:
+        # The shared reader (LWSM-1357), which also refuses `NaN` and
+        # `Infinity`: this one took them while the other two config files
+        # refused them. Refusing trusts nothing, the safe direction.
         try:
-            raw = read_bounded(path)
+            document = load_json_object(path).data
         except FileNotFoundError:
             return  # first run: nothing confirmed yet, and nothing wrong
-        except OSError as exc:
-            self._refuse(f"{quoted(str(path))}: cannot be read ({exc.strerror or exc})")
-            return
-        try:
-            document = json.loads(raw.decode("utf-8-sig"))
-        except (ValueError, RecursionError) as exc:
-            # `ValueError` covers both a decode error and a JSON one; a deeply
-            # nested document raises `RecursionError` instead (LWSM-1164).
-            self._refuse(f"{quoted(str(path))}: not valid JSON ({type(exc).__name__})")
-            return
-        if not isinstance(document, dict):
-            self._refuse(f"{quoted(str(path))}: not a JSON object")
+        except JsonFileRefused as exc:
+            where = quoted(str(path))
+            cause = exc.cause
+            if exc.stage == "unreadable" and isinstance(cause, OSError):
+                self._refuse(f"{where}: cannot be read ({cause.strerror or cause})")
+            elif exc.stage == "not_object":
+                self._refuse(f"{where}: not a JSON object")
+            else:
+                self._refuse(f"{where}: not valid JSON ({type(cause).__name__})")
             return
         version = document.get("schema_version")
         if type(version) is not int or version != TRUST_SCHEMA_VERSION:

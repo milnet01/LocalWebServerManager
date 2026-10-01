@@ -28,6 +28,7 @@ import os
 import re
 import stat
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -187,6 +188,91 @@ def read_bounded(path: Path) -> bytes:
     if len(raw) > MAX_FILE_BYTES:
         raise OSError(errno.EFBIG, f"too large: over {MAX_FILE_BYTES} bytes", str(path))
     return raw
+
+
+class JsonFileRefused(ConfigFileError):
+    """A config file that exists and cannot be used as a JSON object.
+
+    `stage` names where it failed, so each reader keeps its own wording for
+    its own users: `unreadable`, `not_utf8`, `not_json`, `unparseable` or
+    `not_object`. `cause` is the exception behind it, and `found` the type
+    name of a document that is not an object.
+    """
+
+    def __init__(
+        self, path: Path, stage: str, cause: BaseException | None, found: str = ""
+    ) -> None:
+        super().__init__(f"{quoted(str(path))}: {stage}")
+        self.stage = stage
+        self.cause = cause
+        self.found = found
+
+
+@dataclass(frozen=True)
+class JsonObject:
+    """A loaded config document and any keys it repeated (last one kept)."""
+
+    data: dict[str, object]
+    duplicate_keys: tuple[str, ...]
+
+
+def _refuse_constant(name: str) -> object:
+    """`json.loads`' hook for `NaN`, `Infinity` and `-Infinity`.
+
+    Python accepts them and re-emits them bare, which is not JSON: another
+    tool reading the file refuses it (known-issue-056, LWSM-1322).
+    """
+    raise ValueError(f"{name} is not a JSON value")
+
+
+def load_json_object(path: Path) -> JsonObject:
+    """Read `path` as a JSON object, the one sequence every config file takes.
+
+    `registry.load_projects`, `settings.load` and `TrustStore._load` each
+    wrote this by hand, and their guards drifted: only the registry noted
+    duplicate keys, and the trust store took `NaN` (LWSM-1357). Each guard
+    below has a measured cause recorded at `registry.load_projects`.
+
+    A missing file raises `FileNotFoundError` untouched, because to every
+    caller that is first run rather than a broken file. Every other failure
+    raises `JsonFileRefused`.
+    """
+    try:
+        raw = read_bounded(path)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise JsonFileRefused(path, "unreadable", exc) from exc
+
+    repeated: list[str] = []
+
+    def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
+        # `json`'s own rule, last wins, with the loss remembered.
+        result: dict[str, object] = {}
+        for key, value in items:
+            if key in result:
+                repeated.append(key)
+            result[key] = value
+        return result
+
+    try:
+        # utf-8-sig: an editor-added BOM is invisible in that editor.
+        data = json.loads(
+            raw.decode("utf-8-sig"),
+            parse_constant=_refuse_constant,
+            object_pairs_hook=pairs,
+        )
+    except UnicodeDecodeError as exc:
+        raise JsonFileRefused(path, "not_utf8", exc) from exc
+    except json.JSONDecodeError as exc:
+        raise JsonFileRefused(path, "not_json", exc) from exc
+    except (ValueError, RecursionError) as exc:
+        # A NaN, a 4300-digit-plus integer, or nesting deep enough to exhaust
+        # the stack. `RecursionError` is not a `ValueError`, so it is named.
+        raise JsonFileRefused(path, "unparseable", exc) from exc
+    if not isinstance(data, dict):
+        raise JsonFileRefused(path, "not_object", None, type(data).__name__)
+    return JsonObject(data, tuple(repeated))
 
 
 def prepare_config_dir(directory: Path) -> None:
