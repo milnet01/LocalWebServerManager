@@ -418,7 +418,7 @@ def build_child_env(
 def _is_npm_run(argv: tuple[str, ...]) -> bool:
     """`npm run <script>` — the one supported shape that names no file.
 
-    Stated once because two callers need it and they must agree: `_npm_script`
+    Stated once because two callers need it and they must agree: `_npm_material`
     hashes the manifest string this shape executes, and `start()` refuses any
     other shape that names no launcher (LWSM-1228). A second copy that drifted
     would either hash nothing or refuse a launcher that works.
@@ -454,7 +454,7 @@ def _launcher_path(project: Path, argv: tuple[str, ...]) -> Path | None:
         return None
     if "/" in argv[0]:
         return _contained(project, argv[0])
-    # npm's arguments are subcommands, never files — `_npm_script` below is
+    # npm's arguments are subcommands, never files — `_npm_material` below is
     # what covers its content. Named explicitly because a *two*-element
     # `npm run` otherwise matches the interpreter shape below on length alone,
     # and a project holding a file called `run` would then have the trust gate
@@ -702,18 +702,25 @@ def launcher_fingerprint(project: Path, argv: tuple[str, ...]) -> str:
         digest.update(content)
         return digest.hexdigest()
 
-    script = _npm_script(project, argv)
-    if script is not None:
+    material = _npm_material(project, argv)
+    if material is not None:
         digest.update(b"\0npm-script\0")
-        digest.update(script)
+        digest.update(material)
         return digest.hexdigest()
 
     digest.update(b"\0nofile\0")
     return digest.hexdigest()
 
 
-def _npm_script(project: Path, argv: tuple[str, ...]) -> bytes | None:
-    """The `scripts.<name>` string an `npm run <name>` argv hands to `/bin/sh`.
+def _npm_material(project: Path, argv: tuple[str, ...]) -> bytes | None:
+    """Everything an `npm run <name>` argv runs that lives in the project.
+
+    That is three `scripts` strings, not one — npm runs `pre<name>` and
+    `post<name>` around `<name>` — plus the project's `.npmrc`, whose
+    `script-shell` and `node-options` change what any of them executes. A
+    `git pull` adding any of these ran new code under the old confirmation
+    (LWSM-1363). Each part is framed by a marker and its length, and an absent one
+    contributes a marker too, so adding one changes the hash.
 
     `npm` is on the PATH and runs no file of ours, so `_launcher_path` returns
     `None` for it — but the string it executes is untrusted content living in
@@ -723,29 +730,65 @@ def _npm_script(project: Path, argv: tuple[str, ...]) -> bytes | None:
     runs; without this the confirmation carried straight over to whatever it
     was rewritten to say (LWSM-1140).
 
-    Only the one chosen script, never the whole manifest: re-arming on every
-    dependency bump would fire the confirmation dialog during ordinary
-    development, and `validate_launcher` already records what happens to a rule
-    that does that.
+    Only the chosen script and its two hooks, never the whole manifest:
+    re-arming on every dependency bump would fire the confirmation dialog during
+    ordinary development, and `validate_launcher` already records what happens
+    to a rule that does that.
 
-    Every failure here returns `None`, which fingerprints as `\\0nofile\\0` and
-    therefore *differs* from a confirmed one — an unreadable or unparseable
-    manifest re-arms the gate rather than passing it.
+    Both files are resolved before reading, for the reason `launcher_fingerprint`
+    resolves a launcher: `_launcher_bytes` opens with `O_NOFOLLOW`, so a
+    symlinked `package.json` read as missing and hashed as a constant
+    (LWSM-1364). Containment of the resolved target is `start()`'s check.
+
+    Strings are encoded with `surrogatepass`: a JSON `"\\ud800"` decodes to a
+    lone surrogate, which `surrogateescape` raises on (LWSM-1367).
+
+    Every failure here returns `None`, and `start()` refuses an `npm run` shape
+    that has none, so an unreadable script is never a state the user can
+    confirm (LWSM-1364).
     """
     if not _is_npm_run(argv):
         return None
-    raw = _launcher_bytes(project / "package.json")
+    raw = _resolved_bytes(project / "package.json")
     if raw is None:
         return None
     try:
         data = json.loads(raw)
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):
         return None
     scripts = data.get("scripts") if isinstance(data, dict) else None
-    value = scripts.get(argv[2]) if isinstance(scripts, dict) else None
-    if not isinstance(value, str):
+    if not isinstance(scripts, dict) or not isinstance(scripts.get(argv[2]), str):
         return None
-    return value.encode("utf-8", "surrogateescape")
+
+    # Length-prefixed, because a JSON string may hold `\0` and the marker text:
+    # without the length, a script could be written to read as two.
+    def framed(marker: bytes, content: bytes) -> bytes:
+        return b"\0" + marker + b"\0" + str(len(content)).encode() + b":" + content
+
+    material = b""
+    for key in (f"pre{argv[2]}", argv[2], f"post{argv[2]}"):
+        value = scripts.get(key)
+        if value is None:
+            material += framed(b"absent", b"")
+            continue
+        if not isinstance(value, str):
+            return None
+        material += framed(b"script", value.encode("utf-8", "surrogatepass"))
+    npmrc = project / ".npmrc"
+    if not os.path.lexists(npmrc):
+        return material + framed(b"no-npmrc", b"")
+    config = _resolved_bytes(npmrc)
+    if config is None:
+        return None
+    return material + framed(b"npmrc", config)
+
+
+def _resolved_bytes(path: Path) -> bytes | None:
+    """`_launcher_bytes` of `path` with any symlink resolved first."""
+    try:
+        return _launcher_bytes(path.resolve())
+    except OSError:
+        return None
 
 
 def _launcher_bytes(path: Path) -> bytes | None:
@@ -1083,6 +1126,17 @@ class Supervisor:
                 # (review-code 2026-10-01). The return is discarded — `launcher`
                 # stays None, which is what tells the dialog no file was named.
                 validate_launcher(resolved_project, resolved_project / "package.json")
+                # npm reads it too, and it changes what runs (LWSM-1363).
+                if os.path.lexists(resolved_project / ".npmrc"):
+                    validate_launcher(resolved_project, resolved_project / ".npmrc")
+                # Unreadable is refused, never offered: as a fingerprint it was
+                # a constant, so one confirmation covered whatever the manifest
+                # said afterwards (LWSM-1364).
+                if _npm_material(resolved_project, argv) is None:
+                    raise LauncherRefused(
+                        f"package.json has no readable `{argv[2]}` script, or "
+                        "a script or .npmrc around it could not be read"
+                    )
             else:
                 # Neither a file we can check nor the one shape whose content
                 # lives in `package.json`. `bash -x start.sh` and
