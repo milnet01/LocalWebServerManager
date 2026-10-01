@@ -70,7 +70,7 @@ STOP_WAIT_MS = 2000
 # pools, which runs that unbounded wait — so holding them *defers* the hang to
 # the last moment of the process rather than removing it. Measured before
 # LWSM-1100: stop() returned in 0.10 s and the process took 4.16 s to exit
-# behind a 4 s probe. `exit_without_waiting_for_abandoned_probes` is the half
+# behind a 4 s probe. `exit_without_waiting_for_abandoned_pools` is the half
 # that actually bounds it; this list only keeps the pool alive until then.
 _ABANDONED: list[QThreadPool] = []
 
@@ -82,7 +82,7 @@ def abandon_pool(pool: QThreadPool, *emitters: QObject) -> None:
     reference reintroduces exactly the hang the caller's budget just declined to
     take. Reparenting to nothing and holding it in `_ABANDONED` defers the
     destructor to interpreter shutdown, where
-    `exit_without_waiting_for_abandoned_probes` is the half that actually bounds
+    `exit_without_waiting_for_abandoned_pools` is the half that actually bounds
     it.
 
     `emitters` are the objects the abandoned worker still emits on, and they
@@ -105,11 +105,11 @@ def abandon_pool(pool: QThreadPool, *emitters: QObject) -> None:
         emitter.setParent(None)
 
 
-def wait_for_abandoned_probes(timeout_ms: int = STOP_WAIT_MS) -> int:
+def wait_for_abandoned_pools(timeout_ms: int = STOP_WAIT_MS) -> int:
     """Reap abandoned pools that have gone idle. Returns how many are still live.
 
     The other half of the bound, for every caller that is **not** ending the
-    process. `exit_without_waiting_for_abandoned_probes` is an `os._exit`, so it
+    process. `exit_without_waiting_for_abandoned_pools` is an `os._exit`, so it
     belongs to the entry point alone — which left this suite, and any future
     embedder or reload path, inheriting the unbounded wait in full (LWSM-1117).
 
@@ -140,11 +140,11 @@ def wait_for_abandoned_probes(timeout_ms: int = STOP_WAIT_MS) -> int:
     return len(_ABANDONED)
 
 
-def _warn_about_unreaped_probes() -> None:
+def _warn_about_unreaped_pools() -> None:
     """Say so, loudly, if a live abandoned pool reaches interpreter shutdown.
 
     Deliberately **not** a bound — it cannot be one, for the reason
-    `wait_for_abandoned_probes` records: at this point the only escape is
+    `wait_for_abandoned_pools` records: at this point the only escape is
     `os._exit`, and a library that ends the process here would be overriding an
     exit code it cannot see, which is precisely the LWSM-1100 failure (a pytest
     run truncated to 40 % and reported green).
@@ -160,19 +160,19 @@ def _warn_about_unreaped_probes() -> None:
     # print, not log: logging handlers may already be closed at this point, and
     # a message that gets swallowed here is the whole problem.
     print(
-        f"lwsm: {len(live)} port probe(s) never returned and were not reaped; "
+        f"lwsm: {len(live)} background task(s) never returned and were not reaped; "
         "this process will now block in ~QThreadPool, which has no timeout. "
-        "An entry point should call exit_without_waiting_for_abandoned_probes; "
-        "any other caller should call wait_for_abandoned_probes.",
+        "An entry point should call exit_without_waiting_for_abandoned_pools; "
+        "any other caller should call wait_for_abandoned_pools.",
         file=sys.stderr,
         flush=True,
     )
 
 
-atexit.register(_warn_about_unreaped_probes)
+atexit.register(_warn_about_unreaped_pools)
 
 
-def exit_without_waiting_for_abandoned_probes(code: int) -> None:
+def exit_without_waiting_for_abandoned_pools(code: int) -> None:
     """End the process now if `stop()` gave up on a probe. Otherwise return.
 
     `§ 6` promises that a probe which never returns leaves a **stale display**,
@@ -197,7 +197,7 @@ def exit_without_waiting_for_abandoned_probes(code: int) -> None:
     if not _ABANDONED:
         return
     log.warning(
-        "%d port probe(s) never returned; exiting without waiting for them",
+        "%d background task(s) never returned; exiting without waiting for them",
         len(_ABANDONED),
     )
     # os._exit skips every flush the interpreter would have done, including the

@@ -12,7 +12,7 @@ count is written here (`documentation.md § 1.5`).
 - **`src/lwsm/__main__.py`** — `main()`, plus the thin **`run()`**
   the `lwsm` console script and `python -m lwsm` actually name.
   `run()` is `main()` followed by
-  `exit_without_waiting_for_abandoned_probes`, and the split is
+  `exit_without_waiting_for_abandoned_pools`, and the split is
   load-bearing: that call is an `os._exit` when a probe was
   abandoned, and while it sat inside `main()` **one abandoned probe
   ended the pytest run at 40 % of the suite with exit code 0** and

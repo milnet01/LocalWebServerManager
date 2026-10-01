@@ -260,7 +260,7 @@ def test_an_abandoned_probe_keeps_its_signaller_after_the_controller_is_gone(
         )
     finally:
         gate.set()
-        controller_module.wait_for_abandoned_probes(5000)
+        controller_module.wait_for_abandoned_pools(5000)
 
 
 def test_a_probe_failure_clears_the_managed_flag(qtbot, controllers) -> None:
@@ -977,7 +977,7 @@ def test_the_process_exits_promptly_when_a_probe_is_abandoned(tmp_path) -> None:
             controller.poll_once()
             time.sleep(0.3)          # let the probe reach its sleep
             controller.stop()        # bounded at 100 ms, abandons the pool
-            cm.exit_without_waiting_for_abandoned_probes(0)
+            cm.exit_without_waiting_for_abandoned_pools(0)
             sys.exit(0)              # only reached when nothing was abandoned
             """
         )
@@ -1047,7 +1047,7 @@ def test_a_process_that_reaps_does_not_pay_for_shutdown(tmp_path) -> None:
             time.sleep(0.3)
             controller.stop()          # bounded at 100 ms, abandons the pool
             GATE.set()                 # the probe can now finish
-            cm.wait_for_abandoned_probes(5000)
+            cm.wait_for_abandoned_pools(5000)
             print(f"SCRIPT_END {time.time():.6f}", flush=True)
             """
         )
@@ -1125,9 +1125,15 @@ def test_an_unreaped_probe_says_so_before_the_process_blocks(tmp_path) -> None:
     assert "never returned and were not reaped" in proc.stderr, (
         f"the process blocked with no explanation: {proc.stderr!r}"
     )
-    assert "wait_for_abandoned_probes" in proc.stderr, (
+    assert "wait_for_abandoned_pools" in proc.stderr, (
         "the warning must name the way out, or it only reports the symptom"
     )
+    # LWSM-1360: every abandoned pool is reported here — the port probes,
+    # the systemctl pool and the window's rescan pool — so naming the port
+    # probe sends whoever debugs a stuck rescan to the wrong place. (The
+    # earlier line about the port probe being abandoned is accurate: that
+    # one is from the port pool's own stop.)
+    assert "port probe(s) never returned" not in proc.stderr, proc.stderr
 
 
 def test_stop_is_bounded_when_a_probe_never_returns(
@@ -1162,7 +1168,7 @@ def test_stop_is_bounded_when_a_probe_never_returns(
     # `FakeProbe.gate.wait` has a 5 s timeout, which is the *only* reason that
     # was 2.6 s rather than forever.
     gate.set()
-    controller_module.wait_for_abandoned_probes(2000)
+    controller_module.wait_for_abandoned_pools(2000)
 
 
 def test_the_shipped_stop_budget_is_pinned() -> None:
@@ -1186,12 +1192,12 @@ def test_the_shipped_stop_budget_is_pinned() -> None:
     )
 
 
-def test_wait_for_abandoned_probes_reaps_a_pool_whose_probe_finished(
+def test_wait_for_abandoned_pools_reaps_a_pool_whose_probe_finished(
     qtbot, controllers, monkeypatch
 ) -> None:
     """The non-exiting half of the bound, for every caller that is not `run()`.
 
-    `exit_without_waiting_for_abandoned_probes` is an `os._exit` and so belongs
+    `exit_without_waiting_for_abandoned_pools` is an `os._exit` and so belongs
     only to the entry point. Everything else — this suite, a future embedder, a
     reload path — needs a way to *not be holding* an abandoned pool when the
     interpreter shuts down, because there it is joined with no timeout at all.
@@ -1204,13 +1210,13 @@ def test_wait_for_abandoned_probes_reaps_a_pool_whose_probe_finished(
     controller.poll_once()
     controller.stop()
 
-    assert controller_module.wait_for_abandoned_probes(100) == 1, (
+    assert controller_module.wait_for_abandoned_pools(100) == 1, (
         "a pool whose probe is still blocked must be reported as live"
     )
 
     gate.set()
 
-    assert controller_module.wait_for_abandoned_probes(2000) == 0
+    assert controller_module.wait_for_abandoned_pools(2000) == 0
     assert controller_module._ABANDONED == [], "the reaped pool was not dropped"
 
 

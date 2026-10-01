@@ -689,7 +689,7 @@ def run() -> int:
     green, which is the failure this project keeps finding and is not about to
     ship on purpose.
     """
-    from lwsm.controller import exit_without_waiting_for_abandoned_probes
+    from lwsm.controller import exit_without_waiting_for_abandoned_pools
 
     try:
         code = main()
@@ -697,7 +697,7 @@ def run() -> int:
         # argparse ends `--version`, `--help` and a mistyped option this way.
         # Not a crash, so no traceback (L6-M1); the bound still applies.
         status = exc.code
-        exit_without_waiting_for_abandoned_probes(
+        exit_without_waiting_for_abandoned_pools(
             status if isinstance(status, int) else int(status is not None)
         )
         raise
@@ -709,9 +709,9 @@ def run() -> int:
         # the process before the interpreter would print it; with nothing
         # abandoned the bound returns and the exception propagates as usual.
         applog.get_logger(__name__).exception("the app ended on an exception")
-        exit_without_waiting_for_abandoned_probes(1)
+        exit_without_waiting_for_abandoned_pools(1)
         raise
-    exit_without_waiting_for_abandoned_probes(code)
+    exit_without_waiting_for_abandoned_pools(code)
     return code
 
 

@@ -439,7 +439,7 @@ shutdown, which destroys those pools and runs that unbounded wait: measured,
 `stop()` returned in 0.10 s and the process took **4.16 s** to exit behind a
 4 s probe. There is no Qt-level way to cancel a running `QRunnable` or to stop
 `~QThreadPool` waiting, so the only thing that bounds it is declining to run
-the destructor — `exit_without_waiting_for_abandoned_probes` `os._exit`s after
+the destructor — `exit_without_waiting_for_abandoned_pools` `os._exit`s after
 flushing, and only while an abandoned pool still holds a thread.
 
 **That call lives in `run()`, not in `main()`,** and the split is load-bearing
@@ -1284,11 +1284,11 @@ importing `lwsm.__main__` in a test does not require a display.
   is promised here; an app that cannot be quit is not.
 - **Something other than `run()` holds an abandoned pool at shutdown.** The
   clause above bounds the *app*, and for a while that was read as bounding the
-  mechanism. It does not: `exit_without_waiting_for_abandoned_probes` is an
+  mechanism. It does not: `exit_without_waiting_for_abandoned_pools` is an
   `os._exit`, so only an entry point may call it, and every other process — the
   test suite, a future embedder, a reload path — inherited the wait in full
   (LWSM-1117). Such a caller must instead reach shutdown holding **nothing**:
-  `wait_for_abandoned_probes(timeout_ms)` reaps the pools that have gone idle
+  `wait_for_abandoned_pools(timeout_ms)` reaps the pools that have gone idle
   and returns how many have not.
 
   Two facts measured while closing it, both stronger than the report that

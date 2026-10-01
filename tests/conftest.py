@@ -88,7 +88,7 @@ def _isolated_config_home(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _reap_abandoned_probes():
+def _reap_abandoned_pools():
     """Do not let the run end holding an abandoned pool (LWSM-1117).
 
     `~QThreadPool` joins its thread with **no timeout**, and that join happens
@@ -104,9 +104,9 @@ def _reap_abandoned_probes():
     truncated to 40 % and reported green. So the suite reaps instead.
     """
     yield
-    from lwsm.controller import wait_for_abandoned_probes
+    from lwsm.controller import wait_for_abandoned_pools
 
-    still_live = wait_for_abandoned_probes(5000)
+    still_live = wait_for_abandoned_pools(5000)
     if still_live:  # pragma: no cover - a diagnosis, not a behaviour
         print(
             f"\n{still_live} abandoned probe pool(s) survived the run; "

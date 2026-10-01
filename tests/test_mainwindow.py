@@ -31,7 +31,7 @@ from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, display_text
 from lwsm.controller import (
     ProjectController,
     ProjectStatus,
-    wait_for_abandoned_probes,
+    wait_for_abandoned_pools,
 )
 from lwsm.mainwindow import MIN_TARGET_PX, STATE_GLYPHS, MainWindow, ProjectRow
 from lwsm.placement import Rect
@@ -3419,7 +3419,7 @@ def test_a_rescan_landing_after_shutdown_writes_nothing(
         assert saves == [], "a rescan wrote the project list after shutdown"
     finally:
         release.set()
-        assert wait_for_abandoned_probes(5000) == 0
+        assert wait_for_abandoned_pools(5000) == 0
 
 
 def test_the_rescan_pool_is_unparented_when_the_wait_times_out(
@@ -3431,7 +3431,7 @@ def test_the_rescan_pool_is_unparented_when_the_wait_times_out(
     Logging the word "abandoning" and returning does not do that: the pool stays
     parented to the window, so its destructor runs the unbounded join anyway and
     the claim is false. Abandoning it means `abandon_pool` — the same mechanism
-    `ProjectController.stop()` uses, so `exit_without_waiting_for_abandoned_probes`
+    `ProjectController.stop()` uses, so `exit_without_waiting_for_abandoned_pools`
     covers both.
 
     Dies on removing the `abandon_pool(pool)` call from `shutdown()`.
@@ -3452,10 +3452,10 @@ def test_the_rescan_pool_is_unparented_when_the_wait_times_out(
             "will join it with no timeout at destruction"
         )
         assert window._rescan_pool is None, "a second shutdown would wait again"
-        assert wait_for_abandoned_probes(0) == 1, "the pool was dropped, not held"
+        assert wait_for_abandoned_pools(0) == 1, "the pool was dropped, not held"
     finally:
         release.set()
-        assert wait_for_abandoned_probes(5000) == 0
+        assert wait_for_abandoned_pools(5000) == 0
 
 
 def test_the_rescan_signaller_is_unparented_with_the_pool(
@@ -3489,7 +3489,7 @@ def test_the_rescan_signaller_is_unparented_with_the_pool(
         )
     finally:
         release.set()
-        assert wait_for_abandoned_probes(5000) == 0
+        assert wait_for_abandoned_pools(5000) == 0
 
 
 # --- LWSM-1040: keyboard-first navigation ------------------------------------

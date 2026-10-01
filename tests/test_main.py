@@ -208,7 +208,7 @@ def test_no_home_directory_offers_no_rescan_it_cannot_perform(
 def test_the_console_script_names_run_not_main() -> None:
     """The process-ending exit lives in `run()`, and this pins it there.
 
-    `run()` calls `exit_without_waiting_for_abandoned_probes`, which is an
+    `run()` calls `exit_without_waiting_for_abandoned_pools`, which is an
     `os._exit` when a probe was abandoned (LWSM-1100). `main()` must stay free
     of it because tests call `main()` in-process: while the exit sat inside
     `main`, one abandoned probe earlier in the session ended the pytest run at
@@ -261,7 +261,7 @@ def test_run_bounds_the_process_exit(monkeypatch) -> None:
 
     `test_the_console_script_names_run_not_main` asserts the entry-point
     *string*, and `test_the_process_exits_promptly_when_a_probe_is_abandoned`
-    calls `exit_without_waiting_for_abandoned_probes` directly in its subprocess
+    calls `exit_without_waiting_for_abandoned_pools` directly in its subprocess
     script — so both pass while `run()` does nothing. Reducing `run()` to
     `code = main(); return code`, which deletes the whole of LWSM-1100, left all
     150 tests green (LWSM-1113).
@@ -275,7 +275,7 @@ def test_run_bounds_the_process_exit(monkeypatch) -> None:
     monkeypatch.setattr(entry, "main", lambda: 7)
     monkeypatch.setattr(
         controller_module,
-        "exit_without_waiting_for_abandoned_probes",
+        "exit_without_waiting_for_abandoned_pools",
         lambda code: bounded.append(code),
     )
 
@@ -302,7 +302,7 @@ def test_run_bounds_the_exit_when_main_raises(monkeypatch) -> None:
     monkeypatch.setattr(entry, "main", failing_main)
     monkeypatch.setattr(
         controller_module,
-        "exit_without_waiting_for_abandoned_probes",
+        "exit_without_waiting_for_abandoned_pools",
         lambda code: bounded.append(code),
     )
 
@@ -328,7 +328,7 @@ def test_version_and_help_print_no_crash_traceback(monkeypatch, caplog, flag) ->
     monkeypatch.setattr(sys, "argv", ["lwsm", flag])
     monkeypatch.setattr(
         controller_module,
-        "exit_without_waiting_for_abandoned_probes",
+        "exit_without_waiting_for_abandoned_pools",
         lambda code: bounded.append(code),
     )
 
