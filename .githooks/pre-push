@@ -79,6 +79,7 @@ docs_only() {
         [[ -z $path ]] && continue
         case $path in
             CLAUDE.md | README.md | CONTRIBUTING.md | docs/standards/*.md) return 1 ;;
+            docs/claude/*.md) return 1 ;;
             docs/design-look-and-feel.md | docs/design-accessibility.md) return 1 ;;
             docs/* | .claude/* | *.md | LICENSE) ;;
             *) return 1 ;;

@@ -313,7 +313,11 @@ def test_contributing_does_not_contradict_the_gate_it_describes() -> None:
     carve_out = text[text.index(marker) :]
     for path in ASSERTED:
         name = path.relative_to(REPO).as_posix()
-        stem = "docs/standards/" if name.startswith("docs/standards/") else name
+        folder = next(
+            (f for f in ("docs/standards/", "docs/claude/") if name.startswith(f)),
+            None,
+        )
+        stem = folder or name
         assert stem in carve_out, (
             f"{name} always runs the gate and CONTRIBUTING.md does not say so "
             "where it describes the exemption"

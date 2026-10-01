@@ -25,13 +25,15 @@ PROSE_COUNT = re.compile(
     re.IGNORECASE,
 )
 
-# Where the rule applies: the standards themselves plus the two files that
+# Where the rule applies: the standards themselves plus the files that
 # orient a reader. Deliberately not the whole tree — ROADMAP, CHANGELOG and the
 # journal are append-only records of what was true on a date, which
 # `documentation.md § 1.5` keeps rather than deletes.
 GOVERNED = [
     *sorted((ROOT / "docs" / "standards").glob("*.md")),
     ROOT / "CLAUDE.md",
+    # CLAUDE.md's detail, moved out to keep the always-loaded file small.
+    *sorted((ROOT / "docs" / "claude").glob("*.md")),
     ROOT / "README.md",
 ]
 

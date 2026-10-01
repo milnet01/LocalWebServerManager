@@ -84,7 +84,7 @@ Before opening a PR:
    (`./scripts/local-ci.sh --docs`), with exceptions. `CLAUDE.md`,
    `README.md`, `CONTRIBUTING.md`, `docs/design-look-and-feel.md`,
    `docs/design-accessibility.md` and everything under
-   `docs/standards/` are asserted against by the suite, so
+   `docs/standards/` and `docs/claude/` are asserted against by the suite, so
    editing one can turn it red — they always run the full gate.
    `scripts/`, `.github/`, `src/` and `tests/` always do too: a
    change to the checker must run the check. Every push is
