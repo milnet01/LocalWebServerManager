@@ -10427,7 +10427,7 @@ bugs in the same area.
   Source: user-report-2026-09-25.
   Lanes: registry, scanner.
 
-- 📋 [LWSM-1319] **Let the user withdraw trust from a project's launcher.**
+- ✅ [LWSM-1319] **Let the user withdraw trust from a project's launcher.**
   Split from LWSM-1046 on 2026-09-28. Confirmations now persist in
   trust.json, so a "yes, run it" lasts until the launcher or its
   command changes. TrustStore.revoke exists, saves, and has no caller:
@@ -10435,6 +10435,13 @@ bugs in the same area.
   Add a per-row action (or a Settings entry) that calls it, then the
   next Start asks again. Remove the known-issues.md entry for revoke's
   zero callers when this lands.
+  Shipped 2026-10-02 (bd576d0). Per-row context-menu entry "Ask before
+  starting again" -> ProjectController.forget_trust -> TrustStore.revoke.
+  My call: a row entry rather than Settings, always offered (forgetting is
+  safe; checking for a stored confirmation would hash the launcher each
+  poll). known-issues entry for revoke's zero callers removed; the dated
+  2026-09-28 re-triage line that names it is left as a record. Tests drive
+  the action through the rendered menu; each link broken once and seen red.
   **Layman:** A way to take back a "yes, run this project's start script" answer, now that the app remembers it between launches.
   Kind: ux.
   Source: in-session-2026-09-28 (split from LWSM-1046).

@@ -23,6 +23,11 @@ signaling per
 
 ### Added
 
+- **You can take back a "yes, run it" answer for a project** (LWSM-1319)
+  Right-click a project and choose "Ask before starting again". The next
+  Start shows the confirmation, with the exact command, as it did the
+  first time.
+
 - **A project's row warns when its files disagree about its port** (LWSM-1385)
   The port cell reads "port 3000 (sources differ)" when two files name
   different ports, and its tooltip says which file each came from. The
