@@ -73,12 +73,14 @@ class BrowserError(Exception):
 class Browser:
     """One desktop entry that declares itself an http handler.
 
-    `entry_id` is the desktop file's **base name** (`firefox.desktop`), and it
-    is what `projects.json` stores. Not the absolute path: a path is
+    `entry_id` is the Desktop Entry spec's **desktop-file id** — the path
+    relative to `applications/` with `/` turned into `-`, so `firefox.desktop`
+    at the top and `vendor-web.desktop` for `vendor/web.desktop` (LWSM-1339).
+    It is what `projects.json` stores. Not the absolute path: a path is
     machine-specific, and LWSM-1148 exports a profile from one machine and
     imports it on another, where the same browser sits under a different
-    prefix. The base name is the desktop entry's own identity for exactly that
-    reason.
+    prefix. The id is the desktop entry's own identity for exactly that reason,
+    and `mimeapps.list` names entries by it.
     """
 
     entry_id: str
@@ -329,7 +331,9 @@ def _entry_fields(text: str) -> dict[str, str]:
     return fields
 
 
-def _browser_from(path: Path, *, mime_required: bool = True) -> Browser | None:
+def _browser_from(
+    path: Path, entry_id: str, *, mime_required: bool = True
+) -> Browser | None:
     """One desktop entry, or `None` if it is not a browser we can launch.
 
     `mime_required` is `False` for an entry the desktop's own `mimeapps.list`
@@ -387,7 +391,46 @@ def _browser_from(path: Path, *, mime_required: bool = True) -> Browser | None:
     # The `path.stem` fallback is sanitised too: on Linux a FILENAME may hold
     # a newline, and that branch needs no valid key to reach.
     name = display_text(fields.get("Name", "") or path.stem)
-    return Browser(entry_id=path.name, name=name, argv=argv)
+    return Browser(entry_id=entry_id, name=name, argv=argv)
+
+
+def _desktop_entries(directory: Path, reasons: list[str]) -> list[tuple[str, Path]]:
+    """Every `*.desktop` under `directory`, as `(desktop-file id, path)`, id-sorted.
+
+    Recursive, because the spec gives an entry in a sub-folder an id of its own
+    (LWSM-1339): `vendor/web.desktop` is `vendor-web.desktop`. A non-recursive
+    glob never offered such a browser at all.
+
+    `followlinks=False`, so a linked folder is not entered and a loop cannot
+    repeat entries or hang the scan. A linked FILE is still read — flatpak
+    exports every entry that way. Dot-files stay skipped, as the glob did.
+
+    `os.walk` swallows its errors unless handed `onerror`. A missing directory
+    is the normal case for most XDG roots and is ignored; anything else costs
+    that folder's entries and is reported, as an unreadable root always was
+    (LWSM-1250).
+    """
+
+    def on_error(exc: OSError) -> None:
+        if isinstance(exc, FileNotFoundError):
+            return
+        where = exc.filename or directory
+        reasons.append(f"{quoted(str(where))}: {quoted(exc)}")
+        log.info("ignoring applications directory %s: %s", where, exc)
+
+    found: list[tuple[str, Path]] = []
+    for root, dirnames, filenames in os.walk(
+        directory, onerror=on_error, followlinks=False
+    ):
+        # A directory named `*.desktop` is listed too, as the glob listed it,
+        # so it is refused and reported rather than silently skipped.
+        for name in (*filenames, *dirnames):
+            if name.startswith(".") or not name.endswith(".desktop"):
+                continue
+            path = Path(root) / name
+            entry_id = path.relative_to(directory).as_posix().replace("/", "-")
+            found.append((entry_id, path))
+    return sorted(found)
 
 
 @dataclass(frozen=True)
@@ -442,28 +485,23 @@ def installed(
     # browser, or refused still shadows the packaged copy (L6-M2).
     seen: set[str] = set()
     for directory in entry_dirs() if dirs is None else dirs:
-        try:
-            entries = sorted(directory.glob("*.desktop"))
-        except OSError as exc:
-            # An unreadable applications directory is one directory's worth of
-            # browsers lost, never the whole list — but it is still a failure
-            # with a home (LWSM-1250). No id is recorded: nothing here names a
-            # browser, so there is nothing a caller could match against.
-            reasons.append(f"{quoted(str(directory))}: {quoted(exc)}")
-            log.info("ignoring applications directory %s: %s", directory, exc)
-            continue
-        for path in entries:
-            if path.name in seen:
+        # An unreadable folder is that folder's browsers lost, never the whole
+        # list, and `_desktop_entries` reports it (LWSM-1250). No id is
+        # recorded for it: nothing there names a browser a caller could match.
+        for entry_id, path in _desktop_entries(directory, reasons):
+            if entry_id in seen:
                 continue
-            seen.add(path.name)
-            association = associations.get(path.name)
+            seen.add(entry_id)
+            association = associations.get(entry_id)
             if association is False:
                 # Explicitly removed by the desktop. Skipped before the read,
                 # because a removed entry is not offered from any directory and
                 # its file is one this module then has no reason to open.
                 continue
             try:
-                browser = _browser_from(path, mime_required=association is not True)
+                browser = _browser_from(
+                    path, entry_id, mime_required=association is not True
+                )
             except (ConfigFileError, OSError, UnicodeDecodeError, ValueError) as exc:
                 # Per entry, deliberately. See the module docstring: one hostile
                 # file costs its own entry and nothing else.
@@ -472,12 +510,12 @@ def installed(
                 # "Every failure has a visible home... Nothing is swallowed" —
                 # and the id is kept so a caller can tell a refused entry from
                 # an absent one.
-                refused.add(path.name)
-                reasons.append(f"{quoted(path.name)}: {quoted(exc)}")
-                log.info("ignoring desktop entry %s: %s", path.name, exc)
+                refused.add(entry_id)
+                reasons.append(f"{quoted(entry_id)}: {quoted(exc)}")
+                log.info("ignoring desktop entry %s: %s", entry_id, exc)
                 continue
             if browser is not None:
-                found[path.name] = browser
+                found[entry_id] = browser
     return LoadResult(
         browsers=tuple(
             sorted(found.values(), key=lambda b: (b.name.lower(), b.entry_id))

@@ -338,7 +338,81 @@ def test_an_unreadable_directory_costs_only_that_directory(tmp_path: Path) -> No
 
 
 def test_a_missing_directory_is_not_an_error(tmp_path: Path) -> None:
-    assert browsers.installed((tmp_path / "nope",)).browsers == ()
+    result = browsers.installed((tmp_path / "nope",))
+    assert result.browsers == ()
+    assert result.reasons == ()
+
+
+# --------------------------------------------------------------------------
+# Sub-folders — the desktop-file id carries the path (LWSM-1339)
+# --------------------------------------------------------------------------
+
+
+def test_an_entry_in_a_subfolder_is_offered_under_its_prefixed_id(
+    tmp_path: Path,
+) -> None:
+    """The Desktop Entry spec: `vendor/web.desktop` has the id `vendor-web.desktop`.
+
+    A non-recursive glob never saw it, so a browser a package installs into a
+    sub-folder of `applications/` was never offered.
+    """
+    write(tmp_path / "vendor", "web.desktop", entry(Name="Vendor Web"))
+    (found,) = browsers.installed((tmp_path,)).browsers
+    assert found.entry_id == "vendor-web.desktop"
+    assert found.name == "Vendor Web"
+
+
+def test_a_user_entry_shadows_a_system_subfolder_entry_with_the_same_id(
+    tmp_path: Path,
+) -> None:
+    """Shadowing is by id, and the id is the prefixed one, not the base name."""
+    user, system = tmp_path / "user", tmp_path / "system"
+    write(user, "vendor-web.desktop", entry(Name="Mine", Exec="/mine %u"))
+    write(system / "vendor", "web.desktop", entry(Name="Packaged"))
+    (found,) = browsers.installed((user, system)).browsers
+    assert found.name == "Mine"
+
+
+def test_a_removed_association_applies_to_a_subfolder_entry(tmp_path: Path) -> None:
+    """`mimeapps.list` names the prefixed id, so the lookup must use it too."""
+    apps = tmp_path / "applications"
+    write(apps / "vendor", "web.desktop", entry())
+    lists = mimeapps(tmp_path / "config", removed="vendor-web.desktop;")
+    assert browsers.installed((apps,), mimeapps=(lists,)).browsers == ()
+
+
+def test_a_symlink_loop_inside_applications_yields_each_entry_once(
+    tmp_path: Path,
+) -> None:
+    """A linked folder is not followed, so a loop cannot repeat or hang the scan."""
+    write(tmp_path / "vendor", "web.desktop", entry(Name="Vendor Web"))
+    (tmp_path / "vendor" / "loop").symlink_to(tmp_path, target_is_directory=True)
+    found = browsers.installed((tmp_path,)).browsers
+    assert [b.entry_id for b in found] == ["vendor-web.desktop"]
+
+
+def test_a_dot_file_entry_is_skipped_as_the_glob_skipped_it(tmp_path: Path) -> None:
+    """The old `glob("*.desktop")` never matched a dot-file; the walk keeps that."""
+    write(tmp_path, ".hidden.desktop", entry(Name="Dot"))
+    assert browsers.installed((tmp_path,)).browsers == ()
+
+
+def test_an_unreadable_subfolder_costs_only_itself_and_is_reported(
+    tmp_path: Path,
+) -> None:
+    """The walk's own errors are not swallowed; a missing root still is."""
+    write(tmp_path, "good.desktop", entry(Name="Good"))
+    blocked = tmp_path / "blocked"
+    write(blocked, "web.desktop", entry(Name="Hidden Away"))
+    blocked.chmod(0o000)
+    try:
+        if os.access(blocked, os.R_OK):  # pragma: no cover - running as root
+            pytest.skip("cannot make a directory unreadable as this user")
+        result = browsers.installed((tmp_path,))
+        assert [b.name for b in result.browsers] == ["Good"]
+        assert any("blocked" in reason for reason in result.reasons)
+    finally:
+        blocked.chmod(0o700)
 
 
 # --------------------------------------------------------------------------

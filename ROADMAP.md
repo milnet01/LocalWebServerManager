@@ -10396,7 +10396,7 @@ bugs in the same area.
   Source: user-decision-2026-09-28 (split from LWSM-1062).
   Lanes: docs.
 
-- 📋 [LWSM-1339] **Browser desktop-entry ids ignore the subdirectory prefix the spec gives them.**
+- ✅ [LWSM-1339] **Browser desktop-entry ids ignore the subdirectory prefix the spec gives them.**
   browsers.installed globs `*.desktop` non-recursively and keys every
   entry on path.name. The spec's desktop-file ID is the path relative to
   applications/ with '/' -> '-' (`sub/x.desktop` is `sub-x.desktop`),
@@ -10419,6 +10419,13 @@ bugs in the same area.
   as vendor-web.desktop; a user vendor-web.desktop shadows a system
   vendor/web.desktop; a mimeapps removal of vendor-web.desktop applies;
   a symlink loop inside applications/ yields each entry once.
+  Resolved (2026-10-02): built as planned. installed() now walks each
+  applications dir with os.walk(followlinks=False) via _desktop_entries;
+  the id is the relative path with / -> -, used for shadowing, the
+  mimeapps lookup, refusals and Browser.entry_id. Missing dirs are
+  ignored; other walk errors become reasons. Six tests in
+  tests/test_browsers.py; nine deliberate breaks each turned one red.
+  Full gate: 2127 passed.
   **Layman:** A browser installed in a sub-folder of the applications directory is never offered.
   Kind: fix.
   Source: review-code 2026-09-01 lane 9, queued from LWSM-1279 on 2026-10-01.
