@@ -23,6 +23,12 @@ signaling per
 
 ### Added
 
+- **Stop a server you started yourself in a terminal** (LWSM-1301)
+  Stop now works on a server started by hand. The app lists every
+  process it would stop, with each one's ID, start time, program and
+  command in its own column, and asks first; Cancel is the default.
+  If the list changes while you decide, it asks again.
+
 - **The release check warns when a checking tool's pinned version falls behind** (LWSM-1347)
 
 - **You can take back a "yes, run it" answer for a project** (LWSM-1319)

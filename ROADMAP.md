@@ -11057,7 +11057,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Priority: 2.
   Lanes: core, tests.
 
-- 📋 [LWSM-1301] **P06: stop a foreign server that is not a systemd unit.**
+- ✅ [LWSM-1301] **P06: stop a foreign server that is not a systemd unit.**
   LWSM-1012 shipped the service-managed half: a holder with a systemd unit
   is driven by name, which needs no signalling and so breaks none of
   ADR-0003's rules. A holder WITHOUT one — a server started by hand in a
@@ -11083,6 +11083,13 @@ Criterion 3: tell the truth in every case, including the awkward ones.
 
   Not urgent: every server on the reporting machine is a systemd unit, so
   nothing a user has actually asked for is blocked on this.
+  Shipped (2026-10-02, bc60291). foreign.py lists the holder and its
+  descendants by PID and start time; the window shows them in a table,
+  re-lists after the yes and asks again if the set changed; the
+  controller stops exactly that set via psutil handles on a worker. The
+  PID-reuse hazard is answered by psutil's own reuse check on each
+  handle. Not covered: Restart on such a row still refuses (port held),
+  and a holder the kernel will not name keeps the old refusal.
   **Layman:** Stopping a server you started by hand in a terminal, rather than one that starts at logon.
   Kind: implement.
   Source: in-session-2026-09-06 (LWSM-1012 residual).
