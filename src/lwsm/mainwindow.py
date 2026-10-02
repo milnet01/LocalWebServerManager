@@ -1178,8 +1178,15 @@ class ProjectRow(QFrame):
         #
         # Narrow to that case on purpose. A tooltip on every state is noise
         # that teaches the user to ignore the one that carries a reason.
-        foreign = running and not row.managed
-        explanation = (
+        #
+        # Each control says what `MainWindow._may_act_on` will do for it. Stop
+        # and Restart act on our own child whenever the supervisor holds one,
+        # and then ask nothing; Open must know who holds the port, which only
+        # `managed` answers, so a server of ours whose port we cannot confirm
+        # still asks — and must not be called a stranger's (LWSM-1295).
+        foreign = running and not row.managed and not row.supervised
+        unconfirmed = running and not row.managed and row.supervised
+        stranger_text = (
             QCoreApplication.translate(
                 "ProjectRow",
                 "%1 is running, but this manager did not start it. You will "
@@ -1188,7 +1195,20 @@ class ProjectRow(QFrame):
             if foreign
             else ""
         )
-        for gated in (self.stop_button, self.restart_button, self.open_button):
+        unconfirmed_text = (
+            QCoreApplication.translate(
+                "ProjectRow",
+                "This manager started %1, but cannot confirm it is what holds "
+                "the port. You will be shown what holds it before anything opens.",
+            ).replace("%1", self._name_display)
+            if unconfirmed
+            else ""
+        )
+        for gated, explanation in (
+            (self.stop_button, stranger_text),
+            (self.restart_button, stranger_text),
+            (self.open_button, stranger_text or unconfirmed_text),
+        ):
             gated.setToolTip(_plain_tooltip(explanation) if explanation else "")
             # A tooltip never appears on keyboard focus, and nothing important
             # may be hover-only (`design-accessibility.md`; L1-L4). The
@@ -2945,16 +2965,22 @@ class MainWindow(QMainWindow):
         box.setDefaultButton(QMessageBox.StandardButton.No)
         return box.exec() == QMessageBox.StandardButton.Yes
 
-    def _may_act_on(self, path: Path) -> bool:
+    def _may_act_on(self, path: Path, *, own_child_suffices: bool = False) -> bool:
         """True when the action may proceed: ours, or the user has been shown
         whose it is and said yes.
 
         A managed server never asks — this app started it, so there is nothing
         to disclose, and a dialog on every Stop is how a confirmation stops
         being read.
+
+        `own_child_suffices` is for Stop and Restart, which act on our own
+        child whenever the supervisor holds one and never touch the port's
+        holder then. That needs no socket table, so it still holds while the
+        table cannot be read and `managed` has been dropped (LWSM-1295). Open
+        never passes it: it must know who holds the port (ADR-0004).
         """
         view = next((row for row in self._controller.rows() if row.path == path), None)
-        if view is None or view.managed:
+        if view is None or view.managed or (own_child_suffices and view.supervised):
             return True
         if view.status is not ProjectStatus.RUNNING:
             # Nothing holds the port, so there is no foreign server to describe.
@@ -2982,12 +3008,12 @@ class MainWindow(QMainWindow):
 
     def _stop_project(self, path: Path) -> None:
         shown = self._shown_holder(path)
-        if self._may_act_on(path):
+        if self._may_act_on(path, own_child_suffices=True):
             self._controller.stop_project(path, disclosed_holder=shown)
 
     def _restart_project(self, path: Path) -> None:
         shown = self._shown_holder(path)
-        if self._may_act_on(path):
+        if self._may_act_on(path, own_child_suffices=True):
             self._controller.restart_project(path, disclosed_holder=shown)
 
     def _open_project(self, path: Path) -> None:

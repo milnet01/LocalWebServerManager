@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stopping or restarting your own server no longer warns that someone else started it when the app briefly cannot see which programs hold which ports.** (LWSM-1295)
+
 ## [0.1.0] - 2026-10-01
 
 **Theme:** Looks finished

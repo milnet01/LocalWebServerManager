@@ -300,6 +300,12 @@ class RowView:
     # the sequence begins, and where its port is unknown the overlay is dropped
     # on the very next poll.
     stopping: bool = False
+    # Whether the supervisor holds a child for this project, so Stop and Restart
+    # act on our own process rather than on whoever holds the port
+    # (`ProjectController.stop_project`). Not `managed`, which is a fact about
+    # the socket table and is dropped whenever that table cannot be read; this
+    # needs no snapshot (LWSM-1295).
+    supervised: bool = False
     # The user's own "do not show me this" flag, stored since LWSM-1007 and
     # read by nothing until LWSM-1185. Carried on the view rather than looked
     # up by the window, so the row has one source for everything it renders.
@@ -589,6 +595,7 @@ class ProjectController(QObject):
         managed = self._managed
         holders = self._holders
         supervisor = self._supervisor
+        supervised = set(supervisor.running()) if supervisor is not None else set()
         return [
             RowView(
                 path=record.path,
@@ -602,6 +609,9 @@ class ProjectController(QObject):
                 # about the socket table; this is the supervisor's own
                 # bookkeeping, and the only useful answer is the current one.
                 stopping=supervisor is not None and supervisor.is_stopping(record.path),
+                # Render time too, for the same reason: bookkeeping, not the
+                # socket table.
+                supervised=record.path in supervised,
                 hidden=record.hidden,
                 browser=record.browser,
             )

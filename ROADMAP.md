@@ -10306,7 +10306,7 @@ bugs in the same area.
   systemd project.
   Lanes: core, tests.
 
-- 📋 [LWSM-1295] **Stop and Restart are unavailable whenever the socket table is unreadable.**
+- ✅ [LWSM-1295] **Stop and Restart are unavailable whenever the socket table is unreadable.**
   mainwindow.py gates Stop and Restart on `row.managed`, which is
   "the effective port is held by our own child's group". That needs a
   socket-table snapshot, so on a machine where the table is
@@ -10326,6 +10326,15 @@ bugs in the same area.
   instead.
   Not fixed inside LWSM-1231: it widens what a control can do rather
   than closing the hole that item names.
+  Resolved (2026-10-02), narrowed by the user to the short outage.
+  LWSM-1012 had already changed the gate to `running`, so the remaining
+  defect was the disclosure: Stop and Restart on our own server asked the
+  stranger's-server question once an outage dropped `managed`. RowView
+  gains `supervised` (render-time, from the supervisor's own bookkeeping);
+  `_may_act_on(own_child_suffices=True)` for Stop and Restart skips the
+  dialog when it is set. Open still asks, with a true tooltip. The
+  permanent-outage case is LWSM-1372 (0.3.0). Three tests, each red on
+  the old code and on a break of its own part; gate 2119 passed.
   **Layman:** If the app cannot see which programs hold which ports, you lose the ability to stop your own servers from the app.
   Kind: fix.
   Source: in-session-2026-09-03 (found while fixing LWSM-1231).
@@ -10747,6 +10756,21 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
   Lanes: theme.
+
+- 📋 [LWSM-1372] **With the socket table permanently unreadable, a started row reads "starting" for ever and cannot be stopped.**
+  Split from LWSM-1295 by the user on 2026-10-02. Statuses start UNKNOWN
+  and only a successful poll settles an overlay (`_settle_overlay`), so on
+  a machine where every probe fails a Start leaves the row on the STARTING
+  overlay, which disables Stop and Restart (`_apply_button_state`).
+  Enabling Stop alone moves the stall: `_apply_stop_outcome` keeps the
+  STOPPING overlay when the probe could not be read, so the row then reads
+  "stopping" for ever. The fix decides what a row shows when nothing can
+  be observed, which is LWSM-1011's state model, so it lands with it.
+  Dependencies: LWSM-1011.
+  **Layman:** On a system where the app can never see which programs hold which ports, a server you start gets stuck showing "starting" and can't be stopped from the app.
+  Kind: fix.
+  Source: in-session-2026-10-02 (split from LWSM-1295).
+  Lanes: core, ui, tests.
 
 ## 0.4.0 — Ports
 

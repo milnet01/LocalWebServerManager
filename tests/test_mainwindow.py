@@ -35,7 +35,7 @@ from lwsm.controller import (
 )
 from lwsm.mainwindow import MIN_TARGET_PX, STATE_GLYPHS, MainWindow, ProjectRow
 from lwsm.placement import Rect
-from lwsm.ports import PortProbe, PortSnapshot
+from lwsm.ports import PortProbe, PortSnapshot, ProbeError
 from lwsm.registry import (
     LauncherKind,
     LoadResult,
@@ -6875,6 +6875,101 @@ def test_a_control_acting_on_a_foreign_server_says_so(qtbot, button_name) -> Non
     assert "did not start" in tip, (
         f"{button_name}'s tooltip does not say whose server this is: {tip!r}"
     )
+
+
+# --- LWSM-1295: our own server while the socket table cannot be read ---------
+
+
+class OutageProbe(FakeProbe):
+    """`FakeProbe` that fails every snapshot once `down` is set."""
+
+    down = False
+
+    def snapshot(self) -> PortSnapshot:
+        if self.down:
+            raise ProbeError("socket table unavailable")
+        return super().snapshot()
+
+
+def outage_window(qtbot, built, asked: list) -> MainWindow:
+    """One server this manager started, after the socket table became unreadable.
+
+    The first poll sees our child holding the port; the second fails, which
+    drops `managed` (LWSM-1231) while the status stays `running` (INV-4b).
+    """
+    probe = OutageProbe(5005)
+    window = opening_window(
+        qtbot,
+        built,
+        [record("ours", 5005)],
+        probe,
+        [],
+        disclose=lambda path, holder: asked.append(path) or True,
+    )
+    probe.down = True
+    controller = window._controller
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    view = controller.rows()[0]
+    assert view.status is ProjectStatus.RUNNING and not view.managed, (
+        "precondition: the outage held the status and dropped ownership"
+    )
+    return window
+
+
+@pytest.mark.parametrize("button_name", ["stop_button", "restart_button"])
+def test_our_own_server_is_stopped_without_a_disclosure_during_an_outage(
+    qtbot, built, button_name
+) -> None:
+    """Stop and Restart act on our own child whenever the supervisor holds one
+    (`ProjectController.stop_project`), so the stranger's-server disclosure
+    has nothing to disclose. During an outage it fired anyway, describing a
+    holder it could not name, on a server this app started (LWSM-1295).
+
+    Open is the control in the same row that must still ask: it needs to know
+    who holds the PORT, which only the socket table answers (ADR-0004). It is
+    asserted here so a fix that drops the dialog everywhere fails this test.
+
+    Dies on `_may_act_on` ignoring `RowView.supervised`.
+    """
+    asked: list = []
+    window = outage_window(qtbot, built, asked)
+    controller = window._controller
+    calls: list = []
+    controller.stop_project = lambda path, **kw: calls.append(path)
+    controller.restart_project = lambda path, **kw: calls.append(path)
+    row = rows_of(window)[0]
+
+    getattr(row, button_name).click()
+
+    assert asked == [], f"{button_name} disclosed a server this manager started"
+    assert calls == [Path("/srv/ours")]
+
+    row.open_button.click()
+    assert asked == [Path("/srv/ours")], (
+        "Open went ahead without knowing who holds the port"
+    )
+
+
+def test_our_own_server_is_not_called_a_strangers_during_an_outage(
+    qtbot, built
+) -> None:
+    """The tooltip said "this manager did not start it" on every control of a
+    server it did start, once an outage dropped `managed` (LWSM-1295).
+
+    Stop and Restart say nothing, as on any server of ours. Open still warns,
+    because it still asks, but with a sentence that is true.
+
+    Dies on the tooltip reading `managed` alone.
+    """
+    window = outage_window(qtbot, built, [])
+    row = rows_of(window)[0]
+
+    assert row.stop_button.toolTip() == ""
+    assert row.restart_button.toolTip() == ""
+    tip = row.open_button.toolTip()
+    assert tip, "Open asks before acting, so it should say so"
+    assert "did not start" not in tip, f"Open's tooltip is untrue: {tip!r}"
 
 
 @pytest.mark.parametrize("child_name", ["open_button", "restart_button", "browser_box"])
