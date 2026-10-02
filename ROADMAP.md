@@ -10771,7 +10771,7 @@ bugs in the same area.
   Source: in-session-2026-10-02 (LWSM-1383 real-population check).
   Lanes: core, ui.
 
-- 📋 [LWSM-1385] **Show where a project's port came from, and any disagreement, on its row.**
+- ✅ [LWSM-1385] **Show where a project's port came from, and any disagreement, on its row.**
   The user decided on 2026-10-02 (note on LWSM-1121) that a port
   conflict is shown on the project's row. LWSM-1121 shipped the scanner
   half: DetectedProject.port_conflicts, plus a "port sources disagree"
@@ -10790,6 +10790,16 @@ bugs in the same area.
   Decided (user, 2026-10-02): option (a). The port's source and its
   conflicts are saved in projects.json. File-format change, so spec-first
   (review cadence rule 2): write-spec, then the rule-14 gate, then build.
+  Shipped 2026-10-02 (d9c53ca). Spec-first: docs/specs/LWSM-1385-port-provenance.md,
+  gated by review-contract to its cap of 2 loops, 7 findings fixed, accepted.
+  projects.json gains port_from and port_conflicts (schema_version stays 1);
+  PortRule and PortFinding moved to registry.py. The row reads "port N
+  (sources differ)" when sources disagree and no override is set; the
+  tooltip and accessible description name each source. A provenance-only
+  rescan is saved but counted unchanged. Existing projects get their
+  source on the next Rescan. Each invariant broken once and seen red.
+  Open wording call, left as built: an overridden port's tooltip also
+  lists the conflicts.
   **Layman:** When two files in a project disagree about its port, put a small warning on that project's row so it is seen every time, not only in the log.
   Kind: feature.
   Source: in-session-2026-10-02 (split from LWSM-1121).
