@@ -277,6 +277,18 @@ value and ignoring the wrong one are two different properties.
   UI present a row whose Start and Stop drive somebody else's
   service. The unit is bound to a row only when its `FragmentPath`
   or `WorkingDirectory` resolves inside that project directory.
+- **A unit adopted from the port's holder binds by the same rule,
+  plus one anchor** (LWSM-1012): an absolute path in its `ExecStart`
+  command line that resolves inside the project. Adoption reads the
+  unit off the holder's cgroup, and that unit may be a container the
+  holder merely runs in, such as an autostarted IDE hosting a
+  terminal. XDG-autostart units have a `FragmentPath` generated under
+  `/run/user`, and often a home-directory `WorkingDirectory`
+  (measured 2026-10-02 with `systemctl --user show`). Without the
+  command-line anchor, every autostarted server would be refused.
+  Relative tokens never count: they would resolve against this app's
+  own working directory. A unit that fails the rule, or cannot be
+  read, is neither driven nor remembered.
 
 ## Consequences
 
