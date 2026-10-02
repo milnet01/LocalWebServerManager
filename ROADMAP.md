@@ -10953,7 +10953,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   The one criterion left, signalling a holder that is in no unit, is
   LWSM-1301's whole scope, so it is carried there rather than here.
 
-- 📋 [LWSM-1011] **P06: the seven-state classifier.**
+- ✅ [LWSM-1011] **P06: the seven-state classifier.**
   One
   socket-table snapshot per tick classified against ADR-0004's
   table, including `running (wrong port)`, `port blocked`, the
@@ -10998,6 +10998,14 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   unknown). ADR-0004's rule-14 gate is running. Read-only check on the
   live machine: both login trays read `running`. Glyph choices are the
   author's and listed for the user to change.
+  Shipped (2026-10-02): ba04280, 1fc0117, 9cdc1da, f971f82, 53f0921,
+  c7491c3. All seven states derived from one snapshot with one test per
+  table row; ADR-0004 settles `unknown` (not a state: nothing observed)
+  and gains the service row; its gate ran to its cap. Measured:
+  terminals here run as user services, so only the project's own unit
+  counts as managed. Left open: LWSM-1389 (a wrapper that exits before
+  its server binds reads stopped). Glyphs ▲ ◆ ■ ✖ are the author's
+  choice and open to the user's.
 
 - 📋 [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
   The first time a project is observed
