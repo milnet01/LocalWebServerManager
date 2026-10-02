@@ -271,6 +271,8 @@ class SupportsSupervision(Protocol):
 class SupportsTrust(Protocol):
     def confirm(self, project: Path, fingerprint: str) -> None: ...
 
+    def revoke(self, project: Path) -> None: ...
+
 
 @dataclass(frozen=True)
 class RowView:
@@ -908,6 +910,13 @@ class ProjectController(QObject):
             return
         self._supervisor.trust.confirm(path, fingerprint)
         self.start_project(path)
+
+    def forget_trust(self, path: Path) -> None:
+        """The user withdrew their "yes, run it", so the next Start asks again
+        (LWSM-1319). Idempotent, like `TrustStore.revoke`."""
+        if self._supervisor is None:
+            return
+        self._supervisor.trust.revoke(path)
 
     def _holder_changed(self, path: Path, disclosed: int | None) -> bool:
         """Refuse a foreign action whose holder changed after it was disclosed.

@@ -1336,8 +1336,7 @@ the phase that owns the code. Owners are named, not implied.
   `:490` `os.write`'s return is unchecked so a partial write corrupts the
   rotated copy; `:508` the docstring omits that `Popen` also raises `OSError`;
   `:754` `running()` returns live `log_fd` ints and `Popen` handles to callers;
-  `:205` `TrustStore.revoke` has zero callers (not yet dead — its UI is
-  LWSM-1319, split from LWSM-1046); `build_child_env` supplies no `PATH` fallback when the
+  `build_child_env` supplies no `PATH` fallback when the
   manager's own environment lacks one, which a `.desktop` launch can.
   **Registry:** `json.loads` accepts `NaN`/`Infinity` and `_serialised`
   re-emits it as a bare literal (pass `allow_nan=False`); duplicate keys are

@@ -681,6 +681,11 @@ class ProjectRow(QFrame):
         self.hide_action = QAction(self)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
         self.addAction(self.hide_action)
+        # Withdraws a "yes, run it" (LWSM-1319). Always offered: forgetting is
+        # the safe direction, and knowing whether there is anything to forget
+        # would mean hashing the launcher on every poll.
+        self.forget_trust_action = QAction(self)
+        self.addAction(self.forget_trust_action)
 
         # Two layouts, not one: the cells and controls across, and the failure
         # message under them (LWSM-1032). A message beside the controls would
@@ -1412,6 +1417,9 @@ class ProjectRow(QFrame):
             QCoreApplication.translate("ProjectRow", "&Show this project")
             if row.hidden
             else QCoreApplication.translate("ProjectRow", "&Hide this project")
+        )
+        self.forget_trust_action.setText(
+            QCoreApplication.translate("ProjectRow", "&Ask before starting again")
         )
         port = row.effective_port
         if row.port_conflicts and not row.port_overridden and port is not None:
@@ -3251,6 +3259,25 @@ class MainWindow(QMainWindow):
             )
         )
 
+    def forget_trust(self, path: Path) -> None:
+        """Withdraw the user's "yes, run it" for one project (LWSM-1319).
+
+        The next Start shows the confirmation again, with the resolved path and
+        the exact command, as it did the first time.
+        """
+        self._controller.forget_trust(path)
+        name = next(
+            (r.name for r in self._controller.records() if r.path == path), path.name
+        )
+        self.set_status_message(
+            _filled(
+                QCoreApplication.translate(
+                    "ProjectRow", "%1 will ask before it starts again"
+                ),
+                display_text(name),
+            )
+        )
+
     def set_project_browser(self, path: Path, entry_id: str | None) -> None:
         """Remember which browser Open uses for one project (LWSM-1187).
 
@@ -3600,6 +3627,9 @@ class MainWindow(QMainWindow):
                     lambda _checked=False, p=path, w=widget: self.set_project_hidden(
                         p, not w.hidden_by_user()
                     )
+                )
+                widget.forget_trust_action.triggered.connect(
+                    lambda _checked=False, p=path: self.forget_trust(p)
                 )
                 # Same binding, same reason. `update_from` blocks this signal
                 # while it sets the box from the poll, so reaching here means a

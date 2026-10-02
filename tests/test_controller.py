@@ -1371,9 +1371,13 @@ def test_a_success_reports_the_suppressed_count(qtbot, controllers, caplog) -> N
 class FakeTrust:
     def __init__(self) -> None:
         self.confirmed: list[tuple[Path, str]] = []
+        self.revoked: list[Path] = []
 
     def confirm(self, project: Path, fingerprint: str) -> None:
         self.confirmed.append((project, fingerprint))
+
+    def revoke(self, project: Path) -> None:
+        self.revoked.append(project)
 
 
 class FakeSupervisor:
@@ -2752,3 +2756,13 @@ def test_a_drop_in_that_cannot_be_written_stops_the_start(
     assert drive.calls == []
     assert reloads == []
     assert "could not start" in caught.args[1]
+
+
+def test_forgetting_trust_revokes_it(qtbot, controllers) -> None:
+    """LWSM-1319: the controller hands the withdrawal to the trust store."""
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+
+    controller.forget_trust(Path("/srv/a"))
+
+    assert supervisor.trust.revoked == [Path("/srv/a")]

@@ -2201,8 +2201,8 @@ def test_hiding_a_project_from_its_menu_persists_it(qtbot, built, tmp_path) -> N
     # `ActionsContextMenu` is exactly the widget's own action list. Reaching
     # for `row.hide_action` instead would test the method and not the wiring.
     assert row.contextMenuPolicy() == Qt.ContextMenuPolicy.ActionsContextMenu
-    (action,) = row.actions()
-    assert "hide" in action.text().casefold()
+    # The menu has a second entry since LWSM-1319; this test is about Hide.
+    action = next(a for a in row.actions() if "hide" in a.text().casefold())
     action.trigger()
 
     assert [r.hidden for r in controller.records()] == [True]
@@ -2224,7 +2224,12 @@ def test_unhiding_a_project_puts_it_back(qtbot, built, tmp_path) -> None:
     window._show_hidden_action.trigger()
     row = row_named(window, "gone")
 
-    (action,) = row.actions()
+    hide_or_show = [
+        a
+        for a in row.actions()
+        if any(w in a.text().casefold() for w in ("hide", "show"))
+    ]
+    (action,) = hide_or_show
     assert "show" in action.text().casefold(), (
         "an already-hidden row must offer the way back, not the way in"
     )
@@ -2315,6 +2320,19 @@ def test_hidden_survives_a_rescan(qtbot, built, tmp_path) -> None:
 # --- LWSM-1016: open in browser ----------------------------------------------
 
 
+class RecordingTrust:
+    """`SupportsTrust`, recording what the window asked of it."""
+
+    def __init__(self) -> None:
+        self.revoked: list[Path] = []
+
+    def confirm(self, project: Path, fingerprint: str) -> None:
+        raise AssertionError("nothing in these tests confirms")
+
+    def revoke(self, project: Path) -> None:
+        self.revoked.append(project)
+
+
 class ManagingSupervisor:
     """A supervisor that reports a chosen set of projects as ones IT spawned.
 
@@ -2326,6 +2344,7 @@ class ManagingSupervisor:
 
     def __init__(self, managed=()) -> None:
         self._running = {Path(path): object() for path in managed}
+        self.trust = RecordingTrust()
 
     def running(self) -> dict:
         return dict(self._running)
@@ -8280,3 +8299,23 @@ def test_a_hostile_source_cannot_break_a_line_or_draw_markup(qtbot) -> None:
     assert "<b>x</b>\ufffd.env" in detail
     # Escaped for the tooltip's rich-text renderer: the tags are shown, not drawn.
     assert "&lt;b&gt;" in row._port.toolTip()
+
+
+# --- LWSM-1319: withdrawing a "yes, run it" ----------------------------------
+
+
+def test_the_row_menu_withdraws_trust_from_its_launcher(qtbot, built) -> None:
+    """Driven through the menu Qt renders, for the hide test's reason: a direct
+    call to the method would pass with the wiring missing. Dies on dropping the
+    action from the row, its connection, or the controller's call."""
+    window, controller = window_for(
+        qtbot, built, [record("web", 3000)], FakeProbe(), managed=()
+    )
+    row = row_named(window, "web")
+
+    (action,) = [a for a in row.actions() if "ask" in a.text().casefold()]
+    action.trigger()
+
+    assert controller._supervisor.trust.revoked == [Path("/srv/web")]
+    assert message_of(window) == "web will ask before it starts again"
+    window.shutdown()
