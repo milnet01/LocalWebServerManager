@@ -42,7 +42,8 @@ below are kept as pointers, so an older citation still lands.
 `project-g` throughout, because naming them alongside their ports
 publishes a target list of the author's local services (LWSM-1045).
 Desktop applications borrowed from for technique — `finbreak`,
-`OneUp`, `SystemManager` — are named, since they run no server and
+`OneUp` — are named where their own repository is public
+(`documentation-overrides.md` § DOC3), since they run no server and
 the citation is useless without the name.
 
 

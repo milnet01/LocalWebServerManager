@@ -10659,9 +10659,9 @@ bugs in the same area.
   Source: in-session-2026-10-02 (LWSM-1380, commit 9716c8a).
   Lanes: docs.
 
-- 📋 [LWSM-1382] **Stop naming SystemManager, which has no public repository, in docs/design.md and ADR-0007.**
+- ✅ [LWSM-1382] **Stop naming a sibling desktop project with no public repository in docs/design.md and ADR-0007.**
   DOC3 (9716c8a) allows naming a project whose own repository is public.
-  SystemManager has none (no git repository locally; gh repo view does
+  One sibling desktop project has none (no git repository locally; gh repo view does
   not resolve it), yet docs/design.md § Naming names it as a desktop app
   borrowed from, and docs/decisions/0007-window-geometry-and-centering.md
   names it too. Replace it with a neutral label and narrow design.md's
@@ -10671,6 +10671,12 @@ bugs in the same area.
   "keeps rather than deletes" the append-only records; DOC1 says no such
   thing. Reword the comment to cite global documentation.md § 2.3.
   Priority: 3.
+  Resolved (2026-10-02): design.md § Naming now names desktop projects
+  only where their repository is public, citing DOC3; ADR-0007 calls the
+  third project "one that is not public"; the test_docs.py comment cites
+  global § 2.3's dated-historical rule. The LWSM-1381 loop-4 row still
+  carries the name; landed rows are never edited, and both documents
+  already carried it in public history.
   **Layman:** Two documents name one of the author's projects that is not public, which the privacy rule now forbids.
   Kind: doc-fix.
   Source: in-session-2026-10-02 (LWSM-1381 gate loop 4).

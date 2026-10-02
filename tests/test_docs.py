@@ -27,8 +27,8 @@ PROSE_COUNT = re.compile(
 
 # Where the rule applies: the standards themselves plus the files that
 # orient a reader. Deliberately not the whole tree — ROADMAP, CHANGELOG and the
-# journal are append-only records of what was true on a date, which
-# `documentation-overrides.md § DOC1` keeps rather than deletes.
+# journal are append-only records of what was true on a date, and global
+# documentation.md § 2.3 keeps a dated record's figures.
 GOVERNED = [
     *sorted((ROOT / "docs" / "standards").glob("*.md")),
     ROOT / "CLAUDE.md",

@@ -20,7 +20,7 @@ assert "we called move()" pass, and the window does not move.
 
 Three sibling projects on this machine have already hit this, and
 the user pointed at them rather than letting it be rediscovered:
-`SystemManager`, `finbreak` and `OneUp`. **`OneUp` carries the
+`finbreak`, `OneUp` and one that is not public. **`OneUp` carries the
 working solution for centring**, and it is worth stating why it works rather than merely copying
 it: KDE exposes a scripting interface over D-Bus, and a script
 running *inside* KWin **is** the compositor, so it may place
