@@ -965,14 +965,20 @@ class ProjectController(QObject):
 
         Resolved from the live holder PID first, then from what this session has
         already adopted — in that order, because a unit that has been restarted
-        since has a new PID and the live answer is the current one.
+        since has a new PID and the live answer is the current one. Last, the
+        unit the scanner bound: a holder the kernel will not name must not make
+        a bound project unstoppable (ADR-0003 review loop 2).
         """
         pid = self._holders.get(path)
         if pid is not None:
             unit = unit_for_pid(pid)
             if unit is not None:
                 return unit
-        return self._adopted_units.get(path)
+        adopted = self._adopted_units.get(path)
+        if adopted is not None:
+            return adopted
+        record = self._record(path)
+        return None if record is None else record.unit
 
     def _stop_foreign(self, path: Path, record: ProjectRecord) -> None:
         """Stop a server this manager did not start.

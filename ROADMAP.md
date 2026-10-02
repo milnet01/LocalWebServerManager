@@ -11208,6 +11208,23 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: LWSM-1326 user decision 2026-10-02 (shared documentation.md § 2.9).
   Lanes: docs.
 
+- 📋 [LWSM-1387] **A service still running when the app quits keeps the app's port at its next logon start.**
+  The drop-in (PORT, LWSM_MANAGED) is removed only after a Stop from
+  this app (service._ServiceTask._drive). Servers are left running when
+  the app quits, by design, so a unit running at quit keeps the drop-in
+  and its next logon start uses the app's port. That misses the user's
+  2026-10-02 decision that a unit's logon start is its own default.
+  DECISION FOR THE USER. Recommended: remove the drop-in and reload
+  straight after a successful start or restart. systemd reads it only at
+  start, so the running server keeps its port and the next logon start
+  is the unit's own. Cost: if systemd itself restarts a crashed unit
+  (Restart=on-failure), that restart comes back on the unit's own port.
+  Alternative: leave it, and say so in the UI.
+  **Layman:** If you quit the app while one of its login-started servers is running, that server keeps the app's port the next time you log in.
+  Kind: review-fix.
+  Source: review-contract ADR-0003 loop 2, 2026-10-02.
+  Lanes: core.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.

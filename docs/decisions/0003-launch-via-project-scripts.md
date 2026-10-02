@@ -175,8 +175,12 @@ instead of `subprocess`:
 | start | `Popen(start_new_session=True)` | `systemctl --user start <unit>` |
 | stop | `SIGTERM` → `SIGKILL` to the group | `systemctl --user stop <unit>` |
 | restart | stop then start | `systemctl --user restart <unit>` |
-| liveness | our child's PID | `systemctl --user is-active <unit>` |
+| liveness | our child's PID | the socket table; `is-active` only detects a start that ended |
 | logs | our per-project log file | `journalctl --user -u <unit> -f` |
+
+For stop and restart, `<unit>` is the unit holding the port when
+its holder can be named, checked by the rule for adopted units
+below; otherwise it is the bound unit.
 
 Port probing is unchanged — ADR-0004 classifies from the socket
 table either way, which is precisely the benefit of deriving
@@ -205,13 +209,14 @@ So for a service-managed project the manager writes a **drop-in it
 owns**:
 
 ```
-~/.config/systemd/user/<unit>.d/50-lwsm-port.conf
+$XDG_CONFIG_HOME/systemd/user/<unit>.d/50-lwsm-port.conf
 [Service]
 Environment=PORT=<effective port>
 Environment=LWSM_MANAGED=1
 ```
 
-then `systemctl --user daemon-reload` before starting. Notes that
+`$XDG_CONFIG_HOME` falls back to `~/.config` when unset or not
+absolute. Then `systemctl --user daemon-reload` before starting. Notes that
 make this safe rather than clever:
 
 - **It is not a write into a sibling project.** The drop-in lives
@@ -228,9 +233,14 @@ make this safe rather than clever:
   already sets its own port variable keeps it as the default, and
   a compliant server prefers `PORT` over it by the precedence in
   ADR-0002 case 5. Nothing in the project's own unit needs editing.
+  One unit shape defeats it: settings from `EnvironmentFile=`
+  override `Environment=` (systemd.exec(5)), so a unit that sets
+  `PORT` that way keeps its own port.
 - **It is written before a start or restart and removed after a
-  successful stop**, so the unit's next start at logon is its own.
-  A removal that fails is logged; the stop still succeeded.
+  successful stop from this app**, so a unit stopped here starts at
+  logon on its own settings. A removal that fails is logged; the
+  stop still succeeded. A unit still running when the app quits
+  keeps the drop-in, and its next logon start uses it.
 - **Removing the override removes the file** and reloads, rather
   than writing the old value back — so the project returns to
   exactly its packaged default rather than to whatever the manager

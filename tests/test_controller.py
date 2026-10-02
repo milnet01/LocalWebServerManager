@@ -2236,6 +2236,30 @@ def test_start_after_a_service_stop_uses_the_remembered_unit(
     assert supervisor.started == [], "systemd owns this project, so we do not spawn"
 
 
+@pytest.mark.parametrize("verb", ["stop", "restart"])
+def test_a_scanner_bound_unit_is_driven_when_the_holder_names_none(
+    qtbot, controllers, monkeypatch, verb
+) -> None:
+    """ADR-0003 review loop 2: Stop and Restart read the unit off the port's
+    holder only. A holder the kernel will not name left a scanner-bound project
+    unstoppable, and Restart fell through to a `start` of a running unit."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, None)
+    bound = ProjectRecord(
+        path=Path("/srv/a"), name="a", port=4321, unit="project-a.service"
+    )
+    controller = supervised(
+        controllers, [bound], HoldingProbe({4321: 1290}), FakeSupervisor()
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    getattr(controller, f"{verb}_project")(Path("/srv/a"))
+    qtbot.waitUntil(lambda: bool(drive.calls), timeout=2000)
+
+    assert drive.calls == [(verb, "project-a.service")]
+
+
 def test_restarting_a_service_project_is_one_verb(
     qtbot, controllers, monkeypatch
 ) -> None:
