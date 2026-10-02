@@ -10405,6 +10405,20 @@ bugs in the same area.
   a recursion depth limit, a symlink policy, and it makes the missing
   scan budget (sibling item) matter more. Stored top-level ids are
   unchanged, so no migration.
+  Plan (2026-10-02), decided, nothing built yet. Measured this machine:
+  entries sit at depth 0-3 under applications/; no symlinked directories;
+  flatpak exports are symlinked FILES. Choices: walk with os.walk
+  (followlinks=False) so a linked folder cannot loop it; no depth limit
+  (LWSM-1340's budget and cap bound the cost); keep reading symlinked
+  files. ID = relative path with "/" -> "-"; use it for `seen` shadowing,
+  the mimeapps association lookup and Browser.entry_id (update that
+  docstring, which says "base name"). os.walk swallows errors: pass
+  onerror, ignore FileNotFoundError (test_a_missing_directory_is_not_an_error),
+  report the rest as reasons. Keep skipping dot-files, as glob did.
+  Red tests to write in tests/test_browsers.py: a subfolder entry offered
+  as vendor-web.desktop; a user vendor-web.desktop shadows a system
+  vendor/web.desktop; a mimeapps removal of vendor-web.desktop applies;
+  a symlink loop inside applications/ yields each entry once.
   **Layman:** A browser installed in a sub-folder of the applications directory is never offered.
   Kind: fix.
   Source: review-code 2026-09-01 lane 9, queued from LWSM-1279 on 2026-10-01.
