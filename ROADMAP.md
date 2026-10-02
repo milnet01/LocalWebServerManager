@@ -14,8 +14,9 @@
 > items ship in. Every actionable bullet carries a stable
 > `LWSM-NNNN` ID, and many headlines also carry the phase ID the
 > work was done under (`P##`, `FP##`, `DS##`). ID is
-> identity, position is priority, items are tackled
-> top-to-bottom. `Dependencies:` lines list **direct**
+> identity. Open findings come first, in the order
+> `docs/standards/roadmap-format-overrides.md` § R3 gives; position
+> orders the rest, top to bottom. `Dependencies:` lines list **direct**
 > predecessors only; transitive prerequisites are implied by
 > walking the chain.
 >

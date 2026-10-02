@@ -15,12 +15,13 @@ reads this file and `CONTRIBUTING.md`.
 Global § 1.4 makes the body optional; here it is required on every commit
 that changes code. It records the mechanism-sweep outcome
 (`coding-overrides.md` § O9), the mutation record (`testing-overrides.md`
-§ T9), and a `write-code:` line naming what ran and the result of
-`./scripts/local-ci.sh`. A commit that changes documentation carries a
-`write-doc:` line saying what was checked, and one touching a document
-rule 14's test was asked of — in its scope or one of its exclusions — adds
-a `CLAUDE.md rule 14:` line per such document, recording the decision, a
-"no gate" included.
+§ T9) and the result of `./scripts/local-ci.sh`.
+
+A session working under the author's machine-wide configuration, which
+defines them, also writes its lines: a `write-code:` line naming what ran, a
+`write-doc:` line saying what was checked, and a `CLAUDE.md rule 14:` line
+per document that rule's test was asked of — in its scope or one of its
+exclusions — recording the decision, a "no gate" included.
 
 Why: the coding and testing overrides owe these records, and the commit
 body is the only place they survive.
@@ -35,7 +36,8 @@ runs `scripts/local-ci.sh` — with `--docs` when every pushed path is
 documentation the suite does not read (the hook's `docs_only()`). Its
 bypasses are `LWSM_SKIP_PREPUSH=1`, which skips the gate and keeps any scan,
 and `git push --no-verify`, which skips both;
-each needs the user, per global § 2.3. There is no `commit-msg` hook, so
+each needs the user, per global § 2.3, and is recorded in the body of the
+next commit, naming what was skipped and why. There is no `commit-msg` hook, so
 subject shape (global §§ 1.1–1.3) is checked by nothing.
 
 Why: the hook encodes which markdown the suite asserts against, which a
@@ -46,10 +48,10 @@ shared hook's path list cannot know; `CLAUDE.md` § Before pushing and
 
 The repository is public on GitHub, whose runners cost it nothing, so
 global § 4.1's free case applies: push per commit or in a batch, without
-asking.
+asking. A session still checks the visibility at its start, as § 4.1 asks.
 
-Why: global § 4.1 asks each repository to establish its case once; this
-is it.
+Why: the free case is the answer this repository has given every time it
+was checked.
 
 ## What checks this
 

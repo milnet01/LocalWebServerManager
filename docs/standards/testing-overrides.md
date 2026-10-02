@@ -71,8 +71,8 @@ Why: CI has no X server, and the layering keeps the core testable without Qt.
 
 ADR-0004's state table gets one parametrised test with a case per row, named
 for the state it derives and the condition that derives it. The test also
-asserts that every member of the state enumeration appears among its cases, so
-a new state cannot be added without a case appearing. Not met yet: the classifier that derives them is LWSM-1011, and the test lands with
+asserts that every derived state ADR-0004 lists appears among its cases; an
+overlay label such as `stopping`, which derives nothing, takes no case. Not met yet: the classifier that derives them is LWSM-1011, and the test lands with
 it.
 
 Why: ADR-0004's state table is the app's core contract.
@@ -105,8 +105,10 @@ goes red:
 2. Break one part with an exact-count replace, so a pattern that matches
    nothing, or matches twice, is caught rather than silently skipped.
 3. Delete the module's stale `.pyc`, or run with `PYTHONDONTWRITEBYTECODE=1`,
-   and run the covering tests by name. Red is exit 1 with a named test failed;
-   exit 5 means the name matched nothing.
+   and run the covering tests by name. Red is exit 1 with a named test failed
+   on its assertion, not on an import, name or attribute error (the global
+   § 1's red). Exit 5 means `-k` matched nothing; exit 4, a node id that does
+   not exist.
 4. Copy the backup back, confirm with `cmp` that it is byte-identical, and
    delete the backup.
 

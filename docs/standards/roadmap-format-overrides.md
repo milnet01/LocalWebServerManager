@@ -37,10 +37,11 @@ Open findings come first, from every block including those not yet scheduled
 into a release: items of Kind `fix`, `review-fix`, `audit-fix`, `doc-fix` or
 `security`. Within them, critical items come first and then the rest from
 oldest to newest, by ID (IDs are append-only, global § 3.5.1). After them
-comes the rest of the active release. This replaces only the ordering in the
-global § 3.5.4 step 1, which goes by position; its skips (💭, parked,
-blocked, `shipped` blocks), its 🚧-before-📋 rule and its deference to
-`workflow.md` § 1 still apply.
+comes the rest of the active release. This replaces two things in the
+global § 3.5.4 step 1: its first tier also admits `fix` and `security`, and
+it is ordered as above rather than by position. Its skips (💭, parked,
+blocked, `shipped` blocks) and its deference to `workflow.md` § 1 still
+apply, and a 🚧 finding is finished before any 📋 one is started.
 
 Why: the user's decision. A known defect is closed before new work, and the
 oldest finding is the one whose cited code has drifted furthest.

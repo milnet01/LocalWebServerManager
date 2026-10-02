@@ -71,8 +71,8 @@ Why: the app's whole value is telling the truth about what is running
 ## O6. Qt for Python, not Qt for C++ transliterated
 
 - Signals and slots are `Signal()` / `Slot()` from `PySide6.QtCore`.
-- `QSettings` is not used. Config is JSON at the O3 paths, per
-  `docs/design.md § Persistence`, so it stays hand-editable.
+- `QSettings` is not used. Config lives in files at the O3 paths, in the
+  formats `docs/design.md § Persistence` gives, so it stays hand-editable.
 - Don't keep a Python reference to a parented child just to keep it
   alive; the parent owns its lifetime.
 - Check that an API exists in the installed PySide6 before designing
@@ -145,7 +145,7 @@ suppressing it at the framework boundary.
 |---|---|
 | O1 core never imports `QtWidgets` | Partial: `tests/test_layering.py::test_core_never_imports_qtwidgets` and `::test_the_core_module_list_matches_the_criterion` (modules on disk minus `NON_CORE_MODULES` must equal `CORE_MODULES`) — a core import of another Qt module, such as `QtGui`, is held by review |
 | O2 no widget call off the UI thread | nothing |
-| O3 never write into a sibling project | Partial: `tests/test_applog.py::test_default_state_dir_follows_the_xdg_spec` and `tests/test_browsers.py::test_relative_xdg_directories_are_ignored` cover the XDG paths — nothing checks that no write lands in a scanned directory |
+| O3 never write into a sibling project | Partial: `tests/test_applog.py::test_default_state_dir_follows_the_xdg_spec` covers the state path and `tests/test_settings.py::test_settings_sits_beside_projects_json` the config path — nothing tests the config path's fallback for an unset or relative variable, and nothing checks that no write lands in a scanned directory |
 | O4 new session on every supervised spawn | Partial: `tests/test_browsers.py::test_open_url_spawns_the_expanded_argv_detached_and_never_a_shell` covers the browser spawn, and ruff `S` catches a shell string — nothing asserts `start_new_session=True` on other spawn sites |
 | O5 never report an unobserved state | nothing |
 | O6 Qt for Python | nothing |

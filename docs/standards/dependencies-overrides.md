@@ -33,7 +33,9 @@ A pin that is written or touched is set to the latest stable release at
 that moment, checked against the registry rather than recalled, unless D7
 holds it. Any edit to `pyproject.toml`, a workflow, `uv.lock` or
 `scripts/ci-tools.env` checks the other pins in that file too, and bumps
-each one that is behind in its own commit (shared § 6). This overrides the
+each one that is behind in its own commit (shared § 6). The pins are the
+direct ones D1 lists; the transitive versions in `uv.lock` follow from a
+re-lock. This overrides the
 shared standard's surface-then-ask (§ 5) for pins this project touches.
 
 Why: if bumps wait for a scheduled sweep, the sweep is the only thing that
@@ -41,9 +43,11 @@ ever bumps anything.
 
 ## D3. Hold only on a demonstrated break
 
-A pin may stay below latest only if someone tried the newer version and
-saw a specific failure. This is stricter than the shared § 1: a migration
-nobody has time for is not a reason here.
+A pin may be held below latest — a D7 row — only if someone tried the
+newer version and saw it fail in a way upstream has not fixed. A break in
+this project's own code that a migration would fix is migrated, not held.
+This is stricter than the shared § 1: a migration nobody has time for is not
+a reason here.
 
 Why: an anticipated break, or a deferred migration, is how a pin ends up on
 a version nobody has tested against.
@@ -59,8 +63,8 @@ a re-lock.
 ## D5. Every ecosystem dependabot supports is registered in `.github/dependabot.yml`
 
 Here that is GitHub Actions and uv. The interpreter, the runner label and
-the CI tools have no dependabot ecosystem; D2's contact rule and
-`check-dependencies` stand in for it.
+the CI tools have no dependabot ecosystem; D2's contact rule stands in for
+it.
 
 Why: an unregistered ecosystem gets no update pull requests, which looks
 exactly like having nothing outdated.

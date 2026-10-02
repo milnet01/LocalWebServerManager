@@ -16,7 +16,8 @@ Global § 2.3's rule against census counts is partly a test here:
 number word from one to twelve followed by a noun in its `COUNTED_NOUNS`
 list, in any file on its `GOVERNED` list, including a count split across a
 line wrap. It skips table rows, lines carrying a `YYYY-MM-DD` date, and text
-inside quotes or backticks.
+inside quotes or backticks. In those files it also rejects a structural count
+of those nouns, which global § 2.3 would keep; reword it to the shape.
 Because the suite reads these files, a push touching one runs the full
 gate (`commits-overrides.md` § C2).
 
@@ -27,8 +28,10 @@ build costs less than a review loop (global § 9.3).
 
 When a spec is written and gated is set by `CLAUDE.md` § Review cadence,
 not by global § 9.1's "before the work it governs starts". Build first,
-then correct the spec to match what was built; that correction falls under
-rule 14's exception for a document brought into line with verified code.
+then correct the spec to match what was built. A spec corrected after the
+build falls under rule 14's exception for a document brought into line with
+verified code; a spec first written after the build is put to rule 14's
+trigger like any other document.
 Spec-first is only for code that creates a durable artifact (an on-disk
 format, a wire protocol, anything another item binds to), and there the
 gate runs before building. Other contract documents keep global § 9.1's
