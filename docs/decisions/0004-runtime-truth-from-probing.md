@@ -170,7 +170,7 @@ Consequences of the rule:
   for confirmation first, because the app is signalling something
   it did not create.
 - **Stopping a foreign server signals a tree, not a group.**
-  ADR-0003's `os.killpg(child.pid, …)` is safe only because
+  ADR-0003's group-wide stop is safe only because
   `start_new_session=True` made that child its own group leader.
   A foreign PID is usually **not** a group leader — its group is
   the terminal job that launched it, which may hold the user's

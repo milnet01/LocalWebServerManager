@@ -48,8 +48,8 @@ Specifics:
 
 - `start_new_session=True` puts the child in a new session and
   process group whose **group ID equals the child's PID**, so the
-  manager can signal the whole tree with
-  `os.killpg(child.pid, ...)` and can never signal its own group.
+  whole tree can be found by that ID and the manager's own group is
+  never among it. The **Stop** bullet below says how it is signalled.
 - The launcher is invoked as an **argument vector** (`["./start.sh"]`,
   `["npm", "run", "dev"]`) with `shell=False`, `cwd` set to the
   project directory. No string this app builds is handed to a shell.
@@ -185,9 +185,10 @@ service-managed project is never `running (foreign)` merely
 because this manager did not spawn it; the launcher kind tells
 the classifier that systemd's instance *is* the managed one.
 
-**Detection:** a project is service-managed when a
-`systemctl --user` unit exists whose name matches the project, or
-when the registry records a unit name for it. Because unit naming
+**Detection:** a unit whose name matches the project is only a
+candidate. It binds by the location rule below, and the registry
+records it once bound. A unit can also be adopted from the port's
+holder, under the rule below for adopted units. Because unit naming
 is a convention rather than a rule, a wrong guess here is
 correctable in the UI like any other detected field (ADR-0005).
 
@@ -207,6 +208,7 @@ owns**:
 ~/.config/systemd/user/<unit>.d/50-lwsm-port.conf
 [Service]
 Environment=PORT=<effective port>
+Environment=LWSM_MANAGED=1
 ```
 
 then `systemctl --user daemon-reload` before starting. Notes that
@@ -226,6 +228,9 @@ make this safe rather than clever:
   already sets its own port variable keeps it as the default, and
   a compliant server prefers `PORT` over it by the precedence in
   ADR-0002 case 5. Nothing in the project's own unit needs editing.
+- **It is written before a start or restart and removed after a
+  successful stop**, so the unit's next start at logon is its own.
+  A removal that fails is logged; the stop still succeeded.
 - **Removing the override removes the file** and reloads, rather
   than writing the old value back — so the project returns to
   exactly its packaged default rather than to whatever the manager
@@ -279,7 +284,8 @@ value and ignoring the wrong one are two different properties.
   or `WorkingDirectory` resolves inside that project directory.
 - **A unit adopted from the port's holder binds by the same rule,
   plus one anchor** (LWSM-1012): an absolute path in its `ExecStart`
-  command line that resolves inside the project. Adoption reads the
+  command line naming a file inside the project. A directory does
+  not count: an autostarted editor opening the project would pass. Adoption reads the
   unit off the holder's cgroup, and that unit may be a container the
   holder merely runs in, such as an autostarted IDE hosting a
   terminal. XDG-autostart units have a `FragmentPath` generated under

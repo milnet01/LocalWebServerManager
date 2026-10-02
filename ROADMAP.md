@@ -10938,6 +10938,14 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Open for servers started at logon) is LWSM-1370, so 0.1.0's changelog
   cites a shipped id. This item keeps the unit-less holder signalling
   and L3-M4.
+  Fixed (2026-10-02), L3-M4: 59372e9. An adopted unit is checked on the
+  worker before any verb (service.unit_belongs_to): it binds when its
+  FragmentPath, WorkingDirectory or an absolute path in its ExecStart
+  argv resolves inside the project. A failing or unreadable unit is
+  refused with a reason and forgotten. The decision was the ADR's, not
+  the code's: the command-line anchor is what XDG-autostart units carry.
+  ADR-0003 amended in e092a10; its rule-14 gate is running. What remains
+  here is the unit-less signalling half, which LWSM-1301 also carries.
 
 - 📋 [LWSM-1011] **P06: the seven-state classifier.**
   One

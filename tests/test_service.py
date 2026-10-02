@@ -434,6 +434,7 @@ def test_a_unit_whose_command_runs_a_file_in_the_project_belongs(tmp_path) -> No
     """The ants-stats-tray shape: working directory is home, and only the
     command line names the project."""
     (tmp_path / "tray").mkdir()
+    (tmp_path / "tray" / "stats.py").write_text("", encoding="utf-8")
     props = {
         "FragmentPath": GENERATED,
         "WorkingDirectory": "!/home/ants",
@@ -465,6 +466,17 @@ def test_an_ide_holding_a_terminal_server_does_not_belong(
         "ExecStart": _exec_start("/usr/bin/ide --open serve.mjs"),
     }
     assert unit_belongs_to("ide.service", tmp_path, properties=_reader(props)) is False
+
+
+def test_an_editor_opening_the_project_folder_does_not_belong(tmp_path) -> None:
+    """Only a file the unit runs anchors it. An autostarted editor handed the
+    project's directory names a path inside it without being its server."""
+    props = {
+        "FragmentPath": GENERATED,
+        "WorkingDirectory": "!/home/ants",
+        "ExecStart": _exec_start(f"/usr/bin/kate {tmp_path}"),
+    }
+    assert unit_belongs_to("kate.service", tmp_path, properties=_reader(props)) is False
 
 
 def test_a_sibling_sharing_the_project_s_name_prefix_does_not_belong(

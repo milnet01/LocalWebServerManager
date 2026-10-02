@@ -181,8 +181,14 @@ def unit_belongs_to(
     argv = _exec_start_argv(props.get("ExecStart", "")) or ""
     # `bound_inside` refuses a relative token, so the interpreter's own
     # arguments (`-u`, `serve.mjs`) contribute nothing — only absolute paths
-    # can anchor, which is the evidence a spoofed cwd cannot supply.
-    return any(bound_inside(token.strip("'\""), candidate) for token in argv.split())
+    # can anchor, which is the evidence a spoofed cwd cannot supply. And only a
+    # FILE: an autostarted editor handed the project's directory names a path
+    # inside it without being its server. Checked after `bound_inside`, so a
+    # relative token is never resolved against our own cwd.
+    return any(
+        bound_inside(token, candidate) and Path(token).is_file()
+        for token in (raw.strip("'\"") for raw in argv.split())
+    )
 
 
 def describe_holder(
