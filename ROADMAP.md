@@ -10192,6 +10192,16 @@ bugs in the same area.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 2.
+  Decided by the user 2026-10-02, replacing the wording above where they
+  differ:
+  - Backup age: once per app run, not every write. The first save of a
+    run copies the file as it was at startup to projects.json.bak; later
+    saves in the same run leave the .bak alone.
+  - Damaged file at startup with a backup present: ask first. A dialog
+    says the list could not be read and offers the backup, naming when it
+    was saved. Yes sets the damaged file aside (renamed, never deleted)
+    and loads the backup. No keeps today's behaviour: empty list, warning
+    banner, saving refused.
   Lanes: core, tests.
 
 - 📋 [LWSM-1008] **P03b: first-run confirmation flow.**
