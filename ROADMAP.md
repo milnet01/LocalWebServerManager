@@ -11146,7 +11146,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: in-session-2026-08-31, noticed while shipping LWSM-1191.
   Lanes: controller, security.
 
-- 📋 [LWSM-1338] **State tokens differ by hue alone; wrong-port and unknown are 1.005:1 and 7 degrees apart.**
+- ✅ [LWSM-1338] **State tokens differ by hue alone; wrong-port and unknown are 1.005:1 and 7 degrees apart.**
   derive_state_tokens.py stops each token at the first lightness that
   clears the floor, so all eight state tokens share one luminance and
   differ only by hue. state_wrong_port vs state_unknown: 1.000-1.009:1
@@ -11155,6 +11155,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   threshold (hue distance or deltaE, all pairs or co-displayed ones),
   then re-derive and add the test beside
   test_the_state_tokens_are_distinguishable_from_the_body_text.
+  Shipped (2026-10-02, f3e5648). Metric: CIEDE2000 between every pair of
+  state tokens in a palette (all seven can share a list), threshold 15
+  (the author's choice, recorded in tests/contrast.py for the user to
+  change). The solver walks a too-close token further from the surfaces,
+  keeping its hue; 15 of 64 values moved; every pair now >= 15.0.
   **Layman:** Two status colours that will appear together once more states arrive look almost the same.
   Kind: accessibility.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.

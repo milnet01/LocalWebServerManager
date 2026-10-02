@@ -75,6 +75,11 @@ signaling per
 
 ### Changed
 
+- **Status colours are easier to tell apart** (LWSM-1338)
+  Some status colours were nearly identical, such as wrong port and
+  unknown. Every pair now differs clearly in every colour theme, with
+  the same meaning for each colour as before.
+
 - **The first-run "Not added" list shows real folders only** (LWSM-1383)
   Plain files and hidden dot-folders are left out of the dialog, so the
   folders that matter are not buried. Both still reach the log.
