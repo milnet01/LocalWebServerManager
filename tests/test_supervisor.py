@@ -2486,6 +2486,28 @@ def _pgid(pid: int) -> int | None:
         return None
 
 
+def test_a_wrapper_whose_server_lives_on_has_a_live_group(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """LWSM-1389: `exited()` answers for the launcher, so a wrapper that forks
+    its server and exits reads as exited while the server is still binding.
+    `group_alive` answers for the group, which is ADR-0004's "own child"."""
+    write_launcher(project, "sleep 30 &\ntouch ready\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+    launcher = psutil.Process(managed.pid)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and launcher.status() != psutil.STATUS_ZOMBIE:
+        time.sleep(0.02)
+    assert supervisor.exited(project), "precondition: the launcher exited"
+
+    assert supervisor.group_alive(project)
+
+    supervisor.stop(project, grace=0.5)
+    assert not supervisor.group_alive(project), "stopped, so nothing is ours"
+
+
 # --- LWSM-1169: rotation works through a descriptor nothing else can close ----
 
 

@@ -1731,6 +1731,20 @@ class Supervisor:
             return False
         return not _alive(managed.handle)
 
+    def group_alive(self, project: Path) -> bool:
+        """Whether anything of our child's process group still runs (LWSM-1389).
+
+        ADR-0004's "own child" is the group: a `start.sh` that forks its
+        server and exits has `exited()`, while the server it left is still
+        binding. The launcher is asked first because the group walk visits
+        every process on the machine, and that cost is paid only once the
+        launcher is gone.
+        """
+        managed = self._get(project)
+        if managed is None:
+            return False
+        return _alive(managed.handle) or bool(self._group_members(managed))
+
     def close(self) -> None:
         """Release our descriptors and threads, and **leave the servers running**.
 

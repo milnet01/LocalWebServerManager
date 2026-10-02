@@ -3133,3 +3133,33 @@ def test_a_stop_with_the_table_unreadable_ends_on_unknown_not_stopping(
     qtbot.waitUntil(lambda: controller._overlay is None, timeout=2000)
 
     assert controller.rows()[0].status is ProjectStatus.UNKNOWN
+
+
+def test_a_wrapper_that_exits_before_its_server_binds_is_still_starting(
+    qtbot, controllers
+) -> None:
+    """LWSM-1389: ADR-0004's "own child" is the group. A `start.sh` that forks
+    a slow server and exits leaves the group alive and nothing bound, which is
+    `starting` — not `failed`, and not `stopped` with a Start that the
+    supervisor would refuse as already running."""
+
+    class WrapperSupervisor(FakeSupervisor):
+        def group_alive(self, project):
+            return project in self._running
+
+    supervisor = WrapperSupervisor()
+    probe = FakeProbe()
+    controller = supervised(controllers, [startable()], probe, supervisor)
+    controller.start_project(Path("/srv/a"))
+    supervisor.exited_projects.add(Path("/srv/a"))  # the launcher is gone
+
+    for polls in (1, 2):
+        controller.poll_once()
+        qtbot.waitUntil(
+            lambda polls=polls: probe.calls == polls and not controller._in_flight,
+            timeout=2000,
+        )
+
+    assert controller._overlay is not None, "the start was settled by the launcher"
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+    assert controller._spawning_paths() == {Path("/srv/a")}

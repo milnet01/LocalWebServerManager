@@ -786,7 +786,22 @@ class ProjectController(QObject):
         if self._supervisor is None:
             return set()
         live = self._supervisor.running()
-        return {path for path in live if not self._supervisor.exited(path)}
+        return {path for path in live if not self._child_gone(path)}
+
+    def _child_gone(self, path: Path) -> bool:
+        """Our child for `path` is gone: its launcher exited and, where the
+        supervisor can say, its process group with it (LWSM-1389).
+
+        ADR-0004's "own child" is the group, so a wrapper that forks its
+        server and exits is not gone while the server binds. Reached through
+        `getattr` for `_rotate_logs`' reason: a supervision fake need not have
+        the method, and without it the launcher's exit decides, as before.
+        """
+        supervisor = self._supervisor
+        if supervisor is None or not supervisor.exited(path):
+            return False
+        group_alive = getattr(supervisor, "group_alive", None)
+        return group_alive is None or not group_alive(path)
 
     def _managed_paths(self, snapshot: PortSnapshot) -> set[Path]:
         """The projects whose EFFECTIVE PORT is held by our own child's group.
@@ -1589,7 +1604,7 @@ class ProjectController(QObject):
         if (
             pending is ProjectStatus.STARTING
             and self._supervisor is not None
-            and (path in self._reaped or self._supervisor.exited(path))
+            and (path in self._reaped or self._child_gone(path))
         ):
             # ADR-0004's own definition of `failed`: the child exited without
             # ever binding (LWSM-1134). The derived status stays `stopped`,

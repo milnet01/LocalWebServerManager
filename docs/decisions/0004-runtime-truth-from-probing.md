@@ -62,8 +62,7 @@ derived state, and an overlay label has nothing to derive.
 not only its launcher. The rows that ask who holds a port come
 first: a launcher that exits while its group serves has not exited.
 "Live" in the table means the group is alive, so a wrapper that
-forks its server and exits is `starting` until the server binds
-(the code still keys this on the launcher: LWSM-1389).
+forks its server and exits is `starting` until the server binds.
 
 | Own child | Effective port held by | Child holds any port | State |
 |---|---|---|---|
