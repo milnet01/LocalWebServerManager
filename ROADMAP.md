@@ -11025,6 +11025,22 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 1.
+  Prep (2026-10-02), for the write-spec run that is next. Spec-first:
+  projects.json gains a field (CLAUDE.md rule 2; spec-format §1).
+  Already settled in design.md § The effective port and § Robustness:
+  precedence override > confirmed > declared > framework default;
+  recorded when seen running (ours, or a plausible holder); persisted as
+  an observed fact; an override still wins and a launch on it updates
+  confirmed. Left for the spec to pin: the field's merge class in
+  LWSM-1131's rescan (neither user-set nor detected); which port to
+  confirm when our group binds several (vite + HMR); recording for a
+  project with NO port (classifier returns UNKNOWN before asking
+  our_ports today, which is exactly the project-e case); when it is
+  written (only on change); the row's confirmed/detected/unknown word
+  beside LWSM-1385's provenance. known-issue-043 (unknown keys dropped
+  on write) looks fixed: ProjectRecord.unknown carries them through a
+  save; confirm and mark it. Cite LWSM-1385's spec rather than
+  contradict it.
   Lanes: core, tests.
 
 - 📋 [LWSM-1034] **P06: health check — bound is not the same as working.**
