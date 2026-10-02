@@ -48,7 +48,8 @@ The repository is public, so every tracked file is world-readable. Facts
 about the author's own machine — real services, ports, paths, the
 inventory of the author's other projects — go only in `docs/private/`,
 which `.gitignore` excludes. Public documents refer to them by a neutral
-label, and `CHANGELOG.md` names none of the author's other projects.
+label, and `CHANGELOG.md` names none of the author's private projects. A
+project whose own repository is public may be named (user, 2026-10-02).
 
 Why: a fact pushed once stays in the public history, and removing it
 means force-pushing `main`, which global `commits.md` § 3.3 refuses.

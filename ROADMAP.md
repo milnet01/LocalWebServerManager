@@ -10622,7 +10622,7 @@ bugs in the same area.
   Source: user-request-2026-10-02.
   Lanes: scanner.
 
-- 📋 [LWSM-1380] **Public documents name one of the author's other projects.**
+- ✅ [LWSM-1380] **Public documents name one of the author's other projects.**
   documentation-overrides.md § DOC3: CHANGELOG.md names none of the
   author's other projects, and public documents use a neutral label. The
   released 0.1.0 section of CHANGELOG.md says the themes "are adopted from
@@ -10631,6 +10631,10 @@ bugs in the same area.
   need a carve-out; if not, reword both to a neutral label (a released
   changelog section is a record, so ask before editing it).
   Priority: 3.
+  Resolved (2026-10-02) by the user's decision: finbreak's repository is
+  public (gh repo view), so naming it leaks nothing. DOC3 now forbids
+  naming a private project and allows a public one; the CHANGELOG and
+  design-look-and-feel.md keep the name. No other change.
   **Layman:** The public changelog and a design note mention another of the author's projects by name, which this project's rules say not to do.
   Kind: doc-fix.
   Source: in-session-2026-10-02, found while writing documentation-overrides.md (LWSM-1326).
