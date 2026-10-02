@@ -92,13 +92,13 @@ build that predates this item (§ 6).
 
 `port_conflicts` is non-empty only when `port_from` is set, and no element's
 `port` equals `port_from.port`. The scanner produces at most four:
-`_settle_port` ranks at most six findings (a launcher port, two env files, one
-compose file, a framework default, the README), and the winner and the
+`_settle_port` ranks at most five findings (a launcher port or a framework
+default, two env files, one compose file, the README), and the winner and the
 framework default are never conflicts.
 
-Classified detected, so `export_profile` clears both through
-`_detected_half_cleared` with no change there, and INV-1 of LWSM-1007 keeps the
-classification complete.
+Classified detected, so `merge_imported` clears both on an imported record
+through `_detected_half_cleared` with no change there, and LWSM-1007's INV-1
+keeps the classification complete. `export_profile` writes them as stored.
 
 ### 4.3 The file format
 
@@ -139,8 +139,10 @@ found.
 
 ### 4.4 The merge
 
-`registry._detected_half_applied` treats the two new fields as it treats
-`port`, because they describe the port:
+`registry._detected_half_applied` sets the two new fields explicitly, beside
+`port`, and excludes them from its generic `getattr` copy as it excludes
+`path`: `ScannedProject` has no `port_from` attribute, so the generic copy
+would raise.
 
 | Scan result | `port` | `port_from` | `port_conflicts` |
 |---|---|---|---|
@@ -205,8 +207,9 @@ is visible text in the cell; the tooltip and description add which files.
   is the case an older build produces by updating `port` and carrying the
   provenance through `unknown` unchanged.
 
-- **INV-3** — Each refusal in § 4.3's table drops only that field, adds a
-  reason, and leaves `user_fields_refused` empty.
+- **INV-3** — Each refusal in § 4.3's table drops only that field, adds one
+  reason, and leaves `user_fields_refused` empty. A refused `port_from` takes
+  `port_conflicts` with it, under the same reason.
   *Test:* `tests/test_registry.py`, parametrised over one fixture per refusal
   cell, including nine conflicts and a conflict equal to the winning port.
   *Breaks when:* a refusal raises, drops the row, or is recorded as a
@@ -216,9 +219,9 @@ is visible text in the cell; the tooltip and description add which files.
   *Test:* `tests/test_registry.py`, one case per row, using the existing fake
   scan; the third asserts the stored `port`, `port_from` and `port_conflicts`
   are all the old values.
-  *Breaks when:* `_detected_half_applied` derives the new fields with the
-  generic `getattr` path, which on the third row writes `None` provenance
-  beside a kept port.
+  *Breaks when:* `_detected_half_applied` copies `found.port` and
+  `found.port_conflicts` without the third row's qualifier, which writes
+  `None` provenance beside a kept port.
 
 - **INV-5** — A rescan that changes only `port_from` or `port_conflicts` counts
   the project as unchanged, and one that changes `port` still counts it as
@@ -246,8 +249,8 @@ is visible text in the cell; the tooltip and description add which files.
 - **INV-8** — `PortRule` and `PortFinding` are defined in `registry.py`, and
   `registry.py` imports nothing from `lwsm.scanner` at run time.
   *Test:* `tests/test_layering.py`, the existing AST check of the import
-  direction, plus an assertion that `scanner.PortFinding is
-  registry.PortFinding`.
+  direction, plus assertions that `scanner.PortFinding is
+  registry.PortFinding` and `scanner.PortRule is registry.PortRule`.
   *Breaks when:* the types stay in `scanner.py` and `registry.py` imports them,
   which closes LWSM-1007 § 4.1's cycle.
 
