@@ -54,7 +54,8 @@ Added at P02 (LWSM-1005), contract in
   `RegistryError`, `default_projects_path()`, `load_projects()`,
   and since LWSM-1007 also `LauncherKind`, `LoadResult`,
   `RegistryMissing`, `DETECTED_FIELDS`, `USER_FIELDS` and
-  `save_projects()`. Returns a **`LoadResult`**, not a tuple: the file
+  `save_projects()`; since LWSM-1385 `PortRule` and `PortFinding`,
+  which records now store as `port_from` and `port_conflicts`. Returns a **`LoadResult`**, not a tuple: the file
   being unusable raises, one bad *record* never does, and
   `rows_refused` is carried **separately from `reasons`** because a
   field refusal keeps the row and only a row refusal may stop a
@@ -303,11 +304,12 @@ Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](../specs/LWSM-1006-scanner-detection.md):
 
 - **`src/lwsm/scanner.py`** — core, no Qt at all, like `ports.py`.
-  `scan()`, `DetectedProject`, `PortFinding`, `ScanResult`,
-  `PortRule`, `Confidence`, `Deadline`, and the
+  `scan()`, `DetectedProject`, `ScanResult`,
+  `Confidence`, `Deadline`, and the
   `SupportsUnitLookup` Protocol the systemd surface is injected
-  through. **`LauncherKind` moved to `registry.py` with LWSM-1007**
-  and is re-exported from here, so `scanner.LauncherKind` still
+  through. **`LauncherKind` moved to `registry.py` with LWSM-1007**,
+  and `PortRule` and `PortFinding` with LWSM-1385; all three are
+  re-exported from here, so `scanner.LauncherKind` still
   resolves; the direction is `scanner` → `registry` and adding the
   reverse import stops the package importing at all, on either entry
   order. `tests/test_layering.py` asserts that by AST. **Everything it reads belongs to somebody else**, so

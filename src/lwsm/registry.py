@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Protocol, TypeGuard
 
 from lwsm.configfile import (
+    MAX_DISPLAY_NAME_CHARS,
     MAX_FILE_BYTES,
     BoundedReasons,
     ConfigFileError,
@@ -88,6 +89,47 @@ class LauncherKind(enum.Enum):
     PYTHON = "python"
 
 
+class PortRule(enum.Enum):
+    """Which rule produced a port.
+
+    The value is English display text, so the file stores the member's NAME,
+    lower-cased (LWSM-1385 § 4.3): rewording a value must not make every saved
+    rule unreadable. Lives here, not in `scanner.py`, for `LauncherKind`'s
+    reason — `ProjectRecord` holds it and the loader checks it at run time.
+    """
+
+    EXPLICIT = "an explicit port setting"  # port rule 1
+    ASSIGNMENT = "a port assignment"  # port rule 2
+    FRAMEWORK_DEFAULT = "a framework default"  # port rule 3
+    # The sources beyond the launcher (LWSM-1121, `design.md § Robustness`
+    # measure 2), in the order `scanner._settle_port` ranks them.
+    ENV_FILE = "a PORT setting in an env file"
+    COMPOSE = "a docker-compose port mapping"
+    README = "a local address in the README"
+
+
+@dataclass(frozen=True)
+class PortFinding:
+    """Where a port came from, without the bytes it came from.
+
+    An earlier draft carried the matched line, and it was the one string in this
+    design that took a hostile file's bytes to the log and the status bar — the
+    defect LWSM-1078, LWSM-1102 and LWSM-1114 each closed at one call site. The
+    rule plus the source is the whole of the provenance the UI needs, so the
+    field was deleted rather than defended.
+    """
+
+    port: int
+    rule: PortRule
+    source: str
+
+
+# How many conflicting sources one record may store. `scanner._settle_port`
+# produces at most four; this is twice that, so a source added there later does
+# not silently start losing the field on load (LWSM-1385 § 4.3).
+MAX_PORT_CONFLICTS = 8
+
+
 class RegistryError(ConfigFileError):
     """The file itself is unusable, so nothing is returned from it.
 
@@ -135,6 +177,12 @@ class ProjectRecord:
     # rather than a command: `browsers.py` resolves it against the desktop's
     # own registered handlers, so nothing here is ever executed as text.
     browser: str | None = None
+    # Where `port` came from, and every other source that named a different
+    # port, as the last scan saw them (LWSM-1385). `port_from.port` always
+    # equals `port`: the loader drops a pair that disagrees, which is how
+    # provenance an older build left behind a changed port is caught.
+    port_from: PortFinding | None = None
+    port_conflicts: tuple[PortFinding, ...] = ()
     # Keys this build does not recognise, kept so it cannot delete what a
     # newer one wrote. Pairs of (key, canonical JSON text), sorted — the shape
     # `actions` uses and for its reason: a `dict` here would make the frozen
@@ -167,7 +215,9 @@ class ProjectRecord:
 # `path` is classified *detected* — a scan is what observes it — while being the
 # one field no write may resolve. `added` is *user*-owned because ADR-0005 makes
 # it the duplicate-port tie-break, and a rescan must not reorder that.
-DETECTED_FIELDS: frozenset[str] = frozenset({"path", "port", "kind", "argv", "unit"})
+DETECTED_FIELDS: frozenset[str] = frozenset(
+    {"path", "port", "port_from", "port_conflicts", "kind", "argv", "unit"}
+)
 USER_FIELDS: frozenset[str] = frozenset(
     {
         "name",
@@ -394,6 +444,83 @@ def _actions_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str |
 # untouched — see `ProjectRecord.unknown`. Derived from the writer rather than
 # retyped, so a key added to `_serialised` cannot be treated as unknown by the
 # loader in the same commit that starts emitting it.
+_FINDING_KEYS = frozenset({"port", "rule", "source"})
+
+
+def _finding_or_reason(value: object) -> tuple[PortFinding | None, str | None]:
+    """One `{port, rule, source}` object (LWSM-1385 § 4.3), or why not.
+
+    The reason is the tail of a sentence; the caller names the field. `source`
+    is checked for length and encoding only — the row sanitises it again at
+    render time, because this file is hand-editable.
+    """
+    if not isinstance(value, dict) or set(value) != _FINDING_KEYS:
+        return None, "is not an object holding exactly port, rule and source"
+    port = value["port"]
+    low, high = DECLARED_PORT_RANGE
+    if not _is_int(port) or not low <= port <= high:
+        return None, f"port {quoted(port)} is not an integer {low}-{high}"
+    rule = value["rule"]
+    # Lower-case only, so the file has one spelling per rule.
+    member = PortRule.__members__.get(rule.upper()) if isinstance(rule, str) else None
+    if member is None or rule != member.name.lower():
+        return None, f"rule {quoted(rule)} is not a known rule"
+    source = value["source"]
+    if (
+        not isinstance(source, str)
+        or not 0 < len(source) <= MAX_DISPLAY_NAME_CHARS
+        or not is_writable_text(source)
+    ):
+        return None, (
+            f"source {quoted(source)} is not text of 1-{MAX_DISPLAY_NAME_CHARS} "
+            "characters"
+        )
+    return PortFinding(port=port, rule=member, source=source), None
+
+
+def _provenance_or_reason(
+    raw_from: object, raw_conflicts: object, port: int | None, name: str
+) -> tuple[PortFinding | None, tuple[PortFinding, ...], str, str | None]:
+    """`port_from` and `port_conflicts`, judged together (LWSM-1385 § 4.3).
+
+    Together because the second only means something beside the first. Returns
+    the field a refusal belongs to, and at most ONE reason: a refused
+    `port_from` takes `port_conflicts` with it under its own reason (INV-3).
+    """
+    port_from: PortFinding | None = None
+    if raw_from is not None:
+        port_from, why = _finding_or_reason(raw_from)
+        if port_from is not None and port_from.port != port:
+            # An older build changed `port` and carried this through `unknown`
+            # untouched, or a hand edit did (INV-2).
+            port_from, why = None, f"names port {port_from.port}, not the stored port"
+        if why:
+            return None, (), "port_from", f"{name}: port_from {why}"
+    if raw_conflicts is None or raw_conflicts == []:
+        return port_from, (), "port_conflicts", None
+    reason = f"{name}: port_conflicts "
+    if not isinstance(raw_conflicts, list):
+        return port_from, (), "port_conflicts", reason + "is not an array"
+    if len(raw_conflicts) > MAX_PORT_CONFLICTS:
+        return (
+            port_from,
+            (),
+            "port_conflicts",
+            reason + f"holds more than {MAX_PORT_CONFLICTS} entries",
+        )
+    if port_from is None:
+        return None, (), "port_conflicts", reason + "is set without port_from"
+    conflicts: list[PortFinding] = []
+    for element in raw_conflicts:
+        finding, why = _finding_or_reason(element)
+        if finding is None:
+            return port_from, (), "port_conflicts", reason + f"entry {why}"
+        if finding.port == port_from.port:
+            return port_from, (), "port_conflicts", reason + "repeats the stored port"
+        conflicts.append(finding)
+    return port_from, tuple(conflicts), "port_conflicts", None
+
+
 _BLANK_RECORD_PATH = Path("/")
 
 
@@ -662,6 +789,11 @@ def load_projects(path: Path) -> LoadResult:
         )
         if reason:
             note_field("port_override", reason)
+        port_from, port_conflicts, provenance_field, reason = _provenance_or_reason(
+            entry.get("port_from"), entry.get("port_conflicts"), port, name
+        )
+        if reason:
+            note_field(provenance_field, reason)
 
         # The remaining ten keys, each defaulting when absent and each losing
         # only itself when present at the wrong type. Collected through one list
@@ -728,6 +860,8 @@ def load_projects(path: Path) -> LoadResult:
                 actions=actions,
                 added=added,
                 browser=browser,
+                port_from=port_from,
+                port_conflicts=port_conflicts,
                 unknown=unknown,
             )
         )
@@ -752,6 +886,17 @@ def load_projects(path: Path) -> LoadResult:
 # --------------------------------------------------------------------------
 
 
+def _finding_payload(finding: PortFinding | None) -> dict[str, object] | None:
+    """The file's form of a finding: the rule by lower-cased NAME (§ 4.3)."""
+    if finding is None:
+        return None
+    return {
+        "port": finding.port,
+        "rule": finding.rule.name.lower(),
+        "source": finding.source,
+    }
+
+
 def _serialised(record: ProjectRecord) -> dict[str, object]:
     """One record as the file's object.
 
@@ -765,6 +910,8 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
         "path": str(record.path),
         "name": record.name,
         "port": record.port,
+        "port_from": _finding_payload(record.port_from),
+        "port_conflicts": [_finding_payload(c) for c in record.port_conflicts],
         "port_override": record.port_override,
         "kind": None if record.kind is None else record.kind.value,
         "argv": list(record.argv),
@@ -1032,13 +1179,8 @@ class ProjectsFile:
 
 
 class DetectedPort(Protocol):
-    """`scanner.PortFinding`, narrowed to the one field a merge reads.
-
-    The rest of a finding — the rule and the source — is provenance the UI
-    shows, and LWSM-1007 § 4.2 deliberately does not persist it: the format
-    defines no key for either, so a merge stores the number and the rest is
-    recomputed on the next scan.
-    """
+    """`PortFinding`, as the merge reads it: all three fields since LWSM-1385,
+    which stores the rule and the source beside the number."""
 
     # Properties, not attributes, across all three protocols: a protocol
     # attribute is writable and therefore invariant, and the scanner's frozen
@@ -1046,6 +1188,10 @@ class DetectedPort(Protocol):
     # `ScanResult` as a `ScanLike` (LWSM-1066). A merge only reads them.
     @property
     def port(self) -> int: ...
+    @property
+    def rule(self) -> PortRule: ...
+    @property
+    def source(self) -> str: ...
 
 
 class ScannedProject(Protocol):
@@ -1063,6 +1209,8 @@ class ScannedProject(Protocol):
     def unit(self) -> str | None: ...
     @property
     def port(self) -> DetectedPort | None: ...  # None means UNKNOWN, never a guess
+    @property
+    def port_conflicts(self) -> Sequence[DetectedPort]: ...
     @property
     def read_cleanly(self) -> bool: ...  # True: a None port is "declares none"
 
@@ -1187,21 +1335,45 @@ def _detected_half_applied(
 
     Derived from the set, not listed by hand (known-issue-044, LWSM-1322):
     listed, a fifth detected field would be classified correctly, keep INV-1
-    green, and never be refreshed by a rescan. The two conversions below are
-    the only per-field knowledge.
+    green, and never be refreshed by a rescan. The port with its provenance,
+    and `argv`'s tuple, are the only per-field knowledge.
 
     A `None` from a scan that read every file cleanly is the exception: that is
     an observation that the project declares no port, so it clears the stored
     one. Without it a port an older scanner read wrongly outlived the fix to
     that scanner for ever (LWSM-1309).
     """
-    changes = {name: getattr(found, name) for name in DETECTED_FIELDS - {"path"}}
+    changes = {name: getattr(found, name) for name in DETECTED_FIELDS - _NOT_COPIED}
     if found.port is not None:
         changes["port"] = found.port.port
+        changes["port_from"] = _finding(found.port)
+        changes["port_conflicts"] = tuple(_finding(c) for c in found.port_conflicts)
+    elif found.read_cleanly:
+        changes.update(port=None, port_from=None, port_conflicts=())
     else:
-        changes["port"] = None if found.read_cleanly else record.port
+        # The stored port is kept, and its provenance with it, so the pair
+        # still describes each other (LWSM-1385 § 4.4, third row).
+        changes["port"] = record.port
     changes["argv"] = tuple(found.argv)
     return replace(record, **changes)
+
+
+# Set explicitly above rather than copied: `path` is the identity, `port` is
+# qualified by § 4.1, and the scan has no `port_from` attribute at all, so a
+# generic copy would raise.
+_NOT_COPIED = frozenset({"path", "port", "port_from", "port_conflicts"})
+
+
+def _finding(found: DetectedPort) -> PortFinding:
+    """A registry `PortFinding`, whatever type the scan used, so a fake scan in
+    a test cannot leave a foreign type in a record (LWSM-1385 § 4.4)."""
+    return PortFinding(port=found.port, rule=found.rule, source=found.source)
+
+
+def _without_provenance(record: ProjectRecord) -> ProjectRecord:
+    """The record as the *changed* / *unchanged* counts compare it: a
+    provenance-only difference is still stored, but not counted (§ 4.4)."""
+    return replace(record, port_from=None, port_conflicts=())
 
 
 def merge(
@@ -1280,7 +1452,8 @@ def merge(
         not_reobserved = (
             record.port is not None and found.port is None and not found.read_cleanly
         )
-        if updated != record:
+        changed = _without_provenance(updated) != _without_provenance(record)
+        if changed:
             flag(CHANGED, f"{quoted(record.name)}: detected details changed")
         if not_reobserved:
             flag(
@@ -1288,7 +1461,7 @@ def merge(
                 f"{quoted(record.name)}: port no longer detected, "
                 f"keeping {record.port}",
             )
-        if not (updated != record or not_reobserved):
+        if not (changed or not_reobserved):
             counts[UNCHANGED] += 1
 
         # Only `port_override` participates: `launcher_override` is stored but is
@@ -1318,6 +1491,12 @@ def merge(
                 path=project.path,
                 name=project.name,
                 port=None if project.port is None else project.port.port,
+                port_from=None if project.port is None else _finding(project.port),
+                port_conflicts=(
+                    ()
+                    if project.port is None
+                    else tuple(_finding(c) for c in project.port_conflicts)
+                ),
                 kind=project.kind,
                 argv=tuple(project.argv),
                 unit=project.unit,

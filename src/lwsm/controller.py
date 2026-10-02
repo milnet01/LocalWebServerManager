@@ -23,7 +23,7 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
 from lwsm.configfile import display_text
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
-from lwsm.registry import ProjectRecord, port_claims
+from lwsm.registry import PortFinding, ProjectRecord, port_claims
 from lwsm.service import (
     ENDED_STATES,
     UnitOutcome,
@@ -319,6 +319,12 @@ class RowView:
     # desktop, which is the window's to do once rather than the controller's to
     # repeat every poll.
     browser: str | None = None
+    # Where the stored port came from, the sources that disagreed with it, and
+    # whether the user's override is what the row shows instead (LWSM-1385
+    # § 4.5). The row draws its warning and its detail from these three.
+    port_from: PortFinding | None = None
+    port_conflicts: tuple[PortFinding, ...] = ()
+    port_overridden: bool = False
 
 
 class _SnapshotSignals(QObject):
@@ -653,6 +659,9 @@ class ProjectController(QObject):
                 supervised=record.path in supervised,
                 hidden=record.hidden,
                 browser=record.browser,
+                port_from=record.port_from,
+                port_conflicts=record.port_conflicts,
+                port_overridden=record.port_override is not None,
             )
             for record in self._records
         ]

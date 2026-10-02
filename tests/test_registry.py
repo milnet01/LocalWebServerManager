@@ -19,6 +19,8 @@ import pytest
 from lwsm import configfile, registry, scanner
 from lwsm.registry import (
     LauncherKind,
+    PortFinding,
+    PortRule,
     ProjectRecord,
     RegistryError,
     RegistryMissing,
@@ -921,7 +923,14 @@ def test_write_then_load_round_trips(tmp_path: Path) -> None:
     # are already in sorted order — a writer mutated to `sorted(records, ...)`
     # passed it. A fixture that cannot express the hazard tests nothing.
     written = [
-        every_field_record(),  # name starts "he said", path /srv/project-a
+        # name starts "he said", path /srv/project-a. Provenance populated for
+        # LWSM-1385 INV-1: a rule written by value and read by name, or a
+        # conflicts list loaded back as a list, fails the equality below.
+        dataclasses.replace(
+            every_field_record(),
+            port_from=PortFinding(3000, PortRule.ENV_FILE, ".env"),
+            port_conflicts=(PortFinding(4000, PortRule.README, "README.md"),),
+        ),
         ProjectRecord(path=Path("/srv/aaa-written-second"), name="aaa-written-second"),
     ]
 
@@ -1364,6 +1373,10 @@ def stamp() -> str:
 @dataclasses.dataclass(frozen=True)
 class FakeFinding:
     port: int
+    # The merge stores all three since LWSM-1385; the defaults keep every
+    # earlier test's one-argument form.
+    rule: registry.PortRule = registry.PortRule.EXPLICIT
+    source: str = "start.sh"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1374,6 +1387,7 @@ class FakeProject:
     argv: tuple[str, ...] = ("./start.sh",)
     unit: str | None = None
     port: FakeFinding | None = None
+    port_conflicts: tuple[FakeFinding, ...] = ()
     # False keeps `port=None` meaning "could not tell", which is what every
     # test written before LWSM-1309 means by it.
     read_cleanly: bool = False
@@ -2852,3 +2866,269 @@ def test_restoring_twice_never_overwrites_an_earlier_damaged_file(
 
     kept = sorted(p.read_text() for p in tmp_path.glob("projects.json.damaged-*"))
     assert kept == ["first damage", "second damage"]
+
+
+# --- LWSM-1385: a port's source and its conflicts are saved -----------------
+
+
+def provenance_entry(**keys: object) -> dict:
+    """`one_good`, at port 3000, with the provenance keys given."""
+    return {"path": "/srv/project-a", "name": "project-a", "port": 3000, **keys}
+
+
+GOOD_FROM = {"port": 3000, "rule": "env_file", "source": ".env"}
+GOOD_CONFLICT = {"port": 4000, "rule": "readme", "source": "README.md"}
+
+
+def test_a_well_formed_provenance_pair_loads() -> None:
+    """The fixture the refusal cases below each break in one place."""
+    record_and_reasons = load_projects_from(
+        provenance_entry(port_from=GOOD_FROM, port_conflicts=[GOOD_CONFLICT])
+    )
+    record, reasons = record_and_reasons
+    assert reasons == []
+    assert record.port_from == PortFinding(3000, PortRule.ENV_FILE, ".env")
+    assert record.port_conflicts == (PortFinding(4000, PortRule.README, "README.md"),)
+
+
+def load_projects_from(entry: dict) -> tuple[ProjectRecord, list[str]]:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as scratch:
+        result = load_projects(
+            write(Path(scratch), {"schema_version": 1, "projects": [entry]})
+        )
+    assert result.rows_refused == 0
+    assert result.user_fields_refused == frozenset()
+    (record,) = result.records
+    return record, result.reasons
+
+
+def test_provenance_naming_another_port_is_dropped_with_its_conflicts() -> None:
+    """LWSM-1385 INV-2. An older build changed `port` to 5000 and carried the
+    old provenance through `unknown` untouched. Dies on a loader that checks the
+    object's shape but not its port."""
+    record, reasons = load_projects_from(
+        {
+            **provenance_entry(port_from=GOOD_FROM, port_conflicts=[GOOD_CONFLICT]),
+            "port": 5000,
+        }
+    )
+    assert record.port == 5000
+    assert record.port_from is None
+    assert record.port_conflicts == ()
+    assert len(reasons) == 1 and "port_from" in reasons[0]
+
+
+@pytest.mark.parametrize(
+    ("keys", "keeps_from", "field"),
+    [
+        ({"port_from": "start.sh"}, False, "port_from"),
+        ({"port_from": {**GOOD_FROM, "extra": 1}}, False, "port_from"),
+        ({"port_from": {"port": 3000, "rule": "env_file"}}, False, "port_from"),
+        ({"port_from": {**GOOD_FROM, "port": True}}, False, "port_from"),
+        ({"port_from": {**GOOD_FROM, "rule": "ENV_FILE"}}, False, "port_from"),
+        (
+            {"port_from": {**GOOD_FROM, "rule": "a PORT setting in an env file"}},
+            False,
+            "port_from",
+        ),
+        ({"port_from": {**GOOD_FROM, "source": ""}}, False, "port_from"),
+        ({"port_from": {**GOOD_FROM, "source": "x" * 121}}, False, "port_from"),
+        # A refused port_from takes its conflicts with it, under ONE reason.
+        (
+            {"port_from": "start.sh", "port_conflicts": [GOOD_CONFLICT]},
+            False,
+            "port_from",
+        ),
+        (
+            {"port_from": GOOD_FROM, "port_conflicts": GOOD_CONFLICT},
+            True,
+            "port_conflicts",
+        ),
+        (
+            {"port_from": GOOD_FROM, "port_conflicts": [GOOD_CONFLICT] * 9},
+            True,
+            "port_conflicts",
+        ),
+        (
+            {
+                "port_from": GOOD_FROM,
+                "port_conflicts": [{**GOOD_CONFLICT, "rule": "x"}],
+            },
+            True,
+            "port_conflicts",
+        ),
+        (
+            {
+                "port_from": GOOD_FROM,
+                "port_conflicts": [{**GOOD_CONFLICT, "port": 3000}],
+            },
+            True,
+            "port_conflicts",
+        ),
+        ({"port_conflicts": [GOOD_CONFLICT]}, False, "port_conflicts"),
+    ],
+)
+def test_each_provenance_refusal_drops_only_its_field(
+    keys: dict, keeps_from: bool, field: str
+) -> None:
+    """LWSM-1385 INV-3 — one case per refusal in § 4.3's table. Each drops its
+    field (a refused `port_from` also `port_conflicts`), adds exactly one
+    reason, and never counts as a user-field refusal, which would make the
+    session read-only (asserted in `load_projects_from`)."""
+    record, reasons = load_projects_from(provenance_entry(**keys))
+    assert record.port == 3000, "the row and its port survive"
+    assert record.port_conflicts == ()
+    expected_from = PortFinding(3000, PortRule.ENV_FILE, ".env") if keeps_from else None
+    assert record.port_from == expected_from
+    assert len(reasons) == 1, reasons
+    assert field in reasons[0]
+
+
+def test_nine_conflicts_is_over_the_cap_and_eight_is_not() -> None:
+    """`MAX_PORT_CONFLICTS`' boundary, from below — the case above is from
+    above. Distinct ports, since a conflict repeating the stored one is its own
+    refusal."""
+    assert registry.MAX_PORT_CONFLICTS == 8
+    conflicts = [{**GOOD_CONFLICT, "port": 4000 + i} for i in range(8)]
+    record, reasons = load_projects_from(
+        provenance_entry(port_from=GOOD_FROM, port_conflicts=conflicts)
+    )
+    assert reasons == []
+    assert len(record.port_conflicts) == 8
+
+
+def provenance_scan(project: Path, **found: object) -> FakeScan:
+    return FakeScan((FakeProject(project, "web", **found),))
+
+
+def test_a_detected_port_stores_its_provenance(tmp_path: Path) -> None:
+    """LWSM-1385 INV-4, § 4.4's first row — and the stored values are registry
+    `PortFinding`s, not the scan's own type."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(path=project, name="web", port=3000)
+    scan = provenance_scan(
+        project,
+        port=FakeFinding(3000, PortRule.ENV_FILE, ".env"),
+        port_conflicts=(FakeFinding(4000, PortRule.README, "README.md"),),
+    )
+
+    (merged,) = registry.merge([stored], scan, (root,), stamp).records
+
+    assert merged.port_from == PortFinding(3000, PortRule.ENV_FILE, ".env")
+    assert type(merged.port_from) is PortFinding
+    assert merged.port_conflicts == (PortFinding(4000, PortRule.README, "README.md"),)
+
+
+def test_a_project_that_declares_no_port_loses_its_provenance(tmp_path: Path) -> None:
+    """LWSM-1385 INV-4, § 4.4's second row: a clean read with no port."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(
+        path=project,
+        name="web",
+        port=3000,
+        port_from=PortFinding(3000, PortRule.ENV_FILE, ".env"),
+        port_conflicts=(PortFinding(4000, PortRule.README, "README.md"),),
+    )
+
+    (merged,) = registry.merge(
+        [stored], provenance_scan(project, read_cleanly=True), (root,), stamp
+    ).records
+
+    assert (merged.port, merged.port_from, merged.port_conflicts) == (None, None, ())
+
+
+def test_a_port_kept_through_an_unreadable_scan_keeps_its_provenance(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1385 INV-4, § 4.4's third row. Dies on copying the scan's
+    provenance without the qualifier, which writes `None` beside a kept port."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    provenance = (
+        PortFinding(3000, PortRule.ENV_FILE, ".env"),
+        (PortFinding(4000, PortRule.README, "README.md"),),
+    )
+    stored = ProjectRecord(
+        path=project,
+        name="web",
+        port=3000,
+        port_from=provenance[0],
+        port_conflicts=provenance[1],
+    )
+
+    (merged,) = registry.merge(
+        [stored], provenance_scan(project, read_cleanly=False), (root,), stamp
+    ).records
+
+    assert (merged.port, merged.port_from, merged.port_conflicts) == (3000, *provenance)
+
+
+def test_a_new_project_carries_its_provenance(tmp_path: Path) -> None:
+    """§ 4.4: the new-project branch takes the first row's values."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    scan = provenance_scan(
+        project,
+        port=FakeFinding(3000, PortRule.COMPOSE, "compose.yaml"),
+        port_conflicts=(FakeFinding(4000, PortRule.README, "README.md"),),
+    )
+
+    (merged,) = registry.merge([], scan, (root,), stamp).records
+
+    assert merged.port_from == PortFinding(3000, PortRule.COMPOSE, "compose.yaml")
+    assert merged.port_conflicts == (PortFinding(4000, PortRule.README, "README.md"),)
+
+
+def test_a_provenance_only_change_is_stored_but_counted_unchanged(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1385 INV-5. The first rescan after upgrading must not report every
+    project as changed — but must still store what it found."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    # Every other detected field equal to the fake's, so provenance is the
+    # only difference.
+    stored = ProjectRecord(
+        path=project,
+        name="web",
+        port=3000,
+        kind=LauncherKind.SHELL,
+        argv=("./start.sh",),
+    )
+    scan = provenance_scan(project, port=FakeFinding(3000, PortRule.ENV_FILE, ".env"))
+
+    result = registry.merge([stored], scan, (root,), stamp)
+
+    assert result.records[0].port_from == PortFinding(3000, PortRule.ENV_FILE, ".env")
+    assert result.counts[registry.CHANGED] == 0
+    assert result.counts[registry.UNCHANGED] == 1
+
+
+def test_a_port_change_is_still_counted_changed(tmp_path: Path) -> None:
+    """INV-5's other half: setting provenance aside must not hide a real change."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(
+        path=project,
+        name="web",
+        port=3000,
+        kind=LauncherKind.SHELL,
+        argv=("./start.sh",),
+        port_from=PortFinding(3000, PortRule.ENV_FILE, ".env"),
+    )
+    scan = provenance_scan(project, port=FakeFinding(5000, PortRule.ENV_FILE, ".env"))
+
+    result = registry.merge([stored], scan, (root,), stamp)
+
+    assert result.counts[registry.CHANGED] == 1
+    assert result.counts[registry.UNCHANGED] == 0

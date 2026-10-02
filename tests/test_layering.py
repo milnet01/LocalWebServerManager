@@ -224,6 +224,16 @@ def test_registry_never_imports_the_scanner() -> None:
     assert "lwsm.scanner" not in imported_names("registry.py")
 
 
+def test_the_port_types_are_the_registrys() -> None:
+    """LWSM-1385 INV-8 — one definition each, re-exported by the scanner. A
+    second `PortRule` left in `scanner.py` would put findings into records
+    that no longer equal themselves after a save and reload."""
+    from lwsm import registry, scanner
+
+    assert scanner.PortFinding is registry.PortFinding
+    assert scanner.PortRule is registry.PortRule
+
+
 def _is_translate_call(node: ast.AST) -> bool:
     """`QCoreApplication.translate(...)`, `self.tr(...)` or a bare `tr(...)`."""
     if not isinstance(node, ast.Call):

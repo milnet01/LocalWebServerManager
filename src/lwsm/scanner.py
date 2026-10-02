@@ -32,7 +32,7 @@ from typing import Protocol
 
 import lwsm
 from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, BoundedReasons, display_text
-from lwsm.registry import DECLARED_PORT_RANGE, LauncherKind
+from lwsm.registry import DECLARED_PORT_RANGE, LauncherKind, PortFinding, PortRule
 
 # Re-exported deliberately. `LauncherKind` moved to `registry.py` with LWSM-1007
 # because the loader has to validate against it at run time, and this module
@@ -46,7 +46,10 @@ from lwsm.registry import DECLARED_PORT_RANGE, LauncherKind
 # `scanner.MAX_DISPLAY_NAME_CHARS` is cited by two tests and by
 # `docs/specs/LWSM-1007-registry-persistence.md`, so the name stays resolvable
 # from here. Listed in `__all__` because a re-export is what it is.
-__all__ = ["MAX_DISPLAY_NAME_CHARS", "LauncherKind"]
+# `PortRule` and `PortFinding` followed `LauncherKind` for its reason when
+# `ProjectRecord` began to store them (LWSM-1385 § 4.1); the scanner still
+# builds every finding, and the tests spell them `scanner.` throughout.
+__all__ = ["MAX_DISPLAY_NAME_CHARS", "LauncherKind", "PortFinding", "PortRule"]
 
 # 256 KB for a sibling's source, against `registry.py`'s 1 MiB for a config
 # file this app owns. Named MAX_SOURCE_* rather than reusing that constant
@@ -112,38 +115,9 @@ MAX_IMPORT_HOPS = 8
 PORT_RANGE = DECLARED_PORT_RANGE
 
 
-class PortRule(enum.Enum):
-    """Which rule produced a port. The value is what the UI shows."""
-
-    EXPLICIT = "an explicit port setting"  # port rule 1
-    ASSIGNMENT = "a port assignment"  # port rule 2
-    FRAMEWORK_DEFAULT = "a framework default"  # port rule 3
-    # The sources beyond the launcher (LWSM-1121, `design.md § Robustness`
-    # measure 2), in the order `_settle_port` ranks them.
-    ENV_FILE = "a PORT setting in an env file"
-    COMPOSE = "a docker-compose port mapping"
-    README = "a local address in the README"
-
-
 class Confidence(enum.Enum):
     DETECTED = "detected"
     UNKNOWN = "unknown"
-
-
-@dataclass(frozen=True)
-class PortFinding:
-    """Where a port came from, without the bytes it came from.
-
-    An earlier draft carried the matched line, and it was the one string in this
-    design that took a hostile file's bytes to the log and the status bar — the
-    defect LWSM-1078, LWSM-1102 and LWSM-1114 each closed at one call site. The
-    rule plus the source is the whole of the provenance the UI needs, so the
-    field was deleted rather than defended.
-    """
-
-    port: int
-    rule: PortRule
-    source: str
 
 
 @dataclass(frozen=True)

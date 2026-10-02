@@ -91,6 +91,7 @@ from lwsm.placement import Rect, centre_in
 from lwsm.registry import (
     LoadResult,
     MergeResult,
+    PortRule,
     ProjectRecord,
     RegistryError,
     RegistryMissing,
@@ -350,6 +351,77 @@ def port_text(effective_port: int | None) -> str:
     return QCoreApplication.translate("ProjectRow", "port %1").replace(
         "%1", str(effective_port)
     )
+
+
+def disputed_port_text(port: int) -> str:
+    """`port_text`, marked for a row whose port sources disagree (LWSM-1385).
+
+    Text, not a colour or an icon: the row's accessible name is built from the
+    rendered cells, so the marker reaches a screen reader with no extra code.
+    `str.replace` for `port_text`'s reason.
+    """
+    return QCoreApplication.translate("ProjectRow", "port %1 (sources differ)").replace(
+        "%1", str(port)
+    )
+
+
+def rule_words(rule: PortRule) -> str:
+    """The UI's words for a port rule — `state_word`'s seam, for its reason:
+    `PortRule`'s values live in a core module and are not translated."""
+    return {
+        PortRule.EXPLICIT: QCoreApplication.translate(
+            "ProjectRow", "an explicit port setting"
+        ),
+        PortRule.ASSIGNMENT: QCoreApplication.translate(
+            "ProjectRow", "a port assignment"
+        ),
+        PortRule.FRAMEWORK_DEFAULT: QCoreApplication.translate(
+            "ProjectRow", "a framework default"
+        ),
+        PortRule.ENV_FILE: QCoreApplication.translate(
+            "ProjectRow", "a PORT setting in an env file"
+        ),
+        PortRule.COMPOSE: QCoreApplication.translate(
+            "ProjectRow", "a docker-compose port mapping"
+        ),
+        PortRule.README: QCoreApplication.translate(
+            "ProjectRow", "a local address in the README"
+        ),
+    }.get(rule, rule.value)
+
+
+def port_detail(row: RowView) -> str:
+    """Where the row's port came from, and which sources disagreed.
+
+    LWSM-1385 § 4.5: the port cell's tooltip and the row's accessible
+    description. Every source goes through `display_text` here, because
+    `projects.json` is hand-editable and the loader checks only its length and
+    encoding. Empty when there is nothing to say.
+    """
+    sentences: list[str] = []
+    found = row.port_from
+    if row.port_overridden:
+        sentences.append(QCoreApplication.translate("ProjectRow", "You set this port."))
+    if found is not None:
+        source = display_text(found.source)
+        words = rule_words(found.rule)
+        if row.port_overridden:
+            template = QCoreApplication.translate(
+                "ProjectRow", "Detected port %1 is from %2 (%3)."
+            )
+            sentences.append(_filled(template, str(found.port), source, words))
+        else:
+            template = QCoreApplication.translate("ProjectRow", "From %1 (%2).")
+            sentences.append(_filled(template, source, words))
+        for conflict in row.port_conflicts:
+            sentences.append(
+                _filled(
+                    QCoreApplication.translate("ProjectRow", "%1 says %2."),
+                    display_text(conflict.source),
+                    str(conflict.port),
+                )
+            )
+    return " ".join(sentences)
 
 
 def hidden_name(name: str) -> str:
@@ -1341,7 +1413,16 @@ class ProjectRow(QFrame):
             if row.hidden
             else QCoreApplication.translate("ProjectRow", "&Hide this project")
         )
-        self._port.setText(port_text(row.effective_port))
+        port = row.effective_port
+        if row.port_conflicts and not row.port_overridden and port is not None:
+            self._port.setText(disputed_port_text(port))
+        else:
+            self._port.setText(port_text(port))
+        # Hover for a pointer, the description for a screen reader; the
+        # disagreement itself is in the cell text above (LWSM-1385 § 4.5).
+        detail = port_detail(row)
+        self._port.setToolTip(_plain_tooltip(detail))
+        self.setAccessibleDescription(detail)
 
         # Signals blocked: this runs once a second from the poll, and the user's
         # own `currentIndexChanged` handler writes projects.json. Without the

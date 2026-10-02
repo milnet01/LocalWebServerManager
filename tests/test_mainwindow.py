@@ -80,6 +80,10 @@ class FakeProbe:
 @dataclasses.dataclass(frozen=True)
 class FakePortFinding:
     port: int
+    # The merge stores all three since LWSM-1385; the defaults keep every
+    # earlier test's one-argument form.
+    rule: registry.PortRule = registry.PortRule.EXPLICIT
+    source: str = "start.sh"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -92,6 +96,7 @@ class FakeDetected:
     argv: tuple[str, ...] = ("./start.sh",)
     unit: str | None = None
     port: FakePortFinding | None = None
+    port_conflicts: tuple[FakePortFinding, ...] = ()
     read_cleanly: bool = False  # `port=None` stays "could not tell" (LWSM-1309)
 
 
@@ -1815,6 +1820,9 @@ def test_a_rescan_that_changes_nothing_says_so_and_does_not_write(
         kind=LauncherKind.SHELL,
         argv=("./start.sh",),
         added="2026-08-01T00:00:00Z",
+        # The provenance the scan reports, stored already: without it the
+        # rescan has something to save (LWSM-1385 § 4.4).
+        port_from=registry.PortFinding(3000, registry.PortRule.EXPLICIT, "start.sh"),
     )
     scan = FakeScanResult(
         projects=(FakeDetected(project, "web", port=FakePortFinding(3000)),)
@@ -8187,3 +8195,88 @@ def test_a_failed_theme_or_text_size_save_reaches_the_log(qtbot, built, caplog) 
 
     assert "the text size could not be saved" in caplog.text
     assert "the theme could not be saved" in caplog.text
+
+
+# --- LWSM-1385: a port's source and any disagreement, on the row -------------
+
+
+def provenance_row(*, conflicts: bool, overridden: bool, source: str = ".env"):
+    from lwsm.controller import RowView
+
+    return RowView(
+        path=Path("/srv/a"),
+        name="a",
+        effective_port=8080 if overridden else 3000,
+        status=ProjectStatus.STOPPED,
+        port_from=registry.PortFinding(3000, registry.PortRule.ENV_FILE, source),
+        port_conflicts=(
+            (registry.PortFinding(4000, registry.PortRule.README, "README.md"),)
+            if conflicts
+            else ()
+        ),
+        port_overridden=overridden,
+    )
+
+
+@pytest.mark.parametrize("overridden", [False, True])
+@pytest.mark.parametrize("conflicts", [False, True])
+def test_the_port_cell_marks_disagreeing_sources(
+    qtbot, conflicts: bool, overridden: bool
+) -> None:
+    """LWSM-1385 INV-6: marked exactly when sources disagree and the user has
+    not overridden the port. Text, so the announcement carries it too. Dies on
+    a marker keyed on `port_from`, or one that ignores the override."""
+    from lwsm.mainwindow import ProjectRow
+
+    row = ProjectRow(
+        provenance_row(conflicts=conflicts, overridden=overridden), Theme.default()
+    )
+    qtbot.addWidget(row)
+
+    marked = conflicts and not overridden
+    assert ("sources differ" in row._port.text()) is marked
+    assert ("sources differ" in row.accessibleName()) is marked
+    assert row._port.text().startswith("port 8080" if overridden else "port 3000")
+
+
+def test_the_detail_names_the_source_and_each_disagreement(qtbot) -> None:
+    """§ 4.5: hover for a pointer, the description for a screen reader."""
+    from lwsm.mainwindow import ProjectRow
+
+    row = ProjectRow(provenance_row(conflicts=True, overridden=False), Theme.default())
+    qtbot.addWidget(row)
+
+    detail = row.accessibleDescription()
+    assert detail == ("From .env (a PORT setting in an env file). README.md says 4000.")
+    assert "README.md says 4000." in row._port.toolTip()
+
+
+def test_an_overridden_port_says_so_before_the_detected_one(qtbot) -> None:
+    from lwsm.mainwindow import ProjectRow
+
+    row = ProjectRow(provenance_row(conflicts=False, overridden=True), Theme.default())
+    qtbot.addWidget(row)
+
+    assert row.accessibleDescription() == (
+        "You set this port. Detected port 3000 is from .env "
+        "(a PORT setting in an env file)."
+    )
+
+
+def test_a_hostile_source_cannot_break_a_line_or_draw_markup(qtbot) -> None:
+    """LWSM-1385 INV-7 — the trust boundary. `projects.json` is hand-editable,
+    so a source reaches the row as untrusted text. Dies on building the detail
+    without `display_text`, or setting the tooltip without `_plain_tooltip`."""
+    from lwsm.mainwindow import ProjectRow
+
+    row = ProjectRow(
+        provenance_row(conflicts=False, overridden=False, source="<b>x</b>\n.env"),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    detail = row.accessibleDescription()
+    assert "\n" not in detail
+    assert "<b>x</b>\ufffd.env" in detail
+    # Escaped for the tooltip's rich-text renderer: the tags are shown, not drawn.
+    assert "&lt;b&gt;" in row._port.toolTip()

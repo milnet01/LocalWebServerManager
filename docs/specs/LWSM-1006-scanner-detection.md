@@ -94,6 +94,9 @@ matching `src/lwsm/ports.py`, because nothing here emits a signal.
 
 ### 4.1 What the Scanner returns
 
+`PortRule` and `PortFinding` now live in `registry.py`: see
+[LWSM-1385 § 4.1](LWSM-1385-port-provenance.md#41-where-the-types-live).
+
 ```python
 class LauncherKind(enum.Enum):
     SYSTEMD = "systemd"

@@ -291,7 +291,7 @@ produces a report entry; none mutates silently.
 | Outcome | Condition | Effect |
 |---|---|---|
 | **new** | scanned, not stored | added, flagged *new*; seeded per below |
-| **unchanged** | detected halves equal | nothing |
+| **unchanged** | detected halves equal | nothing; see [LWSM-1385 § 4.4](LWSM-1385-port-provenance.md#44-the-merge) for a port's provenance |
 | **changed** | detected halves differ **and the scan value is known** | detected half updated, change listed |
 | **missing** | stored, in scope for this scan (below), absent from a complete one | kept, flagged *missing*, never deleted |
 | **not re-observed** | stored known, scan unknown (§ 4.1) | stored value kept, flagged |

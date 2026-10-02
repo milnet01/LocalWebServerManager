@@ -23,6 +23,12 @@ signaling per
 
 ### Added
 
+- **A project's row warns when its files disagree about its port** (LWSM-1385)
+  The port cell reads "port 3000 (sources differ)" when two files name
+  different ports, and its tooltip says which file each came from. The
+  app now remembers this in projects.json, so the warning is still there
+  after a restart. Run Rescan once to fill it in for existing projects.
+
 - **Projects run by the system's service manager get their port from the app** (LWSM-1028)
   Starting such a project from the app passes it the app's port and
   tells it the app is in charge. Stopping it from the app takes that
