@@ -72,7 +72,8 @@ forks its server and exits is `starting` until the server binds.
 | live | a process that looks like this project | no | `running (foreign)` — the user also started it by hand |
 | live | any other process | no | `failed` (port taken after pre-flight) |
 | just exited, stop **was** requested | — | — | as the `none` rows: a stop leaves no record |
-| just exited, stop was **not** requested | anyone but our group | no | `failed` (exited on its own), for one poll |
+| just exited, stop was **not** requested | a process in the project's own unit, or one that looks like this project | no | as the `none` rows: it respawned itself (LWSM-1054) |
+| just exited, stop was **not** requested | any other process, or nobody | no | `failed` (exited on its own), for one poll |
 | none | a process in the project's own systemd user unit | — | `running (managed)` — systemd's instance is the managed one (ADR-0003) |
 | none | a process that looks like this project | — | `running (foreign)` |
 | none | any other process | — | `port blocked` |

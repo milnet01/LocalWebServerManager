@@ -1746,8 +1746,11 @@ class ProjectController(QObject):
             if holder is not None and looks_like(holder, path):
                 return ProjectStatus.RUNNING_FOREIGN
             return ProjectStatus.FAILED  # port taken after the pre-flight
-        if path in self._reaped:
-            return ProjectStatus.FAILED  # exited on its own
+        # Our child exited on its own this tick. That is `failed` for one
+        # poll unless something that looks like the project now holds the
+        # port: a project that respawns itself detached and exits 0 has not
+        # failed (LWSM-1054; ADR-0004: a clean exit is not evidence).
+        exited = path in self._reaped
         if not held:
             declared = record.port
             if (
@@ -1760,16 +1763,18 @@ class ProjectController(QObject):
                 other = snapshot.holder(declared)
                 if other is not None and looks_like(other, path):
                     return ProjectStatus.RUNNING_FOREIGN
-            return ProjectStatus.STOPPED
+            return ProjectStatus.FAILED if exited else ProjectStatus.STOPPED
         if holder is None:
-            return ProjectStatus.PORT_BLOCKED  # unnamed (ADR-0004)
+            # Unnamed (ADR-0004).
+            return ProjectStatus.FAILED if exited else ProjectStatus.PORT_BLOCKED
         # The project's own unit first: it is evidence, where "looks like"
         # is only a heuristic (ADR-0004's service row).
         if self._is_project_unit(record, unit_for_pid(holder)):
             return ProjectStatus.RUNNING
         if looks_like(holder, path):
             return ProjectStatus.RUNNING_FOREIGN
-        return ProjectStatus.PORT_BLOCKED  # something unrelated is in the way
+        # Something unrelated is in the way.
+        return ProjectStatus.FAILED if exited else ProjectStatus.PORT_BLOCKED
 
     def _is_project_unit(self, record: ProjectRecord, unit: str | None) -> bool:
         """Whether `unit` is this project's own: bound by the scanner, adopted

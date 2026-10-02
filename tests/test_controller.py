@@ -3014,6 +3014,17 @@ OURS, STRANGER = 4100, 4200
             "FAILED",
         ),
         ("failed: exited on its own", {}, None, True, False, None, "FAILED"),
+        # LWSM-1054: project-e's Restart spawns a detached copy and exits 0.
+        # A clean exit with a plausible holder on the port respawned.
+        (
+            "foreign: exited, and a copy of it holds the port",
+            {5005: STRANGER},
+            None,
+            True,
+            True,
+            None,
+            "RUNNING_FOREIGN",
+        ),
         (
             "foreign: started by hand",
             {5005: STRANGER},

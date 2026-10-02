@@ -2508,6 +2508,63 @@ def test_a_wrapper_whose_server_lives_on_has_a_live_group(
     assert not supervisor.group_alive(project), "stopped, so nothing is ours"
 
 
+def test_a_project_that_respawns_itself_detached_leaves_our_group(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """LWSM-1054: project-e's Restart spawns a fresh copy in a NEW session and
+    exits 0. Our group is then gone, so the entry is reaped, while a process
+    outside any group we created holds the port. The controller reads that as
+    `running (foreign)` (the state-table case of the same name); this is the
+    operating-system half, with real processes (testing-overrides § T2)."""
+    port = free_port()
+    child = project / "copy.py"
+    child.write_text(
+        textwrap.dedent(f"""
+            import os, socket, time
+            sock = socket.socket()
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", {port}))
+            sock.listen(1)
+            with open("copy.pid", "w") as out:
+                out.write(str(os.getpid()))
+            while True:
+                time.sleep(0.05)
+        """),
+        encoding="utf-8",
+    )
+    write_launcher(
+        project,
+        f"setsid {sys.executable} {child} > /dev/null 2>&1 < /dev/null &\n"
+        "while [ ! -s copy.pid ]; do sleep 0.02; done\n"
+        "touch ready\n"
+        "exit 0\n",
+    )
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    copy_pid: int | None = None
+    try:
+        await_ready(project)
+        copy_pid = int((project / "copy.pid").read_text(encoding="utf-8"))
+        assert wait_until(lambda: supervisor.exited(project)), "launcher never exited"
+
+        assert wait_until(lambda: project in (supervisor.reap_exited() or {})), (
+            "our group is gone, so the entry must be reaped"
+        )
+        assert _pgid(copy_pid) not in (None, managed.pid), "the copy left our group"
+        assert PortProbe().snapshot().holder(port) == copy_pid
+    finally:
+        if copy_pid is not None and Path(f"/proc/{copy_pid}/cwd").resolve() == project:
+            os.kill(copy_pid, signal.SIGTERM)
+            wait_until(lambda: not psutil.pid_exists(copy_pid) or _gone(copy_pid))
+
+
+def _gone(pid: int) -> bool:
+    try:
+        return psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return True
+
+
 # --- LWSM-1169: rotation works through a descriptor nothing else can close ----
 
 
