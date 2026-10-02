@@ -61,15 +61,22 @@ derived state, and an overlay label has nothing to derive.
 | live | any other process | no | `failed` (port taken after pre-flight) |
 | just exited, stop **was** requested | — | — | `stopped` |
 | just exited, stop was **not** requested | — | — | `failed` (exited on its own) |
+| none | a process in a systemd user unit that looks like this project | — | `running (managed)` — systemd's instance is the managed one (ADR-0003) |
 | none | a process that looks like this project | — | `running (foreign)` |
 | none | any other process | — | `port blocked` |
 | none | nobody | — | `stopped` |
 
+`unknown` is not an eighth state. A project with no port, or one no
+poll has read yet, shows `unknown` because nothing was observed.
+
 Three rules the table depends on:
 
 - **"Looks like this project"** is a plausibility test: the
-  holder's executable path or working directory lies under the
-  project directory. Without it, any unrelated process on port 5000
+  holder's executable path, its working directory, or an absolute
+  path on its command line lies under the project directory. The
+  command line is what names the project when an interpreter is the
+  executable and the working directory is home, which is how
+  XDG-autostart units run (measured 2026-10-02). Without it, any unrelated process on port 5000
   would make project-d read as running, and the pre-flight warning
   that discovery success criterion 4 requires could never fire. A
   holder that fails the test — or whose PID cannot be resolved at
