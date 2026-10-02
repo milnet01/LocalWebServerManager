@@ -10549,6 +10549,10 @@ bugs in the same area.
   for packages and not for these. Options: run check-dependencies at each
   release (it covers CI tooling), or a small scheduled workflow that
   compares the pins against upstream releases.
+  Decided (user, 2026-10-02): check at each release.
+  scripts/local-release.sh compares each scripts/ci-tools.env pin
+  against the tool's latest release and warns when one is behind. No
+  scheduled workflow.
   **Layman:** The versions of the checking tools the project uses are never flagged as out of date, so they can quietly fall behind.
   Kind: chore.
   Source: review-code 2026-09-01 synthesis part 5, verified 2026-10-01 closing LWSM-1286.
@@ -10566,6 +10570,11 @@ bugs in the same area.
   value needs a schema bump. Either way the spec changes, so this takes
   rule 14's gate. Not fixed in the 2026-10-01 close-findings run because
   it is a design decision, not an edit.
+  Decided (user, 2026-10-02): option (a). An older build keeps an
+  unrecognised kind value verbatim and treats the record as
+  kind-unknown; the value is written back untouched. LWSM-1007 § 4.2
+  changes, so this goes through write-spec and rule 14's gate as an
+  amendment to that spec.
   **Layman:** If a newer version of the app records a new kind of project, an older version would forget it; decide whether that is acceptable.
   Kind: investigate.
   Source: review-code 2026-10-01 lane 05 (L5-L5), queued by close-findings.
