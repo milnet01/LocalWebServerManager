@@ -53,9 +53,12 @@ from PySide6.QtGui import (
 )
 from PySide6.QtGui import Qt as GuiQt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QAccessibleWidget,
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -67,6 +70,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QStyle,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -87,6 +92,7 @@ from lwsm.controller import (
     RowView,
     abandon_pool,
 )
+from lwsm.foreign import Tree, TreeRefused, enumerate_tree
 from lwsm.placement import Rect, centre_in
 from lwsm.registry import (
     LoadResult,
@@ -1620,6 +1626,7 @@ class MainWindow(QMainWindow):
         ]
         | None = None,
         disclose: Callable[[Path, object], bool] | None = None,
+        confirm_tree: Callable[[Path, Tree, bool], bool] | None = None,
         confirm_first_run: Callable[
             [list[ProjectRecord], tuple[str, ...]], list[ProjectRecord] | None
         ]
@@ -1671,6 +1678,11 @@ class MainWindow(QMainWindow):
         # this launcher run?" about a file in the project, and this asks "is
         # this really your server?" about a process the app did not start.
         self._disclose = disclose if disclose is not None else self._disclose_dialog
+        # ADR-0004's foreign-stop confirmation (LWSM-1301), injected for
+        # `confirm`'s reason. It names a whole process set, not one holder.
+        self._confirm_tree = (
+            confirm_tree if confirm_tree is not None else self._confirm_tree_dialog
+        )
         # LWSM-1008's confirmation, injected for `confirm`'s reason.
         self._confirm_first_run = (
             confirm_first_run
@@ -3097,6 +3109,88 @@ class MainWindow(QMainWindow):
         box.setDefaultButton(QMessageBox.StandardButton.No)
         return box.exec() == QMessageBox.StandardButton.Yes
 
+    def _confirm_tree_dialog(self, project: Path, tree: Tree, changed: bool) -> bool:
+        """ADR-0004's foreign-stop confirmation, on screen.
+
+        PID, start time, program and command sit in separate cells, never one
+        sentence: a process chooses its own name, and the dialog is the only
+        guard on signalling something this app did not create. Each cell still
+        goes through `_no_layout_forgery`. No is the default.
+        """
+        from datetime import datetime
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(
+            QCoreApplication.translate("ProjectRow", "Stop a server started elsewhere")
+        )
+        intro = (
+            QCoreApplication.translate(
+                "ProjectRow",
+                "The processes changed while you were deciding. %1's port is "
+                "now held by these. Stop all of them?",
+            )
+            if changed
+            else QCoreApplication.translate(
+                "ProjectRow",
+                "%1's port is held by a server this manager did not start. "
+                "Stopping it stops all of these processes:",
+            )
+        ).replace("%1", _no_layout_forgery(project.name))
+        label = QLabel(intro, dialog)
+        label.setTextFormat(Qt.TextFormat.PlainText)
+        label.setWordWrap(True)
+        headers = [
+            QCoreApplication.translate("ProjectRow", "PID"),
+            QCoreApplication.translate("ProjectRow", "Started"),
+            QCoreApplication.translate("ProjectRow", "Program"),
+            QCoreApplication.translate("ProjectRow", "Command"),
+        ]
+        table = QTableWidget(len(tree.members), len(headers), dialog)
+        table.setHorizontalHeaderLabels(headers)
+        table.setAccessibleName(
+            QCoreApplication.translate("ProjectRow", "Processes that will be stopped")
+        )
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.verticalHeader().setVisible(False)
+        for row, member in enumerate(tree.members):
+            cells = (
+                str(member.pid),
+                datetime.fromtimestamp(member.started).isoformat(" ", "seconds"),
+                member.exe or "?",
+                member.cmdline or "?",
+            )
+            for column, text in enumerate(cells):
+                table.setItem(row, column, QTableWidgetItem(_no_layout_forgery(text)))
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+        # Sized to show every cell without scrolling: a sideways scroll hides
+        # the command, which is the column a user recognises a server by.
+        # Capped by the screen, past which scrolling is the lesser harm.
+        frame = 2 * table.frameWidth()
+        wide = frame + sum(table.columnWidth(c) for c in range(len(headers)))
+        tall = frame + table.horizontalHeader().sizeHint().height()
+        tall += sum(table.rowHeight(r) for r in range(len(tree.members)))
+        screen = self.screen().availableGeometry()
+        table.setMinimumSize(
+            min(wide, int(screen.width() * 0.9)), min(tall, int(screen.height() * 0.6))
+        )
+        buttons = QDialogButtonBox(dialog)
+        stop = buttons.addButton(
+            QCoreApplication.translate("ProjectRow", "Stop them"),
+            QDialogButtonBox.ButtonRole.AcceptRole,
+        )
+        cancel = buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
+        stop.setAutoDefault(False)
+        cancel.setDefault(True)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(label)
+        layout.addWidget(table)
+        layout.addWidget(buttons)
+        cancel.setFocus()
+        return dialog.exec() == QDialog.DialogCode.Accepted
+
     def _may_act_on(self, path: Path, *, own_child_suffices: bool = False) -> bool:
         """True when the action may proceed: ours, or the user has been shown
         whose it is and said yes.
@@ -3140,8 +3234,50 @@ class MainWindow(QMainWindow):
 
     def _stop_project(self, path: Path) -> None:
         shown = self._shown_holder(path)
+        if self._stop_foreign_tree(path):
+            return
         if self._may_act_on(path, own_child_suffices=True):
             self._controller.stop_project(path, disclosed_holder=shown)
+
+    def _stop_foreign_tree(self, path: Path) -> bool:
+        """ADR-0004's foreign stop, for a holder in no systemd unit (LWSM-1301).
+
+        True when this route took the click, whatever the answer. Ours, a
+        unit, and a holder the kernel will not name all return False and keep
+        the existing path.
+
+        The set is enumerated, shown, and enumerated again after the yes. If
+        it changed while the dialog was open, the user is asked again about
+        the new set rather than shown a stale one.
+        """
+        view = next((row for row in self._controller.rows() if row.path == path), None)
+        if (
+            view is None
+            or view.managed
+            or view.supervised
+            or view.status is not ProjectStatus.RUNNING
+            or view.holder_pid is None
+        ):
+            return False
+        pid = view.holder_pid
+        if describe_holder(pid).unit is not None:
+            return False
+        changed = False
+        while True:
+            try:
+                shown = enumerate_tree(pid)
+                if not self._confirm_tree(path, shown, changed):
+                    return True
+                current = enumerate_tree(pid)
+            except TreeRefused as exc:
+                self._report_failure(
+                    path, f"cannot stop {display_text(path.name)}: {exc}"
+                )
+                return True
+            if current.identity() == shown.identity():
+                self._controller.stop_foreign_tree(path, current, disclosed_holder=pid)
+                return True
+            changed = True
 
     def _restart_project(self, path: Path) -> None:
         shown = self._shown_holder(path)

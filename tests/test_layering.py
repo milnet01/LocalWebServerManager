@@ -32,6 +32,7 @@ CORE_MODULES = [
     "browsers.py",
     "configfile.py",
     "controller.py",
+    "foreign.py",
     "placement.py",
     "service.py",
     "ports.py",

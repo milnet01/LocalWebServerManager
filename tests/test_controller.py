@@ -2863,3 +2863,44 @@ def test_forgetting_trust_revokes_it(qtbot, controllers) -> None:
     controller.forget_trust(Path("/srv/a"))
 
     assert supervisor.trust.revoked == [Path("/srv/a")]
+
+
+@pytest.mark.parametrize(
+    ("done", "signal", "text"),
+    [
+        ("clean", "action_done", None),
+        ("left", "action_failed", "were still running afterwards"),
+    ],
+)
+def test_a_confirmed_foreign_set_is_stopped_on_a_worker_and_reported(
+    qtbot, controllers, monkeypatch, done, signal, text
+) -> None:
+    """LWSM-1301: the controller runs the window's confirmed set through
+    `foreign.stop_tree` and reports it as a service stop reads."""
+    from lwsm.foreign import Member, Tree, TreeOutcome
+
+    outcome = (
+        TreeOutcome(terminated=(9999,))
+        if done == "clean"
+        else TreeOutcome(terminated=(9999,), left=(10000,))
+    )
+    stopped: list = []
+    monkeypatch.setattr(
+        controller_module, "stop_tree", lambda tree: stopped.append(tree) or outcome
+    )
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 9999}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    tree = Tree(members=(Member(pid=9999, started=1.0),), handles=())
+
+    with qtbot.waitSignal(getattr(controller, signal), timeout=2000) as caught:
+        controller.stop_foreign_tree(Path("/srv/a"), tree, disclosed_holder=9999)
+
+    assert stopped == [tree]
+    if text is not None:
+        assert text in caught.args[1] and "10000" in caught.args[1]

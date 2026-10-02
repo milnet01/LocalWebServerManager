@@ -425,6 +425,11 @@ Added later, both core with no Qt at all:
   spawning its launcher, and nothing here signals a process. It also writes
   and removes this app's drop-in (`50-lwsm-port.conf`) around a start and a
   stop: the one file this app writes outside its own config (LWSM-1028).
+- **`src/lwsm/foreign.py`** — ADR-0004's foreign stop, for a server in no
+  systemd unit (LWSM-1301): the holder and its descendants, identified by
+  PID and start time, and signalled as exactly that set through
+  `psutil.Process` handles. No Qt. The window shows the set, re-enumerates
+  it after the user's yes, and asks again if it changed.
 
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are

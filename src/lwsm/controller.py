@@ -22,6 +22,7 @@ from typing import Protocol
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
 from lwsm.configfile import display_text
+from lwsm.foreign import Tree, TreeOutcome, stop_tree
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
 from lwsm.registry import PortFinding, ProjectRecord, port_claims
 from lwsm.service import (
@@ -549,6 +550,44 @@ class _UnitStateTask(QRunnable):
             log.debug("unit state ended with no live signaller", exc_info=True)
 
 
+class _TreeStopTask(QRunnable):
+    """ADR-0004's foreign stop, off the GUI thread (LWSM-1301).
+
+    It waits out a grace period, so the GUI-thread rule `_ServiceTask` states
+    applies. Reports through `_ServiceSignals.done` as a `UnitOutcome` naming
+    no unit, so success and failure read as the service path's do. Wrapped
+    whole for `_ServiceTask`'s reason.
+    """
+
+    def __init__(self, path: Path, tree: Tree, signals: _ServiceSignals) -> None:
+        super().__init__()
+        self._path = path
+        self._tree = tree
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            outcome = _tree_outcome(stop_tree(self._tree))
+        except BaseException as exc:
+            outcome = UnitOutcome(ok=False, verb="stop", unit="", reason=str(exc))
+        try:
+            self._signals.done.emit(self._path, outcome)
+        except RuntimeError:
+            log.debug("a foreign stop ended with no live signaller", exc_info=True)
+
+
+def _tree_outcome(done: TreeOutcome) -> UnitOutcome:
+    """What a foreign stop did, in the service path's terms."""
+    problems = []
+    if done.refused:
+        refused = ", ".join(str(pid) for pid in done.refused)
+        problems.append(f"process(es) {refused} could not be signalled")
+    if done.left:
+        left = ", ".join(str(pid) for pid in done.left)
+        problems.append(f"process(es) {left} were still running afterwards")
+    return UnitOutcome(ok=done.ok, verb="stop", unit="", reason="; ".join(problems))
+
+
 class ProjectController(QObject):
     projects_changed = Signal()
     # A Start or Stop that could not even be attempted — no launcher, a bound
@@ -901,6 +940,26 @@ class ProjectController(QObject):
         self._set_overlay(path, ProjectStatus.STOPPING)
         future = self._supervisor.stop_async(path)
         future.add_done_callback(lambda done: self._report_stop(path, done))
+
+    def stop_foreign_tree(
+        self, path: Path, tree: Tree, *, disclosed_holder: int | None = None
+    ) -> None:
+        """Signal a set the user confirmed: ADR-0004's foreign stop (LWSM-1301).
+
+        The window enumerated the set, showed it, and enumerated it again after
+        the yes. This re-checks only that the port's holder is still the one
+        shown, then stops exactly that set on a worker.
+        """
+        if self._record(path) is None:
+            self.action_failed.emit(
+                path,
+                f"cannot stop {display_text(path.name)}: it is no longer listed",
+            )
+            return
+        if self._holder_changed(path, disclosed_holder):
+            return
+        self._set_overlay(path, ProjectStatus.STOPPING)
+        self._service_pool.start(_TreeStopTask(path, tree, self._service_signals))
 
     def restart_project(
         self, path: Path, *, disclosed_holder: int | None = None

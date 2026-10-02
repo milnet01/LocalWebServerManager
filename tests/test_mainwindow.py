@@ -8319,3 +8319,175 @@ def test_the_row_menu_withdraws_trust_from_its_launcher(qtbot, built) -> None:
     assert controller._supervisor.trust.revoked == [Path("/srv/web")]
     assert message_of(window) == "web will ask before it starts again"
     window.shutdown()
+
+
+# --- LWSM-1301: stopping a server started elsewhere, by its process set ---------
+
+
+def _foreign_tree(*pids_and_starts: tuple[int, float]):
+    from lwsm.foreign import Member, Tree
+
+    return Tree(
+        members=tuple(Member(pid=pid, started=at) for pid, at in pids_and_starts),
+        handles=(),
+    )
+
+
+def tree_window(qtbot, built, monkeypatch, trees, answers, unit=None):
+    """One foreign row whose holder (9999) sits in `unit`; `trees` are what
+    each enumeration returns in turn, `answers` what each dialog says."""
+    from lwsm.service import Holder
+
+    monkeypatch.setattr(
+        mainwindow, "describe_holder", lambda pid: Holder(pid=pid, unit=unit)
+    )
+    queue = list(trees)
+
+    def enumerate_next(pid: int):
+        item = queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(mainwindow, "enumerate_tree", enumerate_next)
+    asked: list = []
+    replies = list(answers)
+
+    def confirm(path, tree, changed):
+        asked.append((tree, changed))
+        return replies.pop(0)
+
+    controller = build_controller(
+        built, [record("theirs", 6006)], FakeProbe(6006, holder=9999), managed=[]
+    )
+    window = MainWindow(controller, Theme.default(), [], confirm_tree=confirm)
+    qtbot.addWidget(window)
+    controller.poll_once()
+    qtbot.waitUntil(lambda: controller.rows()[0].holder_pid == 9999, timeout=2000)
+    stops: list = []
+    controller.stop_foreign_tree = lambda path, tree, **kw: stops.append(
+        (path, tree, kw)
+    )
+    return window, controller, asked, stops
+
+
+def test_a_terminal_server_is_stopped_by_the_set_the_user_saw(
+    qtbot, built, monkeypatch
+) -> None:
+    """ADR-0004: name the set, re-enumerate after the yes, signal that set."""
+    shown = _foreign_tree((9999, 1.0), (10000, 2.0))
+    same = _foreign_tree((9999, 1.0), (10000, 2.0))
+    window, _, asked, stops = tree_window(
+        qtbot, built, monkeypatch, [shown, same], [True]
+    )
+
+    window._stop_project(Path("/srv/theirs"))
+
+    assert asked == [(shown, False)]
+    assert stops == [(Path("/srv/theirs"), same, {"disclosed_holder": 9999})]
+
+
+def test_no_to_the_set_stops_nothing(qtbot, built, monkeypatch) -> None:
+    window, _, asked, stops = tree_window(
+        qtbot, built, monkeypatch, [_foreign_tree((9999, 1.0))], [False]
+    )
+
+    window._stop_project(Path("/srv/theirs"))
+
+    assert len(asked) == 1
+    assert stops == []
+
+
+def test_a_set_that_changed_during_the_dialog_is_asked_about_again(
+    qtbot, built, monkeypatch
+) -> None:
+    """A child spawned, or a PID reused, while the dialog was open: the user is
+    shown the new set rather than having a stale yes applied to it."""
+    first = _foreign_tree((9999, 1.0))
+    grown = _foreign_tree((9999, 1.0), (10001, 3.0))
+    window, _, asked, stops = tree_window(
+        qtbot, built, monkeypatch, [first, grown, grown, grown], [True, True]
+    )
+
+    window._stop_project(Path("/srv/theirs"))
+
+    assert asked == [(first, False), (grown, True)]
+    assert [tree for _, tree, _ in stops] == [grown]
+
+
+def test_a_set_that_cannot_be_listed_is_reported_not_stopped(
+    qtbot, built, monkeypatch
+) -> None:
+    from lwsm.foreign import TreeRefused
+
+    window, _, asked, stops = tree_window(
+        qtbot, built, monkeypatch, [TreeRefused("the server has already stopped")], []
+    )
+    reported: list = []
+    monkeypatch.setattr(
+        window, "_report_failure", lambda path, text: reported.append(text)
+    )
+
+    window._stop_project(Path("/srv/theirs"))
+
+    assert asked == [] and stops == []
+    assert reported == ["cannot stop theirs: the server has already stopped"]
+
+
+def test_a_holder_inside_a_unit_keeps_the_service_route(
+    qtbot, built, monkeypatch
+) -> None:
+    """A unit is driven by name (LWSM-1012); the process-set dialog is only for
+    a holder in no unit."""
+    window, controller, asked, stops = tree_window(
+        qtbot, built, monkeypatch, [], [], unit="app-x@autostart.service"
+    )
+    window._disclose = lambda path, holder: True
+    service_stops: list = []
+    controller.stop_project = lambda path, **kw: service_stops.append(path)
+
+    window._stop_project(Path("/srv/theirs"))
+
+    assert asked == [] and stops == []
+    assert service_stops == [Path("/srv/theirs")]
+
+
+def test_the_set_dialog_shows_separate_columns_and_defaults_to_cancel(
+    qtbot, built, monkeypatch
+) -> None:
+    """ADR-0004: "pid / executable path / create-time as separate columns —
+    never one formatted sentence", because a process names itself. A newline in
+    a command must not reach a cell as a line break, and Cancel is the default."""
+    from PySide6.QtWidgets import QDialog, QPushButton, QTableWidget
+
+    from lwsm.foreign import Member, Tree
+
+    seen: dict = {}
+
+    def fake_exec(dialog) -> int:
+        table = dialog.findChild(QTableWidget)
+        seen["cells"] = [
+            [table.item(r, c).text() for c in range(table.columnCount())]
+            for r in range(table.rowCount())
+        ]
+        seen["default"] = [
+            b.text() for b in dialog.findChildren(QPushButton) if b.isDefault()
+        ]
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    controller = build_controller(built, [record("theirs", 6006)], FakeProbe(6006))
+    window = MainWindow(controller, Theme.default(), [])
+    qtbot.addWidget(window)
+    tree = Tree(
+        members=(
+            Member(pid=9999, started=0.0, exe="/usr/bin/node", cmdline="node a\nb"),
+        ),
+        handles=(),
+    )
+
+    assert window._confirm_tree_dialog(Path("/srv/theirs"), tree, False) is False
+    pid, started, program, command = seen["cells"][0]
+    assert (pid, program) == ("9999", "/usr/bin/node")
+    assert "\n" not in command and started
+    assert [text.replace("&", "") for text in seen["default"]] == ["Cancel"]
