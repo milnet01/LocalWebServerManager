@@ -10478,6 +10478,8 @@ bugs in the same area.
   but list_elements preamble:true does not list the Legend block, and
   amend_preamble cannot find its text. Still blocked; filed again with Ants
   MCP the same day. Moved from the released 0.1.0 section to 0.2.0.
+  Blocked-by: ANTS-5615 (filed by Ants Terminal 2026-10-02). That session
+  will message when it ships. No workaround; do not hand-edit the line.
   **Layman:** One line in the roadmap's key still talks about phases, though the roadmap is now grouped by version.
   Kind: doc-fix.
   Source: in-session-2026-09-25, found while updating the preamble for LWSM-1311.
