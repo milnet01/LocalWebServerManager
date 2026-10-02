@@ -87,6 +87,7 @@ from lwsm import (
 )
 from lwsm.configfile import ConfigFileError, display_text, quoted
 from lwsm.controller import (
+    RUNNING_STATES,
     ProjectController,
     ProjectStatus,
     RowView,
@@ -211,6 +212,12 @@ STATE_GLYPHS = {
     # quietly reduce that to two for exactly the states that change fastest.
     ProjectStatus.STARTING: "◌",
     ProjectStatus.STOPPING: "◑",
+    # ADR-0004's other four (LWSM-1011). Solid shapes, so each stays distinct
+    # in greyscale and at large text sizes; same font coverage as ● and ○.
+    ProjectStatus.RUNNING_WRONG_PORT: "▲",
+    ProjectStatus.RUNNING_FOREIGN: "◆",
+    ProjectStatus.PORT_BLOCKED: "■",
+    ProjectStatus.FAILED: "✖",
 }
 
 
@@ -337,6 +344,16 @@ def state_word(status: ProjectStatus) -> str:
         ProjectStatus.UNKNOWN: QCoreApplication.translate("ProjectRow", "unknown"),
         ProjectStatus.STARTING: QCoreApplication.translate("ProjectRow", "starting"),
         ProjectStatus.STOPPING: QCoreApplication.translate("ProjectRow", "stopping"),
+        ProjectStatus.RUNNING_WRONG_PORT: QCoreApplication.translate(
+            "ProjectRow", "running (wrong port)"
+        ),
+        ProjectStatus.RUNNING_FOREIGN: QCoreApplication.translate(
+            "ProjectRow", "running (foreign)"
+        ),
+        ProjectStatus.PORT_BLOCKED: QCoreApplication.translate(
+            "ProjectRow", "port blocked"
+        ),
+        ProjectStatus.FAILED: QCoreApplication.translate("ProjectRow", "failed"),
     }.get(status, str(status))
 
 
@@ -1213,7 +1230,7 @@ class ProjectRow(QFrame):
         self.open_button.setText(QCoreApplication.translate("ProjectRow", "Open"))
         status = row.status
         in_transition = status in (ProjectStatus.STARTING, ProjectStatus.STOPPING)
-        running = status is ProjectStatus.RUNNING
+        running = status in RUNNING_STATES
         # `not in_transition` appears once, on Start, and that is not an
         # oversight on the other three. The overlay REPLACES the status, so
         # `running` and `in_transition` are mutually exclusive — a guard on
@@ -3208,7 +3225,7 @@ class MainWindow(QMainWindow):
         view = next((row for row in self._controller.rows() if row.path == path), None)
         if view is None or view.managed or (own_child_suffices and view.supervised):
             return True
-        if view.status is not ProjectStatus.RUNNING:
+        if view.status not in RUNNING_STATES:
             # Nothing holds the port, so there is no foreign server to describe.
             # ADR-0004's disclosure is about `running (foreign)`; firing it on an
             # idle row would be a dialog with every field empty.
@@ -3255,7 +3272,7 @@ class MainWindow(QMainWindow):
             view is None
             or view.managed
             or view.supervised
-            or view.status is not ProjectStatus.RUNNING
+            or view.status not in RUNNING_STATES
             or view.holder_pid is None
         ):
             return False

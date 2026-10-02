@@ -224,6 +224,23 @@ class ProjectStatus(StrEnum):
     # responsive and is discarded the moment probing disagrees.
     STARTING = "starting"
     STOPPING = "stopping"
+    # ADR-0004's other four derived states (LWSM-1011). The values are the
+    # ADR's names, which `design-look-and-feel.md` also uses for the tokens.
+    RUNNING_WRONG_PORT = "running (wrong port)"
+    RUNNING_FOREIGN = "running (foreign)"
+    PORT_BLOCKED = "port blocked"
+    FAILED = "failed"
+
+
+# Every state in which a server is answering on the project's behalf: Stop,
+# Restart and Open act on these. `RUNNING` is ADR-0004's `running (managed)`.
+RUNNING_STATES = frozenset(
+    {
+        ProjectStatus.RUNNING,
+        ProjectStatus.RUNNING_WRONG_PORT,
+        ProjectStatus.RUNNING_FOREIGN,
+    }
+)
 
 
 # What a Start or a Stop is heading toward. The overlay is discarded when a poll
@@ -1462,7 +1479,7 @@ class ProjectController(QObject):
         for record in self._records:
             if record.path in managed:
                 continue
-            if self._statuses.get(record.path) is not ProjectStatus.RUNNING:
+            if self._statuses.get(record.path) not in RUNNING_STATES:
                 continue
             try:
                 rotate_at(record.path, record.name)

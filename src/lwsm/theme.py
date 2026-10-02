@@ -164,6 +164,10 @@ class Theme:
         return {
             ProjectStatus.RUNNING: self.state_running,
             ProjectStatus.STARTING: self.state_starting,
+            ProjectStatus.RUNNING_WRONG_PORT: self.state_wrong_port,
+            ProjectStatus.RUNNING_FOREIGN: self.state_foreign,
+            ProjectStatus.PORT_BLOCKED: self.state_blocked,
+            ProjectStatus.FAILED: self.state_failed,
             ProjectStatus.STOPPED: self.state_stopped,
             ProjectStatus.UNKNOWN: self.state_unknown,
         }.get(status, self.text)
