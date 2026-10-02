@@ -10465,12 +10465,15 @@ bugs in the same area.
   Source: review-code-2026-10-01 lane-07 L7-L1.
   Lanes: release, tooling.
 
-- 📋 [LWSM-1371] **CLAUDE.md still says chore and doc commits use "P04:", a rule that ended when 0.1.0 shipped.**
+- ✅ [LWSM-1371] **CLAUDE.md still says chore and doc commits use "P04:", a rule that ended when 0.1.0 shipped.**
   CLAUDE.md § Commit conventions: "Until 0.1.0 ships, a chore or doc-only
   commit with no item id uses P04:" (user, 2026-09-28), to be revisited with
   LWSM-1062 (now closed). 0.1.0 shipped 2026-10-01, so that override has
   lapsed and commits.md § 1.2's chore: and docs: rows apply. Update the
   paragraph; it is a project CLAUDE.md, so put the edit to rule 14's test.
+  Resolved (2026-10-02): CLAUDE.md § Commit conventions now points at
+  commits.md § 1.2 for commits with no item id, and records that the P04:
+  override lapsed when 0.1.0 shipped. Docs gate passed.
   **Layman:** The project's notes still tell future sessions to label small commits the old way; update them now that the first release is out.
   Kind: doc-fix.
   Source: in-session-2026-10-01 (0.1.0 release).
