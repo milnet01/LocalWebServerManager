@@ -10386,6 +10386,11 @@ bugs in the same area.
   ask the user where neither side is authoritative, and gate each
   standard that changes (rule 14). Each file's OWNED-HERE marker names
   LWSM-1062 as owner; repoint them here when this starts.
+  Decided by the user 2026-10-02: replace each local copy with the shared
+  standard and keep only genuinely local rules in a short overrides file
+  (standards/README.md case 2); ask the user only where a local rule means
+  something different. Run after LWSM-1339 and LWSM-1340. Measured the same
+  day: every one of the seven differs from its shared version on most lines.
   **Layman:** Bring this project's own rulebooks back in line with the shared ones, one difference at a time.
   Kind: doc-fix.
   Source: user-decision-2026-09-28 (split from LWSM-1062).
