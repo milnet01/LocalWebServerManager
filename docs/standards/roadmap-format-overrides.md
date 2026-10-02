@@ -15,11 +15,12 @@ on the author's machine**, so a contributor reads this file and `CONTRIBUTING.md
 ## R1. Every open item carries a priority
 
 Every open item (📋, 🚧) carries `Priority: 1`–`5`, where 1 is critical,
-2 high, 3 medium, 4 low and 5 someday. The global standard makes the field
-optional. This project requires it.
+2 high, 3 medium, 4 low and 5 someday. It is written as a `Priority: N.` line
+in the item's body, since `roadmap_log` has no priority argument. The global
+standard makes the field optional. This project requires it.
 
-Why: the order of work in R3 reads it. An item without one cannot be placed
-in that order.
+Why: R3 reads it to find the critical findings, and the bands tell a reader
+how urgent every other item is.
 
 ## R2. `Dependencies:` lists direct predecessors only
 
@@ -35,9 +36,11 @@ chain changes.
 Open findings come first, from every block including those not yet scheduled
 into a release: items of Kind `fix`, `review-fix`, `audit-fix`, `doc-fix` or
 `security`. Within them, critical items come first and then the rest from
-oldest to newest. After them comes the rest of the active release. This
-replaces the global § 3.5.4 step 1, which orders the findings by position
-alone.
+oldest to newest, by ID (IDs are append-only, global § 3.5.1). After them
+comes the rest of the active release. This replaces only the ordering in the
+global § 3.5.4 step 1, which goes by position; its skips (💭, parked,
+blocked, `shipped` blocks), its 🚧-before-📋 rule and its deference to
+`workflow.md` § 1 still apply.
 
 Why: the user's decision. A known defect is closed before new work, and the
 oldest finding is the one whose cited code has drifted furthest.
@@ -58,7 +61,7 @@ level without helping anyone find an item.
 
 | Rule | What checks it |
 |------|----------------|
-| R1 open items carry `Priority:` | **nothing** — `roadmap_log` takes no priority argument and the store accepts an item without one |
+| R1 open items carry `Priority:` | **nothing** — the store accepts an item whose body has no `Priority:` line |
 | R2 `Dependencies:` is direct-only | **nothing** — whether a listed item is a direct predecessor is a judgement |
 | R3 order of work | **nothing** — no tool selects the next item; the agent working the roadmap applies the rule |
 | R4 block layout | **nothing** — the render emits whatever sections the store holds, and `roadmap_log op:"create_section"` accepts a `###` |

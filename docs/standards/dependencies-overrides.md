@@ -19,6 +19,7 @@ machine and not in this repository**: a contributor reads this file plus
 | GitHub Actions | a full commit SHA, with the release as a trailing comment |
 | Runner images | an explicit label, never `-latest` |
 | Python interpreter | the version in the committed `.python-version` |
+| CI tools (`scripts/ci-tools.env`) | an exact version |
 
 `requires-python` is a floor, not a pin.
 
@@ -29,10 +30,11 @@ two produces a failure that will not reproduce locally.
 ## D2. Bump on contact
 
 A pin that is written or touched is set to the latest stable release at
-that moment, checked against the registry rather than recalled. Any edit to
-`pyproject.toml`, a workflow or `uv.lock` checks the other pins in that
-file too. This overrides the shared standard's surface-then-ask (§ 5) for
-pins this project touches.
+that moment, checked against the registry rather than recalled, unless D7
+holds it. Any edit to `pyproject.toml`, a workflow, `uv.lock` or
+`scripts/ci-tools.env` checks the other pins in that file too, and bumps
+each one that is behind in its own commit (shared § 6). This overrides the
+shared standard's surface-then-ask (§ 5) for pins this project touches.
 
 Why: if bumps wait for a scheduled sweep, the sweep is the only thing that
 ever bumps anything.
@@ -54,7 +56,11 @@ Why: `--frozen` passes when `uv.lock` disagrees with `pyproject.toml` and
 tests the old version. `--locked` fails, which catches a pin edited without
 a re-lock.
 
-## D5. Every ecosystem is registered in `.github/dependabot.yml`
+## D5. Every ecosystem dependabot supports is registered in `.github/dependabot.yml`
+
+Here that is GitHub Actions and uv. The interpreter, the runner label and
+the CI tools have no dependabot ecosystem; D2's contact rule and
+`check-dependencies` stand in for it.
 
 Why: an unregistered ecosystem gets no update pull requests, which looks
 exactly like having nothing outdated.
@@ -91,4 +97,4 @@ pin is current.
 | D4 `uv sync --locked` | Partial: the `uv sync --locked` step in `scripts/local-ci.sh` fails on a lock that disagrees with `pyproject.toml` — nothing asserts the flag stays `--locked` |
 | D5 every ecosystem in dependabot | nothing |
 | D6 re-verify the design premise | nothing |
-| D7 hold register | Partial: `check-dependencies` walks the ledger against each ecosystem's releases — nothing checks that a hold has a row |
+| D7 hold register | nothing checks that a hold has a row |

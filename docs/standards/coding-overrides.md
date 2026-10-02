@@ -51,7 +51,10 @@ limits, so this is not just a convention.
 ## O4. Every spawn starts a new session
 
 On top of the shared rule that a command is an argument list, never a shell
-string: every child is started with `start_new_session=True`.
+string: every child the app supervises or leaves running — a server, a
+browser — is started with `start_new_session=True`. A short query whose
+output is captured and which runs to completion (the scanner's `systemctl`
+call) is not.
 
 Why: stopping a server signals its whole process group, and that group
 exists only because the child got its own session (ADR-0003).
@@ -132,18 +135,18 @@ skipped one leave identical commits.
 PEP 8 casing (`languages/python.md`) is held by review here, not by the
 gate.
 
-Why: the only sites `N` flags are Qt overrides that must be camelCase
-(`changeEvent`, `paintEvent`, …), so turning it on would mean suppressing
-it at the framework boundary.
+Why: `N` flags Qt overrides and their arguments, which must be camelCase
+(`changeEvent`, `setText`, `sourceText`), so turning it on would mean
+suppressing it at the framework boundary.
 
 ## What checks this
 
 | Rule | What checks it |
 |---|---|
-| O1 core never imports `QtWidgets` | `tests/test_layering.py::test_core_never_imports_qtwidgets`; `::test_the_core_module_list_matches_the_criterion` (modules on disk minus `NON_CORE_MODULES` must equal `CORE_MODULES`) |
+| O1 core never imports `QtWidgets` | Partial: `tests/test_layering.py::test_core_never_imports_qtwidgets` and `::test_the_core_module_list_matches_the_criterion` (modules on disk minus `NON_CORE_MODULES` must equal `CORE_MODULES`) — a core import of another Qt module, such as `QtGui`, is held by review |
 | O2 no widget call off the UI thread | nothing |
 | O3 never write into a sibling project | Partial: `tests/test_applog.py::test_default_state_dir_follows_the_xdg_spec` and `tests/test_browsers.py::test_relative_xdg_directories_are_ignored` cover the XDG paths — nothing checks that no write lands in a scanned directory |
-| O4 new session on every spawn | Partial: `tests/test_browsers.py::test_open_url_spawns_the_expanded_argv_detached_and_never_a_shell` covers the browser spawn, and ruff `S` catches a shell string — nothing asserts `start_new_session=True` on other spawn sites |
+| O4 new session on every supervised spawn | Partial: `tests/test_browsers.py::test_open_url_spawns_the_expanded_argv_detached_and_never_a_shell` covers the browser spawn, and ruff `S` catches a shell string — nothing asserts `start_new_session=True` on other spawn sites |
 | O5 never report an unobserved state | nothing |
 | O6 Qt for Python | nothing |
 | O7 no literal colours, sizes or fonts | Partial: `tests/test_layering.py::test_no_colour_literals_in_widget_code` and `::test_no_pinned_font_family_in_widget_code` scan the modules in `WIDGET_MODULES` — other UI modules are not scanned, and nothing catches a pixel constant |

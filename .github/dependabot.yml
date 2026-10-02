@@ -3,7 +3,7 @@
 # Every ecosystem this project uses must be registered here
 # (dependencies-overrides.md § D5). An ecosystem left out gets no
 # update PRs, which is indistinguishable from having nothing outdated —
-# and dependabot is the ONLY automated signal for § 2.2 currency, since
+# and dependabot is the ONLY automated signal for D2 currency, since
 # a stale-but-valid pin resolves and tests perfectly cleanly.
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 

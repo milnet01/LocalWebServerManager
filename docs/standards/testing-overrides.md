@@ -60,18 +60,19 @@ Why: a leaked child holds a port and poisons every later test in the session.
 
 Core modules (scanner, registry, ports, supervisor) import no widgets and need
 no display. Widget tests use `pytest-qt` under `QT_QPA_PLATFORM=offscreen`,
-set by `tests/conftest.py` and `scripts/local-ci.sh`. A test that takes `qtbot`
-or `app_font` carries the `gui` marker, on the test or through the module's
-`pytestmark`. If a test needs a visible window to pass, the code it tests is in
+set by `tests/conftest.py` and `scripts/local-ci.sh`. A test that needs a Qt
+application object — it takes `qtbot`, `qapp` or `app_font` — carries the
+`gui` marker, on the test or through the module's `pytestmark`. If a test needs a visible window to pass, the code it tests is in
 the wrong layer.
 
 Why: CI has no X server, and the layering keeps the core testable without Qt.
 
 ## T7 — The state table is a parametrised test
 
-The derived states of ADR-0004 get one parametrised test whose cases are named
-after the states, so a new state cannot be added without a case appearing. Not
-met yet: the classifier that derives them is LWSM-1011, and the test lands with
+ADR-0004's state table gets one parametrised test with a case per row, named
+for the state it derives and the condition that derives it. The test also
+asserts that every member of the state enumeration appears among its cases, so
+a new state cannot be added without a case appearing. Not met yet: the classifier that derives them is LWSM-1011, and the test lands with
 it.
 
 Why: ADR-0004's state table is the app's core contract.
@@ -110,8 +111,8 @@ goes red:
    delete the backup.
 
 Never restore with `git checkout`: it destroys uncommitted work. Where one
-change fixed several sites, break each site separately. A source-invariant test
-(T10) counts once for every site it reads. Record the breaks and their results
+change fixed several sites, break each site separately; one source-invariant
+test (T10) may be the test that goes red for each of them. Record the breaks and their results
 in the commit body.
 
 Why: stricter than the global § 2, which asks for this proof only for a test
@@ -154,13 +155,15 @@ through `--strict-markers`. There is no `fast` label. A marker never excuses a
 slow test, so a slow correctness test stays in every gate.
 
 Why: overrides the global § 5 and `python.md`'s labelling, which would let a
-slow correctness test drop out of the quick run.
+slow correctness test drop out of the push gate.
 
 ## T12 — Invariants and tests cite each other
 
-A feature's contract is its spec in `docs/specs/`. Each invariant names its
-test in a `*Test:*` clause, and each test names its invariant (`INV-3 of
+Where a feature has a spec in `docs/specs/`, that spec is its contract: each
+invariant names its test in a `*Test:*` clause, and each test names its invariant (`INV-3 of
 LWSM-1006`) in its name or docstring.
+
+A feature with no spec takes the global § 4 unchanged.
 
 Why: overrides the global § 4, which links one way only. Here the specs are
 the contracts, and the global `spec-format.md` § 3.7 binds them in full.
@@ -174,7 +177,7 @@ the contracts, and the global `spec-format.md` § 3.7 binds them in full.
 | T3 | nothing — a reviewer |
 | T4 | Partial: the polling helpers exist — nothing flags a duration sleep, and some tests still use one |
 | T5 | Partial: `tests/conftest.py::_no_orphans_outlive_the_run` fails the run on a process left under its temp directory — nothing catches a leaked socket or a stray elsewhere |
-| T6 | Partial: `tests/test_layering.py::test_every_test_needing_a_qt_application_carries_the_gui_marker` and `::test_core_never_imports_qtwidgets` — they miss a class-based or indirect-fixture Qt test |
+| T6 | Partial: `tests/test_layering.py::test_every_test_needing_a_qt_application_carries_the_gui_marker` and `::test_core_never_imports_qtwidgets` — the first reads `qtbot` and `app_font` only, so it misses a `qapp` test, a class-based one and an indirect-fixture one |
 | T7 | nothing — the test does not exist yet |
 | T8 | `tests/test_theme.py` (contrast, per theme); `tests/test_mainwindow.py::test_every_action_is_reachable_by_tab_in_the_order_it_is_read`, `::test_every_interactive_widget_has_a_name_a_screen_reader_can_read`, `::test_nothing_is_clipped_at_two_hundred_percent` |
 | T9 | nothing — the commit-body record is the only trace, read in review |
