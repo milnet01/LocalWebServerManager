@@ -10431,12 +10431,21 @@ bugs in the same area.
   Source: review-code 2026-09-01 lane 9, queued from LWSM-1279 on 2026-10-01.
   Lanes: browsers.
 
-- 📋 [LWSM-1340] **browsers.installed has no time budget and no entry cap, and runs on the UI thread.**
+- ✅ [LWSM-1340] **browsers.installed has no time budget and no entry cap, and runs on the UI thread.**
   Called synchronously from MainWindow.__init__. Cheap today, but an
   XDG_DATA_DIRS on NFS blocks the window. scanner.py's Deadline and caps
   are the precedent. Choices: the cap and budget values, whether a
   partial result is flagged, and whether to move the call off the UI
   thread instead (a budget alone still blocks for up to the budget).
+  Resolved (2026-10-02): SCAN_BUDGET_SECONDS = 2.0 and
+  MAX_DESKTOP_ENTRIES = 5,000 in browsers.py (measured: 452 entries in
+  ~80 ms here). The clock is checked per folder and per entry in the walk
+  and between entry reads; the walk is sorted so a cut keeps the same
+  entries. LoadResult.complete is False when cut, with a reason; the
+  window then says the list was cut short rather than "not installed".
+  Not moved off the UI thread: the bounds cap the stall at ~2 s, and a
+  worker would need the window to handle a browser list arriving late.
+  Eight tests; nine deliberate breaks each turned one red. Gate: 2135.
   **Layman:** Listing browsers could freeze the window if the system's app folders are slow or huge.
   Kind: fix.
   Source: review-code 2026-09-01 lane 9, queued from LWSM-1279 on 2026-10-01.

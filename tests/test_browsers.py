@@ -416,6 +416,101 @@ def test_an_unreadable_subfolder_costs_only_itself_and_is_reported(
 
 
 # --------------------------------------------------------------------------
+# Bounds — a slow or huge applications tree cannot hold the window (LWSM-1340)
+# --------------------------------------------------------------------------
+
+
+def stopped_clock() -> object:
+    """A clock that reads 0 once (the deadline is set from it) and 100 after."""
+    readings = iter([0.0])
+    return lambda: next(readings, 100.0)
+
+
+def test_a_complete_scan_says_so(tmp_path: Path) -> None:
+    write(tmp_path, "good.desktop", entry(Name="Good"))
+    assert browsers.installed((tmp_path,)).complete is True
+
+
+def test_a_scan_out_of_time_stops_and_says_the_list_is_partial(
+    tmp_path: Path,
+) -> None:
+    write(tmp_path, "a.desktop", entry(Name="A"))
+    write(tmp_path, "b.desktop", entry(Name="B"))
+
+    result = browsers.installed((tmp_path,), now=stopped_clock(), budget_seconds=1.0)
+
+    assert result.browsers == ()
+    assert result.complete is False
+    assert any("1 s" in reason for reason in result.reasons), result.reasons
+
+
+def test_an_expired_budget_stops_the_walk_itself(tmp_path: Path, monkeypatch) -> None:
+    """The listing is the slow part on a network mount, not only the reads."""
+    write(tmp_path / "x" / "y" / "z", "web.desktop", entry())
+    real_walk, visited = browsers.os.walk, []
+
+    def counting_walk(*args, **kwargs):
+        for step in real_walk(*args, **kwargs):
+            visited.append(step[0])
+            yield step
+
+    monkeypatch.setattr(browsers.os, "walk", counting_walk)
+    browsers.installed((tmp_path,), now=stopped_clock(), budget_seconds=1.0)
+
+    assert len(visited) <= 1, visited
+
+
+def test_the_entry_cap_stops_the_scan_and_says_the_list_is_partial(
+    tmp_path: Path,
+) -> None:
+    for name in ("a", "b", "c"):
+        write(tmp_path, f"{name}.desktop", entry(Name=name.upper()))
+
+    result = browsers.installed((tmp_path,), max_entries=2)
+
+    assert [b.name for b in result.browsers] == ["A", "B"]
+    assert result.complete is False
+    assert any("2 desktop entries" in reason for reason in result.reasons)
+
+
+def test_the_entry_cap_counts_across_directories(tmp_path: Path) -> None:
+    """A later directory, even a missing one, cannot undo the cut."""
+    one, two = tmp_path / "one", tmp_path / "two"
+    write(one, "a.desktop", entry(Name="A"))
+    write(two, "b.desktop", entry(Name="B"))
+    result = browsers.installed((one, two, tmp_path / "missing"), max_entries=1)
+    assert [b.name for b in result.browsers] == ["A"]
+    assert result.complete is False
+
+
+def test_the_budget_is_checked_between_entry_reads(tmp_path: Path, monkeypatch) -> None:
+    """Reading the entries is the other slow part, after the listing."""
+    write(tmp_path, "a.desktop", entry(Name="A"))
+    write(tmp_path, "b.desktop", entry(Name="B"))
+    clock = [0.0]
+    real = browsers._browser_from
+
+    def slow_read(*args, **kwargs):
+        clock[0] = 100.0
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(browsers, "_browser_from", slow_read)
+    result = browsers.installed((tmp_path,), now=lambda: clock[0], budget_seconds=1.0)
+
+    assert [b.name for b in result.browsers] == ["A"]
+    assert result.complete is False
+
+
+def test_exactly_the_cap_is_still_a_complete_scan(tmp_path: Path) -> None:
+    write(tmp_path, "a.desktop", entry(Name="A"))
+    write(tmp_path, "b.desktop", entry(Name="B"))
+    result = browsers.installed((tmp_path,), max_entries=2)
+    assert len(result.browsers) == 2
+    assert result.complete is True
+    assert result.reasons == ()
+
+
+# --------------------------------------------------------------------------
 # by_id
 # --------------------------------------------------------------------------
 

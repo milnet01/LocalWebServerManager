@@ -35,6 +35,8 @@ import os
 import shutil
 import subprocess
 import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,6 +65,15 @@ _DROPPED_CODES = frozenset({"%d", "%D", "%n", "%N", "%v", "%m", "%i", "%c", "%k"
 # legitimate caller with a third scheme (`mainwindow.project_url` builds the
 # only URL that reaches here).
 _ALLOWED_SCHEMES = ("http://", "https://")
+
+# The scan runs once, synchronously, while the window is built (LWSM-1340), so
+# a slow network mount under XDG_DATA_DIRS or a huge applications tree would
+# hold the window off-screen. Measured 2026-10-02 on this machine: 452 entries
+# in about 80 ms. Both bounds sit an order of magnitude or more above that, so
+# they bind only on a machine that would otherwise stall. `scanner.py`'s
+# `SCAN_BUDGET_SECONDS` and `MAX_ROOT_ENTRIES` are the precedent.
+SCAN_BUDGET_SECONDS = 2.0
+MAX_DESKTOP_ENTRIES = 5_000
 
 
 class BrowserError(Exception):
@@ -394,8 +405,34 @@ def _browser_from(
     return Browser(entry_id=entry_id, name=name, argv=argv)
 
 
-def _desktop_entries(directory: Path, reasons: list[str]) -> list[tuple[str, Path]]:
+@dataclass(slots=True)
+class _Budget:
+    """What is left of the scan's time and entry allowance (LWSM-1340).
+
+    `now` is injected so the budget tests are deterministic rather than slow.
+    """
+
+    expires_at: float
+    now: Callable[[], float]
+    entries_left: int
+
+    def out_of_time(self) -> bool:
+        return self.now() >= self.expires_at
+
+    def exhausted(self) -> bool:
+        return self.entries_left <= 0 or self.out_of_time()
+
+
+def _desktop_entries(
+    directory: Path, reasons: list[str], budget: _Budget
+) -> tuple[list[tuple[str, Path]], bool]:
     """Every `*.desktop` under `directory`, as `(desktop-file id, path)`, id-sorted.
+
+    The second value is `True` when the budget ran out before the walk finished.
+    Each entry spends one from `budget.entries_left`, and the clock is checked
+    per folder as well as per entry: on a network mount the listing is the slow
+    part. Folders and names are walked in sorted order, so a cut-short scan keeps
+    the same entries every time.
 
     Recursive, because the spec gives an entry in a sub-folder an id of its own
     (LWSM-1339): `vendor/web.desktop` is `vendor-web.desktop`. A non-recursive
@@ -422,15 +459,21 @@ def _desktop_entries(directory: Path, reasons: list[str]) -> list[tuple[str, Pat
     for root, dirnames, filenames in os.walk(
         directory, onerror=on_error, followlinks=False
     ):
+        if budget.out_of_time():
+            return sorted(found), True
+        dirnames.sort()
         # A directory named `*.desktop` is listed too, as the glob listed it,
         # so it is refused and reported rather than silently skipped.
-        for name in (*filenames, *dirnames):
+        for name in sorted((*filenames, *dirnames)):
             if name.startswith(".") or not name.endswith(".desktop"):
                 continue
+            if budget.exhausted():
+                return sorted(found), True
+            budget.entries_left -= 1
             path = Path(root) / name
             entry_id = path.relative_to(directory).as_posix().replace("/", "-")
             found.append((entry_id, path))
-    return sorted(found)
+    return sorted(found), False
 
 
 @dataclass(frozen=True)
@@ -446,17 +489,25 @@ class LoadResult:
     there and for one whose file could not be parsed, so without this the
     window told a user their chosen browser "is not installed" about a browser
     that is installed, pointing them at reinstalling it.
+
+    **`complete` is `False` when the scan stopped at its time budget or entry
+    cap** (LWSM-1340). An id it never reached is then not evidence the browser
+    is gone, which is the same wrong sentence `refused` exists to prevent.
     """
 
     browsers: tuple[Browser, ...]
     reasons: tuple[str, ...] = ()
     refused: frozenset[str] = frozenset()
+    complete: bool = True
 
 
 def installed(
     dirs: tuple[Path, ...] | None = None,
     *,
     mimeapps: tuple[Path, ...] | None = None,
+    now: Callable[[], float] | None = None,
+    budget_seconds: float = SCAN_BUDGET_SECONDS,
+    max_entries: int = MAX_DESKTOP_ENTRIES,
 ) -> LoadResult:
     """Every browser the desktop would hand a link to, first definition winning.
 
@@ -474,10 +525,20 @@ def installed(
 
     Sorted by name so the dropdown does not reorder itself between runs on
     directory-iteration order.
+
+    Bounded by `budget_seconds` and `max_entries` (LWSM-1340): past either, the
+    scan stops, keeps what it found, and says so in `reasons` and `complete`.
+    The `mimeapps.list` reads are not counted; they are a fixed, short list of
+    files, each already capped by `read_bounded`.
     """
+    clock = time.monotonic if now is None else now
+    budget = _Budget(
+        expires_at=clock() + budget_seconds, now=clock, entries_left=max_entries
+    )
     associations, reasons = _associations(
         mimeapps_paths() if mimeapps is None else mimeapps
     )
+    cut_short = False
     found: dict[str, Browser] = {}
     refused: set[str] = set()
     # Every id an earlier directory DEFINED, browser or not. The first file
@@ -488,7 +549,11 @@ def installed(
         # An unreadable folder is that folder's browsers lost, never the whole
         # list, and `_desktop_entries` reports it (LWSM-1250). No id is
         # recorded for it: nothing there names a browser a caller could match.
-        for entry_id, path in _desktop_entries(directory, reasons):
+        entries, cut_short = _desktop_entries(directory, reasons, budget)
+        for entry_id, path in entries:
+            if budget.out_of_time():
+                cut_short = True
+                break
             if entry_id in seen:
                 continue
             seen.add(entry_id)
@@ -516,12 +581,23 @@ def installed(
                 continue
             if browser is not None:
                 found[entry_id] = browser
+        if cut_short:
+            break
+    if cut_short:
+        limit = (
+            f"more than {max_entries} desktop entries"
+            if budget.entries_left <= 0
+            else f"the scan took longer than {budget_seconds:g} s"
+        )
+        reasons.append(f"browser list cut short: {limit}; some may be missing")
+        log.info("browser scan cut short: %s", limit)
     return LoadResult(
         browsers=tuple(
             sorted(found.values(), key=lambda b: (b.name.lower(), b.entry_id))
         ),
         reasons=tuple(reasons),
         refused=frozenset(refused),
+        complete=not cut_short,
     )
 
 

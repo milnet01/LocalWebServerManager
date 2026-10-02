@@ -1546,6 +1546,7 @@ def rescan_window(
     saves: list | None = None,
     browsers_available: tuple = (),
     browsers_refused: frozenset[str] = frozenset(),
+    browsers_complete: bool = True,
     size: tuple[int, int] | None = None,
 ) -> tuple[MainWindow, ProjectController]:
     """A window with a Rescan context whose scan and writer are both fakes.
@@ -1580,7 +1581,9 @@ def rescan_window(
         # directory so the real scan finds nothing, and a test that wants
         # browsers says which (`§ T1`).
         list_browsers=lambda: browsers.LoadResult(
-            browsers=browsers_available, refused=browsers_refused
+            browsers=browsers_available,
+            refused=browsers_refused,
+            complete=browsers_complete,
         ),
     )
     qtbot.addWidget(window)
@@ -7126,6 +7129,35 @@ def test_a_browser_whose_entry_could_not_be_read_is_not_called_uninstalled(
     assert opened == ["http://localhost:3000/"], "it must still open"
     assert "not installed" not in message, message
     assert "could not be read" in message
+
+
+def test_a_browser_the_cut_short_scan_never_reached_is_not_called_uninstalled(
+    qtbot, built, tmp_path
+) -> None:
+    """A third route to `by_id` returning None (LWSM-1340).
+
+    The browser scan stops at its time budget or entry cap, and an id it never
+    reached is not evidence the browser is gone. Saying "not installed" there
+    sends the user to reinstall something that may well be on the machine.
+    """
+    opened: list = []
+    window, controller = rescan_window(
+        qtbot,
+        built,
+        [with_browser("a", 3000, "unreached.desktop")],
+        tmp_path,
+        FakeScanResult(projects=()),
+        browsers_available=BROWSERS,
+        browsers_complete=False,
+    )
+    window._open_url = lambda url: opened.append(url.toString()) or True
+
+    window._open_project(controller.records()[0].path)
+
+    message = message_of(window)
+    assert opened == ["http://localhost:3000/"], "it must still open"
+    assert "not installed" not in message, message
+    assert "cut short" in message, message
 
 
 # --- LWSM-1261: the trust dialog must show what will actually run -------------

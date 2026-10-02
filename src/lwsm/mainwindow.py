@@ -1590,6 +1590,10 @@ class MainWindow(QMainWindow):
         # `_open_project` has to tell the user which — "not installed" about a
         # browser that IS installed sends them to reinstall it.
         self._browsers_refused = found.refused
+        # False when the scan stopped at its time or entry bound (LWSM-1340):
+        # an id it never reached is a third reason `by_id` answers `None`, and
+        # "not installed" is as wrong for it as for a refused one.
+        self._browsers_complete = found.complete
         # An injected seam, and the reason LWSM-1146 could land without
         # LWSM-1018: this item owns the BAR, not the dialog. The dialog arrives
         # as an argument rather than as an edit to `_build_menus`.
@@ -3044,24 +3048,30 @@ class MainWindow(QMainWindow):
                 # identical to a project nobody ever set one for, which is the
                 # silent failure the criterion names.
                 #
-                # Two reasons reach `by_id` returning None, and they need
-                # different sentences (LWSM-1250): the browser is not on the
-                # machine, or its desktop entry is here and could not be read.
+                # Three reasons reach `by_id` returning None, and they need
+                # different sentences: the browser is not on the machine, its
+                # desktop entry is here and could not be read (LWSM-1250), or
+                # the scan stopped before reaching it (LWSM-1340).
                 # Telling the second user to reinstall sends them to fix
                 # something that is not broken.
-                refused = view.browser in self._browsers_refused
-                self.set_status_message(
-                    QCoreApplication.translate(
+                if view.browser in self._browsers_refused:
+                    text = QCoreApplication.translate(
                         "ProjectRow",
                         "%1's browser is installed but its desktop entry could "
                         "not be read - opening in the default",
-                    ).replace("%1", display_text(view.name))
-                    if refused
-                    else QCoreApplication.translate(
+                    )
+                elif not self._browsers_complete:
+                    text = QCoreApplication.translate(
+                        "ProjectRow",
+                        "%1's browser was not found, but the browser list was "
+                        "cut short - opening in the default",
+                    )
+                else:
+                    text = QCoreApplication.translate(
                         "ProjectRow",
                         "%1's chosen browser is not installed - opening in the default",
-                    ).replace("%1", display_text(view.name))
-                )
+                    )
+                self.set_status_message(text.replace("%1", display_text(view.name)))
             # openUrl returns False when the desktop has no handler. Silence
             # here would look identical to a browser that opened behind the
             # window.

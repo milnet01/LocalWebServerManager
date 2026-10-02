@@ -23,6 +23,12 @@ signaling per
 
 ### Fixed
 
+- **A slow or very large applications folder can no longer hold up the window at startup.** (LWSM-1340)
+  The browser list now stops after two seconds or 5,000 desktop entries,
+  whichever comes first, and keeps what it found. If a project's chosen
+  browser was not reached, Open says the list was cut short instead of
+  saying the browser is not installed.
+
 - **A browser installed in a sub-folder of the applications directory is now offered.** (LWSM-1339)
   The browser list only looked at the top of each applications folder.
   It now looks inside sub-folders too, and names such an entry the way
