@@ -21,6 +21,14 @@ signaling per
 
 ## [Unreleased]
 
+### Added
+
+- **The app keeps a backup of your project list, and offers it if the list ever cannot be read.** (LWSM-1039)
+  The first save of each run copies the list as it was at startup to
+  projects.json.bak. If the list later fails to load, the app asks before
+  restoring the backup, and keeps the damaged file beside it rather than
+  deleting it.
+
 ### Changed
 
 - **The project's rulebooks now follow the author's shared standards, and keep only this project's differences.** (LWSM-1326)

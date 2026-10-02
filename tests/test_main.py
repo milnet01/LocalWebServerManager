@@ -1925,3 +1925,78 @@ def test_a_crashed_copys_socket_is_recovered(tmp_path: Path) -> None:
     finally:
         if claim.server is not None:
             claim.server.close()
+
+
+# --- LWSM-1039: a damaged registry with a backup asks before restoring --------
+
+
+def _damaged_with_backup(tmp_path: Path) -> Path:
+    projects = tmp_path / "projects.json"
+    projects.with_name("projects.json.bak").write_text(
+        '{"schema_version": 1, "projects": [{"path": "/srv/kept", "name": "kept"}]}\n',
+        encoding="utf-8",
+    )
+    projects.write_text("{ not json", encoding="utf-8")
+    return projects
+
+
+@pytest.mark.gui
+def test_a_damaged_list_with_a_backup_restores_it_when_the_user_agrees(
+    qtbot, tmp_path
+) -> None:
+    projects = _damaged_with_backup(tmp_path)
+    asked: list = []
+
+    window, controller = build_window(
+        projects, ask_restore=lambda saved_at: asked.append(saved_at) or True
+    )
+    qtbot.addWidget(window)
+    try:
+        assert len(asked) == 1 and asked[0] is not None
+        assert [r.name for r in controller.records()] == ["kept"]
+        assert list(tmp_path.glob("projects.json.damaged-*"))
+        assert "backup" in message_of(window)
+    finally:
+        controller.stop()
+
+
+@pytest.mark.gui
+def test_declining_the_backup_keeps_todays_behaviour(qtbot, tmp_path) -> None:
+    """No: an empty list, the warning, and nothing set aside."""
+    projects = _damaged_with_backup(tmp_path)
+
+    window, controller = build_window(projects, ask_restore=lambda saved_at: False)
+    qtbot.addWidget(window)
+    try:
+        assert controller.records() == []
+        assert projects.read_text(encoding="utf-8") == "{ not json"
+        assert not list(tmp_path.glob("projects.json.damaged-*"))
+        assert "projects.json" in message_of(window)
+    finally:
+        controller.stop()
+
+
+@pytest.mark.gui
+def test_no_backup_means_no_question(qtbot, tmp_path) -> None:
+    projects = tmp_path / "projects.json"
+    projects.write_text("{ not json", encoding="utf-8")
+
+    def never(saved_at):
+        raise AssertionError("asked with no backup to offer")
+
+    window, controller = build_window(projects, ask_restore=never)
+    qtbot.addWidget(window)
+    controller.stop()
+
+
+@pytest.mark.gui
+def test_a_first_run_is_not_a_damaged_list(qtbot, tmp_path) -> None:
+    projects = tmp_path / "projects.json"
+    projects.with_name("projects.json.bak").write_text("{}", encoding="utf-8")
+
+    def never(saved_at):
+        raise AssertionError("a missing file is a first run, not damage")
+
+    window, controller = build_window(projects, ask_restore=never)
+    qtbot.addWidget(window)
+    controller.stop()

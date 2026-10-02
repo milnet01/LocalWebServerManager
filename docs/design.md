@@ -791,6 +791,12 @@ deliberately not JSON:
   `added` timestamp), plus a
   `schema_version`. The `added` timestamp is what breaks a
   duplicate-port tie (ADR-0005).
+- `projects.json.bak` beside it — the registry as it was when the
+  app started, written by the first save of each run (LWSM-1039).
+  When the registry cannot be read and this exists, startup asks
+  whether to restore it; yes renames the unreadable file to
+  `projects.json.damaged-<time>` and restores the backup in its
+  place, and no leaves both untouched.
 - `~/.config/localwebservermanager/settings.json` — poll
   interval, log cap, theme choice, text-size percentage, and the
   window geometry keys `width` / `height` / `x` / `y` /

@@ -9,6 +9,7 @@ import argparse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
 
 def build_window(
     projects_path: Path | None = None,
+    *,
+    ask_restore: Callable[[datetime], bool] | None = None,
 ) -> tuple[MainWindow, ProjectController]:
     """Load, construct and connect. Does not run an event loop.
 
@@ -43,6 +46,10 @@ def build_window(
     has carried since LWSM-1026 produced a `RegistryError` that nothing caught,
     so the app died with a traceback and no window — the guard was there and
     unreachable (LWSM-1116). Tests still pass a path explicitly.
+
+    `ask_restore` is asked, with the backup's save time, when the list could
+    not be read and a backup exists (LWSM-1039). Injected for the same reason
+    as the window's dialogs: a test that reached the real one would block.
     """
     from lwsm.configfile import ConfigFileError
     from lwsm.controller import ProjectController
@@ -53,8 +60,11 @@ def build_window(
         LoadResult,
         ProjectsFile,
         RegistryError,
+        RegistryMissing,
+        backup_saved_at,
         default_projects_path,
         load_projects,
+        restore_backup,
     )
     from lwsm.scanroots import default_scan_roots, save_scan_roots, scan_root_fallback
     from lwsm.settings import Settings, SettingsError, default_settings_path
@@ -85,6 +95,29 @@ def build_window(
         # exception is caught here — a bug must not be disguised as a first run.
         records, error, load = [], str(exc), exc
         log.warning("no project list: %s", exc)
+        # A list that could not be read, with a backup beside it: ask first
+        # (user, 2026-10-02). A missing file is a first run, not damage, and a
+        # path that never resolved has no backup to offer.
+        saved_at = (
+            None
+            if projects_path is None or isinstance(exc, RegistryMissing)
+            else backup_saved_at(projects_path)
+        )
+        ask = _ask_restore_dialog if ask_restore is None else ask_restore
+        if projects_path is not None and saved_at is not None and ask(saved_at):
+            try:
+                restored = restore_backup(projects_path)
+            except RegistryError as restore_exc:
+                error = str(restore_exc)
+                log.warning("the backup could not be restored: %s", restore_exc)
+            else:
+                records, error, load = restored.records, None, restored
+                notices = [
+                    "the project list could not be read, so its backup was "
+                    "restored; the damaged file was kept beside it",
+                    *restored.reasons,
+                ]
+                log.warning("project list restored from its backup")
     for notice in notices:
         # The message banner gets a summary; the log gets the record.
         log.warning("project list: %s", notice)
@@ -372,6 +405,30 @@ Not cosmetic. On Wayland the compositor matches a window to a launcher by
 without this the pinned entry and the running window are two different things
 in the task manager, which is the one job a pin has.
 """
+
+
+def _ask_restore_dialog(saved_at: datetime) -> bool:
+    """Ask whether to restore the project list's backup (LWSM-1039).
+
+    Shown before the window exists, so it has no parent. No is the default
+    button: answering it changes nothing on disk.
+    """
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtWidgets import QMessageBox
+
+    when = saved_at.astimezone().strftime("%Y-%m-%d %H:%M")
+    answer = QMessageBox.question(
+        None,
+        QCoreApplication.translate("Startup", "Restore the project list?"),
+        QCoreApplication.translate(
+            "Startup",
+            "Your project list could not be read. A backup saved on %1 is "
+            "available. Restore it? The damaged file will be kept beside it.",
+        ).replace("%1", when),
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    return answer == QMessageBox.StandardButton.Yes
 
 
 def _identify(app: QApplication) -> None:

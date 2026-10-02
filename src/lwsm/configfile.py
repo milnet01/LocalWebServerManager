@@ -248,6 +248,9 @@ class JsonObject:
 
     data: dict[str, object]
     duplicate_keys: tuple[str, ...]
+    # The bytes as read, for a caller that keeps a copy of the file as it was
+    # (the registry's backup, LWSM-1039).
+    raw: bytes = b""
 
 
 def _refuse_constant(name: str) -> object:
@@ -306,7 +309,7 @@ def load_json_object(path: Path) -> JsonObject:
         raise JsonFileRefused(path, "unparseable", exc) from exc
     if not isinstance(data, dict):
         raise JsonFileRefused(path, "not_object", None, type(data).__name__)
-    return JsonObject(data, tuple(repeated))
+    return JsonObject(data, tuple(repeated), raw)
 
 
 def prepare_config_dir(directory: Path) -> None:

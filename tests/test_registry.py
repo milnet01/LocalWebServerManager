@@ -2759,3 +2759,96 @@ def test_an_import_that_creates_a_duplicate_port_flags_it() -> None:
 
     assert result.counts[registry.DUPLICATE_PORT] == 1
     assert any("5005" in reason for reason in result.reasons)
+
+
+# --- LWSM-1039: one backup per run, and restoring it --------------------------
+
+
+def _startup_file(tmp_path: Path) -> tuple[Path, bytes]:
+    """A registry as the app finds it at startup, hand-spaced so a re-encode
+    of the same records would not reproduce its bytes."""
+    path = tmp_path / "projects.json"
+    raw = b'{"schema_version": 1,\n  "projects": [{"path": "/srv/a", "name": "a"}]}\n'
+    path.write_bytes(raw)
+    return path, raw
+
+
+def test_the_first_save_of_a_run_backs_up_the_file_as_it_was_at_startup(
+    tmp_path: Path,
+) -> None:
+    path, raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+
+    save_projects(path, [], load=loaded)
+
+    assert registry.backup_path(path).read_bytes() == raw
+    assert path.read_bytes() != raw
+
+
+def test_a_later_save_in_the_same_run_leaves_the_backup_alone(tmp_path: Path) -> None:
+    """The window replaces its load with one built in memory after a save,
+    and that load carries no startup bytes, so nothing is backed up again."""
+    path, raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    after_save = registry.LoadResult(records=[], reasons=[], rows_refused=0, path=path)
+
+    save_projects(path, [], load=after_save)
+
+    assert registry.backup_path(path).read_bytes() == raw
+
+
+def test_a_first_run_writes_no_backup(tmp_path: Path) -> None:
+    path = tmp_path / "projects.json"
+    save_projects(path, [], load=RegistryMissing("first run"))
+    assert not registry.backup_path(path).exists()
+
+
+def test_a_refused_save_writes_no_backup(tmp_path: Path) -> None:
+    path = write(tmp_path, {"schema_version": 1, "projects": [one_good(), 7]})
+    loaded = load_projects(path)
+    assert loaded.rows_refused
+
+    with pytest.raises(RegistryError):
+        save_projects(path, [], load=loaded)
+    assert not registry.backup_path(path).exists()
+
+
+def test_a_backup_that_cannot_be_written_stops_the_save(tmp_path: Path) -> None:
+    """The backup exists to protect the startup file, so the file is not
+    overwritten without it."""
+    path, raw = _startup_file(tmp_path)
+    registry.backup_path(path).mkdir()
+
+    with pytest.raises(RegistryError, match="backup"):
+        save_projects(path, [], load=load_projects(path))
+    assert path.read_bytes() == raw
+
+
+def test_restoring_sets_the_damaged_file_aside_and_loads_the_backup(
+    tmp_path: Path,
+) -> None:
+    path, raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    path.write_text("{ this is not json", encoding="utf-8")
+
+    restored = registry.restore_backup(path)
+
+    assert [r.name for r in restored.records] == ["a"]
+    assert path.read_bytes() == raw
+    (aside,) = tmp_path.glob("projects.json.damaged-*")
+    assert aside.read_text(encoding="utf-8") == "{ this is not json"
+
+
+def test_restoring_twice_never_overwrites_an_earlier_damaged_file(
+    tmp_path: Path,
+) -> None:
+    path, _raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    path.write_text("first damage", encoding="utf-8")
+    registry.restore_backup(path)
+    path.write_text("second damage", encoding="utf-8")
+
+    registry.restore_backup(path)
+
+    kept = sorted(p.read_text() for p in tmp_path.glob("projects.json.damaged-*"))
+    assert kept == ["first damage", "second damage"]

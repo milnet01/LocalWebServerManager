@@ -32,6 +32,7 @@ from lwsm.configfile import (
     is_writable_text,
     load_json_object,
     quoted,
+    read_bounded,
     write_atomically,
 )
 
@@ -218,6 +219,11 @@ class LoadResult:
     # so a key a newer build added inside v1 was lost on downgrade with no
     # message (review-code 2026-10-01 L5-M3).
     unknown: tuple[tuple[str, str], ...] = ()
+    # The file's bytes as this load read them. Non-empty only on a load read
+    # from disk, so the first save after one backs those bytes up and a save
+    # after a load rebuilt in memory does not (LWSM-1039). `repr=False`: a
+    # registry is not something to print into a log line by accident.
+    raw: bytes = dataclass_field(default=b"", repr=False)
 
 
 def default_projects_path() -> Path:
@@ -737,6 +743,7 @@ def load_projects(path: Path) -> LoadResult:
         user_fields_refused=frozenset(user_fields_refused),
         path=path,
         unknown=top_level_unknown,
+        raw=loaded.raw,
     )
 
 
@@ -902,6 +909,8 @@ def save_projects(
     _refuse_unwritable_load(path, load)
     # The gate above guarantees `load` is a `LoadResult` or a first run.
     data = _encoded(path, records, load.unknown if isinstance(load, LoadResult) else ())
+    if isinstance(load, LoadResult) and load.raw:
+        _back_up(path, load.raw)
 
     try:
         # The directory, the hostile-target refusal and the durable write, in
@@ -917,6 +926,78 @@ def save_projects(
         # four tests all promise `RegistryError`, and `ConfigFileError` is its
         # base, so an `except RegistryError` would not catch it.
         raise RegistryError(str(exc)) from exc
+
+
+def backup_path(path: Path) -> Path:
+    """`projects.json.bak` beside `path` (LWSM-1039)."""
+    return path.with_name(path.name + ".bak")
+
+
+def _back_up(path: Path, raw: bytes) -> None:
+    """Keep the file as it was at startup, before the first save overwrites it.
+
+    Once per run, not per write (user, 2026-10-02): `save_projects` calls this
+    only for a load read from disk, and the window's load after a save is
+    rebuilt in memory with no bytes. So the backup is the last list the user
+    started the app with, which a bad merge or edit in this run cannot reach.
+
+    A backup that cannot be written stops the save. It exists to protect the
+    file the save is about to replace, so that file is not replaced without it.
+    """
+    try:
+        write_atomically(backup_path(path), raw, prefix=".projects-bak-")
+    except ConfigFileNotDurable:
+        # Written; only its survival of a crash is in doubt, as for the file.
+        pass
+    except ConfigFileError as exc:
+        raise RegistryError(
+            f"{quoted(str(path))}: not writing; its backup could not be saved "
+            f"({quoted(str(exc))})"
+        ) from exc
+
+
+def backup_saved_at(path: Path) -> datetime | None:
+    """When the backup beside `path` was written, or `None` if there is none."""
+    try:
+        return datetime.fromtimestamp(backup_path(path).stat().st_mtime, tz=UTC)
+    except OSError:
+        return None
+
+
+def restore_backup(path: Path) -> LoadResult:
+    """Set the damaged `path` aside and load its backup in its place.
+
+    The damaged file is renamed, never deleted (user, 2026-10-02), to
+    `projects.json.damaged-<time>`, numbered where that name is taken so an
+    earlier one is never overwritten. The backup's bytes are then written to
+    `path` and loaded from there, so the result licenses saves to `path` like
+    any other load. Raises `RegistryError` when any step fails; the damaged
+    file stays where it was unless the rename itself succeeded.
+    """
+    try:
+        saved = read_bounded(backup_path(path))
+    except OSError as exc:
+        raise RegistryError(
+            f"{quoted(str(path))}: its backup could not be read ({quoted(str(exc))})"
+        ) from exc
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    aside = path.with_name(f"{path.name}.damaged-{stamp}")
+    count = 1
+    while aside.exists():
+        count += 1
+        aside = path.with_name(f"{path.name}.damaged-{stamp}-{count}")
+    try:
+        if path.exists():
+            path.rename(aside)
+        write_atomically(path, saved, prefix=".projects-")
+    except ConfigFileNotDurable:
+        pass
+    except (ConfigFileError, OSError) as exc:
+        raise RegistryError(
+            f"{quoted(str(path))}: the backup could not be restored "
+            f"({quoted(str(exc))})"
+        ) from exc
+    return load_projects(path)
 
 
 @dataclass(frozen=True)

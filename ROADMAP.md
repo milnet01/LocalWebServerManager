@@ -10175,7 +10175,7 @@ bugs in the same area.
 `docs/design.md § Detection rules` and
 [ADR-0003](docs/decisions/0003-launch-via-project-scripts.md) are the contracts.
 
-- 📋 [LWSM-1039] **P03b: keep one backup of the registry.**
+- ✅ [LWSM-1039] **P03b: keep one backup of the registry.**
   Every
   write of `projects.json` keeps the previous version alongside
   it (`projects.json.bak`), and a file that fails to parse or
@@ -10201,6 +10201,17 @@ bugs in the same area.
     was saved. Yes sets the damaged file aside (renamed, never deleted)
     and loads the backup. No keeps today's behaviour: empty list, warning
     banner, saving refused.
+  Resolved (2026-10-02) per the user's decisions. LoadResult carries the
+  bytes it read (JsonObject.raw); save_projects backs them up to
+  projects.json.bak after its write gate passes, so only a load read from
+  disk triggers it, and the window's in-memory load after a save does not:
+  once per run. A backup that cannot be written stops the save.
+  restore_backup renames the damaged file to projects.json.damaged-<time>
+  (numbered, never overwritten) and restores the backup in place.
+  build_window asks (injectable ask_restore; default a QMessageBox, No by
+  default) only when the list could not be read and a backup exists; a
+  missing file is a first run. design.md § Persistence names both files.
+  Eleven tests; eight deliberate breaks each turned one red. Gate: 2152.
   Lanes: core, tests.
 
 - 📋 [LWSM-1008] **P03b: first-run confirmation flow.**
