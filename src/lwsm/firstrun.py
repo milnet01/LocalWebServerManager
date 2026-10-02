@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from lwsm.mainwindow import MIN_TARGET_PX, _filled
 from lwsm.registry import ProjectRecord
+from lwsm.scanner import MINOR_TAIL
 
 # Every user-visible string here goes through the one context "FirstRunDialog",
 # repeated as a literal because `pyside6-lupdate` skips a call whose context is
@@ -58,6 +59,10 @@ def worth_showing(reason: str) -> bool:
     real scanner so a reworded reason fails there rather than reappearing here.
     """
     if reason.endswith(": is not a directory"):
+        return False
+    # The tail of the scanner's second budget, which holds only lines this
+    # filter hides (LWSM-1384).
+    if reason.endswith(MINOR_TAIL.split("{count}", 1)[1]):
         return False
     return not reason.startswith(("'.", '".'))
 

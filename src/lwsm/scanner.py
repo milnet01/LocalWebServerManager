@@ -77,6 +77,10 @@ MAX_REASON_CHARS = 120
 # subdirectories on disk — so they will move independently.
 MAX_SKIP_REASONS = 100
 
+# The tail of the second budget, for plain files and dot-named entries
+# (LWSM-1384). Named so `firstrun.worth_showing` can recognise it.
+MINOR_TAIL = "and {count} more files and hidden folders, not shown"
+
 # Entries read from one scan root. Each is held until the sort, so without a
 # cap a huge root costs memory in proportion to its size and can spend the
 # whole budget listing (review-code 2026-10-01 L4-L4). Far above any folder of
@@ -1913,7 +1917,11 @@ def scan(
     """
     deadline = Deadline(expires_at=now() + budget_seconds, now=now)
     bounded = BoundedReasons(MAX_SKIP_REASONS, "and {count} more problems, not shown")
-    reasons = bounded.reasons
+    # Plain files and dot-named entries get a budget of their own (LWSM-1384).
+    # The first-run dialog hides them, so sharing one budget let a root full of
+    # them push real folders' reasons into the uncounted tail. The log still
+    # gets both lists.
+    minor = BoundedReasons(MAX_SKIP_REASONS, MINOR_TAIL)
     problems = 0
 
     def note(reason: str) -> None:
@@ -1922,6 +1930,11 @@ def scan(
         nonlocal problems
         problems += 1
         bounded.note(reason)
+
+    def minor_note(reason: str) -> None:
+        nonlocal problems
+        problems += 1
+        minor.note(reason)
 
     lookup = _UnitLookup(
         units if units is not None else SystemctlUnits(), deadline, note
@@ -1972,6 +1985,7 @@ def scan(
                     raise _BudgetExpired
                 raw_name = entry.name
                 quoted = _quoted(raw_name)
+                entry_note = minor_note if raw_name.startswith(".") else note
                 try:
                     # Symlink before directory, so the reason names what
                     # actually happened: `is_dir(follow_symlinks=False)` reports
@@ -1983,38 +1997,42 @@ def scan(
                         # subdirectory but still lists it, and walking one as
                         # the top follows it — so that flag is not the guard at
                         # candidate level; this is.
-                        note(f"{quoted}: is a symlink, refused")
+                        entry_note(f"{quoted}: is a symlink, refused")
                         continue
                     if not entry.is_dir(follow_symlinks=False):
-                        note(f"{quoted}: is not a directory")
+                        minor_note(f"{quoted}: is not a directory")
                         continue
                     candidate = Path(entry.path).resolve()
                 except OSError as exc:
-                    note(f"{quoted}: cannot be examined ({exc.strerror or exc})")
+                    entry_note(f"{quoted}: cannot be examined ({exc.strerror or exc})")
                     continue
 
                 if own is not None and (own == candidate or candidate in own.parents):
                     # Once P01's launcher exists the manager would otherwise
                     # list and offer to launch itself.
-                    note(f"{quoted}: is this application's own directory")
+                    entry_note(f"{quoted}: is this application's own directory")
                     continue
                 if candidate in seen:
                     # Two scan roots may overlap, or one may sit inside another.
                     # ADR-0005 makes the absolute path the identity, so two
                     # records sharing one is a malformed result.
-                    note(f"{quoted}: already scanned under another root")
+                    entry_note(f"{quoted}: already scanned under another root")
                     continue
                 seen.add(candidate)
 
                 problems_before = problems
                 prefix = f"{quoted}: "
 
-                def named_note(reason: str, prefix: str = prefix) -> None:
+                def named_note(
+                    reason: str,
+                    prefix: str = prefix,
+                    entry_note: Callable[[str], None] = entry_note,
+                ) -> None:
                     # Every reason names its folder (known-issue-017): the
                     # first-run screen shows them to the user, and a hop
-                    # refusal reached it naming no project at all. A default
-                    # argument, not a closure over the loop variable.
-                    note(reason if reason.startswith(prefix) else prefix + reason)
+                    # refusal reached it naming no project at all. Default
+                    # arguments, not a closure over the loop variables.
+                    entry_note(reason if reason.startswith(prefix) else prefix + reason)
 
                 try:
                     launcher = _detect(
@@ -2037,10 +2055,10 @@ def scan(
                     # only. Four call sites had already been found; patching
                     # those four would leave the fifth. `_BudgetExpired` is not
                     # an `OSError`, so INV-5's abandonment still propagates.
-                    note(f"{quoted}: cannot be examined ({exc.strerror or exc})")
+                    entry_note(f"{quoted}: cannot be examined ({exc.strerror or exc})")
                     continue
                 if launcher is None:
-                    note(f"{quoted}: no launcher matched")
+                    entry_note(f"{quoted}: no launcher matched")
                     continue
                 projects.append(
                     DetectedProject(
@@ -2061,11 +2079,9 @@ def scan(
     # The tail is always said once anything was dropped: nothing downstream
     # could otherwise tell a root with 100 unusable subdirectories from one
     # with half a million.
-    bounded.close()
-
     return ScanResult(
         projects=tuple(projects),
-        skipped=tuple(reasons),
+        skipped=(*bounded.close(), *minor.close()),
         timed_out=timed_out,
         unlistable_roots=tuple(unlistable),
     )

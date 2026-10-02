@@ -2388,6 +2388,38 @@ def test_the_reason_list_is_capped_and_says_so(tmp_path: Path) -> None:
     )
 
 
+def test_files_and_hidden_entries_do_not_spend_the_folders_budget(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1384. Plain files sort before the folder here, so under one shared
+    budget they fill it and the folder's reason falls into the uncounted tail
+    — the shape measured on a real root, 40 of 100 lines hidden by the
+    first-run dialog. Each kind now has its own budget and its own tail."""
+    files = scanner.MAX_SKIP_REASONS + 50
+    for index in range(files):
+        (tmp_path / f"a-{index:04d}.txt").write_text("")
+    (tmp_path / "zzz-real-folder").mkdir()
+
+    result = scan_root(tmp_path)
+
+    assert "'zzz-real-folder': no launcher matched" in result.skipped
+    assert scanner.MINOR_TAIL.format(count=50) in result.skipped
+    assert not any(r.endswith("more problems, not shown") for r in result.skipped)
+
+
+def test_a_dot_folder_spends_the_minor_budget_too(tmp_path: Path) -> None:
+    """Every reason about a dot-named entry, not only "is not a directory",
+    is one the dialog hides — so it is counted against that budget."""
+    for index in range(scanner.MAX_SKIP_REASONS + 1):
+        (tmp_path / f".hidden-{index:04d}").mkdir()
+    (tmp_path / "zzz-real-folder").mkdir()
+
+    result = scan_root(tmp_path)
+
+    assert "'zzz-real-folder': no launcher matched" in result.skipped
+    assert scanner.MINOR_TAIL.format(count=1) in result.skipped
+
+
 def test_the_suppressed_count_is_absent_when_nothing_was_suppressed(
     tmp_path: Path,
 ) -> None:

@@ -114,6 +114,20 @@ def test_the_filter_matches_the_real_scanners_wording(qtbot, tmp_path) -> None:
     assert dialog._skipped.text() == "'notes': no launcher matched"
 
 
+def test_the_hidden_entries_tail_is_hidden_too(qtbot, tmp_path) -> None:
+    """LWSM-1384: the scanner's second budget holds only lines the dialog
+    hides, so its "and N more" line would be the one noise line left. Runs
+    the real scanner for the reason the test above gives."""
+    for index in range(scanner.MAX_SKIP_REASONS + 5):
+        (tmp_path / f"f-{index:04d}.txt").write_text("")
+    (tmp_path / "notes").mkdir()
+    result = scanner.scan([tmp_path], units=FakeUnits())
+
+    dialog = build(qtbot, [], result.skipped)
+
+    assert dialog._skipped.text() == "'notes': no launcher matched"
+
+
 def test_an_empty_scan_still_offers_save(qtbot) -> None:
     """LWSM-1131 § 4.4: a first run finding nothing must still be able to
     create the file, or every later start repeats the first run."""
