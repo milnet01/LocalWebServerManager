@@ -690,6 +690,8 @@ class ProjectController(QObject):
         # the server already stopped falls back to the project's own launcher,
         # which is the honest limit of adopting from a live process.
         self._adopted_units: dict[Path, str] = {}
+        # ADR-0003's binding answer per (unit, project), for the classifier.
+        self._unit_binding: dict[tuple[str, Path], bool] = {}
         self._statuses: dict[Path, ProjectStatus] = {
             record.path: ProjectStatus.UNKNOWN for record in records
         }
@@ -1227,6 +1229,13 @@ class ProjectController(QObject):
             # Straight into the start, which re-runs the pre-flight check.
             self.start_project(path)
             return
+        if self._last_error is not None:
+            # No poll can read the port table, so `stopped` can never be
+            # observed and the overlay would stand for ever (LWSM-1372). The
+            # stop itself finished; the row falls back to its held status,
+            # which says nothing was observed.
+            self._clear_overlay(path)
+            return
         # The overlay is NOT cleared here: the process is gone, but the port is
         # what the row reports, and only a poll can say it has been released.
 
@@ -1740,9 +1749,31 @@ class ProjectController(QObject):
         if holder is None or not looks_like(holder, path):
             # Unnamed, or implausible: something is in the way (ADR-0004).
             return ProjectStatus.PORT_BLOCKED
-        if unit_for_pid(holder) is not None:
+        if self._is_project_unit(record, unit_for_pid(holder)):
             return ProjectStatus.RUNNING
         return ProjectStatus.RUNNING_FOREIGN
+
+    def _is_project_unit(self, record: ProjectRecord, unit: str | None) -> bool:
+        """Whether `unit` is this project's own: bound by the scanner, adopted
+        this session, or passing ADR-0003's rule for adopted units.
+
+        Membership of any unit is not enough: terminals run as user services
+        here (measured 2026-10-02), so a server started in one sits in the
+        terminal's unit. ADR-0003's check asks `systemctl`, so its answer is
+        kept per unit and project; an unreadable answer is not kept, and is
+        asked again on the next poll.
+        """
+        if unit is None:
+            return False
+        if unit == record.unit or unit == self._adopted_units.get(record.path):
+            return True
+        key = (unit, record.path)
+        if key not in self._unit_binding:
+            belongs = unit_belongs_to(unit, record.path)
+            if belongs is None:
+                return False
+            self._unit_binding[key] = belongs
+        return self._unit_binding[key]
 
     def _owns(self, path: Path, pid: int) -> bool:
         return self._supervisor is not None and self._supervisor.owns_pid(path, pid)

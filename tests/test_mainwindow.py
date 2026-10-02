@@ -65,6 +65,9 @@ def _holders_are_the_projects_own_service(monkeypatch) -> None:
     monkeypatch.setattr(
         controller_module, "unit_for_pid", lambda pid: "project-own.service"
     )
+    monkeypatch.setattr(
+        controller_module, "unit_belongs_to", lambda unit, project: True
+    )
 
 
 class FakeProbe:
@@ -8351,13 +8354,13 @@ def _foreign_tree(*pids_and_starts: tuple[int, float]):
     )
 
 
-def tree_window(qtbot, built, monkeypatch, trees, answers, unit=None):
-    """One foreign row whose holder (9999) sits in `unit`; `trees` are what
-    each enumeration returns in turn, `answers` what each dialog says."""
-    from lwsm.service import Holder
-
+def tree_window(qtbot, built, monkeypatch, trees, answers, unit=None, belongs=True):
+    """One row whose holder (9999) sits in `unit`, which is the project's own
+    when `belongs`; `trees` are what each enumeration returns in turn,
+    `answers` what each dialog says."""
+    monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: unit)
     monkeypatch.setattr(
-        mainwindow, "describe_holder", lambda pid: Holder(pid=pid, unit=unit)
+        controller_module, "unit_belongs_to", lambda u, project: belongs
     )
     queue = list(trees)
 
@@ -8452,6 +8455,29 @@ def test_a_set_that_cannot_be_listed_is_reported_not_stopped(
     assert reported == ["cannot stop theirs: the server has already stopped"]
 
 
+def test_a_terminal_server_inside_the_terminal_s_unit_is_still_a_set(
+    qtbot, built, monkeypatch
+) -> None:
+    """Terminals run as user services here (measured 2026-10-02). A server
+    started in one sits in the terminal's unit, which is not the project's, so
+    it is `running (foreign)` and stopped by its set, never by that unit."""
+    shown = _foreign_tree((9999, 1.0))
+    window, _, asked, stops = tree_window(
+        qtbot,
+        built,
+        monkeypatch,
+        [shown, shown],
+        [True],
+        unit="app-terminal@1.service",
+        belongs=False,
+    )
+
+    window._stop_project(Path("/srv/theirs"))
+
+    assert asked == [(shown, False)]
+    assert len(stops) == 1
+
+
 def test_a_holder_inside_a_unit_keeps_the_service_route(
     qtbot, built, monkeypatch
 ) -> None:
@@ -8509,3 +8535,28 @@ def test_the_set_dialog_shows_separate_columns_and_defaults_to_cancel(
     assert (pid, program) == ("9999", "/usr/bin/node")
     assert "\n" not in command and started
     assert [text.replace("&", "") for text in seen["default"]] == ["Cancel"]
+
+
+def test_a_start_of_our_own_child_can_be_stopped_while_still_starting(qtbot) -> None:
+    """LWSM-1372: with the socket table unreadable a start never settles, and
+    Stop was disabled for the whole `starting` overlay. Stopping our own child
+    needs no socket table, and it also lets a slow start be cancelled."""
+    from lwsm.controller import RowView
+
+    view = RowView(
+        path=Path("/srv/a"),
+        name="a",
+        effective_port=5005,
+        status=ProjectStatus.STARTING,
+        managed=False,
+        supervised=True,
+    )
+    row = ProjectRow(view, Theme.default())
+    qtbot.addWidget(row)
+
+    assert row.stop_button.isEnabled()
+    assert not row.start_button.isEnabled()
+    assert not row.restart_button.isEnabled()
+
+    row.update_from(dataclasses.replace(view, supervised=False))
+    assert not row.stop_button.isEnabled(), "a start we hold no child for"

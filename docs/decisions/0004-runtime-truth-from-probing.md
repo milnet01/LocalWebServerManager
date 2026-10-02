@@ -34,6 +34,11 @@ confirmation step first.
 project is running. The manager's own bookkeeping only refines
 that answer.**
 
+Running means a listener that `localhost` reaches, because Open
+builds `http://localhost:<port>/`. The pre-flight before a start
+asks the wider question, whether anything is bound at all
+(LWSM-1232).
+
 Each poll takes **one** socket-table snapshot and classifies
 every project against it. Classification combines what the
 `Supervisor` knows about a child it owns with two questions
@@ -52,6 +57,10 @@ from the socket table. The distinction matters because
 `docs/standards/testing-overrides.md § T7` requires one test case per
 derived state, and an overlay label has nothing to derive.
 
+**Own child** is the process group this app started (ADR-0003),
+not only its launcher. The rows that ask who holds a port come
+first: a launcher that exits while its group serves has not exited.
+
 | Own child | Effective port held by | Child holds any port | State |
 |---|---|---|---|
 | live | that child's group | — | `running (managed)` |
@@ -59,15 +68,21 @@ derived state, and an overlay label has nothing to derive.
 | live | nobody | no | `starting` — no deadline; see § Slowness is not failure |
 | live | a process that looks like this project | no | `running (foreign)` — the user also started it by hand |
 | live | any other process | no | `failed` (port taken after pre-flight) |
-| just exited, stop **was** requested | — | — | `stopped` |
-| just exited, stop was **not** requested | — | — | `failed` (exited on its own) |
-| none | a process in a systemd user unit that looks like this project | — | `running (managed)` — systemd's instance is the managed one (ADR-0003) |
+| just exited, stop **was** requested | — | — | as the `none` rows: a stop leaves no record |
+| just exited, stop was **not** requested | anyone but our group | no | `failed` (exited on its own), for one poll |
+| none | a process in the project's own systemd user unit | — | `running (managed)` — systemd's instance is the managed one (ADR-0003) |
 | none | a process that looks like this project | — | `running (foreign)` |
 | none | any other process | — | `port blocked` |
 | none | nobody | — | `stopped` |
 
 `unknown` is not an eighth state. A project with no port, or one no
 poll has read yet, shows `unknown` because nothing was observed.
+
+The project's own unit is the one the scanner bound, one adopted
+this session, or one passing ADR-0003's rule for adopted units.
+Membership of any unit is not enough: terminals run as user
+services on this machine (measured 2026-10-02), so a server started
+in one sits in the terminal's unit.
 
 Three rules the table depends on:
 
@@ -89,10 +104,11 @@ Three rules the table depends on:
   bind its port, and the manager will then label it
   `running (foreign)`, show an uptime for it, and — as originally
   designed — enable **Open in browser**. That is localhost phishing
-  with this app's credibility behind it. So Open-in-browser on a
-  `running (foreign)` row carries the same disclosure the Stop path
-  does: the holder's executable path, uid, cmdline and start time,
-  shown before anything opens. For a *managed* server, identity is
+  with this app's credibility behind it. So Open, and a Stop or
+  Restart through a unit, on a server this app did not start first
+  show a disclosure naming the holder: its executable path, uid,
+  cmdline, start time and unit. Stopping a foreign set shows the
+  set instead (below). For a *managed* server, identity is
   the recorded child PID **plus its `create_time`**, never the
   working directory.
 - **An exited child is remembered for exactly one classification**,
@@ -145,8 +161,9 @@ So the rule is now:
   `starting` — with no deadline**, and the UI shows the elapsed
   time. That is the honest description: it *is* starting, and it
   has not failed at anything.
-- **`failed` requires evidence, not a timer**: the child exited
-  without ever binding, or exited non-zero. An exit is a fact; a
+- **`failed` requires evidence, not a timer**: the group exited on
+  its own, or the port was taken after the pre-flight (the table's
+  two `failed` rows). An exit is a fact; a
   stopwatch is an opinion.
 - A **soft threshold** (default 30 s, settings-backed) changes the
   *label* to `starting (slow — 42s)`. It informs; it never
@@ -232,7 +249,9 @@ Consequences of the rule:
 - Actions the user takes in the app apply an **optimistic
   overlay** so buttons feel immediate: pressing Start shows
   `starting` at once rather than waiting for the next poll. The
-  overlay is a labelled, expiring layer over the derived state —
+  overlay is a labelled layer over the derived state, discarded
+  when a poll reports the state it was heading for and never on a
+  timer —
   its rules are in `docs/design.md § State management`, and it
   never becomes a second store.
 - Two projects deliberately sharing a port cannot be told apart

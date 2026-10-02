@@ -10991,6 +10991,13 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   disclosure with unspoofable columns (ADR-0004). LWSM-1141's interim
   restriction holds until then. Keep detected-only records as their own
   type (design.md).
+  Progress (2026-10-02): built in three commits. ba04280 displays the
+  four new states (glyphs ▲ ◆ ■ ✖, the existing theme tokens); 1fc0117
+  derives all seven from one snapshot, with one test per table row;
+  9cdc1da amends ADR-0004 (service row, wider plausibility test,
+  unknown). ADR-0004's rule-14 gate is running. Read-only check on the
+  live machine: both login trays read `running`. Glyph choices are the
+  author's and listed for the user to change.
 
 - 📋 [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
   The first time a project is observed
@@ -11255,6 +11262,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   drop-in for one of the user's live login units. Check with
   `systemctl --user show -p DropInPaths -p Environment -- <unit>` after
   writing one and `daemon-reload`, on a unit the user agrees to.
+  Progress (2026-10-02): question 1 answered by LWSM-1011 (1fc0117,
+  9cdc1da). A holder in a systemd user unit that looks like the project
+  classifies `running (managed)`, and ADR-0004's table now has that row.
+  Question 2 (drop-ins on generated units) stays open and needs the
+  user's agreement to test on a live login unit.
   **Layman:** Two open questions left by the review of how the app runs login-started servers.
   Kind: review-fix.
   Source: review-contract ADR-0003 loop 3 (cap), 2026-10-02.

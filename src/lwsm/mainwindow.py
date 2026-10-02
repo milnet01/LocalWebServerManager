@@ -1235,7 +1235,11 @@ class ProjectRow(QFrame):
         # after the pre-flight. The child is ours to stop, and a Start would
         # only be refused as already running (LWSM-1011).
         failed_ours = status is ProjectStatus.FAILED and row.supervised
-        can_stop = running or failed_ours
+        can_restart = running or failed_ours
+        # A start of our own child can be stopped before it binds: that needs
+        # no socket table, so it is the way out when none can be read, and it
+        # cancels a slow start (LWSM-1372).
+        can_stop = can_restart or (status is ProjectStatus.STARTING and row.supervised)
         # `not in_transition` appears once, on Start, and that is not an
         # oversight on the other three. The overlay REPLACES the status, so
         # `running` and `in_transition` are mutually exclusive — a guard on
@@ -1259,7 +1263,7 @@ class ProjectRow(QFrame):
             for button, ok in (
                 (self.start_button, start_ok),
                 (self.stop_button, can_stop),
-                (self.restart_button, can_stop),
+                (self.restart_button, can_restart),
                 (self.open_button, running),
             )
         ):
@@ -1272,7 +1276,7 @@ class ProjectRow(QFrame):
         # as much as ones it launched (user decision, 2026-09-06). The dialog is
         # `MainWindow._may_act_on`, which every one of these three goes through.
         self.stop_button.setEnabled(can_stop)
-        self.restart_button.setEnabled(can_stop)
+        self.restart_button.setEnabled(can_restart)
         # Running is the whole condition here too. ADR-0004 carries the threat
         # model: `chdir()` is free, so any local process can bind a project's
         # port, and opening a browser on it is localhost phishing with this
@@ -3264,11 +3268,13 @@ class MainWindow(QMainWindow):
             self._controller.stop_project(path, disclosed_holder=shown)
 
     def _stop_foreign_tree(self, path: Path) -> bool:
-        """ADR-0004's foreign stop, for a holder in no systemd unit (LWSM-1301).
+        """ADR-0004's foreign stop, for a `running (foreign)` row (LWSM-1301).
 
-        True when this route took the click, whatever the answer. Ours, a
-        unit, and a holder the kernel will not name all return False and keep
-        the existing path.
+        True when this route took the click, whatever the answer. Ours, the
+        project's own unit, and a holder the kernel will not name all return
+        False and keep the existing path. Keyed on the state, not on whether
+        the holder sits in a unit: terminals run as user services here, so a
+        server started in one is in a unit that is not the project's.
 
         The set is enumerated, shown, and enumerated again after the yes. If
         it changed while the dialog was open, the user is asked again about
@@ -3279,13 +3285,11 @@ class MainWindow(QMainWindow):
             view is None
             or view.managed
             or view.supervised
-            or view.status not in RUNNING_STATES
+            or view.status is not ProjectStatus.RUNNING_FOREIGN
             or view.holder_pid is None
         ):
             return False
         pid = view.holder_pid
-        if describe_holder(pid).unit is not None:
-            return False
         changed = False
         while True:
             try:

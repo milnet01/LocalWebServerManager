@@ -58,6 +58,9 @@ def _holders_are_the_projects_own_service(monkeypatch) -> None:
     monkeypatch.setattr(
         controller_module, "unit_for_pid", lambda pid: SERVICE_HOLDER_UNIT
     )
+    monkeypatch.setattr(
+        controller_module, "unit_belongs_to", lambda unit, project: True
+    )
 
 
 class FakeProbe:
@@ -3029,6 +3032,17 @@ OURS, STRANGER = 4100, 4200
             None,
             "PORT_BLOCKED",
         ),
+        # Terminals run as user services on this machine (measured
+        # 2026-10-02), so a unit that is not the project's makes no claim.
+        (
+            "foreign: inside a terminal's unit",
+            {5005: STRANGER},
+            None,
+            False,
+            True,
+            "terminal.service",
+            "RUNNING_FOREIGN",
+        ),
         (
             "blocked: a holder we cannot name",
             {5005: None},
@@ -3050,6 +3064,9 @@ def test_each_derived_state_has_its_row(
     module's default holder."""
     monkeypatch.setattr(controller_module, "looks_like", lambda pid, path: plausible)
     monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: unit)
+    monkeypatch.setattr(
+        controller_module, "unit_belongs_to", lambda u, project: u == "p.service"
+    )
     supervisor = FakeSupervisor()
     path = Path("/srv/a")
     if child == "live":
@@ -3085,3 +3102,23 @@ def test_a_project_with_no_port_is_unknown(controllers) -> None:
     )
 
     assert status is ProjectStatus.UNKNOWN
+
+
+def test_a_stop_with_the_table_unreadable_ends_on_unknown_not_stopping(
+    qtbot, controllers
+) -> None:
+    """LWSM-1372: a stop that finished cannot settle on `stopped` when no poll
+    can read the port table, so the row read `stopping` for ever. With nothing
+    observable, the honest answer is the held status, `unknown`."""
+    supervisor = FakeSupervisor()
+    supervisor.done_immediately = True
+    controller = supervised(controllers, [startable()], FailingProbe(), supervisor)
+    controller.poll_once()
+    qtbot.waitUntil(lambda: controller._last_error is not None, timeout=2000)
+    controller.start_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+
+    controller.stop_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: controller._overlay is None, timeout=2000)
+
+    assert controller.rows()[0].status is ProjectStatus.UNKNOWN
