@@ -20,6 +20,7 @@ machine and not in this repository**: a contributor reads this file plus
 | Runner images | an explicit label, never `-latest` |
 | Python interpreter | the version in the committed `.python-version` |
 | CI tools (`scripts/ci-tools.env`) | an exact version |
+| OS packages a workflow installs with `apt-get` | not pinned; they move with the pinned runner image |
 
 `requires-python` is a floor, not a pin.
 

@@ -717,7 +717,8 @@ carrying the log tail, so the UI has one story to tell.
 Three layers. **Per-project, on disk:** each launched server's
 merged output goes to
 `$XDG_STATE_HOME/localwebservermanager/logs/<project>.log`
-(falling back to `~/.local/state` when that variable is unset)
+(falling back to `~/.local/state` when that variable is unset or not
+absolute)
 (ADR-0003), capped at 5 MB with one rotation. **Per-project, in
 memory:** the `LogBuffer` ring holds the last N lines (default
 2000) tailed from that file, live in the panel and retained after

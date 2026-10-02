@@ -51,10 +51,9 @@ limits, so this is not just a convention.
 ## O4. Every spawn starts a new session
 
 On top of the shared rule that a command is an argument list, never a shell
-string: every child the app supervises or leaves running — a server, a
-browser — is started with `start_new_session=True`. A short query whose
-output is captured and which runs to completion (the scanner's `systemctl`
-call) is not.
+string: every child that can outlive the call that started it — a server,
+a browser — is started with `start_new_session=True`. A child the calling
+function waits for (the scanner's captured `systemctl` query) is not.
 
 Why: stopping a server signals its whole process group, and that group
 exists only because the child got its own session (ADR-0003).
@@ -85,7 +84,8 @@ why ADR-0003 exists.
 ## O7. No literal colours, sizes or fonts in widget code
 
 A widget names a theme token (`window`, `text`, `accent`,
-`state_running`, …), never a hex value or `QColor(...)`. It uses the
+`state_running`, …), never a hex value, `QColor(...)` or a named colour
+constant (`Qt.GlobalColor.*`, `QColorConstants.*`). It uses the
 system font, never a family name. It sizes from the text metric, never
 from a pixel constant. `theme.py` defines the tokens and is the one
 module allowed to hold colour values.

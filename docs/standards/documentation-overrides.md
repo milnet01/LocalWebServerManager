@@ -13,8 +13,8 @@ contributor reads this file and `CONTRIBUTING.md`.
 
 Global § 2.3's rule against census counts is partly a test here:
 `tests/test_docs.py::test_no_prose_count_of_a_growing_set` fails on a
-number word from one to twelve followed by a noun in its `COUNTED_NOUNS`
-list, in any file on its `GOVERNED` list, including a count split across a
+number word from one to twelve immediately followed by a noun in its
+`COUNTED_NOUNS` list, in any file on its `GOVERNED` list, including a count split across a
 line wrap. It skips table rows, lines carrying a `YYYY-MM-DD` date, and text
 inside quotes or backticks. In those files it also rejects a structural count
 of those nouns, which global § 2.3 would keep; reword it to the shape.
@@ -57,6 +57,6 @@ means force-pushing `main`, which global `commits.md` § 3.3 refuses.
 
 | Rule | What checks it |
 |------|----------------|
-| DOC1 prose counts | Partial: `tests/test_docs.py::test_no_prose_count_of_a_growing_set` covers the files on its `GOVERNED` list — it misses every other file, any noun outside `COUNTED_NOUNS`, a count above twelve or in digits, and a count in a table row, on a dated line, or inside quotes or backticks |
+| DOC1 prose counts | Partial: `tests/test_docs.py::test_no_prose_count_of_a_growing_set` covers the files on its `GOVERNED` list — it misses every other file, any noun outside `COUNTED_NOUNS`, a word between the number and the noun, a count above twelve or in digits, and a count in a table row, on a dated line, or inside quotes or backticks |
 | DOC2 build first | nothing — the commit body's `CLAUDE.md rule 14:` line records the decision, and no check reads it |
 | DOC3 private facts | Partial: `.gitignore` keeps `docs/private/` out of the index — nothing catches a private fact written into a tracked file, `CHANGELOG.md` included |

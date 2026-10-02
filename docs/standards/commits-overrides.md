@@ -13,7 +13,8 @@ reads this file and `CONTRIBUTING.md`.
 ## C1. A commit that changes code carries a body
 
 Global § 1.4 makes the body optional; here it is required on every commit
-that changes code. It records the mechanism-sweep outcome
+that changes code, except a release commit, whose body stays the changelog
+section verbatim (global § 1.4). It records the mechanism-sweep outcome
 (`coding-overrides.md` § O9), the mutation record (`testing-overrides.md`
 § T9) and the result of `./scripts/local-ci.sh`.
 
