@@ -10845,6 +10845,20 @@ bugs in the same area.
   input); tests/test_ci_contract.py keeps the two equal. Read
   docs/standards/dependencies-overrides.md before bumping, then run the
   full gate with the new uv installed locally.
+  Progress (2026-10-02). User approved the bump. No other project checks the
+  local uv against an exact version (the one public sibling that pins uv
+  uses it in CI only; its local gate only needs uv present), so a
+  machine-wide update is safe. Local uv in ~/.local/bin is a hand-copied
+  binary (no installer receipt), so `uv self update` refuses. Downloaded
+  0.12.22 to build/uv-0.12.22/ (gitignored); its sha256 matches the
+  release's published .sha256; `uv lock --locked` under it exits 0.
+  BLOCKED on the user: replacing ~/.local/bin/uv and uvx was refused by the
+  session's safety classifier as a shared-resource change, so the user runs
+  the swap (back up the old pair to ~/.local/share/uv-binary-backup-0.12.2/
+  first). Then: UV_VERSION=0.12.22 in scripts/ci-tools.env, and in
+  ci.yml's setup-uv `version:` plus a line in its comment
+  ("0.12.22 since 2026-10-02 (LWSM-1386)"); run ./scripts/local-ci.sh; commit.
+  Afterwards delete build/uv-0.12.22/.
   **Layman:** The tool that installs this project's dependencies is a few versions behind; update it.
   Kind: chore.
   Source: in-session-2026-10-02 (LWSM-1347's first run).
