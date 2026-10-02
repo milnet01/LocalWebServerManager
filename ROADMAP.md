@@ -10248,7 +10248,7 @@ bugs in the same area.
   limit). The skipped list was noisy; filed as LWSM-1383.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1121] **P03b: Scanner reads the extra port sources and reports conflicts.**
+- ✅ [LWSM-1121] **P03b: Scanner reads the extra port sources and reports conflicts.**
   Beyond the launcher and its one-hop file
   (LWSM-1006), the three remaining sources
   [`design.md § Robustness`](docs/design.md) measure 2 names: a
@@ -10306,6 +10306,21 @@ bugs in the same area.
   never string substitution; open_file stays inside the project and
   refuses .desktop and executable files; run_command follows design.md's
   constraints. ADR-0004 and design.md hold the contract.
+  Decided (user, 2026-10-02): a port conflict is shown on the project's
+  row in the main window, not only in the scan notes. So provenance has
+  to reach the window in memory; it is still not persisted (LWSM-1007
+  § 4.2). Within one source, my call: a README naming more than one
+  distinct localhost port gives no answer, since picking one is the
+  confidently-wrong case above.
+  Shipped 2026-10-02, scanner half. scanner._settle_port reads .env.local,
+  .env, the first compose file, and README.md; ranks a declared launcher
+  port, env files, compose, a framework default, then the README; keeps
+  every differing source in DetectedProject.port_conflicts and notes
+  "port sources disagree". A file naming more than one port gives no
+  answer. An outranked framework default is not a conflict. Tests in
+  test_scanner.py, each new rule broken once and caught. Old vs new scan
+  of the real root: one project went from unknown to its correct port
+  from its README; no others changed. Row display split to LWSM-1385.
 
 - 📋 [LWSM-1028] **P05: service-managed projects driven through `systemctl`.**
   A project owned by a systemd **user unit** gets
@@ -10738,6 +10753,27 @@ bugs in the same area.
   **Layman:** Hidden files still use up the first-run list's limited space, so some real folders end up in the "and N more" line instead.
   Kind: ux.
   Source: in-session-2026-10-02 (LWSM-1383 real-population check).
+  Lanes: core, ui.
+
+- 📋 [LWSM-1385] **Show where a project's port came from, and any disagreement, on its row.**
+  The user decided on 2026-10-02 (note on LWSM-1121) that a port
+  conflict is shown on the project's row. LWSM-1121 shipped the scanner
+  half: DetectedProject.port_conflicts, plus a "port sources disagree"
+  line in the scan notes (first-run dialog and log).
+  What blocks the row: the window shows stored records, which keep only
+  the port number (LWSM-1007 § 4.2), and the app scans only on Rescan or
+  first run. So provenance is gone after a restart. Two ways:
+  (a) store the source and the conflicts in projects.json - a file-format
+  change, so spec-first under CLAUDE.md review cadence rule 2;
+  (b) keep them in memory and show them only after a scan this session.
+  Recommendation: (a), since a warning that vanishes on restart is the
+  "only in the log" outcome the user turned down. Needs the user's OK
+  before the spec, as it changes the saved file.
+  Dependencies: LWSM-1121.
+  Priority: 2.
+  **Layman:** When two files in a project disagree about its port, put a small warning on that project's row so it is seen every time, not only in the log.
+  Kind: feature.
+  Source: in-session-2026-10-02 (split from LWSM-1121).
   Lanes: core, ui.
 
 ## 0.3.0 — The full state model

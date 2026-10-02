@@ -31,6 +31,7 @@ from lwsm.scanner import (
     Confidence,
     DetectedProject,
     LauncherKind,
+    PortFinding,
     PortRule,
     ScanResult,
     rule_1,
@@ -1852,9 +1853,19 @@ def test_a_detected_project_has_no_user_owned_field() -> None:
     would have to add the field first, which is a visible change rather than a
     forgotten one.
 
-    `read_cleanly` (LWSM-1309) is a fact about the scan, not a user-owned field.
+    `read_cleanly` (LWSM-1309) and `port_conflicts` (LWSM-1121) are facts about
+    the scan, not user-owned fields.
     """
-    allowed = {"path", "name", "kind", "argv", "unit", "port", "read_cleanly"}
+    allowed = {
+        "path",
+        "name",
+        "kind",
+        "argv",
+        "unit",
+        "port",
+        "port_conflicts",
+        "read_cleanly",
+    }
 
     assert {field.name for field in dataclasses.fields(DetectedProject)} == allowed
 
@@ -3115,3 +3126,185 @@ def test_every_skip_reason_names_the_folder_it_is_about(tmp_path: Path) -> None:
     hop = [reason for reason in result.skipped if "hop target" in reason]
     assert hop, f"the fixture raised no hop refusal: {result.skipped}"
     assert all(reason.startswith(f"{scanner._quoted('web')}: ") for reason in hop), hop
+
+
+# --------------------------------------------------------------------------
+# LWSM-1121 — the port sources beyond the launcher, and their conflicts
+# --------------------------------------------------------------------------
+
+PORTLESS = {"start.sh": "#!/bin/sh\necho starting\n"}
+
+
+@pytest.mark.parametrize(
+    ("files", "port", "rule", "source"),
+    [
+        ({".env": "PORT=3001\n"}, 3001, PortRule.ENV_FILE, ".env"),
+        (
+            {".env.local": "export PORT='3002' # dev\n"},
+            3002,
+            PortRule.ENV_FILE,
+            ".env.local",
+        ),
+        (
+            {
+                "docker-compose.yml": (
+                    'services:\n  web:\n    ports:\n      - "127.0.0.1:3003:80"\n'
+                )
+            },
+            3003,
+            PortRule.COMPOSE,
+            "docker-compose.yml",
+        ),
+        (
+            {
+                "compose.yaml": (
+                    "services:\n  web:\n    ports:\n"
+                    "      - target: 80\n        published: 3004\n"
+                )
+            },
+            3004,
+            PortRule.COMPOSE,
+            "compose.yaml",
+        ),
+        (
+            {"README.md": "Open http://localhost:3005/ to see it.\n"},
+            3005,
+            PortRule.README,
+            "README.md",
+        ),
+    ],
+)
+def test_each_extra_source_gives_its_port_and_says_where(
+    tmp_path: Path, files: dict[str, str], port: int, rule: PortRule, source: str
+) -> None:
+    make_project(tmp_path, "web", {**PORTLESS, **files}, "start.sh")
+
+    found = by_name(scan_root(tmp_path))["web"]
+
+    assert found.port == PortFinding(port=port, rule=rule, source=source)
+    assert found.port_conflicts == ()
+
+
+def test_a_disagreeing_env_is_reported_and_the_launcher_wins(tmp_path: Path) -> None:
+    """`design.md § Robustness` measure 3: the higher-confidence source wins and
+    the other is kept, never silently dropped."""
+    make_project(
+        tmp_path,
+        "web",
+        {
+            "start.sh": "#!/bin/sh\nexec python3 -m http.server --port 4321\n",
+            ".env": "PORT=3000\n",
+        },
+        "start.sh",
+    )
+
+    result = scan_root(tmp_path)
+    found = by_name(result)["web"]
+
+    assert found.port is not None
+    assert (found.port.port, found.port.source) == (4321, "start.sh")
+    assert found.port_conflicts == (
+        PortFinding(port=3000, rule=PortRule.ENV_FILE, source=".env"),
+    )
+    assert any("port sources disagree" in reason for reason in result.skipped)
+
+
+def test_env_local_outranks_env(tmp_path: Path) -> None:
+    make_project(
+        tmp_path,
+        "web",
+        {**PORTLESS, ".env.local": "PORT=3001\n", ".env": "PORT=3000\n"},
+        "start.sh",
+    )
+
+    found = by_name(scan_root(tmp_path))["web"]
+
+    assert found.port is not None
+    assert found.port.source == ".env.local"
+    assert [c.source for c in found.port_conflicts] == [".env"]
+
+
+def test_an_agreeing_source_is_not_a_conflict(tmp_path: Path) -> None:
+    make_project(
+        tmp_path,
+        "web",
+        {**PORTLESS, ".env": "PORT=3000\n", "README.md": "http://127.0.0.1:3000\n"},
+        "start.sh",
+    )
+
+    result = scan_root(tmp_path)
+
+    assert by_name(result)["web"].port_conflicts == ()
+    assert not any("disagree" in reason for reason in result.skipped)
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        # LWSM-1121's evidence: a preview server's port above the real one.
+        {"README.md": "Preview: http://localhost:3000\nStats: http://127.0.0.1:4321\n"},
+        {".env": "PORT=3000\nPORT=3001\n"},
+        {
+            "compose.yml": (
+                "services:\n  a:\n    ports:\n      - 8080:80\n"
+                "  b:\n    ports:\n      - 5432:5432\n"
+            )
+        },
+        # A bare container port publishes to a random host port.
+        {"compose.yml": 'services:\n  a:\n    ports:\n      - "80"\n'},
+        # Out of the declared range.
+        {".env": "PORT=0\n"},
+    ],
+)
+def test_a_file_naming_no_single_port_gives_no_answer(
+    tmp_path: Path, files: dict[str, str]
+) -> None:
+    make_project(tmp_path, "web", {**PORTLESS, **files}, "start.sh")
+
+    assert by_name(scan_root(tmp_path))["web"].port is None
+
+
+def test_a_port_key_outside_a_ports_block_is_not_read(tmp_path: Path) -> None:
+    compose = (
+        "services:\n  web:\n    ports:\n      - 8080:80\n"
+        "    environment:\n      - 9999:1\n"
+    )
+    make_project(tmp_path, "web", {**PORTLESS, "compose.yml": compose}, "start.sh")
+
+    found = by_name(scan_root(tmp_path))["web"]
+
+    assert found.port is not None
+    assert found.port.port == 8080
+
+
+def test_an_outranked_framework_default_is_not_a_conflict(tmp_path: Path) -> None:
+    """Nobody wrote Flask's 5000; a declared PORT overriding it is ordinary."""
+    make_project(
+        tmp_path,
+        "api",
+        {
+            "app.py": "from flask import Flask\napp = Flask(__name__)\n",
+            ".env": "PORT=8000\n",
+        },
+    )
+
+    found = by_name(scan_root(tmp_path))["api"]
+
+    assert found.port is not None
+    assert (found.port.port, found.port.rule) == (8000, PortRule.ENV_FILE)
+    assert found.port_conflicts == ()
+
+
+def test_a_symlinked_env_file_is_refused(tmp_path: Path) -> None:
+    """INV-1 for the new sources: `.env` linked to a file outside the project
+    is not read, and the refusal is said."""
+    outside = tmp_path / "elsewhere.env"
+    outside.write_text("PORT=6000\n", encoding="utf-8")
+    root = tmp_path / "root"
+    base = make_project(root, "web", PORTLESS, "start.sh")
+    (base / ".env").symlink_to(outside)
+
+    result = scan_root(root)
+
+    assert by_name(result)["web"].port is None
+    assert any(".env cannot be read" in reason for reason in result.skipped)

@@ -108,6 +108,10 @@ class PortRule(enum.Enum):
     EXPLICIT = "an explicit port setting"  # port rule 1
     ASSIGNMENT = "a port assignment"  # port rule 2
     FRAMEWORK_DEFAULT = "a framework default"  # port rule 3
+    # Added by LWSM-1121: the sources beyond the launcher.
+    ENV_FILE = "a PORT setting in an env file"
+    COMPOSE = "a docker-compose port mapping"
+    README = "a local address in the README"
 
 
 class Confidence(enum.Enum):
@@ -131,6 +135,9 @@ class DetectedProject:
     argv: tuple[str, ...]  # empty for SYSTEMD; the unit drives it
     unit: str | None  # set only for SYSTEMD
     port: PortFinding | None  # None means "unknown", never a guess
+    # Added by LWSM-1121: other sources naming a different port, best first.
+    # The ranking is `scanner._settle_port`'s docstring.
+    port_conflicts: tuple[PortFinding, ...] = ()
 
     @property
     def confidence(self) -> Confidence:

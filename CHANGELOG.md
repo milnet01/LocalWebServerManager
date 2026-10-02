@@ -23,6 +23,12 @@ signaling per
 
 ### Added
 
+- **The scan finds a port in .env files, docker-compose and the README** (LWSM-1121)
+  When the start script names no port, these are checked too. When two
+  of them disagree, the most trustworthy one is used and the scan notes
+  say which others disagreed. A file naming two different ports is not
+  guessed from.
+
 - **The first start finds your projects and asks before saving them.** (LWSM-1008)
   With no project list yet, the app scans straight away and lists every
   project it found, each with a tick box. Save keeps the ticked ones; Not

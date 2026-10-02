@@ -118,6 +118,11 @@ class PortRule(enum.Enum):
     EXPLICIT = "an explicit port setting"  # port rule 1
     ASSIGNMENT = "a port assignment"  # port rule 2
     FRAMEWORK_DEFAULT = "a framework default"  # port rule 3
+    # The sources beyond the launcher (LWSM-1121, `design.md § Robustness`
+    # measure 2), in the order `_settle_port` ranks them.
+    ENV_FILE = "a PORT setting in an env file"
+    COMPOSE = "a docker-compose port mapping"
+    README = "a local address in the README"
 
 
 class Confidence(enum.Enum):
@@ -158,6 +163,10 @@ class DetectedProject:
     argv: tuple[str, ...]  # empty for SYSTEMD; the unit drives it
     unit: str | None
     port: PortFinding | None  # None means "unknown", never a guess
+    # The other sources that named a DIFFERENT port than `port`, highest
+    # confidence first (`design.md § Robustness` measure 3: the winner is
+    # chosen and the disagreement is kept, never silently resolved).
+    port_conflicts: tuple[PortFinding, ...] = ()
     # Whether this project's detection raised no problem at all — nothing
     # unreadable, refused or cut short. Only then is `port=None` an observation
     # that the project declares no port, which the merge may act on; otherwise
@@ -1700,6 +1709,159 @@ def _match_named_file(
     return None
 
 
+# --------------------------------------------------------------------------
+# LWSM-1121 — the port sources beyond the launcher
+# --------------------------------------------------------------------------
+
+_ENV_PORT = re.compile(
+    r"""^\s*(?:export\s+)?PORT\s*=\s*(["']?)(\d{1,5})\1\s*(?:\#.*)?$"""
+)
+_COMPOSE_FILES = (
+    "compose.yaml",
+    "compose.yml",
+    "docker-compose.yaml",
+    "docker-compose.yml",
+)
+_YAML_KEY = re.compile(r"^(\s*)(?:-\s+)?([A-Za-z_][\w.-]*)\s*:")
+# Short syntax: `- "8080:80"`, `- 127.0.0.1:8080:80`, `- 8080:80/tcp`. The
+# published (host) port is the field before the last colon. A bare `- 80`
+# publishes to a RANDOM host port, and a range names no one port, so neither
+# matches.
+_COMPOSE_SHORT = re.compile(
+    r"""^\s*-\s*(["']?)(?:[^"':\s]+:)?(\d{1,5}):\d{1,5}(?:/\w+)?\1\s*(?:\#.*)?$"""
+)
+_COMPOSE_PUBLISHED = re.compile(
+    r"""^\s*(?:-\s+)?published\s*:\s*(["']?)(\d{1,5})\1\s*(?:\#.*)?$"""
+)
+_README_ADDRESS = re.compile(
+    r"\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(\d{1,5})(?![0-9])"
+)
+
+
+def _one_port(found: Sequence[str], rule: PortRule, source: str) -> PortFinding | None:
+    """The file's port when it names exactly one, else no answer.
+
+    Two different ports in ONE file is not a conflict between sources, and
+    picking one is how a confidently wrong port is born: a README carrying a
+    preview server's `localhost:3000` above the real `127.0.0.1:4321` would
+    otherwise report 3000 (LWSM-1121's own evidence).
+    """
+    ports = {int(value) for value in found}
+    ports = {port for port in ports if PORT_RANGE[0] <= port <= PORT_RANGE[1]}
+    if len(ports) != 1:
+        return None
+    return PortFinding(port=ports.pop(), rule=rule, source=source)
+
+
+def _env_port(lines: Sequence[str], source: str) -> PortFinding | None:
+    found = [m.group(2) for line in lines if (m := _ENV_PORT.match(line))]
+    return _one_port(found, PortRule.ENV_FILE, source)
+
+
+def _compose_port(lines: Sequence[str], source: str) -> PortFinding | None:
+    """The published ports under every `ports:` key, read as text.
+
+    No YAML parser: the project has none, and this needs only the list items
+    under one key. A `ports:` block ends at the first line indented no deeper
+    than the key itself.
+    """
+    found: list[str] = []
+    block: int | None = None  # the indent of the open `ports:` key
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if block is not None and indent <= block:
+            block = None
+        key = _YAML_KEY.match(line)
+        if block is None:
+            if key is not None and key.group(2) == "ports":
+                block = len(key.group(1))
+            continue
+        match = _COMPOSE_SHORT.match(line) or _COMPOSE_PUBLISHED.match(line)
+        if match is not None:
+            found.append(match.group(2))
+    return _one_port(found, PortRule.COMPOSE, source)
+
+
+def _readme_port(lines: Sequence[str], source: str) -> PortFinding | None:
+    found = [m.group(1) for line in lines for m in _README_ADDRESS.finditer(line)]
+    return _one_port(found, PortRule.README, source)
+
+
+def _settle_port(
+    candidate: Path,
+    quoted: str,
+    launcher_port: PortFinding | None,
+    deadline: Deadline,
+    note: Callable[[str], None],
+) -> tuple[PortFinding | None, tuple[PortFinding, ...]]:
+    """The port to use, and every other source that named a different one.
+
+    Ranked by how directly each source says what the server binds: a port the
+    launcher declares, then `.env.local` (which overrides `.env` by
+    convention), `.env`, the compose mapping, a framework's default, and last
+    the README, which describes the project rather than running it.
+
+    A framework default that is outranked is not reported as a conflict:
+    nobody wrote it, and a declared port overriding it is the ordinary case.
+    """
+    found: dict[PortRule, list[PortFinding]] = {}
+
+    def read(
+        filename: str, parse: Callable[[Sequence[str], str], PortFinding | None]
+    ) -> bool:
+        lines = _read_alternate(candidate, filename, quoted, deadline, note)
+        if lines is None:
+            return False
+        finding = parse(lines, filename)
+        if finding is not None:
+            found.setdefault(finding.rule, []).append(finding)
+        return True
+
+    read(".env.local", _env_port)
+    read(".env", _env_port)
+    for filename in _COMPOSE_FILES:
+        # Compose itself reads the first of these it finds.
+        if read(filename, _compose_port):
+            break
+    read("README.md", _readme_port)
+
+    declared = default = None
+    if launcher_port is not None:
+        if launcher_port.rule is PortRule.FRAMEWORK_DEFAULT:
+            default = launcher_port
+        else:
+            declared = launcher_port
+    ranked = [
+        finding
+        for finding in (
+            declared,
+            *found.get(PortRule.ENV_FILE, ()),
+            *found.get(PortRule.COMPOSE, ()),
+            default,
+            *found.get(PortRule.README, ()),
+        )
+        if finding is not None
+    ]
+    if not ranked:
+        return None, ()
+    winner = ranked[0]
+    conflicts = tuple(
+        finding
+        for finding in ranked[1:]
+        if finding.port != winner.port
+        and finding.rule is not PortRule.FRAMEWORK_DEFAULT
+    )
+    if conflicts:
+        others = ", ".join(f"{c.port} from {c.source}" for c in conflicts)
+        note(
+            f"{quoted}: port sources disagree; using {winner.port} from "
+            f"{winner.source}, also {others}"
+        )
+    return winner, conflicts
+
+
 def _detect(
     candidate: Path,
     raw_name: str,
@@ -1884,6 +2046,13 @@ def scan(
                     launcher = _detect(
                         candidate, raw_name, quoted, lookup, deadline, named_note
                     )
+                    port, conflicts = (
+                        (None, ())
+                        if launcher is None
+                        else _settle_port(
+                            candidate, quoted, launcher.port, deadline, named_note
+                        )
+                    )
                 except OSError as exc:
                     # Contained per candidate, and deliberately at the class
                     # rather than at the metadata calls that raise today:
@@ -1906,7 +2075,8 @@ def scan(
                         kind=launcher.kind,
                         argv=launcher.argv,
                         unit=launcher.unit,
-                        port=launcher.port,
+                        port=port,
+                        port_conflicts=conflicts,
                         read_cleanly=problems == problems_before,
                     )
                 )
