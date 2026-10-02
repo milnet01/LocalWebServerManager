@@ -10640,6 +10640,22 @@ bugs in the same area.
   Source: in-session-2026-10-02, found while writing documentation-overrides.md (LWSM-1326).
   Lanes: docs.
 
+- 📋 [LWSM-1381] **Run the rule-14 gate on documentation-overrides.md's DOC3 change.**
+  9716c8a changed DOC3 (a public project may now be named) after the
+  LWSM-1326 gate closed, so the gate is owed again for that file only.
+  Run review-contract on docs/standards/documentation-overrides.md
+  --genre standard, two neutral-lane lanes; the row goes in
+  docs/reviews/documentation-overrides-loop-log.md as loop 4. Last
+  session's packet recipe: the passages of ~/.claude/standards/
+  documentation.md the file overrides (§ 2.3, § 9.1), tests/test_docs.py
+  lines 1-135, CLAUDE.md § Review cadence, .gitignore and the pre-push
+  docs_only() block.
+  Priority: 3.
+  **Layman:** Have an independent reviewer check the one rule changed after the rulebook review finished.
+  Kind: doc-fix.
+  Source: in-session-2026-10-02 (LWSM-1380, commit 9716c8a).
+  Lanes: docs.
+
 ## 0.3.0 — The full state model
 
 Criterion 3: tell the truth in every case, including the awkward ones.
