@@ -23,6 +23,11 @@ signaling per
 
 ### Added
 
+- **Projects run by the system's service manager get their port from the app** (LWSM-1028)
+  Starting such a project from the app passes it the app's port and
+  tells it the app is in charge. Stopping it from the app takes that
+  away again, so when it starts by itself at login it behaves as before.
+
 - **The scan finds a port in .env files, docker-compose and the README** (LWSM-1121)
   When the start script names no port, these are checked too. When two
   of them disagree, the most trustworthy one is used and the scan notes

@@ -15,6 +15,7 @@ import subprocess
 
 import pytest
 
+from lwsm import service
 from lwsm.service import (
     UNIT_VERB_TIMEOUT_SECONDS,
     VERBS,
@@ -25,6 +26,10 @@ from lwsm.service import (
     unit_for_pid,
     unit_state,
 )
+
+# Taken at import, before `conftest.reloads` replaces the module attribute for
+# every test, so the real reload can still be tested against a fake runner.
+REAL_RELOAD = service.reload_user_manager
 
 # Verbatim from `/proc/<pid>/cgroup` on the reporting machine, escaped name and
 # all. Transcribed rather than composed: the escaping is the part that breaks.
@@ -333,3 +338,73 @@ def test_the_session_manager_is_never_queried() -> None:
     run = FakeRun(stdout="active")
     assert unit_state("user@1000.service", run=run) is None
     assert run.argv is None
+
+
+# --------------------------------------------------------------------------
+# LWSM-1028 — the drop-in
+# --------------------------------------------------------------------------
+
+
+def test_the_drop_in_lives_under_the_user_unit_dir(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    assert service.drop_in_path("a.service") == (
+        tmp_path / "systemd" / "user" / "a.service.d" / "50-lwsm-port.conf"
+    )
+
+
+def test_a_hostile_unit_name_gets_no_drop_in() -> None:
+    with pytest.raises(ValueError):
+        service.drop_in_path("-M.service")
+    with pytest.raises(ValueError):
+        service.drop_in_path("user@1000.service")
+    assert not service.set_drop_in("../x.service", 4321).ok
+
+
+def test_the_drop_in_carries_port_and_managed_and_no_port_when_unknown() -> None:
+    assert service.drop_in_text(4321) == (
+        "[Service]\nEnvironment=PORT=4321\nEnvironment=LWSM_MANAGED=1\n"
+    )
+    assert service.drop_in_text(None) == "[Service]\nEnvironment=LWSM_MANAGED=1\n"
+
+
+def test_setting_writes_once_and_reloads_once(reloads) -> None:
+    """An unchanged drop-in is neither rewritten nor reloaded: a second Start
+    must not reload the user's whole service manager for nothing."""
+    first = service.set_drop_in("a.service", 4321)
+    second = service.set_drop_in("a.service", 4321)
+    third = service.set_drop_in("a.service", 5000)
+
+    assert first.ok and second.ok and third.ok
+    assert reloads == ["daemon-reload", "daemon-reload"]
+    assert "PORT=5000" in service.drop_in_path("a.service").read_text(encoding="utf-8")
+
+
+def test_clearing_removes_only_our_file_and_reloads(reloads) -> None:
+    service.set_drop_in("a.service", 4321)
+    theirs = service.drop_in_path("a.service").parent / "10-theirs.conf"
+    theirs.write_text("[Service]\n", encoding="utf-8")
+    reloads.clear()
+
+    assert service.clear_drop_in("a.service").ok
+    assert not service.drop_in_path("a.service").exists()
+    assert theirs.exists()
+    assert reloads == ["daemon-reload"]
+
+
+def test_clearing_with_nothing_to_remove_does_not_reload(reloads) -> None:
+    assert service.clear_drop_in("a.service").ok
+    assert reloads == []
+
+
+def test_reload_reports_rather_than_raises() -> None:
+    """Through a fake runner only: this one must never reach real systemd."""
+    real = REAL_RELOAD
+
+    def absent(*args, **kwargs):
+        raise FileNotFoundError("systemctl")
+
+    assert real(run=FakeRun(returncode=0)).ok
+    failed = real(run=FakeRun(returncode=1))
+    assert not failed.ok and failed.reason
+    assert real(run=absent).reason == "systemctl is not installed"

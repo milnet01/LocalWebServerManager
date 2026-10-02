@@ -87,6 +87,27 @@ def _isolated_config_home(tmp_path_factory, monkeypatch):
     monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def reloads(monkeypatch) -> list[str]:
+    """Replace `systemctl --user daemon-reload` for every test (LWSM-1028).
+
+    A Start of a service-managed project writes its drop-in under the pinned
+    XDG_CONFIG_HOME and then reloads the user's service manager. The write is
+    already contained; the reload would reach the developer's REAL systemd, so
+    it is a recorder here. A test asserting the reload reads this list.
+    """
+    from lwsm import service
+
+    calls: list[str] = []
+
+    def record(**_kwargs: object) -> service.UnitOutcome:
+        calls.append("daemon-reload")
+        return service.UnitOutcome(ok=True, verb="daemon-reload", unit="")
+
+    monkeypatch.setattr(service, "reload_user_manager", record)
+    return calls
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _reap_abandoned_pools():
     """Do not let the run end holding an abandoned pool (LWSM-1117).

@@ -23,11 +23,13 @@ nothing: `disable` simply never appears in `VERBS`.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from lwsm.configfile import ConfigFileError, write_atomically
 from lwsm.scanner import valid_unit_name
 
 # The only verbs this module will drive. `disable` and `mask` are absent
@@ -242,6 +244,133 @@ def drive_unit(verb: str, unit: str, *, run: object = None) -> UnitOutcome:
         unit=unit,
         reason=detail[:MAX_REASON_CHARS] or f"systemctl {verb} failed",
     )
+
+
+# --------------------------------------------------------------------------
+# The drop-in (ADR-0003 § Service-managed projects, LWSM-1028)
+# --------------------------------------------------------------------------
+
+# Owned and namespaced, so this app removes exactly its own override and never a
+# drop-in somebody else wrote.
+DROP_IN_NAME = "50-lwsm-port.conf"
+
+
+def user_unit_dir() -> Path:
+    """`$XDG_CONFIG_HOME/systemd/user`, where systemd reads user drop-ins.
+
+    `~/.config` when the variable is unset or not absolute, which is the rule
+    systemd itself applies.
+    """
+    raw = os.environ.get("XDG_CONFIG_HOME", "")
+    base = Path(raw) if raw and Path(raw).is_absolute() else Path.home() / ".config"
+    return base / "systemd" / "user"
+
+
+def drop_in_path(unit: str) -> Path:
+    """Where this app's drop-in for `unit` lives. The name is validated first:
+    it becomes a directory name, and `valid_unit_name` admits no `/`."""
+    if not valid_unit_name(unit) or SESSION_UNIT.match(unit):
+        raise ValueError(f"refusing {unit!r}: not a drivable unit name")
+    return user_unit_dir() / f"{unit}.d" / DROP_IN_NAME
+
+
+def drop_in_text(port: int | None) -> str:
+    """The drop-in's body: the two variables `design.md § Data flow` step 2
+    says travel here, because systemd starts a unit in its own environment and
+    never the caller's. No `PORT` line when the app knows no port."""
+    lines = ["[Service]"]
+    if port is not None:
+        lines.append(f"Environment=PORT={port}")
+    lines.append("Environment=LWSM_MANAGED=1")
+    return "\n".join(lines) + "\n"
+
+
+def reload_user_manager(*, run: object = None) -> UnitOutcome:
+    """`systemctl --user daemon-reload`, so a drop-in change takes effect.
+
+    Not in `VERBS`: it names no unit and changes no unit's state. The tests
+    replace this module attribute wholesale (`conftest.py`), so no test run
+    reloads the real user manager.
+    """
+    runner = run if run is not None else subprocess.run
+    verb = "daemon-reload"
+    try:
+        completed = runner(  # type: ignore[operator]
+            ["systemctl", "--user", verb],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=UNIT_VERB_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except FileNotFoundError:
+        return UnitOutcome(
+            ok=False, verb=verb, unit="", reason="systemctl is not installed"
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return UnitOutcome(ok=False, verb=verb, unit="", reason=str(exc))
+    if getattr(completed, "returncode", 1) == 0:
+        return UnitOutcome(ok=True, verb=verb, unit="")
+    from lwsm.configfile import MAX_REASON_CHARS
+
+    detail = (getattr(completed, "stderr", "") or "").strip().replace("\n", " ")
+    return UnitOutcome(
+        ok=False,
+        verb=verb,
+        unit="",
+        reason=detail[:MAX_REASON_CHARS] or "systemctl daemon-reload failed",
+    )
+
+
+def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
+    """Write this app's drop-in for `unit`, then reload — before a start.
+
+    Unchanged bytes skip both the write and the reload, so a second Start does
+    not reload the user's whole service manager for nothing. A failure is
+    reported and the caller does not start: a unit started without its drop-in
+    runs on its own default port, which is ADR-0002's silent no-op.
+    """
+    try:
+        path = drop_in_path(unit)
+    except ValueError as exc:
+        return UnitOutcome(ok=False, verb="start", unit=unit, reason=str(exc))
+    data = drop_in_text(port).encode("utf-8")
+    try:
+        if path.read_bytes() == data:
+            return UnitOutcome(ok=True, verb="daemon-reload", unit=unit)
+    except OSError:
+        pass  # absent, or unreadable: write it
+    try:
+        write_atomically(path, data, prefix=".lwsm-")
+    except ConfigFileError as exc:
+        return UnitOutcome(ok=False, verb="start", unit=unit, reason=str(exc))
+    return reload_user_manager()
+
+
+def clear_drop_in(unit: str) -> UnitOutcome:
+    """Remove this app's drop-in for `unit`, then reload — after a stop.
+
+    Removing rather than rewriting returns the unit to exactly its packaged
+    default (ADR-0003), so its next start at logon is its own. Nothing to
+    remove is success with no reload. Only our own file is touched; the
+    `<unit>.d` directory stays, since it may hold someone else's drop-ins.
+    """
+    try:
+        path = drop_in_path(unit)
+    except ValueError as exc:
+        return UnitOutcome(ok=False, verb="stop", unit=unit, reason=str(exc))
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return UnitOutcome(ok=True, verb="daemon-reload", unit=unit)
+    except OSError as exc:
+        return UnitOutcome(
+            ok=False,
+            verb="stop",
+            unit=unit,
+            reason=f"could not remove {DROP_IN_NAME} ({exc.strerror or exc})",
+        )
+    return reload_user_manager()
 
 
 # The `ActiveState` values that end a start: the unit is not running and is not

@@ -27,7 +27,9 @@ from lwsm.registry import ProjectRecord, port_claims
 from lwsm.service import (
     ENDED_STATES,
     UnitOutcome,
+    clear_drop_in,
     drive_unit,
+    set_drop_in,
     unit_for_pid,
     unit_state,
 )
@@ -429,17 +431,54 @@ class _ServiceTask(QRunnable):
     """
 
     def __init__(
-        self, path: Path, verb: str, unit: str, signals: _ServiceSignals
+        self,
+        path: Path,
+        verb: str,
+        unit: str,
+        signals: _ServiceSignals,
+        port: int | None = None,
     ) -> None:
         super().__init__()
         self._path = path
         self._verb = verb
         self._unit = unit
         self._signals = signals
+        self._port = port
+
+    def _drive(self) -> UnitOutcome:
+        """The verb with this app's drop-in around it (LWSM-1028).
+
+        Written before a start or restart, so `PORT` and `LWSM_MANAGED` reach a
+        unit systemd starts in its own environment; removed after a successful
+        stop, so the unit's next start at logon is its own default (user,
+        2026-10-02). A drop-in that cannot be written stops the start.
+        """
+        if self._verb in ("start", "restart"):
+            prepared = set_drop_in(self._unit, self._port)
+            if not prepared.ok:
+                return UnitOutcome(
+                    ok=False,
+                    verb=self._verb,
+                    unit=self._unit,
+                    reason=prepared.reason,
+                )
+        outcome = drive_unit(self._verb, self._unit)
+        if self._verb == "stop" and outcome.ok:
+            cleared = clear_drop_in(self._unit)
+            if not cleared.ok:
+                # The stop itself worked, so it is not reported as failing;
+                # the leftover file is logged for whoever reads why the unit
+                # still sees LWSM_MANAGED at its next logon start.
+                log.warning(
+                    "stopped %s but its drop-in remains: %s",
+                    self._unit,
+                    cleared.reason,
+                )
+        return outcome
 
     def run(self) -> None:
         try:
-            outcome = drive_unit(self._verb, self._unit)
+            outcome = self._drive()
         except BaseException as exc:
             outcome = UnitOutcome(
                 ok=False, verb=self._verb, unit=self._unit, reason=str(exc)
@@ -750,7 +789,10 @@ class ProjectController(QObject):
                 "their ports first",
             )
             return
-        unit = self._adopted_units.get(path)
+        # A record the scanner bound to a unit is service-managed even before
+        # this session has seen it running (LWSM-1028): its `argv` is empty by
+        # design, so without this it would read as having no launcher.
+        unit = self._adopted_units.get(path) or record.unit
         if unit is not None:
             # ADR-0003's amendment: a project systemd already owns is started
             # through systemd. Spawning its launcher here would put a second
@@ -917,7 +959,11 @@ class ProjectController(QObject):
         self._run_service_verb(path, "stop", unit)
 
     def _run_service_verb(self, path: Path, verb: str, unit: str) -> None:
-        self._service_pool.start(_ServiceTask(path, verb, unit, self._service_signals))
+        record = self._record(path)
+        port = None if record is None else record.effective_port
+        self._service_pool.start(
+            _ServiceTask(path, verb, unit, self._service_signals, port)
+        )
 
     def _on_service_done(self, path: Path, outcome: object) -> None:
         """Report a failure; let the next poll decide what the row now says.

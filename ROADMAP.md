@@ -10322,7 +10322,7 @@ bugs in the same area.
   of the real root: one project went from unknown to its correct port
   from its README; no others changed. Row display split to LWSM-1385.
 
-- 📋 [LWSM-1028] **P05: service-managed projects driven through `systemctl`.**
+- ✅ [LWSM-1028] **P05: service-managed projects driven through `systemctl`.**
   A project owned by a systemd **user unit** gets
   its verbs from the service manager — `start` / `stop` /
   `restart` / `is-active`, with logs from `journalctl --user -u`
@@ -10350,6 +10350,22 @@ bugs in the same area.
   LWSM-1012 shipped starts a unit with neither variable. This item must
   write and remove the drop-in; until then a port override cannot reach a
   systemd project.
+  Decided (user, 2026-10-02): the drop-in 50-lwsm-port.conf (PORT and
+  LWSM_MANAGED) is written before start and restart, and removed (with a
+  daemon-reload) after a stop from the app. A logon start is then the
+  unit's own default; a port override applies only to starts from the
+  app. One file, as ADR-0003 names it.
+  Shipped 2026-10-02. service.set_drop_in / clear_drop_in write and remove
+  50-lwsm-port.conf (PORT when known, LWSM_MANAGED=1) with a daemon-reload;
+  an unchanged file skips both. _ServiceTask writes it before start and
+  restart (a failed write refuses the start) and removes it after a
+  successful stop. A record carrying a unit now starts through systemd
+  even if never seen running this session. Tests: conftest stubs the
+  reload for every test; 5 deliberate breaks each caught. Live check on a
+  throwaway user unit: unit default PORT 48999 became 48123 via the
+  drop-in, it listened there, and after stop+clear its own 48999 was back;
+  the unit was then deleted. Journal logs handed to LWSM-1015 (0.5.0).
+  Gate: 2198 passed.
   Lanes: core, tests.
 
 - ✅ [LWSM-1295] **Stop and Restart are unavailable whenever the socket table is unreadable.**
@@ -10771,6 +10787,9 @@ bugs in the same area.
   before the spec, as it changes the saved file.
   Dependencies: LWSM-1121.
   Priority: 2.
+  Decided (user, 2026-10-02): option (a). The port's source and its
+  conflicts are saved in projects.json. File-format change, so spec-first
+  (review cadence rule 2): write-spec, then the rule-14 gate, then build.
   **Layman:** When two files in a project disagree about its port, put a small warning on that project's row so it is seen every time, not only in the log.
   Kind: feature.
   Source: in-session-2026-10-02 (split from LWSM-1121).
@@ -11245,6 +11264,10 @@ Criterion 5: failures readable without a terminal.
   since Qt's auto-detected rich text loads local resources. Per-project
   logs already open with O_NOFOLLOW under a path-hashed name
   (Supervisor.log_path_for).
+  Handed over from LWSM-1028 (2026-10-02): a service-managed project has
+  no log file of ours. Its panel reads `journalctl --user -u <unit> -f`
+  (ADR-0003's verb table, logs row), with the unit name passed after `--`
+  like every other systemctl argv.
   Lanes: ui, tests.
 
 - 📋 [LWSM-1036] **P08: find the error in the log.**

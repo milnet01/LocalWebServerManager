@@ -2665,3 +2665,90 @@ def test_a_foreign_restart_is_refused_when_the_holder_changed_after_disclosure(
     controller.restart_project(Path("/srv/a"), disclosed_holder=1290)
 
     assert controller._overlay is None, "the restart went ahead on a new holder"
+
+
+# --------------------------------------------------------------------------
+# LWSM-1028 — a unit-bound record, and the drop-in around its verbs
+# --------------------------------------------------------------------------
+
+
+def unit_record(name: str = "a", port: int | None = 4321) -> ProjectRecord:
+    """A project the scanner bound to a user unit: no argv, by design."""
+    return ProjectRecord(
+        path=Path(f"/srv/{name}"), name=name, port=port, unit=f"{name}.service"
+    )
+
+
+def test_a_unit_bound_project_starts_through_systemd_with_its_drop_in(
+    qtbot, controllers, monkeypatch, reloads
+) -> None:
+    """Never seen running this session, so nothing was adopted; the record's
+    own unit is what makes it service-managed. PORT and LWSM_MANAGED reach it
+    through the drop-in, written and reloaded BEFORE the verb."""
+    from lwsm.service import drop_in_path
+
+    drive = RecordingDrive()
+    seen: list[str] = []
+
+    def drive_and_look(verb: str, unit: str, **kwargs: object):
+        seen.append(drop_in_path(unit).read_text(encoding="utf-8"))
+        return drive(verb, unit)
+
+    monkeypatch.setattr(controller_module, "drive_unit", drive_and_look)
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [unit_record()], FakeProbe(), supervisor)
+
+    controller.start_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: bool(drive.calls), timeout=2000)
+
+    assert drive.calls == [("start", "a.service")]
+    assert supervisor.started == [], "systemd owns it, so nothing is spawned"
+    assert "Environment=PORT=4321" in seen[0]
+    assert "Environment=LWSM_MANAGED=1" in seen[0]
+    assert reloads == ["daemon-reload"]
+
+
+def test_a_stop_from_the_app_removes_the_drop_in(
+    qtbot, controllers, monkeypatch, reloads
+) -> None:
+    """User, 2026-10-02: the next logon start is the unit's own default."""
+    from lwsm.service import drop_in_path
+
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "a.service")
+    controller = supervised(
+        controllers, [unit_record()], HoldingProbe({4321: 1290}), FakeSupervisor()
+    )
+    drop_in = drop_in_path("a.service")
+    drop_in.parent.mkdir(parents=True)
+    drop_in.write_text("[Service]\nEnvironment=LWSM_MANAGED=1\n", encoding="utf-8")
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    controller.stop_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: bool(reloads), timeout=2000)
+
+    assert drive.calls == [("stop", "a.service")]
+    assert not drop_in.exists()
+
+
+def test_a_drop_in_that_cannot_be_written_stops_the_start(
+    qtbot, controllers, monkeypatch, reloads
+) -> None:
+    """Started without it, the unit would run on its own port while the row
+    claims the override — ADR-0002's silent no-op."""
+    from lwsm.service import drop_in_path
+
+    drive = RecordingDrive()
+    monkeypatch.setattr(controller_module, "drive_unit", drive)
+    target = drop_in_path("a.service")
+    target.parent.mkdir(parents=True)
+    target.symlink_to(target.parent / "elsewhere.conf")
+    controller = supervised(controllers, [unit_record()], FakeProbe(), FakeSupervisor())
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000) as caught:
+        controller.start_project(Path("/srv/a"))
+
+    assert drive.calls == []
+    assert reloads == []
+    assert "could not start" in caught.args[1]

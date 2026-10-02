@@ -420,7 +420,9 @@ Added later, both core with no Qt at all:
   ADR-0003's trust gate would have to cover.
 - **`src/lwsm/service.py`** — ADR-0003's second column: a project whose server
   is a systemd **user** unit is driven with `systemctl --user`, never by
-  spawning its launcher, and nothing here signals a process.
+  spawning its launcher, and nothing here signals a process. It also writes
+  and removes this app's drop-in (`50-lwsm-port.conf`) around a start and a
+  stop: the one file this app writes outside its own config (LWSM-1028).
 
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are
