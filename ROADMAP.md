@@ -11046,7 +11046,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Priority: 2.
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1054] **P06: cover the sibling that respawns itself detached.**
+- ✅ [LWSM-1054] **P06: cover the sibling that respawns itself detached.**
   project-e's settings page has a Restart button that
   spawns a fresh copy in a **new session** and then exits 0. So the
   process this app started exits *cleanly* while the port stays
@@ -11070,6 +11070,12 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: test.
   Source: in-session-2026-08-06.
   Priority: 2.
+  Shipped (2026-10-02, 80f5971). Covering it found a defect: a clean
+  exit read `failed` for one poll even with a copy of the project on the
+  port; fixed in the same commit, ADR-0004's row split. Real-process
+  test: a setsid copy outside our group holds the port after the entry
+  is reaped. testing-overrides § T2 lists no launcher shapes, so the
+  "update T2's list" step had nothing to update.
   Lanes: core, tests.
 
 - ✅ [LWSM-1301] **P06: stop a foreign server that is not a systemd unit.**
