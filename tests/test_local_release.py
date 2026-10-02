@@ -461,6 +461,20 @@ def test_a_version_that_is_not_one_is_refused_before_anything_runs(arg) -> None:
     assert "unknown argument" in result.stderr
 
 
+@pytest.mark.parametrize("arg", ["0.2.0-rc.1", "1.0.0-rc.12"])
+def test_a_release_candidate_is_refused_with_its_reason(arg) -> None:
+    """LWSM-1355, decided by the user 2026-10-01: refuse `-rc.N` until a
+    pre-release is wanted. The loop used to admit it, and the version recipe
+    and `check-version-drift.sh` read `X.Y.Z` only, so the post-check then
+    reported "no version found" and a pre-release could never pass."""
+    result = subprocess.run(
+        ["bash", str(RELEASE), arg], cwd=REPO, capture_output=True, text=True
+    )
+    assert result.returncode == 2, result.stderr
+    assert "release candidates are not supported" in result.stderr
+    assert "unknown argument" not in result.stderr
+
+
 def test_a_missing_python_is_named_rather_than_blamed_on_the_recipe(tmp_path) -> None:
     """Every check reads the recipe through python3, so its absence surfaced as
     "recipe is not in the dialect cut-release reads"."""

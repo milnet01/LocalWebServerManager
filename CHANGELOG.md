@@ -21,6 +21,12 @@ signaling per
 
 ## [Unreleased]
 
+### Changed
+
+- **The release check now refuses a release-candidate version such as 0.2.0-rc.1, and says why.** (LWSM-1355)
+  It used to accept one that the rest of the release tooling cannot
+  read, so such a release could never pass.
+
 ### Fixed
 
 - **A slow or very large applications folder can no longer hold up the window at startup.** (LWSM-1340)

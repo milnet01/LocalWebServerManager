@@ -58,11 +58,20 @@ for arg in "$@"; do
         *)
             # A version, validated whole: the old `[0-9]*.[0-9]*.[0-9]*` glob
             # admitted `1.2.3'+...`, which then reached Python source and
-            # grep patterns (LWSM-1284). `-rc.N` is what `cut-release --pre`
-            # cuts.
-            if [[ $arg =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            # grep patterns (LWSM-1284).
+            if [[ $arg =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                 TARGET=$arg
                 continue
+            fi
+            # `-rc.N` is what `cut-release --pre` cuts, but the version recipe
+            # and check-version-drift.sh read X.Y.Z only, so a candidate could
+            # never pass the post-check. Refused until one is wanted (LWSM-1355,
+            # user decision 2026-10-01).
+            if [[ $arg =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+                printf 'release candidates are not supported yet: %s\n' "$arg" >&2
+                printf '  the version recipe (.claude/bump.json) and\n' >&2
+                printf '  scripts/check-version-drift.sh read X.Y.Z only\n' >&2
+                exit 2
             fi
             printf 'unknown argument: %s\n' "$arg" >&2
             usage >&2

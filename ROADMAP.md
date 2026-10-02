@@ -10498,7 +10498,7 @@ bugs in the same area.
   Source: review-code-2026-10-01 lane-02 L2-L1.
   Lanes: core, ui.
 
-- 📋 [LWSM-1355] **Decide whether release candidates are supported, and make the pre-flight and the version recipe agree.**
+- ✅ [LWSM-1355] **Decide whether release candidates are supported, and make the pre-flight and the version recipe agree.**
   `scripts/local-release.sh` accepts `X.Y.Z-rc.N` ("what `cut-release --pre`
   cuts"), but `scripts/check-version-drift.sh` and `.claude/bump.json`'s
   `version_pattern` parse only `X.Y.Z`, so `--dry-bump 0.2.0-rc.1` writes a
@@ -10510,6 +10510,10 @@ bugs in the same area.
   Decision (user, 2026-10-01): refuse -rc versions in the release
   pre-flight with a clear message, until a pre-release is actually
   wanted.
+  Resolved (2026-10-02) per the user's decision: local-release.sh admits
+  X.Y.Z only and refuses X.Y.Z-rc.N with exit 2 and a message naming
+  the recipe and check-version-drift.sh. Test in test_local_release.py;
+  removing the refusal turns it red. Gate: 2137 passed.
   **Layman:** The release check accepts test-release version numbers that the rest of the release tooling cannot read, so one could never pass.
   Kind: review-fix.
   Source: review-code-2026-10-01 lane-07 L7-L1.
