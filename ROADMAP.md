@@ -10712,6 +10712,8 @@ bugs in the same area.
   FOLDER. Recommendation: leave plain files and dot-folders out of the
   dialog (they still reach the log), and keep the rest.
   Priority: 3.
+  Decided (user, 2026-10-02): real folders only. The dialog leaves out
+  plain files and dot-folders; both still reach the log.
   **Layman:** The first-run screen lists every hidden folder and stray file it passed over, which buries the few that matter.
   Kind: ux.
   Source: in-session-2026-10-02 (LWSM-1008 end-to-end run).
