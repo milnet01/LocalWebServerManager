@@ -6065,6 +6065,29 @@ def test_centre_reports_when_the_desktop_refuses(qtbot, built) -> None:
     assert "would not let the window be moved" in message_of(window)
 
 
+def test_placement_is_told_the_frame_margins(qtbot, built, monkeypatch) -> None:
+    """LWSM-1354. On X11 the frame is what must fit the work area, and only the
+    window knows how big its decoration came out. The offscreen platform draws
+    none, so the frame is widened here to stand in for a window manager's."""
+    calls: list[dict] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        place=lambda *_args, **kwargs: calls.append(kwargs) or None,
+    )
+    real = window.frameGeometry()
+    monkeypatch.setattr(
+        window,
+        "frameGeometry",
+        lambda: QRect(real.x(), real.y(), window.width() + 2, window.height() + 27),
+    )
+
+    window.centre_on_screen()
+
+    assert calls[-1]["frame_margins"] == (2, 27)
+
+
 def test_rows_arriving_after_the_restore_do_not_undo_the_remembered_size(
     qtbot, built
 ) -> None:

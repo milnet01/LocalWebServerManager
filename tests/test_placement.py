@@ -1000,3 +1000,68 @@ def test_on_x11_the_clamped_size_comes_back_for_the_caller_to_apply(
     assert (asked.width, asked.height) == (LEFT.width, LEFT.height), (
         "the caller was handed back the unclamped size it asked for"
     )
+
+
+# --- LWSM-1354: on X11 the FRAME is what has to fit -------------------------
+
+
+def test_on_x11_the_frame_not_the_client_is_kept_on_screen() -> None:
+    """ADR-0007: the X11 branch moves "after clamping the frame geometry".
+
+    `move()` positions the frame corner, so a window whose client fits at the
+    bottom edge still hangs off by its title bar. Measured 2026-10-02 under
+    Openbox on Xvfb: margins 2 x 27, and a client clamped to the bottom left
+    the frame 27 pixels below the work area.
+    """
+    moved: list[tuple[int, int]] = []
+
+    asked = place_window(
+        Rect(0, LEFT.height - 600, 800, 600),
+        screens=[LEFT],
+        pid=1,
+        move=lambda x, y: moved.append((x, y)),
+        state_dir=Path("/nonexistent"),
+        environ=X11,
+        which=no_dbus_send,
+        frame_margins=(2, 27),
+    )
+
+    assert moved == [(0, LEFT.height - 600 - 27)]
+    assert asked == Rect(0, LEFT.height - 600 - 27, 800, 600)
+
+
+def test_on_x11_an_oversized_window_hands_back_a_client_size_that_fits_framed() -> None:
+    """The size handed back is the CLIENT size, so the caller's resize plus the
+    decoration lands exactly on the screen rather than past it."""
+    asked = place_window(
+        Rect(50, 60, LEFT.width * 3, LEFT.height * 3),
+        screens=[LEFT],
+        pid=1,
+        move=lambda x, y: None,
+        state_dir=Path("/nonexistent"),
+        environ=X11,
+        which=no_dbus_send,
+        frame_margins=(2, 27),
+    )
+
+    assert asked == Rect(0, 0, LEFT.width - 2, LEFT.height - 27)
+
+
+def test_on_wayland_the_frame_margins_change_nothing(tmp_path: Path) -> None:
+    """The KWin script adds the decoration itself (`kwin_script`), so the
+    client rectangle it is handed must not be shrunk a second time."""
+    run = FakeRun()
+
+    asked = place_window(
+        Rect(300, 400, 800, 600),
+        screens=[LEFT],
+        pid=99,
+        move=lambda x, y: None,
+        state_dir=tmp_path,
+        environ=WAYLAND,
+        which=have_dbus_send,
+        run=run,
+        frame_margins=(2, 27),
+    )
+
+    assert asked == Rect(300, 400, 800, 600)

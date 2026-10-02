@@ -3541,6 +3541,10 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             log.warning("cannot place the window: no state directory (%s)", exc)
             return None
+        # The decoration as it came out, for X11's frame clamp (LWSM-1354).
+        # Placement runs after the first expose, so a window manager has
+        # framed the window by now; with none, the margins are zero.
+        frame = self.frameGeometry()
         return self._place(
             target,
             screens=self._screens(),
@@ -3548,6 +3552,10 @@ class MainWindow(QMainWindow):
             move=self.move,
             state_dir=state_dir,
             centre=centre,
+            frame_margins=(
+                frame.width() - self.width(),
+                frame.height() - self.height(),
+            ),
         )
 
     def centre_on_screen(self) -> None:

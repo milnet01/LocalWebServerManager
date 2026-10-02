@@ -29,6 +29,10 @@ signaling per
 
 ### Fixed
 
+- **On X11 desktops, a window remembered at the bottom of the screen no longer comes back with its edge hanging off it.** (LWSM-1354)
+  The window's position is now fitted to the screen including its title
+  bar and border, not just the inside of the window.
+
 - **A slow or very large applications folder can no longer hold up the window at startup.** (LWSM-1340)
   The browser list now stops after two seconds or 5,000 desktop entries,
   whichever comes first, and keeps what it found. If a project's chosen

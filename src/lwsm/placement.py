@@ -575,6 +575,7 @@ def place_window(
     which: Callable[[str], str | None] | None = None,
     run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
     centre: bool = False,
+    frame_margins: tuple[int, int] = (0, 0),
 ) -> Rect | None:
     """Ask for `target`, and return the rectangle actually asked for.
 
@@ -597,6 +598,14 @@ def place_window(
     the position gets applied there, not a second job. The X11 branch moves
     and nothing else, and there is deliberately no `resize` seam beside
     `move` (LWSM-1242).
+
+    **On X11 the FRAME is what is clamped** (ADR-0007, LWSM-1354). `move()`
+    positions the frame corner, so `frame_margins` — the decoration's width
+    and height, frame minus client — is added before the clamp and taken off
+    the size handed back, which stays a CLIENT size. Measured under Openbox
+    on Xvfb, 2026-10-02: margins 2 x 27, and a client-only clamp left the
+    frame 27 pixels below the work area. Wayland ignores it: the KWin script
+    adds the decoration itself.
 
     That is not a lost clamp. `MainWindow._restore_size_and_state` applies
     `_bounded_to_screen` — `SCREEN_FRACTION` of the screen — before calling
@@ -642,7 +651,13 @@ def place_window(
             if not run_kwin_script(script, state_dir, runner):
                 return None
         else:
-            move(asked.x, asked.y)
+            dw, dh = frame_margins
+            framed = clamp_to_screens(
+                Rect(target.x, target.y, target.width + dw, target.height + dh),
+                screens,
+            )
+            move(framed.x, framed.y)
+            asked = Rect(framed.x, framed.y, framed.width - dw, framed.height - dh)
     except (TypeError, ValueError) as exc:
         log.warning("could not compute a placement for %r: %s", target, exc)
         return None
