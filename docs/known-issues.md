@@ -968,6 +968,7 @@ HIGH; scope was set by the user on 2026-08-15, per the standing 2026-08-07
 decision — one review per phase, fix what is above the bar, route the rest to
 the phase that owns the code. Owners are named, not implied.
 - **Re-triaged 2026-09-28 — still live, now owned by LWSM-1061**, which adds the required-sections block, together with LWSM-1062's reconciliation of the same file.
+- **RESOLVED 2026-09-28 by LWSM-1061** (c660263 … fcd0ef0): `spec-format.md` carries its own required-sections block, and `spec_lint` reports no `missing_section`.
 
 ### From the supervisor lane
 
