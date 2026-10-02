@@ -1107,17 +1107,6 @@ O8` forbids retrofitting that.
   Source: in-session-2026-09-25, found while updating § 3.2 for LWSM-1311.
   Lanes: docs.
 
-- 📋 [LWSM-1313] **The roadmap legend still says 📋 means "next up for this phase".**
-  The legend list under the preamble is stored as a separate element.
-  roadmap_log set_preamble does not reach it, and no op edits it, so the
-  wording could not be changed with LWSM-1311. A hand edit is reverted by
-  the next write. Filed with Ants MCP 2026-09-25. Check whether an op for
-  it has landed before trying anything else.
-  **Layman:** One line in the roadmap's key still talks about phases, though the roadmap is now grouped by version.
-  Kind: doc-fix.
-  Source: in-session-2026-09-25, found while updating the preamble for LWSM-1311.
-  Lanes: docs.
-
 - ✅ [LWSM-1001] **P01: uv + ruff + pytest + pytest-qt + CI wired up.**
   `pyproject.toml` declaring Python ≥ 3.13, PySide6 and
   psutil as runtime deps and pytest / pytest-qt / ruff as dev
@@ -10477,6 +10466,21 @@ bugs in the same area.
   **Layman:** The project's notes still tell future sessions to label small commits the old way; update them now that the first release is out.
   Kind: doc-fix.
   Source: in-session-2026-10-01 (0.1.0 release).
+  Lanes: docs.
+
+- 📋 [LWSM-1313] **The roadmap legend still says 📋 means "next up for this phase".**
+  The legend list under the preamble is stored as a separate element.
+  roadmap_log set_preamble does not reach it, and no op edits it, so the
+  wording could not be changed with LWSM-1311. A hand edit is reverted by
+  the next write. Filed with Ants MCP 2026-09-25. Check whether an op for
+  it has landed before trying anything else.
+  Progress (2026-10-02): rechecked. ANTS-5379 shipped the element ops,
+  but list_elements preamble:true does not list the Legend block, and
+  amend_preamble cannot find its text. Still blocked; filed again with Ants
+  MCP the same day. Moved from the released 0.1.0 section to 0.2.0.
+  **Layman:** One line in the roadmap's key still talks about phases, though the roadmap is now grouped by version.
+  Kind: doc-fix.
+  Source: in-session-2026-09-25, found while updating the preamble for LWSM-1311.
   Lanes: docs.
 
 ## 0.3.0 — The full state model
