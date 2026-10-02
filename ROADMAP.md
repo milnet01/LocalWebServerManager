@@ -10377,7 +10377,7 @@ bugs in the same area.
   Source: in-session-2026-09-28 (split from LWSM-1046).
   Lanes: ui, core.
 
-- 🚧 [LWSM-1326] **Reconcile the seven OWNED-HERE standards with the machine-wide set.**
+- ✅ [LWSM-1326] **Reconcile the seven OWNED-HERE standards with the machine-wide set.**
   Split from LWSM-1062 on 2026-09-28 by user decision: only the known
   defects land before 0.1.0; the full walk comes after it. For each of
   coding, testing, documentation, dependencies, commits, spec-format and
@@ -10402,6 +10402,15 @@ bugs in the same area.
   in this public repo; contributors get a note. Accepted loss: spec_lint
   reads no overrides file, so the spec heading check stops (CFG-0322).
   Labels kept: O1-O8, T1-T9; new O9 (old coding 1.6), T10-T12.
+  Resolved (2026-10-02): 51e3e8a replaced the seven local standards with
+  the shared set plus docs/standards/<name>-overrides.md; citations
+  repointed; old loop logs copied to docs/reviews/. Rule-14 gate: two cold
+  neutral lanes per file, review-contract genre standard. spec-format
+  converged at loop 1; the other six capped at loop 3 (calm: 6 of 12
+  final-loop findings on this run's own text). 22 + 17 + 11 verified and
+  fixed across loops 1-3 (2efec54, 94719ba, c146149). The final loop's
+  fixes were read by no lane. Gaps adopted from the shared set are
+  LWSM-1374..1379; LWSM-1380 filed on the way.
   **Layman:** Bring this project's own rulebooks back in line with the shared ones, one difference at a time.
   Kind: doc-fix.
   Source: user-decision-2026-09-28 (split from LWSM-1062).

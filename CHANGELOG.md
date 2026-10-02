@@ -23,6 +23,12 @@ signaling per
 
 ### Changed
 
+- **The project's rulebooks now follow the author's shared standards, and keep only this project's differences.** (LWSM-1326)
+  The seven project-owned copies in docs/standards/ were replaced by
+  short *-overrides.md files, each holding one rule per difference with
+  the reason for it. docs/standards/README.md explains where the shared
+  standards live.
+
 - **The release check now refuses a release-candidate version such as 0.2.0-rc.1, and says why.** (LWSM-1355)
   It used to accept one that the rest of the release tooling cannot
   read, so such a release could never pass.
