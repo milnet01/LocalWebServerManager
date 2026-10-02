@@ -23,6 +23,8 @@ signaling per
 
 ### Added
 
+- **The release check warns when a checking tool's pinned version falls behind** (LWSM-1347)
+
 - **You can take back a "yes, run it" answer for a project** (LWSM-1319)
   Right-click a project and choose "Ask before starting again". The next
   Start shows the confirmation, with the exact command, as it did the

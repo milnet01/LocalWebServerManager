@@ -10541,7 +10541,7 @@ bugs in the same area.
   Source: review-code 2026-09-01 lane 9, queued from LWSM-1279 on 2026-10-01.
   Lanes: browsers.
 
-- 📋 [LWSM-1347] **The CI tool pins in scripts/ci-tools.env have no update signal; dependabot watches none of them.**
+- ✅ [LWSM-1347] **The CI tool pins in scripts/ci-tools.env have no update signal; dependabot watches none of them.**
   .github/dependabot.yml registers github-actions and uv only.
   SHELLCHECK_VERSION, YAMLLINT_VERSION, ACTIONLINT_VERSION and UV_VERSION
   in scripts/ci-tools.env are pinned by plain variables no ecosystem
@@ -10553,6 +10553,11 @@ bugs in the same area.
   scripts/local-release.sh compares each scripts/ci-tools.env pin
   against the tool's latest release and warns when one is behind. No
   scheduled workflow.
+  Shipped 2026-10-02 (f1fa109). local-release.sh step 0h compares each
+  ci-tools.env *_VERSION pin with its repo's latest GitHub release: behind
+  is a warning, a failed lookup a skip. test_local_release.py runs the
+  script's own pin_status() against a stub gh, and fails if a pin has no
+  row. First run found uv 0.12.2 behind 0.12.22; filed separately.
   **Layman:** The versions of the checking tools the project uses are never flagged as out of date, so they can quietly fall behind.
   Kind: chore.
   Source: review-code 2026-09-01 synthesis part 5, verified 2026-10-01 closing LWSM-1286.
@@ -10820,6 +10825,18 @@ bugs in the same area.
   Kind: feature.
   Source: in-session-2026-10-02 (split from LWSM-1121).
   Lanes: core, ui.
+
+- 📋 [LWSM-1386] **Bump the uv pin from 0.12.2 to the latest release.**
+  local-release.sh step 0h reported UV_VERSION pinned at 0.12.2 while
+  astral-sh/uv's latest release is 0.12.22. The pin lives in
+  scripts/ci-tools.env and is repeated as a literal in ci.yml (a uses:
+  input); tests/test_ci_contract.py keeps the two equal. Read
+  docs/standards/dependencies-overrides.md before bumping, then run the
+  full gate with the new uv installed locally.
+  **Layman:** The tool that installs this project's dependencies is a few versions behind; update it.
+  Kind: chore.
+  Source: in-session-2026-10-02 (LWSM-1347's first run).
+  Lanes: ci.
 
 ## 0.3.0 — The full state model
 
