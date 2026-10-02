@@ -32,7 +32,7 @@ jobs:
     # Pinned rather than ubuntu-latest so a runner-image roll cannot turn a
     # green build red without a commit explaining it.
     runs-on: ubuntu-24.04
-    # The tests bind real sockets and spawn real children (testing.md § T2/T3),
+    # The tests bind real sockets and spawn real children (testing-overrides.md § T2/T3),
     # so a hang is a plausible failure rather than a hypothetical one. The
     # default is 360 minutes; the whole gate runs in well under one.
     timeout-minutes: 15
@@ -56,7 +56,7 @@ jobs:
         with:
           # Pinned, because an unpinned setup-uv resolves whatever uv is latest
           # at run time — a floating reference of the kind
-          # dependencies.md § 6 forbids, and it made "the local run matches
+          # ~/.claude/standards/dependencies.md § 9 forbids, and it made "the local run matches
           # GitHub exactly" false without saying so. The two sides move together
           # in one commit or not at all, since the resolver writes uv.lock.
           #
@@ -99,7 +99,7 @@ jobs:
       #
       # shellcheck comes from the project's own release tarball rather than
       # apt, because apt can only offer whatever the runner image pins and
-      # docs/standards/dependencies.md § 2.1 forbids a floating reference.
+      # dependencies-overrides.md § D1 forbids a floating reference.
       # yamllint goes through `uv tool`, which is already on the machine.
       #
       # tests/test_ci_contract.py asserts this step installs exactly the three

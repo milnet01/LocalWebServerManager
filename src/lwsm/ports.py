@@ -1,6 +1,6 @@
 """Socket-table inspection: the only place that knows how ports are looked at.
 
-Core module — no Qt at all, not even QtCore (`docs/standards/coding.md § O1`).
+Core module — no Qt at all, not even QtCore (`docs/standards/coding-overrides.md § O1`).
 Contract: `docs/specs/LWSM-1005-vertical-slice.md § 4.2`.
 """
 

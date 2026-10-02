@@ -71,7 +71,8 @@ def test_a_value_this_build_does_not_know_is_not_read_as_high_contrast() -> None
 
 
 def test_the_portal_is_asked_with_an_argument_vector_and_a_bound() -> None:
-    """`coding.md § O4`: a vector, never a shell string — the namespace and key
+    """`coding-overrides.md § O4`: a vector, never a shell string — the namespace and
+    key
     reach `dbus-send` as separate arguments, so neither can be read as syntax.
     And the call is bounded, because it runs on the GUI thread."""
     calls: list[tuple] = []

@@ -1,7 +1,7 @@
 """The browsers this desktop already knows about, and opening a URL in one.
 
 LWSM-1187. Core module with no Qt at all, not even `QtCore` — the same footing
-as `placement.py` and `scanner.py` (`coding.md § O1`), so every rule below is
+as `placement.py` and `scanner.py` (`coding-overrides.md § O1`), so every rule below is
 testable with no display.
 
 **Nothing here runs a command the user typed, and that is the whole design.**

@@ -11,7 +11,7 @@ hop target imports no framework, so the expectation here is *unknown*. Copying
 the real port instead would produce a corpus that disagrees with the rules it
 exists to lock.
 
-`testing.md § T1` forbids reading the real projects, so this tree is only ever
+`testing-overrides.md § T1` forbids reading the real projects, so this tree is only ever
 as true as the day someone last checked it against them — recorded in the spec's
 § 11 as one of its four `nothing` rows.
 """
@@ -292,7 +292,8 @@ def build_tree(root: Path) -> Path:
 
 @dataclass
 class FakeUnits:
-    """A `SupportsUnitLookup` that touches no service manager (`testing.md § T1`).
+    """A `SupportsUnitLookup` that touches no service manager
+    (`testing-overrides.md § T1`).
 
     `properties()` is **total** over `names`, which is the Protocol's contract
     and not a convenience: a fake that omitted a key would hide the `KeyError`

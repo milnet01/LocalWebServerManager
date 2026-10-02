@@ -222,7 +222,7 @@ def configure_logging(
     """Attach the rotating file handler; return the path being written to.
 
     `state_dir` is injected rather than derived so tests never touch the real
-    one (testing.md § T1).
+    one (testing-overrides.md § T1).
     """
     directory = state_dir if state_dir is not None else default_state_dir()
     # 0700/0600 rather than the umask default: this log records every spawn,

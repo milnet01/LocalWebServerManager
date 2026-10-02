@@ -89,7 +89,7 @@ dist/
 # ignored lockfile means the two runs can resolve differently, which is the
 # exact drift the shared script exists to prevent. `--locked`, NOT `--frozen`:
 # --frozen exits 0 against a lock that disagrees with pyproject.toml
-# (dependencies.md § 2.5).
+# (dependencies-overrides.md § D4).
 
 # Qt / PySide6
 *.qmlc
@@ -113,7 +113,7 @@ appimagetool*
 
 # Roadmap ID counter — derived per-machine cache, not source.
 # True high-water mark is the highest ID across ROADMAP.md +
-# CHANGELOG.md + docs/roadmap/*.md (roadmap-format.md § 3.5.1).
+# CHANGELOG.md + docs/roadmap/*.md (~/.claude/standards/roadmap-format.md § 3.5.1).
 .roadmap-counter
 
 # Author-private working notes (LWSM-1045). This repository is public;

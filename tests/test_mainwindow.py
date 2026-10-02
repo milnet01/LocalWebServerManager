@@ -1,6 +1,6 @@
 """LWSM-1005 INV-6, INV-7, INV-13, INV-15 — the row tells the truth, accessibly.
 
-Headless under QT_QPA_PLATFORM=offscreen (`docs/standards/testing.md § T6`),
+Headless under QT_QPA_PLATFORM=offscreen (`docs/standards/testing-overrides.md § T6`),
 which conftest.py sets when it is unset.
 """
 
@@ -1184,7 +1184,7 @@ def glyph_ink_bounds(row) -> tuple[int, int]:
 
 
 def test_the_glyph_is_not_clipped_when_the_text_size_doubles(qtbot, built) -> None:
-    """`coding.md § O8` clause 4: reflows at 200 % text size without clipping.
+    """`coding-overrides.md § O8` clause 4: reflows at 200 % text size without clipping.
 
     `_glyph_width` and the widened left content margin were computed once in
     `__init__`, and `changeEvent`'s `FontChange` branch recomputed only the
@@ -1243,7 +1243,7 @@ def test_the_title_bar_carries_the_version(qtbot, built) -> None:
 
 def test_every_visible_string_goes_through_a_translator(qtbot, built) -> None:
     """`grep` for `.tr(` and `QCoreApplication.translate` across src/ returned
-    zero hits, against `coding.md § 5.2`.
+    zero hits, against `~/.claude/standards/languages/qt.md` § Idioms.
 
     Asserted by installing a translator and reading the rendered text, not by
     grepping for the call — a wrapper that is never consulted looks identical
@@ -1551,7 +1551,7 @@ def rescan_window(
 ) -> tuple[MainWindow, ProjectController]:
     """A window with a Rescan context whose scan and writer are both fakes.
 
-    `testing.md § T1`: nothing here walks a real tree or reaches the real
+    `testing-overrides.md § T1`: nothing here walks a real tree or reaches the real
     config. The scan is a value, not a directory.
     """
     controller = build_controller(built, list(records), FakeProbe())
@@ -4325,7 +4325,7 @@ def test_no_widget_pins_a_font_family_or_a_pixel_size(qtbot, built) -> None:
 
 
 def test_nothing_is_clipped_at_two_hundred_percent(qtbot, built, app_font) -> None:
-    """`testing.md § T8`'s fourth check, and the one that could not be written
+    """`testing-overrides.md § T8`'s fourth check, and the one that could not be written
     until the control existed.
 
     Every cell must be at least as wide as the text it holds. A `QLabel` does
@@ -4457,7 +4457,7 @@ def tab_stops(window: MainWindow) -> list:
 
 
 def test_every_action_is_reachable_by_tab_in_the_order_it_is_read(qtbot, built) -> None:
-    """`testing.md § T8`'s second check, both halves of it.
+    """`testing-overrides.md § T8`'s second check, both halves of it.
 
     Reachability alone is not the promise — "tab order matches visual order"
     is the half that decides whether a magnifier user can predict where the
@@ -4495,7 +4495,7 @@ def test_every_action_is_reachable_by_tab_in_the_order_it_is_read(qtbot, built) 
 def test_every_interactive_widget_has_a_name_a_screen_reader_can_read(
     qtbot, built
 ) -> None:
-    """`testing.md § T8`'s third check, asked of the ACCESSIBILITY TREE rather
+    """`testing-overrides.md § T8`'s third check, asked of the ACCESSIBILITY TREE rather
     than of `accessibleName()`.
 
     The two are not the same question, and LWSM-1071 is the record of what the

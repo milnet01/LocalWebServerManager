@@ -1,7 +1,7 @@
 # Dependabot config — automated dependency PRs.
 #
 # Every ecosystem this project uses must be registered here
-# (docs/standards/dependencies.md § 2.6). An ecosystem left out gets no
+# (dependencies-overrides.md § D5). An ecosystem left out gets no
 # update PRs, which is indistinguishable from having nothing outdated —
 # and dependabot is the ONLY automated signal for § 2.2 currency, since
 # a stale-but-valid pin resolves and tests perfectly cleanly.

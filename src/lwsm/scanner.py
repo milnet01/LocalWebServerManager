@@ -1,6 +1,6 @@
 """Detect projects, their launchers and their declared ports.
 
-Core module — no Qt at all, not even QtCore (`docs/standards/coding.md § O1`),
+Core module — no Qt at all, not even QtCore (`docs/standards/coding-overrides.md § O1`),
 matching `ports.py`, because nothing here emits a signal. Contract:
 `docs/specs/LWSM-1006-scanner-detection.md`.
 
@@ -51,7 +51,7 @@ __all__ = ["MAX_DISPLAY_NAME_CHARS", "LauncherKind"]
 # 256 KB for a sibling's source, against `registry.py`'s 1 MiB for a config
 # file this app owns. Named MAX_SOURCE_* rather than reusing that constant
 # because they are different numbers for different jobs, and one name for two
-# values is the ambiguity `documentation.md § 1.5` bans.
+# values is the ambiguity `documentation-overrides.md § DOC1` bans.
 MAX_SOURCE_FILE_BYTES = 256 * 1024
 MAX_SOURCE_LINE_CHARS = 4096
 
@@ -168,7 +168,7 @@ class DetectedProject:
     @property
     def confidence(self) -> Confidence:
         """Derived, never stored: two fields able to disagree is the shape
-        `coding.md § O5` exists to prevent."""
+        `coding-overrides.md § O5` exists to prevent."""
         return Confidence.UNKNOWN if self.port is None else Confidence.DETECTED
 
 
@@ -209,7 +209,7 @@ class Deadline:
 
 
 class SupportsUnitLookup(Protocol):
-    """The systemd surface, injected so `testing.md § T1` holds.
+    """The systemd surface, injected so `testing-overrides.md § T1` holds.
 
     Both calls are bounded by the scan's own deadline. `OSError` is the ONLY
     exception this Protocol may raise, and the real adapter is responsible for
@@ -1224,7 +1224,7 @@ class SystemctlUnits:
 
     Every failure mode becomes an `OSError`, which is the Protocol's contract
     and the only reason § 6's "a machine without systemd scans normally" is
-    true. Nothing in the test suite reaches this class (`testing.md § T1`), so
+    true. Nothing in the test suite reaches this class (`testing-overrides.md § T1`), so
     the measurements behind it are dated and reproducible by hand rather than
     re-run — recorded in the spec's § 11 as one of its `nothing` rows.
     """
@@ -1768,7 +1768,7 @@ def scan(
 
     `roots` is passed in rather than read from settings: settings persistence is
     LWSM-1007's, and a Scanner that read the real config could not satisfy
-    `testing.md § T1`.
+    `testing-overrides.md § T1`.
 
     A scan root that is itself a symlink is **followed**, deliberately: the user
     typed this path, so it is a choice rather than something planted in a

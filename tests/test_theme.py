@@ -1,4 +1,4 @@
-"""LWSM-1005 INV-17 — `docs/standards/testing.md § T8` contrast arithmetic.
+"""LWSM-1005 INV-17 — `docs/standards/testing-overrides.md § T8` contrast arithmetic.
 
 Computed over every palette rather than eyeballed, so adding one that fails is
 a failing build rather than a discovery months later. LWSM-1031 landed the six
@@ -377,7 +377,7 @@ def test_selected_text_clears_the_text_floor(theme: Theme) -> None:
 
     Measured before the fix: ledger 3.37:1, mint 3.49:1, parchment 3.73:1 and
     graphite 4.18:1, against the 4.5:1 that `design-accessibility.md` and
-    `testing.md § T8` both require of a text pair.
+    `testing-overrides.md § T8` both require of a text pair.
 
     Asserted from the PALETTE's own two roles rather than from the token
     names, so re-binding either role to a different token keeps this honest.

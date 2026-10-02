@@ -5,7 +5,7 @@ once. Every test here injects a fake probe, which the `SupportsSnapshot`
 Protocol makes the declared contract rather than a duck-typing accident.
 
 Marked `gui`: a QTimer, QThreadPool and queued cross-thread signals all need a
-Qt application object, which `qtbot` supplies (`docs/standards/testing.md
+Qt application object, which `qtbot` supplies (`docs/standards/testing-overrides.md
 § T6`).
 """
 

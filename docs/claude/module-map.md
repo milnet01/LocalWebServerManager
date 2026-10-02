@@ -5,7 +5,7 @@ always-loaded instructions under Claude Code's size limit.
 `CLAUDE.md` § Module map points here and still holds the rules.
 
 The modules below are the list; P03 and P05 each add to it, so no
-count is written here (`documentation.md § 1.5`).
+count is written here (`documentation-overrides.md § DOC1`).
 
 - **`src/lwsm/__init__.py`** — the package docstring stating that
   rule, and `__version__`.
@@ -204,7 +204,7 @@ Added at P02 (LWSM-1005), contract in
   Settings is a choice that then stays chosen.
   Since LWSM-1131 it also
   owns the **Rescan** seam: `RescanContext` (scan roots, the scan
-  function and the clock, all injected so `testing.md § T1` holds; the
+  function and the clock, all injected so `testing-overrides.md § T1` holds; the
   writer is `registry.ProjectsFile`, which every writer shares, LWSM-1358),
   `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`.
   **The write happens in the slot, never in `merge()`** — the merge
@@ -319,7 +319,7 @@ Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
   `applog.py` too**, and a source-invariant test fails on any file in
   `src/lwsm/` that is in neither `CORE_MODULES` nor `NON_CORE_MODULES`.
   Both lists are written by hand: a new module goes into one of them,
-  and editing `coding.md § O1` alone changes nothing the test reads
+  and editing `coding-overrides.md § O1` alone changes nothing the test reads
   (LWSM-1335).
 - **`src/lwsm/scanroots.py`** — core, no Qt. The scan-roots file that
   says which directories a Rescan walks: `default_scan_roots()`,

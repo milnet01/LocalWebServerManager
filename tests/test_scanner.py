@@ -5,8 +5,8 @@ in that spec's § 5 bullet or its § 11 table, except the cases moved in from
 `docs/specs/LWSM-1006-conformance.py` — which the spec's Definition of done
 requires, since two copies of the patterns would be two sources of truth.
 
-Every test is headless (`testing.md § T6`) and none of them touches a real
-service manager, a real project directory or a real port (`testing.md § T1`,
+Every test is headless (`testing-overrides.md § T6`) and none of them touches a real
+service manager, a real project directory or a real port (`testing-overrides.md § T1`,
 `§ T3`): the ports here are strings inside generated files, never bound.
 """
 
@@ -60,7 +60,7 @@ def scan_root(root: Path, units: object | None = None, **kwargs: object) -> Scan
     """`scan()` over one root, with a unit lookup that reaches no systemd.
 
     Never `units=None`: that builds the real adapter, and a test that forgot to
-    inject would shell out to the machine's own service manager (`testing.md
+    inject would shell out to the machine's own service manager (`testing-overrides.md
     § T1`).
     """
     return scanner.scan(

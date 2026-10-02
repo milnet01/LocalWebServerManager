@@ -1,6 +1,6 @@
 """LWSM-1005 INV-1, INV-2, INV-10 — the registry refuses what it cannot trust.
 
-No test reads the real ~/.config/localwebservermanager/ (`testing.md § T1`):
+No test reads the real ~/.config/localwebservermanager/ (`testing-overrides.md § T1`):
 every case writes its own file under tmp_path.
 """
 
@@ -280,7 +280,7 @@ def test_refuses_a_device_node(tmp_path: Path, monkeypatch) -> None:
     The refusal reads only the descriptor's `st_mode`, so `fstat` is made to
     report a character device for a file under `tmp_path`. The previous
     version tried `mknod`, which needs `CAP_MKNOD`, and on every unprivileged
-    run fell back to the real `/dev/null` — the `testing.md § T1` breach its
+    run fell back to the real `/dev/null` — the `testing-overrides.md § T1` breach its
     docstring said it avoided (known-issue-004, LWSM-1324).
     """
     node = tmp_path / "projects.json"
@@ -554,7 +554,7 @@ def test_the_shipped_bounds_are_pinned() -> None:
     `MAX_REASONS` is pinned here for the same reason and it is the more
     pointed one — it was added by LWSM-1115 with **exactly this defect**, in
     the same pass whose whole subject is fixes that miss their siblings
-    (`coding.md § 1.6`). Its tests assert `<= MAX_REASONS + 1`, so 100 →
+    (`coding-overrides.md § O9`). Its tests assert `<= MAX_REASONS + 1`, so 100 →
     100000 would have passed and restored the flood the cap exists to stop.
     """
     assert configfile.MAX_REASON_CHARS == 120

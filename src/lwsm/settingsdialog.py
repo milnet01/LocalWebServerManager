@@ -1,7 +1,7 @@
 """The Preferences dialog (LWSM-1018).
 
 UI layer — imports QtWidgets, so no core module may import it back
-(`docs/standards/coding.md § O1`, enforced by `tests/test_layering.py`).
+(`docs/standards/coding-overrides.md § O1`, enforced by `tests/test_layering.py`).
 
 **It edits three fields, not the four the roadmap bullet filed**, and both
 absences were settled with the user on 2026-08-21 rather than dropped quietly:

@@ -27,10 +27,10 @@ screenshots if relevant.)
 ## Standards check
 
 - [ ] Commit subjects follow `<ID>: <description>`
-      (`docs/standards/commits.md § 1.1`)
-- [ ] Code matches `docs/standards/coding.md`
-- [ ] Doc updates match `docs/standards/documentation.md`
-- [ ] Test discipline matches `docs/standards/testing.md`
+      (`docs/standards/commits-overrides.md`)
+- [ ] Code matches `docs/standards/coding-overrides.md`
+- [ ] Doc updates match `docs/standards/documentation-overrides.md`
+- [ ] Test discipline matches `docs/standards/testing-overrides.md`
 
 ## Checklist before review
 

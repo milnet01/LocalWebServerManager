@@ -1,0 +1,57 @@
+<!-- ants-commits-overrides: 1 -->
+# Commits overrides — LocalWebServerManager
+
+**Status:** v1 (2026-10-02).
+
+Commits for this project follow the machine-global
+`~/.claude/standards/commits.md`, with `~/.claude/standards/local-gate.md`
+for the push gate, both read in place rather than copied. This file holds
+only where this project differs, each with one line of why. Those files
+are on the author's machine and not in this repository, so a contributor
+reads this file and `CONTRIBUTING.md`.
+
+## C1. A commit that changes code carries a body
+
+Global § 1.4 makes the body optional; here it is required on every commit
+that changes code. It records the mechanism-sweep outcome
+(`coding-overrides.md` § O9), the mutation record (`testing-overrides.md`
+§ T9), and a `write-code:` line naming what ran and the result of
+`./scripts/local-ci.sh`. A commit that changes documentation carries a
+`write-doc:` line saying what was checked, and one touching a gated
+document adds a `CLAUDE.md rule 14:` line with the gate decision.
+
+Why: the coding and testing overrides owe these records, and the commit
+body is the only place they survive.
+
+## C2. The push gate is this repository's own hook
+
+The local gate (global § 4.2) is `.githooks/pre-push`, enabled per clone
+with `git config core.hooksPath .githooks`. It runs the machine-wide
+hook's secrets-only scan first, then `scripts/local-ci.sh` — with `--docs`
+when every pushed path is documentation the suite does not read (the
+hook's `docs_only()`). Its bypasses are `LWSM_SKIP_PREPUSH=1`, which skips
+the gate and keeps the scan, and `git push --no-verify`, which skips both;
+each needs the user, per global § 2.3. There is no `commit-msg` hook, so
+subject shape (global §§ 1.1–1.3) is checked by nothing.
+
+Why: the hook encodes which markdown the suite asserts against, which a
+shared hook's path list cannot know; `CLAUDE.md` § Before pushing and
+`docs/claude/ci-gate.md` hold the detail.
+
+## C3. Pushes go freely
+
+The repository is public on GitHub, whose runners cost it nothing, so
+global § 4.1's free case applies: push per commit or in a batch, without
+asking.
+
+Why: global § 4.1 asks each repository to establish its case once; this
+is it.
+
+## What checks this
+
+| Rule | What checks it |
+|------|----------------|
+| C1 body carries the records | nothing — no hook reads a commit body |
+| C2 the gate runs before a push | Partial: `tests/test_ci_contract.py` checks that `.githooks/pre-push` is present and executable, and that `docs_only()` never exempts a file `tests/test_docs.py` asserts against — nothing checks that a clone has set `core.hooksPath`, and nothing records a bypass |
+| C2 subject shape | nothing — there is no `commit-msg` hook |
+| C3 the repository is public | nothing — `gh repo view --json visibility -q .visibility` answers it, and nothing runs it |

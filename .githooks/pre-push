@@ -181,8 +181,8 @@ fi
 # ordinary verdict either way, about a tree nobody is pushing. The range was
 # already on stdin and already decides docs_only above; this is the same range
 # deciding the rest. CLAUDE.md § Before pushing names the property; this
-# project's docs/standards/commits.md has no section on the local run at all,
-# so do not go looking for one there.
+# project's docs/standards/commits-overrides.md § C2 names the hook and
+# points back here for the detail.
 #
 # A detached worktree rather than a stash. `git stash` exits 0 having stashed
 # nothing when there is nothing to stash, so a hook cannot tell a clean tree

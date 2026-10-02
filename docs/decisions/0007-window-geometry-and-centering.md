@@ -193,7 +193,7 @@ clears the other itself.
 - Shelling out to `dbus-send` rather than binding a D-Bus library
   keeps the dependency list at PySide6 + psutil. It is an
   argument vector, never a shell string
-  (`docs/standards/coding.md § O4`).
+  (`docs/standards/coding-overrides.md § O4`).
 
 ## Amendment (2026-08-21, LWSM-1033) — what the compositor said
 

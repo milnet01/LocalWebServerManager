@@ -1,6 +1,6 @@
 """The user's own choices, read from a hand-editable JSON file.
 
-Core module — may import QtCore, never QtWidgets (`docs/standards/coding.md
+Core module — may import QtCore, never QtWidgets (`docs/standards/coding-overrides.md
 § O1`). No Qt at all, like `ports.py` and `scanner.py`.
 
 **LWSM-1031 opened this file; LWSM-1018 grew it**, and the growth was a field
@@ -47,7 +47,7 @@ SCHEMA_VERSION = 1
 
 # The theme id is stored as an opaque string and is NOT checked against the
 # theme registry here. `theme.py` holds the palettes and imports QtGui, so a
-# core module may not import it (`coding.md § O1`, enforced by
+# core module may not import it (`coding-overrides.md § O1`, enforced by
 # `tests/test_layering.py`) — but the split is worth having on its own terms:
 # this module owns whether the file's SHAPE is usable, and `theme.theme_for_id`
 # owns whether an id names something that exists. An id for a theme a later
@@ -87,7 +87,7 @@ Here rather than in `mainwindow.py` so `load()` can refuse a value off them
 # How often the controller re-reads the socket table (LWSM-1018). This module
 # owns the value and `controller.POLL_INTERVAL_MS` is an alias for it, rather
 # than the other way round: `controller` imports QtCore and this one may not
-# import `controller` back (`coding.md § O1`), so the settings file's default
+# import `controller` back (`coding-overrides.md § O1`), so the settings file's default
 # and the code's default can only be ONE constant if it lives here.
 #
 # The floor is not a taste. Measured probe time is 33.4 ms mean over 10 calls
@@ -213,7 +213,7 @@ def default_settings_path() -> Path:
     Derived from `registry.default_projects_path()` rather than recomputing the
     XDG rule, so the two files cannot end up in different directories when one
     of them is fixed — and so `$XDG_CONFIG_HOME` unset, or set to a relative
-    path, resolves the same way for both (`coding.md § O3`).
+    path, resolves the same way for both (`coding-overrides.md § O3`).
     """
     return default_projects_path().with_name("settings.json")
 

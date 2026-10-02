@@ -61,7 +61,7 @@ for arg in "$@"; do
 done
 
 # Qt needs no display: every test is headless by contract
-# (docs/standards/testing.md § T6), and CI runners have no X server. Setting
+# (docs/standards/testing-overrides.md § T6), and CI runners have no X server. Setting
 # this here rather than in the workflow means the local run and the CI run
 # share it, like everything else in this file.
 export QT_QPA_PLATFORM=offscreen

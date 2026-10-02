@@ -343,7 +343,8 @@ def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> N
     `test_docs.py` asserts against `CLAUDE.md`, `README.md` and every standard,
     so an edit to one of them can redden the suite — which is precisely what
     happened on 2026-08-19. The push was markdown-only, the hook exempted it on
-    that basis, and GitHub found a prose count `documentation.md § 1.5` forbids.
+    that basis, and GitHub found a prose count `documentation-overrides.md § DOC1`
+    forbids.
     The hook's own comment already made this argument for `scripts/` and
     `.github/`; nobody had made it for prose.
 

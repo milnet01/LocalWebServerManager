@@ -84,7 +84,7 @@ is superseded, never edited.
   that turns out to be load-bearing later is easy to skip.
 - A few extra markdown files in the repo. Counted against the
   "documentation drift" risk in the doc-review process (see
-  [documentation § 9](../standards/documentation.md)).
+  `~/.claude/standards/documentation.md` § 9).
 
 **Neutral:**
 

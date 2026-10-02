@@ -421,7 +421,8 @@ def test_a_state_directory_left_loose_by_something_else_is_tightened(
 def test_the_three_dbus_calls_are_argument_vectors_with_a_deadline(
     tmp_path: Path,
 ) -> None:
-    """`coding.md § O4` — an argument vector, never a shell string. The timeout
+    """`coding-overrides.md § O4` — an argument vector, never a shell string. The
+    timeout
     is what stops a wedged compositor taking the window with it.
 
     The timeout assertion was `== DBUS_TIMEOUT_S` until LWSM-1240, which is

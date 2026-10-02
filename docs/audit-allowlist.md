@@ -152,7 +152,7 @@ Do not delete revoked entries — the history is the value.
   (`yesterday`, `recently`, `size`); citations into **other**
   repositories (`roadmap-format.md` cites Ants Terminal's
   `roadmapdialog.cpp` and `remotecontrol.cpp`); and forward references
-  to core modules that `coding.md` § O1 itself lists as not yet built
+  to core modules that `coding-overrides.md` § O1 itself lists as not yet built
   (`supervisor`, `logbuffer`, `controller`) plus P04 theme tokens
   (`accent`, `state_running`). The check cannot come back clean against
   these files while they remain format standards. Re-verify if it gains
@@ -355,7 +355,7 @@ Do not delete revoked entries — the history is the value.
   `dbus-send` is how a window is placed under Wayland (ADR-0007). B404
   fires on the *import* and is a blanket advisory with no defect behind
   it. B603 asks whether the call could reach a shell, and
-  `coding.md § O4` already forbids that: **verified 2026-08-21 that
+  `coding-overrides.md § O4` already forbids that: **verified 2026-08-21 that
   `shell=True` appears nowhere in `src/`**, every call takes an argument
   vector, and the two flagged sites already carry `# noqa: S603` with
   their reasons — bandit re-reports them because it does not read

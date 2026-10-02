@@ -15,7 +15,7 @@ rules:
   # is why it measured 82 and `actions/checkout` measured exactly 80: the
   # shorter name fit by a single character, not by design.
   #
-  # Neither half can be shortened. The SHA is the pin (dependencies.md § 2.1),
+  # Neither half can be shortened. The SHA is the pin (dependencies-overrides.md § D1),
   # and the version comment must stay TRAILING or dependabot stops rewriting it
   # and it goes on asserting a version the pin no longer points at — ci.yml
   # says so at both call sites.

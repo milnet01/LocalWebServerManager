@@ -1,6 +1,6 @@
 """LWSM-1187 — which browsers the desktop offers, and launching one.
 
-No Qt at all, not even `QtCore`: `browsers.py` is core (`coding.md § O1`), so
+No Qt at all, not even `QtCore`: `browsers.py` is core (`coding-overrides.md § O1`), so
 every rule here is exercised with no display and no `qtbot`.
 """
 

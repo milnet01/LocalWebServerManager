@@ -49,7 +49,7 @@ is what makes the post-flight check in ADR-0002 implementable.
 the controller applies while a stop is in flight
 (`docs/design.md § State management`), never a conclusion drawn
 from the socket table. The distinction matters because
-`docs/standards/testing.md § T7` requires one test case per
+`docs/standards/testing-overrides.md § T7` requires one test case per
 derived state, and an overlay label has nothing to derive.
 
 | Own child | Effective port held by | Child holds any port | State |

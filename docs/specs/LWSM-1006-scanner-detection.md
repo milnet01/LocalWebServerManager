@@ -3,7 +3,7 @@
 **Status:** accepted (2026-08-08).
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1006 (in-session-2026-08-03), narrowed by the user
-on 2026-08-08 under the size gate (`docs/standards/spec-format.md § 5.4`).
+on 2026-08-08 under the size gate (`~/.claude/standards/spec-format.md § 5.4`).
 **Blocked by:** LWSM-1005 (shipped 2026-08-07).
 **Blocker for:** LWSM-1007 (registry persistence and the rescan merge),
 LWSM-1121 (the remaining port sources and conflict reporting).
@@ -148,7 +148,7 @@ class ScanResult:
 
 
 class SupportsUnitLookup(Protocol):
-    """The systemd surface, injected so `testing.md § T1` holds.
+    """The systemd surface, injected so `testing-overrides.md § T1` holds.
 
     Both calls are bounded by the scan's own deadline. `OSError` is the ONLY
     exception this Protocol may raise, and the real adapter is responsible
@@ -195,7 +195,7 @@ each reader re-derives.
 
 **`confidence` is derived, never stored.** The ROADMAP requires each project to
 carry *detected* or *unknown*; storing it beside `port` would make two fields
-able to disagree, which is the shape `coding.md § O5` exists to prevent. The
+able to disagree, which is the shape `coding-overrides.md § O5` exists to prevent. The
 third value the UI shows, *confirmed*, is `confirmed_port`'s and belongs to
 LWSM-1038 — this item never produces it.
 
@@ -228,7 +228,7 @@ uses and for the same reason. Without this, a directory named
 the message banner raw — the forged-log-record defect LWSM-1078 closed, arriving by
 the one path that survives detection, while the identical name is escaped and
 clipped when the candidate is *rejected* and lands in `skipped`. One mechanism,
-two call sites, applied to one of them: `coding.md § 1.6` again.
+two call sites, applied to one of them: `coding-overrides.md § O9` again.
 
 **`path` is the *resolved* path, not merely an absolute one**, and the
 distinction is not academic: § 6 deliberately follows a symlinked scan root, so
@@ -247,7 +247,7 @@ two-halves split. A merge that wanted to promote scanned content into an
 executable one would have to add the field first, which is a visible change
 rather than a forgotten one.
 
-**`argv` is a tuple of strings, never a command line** (`coding.md § O4`), and
+**`argv` is a tuple of strings, never a command line** (`coding-overrides.md § O4`), and
 **it names the alternate that actually matched, not the preferred one** — a
 project with `run.sh` and no `start.sh` gets `("./run.sh",)`, one with only
 `scripts.start` gets `("npm", "run", "start")`, one with only `app.py` gets
@@ -272,7 +272,7 @@ def scan(
 
 `roots` is passed in rather than read from settings: settings persistence is
 LWSM-1007's, and a Scanner that reads the real config could not satisfy
-`testing.md § T1`. `now` is injected for the same reason the budget test needs
+`testing-overrides.md § T1`. `now` is injected for the same reason the budget test needs
 to be deterministic rather than slow.
 
 A candidate is an **immediate subdirectory** of a scan root. Five rejections,
@@ -383,7 +383,7 @@ the same open, the same `O_NOFOLLOW`, the same `S_ISREG` check and the same
 Named `MAX_SOURCE_*` rather than reusing `registry.py`'s `MAX_FILE_BYTES`,
 because they are different numbers for different jobs — 1 MiB for a config
 file this app owns, 256 KB for a sibling's source — and one name for two
-values is the ambiguity `documentation.md § 1.5` bans.
+values is the ambiguity `documentation-overrides.md § DOC1` bans.
 
 **Four bounds and two error policies.** § 1 lists LWSM-1050's six bounds as a
 whole and is canonical for that set. The **candidate**-level symlink refusal
@@ -450,7 +450,7 @@ that was reasoning about one file rather than about the project.
 A refused *hop target* likewise leaves the project listed: the launcher is
 still runnable and only the port is unknown.
 
-**Sweep, per `coding.md § 1.6`** — two mechanisms, both enumerated rather than
+**Sweep, per `coding-overrides.md § O9`** — two mechanisms, both enumerated rather than
 grepped, because neither is a helper you can search for the absence of.
 
 *Bounded reading of an untrusted file.* The other sites are
@@ -536,7 +536,7 @@ A non-`dict` there is *no evidence*, with a reason. All four are non-matches.
 **`registry.py::load_projects` already names every one of these** — its
 `except (ValueError, RecursionError)` clause and its `isinstance(data, dict)`
 guard, each with a comment explaining which reproduction earned it. This is
-`coding.md § 1.6`'s sweep failing in the direction it usually does: a
+`coding-overrides.md § O9`'s sweep failing in the direction it usually does: a
 mechanism solved once in the module next door, and re-implemented here without
 it. Enumeration: two JSON parse sites in this app (`registry.py::load_projects`,
 `scanner.py`'s rule 2); both now catch the same three.
@@ -725,7 +725,7 @@ which is outside the pattern under either route.
 
 `units` is a `SupportsUnitLookup` (§ 4.1), defaulting to a real `systemctl`
 caller, exactly as `ports.py` accepts `SupportsSnapshot` so the test fake is
-the contract. `testing.md § T1` forbids a test touching the real service
+the contract. `testing-overrides.md § T1` forbids a test touching the real service
 manager, and a machine with no `systemd` at all must scan normally: a
 `OSError` from either call — `systemctl` absent, unreadable, or timed out, the
 last translated by the adapter per § 4.1 — disables rule 0 for the whole scan
@@ -1049,7 +1049,7 @@ the attempt. Rule 2 runs a bare `re.search` over the right-hand side, and a
 search that cannot match at the first digit **advances and matches the tail**:
 measured 2026-08-08, `PORT = 123456` returned **23456**. So rule 2 carries
 `(?<![0-9])` as well as `(?![0-9])`. This is the same fabrication class caught
-in rule 1 one loop earlier, surviving in the sibling rule — `coding.md § 1.6`'s
+in rule 1 one loop earlier, surviving in the sibling rule — `coding-overrides.md § O9`'s
 "a mechanism, not the call site it was reported against", and it was found by
 running both rules over the same corpus rather than by reading either.
 
@@ -1299,12 +1299,12 @@ constant is named where `rule_2` uses it.
 
 `tests/test_layering.py`'s `CORE_MODULES` gains **`scanner.py` and
 `applog.py`** in the commit that creates the module, giving
-`applog, controller, ports, registry, scanner`. `coding.md § O1` requires the
+`applog, controller, ports, registry, scanner`. `coding-overrides.md § O1` requires the
 first and names the second: the criterion covers `applog.py`, the list omits
 it, "the check is the one that runs", and widening it is this item's job.
 Without that line a `QtWidgets` import in either module passes every gate.
 
-**`coding.md § O1`'s criterion is wrong as written, and this item corrects it.**
+**`coding-overrides.md § O1`'s criterion is wrong as written, and this item corrects it.**
 It says a core module is "every module under `src/lwsm/` that is not
 `mainwindow.py` or `theme.py`" — a two-way split with no room for the entry
 point. Taken literally it covers `__init__.py` and `__main__.py`, and
@@ -1373,7 +1373,7 @@ is the property the derivation exists for.
   — EOF, not a block. So `O_NONBLOCK` alone satisfies "did not block", and
   deleting the `S_ISREG` check leaves the FIFO reading as an *empty file*: the
   project is listed with no port instead of refused with a reason, and a test
-  named for blocking never sees it. This is `testing.md § T9` item 2 — where
+  named for blocking never sees it. This is `testing-overrides.md § T9` item 2 — where
   two mechanisms reach the same outcome, the shared outcome is not evidence.
 
 - **INV-5** — A scan returns within its budget and says so, rather than
@@ -1513,7 +1513,7 @@ is the property the derivation exists for.
   same-length overwrite is exactly the mutation a size comparison cannot
   see — the shape that produced this project's stale-`.pyc` incident.
   *Breaks when:* a future convenience writes a cache or a marker into a
-  project — `coding.md § O3`'s standing prohibition.
+  project — `coding-overrides.md § O3`'s standing prohibition.
 
 - **INV-14** — `scanner.py` imports no `QtWidgets`, and `CORE_MODULES` equals
   every module under `src/lwsm/` except the three § 4.7 names —
@@ -1521,11 +1521,11 @@ is the property the derivation exists for.
   *Test:* `tests/test_layering.py::test_core_never_imports_qtwidgets`
   (parametrised, so the names being present is what makes it run) and
   `::test_the_core_module_list_matches_the_criterion`, a source-invariant test
-  (`testing.md § 3.6`) that globs `src/lwsm/*.py`, subtracts the four
+  (`testing-overrides.md § T10`) that globs `src/lwsm/*.py`, subtracts the four
   exclusions and asserts set equality with `CORE_MODULES`.
   *Breaks when:* a sixth core module lands and is not added to the list, which
   is how `applog.py` came to be missing from it. **The exclusion set is named
-  explicitly rather than derived from `coding.md § O1` as worded**, because
+  explicitly rather than derived from `coding-overrides.md § O1` as worded**, because
   that criterion excludes only the two UI modules and so would pull in
   `__main__.py`, which imports `QtWidgets` by design — reddening the sibling
   test on the day this one lands.
@@ -1547,7 +1547,7 @@ is the property the derivation exists for.
   construction and survived its own prescribed mutation. Instrumented
   2026-08-08: 0 regex calls against the old fixture, 1 against the new, and the
   cost moved 0.24 µs → **154 µs** per call (comment-stripping included), so the
-  old figure was timing the early return rather than the rule. This is `testing.md § T9` item 3 and
+  old figure was timing the early return rather than the rule. This is `testing-overrides.md § T9` item 3 and
   `/write-spec`'s "which rule makes this fixture fail?" — a clause that reads
   as sound and tests nothing.
   **The bound is 4096 rather than 40,000** because INV-3 caps every line at
@@ -1672,7 +1672,7 @@ is the property the derivation exists for.
 ## 7. Tests
 
 Two new files, `tests/test_scanner.py` and `tests/scanner_fixtures.py`.
-`tests/test_layering.py` gains one new test and a widened `CORE_MODULES` list. Every test is headless (`testing.md § T6`); the
+`tests/test_layering.py` gains one new test and a widened `CORE_MODULES` list. Every test is headless (`testing-overrides.md § T6`); the
 module imports no Qt, so none of them needs `pytest-qt`.
 
 **The fixture tree is the deliverable, not scaffolding.** A session-scoped
@@ -1711,7 +1711,7 @@ import (as specified above) and the expectation is *unknown*, or it includes
 one and the expectation becomes `PortRule.FRAMEWORK_DEFAULT`. What it may not
 be is a fixture whose content nobody stated and an expectation nobody derived.
 
-`testing.md § T1` forbids reading the real projects, so the corpus is only ever
+`testing-overrides.md § T1` forbids reading the real projects, so the corpus is only ever
 as true as the day someone last checked it against them — recorded in § 10 as
 one of the four `nothing` rows rather than pretended away.
 
@@ -1725,8 +1725,8 @@ error rather than a test failure, so it does not read as one.
 **regression corpus every future mis-detection is added to**, so it lives in
 `tests/scanner_fixtures.py` as data, not inline in a test body.
 
-Per `testing.md § T1` no fixture is a real sibling project: every one is
-generated. Per `testing.md § T3` no test hard-codes a live port — the ports
+Per `testing-overrides.md § T1` no fixture is a real sibling project: every one is
+generated. Per `testing-overrides.md § T3` no test hard-codes a live port — the ports
 here are strings in files, never bound, which is the one case T3's rule about
 binding does not reach.
 
@@ -1756,7 +1756,7 @@ corpus exists to catch.
 
 **Every test is seen failing before the code exists** (`testing.md § 1`), and
 the four that guard a *bound* rather than a behaviour are additionally
-mutation-checked in `testing.md § T9`'s manner — **adopted voluntarily here,
+mutation-checked in `testing-overrides.md § T9`'s manner — **adopted voluntarily here,
 since T9 binds `Kind: fix`, `audit-fix` and `review-fix` and this item is
 `Kind: implement`**; a bound that ships unreached is the same defect whichever
 kind introduced it. INV-3, INV-4, INV-15 and INV-18 each
@@ -1766,7 +1766,7 @@ commit body. Those four are singled out because each can pass for a reason
 other than the guard — an oversized file that also fails to parse, a FIFO
 whose open fails before the `S_ISREG` check is reached, a fast line that was
 never long enough to backtrack, a reason list that never reached its cap. That
-is `testing.md § T9` item 3: a stub must be able to express the breach.
+is `testing-overrides.md § T9` item 3: a stub must be able to express the breach.
 
 **Run 2026-08-08, and two of the four came back green on the first attempt** —
 which is the whole reason the pass is prescribed. INV-3's over-long-line test
@@ -1780,7 +1780,7 @@ it**; and mutating `MAX_SOURCE_FILE_BYTES` instead proves nothing, because the
 fixture derives its own size from that constant. All five mutations then
 reddened.
 
-**INV-15's one-second ceiling is a duration, and `testing.md § T4` bans those
+**INV-15's one-second ceiling is a duration, and `testing-overrides.md § T4` bans those
 for *waits*, not for bounds.** T4's target is `time.sleep` standing in for a
 condition, where the condition is the thing to poll for; here the elapsed time
 *is* the assertion, and there is nothing to poll. The ceiling is set against a
@@ -1789,7 +1789,7 @@ line and **70.25 µs/call** for the 102-field line (2026-08-08), so 1 second is 
 margin of roughly 6,500× and 14,000×. A machine slow enough
 to fail it honestly has a problem, and a backtracking replacement fails it by
 orders of magnitude rather than by a hair — which is what keeps it off
-`testing.md § 3.4`'s flaky-perf-test list.
+`testing-overrides.md § T11`'s flaky-perf-test list.
 
 ## 8. Alternatives considered (and rejected)
 
@@ -1878,8 +1878,8 @@ orders of magnitude rather than by a hair — which is what keeps it off
 | INV-18 | `tests/test_scanner.py::test_the_reason_list_is_capped_and_says_so`, `::test_a_newline_in_a_directory_name_cannot_forge_a_log_record` |
 | INV-19 | `tests/test_scanner.py::test_a_commented_out_port_is_not_detected`, `::test_a_negative_number_is_not_a_port` |
 | INV-20 | `tests/test_scanner.py::test_nothing_inside_node_modules_is_read` |
-| § 4.4 rule 0's real `systemctl` calls behave as measured | **nothing** — every test injects `SupportsUnitLookup`, per `testing.md § T1`. The measurements in § 4.4 are dated and reproducible by hand; nothing re-runs them, and a `systemctl` whose output shape changes breaks detection with every test green |
-| § 4.6's rules detect the *seven real* projects correctly | **nothing** — the fixture tree mirrors them, and a fixture that has drifted from the project it mirrors passes while the real detection fails. `testing.md § T1` forbids reading the real ones, so this is a limit rather than a defect |
+| § 4.4 rule 0's real `systemctl` calls behave as measured | **nothing** — every test injects `SupportsUnitLookup`, per `testing-overrides.md § T1`. The measurements in § 4.4 are dated and reproducible by hand; nothing re-runs them, and a `systemctl` whose output shape changes breaks detection with every test green |
+| § 4.6's rules detect the *seven real* projects correctly | **nothing** — the fixture tree mirrors them, and a fixture that has drifted from the project it mirrors passes while the real detection fails. `testing-overrides.md § T1` forbids reading the real ones, so this is a limit rather than a defect |
 | § 4.3's `errors="replace"` decode never raises on any real file | **nothing** — untestable in general; the tests cover UTF-8, Latin-1 bytes and a binary blob |
 | § 4.2's self-exclusion under a **non-editable** install | **nothing** — INV-16 covers the source-checkout case, which is the one that occurs. A wheel install plus a checkout inside a scan root lists the checkout; judged not worth a second mechanism |
 
@@ -1941,7 +1941,7 @@ a bullet is flipped when the phase closes and not when the code lands.
     pattern** — the character class gains `\\`, so a systemd-escaped name can
     pass validation and reach an argv. Without it the escaping step § 4.4
     step 1 requires is dead code.
-7. **`docs/standards/coding.md § O1`** — the core-module criterion becomes the
+7. **`docs/standards/coding-overrides.md § O1`** — the core-module criterion becomes the
    four-way split in § 4.7. As worded it is a two-way split that covers
    `__main__.py`, which imports `QtWidgets` by design, so any check derived
    from it fails on landing. This is the amendment that makes INV-14
@@ -1958,7 +1958,7 @@ a bullet is flipped when the phase closes and not when the code lands.
 | Loop | Date | Lanes | Findings by question | Outcome |
 |------|------|-------|----------------------|---------|
 | 7 | 2026-08-08 | 2 (general-purpose, strong model) — lanes given **different methods again**: one played the attacker who owns a scanned directory, one *wrote the module on paper* from the document alone | Q2 ×2 · Q3 ×8 · Q4 ×2 | **12 verified, 0 unverified, 12 fixed.** Zero wording findings for the fourth loop running. The write-the-code lane is the method to keep: it found four gaps the adversarial lane did not, because "I cannot write this line without choosing" is a sharper test than "is this wrong". **Two findings would each have let one hostile project directory delete every other project's row:** `{"dependencies": 5}` makes rule 3's membership test raise **`TypeError`**, which is neither `ValueError` nor `RecursionError`, so it escaped `scan()` on the one path into `package.json` § 4.4's failure table did not govern; and `properties()` was never contractually total, so `props["WorkingDirectory"]` on a unit that sets none is a `KeyError` — also not an `OSError`. **The sharpest is the one the containment check was supposed to be:** `Path("").resolve()` **is the current working directory**, so an absent `WorkingDirectory` "resolves inside" whatever directory the manager was launched from — `cd ~/projects/foo && lwsm` and any name-matched unit binds, which is exactly the `mkdir <scan root>/project-a` attack step 2 exists to stop, arriving through the check meant to prevent it. Measuring that also found the value is rarely a bare path: **13 of the 14 real user units on this machine print `!/home/ants`**, and systemd's `-` / `!` prefixes were being resolved literally. Two more fabrication routes closed, both the loose-match shape this spec has now hit three times: `vitest` and `@vitejs/plugin-react` contain `vite`, and `import flask_login` contains `import flask`. And the escaped unit name — the only form `systemctl` accepts — **could not pass ADR-0003's own validator**, whose class has no backslash, so the unescaping step was dead code and every such project fell through to spawning a script systemd already owns. Two invariants added last loop had tests that could not fail: INV-20's fixture declared its port in `start.sh`, so the hop was never resolved and constraints 3 and 4 were unobservable; and a writer-less FIFO **reads as EOF, not a block** (measured), so INV-4's "did not block" stayed green with `S_ISREG` deleted. Doc 1673 → 1781 lines. |
-| 6 | 2026-08-08 | 2 (general-purpose, strong model) — lanes given **different methods**: one worked error and boundary paths, one traced a concrete input through the document | Q2 ×3 · Q3 ×4 · Q4 ×1 | **8 verified, 0 unverified, 8 fixed** (10 raw; 2 found twice). **Zero wording findings again.** The count went 14 → 6 → 8 rather than continuing to halve, and the reason is visible in the split: giving the two lanes different *methods* surfaced classes a third identical cold read would not have. That is worth more than a monotone curve. **Three of the eight are the same shape — a mechanism `registry.py` already solved, re-implemented here without it**, which is `coding.md § 1.6` failing in its usual direction: (1) the `package.json` parse caught `JSONDecodeError` only, while 20,000 well-formed nested arrays in **40 KB** raise `RecursionError` (not a `ValueError`), invalid UTF-8 raises `UnicodeDecodeError`, and a root of `5` or `[1,2]` raises `AttributeError` on `.get("scripts")` — `registry.py::load_projects` names all three by hand and the scanner inherited none; (2) `DetectedProject.name` travelled **raw and unbounded** while skip reasons and `PortFinding.source` were both escaped-and-clipped, so a directory named `evil⏎PORT=1 detected` reaches the log and status bar by the one path that survives detection — the LWSM-1078 shape, at the one call site the sweep missed. Also: rule 2's fenced code still used `re.search` where the prose beside it promised `finditer`, so `'server_port': 70000, 'port': 5000` returned `None` against the prose's 5000; INV-17's fixture carried the `Environment=` prefix § 4.4 states `properties()` strips, so a literal fake makes a *correct* implementation fail and invites re-breaking `project-a`; § 3 claimed § 7 tests that nothing under `node_modules` is opened, and **no such test, fixture, invariant or row existed** — the one place the no-walk decision trades a mechanism for a claim, now INV-20; a `SHELL` project running `exec node serve.mjs` with a stray `manage.py` reached Django's 8000; `scripts.dev` present-but-invalid had no defined fall-through; and INV-8's 300-character case was unreachable through `scan()` (`NAME_MAX` is 255) so it survived deleting the bound it tests. Doc 1563 → 1661 lines. |
+| 6 | 2026-08-08 | 2 (general-purpose, strong model) — lanes given **different methods**: one worked error and boundary paths, one traced a concrete input through the document | Q2 ×3 · Q3 ×4 · Q4 ×1 | **8 verified, 0 unverified, 8 fixed** (10 raw; 2 found twice). **Zero wording findings again.** The count went 14 → 6 → 8 rather than continuing to halve, and the reason is visible in the split: giving the two lanes different *methods* surfaced classes a third identical cold read would not have. That is worth more than a monotone curve. **Three of the eight are the same shape — a mechanism `registry.py` already solved, re-implemented here without it**, which is `coding-overrides.md § O9` failing in its usual direction: (1) the `package.json` parse caught `JSONDecodeError` only, while 20,000 well-formed nested arrays in **40 KB** raise `RecursionError` (not a `ValueError`), invalid UTF-8 raises `UnicodeDecodeError`, and a root of `5` or `[1,2]` raises `AttributeError` on `.get("scripts")` — `registry.py::load_projects` names all three by hand and the scanner inherited none; (2) `DetectedProject.name` travelled **raw and unbounded** while skip reasons and `PortFinding.source` were both escaped-and-clipped, so a directory named `evil⏎PORT=1 detected` reaches the log and status bar by the one path that survives detection — the LWSM-1078 shape, at the one call site the sweep missed. Also: rule 2's fenced code still used `re.search` where the prose beside it promised `finditer`, so `'server_port': 70000, 'port': 5000` returned `None` against the prose's 5000; INV-17's fixture carried the `Environment=` prefix § 4.4 states `properties()` strips, so a literal fake makes a *correct* implementation fail and invites re-breaking `project-a`; § 3 claimed § 7 tests that nothing under `node_modules` is opened, and **no such test, fixture, invariant or row existed** — the one place the no-walk decision trades a mechanism for a claim, now INV-20; a `SHELL` project running `exec node serve.mjs` with a stray `manage.py` reached Django's 8000; `scripts.dev` present-but-invalid had no defined fall-through; and INV-8's 300-character case was unreachable through `scan()` (`NAME_MAX` is 255) so it survived deleting the bound it tests. Doc 1563 → 1661 lines. |
 | 5 | 2026-08-08 | 2 (general-purpose, strong model) | Q2 ×3 · Q3 ×3 | **6 verified, 0 unverified, 6 fixed** (9 raw across the lanes; 4 were the same defect found twice). **Again zero wording, structure or duplication findings from either lane.** Count halved against loop 4 (14 → 6) with the signal still at 100%, which is what convergence looks like when the instrument is only asking about the build — loops 1–3 held flat at ~25 findings a loop because six of their fifteen dimensions could never come back clean. **The pass's best find is the one mechanism § 4 still stated as prose:** the one-hop target was "the **last** `exec`, `python3`, `python` or `node` invocation naming a path", which never said *which token* is the path — measured 2026-08-08, `exec python3 -u launcher.py` gives `python3` under "the token after the keyword", `exec env PORT=1 python3 launcher.py` gives `env`, and `python3 -m http.server 8080` gives `-m`. It is now a four-step tokenise-and-select rule, and it also gained the comment stripper, without which a `# exec python3 old.py` *below* the live invocation is "the last" one and the Scanner hops to the retired launcher. Also: the two markers `;` was dropped from in loop 4 were still parametrised in INV-19, so its test would have gone red against the stripper the same document specifies; rule 3 had three frameworks and no precedence, so `manage.py` beside `import flask` was 8000 or 5000 depending on the implementer; a hung `systemctl` drew its timeout from the *scan* budget, so one hang consumed all 20 s and returned zero projects against § 6's promise that a systemd-less machine "scans normally" — it now has its own 2 s bound; INV-7's masked-vs-not-found test had **no differing observable** to assert, so it passed against exactly the implementation it forbids, and masked now records a reason where not-found records none. One collateral: loop 4 narrowed rule 2 to a single source in § 4.4 and left § 4.6 restating three rules as two-source. Doc 1497 → 1563 lines. |
 | 4 | 2026-08-08 | 2 (general-purpose, strong model) — **first loop under the four-question brief** | Q1 ×2 · Q2 ×5 · Q3 ×5 · Q4 ×2 | **14 verified, 0 unverified, 14 fixed**, plus 1 collateral. **Every finding from both lanes changed what gets built; neither returned a single wording, structure or duplication finding.** That is the brief, not luck: it asks four questions and names the rest out of scope. Against loop 3's ~11 build-changing out of 26, the signal went from 42% to 100% and the brief itself from 24 KB to 3.4 KB. The worst three, none reachable by the fifteen-dimension passes that preceded them: **(1)** `package.json`'s dependency block was being fed to the port rules, and `"get-port": "^7.0.0"` — a real, common npm package — yields port **7** through `KEY_IS_PORT`'s hyphen; `"detect-port"` yields **1**. Scope narrowed to the chosen `scripts` value alone. **(2)** `systemctl show -p Environment` prints `Environment=STATS_PORT=4321 …`, and splitting *with* that prefix leaves a first token on which rule 2's key is `Environment` and rule 1's `PORT=` is preceded by `_` — neither matches, so `project-a` comes back *unknown*, the precise failure INV-17 exists to prevent. The `NAME=` prefix removal is now stated. **(3)** The `;` I had added to the comment-marker set is a **statement separator**, not a comment marker, in every language this module reads: `cd /app ; exec node serve.mjs --port 8080` lost its port, so did an npm `"dev"` script and a shell assignment. Dropped. Also: the ordering *inside* one source was left open where the ordering *between* sources had been settled (line-major, 3000 vs 8080 on the same file); `path` was "absolute" where four other clauses need it *resolved*, which under a symlinked scan root gives one project two registry identities; `systemctl` failing with no D-Bus session raises `JSONDecodeError`/`CalledProcessError`, neither an `OSError`, so `scan()` raised instead of degrading; INV-16's fixture had no launcher, so rejection 5 already excluded it and the self-exclusion guard shipped unreached; and a refused launcher dropped the whole candidate, letting anyone who can plant a symlink named `start.sh` delete a project from the manager. The one collateral: dropping `;` retired the measurement that justified the `ExecStart` stripper exemption — the exemption is kept on its scope argument and the stale reason replaced, caught by the conformance script on the next run. Doc 1265 → 1497 lines. |
 
@@ -1968,10 +1968,10 @@ log is split rather than restated.
 
 | Loop | Date | Lanes | CRIT | HIGH | MED | LOW | Outcome |
 |------|------|-------|------|------|-----|-----|---------|
-| 3-conf | 2026-08-08 | **none — no reviewer dispatched.** An execution pass, not a review loop | 1 | 1 | 1 | 1 | **4 verified, 4 fixed.** `docs/specs/LWSM-1006-conformance.py` transcribes every pattern, bound and predicate § 4 prescribes and runs them against inputs chosen to break them. Written after loop 3 on the observation that all three of that loop's CRITICALs were false claims about *patterns* — a class no reader catches and no reviewer is needed for. It found, in one run: **(CRIT)** `re.search(r"\d{1,5}(?![0-9])", " 123456")` returns **23456** — a lookahead alone does not reject a longer number in a *search*, because the engine advances past the unmatchable first digit and matches the tail; rule 1 was immune only because `PORT=` anchors its digits, so the fix applied one loop earlier had been applied to the call site rather than to the mechanism (`coding.md § 1.6` exactly). **(HIGH)** `# PORT=9999 (old)` was detected as port 9999 — no rule anywhere mentioned comments, and a commented-out previous port is the commonest shape in a real launcher. **(MED)** the quote-aware stripper written to fix that cut `http://localhost:3000` at the `//`, killing a documented rule-1 form, at 766 µs/call against the replacement's 64 µs. **(LOW)** `PORT = -1` yielded **1**. Also corrected: § 4.4's stated reason for splitting `Environment=` was wrong — the real failure is that `partition` examines only the first `KEY=`, so a port that is not the first variable is invisible. The run is recorded here rather than as a loop because **no reviewer was dispatched**; it is a deterministic check, and it converges where a judgement review does not. |
+| 3-conf | 2026-08-08 | **none — no reviewer dispatched.** An execution pass, not a review loop | 1 | 1 | 1 | 1 | **4 verified, 4 fixed.** `docs/specs/LWSM-1006-conformance.py` transcribes every pattern, bound and predicate § 4 prescribes and runs them against inputs chosen to break them. Written after loop 3 on the observation that all three of that loop's CRITICALs were false claims about *patterns* — a class no reader catches and no reviewer is needed for. It found, in one run: **(CRIT)** `re.search(r"\d{1,5}(?![0-9])", " 123456")` returns **23456** — a lookahead alone does not reject a longer number in a *search*, because the engine advances past the unmatchable first digit and matches the tail; rule 1 was immune only because `PORT=` anchors its digits, so the fix applied one loop earlier had been applied to the call site rather than to the mechanism (`coding-overrides.md § O9` exactly). **(HIGH)** `# PORT=9999 (old)` was detected as port 9999 — no rule anywhere mentioned comments, and a commented-out previous port is the commonest shape in a real launcher. **(MED)** the quote-aware stripper written to fix that cut `http://localhost:3000` at the `//`, killing a documented rule-1 form, at 766 µs/call against the replacement's 64 µs. **(LOW)** `PORT = -1` yielded **1**. Also corrected: § 4.4's stated reason for splitting `Environment=` was wrong — the real failure is that `partition` examines only the first `KEY=`, so a port that is not the first variable is invisible. The run is recorded here rather than as a loop because **no reviewer was dispatched**; it is a deterministic check, and it converges where a judgement review does not. |
 | 3 | 2026-08-08 | 2 (general-purpose, strong model) | 3 | 4 | 6 | 13 | **26 verified, 0 unverified, 26 fixed**, plus 2 collateral the 4b sweep caught. Dimensions: dim 5×8, dim 4×6, dim 7×3, dim 10×2, dim 6×2, dim 1×2, dim 2×1, dim 15×1, dim 11×1. **Origin split: 6 draft defects against ~20 fix collateral** — the decisive margin the loop-economics rule names, and the reason this run stops here rather than dispatching a fourth. **All three CRITICALs were defects the previous two loops' own fixes introduced**, which is the shape that margin describes. (1) Loop 2's `\d{1,5}` does not *reject* a longer number, it takes the first five digits of one: measured, `PORT=123456` → **12345**, `--port 999999999` → **99999**, each passing the range check and fabricating a port out of a line that declares none — the one outcome § 4.1 forbids. `(?![0-9])` closes it. (2) Loop 2's INV-9 said both rules exclude the underscore; rule 2's shipped class **admits** it, and must, since that is the only reason `DEFAULT_PORT` and `server_port` match at all — an implementer building from that invariant loses two of the seven detections § 7 requires. (3) Loop 1's INV-15 fixture, `"a" * 4092 + "port"`, contains no separator, so `rule_2` returns before `KEY_IS_PORT` ever runs: instrumented at **0 regex calls**, green by construction, and green under its own prescribed mutation. The corrected fixture costs **74.41 µs** against the 0.24 µs the old one "measured" — so loop 1's figure was timing an early return. Two draft defects worth naming: an unreadable launcher's effect on its *candidate* was never stated (both a listed project with no port and a skip passed INV-1 and INV-4), and `skipped` reasons plus `PortFinding.source` were length-bounded but never **escaped**, while § 4.3's own § 1.6 sweep asserted both halves were present — a filename may contain a newline, which is LWSM-1078 exactly. The duplicated 18-row invariant→test table in § 7 was deleted in favour of § 11's. Doc 1195 → 1265 lines. |
 | 2 | 2026-08-08 | 2 (general-purpose, strong model) | 2 | 4 | 7 | 11 | **24 verified, 0 unverified, 24 fixed**, plus 7 collateral the 4b sweep caught. Dimensions: dim 5×6, dim 4×4, dim 2×4, dim 7×3, dim 10×3, dim 15×2, dim 12×1, dim 6×1. **Origin split: 12 draft defects, 12 fix collateral** — no decisive margin either way, so the loop dispatched rather than sweeping. Both lanes led with the same contradiction, and it was collateral: loop 1 changed § 4.4's missing-unit signal to `LoadState=not-found` and left § 8 asserting the empty `FragmentPath` it had just retired. **The loop's most valuable finding was a draft defect neither loop-1 lane reached, and it is a security gap** — INV-1 has promised since the first draft that a symlink resolving out of the project is refused, and no rule implemented that half for the *launcher itself*: `commonpath` guarded only the one-hop target. Measured 2026-08-08, a `start.sh` symlinked outside the project passes `S_ISREG` **and** `os.access(X_OK)` — both describe the target — and its contents are read. `O_NOFOLLOW` is the only guard that sees it, which is precisely the LWSM-1050 containment promise this item is chartered to land. Second: **rule 1 had no pattern at all**, only prose, while running *ahead* of the rule § 4.6 had carefully bounded — measured, an unanchored `PORT=` returns 99 for `TRANSPORT=99` and 4321 for `APP_PORT=4321`, the latter being INV-17's own fixture. It also missed `PORT=${PORT:-N}` entirely, the form `project-g` uses. Third, from executing the new reader: **a minified `package.json` is 6,252 characters on one line**, so the 4096 line cap turned an ordinary artefact into `JSONDecodeError` and silently dropped a legitimate Node project; § 4.3 now has two readers. Doc 1042 → 1201 lines. |
-| 1 | 2026-08-08 | 2 (general-purpose, strong model) | 3 | 7 | 7 | 8 | **25 verified, 0 unverified, 25 fixed.** Dimensions: dim 5×10, dim 4×4, dim 7×3, dim 15×3, dim 10×2, dim 6×2, dim 2×1. **Both lanes independently led with the same two defects**, which is the strongest corroboration this gate produces. (1) **A `systemd` project had no port-detection path at all** — § 4.5 restricted the one hop to `SHELL`, rule 0 read the unit only to *bind* it, and § 4.6 named no source, so `project-a` came back *unknown* and the acceptance test could not pass; both roadmap bullets say this item carries the unit's `Environment=` / `ExecStart`. Now § 4.4 step 3. (2) **INV-14 prescribed a test that fails on landing**: it derived `CORE_MODULES` from `coding.md § O1`'s criterion, which is a two-way split covering `__main__.py` — and `__main__.py` imports `QtWidgets` by design, so the derivation would also redden the sibling test. The criterion itself is now amended (§ 12 item 7). Lane B alone found the third: **INV-10's discriminating fixture was rejected by this spec's own rule 2** — `PORT_BASE` ends in `BASE`, so both orderings returned 8080 and the test guarding the file-major decision was green by construction. Also fixed: the reason list had `registry.py`'s per-reason clip and not its `MAX_REASONS` count cap (§ 1.6's exact failure shape, one pass after the spec cited that very site); `PortFinding.line` carried a hostile file's bytes to the log and status bar unescaped, and the field was **deleted** rather than defended; INV-15 asserted a 40,000-character line that INV-3 makes unreachable. **A 26th defect came from Phase 4a's execute-before-it-lands rule, not from a lane:** the prescribed `systemctl --user show -- <unit> -p FragmentPath` puts its options *after* the `--`, so `systemctl` reads them as unit names and dumps all **832** property lines. Three invariants added (INV-16 self-exclusion, INV-17 the systemd port, INV-18 the reason cap). Doc 716 → 1042 lines. |
+| 1 | 2026-08-08 | 2 (general-purpose, strong model) | 3 | 7 | 7 | 8 | **25 verified, 0 unverified, 25 fixed.** Dimensions: dim 5×10, dim 4×4, dim 7×3, dim 15×3, dim 10×2, dim 6×2, dim 2×1. **Both lanes independently led with the same two defects**, which is the strongest corroboration this gate produces. (1) **A `systemd` project had no port-detection path at all** — § 4.5 restricted the one hop to `SHELL`, rule 0 read the unit only to *bind* it, and § 4.6 named no source, so `project-a` came back *unknown* and the acceptance test could not pass; both roadmap bullets say this item carries the unit's `Environment=` / `ExecStart`. Now § 4.4 step 3. (2) **INV-14 prescribed a test that fails on landing**: it derived `CORE_MODULES` from `coding-overrides.md § O1`'s criterion, which is a two-way split covering `__main__.py` — and `__main__.py` imports `QtWidgets` by design, so the derivation would also redden the sibling test. The criterion itself is now amended (§ 12 item 7). Lane B alone found the third: **INV-10's discriminating fixture was rejected by this spec's own rule 2** — `PORT_BASE` ends in `BASE`, so both orderings returned 8080 and the test guarding the file-major decision was green by construction. Also fixed: the reason list had `registry.py`'s per-reason clip and not its `MAX_REASONS` count cap (§ 1.6's exact failure shape, one pass after the spec cited that very site); `PortFinding.line` carried a hostile file's bytes to the log and status bar unescaped, and the field was **deleted** rather than defended; INV-15 asserted a 40,000-character line that INV-3 makes unreachable. **A 26th defect came from Phase 4a's execute-before-it-lands rule, not from a lane:** the prescribed `systemctl --user show -- <unit> -p FragmentPath` puts its options *after* the `--`, so `systemctl` reads them as unit names and dumps all **832** property lines. Three invariants added (INV-16 self-exclusion, INV-17 the systemd port, INV-18 the reason cap). Doc 716 → 1042 lines. |
 
 ## 13. Resource cost
 

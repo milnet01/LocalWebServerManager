@@ -1,6 +1,6 @@
 """The one object the UI talks to: polls the socket table, holds the statuses.
 
-Core module — QtCore only, never QtWidgets (`docs/standards/coding.md § O1`),
+Core module — QtCore only, never QtWidgets (`docs/standards/coding-overrides.md § O1`),
 so the whole poll loop is testable without a display. Contract:
 `docs/specs/LWSM-1005-vertical-slice.md § 4.3`.
 """
@@ -1094,7 +1094,7 @@ class ProjectController(QObject):
         """Timer off, delivery refused, then a bounded wait for the task.
 
         Without the wait a pool thread emits into a controller being torn
-        down — the flake `docs/standards/testing.md § T5` exists to prevent.
+        down — the flake `docs/standards/testing-overrides.md § T5` exists to prevent.
         Idempotent: `main` calls it, and so does every test fixture.
 
         `_stopped` is what closes INV-16, and it is checked in the slots rather

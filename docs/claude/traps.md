@@ -4,7 +4,7 @@ Moved word for word out of `CLAUDE.md` on 2026-10-01, to keep the
 always-loaded instructions under Claude Code's size limit.
 `CLAUDE.md` § Module map points here and still holds the rules.
 
-**Trap: a `testing.md § T9` mutation that removes ONE of several
+**Trap: a `testing-overrides.md § T9` mutation that removes ONE of several
 redundant guards proves nothing.** LWSM-1006's byte cap is checked in
 three places — the `fstat`, the bytes `_read_bytes` actually read, and
 `_read_lines`' running total — deliberately, so a file that grows

@@ -1,6 +1,6 @@
 """Semantic colour tokens. The only module in the UI layer holding a colour.
 
-`docs/standards/coding.md § O7`: a widget names a token, never a colour. This
+`docs/standards/coding-overrides.md § O7`: a widget names a token, never a colour. This
 is the token *definition* site, so the values necessarily live here — which is
 why `tests/test_layering.py` exempts this one file and no other.
 
@@ -80,7 +80,7 @@ class Theme:
     border: str
     is_dark: bool
 
-    # `docs/standards/testing.md § T8` holds these two to **7:1** rather than
+    # `docs/standards/testing-overrides.md § T8` holds these two to **7:1** rather than
     # 4.5:1. A flag on the theme rather than a set of ids kept beside it: the
     # floor a palette is judged against is a property of the palette, and a
     # separate set is a second place to forget to update.
@@ -536,7 +536,7 @@ def theme_for_id(theme_id: str) -> Theme:
 
     Falling back rather than raising, and this is the layer that owns the
     decision: `settings.py` stores the id as an opaque bounded string because
-    a core module may not import this one (`coding.md § O1`). So an id for a
+    a core module may not import this one (`coding-overrides.md § O1`). So an id for a
     theme a later build removed — or one a user hand-typed — arrives here, and
     a `KeyError` here is a window that does not open. The user gets the default
     palette instead, which is the one outcome that is certainly usable.

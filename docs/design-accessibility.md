@@ -15,7 +15,7 @@
 > that is the acceptance surface for every accessibility item.
 > **Companion:** [`design-look-and-feel.md`](design-look-and-feel.md)
 > defines the tokens whose contrast the floors below are stated
-> against. `docs/standards/testing.md § T8` carries four of the
+> against. `docs/standards/testing-overrides.md § T8` carries four of the
 > checks below as executable tests. The rest of the design —
 > architecture, components, detection, data flow, ADRs — stays in
 > [`design.md`](design.md).
@@ -118,7 +118,7 @@ dark — `highcontrast-light` and `highcontrast-dark` in
 assistive tool, not a seventh colour scheme, and it is not allowed
 to regress: these two clear **7:1** (WCAG AAA)
 against the 4.5:1 the other six must meet, so a change that
-quietly softens them fails the build. `testing.md § T8` already
+quietly softens them fails the build. `testing-overrides.md § T8` already
 carries that floor — it names 4.5:1 for every theme and 7:1 for
 these two — so it needs no amendment, and the row below points at
 its check rather than asking for a second one. (Until 2026-08-19
@@ -217,7 +217,7 @@ double-click, hover, or a tray icon.
 **Screen readers.** Every interactive widget gets an accessible
 name, and a description (`setAccessibleName` /
 `setAccessibleDescription`) where the name is not self-explanatory —
-`coding.md § O8` clause 1 sets that condition, and this section does
+`coding-overrides.md § O8` clause 1 sets that condition, and this section does
 not widen it. Status reaches a screen reader as
 the same text *Never colour alone* already requires, so Orca
 announces "running, port 5005, named project-b" rather than an unnamed
@@ -250,7 +250,7 @@ a stated 48×48 would be a promise the layout does not keep.
 
 **This is tested, not asserted** — and the list is exhaustive on
 purpose, because an accessibility claim with no test behind it is
-decoration. `docs/standards/testing.md § T8` carries **four** of
+decoration. `docs/standards/testing-overrides.md § T8` carries **four** of
 the checks: contrast arithmetic across every theme, keyboard
 reachability of every action, accessible names on every
 interactive widget, and nothing clipped at 200 %.
@@ -261,10 +261,10 @@ LWSM-1032 landed them alongside the four:
 | Promise | How it is checked |
 |---|---|
 | Readable in greyscale (never colour alone) | every state's rendered **state cell** differs from every other after a luminance-only transform, thresholded to ink-or-no-ink. Not the whole row: button enablement differs by state, so a whole-row comparison passes without the state cell rendering anything distinct — measured 2026-08-19, and greyscale alone is not enough either, since two colours of different luminance are two different greys |
-| High-contrast pair clears 7:1 | **already covered by `testing.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `highcontrast-light` / `highcontrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
+| High-contrast pair clears 7:1 | **already covered by `testing-overrides.md § T8`**, whose contrast check is parametrised across themes and applies the stricter floor to `highcontrast-light` / `highcontrast-dark`. Listed so the promise stays traceable, not so a second assertion gets written |
 | Focus ring drawn, thick, and meeting contrast, on every focusable widget in every theme | render each kind of focusable control unfocused and focused. The row paints its own ring: in the default theme, assert the focused render changes more pixels than the row's perimeter and that the ring is painted in the `accent` token, whose contrast a palette check holds in every theme. Every other control — a button, the filter box, the browser picker, a spin box and a list — takes the ring `OutlineStyle` paints over Fusion: in every theme, move focus with a real Backtab, assert the first changed pixel is at the control's edge, and hold that pixel at 3:1 against the control's fill and against the window. **Thick** means at least the row's width, which follows the text: assert the run of changed pixels from the edge is at least `focus_ring_width` at 100 % **and** at 200 % text (LWSM-1349). Rendered rather than computed: a check over palette pairs passes on a theme whose ring is never drawn (LWSM-1292), and a child widget can paint over a ring's inner edge (a list's viewport, a spin box's text field). The edge clause stops the filter box's text cursor passing for a ring |
 | Every outline clears 3:1, and high-contrast borders are heavy | assert the `border` token clears 3:1 against `window`, `base` and `alt_base` in every theme, and render each control and a styled-panel frame unfocused and assert its edge pixel **is** the `border` token. The second half is the one that can fail on screen: Fusion outlines in a shade of the window colour, so a token check alone passed while high contrast's outlines were near-invisible (LWSM-1337). **Heavy** is met by colour, not width: the resting outline is 1 px in every theme, and in the high-contrast themes it is black or white, at full contrast. A disabled control's outline dims with its label |
-| A description where the name is not self-explanatory | assert the browser picker's accessible description names its project, read from the accessibility interface rather than the widget property: a property check can pass while nothing is announced. It is the one control whose name cannot, because a combo box reports its current text as its name (`CLAUDE.md`'s `QComboBox` trap). `testing.md § T8`'s check covers names only. Whether some other name needs a description is a reviewer's judgement under `coding.md § O8`, and no test makes it (LWSM-1293) |
+| A description where the name is not self-explanatory | assert the browser picker's accessible description names its project, read from the accessibility interface rather than the widget property: a property check can pass while nothing is announced. It is the one control whose name cannot, because a combo box reports its current text as its name (`CLAUDE.md`'s `QComboBox` trap). `testing-overrides.md § T8`'s check covers names only. Whether some other name needs a description is a reviewer's judgement under `coding-overrides.md § O8`, and no test makes it (LWSM-1293) |
 | Targets ≥ 24×24 at 100 %, scaling with text size | measure every clickable widget's hit rect at 100 % **and** at 200 %: none below 24×24 at 100 %, and every one strictly larger at 200 % than at 100 %. The second half is the one that can fail — a target pinned at 24×24 passes "≥ 24 at each step", which is the defect the promise names. Not a fixed 200 % threshold: the rect follows the font metric, so it does not double |
 | A state change announces itself once, not per poll | count accessibility notifications: exactly one across a real state change, and zero across N polls with no state change |
 | No animation conveys information, and reduce-motion is honoured | assert no animation object exists across a real state change — there are none to suppress, so both halves hold together, and the row fails the day one is added |

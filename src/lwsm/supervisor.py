@@ -1,6 +1,6 @@
 """Spawning and reaping the servers this manager starts.
 
-Core module — no Qt at all, not even QtCore (`docs/standards/coding.md § O1`),
+Core module — no Qt at all, not even QtCore (`docs/standards/coding-overrides.md § O1`),
 like `ports.py`. Stop needs a worker thread and a plain `ThreadPoolExecutor` is
 enough for one; making this a `QObject` would put a Qt dependency into the one
 module that spawns processes for a living.

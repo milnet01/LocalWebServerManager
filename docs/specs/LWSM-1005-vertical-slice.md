@@ -37,7 +37,7 @@ Three consequences:
 
 1. **Every later phase's contract is unvalidated.** `docs/design.md
    § Data flow` mandates one socket-table snapshot per tick shared across
-   all projects, and `docs/standards/coding.md § O1` mandates a core that
+   all projects, and `docs/standards/coding-overrides.md § O1` mandates a core that
    never imports `QtWidgets`. Both are prose until something is built to
    them.
 2. **`projects.json` has a described record but no reader.** ADR-0005 lists
@@ -61,7 +61,7 @@ Three consequences:
   splits the two. §5 INV-6 and §9 keep the collapse visible rather than
   silent.
 - **Accessibility lands with the first row, not after.** Roadmap bullet's
-  wording, and `docs/standards/coding.md § O8`. All four of O8's
+  wording, and `docs/standards/coding-overrides.md § O8`. All four of O8's
   requirements apply to the row from the first commit.
 - **A third status, `unknown`, where no observation is available.**
   Author's call, not the user's, and it is a reading of
@@ -82,7 +82,7 @@ Three consequences:
 ### 4.1 The record and the file
 
 `~/.config/localwebservermanager/projects.json`, hand-written for P02.
-Path is overridable for tests (`docs/standards/testing.md § T1`).
+Path is overridable for tests (`docs/standards/testing-overrides.md § T1`).
 
 ```json
 {
@@ -115,7 +115,7 @@ class RegistryError(Exception): ...
 def default_projects_path() -> Path:
     """$XDG_CONFIG_HOME/localwebservermanager/projects.json, falling back
     to ~/.config when the variable is unset or not absolute — the config
-    half of `docs/standards/coding.md § O3`'s XDG rule, whose state half
+    half of `docs/standards/coding-overrides.md § O3`'s XDG rule, whose state half
     is already `applog.py::default_state_dir`."""
 
 
@@ -652,7 +652,7 @@ not reachable headless, so the tests count the call itself. That is a weaker
 surface than this document prefers, and it is the strongest one available.
 
 **Every user-visible string in this file goes through
-`QCoreApplication.translate`** under one context, per `coding.md § 5.2`
+`QCoreApplication.translate`** under one context, per `~/.claude/standards/languages/qt.md` § Idioms
 (LWSM-1081). Three decisions came with it, each recorded because each is a
 choice rather than a wrapper:
 
@@ -718,7 +718,7 @@ buttons and tooltips would not have followed the theme.
 renders only its frame and `StyledPanel` never consults `State_HasFocus`, so
 setting `StrongFocus` alone produced a widget that took focus and showed
 nothing — the focused and unfocused renders were byte-identical and Tab moved
-an invisible caret (LWSM-1070). `coding.md § O8` clause 2 requires a visible
+an invisible caret (LWSM-1070). `coding-overrides.md § O8` clause 2 requires a visible
 focus ring, `docs/design-accessibility.md § Accessibility` calls it the thing a magnifier
 user's "where am I?" depends on entirely, and WCAG 2.4.7 requires it.
 
@@ -729,7 +729,7 @@ stating, because each was a decision:
 - **The ring is the `accent` token**, not a token of its own, so every palette
   LWSM-1031 adds inherits a legible ring from the contrast its accent already
   has to prove. Measured on the default palette: **5.42:1** against `window`,
-  against the **3:1** floor `testing.md § T8` sets for a non-text indicator.
+  against the **3:1** floor `testing-overrides.md § T8` sets for a non-text indicator.
 - **The theme expands the token into a `QColor`, not the widget.** `§ O7`
   forbids widget code from naming a colour or constructing one, which
   `tests/test_layering.py` enforces by regex — so the expansion belongs at the
@@ -1046,7 +1046,7 @@ importing `lwsm.__main__` in a test does not require a display.
   once-a-week flake `§ T5` exists to prevent.
 
 - **INV-17** — A focused row renders differently from an unfocused one, and
-  the ring's colour clears `testing.md § T8`'s 3:1 indicator floor against
+  the ring's colour clears `testing-overrides.md § T8`'s 3:1 indicator floor against
   the window.
   *Test:* `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held`,
   which grabs the row in both states and counts changed pixels, plus
@@ -1067,7 +1067,7 @@ importing `lwsm.__main__` in a test does not require a display.
   managers; called bare they wait for nothing, and an inactive window makes
   `hasFocus()` false.
 
-- **INV-18** — Every token that renders as **text** clears `testing.md
+- **INV-18** — Every token that renders as **text** clears `testing-overrides.md
   § T8`'s 4.5:1 against the surface it is painted on. The state tokens count
   as text pairs, not indicators: they colour the state *word*, not only the
   glyph. Measured on the default palette — `text` 15.63:1, `muted_text`
@@ -1503,7 +1503,7 @@ from the rows above, not carried forward.
     LWSM-1031 absorbs the token when it lands the palettes is LWSM-1031's
     call; either way the token cannot quietly become a de-facto eighth
     derived state.
-- `docs/standards/coding.md § O3` — its XDG paragraph says of the config
+- `docs/standards/coding-overrides.md § O3` — its XDG paragraph says of the config
   half "no code yet and this is the rule it must follow when **P09** writes
   it". P02 writes it: `registry.py::default_projects_path`. The sentence
   becomes stale the moment this ships and should name P02.

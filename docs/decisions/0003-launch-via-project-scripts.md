@@ -214,7 +214,7 @@ make this safe rather than clever:
 
 - **It is not a write into a sibling project.** The drop-in lives
   in the *user's* systemd configuration, so
-  `docs/standards/coding.md § O3` still holds — the project
+  `docs/standards/coding-overrides.md § O3` still holds — the project
   directory remains read-only to this app. It is, however, a third
   kind of write beyond the two config files in § Persistence, and
   is named here for that reason.

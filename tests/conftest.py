@@ -2,7 +2,7 @@
 
 `scripts/local-ci.sh` exports QT_QPA_PLATFORM=offscreen, but a bare `pytest`
 does not — and a widget test that opens a real window on a developer's desktop
-is the shape `docs/standards/testing.md § T6` forbids. So set it here when it
+is the shape `docs/standards/testing-overrides.md § T6` forbids. So set it here when it
 is unset, and leave an explicit choice alone.
 
 `XDG_CONFIG_HOME` is pinned for the same reason and is stricter — unset, not

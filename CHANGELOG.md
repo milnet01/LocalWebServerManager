@@ -17,7 +17,7 @@ for now-removed features, **Fixed** for bug fixes, and
 The `[Unreleased]` block is required at the top, always —
 even if empty. The Roadmap dialog reads it for current-work
 signaling per
-[`docs/standards/roadmap-format.md § 3.6.2`](docs/standards/roadmap-format.md).
+`~/.claude/standards/changelog-format.md`.
 
 ## [Unreleased]
 

@@ -124,7 +124,7 @@ in the current build. Owners are named, not implied.
   `os.mknod`, which needs `CAP_MKNOD` and raises `PermissionError` as this
   user, so the fallback branch to `Path("/dev/null")` always fires. The
   docstring claims the node "is created under `tmp_path` rather than reading
-  the real `/dev/null`" — **so the `testing.md § T1` violation LWSM-1111
+  the real `/dev/null`" — **so the `testing-overrides.md § T1` violation LWSM-1111
   recorded as fixed is still live, behind a branch.** The test still proves
   the char-device refusal; the defect is the false claim. Secondary:
   `except (PermissionError, OSError)` is redundant.
@@ -155,7 +155,7 @@ in the current build. Owners are named, not implied.
   which LWSM-1115 had just added carrying this exact defect — its assertions
   read `<= MAX_REASONS + 1`, so 100 → 100000 would have passed and restored the
   flood the cap exists to stop. Found by re-reading the routed owners of the
-  items this pass closed, which is `coding.md § 1.6` applied to the pass's own
+  items this pass closed, which is `coding-overrides.md § O9` applied to the pass's own
   output.
 
 ### From the concurrency lane
@@ -324,7 +324,7 @@ in the current build. Owners are named, not implied.
   LWSM-1030 if the role change falls out of the appearance work first.
 - **Half-resolved 2026-08-19 (LWSM-1032), and the resolved half was a
   documentation defect.** `setAccessibleDescription` is still absent from
-  `src/`, and that is no longer a breach of anything: `coding.md § O8`
+  `src/`, and that is no longer a breach of anything: `coding-overrides.md § O8`
   clause 1 requires a description only "where the name is not
   self-explanatory", while `design-accessibility.md § Accessibility` had widened it to an
   unconditional "name and description". The design now states § O8's

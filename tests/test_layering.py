@@ -1,6 +1,6 @@
 """LWSM-1005 INV-8, INV-8b — the core/UI split and the no-colours rule.
 
-Both rules in `docs/standards/coding.md` are enforced by reading source rather
+Both rules in `docs/standards/coding-overrides.md` are enforced by reading source rather
 than by importing it: importing the module would only prove it does not reach
 QtWidgets on the one path the import happens to take.
 
@@ -23,7 +23,7 @@ import pytest
 SRC = Path(__file__).resolve().parent.parent / "src" / "lwsm"
 
 # A new core module is added here in the commit that creates it
-# (`coding.md § O1`). `scanner.py` is the first to test that; `applog.py` was
+# (`coding-overrides.md § O1`). `scanner.py` is the first to test that; `applog.py` was
 # absent from this list while the criterion covered it, so the rule and its
 # check disagreed and the check is the one that runs (LWSM-1006 § 4.7).
 CORE_MODULES = [
@@ -43,7 +43,7 @@ CORE_MODULES = [
 ]
 
 # The complement of core, named explicitly rather than derived from
-# `coding.md § O1` as it was once worded: that was a two-way split excluding
+# `coding-overrides.md § O1` as it was once worded: that was a two-way split excluding
 # only the two UI modules, so anything deriving from it pulled in
 # `__main__.py`, which imports QtWidgets **by design** — and would redden
 # `test_core_never_imports_qtwidgets` on the day the derivation landed.
@@ -117,7 +117,7 @@ def test_core_never_imports_qtwidgets(module: str) -> None:
 
 
 def test_the_core_module_list_matches_the_criterion() -> None:
-    """A source-invariant test (`testing.md § 3.6`): the list above is what
+    """A source-invariant test (`testing-overrides.md § T10`): the list above is what
     actually enforces § O1, so a sixth core module that never reaches it is a
     `QtWidgets` import passing every gate — which is how `applog.py` came to be
     missing from it in the first place."""
@@ -307,7 +307,8 @@ QT_FIXTURES = {"qtbot", "app_font"}
 
 
 def test_every_test_needing_a_qt_application_carries_the_gui_marker() -> None:
-    """`testing.md § T6`: a test that needs a Qt application object carries the
+    """`testing-overrides.md § T6`: a test that needs a Qt application object carries
+    the
     `gui` marker, set on the test or by the module's `pytestmark`.
 
     Nothing selects on the marker; it says which tests need Qt. Ten carried no

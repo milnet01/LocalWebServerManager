@@ -6,7 +6,8 @@ when that variable is unset), INFO by default, rotating at 1 MB with 5 kept,
 recording every spawn, signal, port-probe result and config write.
 
 These tests name what the design promises, not what the implementation does
-(testing.md § 2). None of them touches the real state directory: T1 forbids it,
+(`~/.claude/standards/testing.md` § 3). None of them touches the real state directory:
+T1 forbids it,
 and a test that writes to `~/.local/state` on a developer's machine is a side
 effect wearing a test's clothes.
 """
@@ -77,7 +78,8 @@ def test_default_state_dir_follows_the_xdg_spec(monkeypatch, tmp_path: Path):
     to ~/.local/state when unset.
 
     `HOME` is redirected so the fallback branch asserts a literal rather than
-    re-deriving the implementation's own expression (testing.md § 9), and so
+    re-deriving the implementation's own expression (`~/.claude/standards/testing.md`
+    § 10), and so
     the test does not depend on the ambient environment having a home at all.
     """
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))

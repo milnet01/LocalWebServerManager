@@ -1,7 +1,7 @@
 """LWSM-1005 INV-9, INV-3b — the probe reports what is actually listening.
 
 Ports come from binding 0 and asking the socket, never a literal
-(`docs/standards/testing.md § T3`), and every socket is closed in teardown
+(`docs/standards/testing-overrides.md § T3`), and every socket is closed in teardown
 (`§ T5`).
 """
 

@@ -32,7 +32,7 @@ regenerates the style sheet and reapplies it. The choice lives in
 
 `finbreak` already solved this well and the user likes the
 result, so this project **adopts its theme system rather than
-writing a parallel one** (`docs/standards/coding.md § 1.3`, reuse
+writing a parallel one** (`coding.md § 1.3`, reuse
 before rewriting).
 
 **The palette values are copied into this repository, not
@@ -111,12 +111,12 @@ descendant; anything else adopting a style sheet inherits this.
 `stopping` gets no token: it is the optimistic overlay's transient
 label, not a state derived from observation (ADR-0004, `design.md` § State
 management). Adding a state to ADR-0004 means adding a token here,
-which the contrast test in `docs/standards/testing.md § T8` then
+which the contrast test in `docs/standards/testing-overrides.md § T8` then
 parametrises over automatically.
 
 Widgets name tokens, never colours. Adding a theme means adding a
 palette, never touching a widget, and
-`docs/standards/coding.md § O7` makes a literal colour in widget
+`docs/standards/coding-overrides.md § O7` makes a literal colour in widget
 code a review failure. Tokens expand into a `QPalette` (so native
 widgets follow) **and** a generated style sheet (for the polish
 Qt's palette cannot express) — finbreak's two-layer split, which
@@ -125,5 +125,5 @@ dialogs looking wrong.
 
 The one deliberate divergence: finbreak stores the choice in
 `QSettings`; this project stores it in `settings.json` with
-everything else, per `docs/standards/coding.md § O6`.
+everything else, per `docs/standards/coding-overrides.md § O6`.
 

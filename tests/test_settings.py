@@ -331,7 +331,7 @@ def test_an_unknown_theme_id_is_stored_and_not_second_guessed(
     tmp_path: Path,
 ) -> None:
     """Membership is `theme.theme_for_id`'s question, not this module's — a
-    core module may not import the theme layer (`coding.md § O1`). This test
+    core module may not import the theme layer (`coding-overrides.md § O1`). This test
     pins that split: the id is carried through, shape-checked only.
     """
     path = write(

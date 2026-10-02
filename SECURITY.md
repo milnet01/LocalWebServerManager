@@ -16,8 +16,8 @@ maintainer sees it, and it stays hidden until a fix ships.
 
 [advisory]: https://github.com/milnet01/LocalWebServerManager/security/advisories/new
 
-**No email address is published, deliberately.** `docs/standards/documentation.md`
-§ 2.4 asks for a contact email; this project answers it with the private
+**No email address is published, deliberately.** `~/.claude/standards/documentation.md`
+§ 5.3 asks for a contact email; this project answers it with the private
 advisory form instead. The project has one maintainer, and an address
 published on a public repository is scraped within days, which buries
 real reports in spam. The form asks for a GitHub account in return. If

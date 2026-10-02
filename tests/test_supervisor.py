@@ -83,7 +83,8 @@ def free_port() -> int:
 def wait_until(predicate, timeout: float = 10.0, interval: float = 0.02) -> bool:
     """Poll `predicate` until it is true or `timeout` elapses.
 
-    `testing.md § T4` forbids sleeping for a duration and asserting afterwards;
+    `testing-overrides.md § T4` forbids sleeping for a duration and asserting
+    afterwards;
     this waits for the condition instead. pytest-qt's `qtbot.waitUntil` is the
     Qt equivalent, and this module has no Qt in it.
     """
@@ -1274,7 +1275,7 @@ def test_a_process_we_could_not_signal_is_named_in_the_outcome(
     Injected into ONE phase at a time, which is the whole reason this is
     parametrised. A fake that refuses both signals is reported whichever
     collection survives, so deleting either one alone left the suite green —
-    `testing.md § T9`'s redundant-guard trap, and `CLAUDE.md` records it:
+    `testing-overrides.md § T9`'s redundant-guard trap, and `CLAUDE.md` records it:
     mutate the whole mechanism, not one line of it.
 
     `AccessDenied`, not `NoSuchProcess`: a member that exited between the

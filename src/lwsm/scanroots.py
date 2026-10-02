@@ -1,6 +1,6 @@
 """The scan-roots file: which directories a Rescan walks.
 
-Core module — no Qt at all, like `configfile.py` (`docs/standards/coding.md
+Core module — no Qt at all, like `configfile.py` (`docs/standards/coding-overrides.md
 § O1`). Moved out of `__main__.py` (LWSM-1359), which owned this file's format
 while its module-map entry named none of it, and whose reader and writer each
 spelled out which lines are directories. That rule is `_is_root_line` now.

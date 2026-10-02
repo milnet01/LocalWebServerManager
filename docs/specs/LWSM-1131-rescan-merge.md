@@ -230,7 +230,7 @@ def merge(
     roots: tuple[Path, ...],  # the roots PASSED TO scan(), not inferred
     now: Callable[
         [], str
-    ],  # stamps `added` on a new record; injected per testing.md § T1
+    ],  # stamps `added` on a new record; injected per testing-overrides.md § T1
 ) -> MergeResult: ...
 
 
@@ -647,7 +647,7 @@ and the standing practice of this project's last six fix-passes.
 The merge takes a `ScanResult`, so most of these need a **fake scan** rather
 than a real one: `scanner.SupportsUnitLookup` is already the pattern this
 project uses for injecting a test double, and `merge()`'s `now` parameter is
-injected for the same reason (`testing.md § T1`). Two need a real file — INV-5 a
+injected for the same reason (`testing-overrides.md § T1`). Two need a real file — INV-5 a
 symlink, INV-8 a record stored under one. Every one uses `tmp_path` and
 **carries no marker**, which is what makes `--fast` run them:
 `scripts/local-ci.sh` runs `uv run pytest -q -m "not integration"` under

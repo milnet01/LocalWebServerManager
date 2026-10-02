@@ -50,12 +50,15 @@ Before opening a PR:
 1. Make sure the change is anchored in a roadmap item with a
    stable ID. If there isn't one, propose it as an issue first
    so we can agree on scope.
-2. Follow `docs/standards/commits.md` for commit subjects:
-   `<ID>: <description>`.
-3. Follow `docs/standards/coding.md` for the project's coding
-   conventions.
-4. Follow `docs/standards/testing.md` for test discipline:
+2. Commit subjects are `<ID>: <description>`; the rest of this
+   project's commit rules are in `docs/standards/commits-overrides.md`.
+3. Follow `docs/standards/coding-overrides.md` for the project's
+   coding conventions.
+4. Follow `docs/standards/testing-overrides.md` for test discipline:
    tests fail before code that makes them pass.
+
+   The shared standards these files override live on the
+   maintainer's machine; `docs/standards/README.md` explains.
 5. **Install the pre-push hook once per clone**, and it runs the
    gate for you:
 

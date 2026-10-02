@@ -73,7 +73,7 @@ def high_contrast(
         return False
 
     try:
-        # An argument vector, never a shell string (`coding.md § O4`).
+        # An argument vector, never a shell string (`coding-overrides.md § O4`).
         result = runner(
             [
                 "dbus-send",

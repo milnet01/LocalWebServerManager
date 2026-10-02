@@ -1,6 +1,6 @@
 """Reading and writing this application's JSON config files, safely.
 
-Core module — may import QtCore, never QtWidgets (`docs/standards/coding.md
+Core module — may import QtCore, never QtWidgets (`docs/standards/coding-overrides.md
 § O1`). No Qt at all in practice, like `ports.py` and `scanner.py`.
 
 **Extracted from `registry.py` by LWSM-1031, which needed a second config
@@ -11,7 +11,7 @@ forever with no window and no log line, a symlink destroyed by `os.replace`, a
 a 600 MB file that peaked at 1214 MB RSS. `settings.json` is hand-editable and
 therefore attacker-editable in exactly the same way, and lives in the same
 directory. Writing a second, weaker copy of this for it is the failure
-`docs/standards/coding.md § 1.3` names; there is one copy and both files use
+`coding.md § 1.3` names; there is one copy and both files use
 it.
 
 The error type is the base of `registry.RegistryError` rather than that class

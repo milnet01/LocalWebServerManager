@@ -469,7 +469,7 @@ def run_kwin_script(
                 )
                 return None
             try:
-                # An argument vector, never a shell string (`coding.md § O4`).
+                # An argument vector, never a shell string (`coding-overrides.md § O4`).
                 result = runner(call, capture_output=True, timeout=remaining)
             except (OSError, subprocess.SubprocessError) as exc:
                 log.warning("KWin did not answer %s: %s", call[len(base)], exc)
@@ -587,7 +587,7 @@ def place_window(
     that rather than leaving the user with an action that appears to work.
 
     `move` is the X11 half, injected because performing it needs `QtWidgets`
-    and this module may not import it (`coding.md § O1`). It is a seam in the
+    and this module may not import it (`coding-overrides.md § O1`). It is a seam in the
     testing sense too — `place_window` is then drivable with no window at all.
 
     **The caller applies the SIZE, on every platform; this applies only the

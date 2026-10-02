@@ -1,4 +1,4 @@
-"""WCAG 2.1 contrast arithmetic for `docs/standards/testing.md § T8`.
+"""WCAG 2.1 contrast arithmetic for `docs/standards/testing-overrides.md § T8`.
 
 Not named `test_*`, so pytest imports it rather than collecting it.
 

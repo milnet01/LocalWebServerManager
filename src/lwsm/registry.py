@@ -1,6 +1,6 @@
 """The project list, read from a hand-editable JSON file.
 
-Core module — may import QtCore, never QtWidgets (`docs/standards/coding.md
+Core module — may import QtCore, never QtWidgets (`docs/standards/coding-overrides.md
 § O1`). Contract: `docs/specs/LWSM-1005-vertical-slice.md § 4.1`.
 
 The file is hand-editable and therefore attacker-editable (ADR-0007's
@@ -224,7 +224,8 @@ def default_projects_path() -> Path:
     """$XDG_CONFIG_HOME/localwebservermanager/projects.json.
 
     Falls back to ~/.config when the variable is unset or not absolute — the
-    config half of `docs/standards/coding.md § O3`'s XDG rule, whose state half
+    config half of `docs/standards/coding-overrides.md § O3`'s XDG rule, whose state
+    half
     is already `applog.py::default_state_dir`.
     """
     raw = os.environ.get("XDG_CONFIG_HOME", "")
@@ -946,7 +947,7 @@ class ProjectsFile:
 # package does not import at all. `tests/test_layering.py` asserts the direction
 # by AST. Protocols also make the fakes the contract rather than a duck-typing
 # workaround the annotation contradicts, which is `ports.SupportsSnapshot`'s
-# reasoning applied to a second seam (`testing.md § T1`).
+# reasoning applied to a second seam (`testing-overrides.md § T1`).
 
 
 class DetectedPort(Protocol):

@@ -1,6 +1,6 @@
 """Documentation invariants that a reader cannot see and a linter does not check.
 
-A source-invariant test in the sense of `testing.md § 3.6`, pointed at prose
+A source-invariant test in the sense of `testing-overrides.md § T10`, pointed at prose
 instead of at a module: it reads files and fails on the *shape of a past
 defect*, and it is exempt from § 2.1 and § 3.1 on that basis.
 """
@@ -28,7 +28,7 @@ PROSE_COUNT = re.compile(
 # Where the rule applies: the standards themselves plus the files that
 # orient a reader. Deliberately not the whole tree — ROADMAP, CHANGELOG and the
 # journal are append-only records of what was true on a date, which
-# `documentation.md § 1.5` keeps rather than deletes.
+# `documentation-overrides.md § DOC1` keeps rather than deletes.
 GOVERNED = [
     *sorted((ROOT / "docs" / "standards").glob("*.md")),
     ROOT / "CLAUDE.md",
@@ -59,11 +59,11 @@ def offending_lines(path: Path) -> list[str]:
       review found, quoting the stale wording verbatim; that is the evidence,
       not the defect.
     - **Lines already dated.** A measurement anchored to a date is a claim about
-      a past run, which `documentation.md § 1.5` explicitly keeps — it grows
+      a past run, which `documentation-overrides.md § DOC1` explicitly keeps — it grows
       older, it does not become false.
     - **Quoted spans.** Naming a bad form is not committing it. Without this the
-      first thing the check reports is `documentation.md § 1.5`'s own list of
-      examples — which is the trap `testing.md § 3.6` names ("the comment
+      first thing the check reports is `documentation-overrides.md § DOC1`'s own list of
+      examples — which is the trap `testing-overrides.md § T10` names ("the comment
       explaining a past defect usually contains the defect's own shape"), hit
       on the first run of this test.
     """
@@ -102,7 +102,8 @@ def offending_lines(path: Path) -> list[str]:
 
 @pytest.mark.parametrize("path", GOVERNED, ids=lambda p: p.name)
 def test_no_prose_count_of_a_growing_set(path: Path) -> None:
-    """`documentation.md § 1.5` — the list is the count; prose beside it rots.
+    """`documentation-overrides.md § DOC1` — the list is the count; prose beside it
+    rots.
 
     This project has fixed the same drift twice. On 2026-08-06 the README said
     "four standards" against five and "eight phases" against ten. On 2026-08-07
@@ -111,7 +112,7 @@ def test_no_prose_count_of_a_growing_set(path: Path) -> None:
     which is why the rule is *drop the count* rather than *keep it current*.
 
     Second occurrence of one shape across seven call sites is exactly
-    `coding.md § 1.6`'s threshold for making the sweep a test rather than a
+    `coding-overrides.md § O9`'s threshold for making the sweep a test rather than a
     habit.
     """
     if not path.exists():  # pragma: no cover - README is not optional today
@@ -121,7 +122,7 @@ def test_no_prose_count_of_a_growing_set(path: Path) -> None:
 
     assert hits == [], (
         "a prose count of a set that grows goes stale on the next addition; "
-        "name the list and link it instead (documentation.md § 1.5):\n  "
+        "name the list and link it instead (documentation-overrides.md § DOC1):\n  "
         + "\n  ".join(hits)
     )
 
@@ -156,7 +157,7 @@ def test_the_design_documents_name_the_theme_ids_the_code_ships() -> None:
 
 
 def test_a_count_wrapped_across_two_lines_is_still_found(tmp_path: Path) -> None:
-    """LWSM-1350. Prose here is hard-wrapped, and `documentation.md § 2.1` read
+    """LWSM-1350. Prose here is hard-wrapped, and the standards README read
     "the four" / "standards docs" on two lines, so a per-line match never saw
     it. A count split by a wrap is the same count."""
     doc = tmp_path / "doc.md"

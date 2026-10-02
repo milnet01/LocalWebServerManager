@@ -20,9 +20,10 @@ Read these in order on every session start:
    section's intro for the order. With nothing in flight, the
    first unreleased section's intro names what is next. After reading, **summarise back
    to the user** before doing any work.
-3. **The `docs/standards/` file matching the active item's `Kind`**
-   (see **Resumption flow**). `dependencies.md` is canonical for
-   version policy and is read before touching any pin.
+3. **The standard matching the active item's `Kind`** — the shared
+   file in `~/.claude/standards/` plus this project's
+   `docs/standards/<name>-overrides.md` (see **Resumption flow**).
+   `dependencies-overrides.md` is read before touching any pin.
 4. **`docs/specs/<active-id>.md`** — the contract for the
    currently-active roadmap item.
 5. **`docs/audit-allowlist.md`** — read **additionally** before
@@ -54,9 +55,7 @@ family cut over on 2026-08-12 (global `~/.claude/CLAUDE.md`):
 `/doc-lint`, and each predecessor was **deleted** in the same commit
 that promoted its replacement. This table named the dead ones until
 2026-08-12, so a session following it would have invoked a skill that
-is not there. **`docs/standards/spec-format.md` still names both
-throughout** — see known-issue-036; that file is a standard, so
-correcting it re-arms rule 14's gate and it was not swept here.
+is not there.
 
 `/write-spec` carries the `review-contract` gate itself, so a spec
 written through it does not need the review invoked separately.
@@ -263,7 +262,8 @@ commit, no tag and no publish.
 
 ## Commit conventions
 
-Per [`docs/standards/commits.md § 1.1`](docs/standards/commits.md):
+Per `~/.claude/standards/commits.md` § 1.1 and
+[`docs/standards/commits-overrides.md`](docs/standards/commits-overrides.md):
 every commit subject is `<ID>: <description>`, where `<ID>` is the
 roadmap item's `LWSM-NNNN`.
 
@@ -281,7 +281,7 @@ partial scope has no free number to spill into. `P03` closed
 undelivered; `P03b` carries those four. Renumbering the themes
 instead would have re-labelled 28 bullets and every doc that cites
 a phase by number, and re-pointing the pushed `P03-complete` tag
-needs the force-push authorisation `commits.md § 4.2` withholds.
+needs the force-push authorisation `commits.md § 4.3` withholds.
 
 That rule is history now: no new phase opens, and no new `<ID>-complete` tag
 is cut. The existing tags stay. `P03b`'s three open items (LWSM-1039,
@@ -341,7 +341,7 @@ the session.
 
 What each module owns, and why: [`docs/claude/module-map.md`](docs/claude/module-map.md).
 Read the entry for a module before changing it. The layering rule is
-[`docs/standards/coding.md § O1`](docs/standards/coding.md): a
+[`docs/standards/coding-overrides.md § O1`](docs/standards/coding-overrides.md): a
 core module may import `QtCore` but never `QtWidgets`, so every
 one of them is testable without a display. **`tests/test_layering.py`
 enforces it by parsing the AST, not by grepping for the string** —
@@ -382,8 +382,8 @@ working is cheaper than corrective rounds later.
 
 ## Standards reference
 
-The standards (`coding`, `documentation`, `testing`,
-`commits`, `dependencies`) plus `roadmap-format` live in
-[`docs/standards/`](docs/standards/) — see its
-[README](docs/standards/README.md) for the index, the
-closed-loop diagram, and which kinds each governs.
+The standards are the shared set in `~/.claude/standards/`, read in
+place. This project's differences from them live in
+[`docs/standards/`](docs/standards/) as `<name>-overrides.md` files —
+see its [README](docs/standards/README.md) for the index and which
+kinds each governs (LWSM-1326).

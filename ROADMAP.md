@@ -7,9 +7,10 @@
 > [CHANGELOG.md](CHANGELOG.md) for what's shipped; this file
 > covers what's **planned**.
 >
-> **Format:** v1 — see
-> [docs/standards/roadmap-format.md](docs/standards/roadmap-format.md)
-> (spec v1.1). Blocks are releases: each `##` names the version its
+> **Format:** v1 — the shared `~/.claude/standards/roadmap-format.md`,
+> with this project's differences in
+> [docs/standards/roadmap-format-overrides.md](docs/standards/roadmap-format-overrides.md).
+> Blocks are releases: each `##` names the version its
 > items ship in. Every actionable bullet carries a stable
 > `LWSM-NNNN` ID, and many headlines also carry the phase ID the
 > work was done under (`P##`, `FP##`, `DS##`). ID is
@@ -18,13 +19,10 @@
 > predecessors only; transitive prerequisites are implied by
 > walking the chain.
 >
-> **Every bullet carries its full field set** — `Layman:`,
-> `Kind:`, `Source:`, `Priority:` — per
-> `docs/standards/roadmap-format.md § 3.12`, so the eventual
-> migration into the Ants roadmap store is a straight import
-> rather than a defaulting exercise.
+> **Every open item carries a priority** — `Priority:` 1 to 5 —
+> per `docs/standards/roadmap-format-overrides.md` § R1.
 
-**Legend** (per `docs/standards/roadmap-format.md § 3.3`)
+**Legend** (per `roadmap-format.md § 3.3`)
 
 - 📋 Planned (next up for its release)
 - 🚧 In progress (being tackled now)
@@ -32,14 +30,14 @@
 - 💭 Considered (research phase; scope or feasibility uncertain)
 - 🚫 Dropped (closed, not done)
 
-**Themes** (per `docs/standards/roadmap-format.md § 3.4`)
+**Themes** (per `roadmap-format.md § 3.4`)
 
 - 🎨 Features · ⚡ Performance · 🔌 Plugins · 🖥 Platform
 - 🔒 Security · 🧰 Dev experience · 📚 Documentation
 - 📦 Packaging · 🐛 Bug fixes · 🔍 Findings fold-in
 - 🧹 Cleanup / debt · 📝 Cold-eyes fold-in
 
-**Priority bands** (per `docs/standards/roadmap-format.md § 3.12`)
+**Priority bands** (per `roadmap-format.md § 3.12`)
 
 - `1` CRITICAL · `2` HIGH · `3` MEDIUM · `4` LOW · `5` someday-maybe
 
@@ -84,7 +82,7 @@ moved, so search for the quoted code. A scanner change also gets the live-tree
 verdict diff, run from a temporary `git worktree` of HEAD.
 
 The appearance and accessibility foundation (was P04) is part of this version.
-The primary user reads with a screen magnifier, and `docs/standards/coding.md §
+The primary user reads with a screen magnifier, and `docs/standards/coding-overrides.md §
 O8` forbids retrofitting that.
 
 - ✅ [LWSM-1046] **FP01: a trust gate before running a discovered launcher.**
@@ -10378,7 +10376,7 @@ bugs in the same area.
   Source: in-session-2026-09-28 (split from LWSM-1046).
   Lanes: ui, core.
 
-- 📋 [LWSM-1326] **Reconcile the seven OWNED-HERE standards with the machine-wide set.**
+- 🚧 [LWSM-1326] **Reconcile the seven OWNED-HERE standards with the machine-wide set.**
   Split from LWSM-1062 on 2026-09-28 by user decision: only the known
   defects land before 0.1.0; the full walk comes after it. For each of
   coding, testing, documentation, dependencies, commits, spec-format and
@@ -10391,6 +10389,18 @@ bugs in the same area.
   (standards/README.md case 2); ask the user only where a local rule means
   something different. Run after LWSM-1339 and LWSM-1340. Measured the same
   day: every one of the seven differs from its shared version on most lines.
+  Decision (user, 2026-10-02, second round): keep all nine of this
+  project's own ways as overrides: fix proofs recorded in the commit,
+  slow tests always run, source-invariant tests, spec/test links both
+  ways, mandatory commit body, the mechanism sweep, bump-on-contact and
+  hold-only-on-a-demonstrated-break, Priority on open items with
+  findings first, and O1-O8. Adopt the six shared rules not yet
+  followed (shuffled test order, review records in docs/reviews/, spec
+  Layman as prose, rule history out of CLAUDE.md, one list of version
+  strings, Partial: rows) as separate to-dos after 0.2.0. No full copies
+  in this public repo; contributors get a note. Accepted loss: spec_lint
+  reads no overrides file, so the spec heading check stops (CFG-0322).
+  Labels kept: O1-O8, T1-T9; new O9 (old coding 1.6), T10-T12.
   **Layman:** Bring this project's own rulebooks back in line with the shared ones, one difference at a time.
   Kind: doc-fix.
   Source: user-decision-2026-09-28 (split from LWSM-1062).
@@ -10581,6 +10591,20 @@ bugs in the same area.
   Kind: investigate.
   Source: user-request-2026-10-02.
   Lanes: scanner.
+
+- 📋 [LWSM-1380] **Public documents name one of the author's other projects.**
+  documentation-overrides.md § DOC3: CHANGELOG.md names none of the
+  author's other projects, and public documents use a neutral label. The
+  released 0.1.0 section of CHANGELOG.md says the themes "are adopted from
+  finbreak", and docs/design-look-and-feel.md names it too. Ask the user
+  whether that project is public before deciding: if it is, the rule may
+  need a carve-out; if not, reword both to a neutral label (a released
+  changelog section is a record, so ask before editing it).
+  Priority: 3.
+  **Layman:** The public changelog and a design note mention another of the author's projects by name, which this project's rules say not to do.
+  Kind: doc-fix.
+  Source: in-session-2026-10-02, found while writing documentation-overrides.md (LWSM-1326).
+  Lanes: docs.
 
 ## 0.3.0 — The full state model
 
@@ -10849,6 +10873,74 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: fix.
   Source: in-session-2026-10-02 (split from LWSM-1295).
   Lanes: core, ui, tests.
+
+- 📋 [LWSM-1374] **Shuffle the test order on every run, and check each test leaves shared state clean.**
+  Shared testing.md § 7 and languages/python.md assume pytest-randomly
+  and teardown checks on shared process state; this project has neither.
+  Add the plugin through the dependency rules, fix what a shuffled run
+  exposes, and say which state each teardown check covers.
+  Priority: 4.
+  **Layman:** Run the tests in a random order so a test that secretly depends on another one gets caught.
+  Kind: test.
+  Source: LWSM-1326 user decision 2026-10-02 (shared testing.md § 7).
+  Lanes: tests.
+
+- 📋 [LWSM-1375] **Keep review loop-log rows in docs/reviews/, with a one-line pointer in each spec.**
+  Shared rules keep loop-log rows outside the reviewed document. Binds
+  forward: new logs go to docs/reviews/<doc>-loop-log.md. Decide whether
+  the four specs' existing inline tables move too (a landed row is never
+  edited, so a move copies them verbatim).
+  Priority: 4.
+  **Layman:** Move the record of each document's reviews out of the document and into its own file.
+  Kind: doc.
+  Source: LWSM-1326 user decision 2026-10-02 (shared spec-format.md § 6, documentation.md § 9.1).
+  Lanes: docs.
+
+- 📋 [LWSM-1376] **Write each spec's Layman summary as a prose sentence, not a bold header field.**
+  Shared spec-format § 5.6 requires the Layman gloss always, as prose
+  with a blank line before it, never as a bold key-value. All four specs
+  use the bold form in their header block. Rule 14: an edit that changes
+  only this form changes nothing anyone builds; say so in the commit.
+  Priority: 4.
+  **Layman:** Write the plain-English summary at the top of each spec as an ordinary sentence.
+  Kind: doc.
+  Source: LWSM-1326 user decision 2026-10-02 (shared spec-format.md § 5.6).
+  Lanes: docs.
+
+- 📋 [LWSM-1377] **Move rule history out of CLAUDE.md, and leave pointers to decisions rather than the decisions.**
+  Shared documentation.md puts pedigree in docs/history/<doc>.md and
+  keeps only pointers to design decisions in CLAUDE.md. This CLAUDE.md
+  carries dated decisions and history inline (Review cadence, Commit
+  conventions). CLAUDE.md is a rule-14 document: ask the trigger of each
+  edit.
+  Priority: 4.
+  **Layman:** Make the project's instructions file shorter by moving old history and long decisions into their own files.
+  Kind: doc.
+  Source: LWSM-1326 user decision 2026-10-02 (shared documentation.md §§ 2.8, 3.4, 5.2).
+  Lanes: docs.
+
+- 📋 [LWSM-1378] **Record in one place every file that carries a version string.**
+  Shared dependencies.md § 7 asks each project to record where its
+  version strings live. Here they are spread across pyproject.toml,
+  uv.lock, .python-version, scripts/ci-tools.env, the workflows and
+  dependabot.yml, with no single list. Put it in dependencies-overrides.md
+  or next to .claude/bump.json.
+  Priority: 4.
+  **Layman:** Write down every place a version number lives, so an update never misses one.
+  Kind: doc.
+  Source: LWSM-1326 user decision 2026-10-02 (shared dependencies.md § 7).
+  Lanes: docs, tooling.
+
+- 📋 [LWSM-1379] **Mark partly-checked rows as Partial: in every What-checks-this table.**
+  Shared documentation.md § 2.9 requires a `Partial:` cell wherever
+  coverage is incomplete, and spec-format § 0 measures the share of
+  nothing-or-Partial rows rather than a count. The specs' tables write
+  partial coverage as plain rows and state counts.
+  Priority: 4.
+  **Layman:** Make each rulebook's checklist say honestly when a rule is only partly checked.
+  Kind: doc.
+  Source: LWSM-1326 user decision 2026-10-02 (shared documentation.md § 2.9).
+  Lanes: docs.
 
 ## 0.4.0 — Ports
 
@@ -11643,39 +11735,23 @@ are expected rather than lost work. For the record:
 
 ## How to add an item
 
-Prefer the MCP verb — it allocates the ID, formats the bullet
-and writes it atomically:
+Use the MCP verb — it allocates the ID from the store, formats the
+bullet and writes it atomically. `ROADMAP.md` is rendered from the
+store, so a hand edit is lost at the next write:
 
 ```
 roadmap_log op:append section:<slug> status:planned
             headline:"…" kind:… source:… layman:"…"
 ```
 
-By hand:
+1. Place it in the release block it ships in; position is priority.
+2. Give it a `Layman:`, `Kind:` and a **dated** `Source:`
+   (`user-YYYY-MM-DD`, `audit-YYYY-MM-DD`, …), plus `Lanes:` where
+   ownership is known.
+3. An open item carries `Priority:` 1 to 5
+   (`docs/standards/roadmap-format-overrides.md` § R1).
 
-1. Allocate the next ID:
-   ```bash
-   echo $(($(cat .roadmap-counter) + 1)) > .roadmap-counter
-   printf "LWSM-%04d\n" $(cat .roadmap-counter)
-   ```
-2. Insert at the **position** where it should be tackled (not
-   blindly at the end) — position is priority.
-3. Set the status emoji (📋 Planned, 💭 Considered).
-4. Write **every** field: `Layman:`, `Kind:`, `Source:`,
-   `Priority:`, plus `Lanes:` where ownership is known. None of
-   these are optional on this project (§ 3.12) — a missing one
-   migrates as `defaulted` provenance and stays second-class.
-5. Use a **dated** `Source:` (`user-YYYY-MM-DD`,
-   `audit-YYYY-MM-DD`, …) — it becomes the item's `created` date
-   and survives archive rotation.
-
-`.roadmap-counter` is a per-machine cache, not source — it is
-gitignored, and its true value is the highest ID across
-`ROADMAP.md` + `CHANGELOG.md` + `docs/roadmap/*.md`
-(§ 3.5.1).
-
-See `docs/standards/roadmap-format.md § 3.5` for the full bullet
-contract and § 3.12 for the field-completeness rule.
+See `roadmap-format.md § 3.5` for the full bullet contract.
 
 ## How findings get folded
 
@@ -11694,4 +11770,4 @@ Before a release
 Older items name the retired forms of this loop: `/audit`,
 `/code-quality-review`, a phase close and an `FP##` fix-pass. Those
 labels are history; the phase workflow was retired on 2026-09-28.
-See `docs/standards/roadmap-format.md § 3.8` for the bullet shape.
+See `roadmap-format.md § 3.8` for the bullet shape.

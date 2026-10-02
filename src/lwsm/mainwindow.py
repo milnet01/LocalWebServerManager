@@ -2,7 +2,7 @@
 
 UI layer. Contract: `docs/specs/LWSM-1005-vertical-slice.md § 4.4`.
 
-Two rules this file exists to obey. `docs/standards/coding.md § O7`: no colour
+Two rules this file exists to obey. `docs/standards/coding-overrides.md § O7`: no colour
 literal, no font family, no pixel constant — colours come from `Theme` tokens
 and sizes from the text metric. `§ O8`: every row lands with an accessible
 name, keyboard reachability, its state as text, and a layout that reflows.
@@ -208,7 +208,8 @@ STATE_GLYPHS = {
 
 # Every user-visible string in this file goes through the one context
 # "ProjectRow", so a future translator has one place to look (LWSM-1081,
-# `coding.md § 5.2`). Deliberately NOT applied to log messages, which are read
+# `~/.claude/standards/languages/qt.md` § Idioms). Deliberately NOT applied to log
+# messages, which are read
 # by whoever is debugging and want to match the source, nor to the argparse text
 # in __main__ — translating that needs Qt imported before argparse runs, which
 # INV-14 forbids.
@@ -408,7 +409,7 @@ class RescanContext:
 
     `roots` is passed in rather than read from a settings file: settings
     persistence is LWSM-1018, and a window that read the real config could not
-    satisfy `testing.md § T1`. `scan` and `now` are injected for the same
+    satisfy `testing-overrides.md § T1`. `scan` and `now` are injected for the same
     reason — the tests supply fakes rather than walking a real tree.
     """
 
@@ -1066,7 +1067,7 @@ class ProjectRow(QFrame):
         `QFrame` renders only its frame and `StyledPanel` never consults
         `State_HasFocus`, so before this the focused and unfocused renders were
         byte-identical and Tab moved an invisible caret (LWSM-1070).
-        `coding.md § O8` requires a visible focus ring, `design.md
+        `coding-overrides.md § O8` requires a visible focus ring, `design.md
         § Accessibility` calls it the thing a magnifier user's "where am I?"
         depends on entirely, and WCAG 2.4.7 requires it outright.
         """
@@ -3171,7 +3172,7 @@ class MainWindow(QMainWindow):
 
         Called beside `controller.stop()`, and deliberately the same shape.
         Without it a pool thread finishes into a window being torn down, which
-        is the flake `testing.md § T5` exists to prevent — and `~QThreadPool`
+        is the flake `testing-overrides.md § T5` exists to prevent — and `~QThreadPool`
         joins with **no** timeout, so the cost of not doing it is invisible to
         pytest's own number and shows up only as process wall time.
 

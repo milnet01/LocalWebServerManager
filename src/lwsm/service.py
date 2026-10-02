@@ -7,7 +7,7 @@ would fight it for the port.
 
 Core, no Qt at all, like `ports.py`. Every question that reaches the system goes
 through an injected seam, so the tests are the contract rather than a mock of
-one (`testing.md § T1`).
+one (`testing-overrides.md § T1`).
 
 **Nothing here signals a process, and that is the point.** ADR-0003 forbids
 signalling a bare PID; a unit name is what makes it unnecessary. `systemctl`
