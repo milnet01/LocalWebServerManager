@@ -15,9 +15,9 @@ roadmap, and work on an item that is already scoped.
 
 - **`ROADMAP.md`** — what's planned, with stable IDs.
 - **`CHANGELOG.md`** — what's shipped (Keep-a-Changelog).
-- **`docs/standards/`** — coding, documentation, testing,
-  commits, dependencies. The five shareable v1 contracts the
-  project follows.
+- **`docs/standards/`** — where this project differs from the
+  shared standards it follows, one `*-overrides.md` file each;
+  its `README.md` is the index.
 - **`docs/specs/`** — per-feature specs.
 - **`docs/decisions/`** — Architecture Decision Records.
 - **`ROADMAP.md`** — what is in flight and what is next.

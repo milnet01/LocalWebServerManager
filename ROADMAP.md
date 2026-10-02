@@ -10640,7 +10640,7 @@ bugs in the same area.
   Source: in-session-2026-10-02, found while writing documentation-overrides.md (LWSM-1326).
   Lanes: docs.
 
-- 📋 [LWSM-1381] **Run the rule-14 gate on documentation-overrides.md's DOC3 change.**
+- ✅ [LWSM-1381] **Run the rule-14 gate on documentation-overrides.md's DOC3 change.**
   9716c8a changed DOC3 (a public project may now be named) after the
   LWSM-1326 gate closed, so the gate is owed again for that file only.
   Run review-contract on docs/standards/documentation-overrides.md
@@ -10651,9 +10651,29 @@ bugs in the same area.
   lines 1-135, CLAUDE.md § Review cadence, .gitignore and the pre-push
   docs_only() block.
   Priority: 3.
+  Resolved (2026-10-02): gate converged in one round (loop 4 in
+  docs/reviews/documentation-overrides-loop-log.md), two neutral-lane
+  lanes, no verified finding against DOC3. Side issues filed as LWSM-1382.
   **Layman:** Have an independent reviewer check the one rule changed after the rulebook review finished.
   Kind: doc-fix.
   Source: in-session-2026-10-02 (LWSM-1380, commit 9716c8a).
+  Lanes: docs.
+
+- 📋 [LWSM-1382] **Stop naming SystemManager, which has no public repository, in docs/design.md and ADR-0007.**
+  DOC3 (9716c8a) allows naming a project whose own repository is public.
+  SystemManager has none (no git repository locally; gh repo view does
+  not resolve it), yet docs/design.md § Naming names it as a desktop app
+  borrowed from, and docs/decisions/0007-window-geometry-and-centering.md
+  names it too. Replace it with a neutral label and narrow design.md's
+  naming sentence to public projects. This writes back DOC3's gated
+  decision, so it is rule 14's second exception, no new gate.
+  Also: the comment above GOVERNED in tests/test_docs.py says DOC1
+  "keeps rather than deletes" the append-only records; DOC1 says no such
+  thing. Reword the comment to cite global documentation.md § 2.3.
+  Priority: 3.
+  **Layman:** Two documents name one of the author's projects that is not public, which the privacy rule now forbids.
+  Kind: doc-fix.
+  Source: in-session-2026-10-02 (LWSM-1381 gate loop 4).
   Lanes: docs.
 
 ## 0.3.0 — The full state model
