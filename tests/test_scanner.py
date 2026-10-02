@@ -1850,8 +1850,11 @@ def test_a_shell_project_reaches_framework_evidence_only_through_a_py_hop(
 def test_a_detected_project_has_no_user_owned_field() -> None:
     """A merge that wanted to promote scanned content into an executable action
     would have to add the field first, which is a visible change rather than a
-    forgotten one."""
-    allowed = {"path", "name", "kind", "argv", "unit", "port"}
+    forgotten one.
+
+    `read_cleanly` (LWSM-1309) is a fact about the scan, not a user-owned field.
+    """
+    allowed = {"path", "name", "kind", "argv", "unit", "port", "read_cleanly"}
 
     assert {field.name for field in dataclasses.fields(DetectedProject)} == allowed
 
@@ -1954,6 +1957,41 @@ def test_an_unreadable_hop_target_costs_the_port_not_the_project(
     # is indistinguishable from a project that simply declares none.
     assert any("cannot be examined" in reason for reason in result.skipped), (
         f"the unreadable hop was skipped without a word: {result.skipped}"
+    )
+
+
+def test_a_project_says_whether_every_file_was_read_cleanly(tmp_path: Path) -> None:
+    """LWSM-1309. `port is None` meant only "could not tell", so a rescan could
+    never clear a port an older scanner had read wrongly. A project whose
+    detection raised no problem now says so, and the merge may read its `None`
+    as "declares no port". Any problem keeps the old meaning.
+
+    Two projects, both port-less, differing only in whether one file could be
+    read — one alone could not tell "set when clean" from "always set".
+    """
+    if os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions, so 0o000 plants nothing")
+
+    make_project(tmp_path, "plain", {"serve.py": "print('hello')\n"}, "serve.py")
+    make_project(
+        tmp_path,
+        "locked",
+        {"serve.py": "import sub.config\n", "sub/config.py": "x = 1\n"},
+        "serve.py",
+    )
+    locked = tmp_path / "locked" / "sub"
+    locked.chmod(0o000)
+    try:
+        found = by_name(scan_root(tmp_path))
+    finally:
+        locked.chmod(0o755)
+
+    assert found["plain"].port is None and found["locked"].port is None, (
+        "precondition: neither project declares a port"
+    )
+    assert found["plain"].read_cleanly, "a project with nothing unreadable"
+    assert not found["locked"].read_cleanly, (
+        "a file that could not be read was reported as a clean read"
     )
 
 

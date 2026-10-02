@@ -981,6 +981,8 @@ class ScannedProject(Protocol):
     def unit(self) -> str | None: ...
     @property
     def port(self) -> DetectedPort | None: ...  # None means UNKNOWN, never a guess
+    @property
+    def read_cleanly(self) -> bool: ...  # True: a None port is "declares none"
 
 
 class ScanLike(Protocol):
@@ -1101,9 +1103,17 @@ def _detected_half_applied(
     listed, a fifth detected field would be classified correctly, keep INV-1
     green, and never be refreshed by a rescan. The two conversions below are
     the only per-field knowledge.
+
+    A `None` from a scan that read every file cleanly is the exception: that is
+    an observation that the project declares no port, so it clears the stored
+    one. Without it a port an older scanner read wrongly outlived the fix to
+    that scanner for ever (LWSM-1309).
     """
     changes = {name: getattr(found, name) for name in DETECTED_FIELDS - {"path"}}
-    changes["port"] = record.port if found.port is None else found.port.port
+    if found.port is not None:
+        changes["port"] = found.port.port
+    else:
+        changes["port"] = None if found.read_cleanly else record.port
     changes["argv"] = tuple(found.argv)
     return replace(record, **changes)
 
@@ -1181,7 +1191,9 @@ def merge(
         updated = _detected_half_applied(record, found)
         merged[index] = updated
 
-        not_reobserved = record.port is not None and found.port is None
+        not_reobserved = (
+            record.port is not None and found.port is None and not found.read_cleanly
+        )
         if updated != record:
             flag(CHANGED, f"{quoted(record.name)}: detected details changed")
         if not_reobserved:

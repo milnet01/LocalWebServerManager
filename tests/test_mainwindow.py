@@ -92,6 +92,7 @@ class FakeDetected:
     argv: tuple[str, ...] = ("./start.sh",)
     unit: str | None = None
     port: FakePortFinding | None = None
+    read_cleanly: bool = False  # `port=None` stays "could not tell" (LWSM-1309)
 
 
 @dataclasses.dataclass(frozen=True)

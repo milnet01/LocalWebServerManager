@@ -23,6 +23,8 @@ signaling per
 
 ### Fixed
 
+- **A rescan now clears a port saved from an older, wrong detection once it can read the project and finds no port.** (LWSM-1309)
+
 - **Stopping or restarting your own server no longer warns that someone else started it when the app briefly cannot see which programs hold which ports.** (LWSM-1295)
 
 ## [0.1.0] - 2026-10-01

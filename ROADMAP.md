@@ -10339,7 +10339,7 @@ bugs in the same area.
   Kind: fix.
   Source: in-session-2026-09-03 (found while fixing LWSM-1231).
 
-- 📋 [LWSM-1309] **A port stored from an older, wrong detection survives every rescan once detection says unknown.**
+- ✅ [LWSM-1309] **A port stored from an older, wrong detection survives every rescan once detection says unknown.**
   Seen in the user's screenshot 2026-09-25: MAME_Curator shows "port 1024".
   Today's `scanner.scan` over the live tree returns `port=None` for it.
   LWSM-1190 stopped rule 2 reading 1024 out of a validation message
@@ -10353,6 +10353,13 @@ bugs in the same area.
   clear a stored DETECTED port on a `None` scan when the scanner version
   moved. Not fixed in passing: the None-preserving merge is a deliberate
   LWSM-1007 rule that was reviewed in loop 2.
+  Resolved (2026-10-02), taking LWSM-1131 § 8's deferred "better fix":
+  DetectedProject.read_cleanly is true only when the project's detection
+  raised no skip note; then a None port clears the stored one (reported
+  as changed). Any note, even a harmless one, keeps the old rule. Live
+  check: MAME_Curator scans port None, read_cleanly True; 6 of 7 projects
+  read cleanly. No on-disk format change. Spec § 4.1, § 7, § 8 amended.
+  Gate 2121 passed; four deliberate breaks each turned a test red.
   **Layman:** A wrong port number the app guessed long ago keeps showing even after the app learned not to guess it.
   Kind: fix.
   Source: user-report-2026-09-25.

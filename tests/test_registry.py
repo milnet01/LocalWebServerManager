@@ -1374,6 +1374,9 @@ class FakeProject:
     argv: tuple[str, ...] = ("./start.sh",)
     unit: str | None = None
     port: FakeFinding | None = None
+    # False keeps `port=None` meaning "could not tell", which is what every
+    # test written before LWSM-1309 means by it.
+    read_cleanly: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1440,6 +1443,46 @@ def test_unknown_does_not_erase_a_known_port(tmp_path: Path) -> None:
     assert result.records[0].port == 3000
     assert result.counts[registry.NOT_REOBSERVED] == 1
     assert any("no longer detected" in reason for reason in result.reasons)
+
+
+def test_a_clean_read_declaring_no_port_clears_a_stored_one(tmp_path: Path) -> None:
+    """LWSM-1309, seen live: MAME_Curator kept "port 1024", read by an older
+    scanner out of a validation message, after LWSM-1190 stopped reading it.
+    `None` was "could not tell", so the wrong value outlived the fix.
+
+    A scan that read every file cleanly and found no port is an observation of
+    absence, and clears the stored port. Paired in one fixture with INV-2's
+    case — same stored port, same `None`, differing only in `read_cleanly` —
+    so a merge that clears on every `None` fails too.
+    """
+    root = a_root(tmp_path)
+    clean, unread = root / "clean", root / "unread"
+    clean.mkdir()
+    unread.mkdir()
+    # The launcher half matches `FakeProject`'s defaults, so the port is the
+    # only thing a merge could change.
+    launcher = {"kind": LauncherKind.SHELL, "argv": ("./start.sh",)}
+    stored = [
+        ProjectRecord(path=clean, name="clean", port=1024, **launcher),
+        ProjectRecord(path=unread, name="unread", port=1024, **launcher),
+    ]
+
+    result = registry.merge(
+        stored,
+        FakeScan(
+            (
+                FakeProject(clean, "clean", port=None, read_cleanly=True),
+                FakeProject(unread, "unread", port=None),
+            )
+        ),
+        (root,),
+        stamp,
+    )
+
+    ports = {record.name: record.port for record in result.records}
+    assert ports == {"clean": None, "unread": 1024}
+    assert result.counts[registry.NOT_REOBSERVED] == 1, "only the unread one"
+    assert result.counts[registry.CHANGED] == 1, "the clear is reported"
 
 
 def test_a_units_none_is_a_real_value_and_does_overwrite(tmp_path: Path) -> None:

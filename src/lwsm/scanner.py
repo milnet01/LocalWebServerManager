@@ -158,6 +158,12 @@ class DetectedProject:
     argv: tuple[str, ...]  # empty for SYSTEMD; the unit drives it
     unit: str | None
     port: PortFinding | None  # None means "unknown", never a guess
+    # Whether this project's detection raised no problem at all — nothing
+    # unreadable, refused or cut short. Only then is `port=None` an observation
+    # that the project declares no port, which the merge may act on; otherwise
+    # it stays "could not tell" (LWSM-1309, LWSM-1131 § 4.1). False by default,
+    # the direction that keeps a stored port.
+    read_cleanly: bool = False
 
     @property
     def confidence(self) -> Confidence:
@@ -1772,7 +1778,14 @@ def scan(
     deadline = Deadline(expires_at=now() + budget_seconds, now=now)
     bounded = BoundedReasons(MAX_SKIP_REASONS, "and {count} more problems, not shown")
     reasons = bounded.reasons
-    note = bounded.note
+    problems = 0
+
+    def note(reason: str) -> None:
+        # Counted, so each project can say whether its own detection raised
+        # anything (`DetectedProject.read_cleanly`).
+        nonlocal problems
+        problems += 1
+        bounded.note(reason)
 
     lookup = _UnitLookup(
         units if units is not None else SystemctlUnits(), deadline, note
@@ -1857,6 +1870,7 @@ def scan(
                     continue
                 seen.add(candidate)
 
+                problems_before = problems
                 try:
                     launcher = _detect(
                         candidate, raw_name, quoted, lookup, deadline, note
@@ -1884,6 +1898,7 @@ def scan(
                         argv=launcher.argv,
                         unit=launcher.unit,
                         port=launcher.port,
+                        read_cleanly=problems == problems_before,
                     )
                 )
     except _BudgetExpired:

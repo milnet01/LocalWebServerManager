@@ -1,6 +1,6 @@
 # LWSM-1131 — Merge a rescan into the stored registry without discarding user edits
 
-**Status:** **implemented (2026-08-14, 6c64d9d)**; accepted (2026-08-13) — **at a 2-loop cap, not at convergence.** The user capped the gate on 2026-08-13 after measuring its yield across four loops on this pair: roughly 1 finding in 10 was a defect implementation would not have caught, and a third were the review's own collateral. § 12's rows carry the per-loop evidence.
+**Status:** **implemented (2026-08-14, 6c64d9d)**; accepted (2026-08-13) — **at a 2-loop cap, not at convergence.** The user capped the gate on 2026-08-13 after measuring its yield across four loops on this pair: roughly 1 finding in 10 was a defect implementation would not have caught, and a third were the review's own collateral. § 12's rows carry the per-loop evidence. **Amended 2026-10-02 by LWSM-1309**: § 4.1, § 7 and § 8 now record the scanner's `read_cleanly`, which § 8 had deferred.
 **Built as written, with two things implementation decided that this document left open**, both now in the code: `merge()` reaches the scan through **Protocols** declared in `registry.py` (`ScanLike`, `ScannedProject`, `DetectedPort`) rather than importing `scanner`, because § 4.3's signature names `ScanResult` and a runtime import of it closes LWSM-1007 § 4.1's cycle; and the § 4.4 summary renders that section's six outcomes and **not** the duplicate-port count, which its table does not list — those entries reach the application log with every other reason.
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1131 (split-of-LWSM-1007-2026-08-12). Policy settled by
@@ -137,7 +137,7 @@ value for them is always an observation and always wins:
 
 | Field | Is there an "unknown"? | On a completed scan |
 |---|---|---|
-| `port` | **yes** — `DetectedProject.port is None` means *could not tell* | the rule below |
+| `port` | **yes** — `DetectedProject.port is None` means *could not tell*, unless `read_cleanly` | the rule below |
 | `kind` | no — a detected project always has a launcher kind | overwrite |
 | `argv` | no — `()` is a real value, and is what every `SYSTEMD` project has | overwrite |
 | `unit` | no — `None` is a real value, and is what every non-systemd project has | overwrite |
@@ -155,18 +155,21 @@ Concretely, for `port`:
 | `None` | `3000` | `3000` | changed |
 | `3000` | `3000` | `3000` | nothing |
 | `3000` | `4000` | `4000` | changed |
-| `3000` | `None` | **`3000` kept** | *port no longer detected* |
+| `3000` | `None`, read cleanly | `None` | changed |
+| `3000` | `None`, not read cleanly | **`3000` kept** | *port no longer detected* |
 
 The last row is the whole point. The stored value survives, and the row is
 flagged so the user can see that detection has stopped agreeing with it — which
 is ADR-0005's "no silent mutation" applied to a case ADR-0005 did not name.
 
-**The known limitation, stated rather than hidden.** `DetectedProject.port is
-None` conflates *"I read the launcher and it declares no port"* with *"I could
-not read the launcher"*. Under the rule above, a project whose port was
-genuinely removed keeps a stale value until the user clears it. That is the safe
-direction of the two — a stale port is visible and correctable, an erased one is
-neither — but it is a real cost, and § 8 records the alternative that removes it.
+**A clean read is an observation of absence (LWSM-1309).** `port is None`
+alone conflated *"the project declares no port"* with *"I could not read it"*,
+so a port an older scanner read wrongly outlived the fix to that scanner.
+`DetectedProject.read_cleanly` separates them: it is true only when the
+project's detection raised no skip note at all. Then `None` clears the stored
+port. Any note keeps it, including a harmless one such as a `package.json` with
+no usable script before a later launcher rule matched. That is the safe
+direction: a stale port is visible and correctable, an erased one is neither.
 
 ### 4.2 Identity is the resolved path, compared at merge time
 
@@ -672,10 +675,8 @@ scratch. Both are honest limits of a unit suite.
 ## 8. Alternatives considered (and rejected)
 
 - **Teach the scanner to distinguish "no port declared" from "could not
-  read".** This is the better fix for § 4.1's limitation and it is not rejected,
-  only deferred: it changes `DetectedProject`'s contract, and LWSM-1121 is
-  already reopening the port sources. Recorded here so the next reader knows
-  § 4.1's rule is a containment, not a conclusion.
+  read".** Deferred here as the better fix for § 4.1's limitation, and taken by
+  LWSM-1309 on 2026-10-02: `DetectedProject.read_cleanly`, described in § 4.1.
 - **Resolve paths at load time rather than merge time.** Rejected: it would
   rewrite what the user's own file says, and `load_projects`'s refusal of `..`
   exists precisely because normalising a path lexically is wrong when a
@@ -758,17 +759,17 @@ scratch. Both are honest limits of a unit suite.
 | § 4.1 per-field unknown table | **nothing** — only `port` has an unknown sentinel, so the other three rows assert an absence; INV-2 covers the one field that can break |
 | § 4.2 duplicate still polled | **nothing** — a stated limitation (§ 9), not a rule; no channel carries the excluded set to the poller |
 | § 4.3 `hidden` / `launcher_override` preserved but inert | **nothing** — deliberate; LWSM-1007's INV-3 round-trip proves they survive, and nothing reads them |
-| § 4.1's stale-port limitation | **nothing** by design — it is the accepted cost of INV-2; removing it is the deferred scanner change in § 8 |
+| § 4.1 a clean read clears a stored port | `test_registry.py::test_a_clean_read_declaring_no_port_clears_a_stored_one`, `test_scanner.py::test_a_project_says_whether_every_file_was_read_cleanly` |
 | § 9 Start refused for a duplicate-port claimant | **nothing** — ADR-0005's other half, deferred to P05 because no Start exists to refuse; INV-7's flag is the input it will act on |
 
-**Twenty-eight rows, six of which say `nothing`.** All six are limits or
+**Twenty-eight rows, five of which say `nothing`.** All five are limits or
 deliberate omissions rather than defects: § 4.1's per-field unknown table, three
 rows of which assert an *absence* of a sentinel and so have nothing to break;
 § 4.2's duplicate row still being polled; `hidden` / `launcher_override` being
-preserved but inert; § 4.1's stale-port cost, accepted as INV-2's price; and the
+preserved but inert; and the
 Start refusal, which has no Start to refuse until P05. **Only the last carries a
 roadmap owner, and it is the only one that is a gap rather than a cost** — the
-other four are § 9 deferrals with their price stated.
+other three are § 9 deferrals with their price stated.
 
 *Command, run against this file:*
 
