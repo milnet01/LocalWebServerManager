@@ -10563,7 +10563,7 @@ bugs in the same area.
   Source: review-code 2026-09-01 synthesis part 5, verified 2026-10-01 closing LWSM-1286.
   Lanes: ci.
 
-- 📋 [LWSM-1353] **Decide whether an older build should keep an enum value it does not know, such as a newer launcher kind.**
+- ✅ [LWSM-1353] **Decide whether an older build should keep an enum value it does not know, such as a newer launcher kind.**
   `registry._kind_or_reason` refuses a `kind` string that is not a
   `LauncherKind` value, and the next save writes `null` over it. Unknown
   KEYS survive a downgrade (LWSM-1218); unknown VALUES do not. LWSM-1007
@@ -10580,6 +10580,12 @@ bugs in the same area.
   kind-unknown; the value is written back untouched. LWSM-1007 § 4.2
   changes, so this goes through write-spec and rule 14's gate as an
   amendment to that spec.
+  Re-decided (user, 2026-10-02), superseding option (a) above: document,
+  do not keep. Nothing outside the scanner reads record.kind (searched src/
+  for .kind), and every rescan re-derives it, so keeping an unknown value
+  protected nothing. LWSM-1007 § 4.2 and § 8 and the registry.py comment
+  now say "not valid to this build" and why the loss is accepted. No
+  behaviour change. Revisit if code starts reading kind.
   **Layman:** If a newer version of the app records a new kind of project, an older version would forget it; decide whether that is acceptable.
   Kind: investigate.
   Source: review-code 2026-10-01 lane 05 (L5-L5), queued by close-findings.
