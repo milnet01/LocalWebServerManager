@@ -91,6 +91,10 @@ signaling per
 
 ### Fixed
 
+- **A project whose start script hands off to a slow server shows starting, not stopped** (LWSM-1389)
+  A start script that launches the real server and exits no longer
+  makes the row read stopped while that server is still coming up.
+
 - **A server can be stopped while it is still starting** (LWSM-1372)
   Stop is offered during starting for a server this app launched, and
   a stop on a machine where port information cannot be read ends on

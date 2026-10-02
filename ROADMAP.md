@@ -11293,7 +11293,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: review-contract ADR-0003 loop 3 (cap), 2026-10-02.
   Lanes: core, docs.
 
-- 📋 [LWSM-1389] **A wrapper script that exits before its server binds reads failed, then stopped, while the server is still starting.**
+- ✅ [LWSM-1389] **A wrapper script that exits before its server binds reads failed, then stopped, while the server is still starting.**
   ADR-0004 (as amended 2026-10-02) defines "own child" as the process
   group, so a group that is alive and has bound nothing is `starting`.
   The code keys that on the LAUNCHER: `_spawning_paths` drops a path
@@ -11307,6 +11307,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   `exited_projects` model "launcher and group gone" without reaping and
   need to follow. Reproduce first with a launcher that backgrounds a
   server, exits, and binds after a delay.
+  Fixed (2026-10-02, 38bfa67). Supervisor.group_alive asks the process
+  group (the launcher first, the full walk only once it has exited); the
+  controller's _child_gone uses it for the live-child test and the
+  start-overlay settle. Real-process test: a launcher that backgrounds
+  its server and exits reports exited() yet group_alive().
   **Layman:** A project whose start script hands off to a slow server shows as stopped while that server is still coming up, and offers Start again.
   Kind: review-fix.
   Source: review-contract ADR-0004 loop 2, 2026-10-02.
