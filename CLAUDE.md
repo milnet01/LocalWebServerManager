@@ -267,13 +267,10 @@ Per [`docs/standards/commits.md § 1.1`](docs/standards/commits.md):
 every commit subject is `<ID>: <description>`, where `<ID>` is the
 roadmap item's `LWSM-NNNN`.
 
-**Phases are retired, and one phase prefix stays — for now.** The project
-left the phase workflow on 2026-09-28. **Until 0.1.0 ships, a chore or
-doc-only commit with no item id uses `P04:`** (user, 2026-09-28), so commit
-subjects stay consistent with the log. That overrides `commits.md` § 1.2's
-`chore:` and `docs:` rows only; its release and hotfix rows stand. No new
-`P##`, `FP##`, `DS##`, `DOC##` or `R##` is opened. Revisit it with LWSM-1062,
-which owns this project's fork of `commits.md`.
+**Phases are retired.** A commit with no item id follows `commits.md`
+§ 1.2: `chore:`, `docs:`, a release or a hotfix subject. No new `P##`,
+`FP##`, `DS##`, `DOC##` or `R##` is opened. The 2026-09-28 rule that chore and
+doc commits use `P04:` lapsed when 0.1.0 shipped on 2026-10-01.
 
 **A phase ID may carry a lowercase continuation suffix — `P03b`**
 (user, 2026-08-12). It names a phase that finishes a predecessor's
