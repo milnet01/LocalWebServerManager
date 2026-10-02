@@ -10504,6 +10504,24 @@ bugs in the same area.
   Source: in-session-2026-09-25, found while updating the preamble for LWSM-1311.
   Lanes: docs.
 
+- 📋 [LWSM-1373] **Check Pressless is found and controllable once it adopts a run.sh and the PORT contract.**
+  User request 2026-10-02: a rescan does not list Pressless. Cause: no
+  launcher rule matches (it runs as `python -m pressless`, no root script),
+  and it binds port 0, so no status could be derived. The user chose
+  "Pressless adapts": asked the Pressless session (2026-10-02) for an
+  executable root `run.sh` declaring `PORT=${PORT:-N}` and binding $PORT
+  when set. No LWSM change. Known limit, accepted by the user: LWSM's Open
+  lacks Pressless's `?t=` secret and is refused; the user uses Pressless's
+  own tab. When Pressless reports it done: rescan, then check the row's
+  port, Start, Stop and the running light against the real app.
+  Progress (2026-10-02): the Pressless session accepted the request. It
+  lands after Pressless's 0.7.0 release; that session will message when it
+  is in. It keeps the ?t= secret as is.
+  **Layman:** Make sure the Pressless blogging app shows up in the list and can be started and stopped, once its side of the change is in.
+  Kind: investigate.
+  Source: user-request-2026-10-02.
+  Lanes: scanner.
+
 ## 0.3.0 — The full state model
 
 Criterion 3: tell the truth in every case, including the awkward ones.
