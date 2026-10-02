@@ -43,6 +43,23 @@ from lwsm.supervisor import (
 pytestmark = pytest.mark.gui
 
 
+HOLDER_PID = 31337
+
+# The holder ordinary tests mean by "a server is answering": the project's own
+# login service, which ADR-0003 says is `running (managed)`. Without it every
+# listening port in these tests is a stranger, which ADR-0004 calls `port
+# blocked` (LWSM-1011). Tests about another holder patch these themselves.
+SERVICE_HOLDER_UNIT = "project-own.service"
+
+
+@pytest.fixture(autouse=True)
+def _holders_are_the_projects_own_service(monkeypatch) -> None:
+    monkeypatch.setattr(controller_module, "looks_like", lambda pid, project: True)
+    monkeypatch.setattr(
+        controller_module, "unit_for_pid", lambda pid: SERVICE_HOLDER_UNIT
+    )
+
+
 class FakeProbe:
     """Records what it was asked, and on which thread."""
 
@@ -63,7 +80,10 @@ class FakeProbe:
         if self.gate is not None:
             self.gate.wait(timeout=5)
         try:
-            return PortSnapshot(frozenset(self.listening))
+            return PortSnapshot(
+                frozenset(self.listening),
+                {port: HOLDER_PID for port in self.listening},
+            )
         finally:
             self.finished.set()
 
@@ -157,7 +177,7 @@ def test_probe_error_holds_previous_status(qtbot, controllers) -> None:
         def snapshot(self) -> PortSnapshot:
             if self.fail:
                 raise ProbeError("gone")
-            return PortSnapshot(frozenset({5005}))
+            return PortSnapshot(frozenset({5005}), {5005: HOLDER_PID})
 
     probe = FlakyProbe()
     controller = build(controllers, [record("a")], probe)
@@ -167,6 +187,11 @@ def test_probe_error_holds_previous_status(qtbot, controllers) -> None:
     assert controller.rows()[0].status is ProjectStatus.RUNNING
 
     probe.fail = True
+    # The first failure re-renders on purpose: it drops `managed` and the
+    # holders, which LWSM-1231 forbids holding through an outage. A failure
+    # after that is no news.
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
     with qtbot.assertNotEmitted(controller.projects_changed, wait=300):
         controller.poll_once()
     # Reporting `stopped` on a failed probe would report a state nobody
@@ -328,10 +353,9 @@ def test_an_overridden_project_still_sitting_on_its_declared_port_reads_running(
     project asked for 5999 is still on its hard-coded 5005, nothing holds 5999,
     the table says `stopped` — "then Start would cheerfully spawn a duplicate".
 
-    Reported as plain `running`, not as a distinct state: `running (wrong
-    port)` is one of the four states P06's model adds, and inventing it here
-    would be that item rather than this one. Plain `running` is true at
-    today's granularity and is what stops the duplicate.
+    With no child of ours, ADR-0004 names the state: a restarted manager
+    "re-adopts it as `running (foreign)` on the port it really holds"
+    (LWSM-1011). Any running state is what stops the duplicate.
     """
     stubborn = replace(record("a", 5005), port_override=5999)
     # Only the DECLARED port is held: the project ignored the override.
@@ -340,7 +364,7 @@ def test_an_overridden_project_still_sitting_on_its_declared_port_reads_running(
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
 
-    assert controller.rows()[0].status is ProjectStatus.RUNNING, (
+    assert controller.rows()[0].status is ProjectStatus.RUNNING_FOREIGN, (
         "nothing holds the override, so the project read as stopped and Start "
         "would have spawned a second server beside the one already running"
     )
@@ -396,7 +420,7 @@ class SwitchableProbe:
     def snapshot(self) -> PortSnapshot:
         if self.fail is not None:
             raise ProbeError(self.fail)
-        return PortSnapshot(frozenset({5005}))
+        return PortSnapshot(frozenset({5005}), {5005: HOLDER_PID})
 
 
 def test_a_probe_failure_is_reported_once_and_so_is_the_recovery(
@@ -616,7 +640,7 @@ def test_the_loop_recovers_once_the_probe_does(qtbot, controllers) -> None:
         def snapshot(self) -> PortSnapshot:
             if self.explode:
                 raise RuntimeError("malformed /proc/net/tcp line")
-            return PortSnapshot(frozenset({5005}))
+            return PortSnapshot(frozenset({5005}), {5005: HOLDER_PID})
 
     probe = RecoveringProbe()
     controller = build(controllers, [record("a")], probe)
@@ -667,7 +691,7 @@ def test_a_held_status_survives_an_unexpected_exception(qtbot, controllers) -> N
         def snapshot(self) -> PortSnapshot:
             if self.explode:
                 raise RuntimeError("malformed /proc/net/tcp line")
-            return PortSnapshot(frozenset({5005}))
+            return PortSnapshot(frozenset({5005}), {5005: HOLDER_PID})
 
     probe = FlakyProbe()
     controller = build(controllers, [record("a")], probe)
@@ -677,6 +701,10 @@ def test_a_held_status_survives_an_unexpected_exception(qtbot, controllers) -> N
     assert controller.rows()[0].status is ProjectStatus.RUNNING
 
     probe.explode = True
+    # The first failure drops `managed` and the holders (LWSM-1231), which
+    # re-renders; a failure after that is no news.
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
     with qtbot.assertNotEmitted(controller.projects_changed, wait=300):
         controller.poll_once()
     assert controller.rows()[0].status is ProjectStatus.RUNNING
@@ -824,7 +852,8 @@ def test_completed_tasks_do_not_accumulate(qtbot, controllers) -> None:
 
         def snapshot(self) -> PortSnapshot:
             self.calls += 1
-            return PortSnapshot(frozenset({5005} if self.calls % 2 else set()))
+            held = {5005} if self.calls % 2 else set()
+            return PortSnapshot(frozenset(held), dict.fromkeys(held, HOLDER_PID))
 
     probe = TogglingProbe()
     controller = build(controllers, [record("a")], probe)
@@ -1269,7 +1298,7 @@ class RecoveringProbe:
         self.calls += 1
         if self.calls <= self._failures:
             raise ProbeError("socket table unavailable")
-        return PortSnapshot(frozenset({5005}))
+        return PortSnapshot(frozenset({5005}), {5005: HOLDER_PID})
 
 
 def test_no_failure_is_delivered_after_stop(qtbot, controllers) -> None:
@@ -1492,6 +1521,8 @@ def test_a_slow_start_keeps_the_overlay_until_the_port_appears(
         "a poll reporting 'not bound yet' must not discard a starting overlay"
     )
 
+    # Our own child binds the port at last.
+    supervisor.child_pids[Path("/srv/a")] = HOLDER_PID
     probe.listening.add(5005)
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
@@ -1752,6 +1783,11 @@ def test_a_start_reaped_before_the_snapshot_still_settles(qtbot, controllers) ->
         controller.poll_once()
 
     assert controller._overlay is None
+    # ADR-0004: a child that exited without a stop being asked for reads
+    # `failed`, for exactly one classification (LWSM-1011).
+    assert controller.rows()[0].status is ProjectStatus.FAILED
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
     assert controller.rows()[0].status is ProjectStatus.STOPPED
 
 
@@ -1971,6 +2007,9 @@ def test_a_log_that_cannot_be_rotated_does_not_stop_the_poll(
             return {Path("/srv/a"): object(), Path("/srv/b"): object()}
 
         def exited(self, project):
+            return False
+
+        def owns_pid(self, project, pid):
             return False
 
         def is_stopping(self, project):
@@ -2669,6 +2708,9 @@ def test_a_running_row_this_session_did_not_start_has_its_log_capped(
         def exited(self, project):
             return False
 
+        def owns_pid(self, project, pid):
+            return False
+
         def is_stopping(self, project):
             return False
 
@@ -2904,3 +2946,142 @@ def test_a_confirmed_foreign_set_is_stopped_on_a_worker_and_reported(
     assert stopped == [tree]
     if text is not None:
         assert text in caught.args[1] and "10000" in caught.args[1]
+
+
+# --- LWSM-1011: one case per row of ADR-0004's table (testing-overrides § T7) ---
+
+OURS, STRANGER = 4100, 4200
+
+
+@pytest.mark.parametrize(
+    ("case", "held", "child", "reaped", "plausible", "unit", "expected"),
+    [
+        (
+            "managed: our child holds it",
+            {5005: OURS},
+            "live",
+            False,
+            False,
+            None,
+            "RUNNING",
+        ),
+        (
+            "managed: the project's own unit",
+            {5005: STRANGER},
+            None,
+            False,
+            True,
+            "p.service",
+            "RUNNING",
+        ),
+        (
+            "wrong port: our child holds another",
+            {6006: OURS},
+            "live",
+            False,
+            False,
+            None,
+            "RUNNING_WRONG_PORT",
+        ),
+        (
+            "starting: our child holds nothing",
+            {},
+            "live",
+            False,
+            False,
+            None,
+            "STARTING",
+        ),
+        (
+            "foreign beside our live child",
+            {5005: STRANGER},
+            "live",
+            False,
+            True,
+            None,
+            "RUNNING_FOREIGN",
+        ),
+        (
+            "failed: port taken after pre-flight",
+            {5005: STRANGER},
+            "live",
+            False,
+            False,
+            None,
+            "FAILED",
+        ),
+        ("failed: exited on its own", {}, None, True, False, None, "FAILED"),
+        (
+            "foreign: started by hand",
+            {5005: STRANGER},
+            None,
+            False,
+            True,
+            None,
+            "RUNNING_FOREIGN",
+        ),
+        (
+            "blocked: an unrelated holder",
+            {5005: STRANGER},
+            None,
+            False,
+            False,
+            None,
+            "PORT_BLOCKED",
+        ),
+        (
+            "blocked: a holder we cannot name",
+            {5005: None},
+            None,
+            False,
+            True,
+            None,
+            "PORT_BLOCKED",
+        ),
+        ("stopped: nothing holds it", {}, None, False, True, None, "STOPPED"),
+    ],
+    ids=lambda value: value if isinstance(value, str) and " " in value else None,
+)
+def test_each_derived_state_has_its_row(
+    controllers, monkeypatch, case, held, child, reaped, plausible, unit, expected
+) -> None:
+    """Each case is one row of ADR-0004's table. `looks_like` and the holder's
+    unit are forced, so a case states its premise rather than inheriting the
+    module's default holder."""
+    monkeypatch.setattr(controller_module, "looks_like", lambda pid, path: plausible)
+    monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: unit)
+    supervisor = FakeSupervisor()
+    path = Path("/srv/a")
+    if child == "live":
+        supervisor._running[path] = object()
+        supervisor.child_pids[path] = OURS
+    controller = supervised(
+        controllers, [startable("a", 5005)], FakeProbe(), supervisor
+    )
+    if reaped:
+        controller._reaped.add(path)
+    snapshot = PortSnapshot(
+        frozenset(held), {port: pid for port, pid in held.items() if pid is not None}
+    )
+    spawning = path in controller._spawning_paths()
+
+    status = controller._classify(
+        controller._record(path),
+        snapshot,
+        spawning,
+        controller._our_ports(path, snapshot),
+    )
+
+    assert status is ProjectStatus[expected], case
+
+
+def test_a_project_with_no_port_is_unknown(controllers) -> None:
+    controller = supervised(
+        controllers, [startable("a", None)], FakeProbe(), FakeSupervisor()
+    )
+
+    status = controller._classify(
+        controller._record(Path("/srv/a")), PortSnapshot(frozenset())
+    )
+
+    assert status is ProjectStatus.UNKNOWN

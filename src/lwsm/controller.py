@@ -22,7 +22,7 @@ from typing import Protocol
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
 from lwsm.configfile import display_text
-from lwsm.foreign import Tree, TreeOutcome, stop_tree
+from lwsm.foreign import Tree, TreeOutcome, looks_like, stop_tree
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
 from lwsm.registry import PortFinding, ProjectRecord, port_claims
 from lwsm.service import (
@@ -251,9 +251,23 @@ RUNNING_STATES = frozenset(
 # `stopped` would discard it on the very next tick, since a server that has not
 # finished binding reads as stopped — so a slow start would flicker straight back
 # to `stopped` and the overlay would protect nothing.
+#
+# A start settles on any derived state that says it has ended, one way or
+# another: a server answering (ours, on the wrong port, or someone else's), a
+# blocked port, or a failure. A stop settles once the port is ours no longer.
 _OVERLAY_SETTLES_ON = {
-    ProjectStatus.STARTING: ProjectStatus.RUNNING,
-    ProjectStatus.STOPPING: ProjectStatus.STOPPED,
+    ProjectStatus.STARTING: frozenset(
+        {
+            ProjectStatus.RUNNING,
+            ProjectStatus.RUNNING_WRONG_PORT,
+            ProjectStatus.RUNNING_FOREIGN,
+            ProjectStatus.PORT_BLOCKED,
+            ProjectStatus.FAILED,
+        }
+    ),
+    ProjectStatus.STOPPING: frozenset(
+        {ProjectStatus.STOPPED, ProjectStatus.PORT_BLOCKED}
+    ),
 }
 
 
@@ -1505,7 +1519,12 @@ class ProjectController(QObject):
         previous = self._statuses
         spawning = self._spawning_paths()
         self._statuses = {
-            record.path: self._classify(record, snapshot, record.path in spawning)
+            record.path: self._classify(
+                record,
+                snapshot,
+                record.path in spawning,
+                self._our_ports(record.path, snapshot),
+            )
             for record in self._records
         }
         # Derived from the SAME snapshot as the statuses, in the same tick.
@@ -1572,7 +1591,7 @@ class ProjectController(QObject):
             # not failure is untouched: a slow start still has a live child.
             self._overlay = None
             return True
-        if self._statuses[path] == _OVERLAY_SETTLES_ON[pending]:
+        if self._statuses[path] in _OVERLAY_SETTLES_ON[pending]:
             self._overlay = None
             return True
         return False
@@ -1660,54 +1679,84 @@ class ProjectController(QObject):
         if previous != self._statuses:
             self.projects_changed.emit()
 
-    @staticmethod
     def _classify(
-        record: ProjectRecord, snapshot: PortSnapshot, spawning: bool = False
+        self,
+        record: ProjectRecord,
+        snapshot: PortSnapshot,
+        spawning: bool = False,
+        our_ports: frozenset[int] = frozenset(),
     ) -> ProjectStatus:
-        """`running` if EITHER port is held, `stopped` only if neither is.
+        """ADR-0004's table, one row per branch, from one snapshot (LWSM-1011).
 
-        ADR-0004: "a project's `declared` port is probed as well as its
-        effective one, whenever the two differ". `effective_port` is the
-        override once one is set, so the declared port went unlooked-at and a
-        project that ignored its override read as `stopped` while its server
-        was up — and the ADR names the consequence, that "Start would
-        cheerfully spawn a duplicate" (LWSM-1201).
+        `spawning` is "own child live"; `our_ports` the ports our child's group
+        holds; `self._reaped` the projects whose child exited on its own this
+        tick, which `stop()` never puts there, so a reaped project is the
+        table's "stop was not requested" row and reads `failed` for exactly one
+        classification.
 
-        Both ports come from the same snapshot, so the second question costs
-        nothing.
+        "Answers localhost", not "is bound": Open builds
+        `http://localhost:<port>/`, so a listener on a LAN address is not this
+        project running (LWSM-1232). The declared port is probed too whenever
+        it differs from the effective one (ADR-0004; LWSM-1201).
 
-        Reported as plain `running`. Which of the two ports is held is the
-        difference between `running (managed)` and `running (wrong port)`,
-        and those are two of the four states P06's model adds; drawing that
-        distinction here would be that item rather than this one. What this
-        owes today is not calling a live project stopped.
+        A holder in a systemd user unit that looks like the project is
+        `running (managed)`: ADR-0003 says systemd's instance is the managed
+        one. "Looks like" is a display heuristic and gates nothing (ADR-0004).
         """
         port = record.effective_port
         if port is None:
             return ProjectStatus.UNKNOWN
-        # `answers_localhost`, not `is_bound`: Open builds
-        # `http://localhost:<port>/`, so a listener on a LAN address is not
-        # this project running, however firmly it holds the port. The binding
-        # question is a different one and stays with the supervisor's
-        # pre-flight (LWSM-1232).
-        if snapshot.answers_localhost(port):
+        path = record.path
+        held = snapshot.answers_localhost(port)
+        holder = snapshot.holder(port) if held else None
+        if holder is not None and self._owns(path, holder):
             return ProjectStatus.RUNNING
-        declared = record.port
-        if (
-            declared is not None
-            and declared != port
-            and snapshot.answers_localhost(declared)
-        ):
-            return ProjectStatus.RUNNING
-        # Nobody holds either port. ADR-0004's `starting` row is exactly that
-        # plus a live child of ours, and it reads AFTER the two port questions
-        # for the ADR's own reason: a child that is live while someone else
-        # holds the port is `failed` or `running (wrong port)`, never
-        # `starting`. Both of those are P06 states, and both are reported as
-        # `running` above rather than falling through to here (LWSM-1202).
-        #
-        # No deadline, so ADR-0004 § Slowness is not failure is untouched: a
-        # slow start keeps a live child, and losing the child is what ends it.
+        if our_ports:
+            # Our group holds a port, and not this one: bound, but not where
+            # asked (ADR-0002), whoever has the effective port.
+            return ProjectStatus.RUNNING_WRONG_PORT
         if spawning:
-            return ProjectStatus.STARTING
-        return ProjectStatus.STOPPED
+            if not held:
+                # No deadline (ADR-0004 § Slowness is not failure).
+                return ProjectStatus.STARTING
+            if holder is not None and looks_like(holder, path):
+                return ProjectStatus.RUNNING_FOREIGN
+            return ProjectStatus.FAILED  # port taken after the pre-flight
+        if path in self._reaped:
+            return ProjectStatus.FAILED  # exited on its own
+        if not held:
+            declared = record.port
+            if (
+                declared is not None
+                and declared != port
+                and snapshot.answers_localhost(declared)
+            ):
+                # ADR-0004: a restarted manager re-adopts a project still on
+                # its hard-coded port as `running (foreign)` on that port.
+                other = snapshot.holder(declared)
+                if other is not None and looks_like(other, path):
+                    return ProjectStatus.RUNNING_FOREIGN
+            return ProjectStatus.STOPPED
+        if holder is None or not looks_like(holder, path):
+            # Unnamed, or implausible: something is in the way (ADR-0004).
+            return ProjectStatus.PORT_BLOCKED
+        if unit_for_pid(holder) is not None:
+            return ProjectStatus.RUNNING
+        return ProjectStatus.RUNNING_FOREIGN
+
+    def _owns(self, path: Path, pid: int) -> bool:
+        return self._supervisor is not None and self._supervisor.owns_pid(path, pid)
+
+    def _our_ports(self, path: Path, snapshot: PortSnapshot) -> frozenset[int]:
+        """The ports our child's group holds for `path`, from the snapshot.
+
+        Only asked for a project we hold an entry for, so an ordinary tick
+        costs one `owns_pid` per held port per supervised project.
+        """
+        if self._supervisor is None or path not in self._supervisor.running():
+            return frozenset()
+        return frozenset(
+            port
+            for port, pid in snapshot.holders.items()
+            if snapshot.answers_localhost(port) and self._supervisor.owns_pid(path, pid)
+        )

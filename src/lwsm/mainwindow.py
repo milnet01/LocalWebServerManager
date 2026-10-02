@@ -1231,6 +1231,11 @@ class ProjectRow(QFrame):
         status = row.status
         in_transition = status in (ProjectStatus.STARTING, ProjectStatus.STOPPING)
         running = status in RUNNING_STATES
+        # ADR-0004's `failed` with our child still alive: the port was taken
+        # after the pre-flight. The child is ours to stop, and a Start would
+        # only be refused as already running (LWSM-1011).
+        failed_ours = status is ProjectStatus.FAILED and row.supervised
+        can_stop = running or failed_ours
         # `not in_transition` appears once, on Start, and that is not an
         # oversight on the other three. The overlay REPLACES the status, so
         # `running` and `in_transition` are mutually exclusive — a guard on
@@ -1241,7 +1246,9 @@ class ProjectRow(QFrame):
         # a second server (`coding.md § 1.1`).
         # `row.stopping` is the third condition and not a fourth spelling of
         # the first: the overlay is gone by the time it matters (LWSM-1191).
-        start_ok = not in_transition and not running and not row.stopping
+        start_ok = (
+            not in_transition and not running and not row.stopping and not failed_ours
+        )
         # Focus first, then disable. Qt moves focus off a widget as it is
         # disabled and does not bring it back, so a keyboard user who pressed
         # Start lost their place in the list. The row is focusable and is the
@@ -1251,8 +1258,8 @@ class ProjectRow(QFrame):
             button.hasFocus() and not ok
             for button, ok in (
                 (self.start_button, start_ok),
-                (self.stop_button, running),
-                (self.restart_button, running),
+                (self.stop_button, can_stop),
+                (self.restart_button, can_stop),
                 (self.open_button, running),
             )
         ):
@@ -1264,8 +1271,8 @@ class ProjectRow(QFrame):
         # to be withheld, and the app exists to manage servers started at logon
         # as much as ones it launched (user decision, 2026-09-06). The dialog is
         # `MainWindow._may_act_on`, which every one of these three goes through.
-        self.stop_button.setEnabled(running)
-        self.restart_button.setEnabled(running)
+        self.stop_button.setEnabled(can_stop)
+        self.restart_button.setEnabled(can_stop)
         # Running is the whole condition here too. ADR-0004 carries the threat
         # model: `chdir()` is free, so any local process can bind a project's
         # port, and opening a browser on it is localhost phishing with this

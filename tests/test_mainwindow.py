@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QApplication
 
 from banner import message_of
 from lwsm import __version__, browsers, mainwindow, placement, registry, scanner
+from lwsm import controller as controller_module
 from lwsm.__main__ import build_window
 from lwsm.browsers import Browser
 from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, display_text
@@ -52,6 +53,18 @@ pytestmark = pytest.mark.gui
 # The pid the fakes agree is "our child's group". Any value; what matters is
 # that a test can name a DIFFERENT one and mean a stranger (LWSM-1167).
 OUR_PID = 4242
+
+
+# The holder ordinary tests mean by "a server is answering" when it is not our
+# child: the project's own login service, which ADR-0003 calls `running
+# (managed)`. Without it every such holder is a stranger, which ADR-0004 calls
+# `port blocked` (LWSM-1011). Tests about another holder patch these themselves.
+@pytest.fixture(autouse=True)
+def _holders_are_the_projects_own_service(monkeypatch) -> None:
+    monkeypatch.setattr(controller_module, "looks_like", lambda pid, project: True)
+    monkeypatch.setattr(
+        controller_module, "unit_for_pid", lambda pid: "project-own.service"
+    )
 
 
 class FakeProbe:
@@ -3283,14 +3296,15 @@ def test_open_is_refused_when_a_stranger_holds_the_registered_port(
     )
 
 
-def test_a_holder_that_cannot_be_named_still_owes_a_disclosure(qtbot, built) -> None:
+def test_a_holder_that_cannot_be_named_is_not_offered_to_open(qtbot, built) -> None:
     """`psutil` reports no pid for another user's socket unless we are root.
 
-    Unknown must read as not-ours. This asserted a refusal until 2026-09-06;
-    now the action is offered, so the same reasoning lands on the dialog
-    instead — waving this case through would act on the one holder we know
-    LEAST about, which is worse than the refusal it replaced and the opposite
-    of a disclosure. `holders` being partial stays load-bearing.
+    Unknown must read as not-ours. Our child is alive and a holder we cannot
+    name has the port, which ADR-0004's table calls `failed` (port taken after
+    the pre-flight, LWSM-1011). Open is then not offered at all, which is
+    stricter than the dialog this asserted from 2026-09-06: waving the case
+    through would act on the one holder we know LEAST about. `holders` being
+    partial stays load-bearing.
     """
     opened: list = []
     seen: list = []
@@ -3304,10 +3318,14 @@ def test_a_holder_that_cannot_be_named_still_owes_a_disclosure(qtbot, built) -> 
         disclose=lambda path, holder: seen.append(holder) or False,
     )
 
-    rows_of(window)[0].open_button.click()
+    row = rows_of(window)[0]
+    assert window._controller.rows()[0].status is ProjectStatus.FAILED
+    assert not row.open_button.isEnabled()
+    assert row.stop_button.isEnabled(), "our live child must stay stoppable"
 
-    assert seen == [None], "an unnameable holder was acted on with no dialog"
-    assert opened == []
+    row.open_button.click()
+
+    assert seen == [] and opened == [], "an unnameable holder was acted on"
 
 
 def test_open_on_a_foreign_server_discloses_the_holder_first(qtbot, built) -> None:

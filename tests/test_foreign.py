@@ -17,7 +17,14 @@ import psutil
 import pytest
 
 from lwsm import foreign
-from lwsm.foreign import Member, Tree, TreeRefused, enumerate_tree, stop_tree
+from lwsm.foreign import (
+    Member,
+    Tree,
+    TreeRefused,
+    enumerate_tree,
+    looks_like,
+    stop_tree,
+)
 
 
 class FakeProcess:
@@ -33,6 +40,7 @@ class FakeProcess:
         cmdline: tuple[str, ...] = ("node", "serve.mjs"),
         raise_on: dict[str, Exception] | None = None,
         dies_on: str = "terminate",
+        cwd: str = "/home/user",
     ) -> None:
         self.pid = pid
         self._started = started
@@ -41,6 +49,7 @@ class FakeProcess:
         self._cmdline = list(cmdline)
         self._raise_on = raise_on or {}
         self._dies_on = dies_on
+        self._cwd = cwd
         self.running = True
         self.signals: list[str] = []
 
@@ -68,6 +77,10 @@ class FakeProcess:
     def cmdline(self) -> list[str]:
         self._check("cmdline")
         return self._cmdline
+
+    def cwd(self) -> str:
+        self._check("cwd")
+        return self._cwd
 
     def terminate(self) -> None:
         self._check("terminate")
@@ -332,3 +345,50 @@ def _gone(pid: int) -> bool:
         return psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
     except psutil.NoSuchProcess:
         return True
+
+
+# --- "looks like this project" (ADR-0004's display heuristic, LWSM-1011) -------
+
+PROJECT = Path("/srv/site")
+
+
+@pytest.mark.parametrize(
+    ("case", "proc", "expected"),
+    [
+        ("exe inside", FakeProcess(1, exe="/srv/site/bin/server"), True),
+        ("cwd inside", FakeProcess(1, cwd="/srv/site/web"), True),
+        (
+            "script on the command line",
+            FakeProcess(
+                1, exe="/usr/bin/python3", cmdline=("python3", "/srv/site/tray.py")
+            ),
+            True,
+        ),
+        ("unrelated", FakeProcess(1, exe="/usr/bin/nginx", cwd="/"), False),
+        ("sibling sharing a prefix", FakeProcess(1, cwd="/srv/site-old"), False),
+        (
+            "relative argument",
+            FakeProcess(1, exe="/usr/bin/node", cmdline=("node", "serve.mjs")),
+            False,
+        ),
+        (
+            "nothing readable",
+            FakeProcess(
+                1,
+                raise_on={
+                    "exe": psutil.AccessDenied(1),
+                    "cwd": psutil.AccessDenied(1),
+                    "cmdline": psutil.AccessDenied(1),
+                },
+            ),
+            False,
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_looks_like_reads_exe_cwd_and_absolute_arguments(case, proc, expected) -> None:
+    assert looks_like(1, PROJECT, process=lookup(proc)) is expected, case
+
+
+def test_looks_like_a_vanished_holder_is_false() -> None:
+    assert looks_like(1, PROJECT, process=lookup()) is False

@@ -24,6 +24,7 @@ import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import psutil
 
@@ -199,3 +200,36 @@ def _wait(
         if not alive or clock() >= deadline:
             return alive
         sleep(POLL_INTERVAL_SECONDS)
+
+
+def looks_like(
+    pid: int, project: Path, *, process: Callable[[int], psutil.Process] | None = None
+) -> bool:
+    """ADR-0004's "looks like this project" test, for the state shown on a row.
+
+    True when the holder's executable, its working directory, or an absolute
+    path on its command line lies inside the project. The command line is what
+    names a project's script when an interpreter is the executable and the
+    working directory is home — the shape XDG-autostart units run
+    (measured 2026-10-02).
+
+    **A display heuristic with no security value** (ADR-0004): `chdir()` is
+    free, so nothing may be gated on this. Unreadable answers False.
+    """
+    make = process if process is not None else psutil.Process
+    try:
+        proc = make(pid)
+    except psutil.Error:
+        return False
+    root = os.path.normpath(project)
+    candidates = [_ask(proc.exe), _ask(proc.cwd)]
+    argv = _ask(proc.cmdline) or []
+    candidates.extend(arg for arg in argv[1:] if arg.startswith("/"))
+    return any(
+        candidate is not None and _inside(os.path.normpath(candidate), root)
+        for candidate in candidates
+    )
+
+
+def _inside(path: str, root: str) -> bool:
+    return path == root or path.startswith(root.rstrip("/") + "/")

@@ -162,12 +162,8 @@ The rule the app follows is the one now written above.
 **Never colour alone.** The commonest colour blindness is exactly
 red/green. Every state the app can display carries **at least three
 signals** — the word, a distinct glyph, and colour — and the set it
-quantifies over is **what the row can render today**, which is not
-ADR-0004's seven. Three of the seven are implemented
-(`running (managed)`, `stopped`, plus `starting` from the overlay);
-the other four (`running (wrong port)`, `running (foreign)`,
-`port blocked`, `failed`) arrive with P06's classifier and earn their
-glyph with the state rather than ahead of it. Two more render without
+quantifies over is **what the row can render today**: ADR-0004's
+seven, all derived since LWSM-1011. Two more render without
 being derived states at all: `unknown`, which has its own token, and
 `stopping`, which `design-look-and-feel.md` § Tokens, not colours
 deliberately gives none and which therefore falls through to the body text colour.
