@@ -24,8 +24,10 @@ if TYPE_CHECKING:
 from contrast import (
     HIGH_CONTRAST_FLOOR,
     INDICATOR_FLOOR,
+    STATE_SEPARATION,
     TEXT_FLOOR,
     contrast_ratio,
+    delta_e2000,
     relative_luminance,
 )
 from lwsm.controller import ProjectStatus
@@ -430,6 +432,27 @@ def test_the_state_tokens_are_distinguishable_from_the_body_text(
     for token in (t for t in TEXT_TOKENS if t.startswith("state_")):
         value = getattr(theme, token)
         assert value != theme.text, f"{token} is the body text colour"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_every_pair_of_state_tokens_is_clearly_different(theme: Theme) -> None:
+    """LWSM-1338: the solver stops each token at the first lightness clearing
+    the floor, so they all shared one luminance and differed by hue alone;
+    `wrong_port` and `unknown` were 6 to 10 CIEDE2000 apart. All seven states
+    can sit in one list now (LWSM-1011), so every pair is held apart."""
+    import itertools
+
+    tokens = [t for t in TEXT_TOKENS if t.startswith("state_")]
+    close = [
+        (
+            first,
+            second,
+            round(delta_e2000(getattr(theme, first), getattr(theme, second)), 1),
+        )
+        for first, second in itertools.combinations(tokens, 2)
+        if delta_e2000(getattr(theme, first), getattr(theme, second)) < STATE_SEPARATION
+    ]
+    assert close == [], close
 
 
 # --- LWSM-1031: the registry itself, and LWSM-1147's default -----------------

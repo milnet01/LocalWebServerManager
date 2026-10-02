@@ -351,9 +351,9 @@ THEMES: dict[str, Theme] = {
         state_wrong_port="#8f620c",  # 4.53:1
         state_foreign="#8751bd",  # 4.51:1
         state_blocked="#b14c14",  # 4.54:1
-        state_failed="#ca2e24",  # 4.52:1
+        state_failed="#93211a",  # 7.18:1
         state_stopped="#666b73",  # 4.54:1
-        state_unknown="#7f691b",  # 4.51:1
+        state_unknown="#574812",  # 7.59:1
     ),
     "parchment": Theme(
         label="Parchment",
@@ -375,9 +375,9 @@ THEMES: dict[str, Theme] = {
         state_wrong_port="#81590a",  # 4.51:1
         state_foreign="#7c44b4",  # 4.54:1
         state_blocked="#a04512",  # 4.52:1
-        state_failed="#b72920",  # 4.53:1
-        state_stopped="#5c6168",  # 4.51:1
-        state_unknown="#725f18",  # 4.51:1
+        state_failed="#7d1c16",  # 7.40:1
+        state_stopped="#5c6068",  # 4.56:1
+        state_unknown="#4a3e10",  # 7.63:1
     ),
     "mint": Theme(
         label="Mint",
@@ -399,9 +399,9 @@ THEMES: dict[str, Theme] = {
         state_wrong_port="#90630c",  # 4.56:1
         state_foreign="#8853be",  # 4.50:1
         state_blocked="#b34d14",  # 4.55:1
-        state_failed="#cd2e24",  # 4.52:1
+        state_failed="#96221b",  # 7.14:1
         state_stopped="#676d74",  # 4.52:1
-        state_unknown="#816a1b",  # 4.52:1
+        state_unknown="#584913",  # 7.63:1
     ),
     "midnight": Theme(
         label="Midnight",
@@ -423,7 +423,7 @@ THEMES: dict[str, Theme] = {
         state_blocked="#e46219",  # 4.52:1
         state_failed="#e26058",  # 4.51:1
         state_stopped="#848a92",  # 4.50:1
-        state_unknown="#a38723",  # 4.51:1
+        state_unknown="#d2ae2d",  # 7.34:1
     ),
     "graphite": Theme(
         label="Graphite",
@@ -451,7 +451,7 @@ THEMES: dict[str, Theme] = {
         state_blocked="#e87534",  # 4.50:1
         state_failed="#e5746c",  # 4.51:1
         state_stopped="#91969d",  # 4.52:1
-        state_unknown="#b29326",  # 4.55:1
+        state_unknown="#d8b948",  # 7.02:1
     ),
     "emerald": Theme(
         label="Emerald",
@@ -473,7 +473,7 @@ THEMES: dict[str, Theme] = {
         state_blocked="#e6671f",  # 4.50:1
         state_failed="#e3665e",  # 4.50:1
         state_stopped="#888e96",  # 4.52:1
-        state_unknown="#a88b24",  # 4.54:1
+        state_unknown="#d4b236",  # 7.27:1
     ),
     "highcontrast-light": Theme(
         label="High contrast (light)",
@@ -492,10 +492,10 @@ THEMES: dict[str, Theme] = {
         state_starting="#185772",  # 7.09:1
         state_wrong_port="#6d4b09",  # 7.05:1
         state_foreign="#6a3a99",  # 7.00:1
-        state_blocked="#883b0f",  # 7.00:1
-        state_failed="#9c231c",  # 7.02:1
-        state_stopped="#4e5258",  # 7.02:1
-        state_unknown="#615015",  # 7.03:1
+        state_blocked="#652b0b",  # 9.85:1
+        state_failed="#390d0a",  # 15.18:1
+        state_stopped="#3e4146",  # 9.15:1
+        state_unknown="#372e0c",  # 12.04:1
     ),
     "highcontrast-dark": Theme(
         label="High contrast (dark)",
@@ -517,7 +517,7 @@ THEMES: dict[str, Theme] = {
         state_blocked="#eb854b",  # 7.01:1
         state_failed="#e8847d",  # 7.04:1
         state_stopped="#9ba0a7",  # 7.00:1
-        state_unknown="#bd9d28",  # 7.03:1
+        state_unknown="#ddc260",  # 10.49:1
     ),
 }
 

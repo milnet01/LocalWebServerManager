@@ -38,7 +38,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
 
-from contrast import HIGH_CONTRAST_FLOOR, INDICATOR_FLOOR, TEXT_FLOOR, contrast_ratio
+from contrast import (
+    HIGH_CONTRAST_FLOOR,
+    INDICATOR_FLOOR,
+    STATE_SEPARATION,
+    TEXT_FLOOR,
+    contrast_ratio,
+    delta_e2000,
+)
 from lwsm.theme import THEMES
 
 # Hue (0-1) and saturation per state — see the module docstring. One per
@@ -92,6 +99,34 @@ def solve(
     return best[0], best[1], False
 
 
+def separate(
+    hue: float,
+    saturation: float,
+    backgrounds: list[str],
+    floor: float,
+    dark: bool,
+    placed: list[str],
+) -> tuple[str, float, bool]:
+    """The first value clearing `floor` that also sits `STATE_SEPARATION`
+    (CIEDE2000) from every token already placed (LWSM-1338).
+
+    Stopping every token at the first lightness that clears the floor put them
+    all at one luminance, apart by hue alone, and `wrong_port` landed 6 to 10
+    from `unknown`. Walking on, in the same direction away from the surfaces,
+    keeps the hue (the meaning) and only adds contrast. Earlier states in
+    `STATES` keep their place; a later one moves.
+    """
+    steps = range(0, 1001) if dark else range(1000, -1, -1)
+    for step in steps:
+        candidate = hex_of(hue, step / 1000, saturation)
+        worst = min(contrast_ratio(candidate, bg) for bg in backgrounds)
+        if worst < floor:
+            continue
+        if all(delta_e2000(candidate, other) >= STATE_SEPARATION for other in placed):
+            return candidate, worst, True
+    return "", 0.0, False
+
+
 def main() -> int:
     shortfalls = 0
     for name, theme in THEMES.items():
@@ -99,11 +134,26 @@ def main() -> int:
         backgrounds = [getattr(theme, surface) for surface in SURFACES]
 
         print(f'    "{name}": Theme(')
+        placed: list[str] = []
         for token, (hue, saturation) in STATES.items():
             value, ratio, cleared = solve(
                 hue, saturation, backgrounds, floor, theme.is_dark
             )
+            if cleared and any(
+                delta_e2000(value, other) < STATE_SEPARATION for other in placed
+            ):
+                value, ratio, cleared = separate(
+                    hue, saturation, backgrounds, floor, theme.is_dark, placed
+                )
+                if not cleared:
+                    shortfalls += 1
+                    print(
+                        f"# SHORTFALL {name}: {token} cannot sit "
+                        f"{STATE_SEPARATION} from the tokens before it"
+                    )
+                    continue
             if cleared:
+                placed.append(value)
                 print(f'        {token}="{value}",  # {ratio:.2f}:1')
             else:
                 # Deliberately NOT the pasteable form. This output is copied
