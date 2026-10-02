@@ -10549,7 +10549,7 @@ bugs in the same area.
   Source: in-session-2026-09-25, found while updating the preamble for LWSM-1311.
   Lanes: docs.
 
-- 📋 [LWSM-1373] **Check Pressless is found and controllable once it adopts a run.sh and the PORT contract.**
+- ✅ [LWSM-1373] **Check Pressless is found and controllable once it adopts a run.sh and the PORT contract.**
   User request 2026-10-02: a rescan does not list Pressless. Cause: no
   launcher rule matches (it runs as `python -m pressless`, no root script),
   and it binds port 0, so no status could be derived. The user chose
@@ -10562,6 +10562,17 @@ bugs in the same area.
   Progress (2026-10-02): the Pressless session accepted the request. It
   lands after Pressless's 0.7.0 release; that session will message when it
   is in. It keeps the ?t= secret as is.
+  Resolved (2026-10-02), no LWSM code changed. Pressless 9670e49
+  (PRESS-0202) added run.sh. A scan of /mnt/Games/Scripts/Linux lists
+  Pressless: shell launcher ./run.sh, port 8471 from an explicit setting
+  in run.sh, read cleanly. Driven through Supervisor + PortProbe (trust
+  store and logs under build/, BROWSER=/bin/true): running light on in
+  0.3 s with the launched pid holding the port; Stop terminated it within
+  the grace, nothing SIGKILLed, port freed. Exit status was -2 (an
+  uncaught KeyboardInterrupt in its SIGTERM path) rather than 0; logged
+  only, not shown in the UI; told the Pressless session. Harness trap: run
+  under `uv run`, this project's .venv/bin led PATH, so the child's
+  python3 was the wrong interpreter; the real app is not launched that way.
   **Layman:** Make sure the Pressless blogging app shows up in the list and can be started and stopped, once its side of the change is in.
   Kind: investigate.
   Source: user-request-2026-10-02.
