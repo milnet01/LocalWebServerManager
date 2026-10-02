@@ -10782,7 +10782,7 @@ bugs in the same area.
   Source: in-session-2026-10-02 (LWSM-1008 end-to-end run).
   Lanes: ui.
 
-- 📋 [LWSM-1384] **The scan's reason cap counts lines the first-run dialog then hides.**
+- ✅ [LWSM-1384] **The scan's reason cap counts lines the first-run dialog then hides.**
   Measured 2026-10-02 on a real scan root: the scanner kept 100 reasons
   (MAX_SKIP_REASONS) plus "and 75 more problems, not shown"; 40 of the 100
   were plain files or dot-folders, which LWSM-1383 now drops in
@@ -10793,6 +10793,12 @@ bugs in the same area.
   scanner. Recommendation: let the scanner tag each reason with what kind
   of entry it is, and apply the cap per kind.
   Priority: 3.
+  Shipped 2026-10-02. Two budgets in scan(): real folders keep
+  MAX_SKIP_REASONS and its tail; plain files and dot-named entries get
+  their own, tailed with scanner.MINOR_TAIL, which worth_showing hides.
+  Real root, old vs new: 8 projects both; dialog 60 lines + "and 75 more
+  problems" before, 95 lines and no tail after. Each routing broken once
+  and seen red.
   **Layman:** Hidden files still use up the first-run list's limited space, so some real folders end up in the "and N more" line instead.
   Kind: ux.
   Source: in-session-2026-10-02 (LWSM-1383 real-population check).

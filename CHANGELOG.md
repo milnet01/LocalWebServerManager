@@ -78,6 +78,8 @@ signaling per
 
 ### Fixed
 
+- **The first-run "Not added" list no longer loses real folders behind hidden files** (LWSM-1384)
+
 - **On X11 desktops, a window remembered at the bottom of the screen no longer comes back with its edge hanging off it.** (LWSM-1354)
   The window's position is now fitted to the screen including its title
   bar and border, not just the inside of the window.
