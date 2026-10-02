@@ -30,7 +30,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lwsm.configfile import ConfigFileError, write_atomically
-from lwsm.scanner import valid_unit_name
+from lwsm.scanner import (
+    SystemctlUnits,
+    _exec_start_argv,
+    bound_inside,
+    valid_unit_name,
+)
 
 # The only verbs this module will drive. `disable` and `mask` are absent
 # deliberately, not by oversight: the user asked to manage servers WITHOUT
@@ -83,6 +88,9 @@ class UnitOutcome:
     verb: str
     unit: str
     reason: str = ""
+    # Refused because the unit is not this project's (ADR-0003's binding rule),
+    # so the caller forgets it rather than offering it again.
+    unbound: bool = False
 
 
 # A unit under a user's own service manager, the only kind `--user` drives.
@@ -132,6 +140,49 @@ def unit_for_pid(pid: int, *, read_cgroup: object = None) -> str | None:
             return None
         return leaf
     return None
+
+
+# What `unit_belongs_to` reads. `ExecStart` is the anchor an XDG-autostart unit
+# actually carries: its `FragmentPath` is generated under /run/user and its
+# `WorkingDirectory` is often the home directory (measured 2026-10-02).
+ADOPTION_PROPERTIES = ("FragmentPath", "WorkingDirectory", "ExecStart")
+ADOPTION_TIMEOUT_SECONDS = 5.0
+
+
+def unit_belongs_to(
+    unit: str, project: Path, *, properties: object = None
+) -> bool | None:
+    """Whether a unit found holding a project's port is that project's own.
+
+    `unit_for_pid` names the unit the holder runs in, which is not the same
+    thing: a server started from a terminal inside an autostarted IDE runs in
+    the IDE's unit, and driving that stops the IDE (review-code 2026-10-01
+    L3-M4). ADR-0003 binds a unit to a row only when it points inside the
+    project — its unit file, its working directory, or an absolute path in its
+    command line.
+
+    None means the properties could not be read, which proves nothing either
+    way; the caller refuses rather than guessing.
+    """
+    reader = properties if properties is not None else SystemctlUnits().properties
+    try:
+        props = reader(unit, ADOPTION_PROPERTIES, ADOPTION_TIMEOUT_SECONDS)  # type: ignore[operator]
+    except (OSError, ValueError):
+        return None
+    try:
+        candidate = project.resolve()
+    except (OSError, ValueError):
+        return None
+    if any(
+        bound_inside(props.get(field, ""), candidate)
+        for field in ("FragmentPath", "WorkingDirectory")
+    ):
+        return True
+    argv = _exec_start_argv(props.get("ExecStart", "")) or ""
+    # `bound_inside` refuses a relative token, so the interpreter's own
+    # arguments (`-u`, `serve.mjs`) contribute nothing — only absolute paths
+    # can anchor, which is the evidence a spoofed cwd cannot supply.
+    return any(bound_inside(token.strip("'\""), candidate) for token in argv.split())
 
 
 def describe_holder(

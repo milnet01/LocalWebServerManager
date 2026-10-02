@@ -1333,7 +1333,7 @@ class _UnitLookup:
             return None
 
 
-def _bound_inside(value: str, candidate: Path) -> bool:
+def bound_inside(value: str, candidate: Path) -> bool:
     """`FragmentPath` / `WorkingDirectory` containment.
 
     **An empty value contributes no evidence and is never resolved.**
@@ -1403,7 +1403,7 @@ def _match_systemd(
             note(f"{quoted}: unit {_quoted(listed)} is masked")
             continue
         if not any(
-            _bound_inside(props[field], candidate)
+            bound_inside(props[field], candidate)
             for field in ("FragmentPath", "WorkingDirectory")
         ):
             # A real unit belonging to someone else, carrying this project's

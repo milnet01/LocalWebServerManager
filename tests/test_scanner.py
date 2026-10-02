@@ -3121,7 +3121,7 @@ def test_a_relative_working_directory_binds_nothing(
     (candidate / "relative" / "dir").mkdir(parents=True)
     (candidate / "~").mkdir()
     monkeypatch.chdir(candidate)
-    assert scanner._bound_inside(value, candidate) is False
+    assert scanner.bound_inside(value, candidate) is False
 
 
 def test_a_root_past_the_entry_cap_is_cut_short_and_reported_unlistable(

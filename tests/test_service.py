@@ -23,6 +23,7 @@ from lwsm.service import (
     describe_holder,
     drive_unit,
     unit_argv,
+    unit_belongs_to,
     unit_for_pid,
     unit_state,
 )
@@ -408,3 +409,81 @@ def test_reload_reports_rather_than_raises() -> None:
     failed = real(run=FakeRun(returncode=1))
     assert not failed.ok and failed.reason
     assert real(run=absent).reason == "systemctl is not installed"
+
+
+# --- does an adopted unit belong to the row? (review-code 2026-10-01 L3-M4) ---
+
+# The shapes measured on the reporting machine, 2026-10-02: an XDG-autostart
+# unit's file is generated under /run/user, never inside a project.
+GENERATED = "/run/user/1000/systemd/generator.late/app-x@autostart.service"
+
+
+def _exec_start(argv: str) -> str:
+    path = argv.split()[0]
+    return f"{{ path={path} ; argv[]={argv} ; ignore_errors=no ; pid=0 }}"
+
+
+def _reader(props: dict[str, str]):
+    def read(unit: str, names: object, timeout: float) -> dict[str, str]:
+        return props
+
+    return read
+
+
+def test_a_unit_whose_command_runs_a_file_in_the_project_belongs(tmp_path) -> None:
+    """The ants-stats-tray shape: working directory is home, and only the
+    command line names the project."""
+    (tmp_path / "tray").mkdir()
+    props = {
+        "FragmentPath": GENERATED,
+        "WorkingDirectory": "!/home/ants",
+        "ExecStart": _exec_start(f"/usr/bin/python3 {tmp_path}/tray/stats.py"),
+    }
+    assert unit_belongs_to("a.service", tmp_path, properties=_reader(props))
+
+
+def test_a_unit_whose_folder_is_the_project_belongs(tmp_path) -> None:
+    """The ai-prompts-tray shape: `!`-prefixed working directory."""
+    props = {
+        "FragmentPath": GENERATED,
+        "WorkingDirectory": f"!{tmp_path}",
+        "ExecStart": _exec_start("/usr/bin/python3 tray.py"),
+    }
+    assert unit_belongs_to("a.service", tmp_path, properties=_reader(props))
+
+
+def test_an_ide_holding_a_terminal_server_does_not_belong(
+    tmp_path, monkeypatch
+) -> None:
+    """The finding's case. Our own cwd is inside the project, so a relative
+    token resolved against it would bind the IDE — the reason only absolute
+    paths can anchor."""
+    monkeypatch.chdir(tmp_path)
+    props = {
+        "FragmentPath": GENERATED,
+        "WorkingDirectory": "!/home/ants",
+        "ExecStart": _exec_start("/usr/bin/ide --open serve.mjs"),
+    }
+    assert unit_belongs_to("ide.service", tmp_path, properties=_reader(props)) is False
+
+
+def test_a_sibling_sharing_the_project_s_name_prefix_does_not_belong(
+    tmp_path,
+) -> None:
+    project = tmp_path / "site"
+    sibling = tmp_path / "site-old"
+    project.mkdir()
+    sibling.mkdir()
+    props = {
+        "FragmentPath": GENERATED,
+        "WorkingDirectory": f"!{sibling}",
+        "ExecStart": _exec_start(f"/usr/bin/node {sibling}/serve.mjs"),
+    }
+    assert unit_belongs_to("b.service", project, properties=_reader(props)) is False
+
+
+def test_an_unreadable_unit_answers_none_rather_than_a_verdict(tmp_path) -> None:
+    def broken(unit: str, names: object, timeout: float) -> dict[str, str]:
+        raise OSError("systemctl failed")
+
+    assert unit_belongs_to("a.service", tmp_path, properties=broken) is None

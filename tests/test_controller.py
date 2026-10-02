@@ -2102,9 +2102,47 @@ class RecordingDrive:
         return UnitOutcome(ok=self.ok, verb=verb, unit=unit, reason=self.reason)
 
 
-def adopted(monkeypatch, drive: RecordingDrive, unit: str | None) -> None:
+def adopted(
+    monkeypatch, drive: RecordingDrive, unit: str | None, belongs: bool | None = True
+) -> None:
     monkeypatch.setattr(controller_module, "drive_unit", drive)
     monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: unit)
+    monkeypatch.setattr(
+        controller_module, "unit_belongs_to", lambda unit, project: belongs
+    )
+
+
+@pytest.mark.parametrize(
+    ("belongs", "reason"),
+    [(False, "lie outside"), (None, "could not read")],
+)
+def test_an_adopted_unit_outside_the_project_is_not_driven(
+    qtbot, controllers, monkeypatch, belongs, reason
+) -> None:
+    """review-code 2026-10-01 L3-M4: the unit comes from whatever process holds
+    the port. A terminal launched from an autostarted IDE puts its server in the
+    IDE's cgroup, so Stop would drive the IDE. ADR-0003 binds a unit to a row
+    only when it points inside the project; an unreadable unit proves nothing
+    and is refused the same way."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "app-ide@autostart.service", belongs)
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000) as caught:
+        controller.stop_project(Path("/srv/a"))
+
+    assert drive.calls == []
+    assert reason in caught.args[1]
+    assert Path("/srv/a") not in controller._adopted_units, (
+        "a refused unit must not be remembered, or the next Start drives it"
+    )
 
 
 def test_a_foreign_holder_is_named_on_the_row(qtbot, controllers) -> None:

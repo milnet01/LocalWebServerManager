@@ -30,6 +30,7 @@ from lwsm.service import (
     clear_drop_in,
     drive_unit,
     set_drop_in,
+    unit_belongs_to,
     unit_for_pid,
     unit_state,
 )
@@ -445,6 +446,7 @@ class _ServiceTask(QRunnable):
         unit: str,
         signals: _ServiceSignals,
         port: int | None = None,
+        bind_to: Path | None = None,
     ) -> None:
         super().__init__()
         self._path = path
@@ -452,6 +454,7 @@ class _ServiceTask(QRunnable):
         self._unit = unit
         self._signals = signals
         self._port = port
+        self._bind_to = bind_to
 
     def _drive(self) -> UnitOutcome:
         """The verb with this app's drop-in around it (LWSM-1028).
@@ -460,7 +463,14 @@ class _ServiceTask(QRunnable):
         unit systemd starts in its own environment; removed after a successful
         stop, so the unit's next start at logon is its own default (user,
         2026-10-02). A drop-in that cannot be written stops the start.
+
+        A unit found from the port's holder rather than bound by the scanner is
+        checked first (`bind_to`), on this worker because it asks `systemctl`.
         """
+        if self._bind_to is not None:
+            refusal = self._binding_refusal(self._bind_to)
+            if refusal is not None:
+                return refusal
         if self._verb in ("start", "restart"):
             prepared = set_drop_in(self._unit, self._port)
             if not prepared.ok:
@@ -483,6 +493,21 @@ class _ServiceTask(QRunnable):
                     cleared.reason,
                 )
         return outcome
+
+    def _binding_refusal(self, project: Path) -> UnitOutcome | None:
+        """ADR-0003's binding rule for an adopted unit, or None when it holds."""
+        belongs = unit_belongs_to(self._unit, project)
+        if belongs:
+            return None
+        reason = (
+            f"could not read {self._unit} to check it belongs to this project"
+            if belongs is None
+            else f"the server runs inside {self._unit}, whose unit file, folder "
+            "and command all lie outside this project, so it was left alone"
+        )
+        return UnitOutcome(
+            ok=False, verb=self._verb, unit=self._unit, reason=reason, unbound=True
+        )
 
     def run(self) -> None:
         try:
@@ -812,7 +837,7 @@ class ProjectController(QObject):
             # before `argv`, because such a project need not have a launcher
             # recorded at all.
             self._set_overlay(path, ProjectStatus.STARTING)
-            self._run_service_verb(path, "start", unit)
+            self._run_service_verb(path, "start", unit, adopted=unit != record.unit)
             return
         if not record.argv:
             # An honest refusal rather than a guess. The launcher is a detected
@@ -900,7 +925,7 @@ class ProjectController(QObject):
             # because a spawn before the port is released would be refused.
             self._adopted_units[path] = unit
             self._set_overlay(path, ProjectStatus.STARTING)
-            self._run_service_verb(path, "restart", unit)
+            self._run_service_verb(path, "restart", unit, adopted=True)
             return
         self.start_project(path)
 
@@ -974,13 +999,25 @@ class ProjectController(QObject):
         # afterwards would have nothing left to resolve.
         self._adopted_units[path] = unit
         self._set_overlay(path, ProjectStatus.STOPPING)
-        self._run_service_verb(path, "stop", unit)
+        self._run_service_verb(path, "stop", unit, adopted=True)
 
-    def _run_service_verb(self, path: Path, verb: str, unit: str) -> None:
+    def _run_service_verb(
+        self, path: Path, verb: str, unit: str, *, adopted: bool = False
+    ) -> None:
+        """`adopted` marks a unit read off the port's holder rather than bound
+        by the scanner, which must pass ADR-0003's binding rule before it is
+        driven (review-code 2026-10-01 L3-M4)."""
         record = self._record(path)
         port = None if record is None else record.effective_port
         self._service_pool.start(
-            _ServiceTask(path, verb, unit, self._service_signals, port)
+            _ServiceTask(
+                path,
+                verb,
+                unit,
+                self._service_signals,
+                port,
+                bind_to=path if adopted else None,
+            )
         )
 
     def _on_service_done(self, path: Path, outcome: object) -> None:
@@ -999,6 +1036,9 @@ class ProjectController(QObject):
         try:
             self._restarting.discard(path)
             if isinstance(outcome, UnitOutcome) and not outcome.ok:
+                if outcome.unbound and self._adopted_units.get(path) == outcome.unit:
+                    # Forgotten, or the next Start drives the refused unit.
+                    del self._adopted_units[path]
                 self._clear_overlay(path)
                 self.action_failed.emit(
                     path,
