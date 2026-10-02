@@ -178,9 +178,13 @@ instead of `subprocess`:
 | liveness | our child's PID | the socket table; `is-active` only detects a start that ended |
 | logs | our per-project log file | `journalctl --user -u <unit> -f` |
 
-For stop and restart, `<unit>` is the unit holding the port when
-its holder can be named, checked by the rule for adopted units
-below; otherwise it is the bound unit.
+Which `<unit>`: for stop and restart, the unit of the port's
+holder when the holder can be named, and none when that process is
+in no unit; else a unit adopted earlier this session; else the
+bound unit. Start takes an adopted unit ahead of the bound unit and
+the launcher. Adoptions last for the session only. Every unit that
+stop or restart drives, and an adopted unit that start drives, is
+first checked by the rule for adopted units below.
 
 Port probing is unchanged — ADR-0004 classifies from the socket
 table either way, which is precisely the benefit of deriving

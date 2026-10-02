@@ -11225,6 +11225,27 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: review-contract ADR-0003 loop 2, 2026-10-02.
   Lanes: core.
 
+- 📋 [LWSM-1388] **ADR-0003 review tail: systemd rows' classified state, and drop-ins on generated units.**
+  Filed at the cap rather than fixed; both outside the change gated.
+  1. [Q2, lane B] ADR-0003 says a service-managed project is "never
+  running (foreign)" because the launcher kind tells the classifier so.
+  ADR-0004's table, declared exhaustive, has no launcher-kind input, and
+  the code sets `managed` only for processes this app spawned
+  (controller._managed_paths). Name the state a systemd instance
+  classifies to, in ADR-0004's table, when LWSM-1011 builds the
+  classifier; until then the ADR-0003 sentence describes no code.
+  2. [NEEDS MEASUREMENT, both lanes] Does a drop-in under
+  $XDG_CONFIG_HOME/systemd/user/<unit>.d/ apply to an XDG-autostart unit
+  made by systemd-xdg-autostart-generator? LWSM-1028's live check used a
+  throwaway unit, not a generated one. Unrunnable here without writing a
+  drop-in for one of the user's live login units. Check with
+  `systemctl --user show -p DropInPaths -p Environment -- <unit>` after
+  writing one and `daemon-reload`, on a unit the user agrees to.
+  **Layman:** Two open questions left by the review of how the app runs login-started servers.
+  Kind: review-fix.
+  Source: review-contract ADR-0003 loop 3 (cap), 2026-10-02.
+  Lanes: core, docs.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.

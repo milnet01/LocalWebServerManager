@@ -2087,6 +2087,17 @@ class HoldingProbe:
         return PortSnapshot(frozenset(self.holders), holders=dict(self.holders))
 
 
+class UnnamedHolderProbe:
+    """Ports listening with no holder named: another user's process, which
+    the kernel will not attribute without privileges (ADR-0004)."""
+
+    def __init__(self, ports: set[int]) -> None:
+        self.ports = frozenset(ports)
+
+    def snapshot(self) -> PortSnapshot:
+        return PortSnapshot(self.ports)
+
+
 class RecordingDrive:
     """Stands in for `systemctl`, recording the verb and unit it was given."""
 
@@ -2249,7 +2260,7 @@ def test_a_scanner_bound_unit_is_driven_when_the_holder_names_none(
         path=Path("/srv/a"), name="a", port=4321, unit="project-a.service"
     )
     controller = supervised(
-        controllers, [bound], HoldingProbe({4321: 1290}), FakeSupervisor()
+        controllers, [bound], UnnamedHolderProbe({4321}), FakeSupervisor()
     )
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
@@ -2258,6 +2269,30 @@ def test_a_scanner_bound_unit_is_driven_when_the_holder_names_none(
     qtbot.waitUntil(lambda: bool(drive.calls), timeout=2000)
 
     assert drive.calls == [(verb, "project-a.service")]
+
+
+def test_the_bound_unit_is_not_driven_when_a_named_holder_is_in_no_unit(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """A holder the kernel names, sitting in no unit, is not the bound unit's
+    process: that process would be in the unit's cgroup. Driving the bound unit
+    would leave the port held, so the fallback is for an unnamed holder only."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, None)
+    bound = ProjectRecord(
+        path=Path("/srv/a"), name="a", port=4321, unit="project-a.service"
+    )
+    controller = supervised(
+        controllers, [bound], HoldingProbe({4321: 1290}), FakeSupervisor()
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].holder_pid == 1290
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000):
+        controller.stop_project(Path("/srv/a"))
+
+    assert drive.calls == []
 
 
 def test_restarting_a_service_project_is_one_verb(

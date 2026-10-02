@@ -968,12 +968,14 @@ class ProjectController(QObject):
         since has a new PID and the live answer is the current one. Last, the
         unit the scanner bound: a holder the kernel will not name must not make
         a bound project unstoppable (ADR-0003 review loop 2).
+
+        A NAMED holder in no unit stops here with None. The bound unit's own
+        process would sit in that unit's cgroup, so this holder is something
+        else, and driving the bound unit would leave the port held.
         """
         pid = self._holders.get(path)
         if pid is not None:
-            unit = unit_for_pid(pid)
-            if unit is not None:
-                return unit
+            return unit_for_pid(pid)
         adopted = self._adopted_units.get(path)
         if adopted is not None:
             return adopted
