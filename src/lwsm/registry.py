@@ -1122,6 +1122,10 @@ class MergeResult:
     records: list[ProjectRecord]
     reasons: list[str]
     counts: dict[str, int]
+    # The scan's own reasons — folders not added, files not read — carried for
+    # the first-run screen (LWSM-1008). `merge()` leaves it empty: the rescan
+    # task fills it from the `ScanResult` it already holds.
+    skipped: tuple[str, ...] = ()
 
 
 def _instant(added: str | None) -> datetime:

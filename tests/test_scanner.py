@@ -3098,3 +3098,20 @@ def test_a_root_past_the_entry_cap_is_cut_short_and_reported_unlistable(
     assert len(result.projects) <= 3
     assert tmp_path in result.unlistable_roots
     assert any("more than 3" in reason for reason in result.skipped)
+
+
+def test_every_skip_reason_names_the_folder_it_is_about(tmp_path: Path) -> None:
+    """known-issue-017, settled by LWSM-1008: the first-run screen shows these
+    reasons to the user, so a hop refusal must say which project it came from.
+    It was `hop target '../outside.py' is outside the project`, naming none."""
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root, "web", {"start.sh": "#!/bin/sh\nexec python3 ../outside.py\n"}, "start.sh"
+    )
+
+    result = scan_root(root)
+
+    hop = [reason for reason in result.skipped if "hop target" in reason]
+    assert hop, f"the fixture raised no hop refusal: {result.skipped}"
+    assert all(reason.startswith(f"{scanner._quoted('web')}: ") for reason in hop), hop

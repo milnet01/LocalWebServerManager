@@ -93,6 +93,7 @@ from lwsm.registry import (
     MergeResult,
     ProjectRecord,
     RegistryError,
+    RegistryMissing,
     RegistryNotDurable,
 )
 from lwsm.service import describe_holder
@@ -546,8 +547,11 @@ class _RescanTask(QRunnable):
                 # rescan of every populated machine.
                 for reason in result.skipped:
                     log.info("rescan: skipped %s", reason)
-                merged = registry.merge(
-                    self._stored, result, self._context.roots, self._context.now
+                merged = replace(
+                    registry.merge(
+                        self._stored, result, self._context.roots, self._context.now
+                    ),
+                    skipped=tuple(result.skipped),
                 )
             except BaseException as exc:
                 log.exception("the rescan failed")
@@ -1527,6 +1531,10 @@ class MainWindow(QMainWindow):
         ]
         | None = None,
         disclose: Callable[[Path, object], bool] | None = None,
+        confirm_first_run: Callable[
+            [list[ProjectRecord], tuple[str, ...]], list[ProjectRecord] | None
+        ]
+        | None = None,
         open_url: Callable[[QUrl], bool] | None = None,
         list_browsers: Callable[[], browsers.LoadResult] | None = None,
         open_settings: Callable[[], None] | None = None,
@@ -1574,6 +1582,12 @@ class MainWindow(QMainWindow):
         # this launcher run?" about a file in the project, and this asks "is
         # this really your server?" about a process the app did not start.
         self._disclose = disclose if disclose is not None else self._disclose_dialog
+        # LWSM-1008's confirmation, injected for `confirm`'s reason.
+        self._confirm_first_run = (
+            confirm_first_run
+            if confirm_first_run is not None
+            else self._first_run_dialog
+        )
         # Injected for the same reason as `confirm`: a test that reached
         # `QDesktopServices.openUrl` would launch the developer's browser.
         self._open_url = open_url if open_url is not None else QDesktopServices.openUrl
@@ -2921,6 +2935,30 @@ class MainWindow(QMainWindow):
                 )
             )
 
+    def _first_run_dialog(
+        self, records: list[ProjectRecord], skipped: tuple[str, ...]
+    ) -> list[ProjectRecord] | None:
+        """LWSM-1008's confirmation, on screen.
+
+        Imported here rather than at the top: `firstrun` imports this module
+        for its shared constants, as `settingsdialog` does.
+        """
+        from lwsm.firstrun import ask_first_run
+
+        return ask_first_run(records, skipped, self)
+
+    def is_first_run(self) -> bool:
+        """No `projects.json` yet, and a Rescan that can create one (LWSM-1008)."""
+        return (
+            not self._stopped
+            and self._rescan is not None
+            and isinstance(self._load, RegistryMissing)
+        )
+
+    def start_rescan(self) -> None:
+        """Rescan now, as the button does. `__main__` starts the first run with it."""
+        self._start_rescan()
+
     def _disclose_dialog(self, project: Path, holder: object) -> bool:
         """ADR-0004's disclosure, on screen.
 
@@ -3291,6 +3329,28 @@ class MainWindow(QMainWindow):
         (LWSM-1199).
         """
         merged = replace(merged, records=self._with_current_user_half(merged.records))
+        if self.is_first_run():
+            # No file yet: nothing is written until the user has seen the list
+            # (LWSM-1008). Not now leaves the session as it was, still a first
+            # run, so the next Rescan or the next start asks again.
+            chosen = self._confirm_first_run(list(merged.records), merged.skipped)
+            if self._stopped:
+                # Quit while the dialog was open; nothing left to save into.
+                return ""
+            if chosen is None:
+                return QCoreApplication.translate(
+                    "ProjectRow",
+                    "Nothing saved. Press Rescan, or restart, to choose again.",
+                )
+            return self._apply_merge(
+                replace(merged, records=chosen),
+                _filled(
+                    QCoreApplication.translate("ProjectRow", "Saved %1 of %2 projects"),
+                    str(len(chosen)),
+                    str(len(merged.records)),
+                ),
+                "rescan",
+            )
         return self._apply_merge(merged, summarise_merge(merged.counts), "rescan")
 
     def _with_current_user_half(

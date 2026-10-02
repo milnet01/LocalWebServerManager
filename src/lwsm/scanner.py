@@ -1871,9 +1871,18 @@ def scan(
                 seen.add(candidate)
 
                 problems_before = problems
+                prefix = f"{quoted}: "
+
+                def named_note(reason: str, prefix: str = prefix) -> None:
+                    # Every reason names its folder (known-issue-017): the
+                    # first-run screen shows them to the user, and a hop
+                    # refusal reached it naming no project at all. A default
+                    # argument, not a closure over the loop variable.
+                    note(reason if reason.startswith(prefix) else prefix + reason)
+
                 try:
                     launcher = _detect(
-                        candidate, raw_name, quoted, lookup, deadline, note
+                        candidate, raw_name, quoted, lookup, deadline, named_note
                     )
                 except OSError as exc:
                     # Contained per candidate, and deliberately at the class

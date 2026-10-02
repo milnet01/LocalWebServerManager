@@ -1005,9 +1005,10 @@ importing `lwsm.__main__` in a test does not require a display.
 
 - **INV-15** — A `RegistryError` does not stop the app: `build_window`
   returns a window with no rows whose message banner names the file and the
-  reason, and does not raise.
+  reason, and does not raise. A missing file with somewhere to save is the
+  first run instead, which shows no error (LWSM-1008).
   *Test:* `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window`,
-  calling `build_window` on a path with no file. It targets `build_window`
+  calling `build_window` on a file that cannot be parsed. It targets `build_window`
   rather than `main` because `main` blocks in `app.exec()`, so a test that
   called it would never return. `tests/test_main.py::test_starts_even_when_there_is_no_home_directory`
   covers the half that test cannot: it drives `main` with the event loop stubbed
@@ -1216,9 +1217,8 @@ importing `lwsm.__main__` in a test does not require a display.
 
 ## 6. Failure modes
 
-- **`projects.json` absent.** `RegistryError`; the window opens empty with
-  a banner message naming the path it looked at (INV-15). First run is not
-  an error state until LWSM-1008 lands the scan-and-confirm flow.
+- **`projects.json` absent.** `RegistryMissing`, the first run: the window
+  opens empty with no error and starts LWSM-1008's scan-and-confirm flow.
 - **`projects.json` unparsable, not an object, or missing / wrong
   `schema_version` or `projects`.** `RegistryError` naming the file and
   which of §4.1's four shapes it hit. Nothing is written back — P02 never

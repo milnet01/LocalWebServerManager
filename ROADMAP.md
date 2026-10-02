@@ -10214,7 +10214,7 @@ bugs in the same area.
   Eleven tests; eight deliberate breaks each turned one red. Gate: 2152.
   Lanes: core, tests.
 
-- 📋 [LWSM-1008] **P03b: first-run confirmation flow.**
+- ✅ [LWSM-1008] **P03b: first-run confirmation flow.**
   No config
   file present → scan → present the detected list for
   confirmation before anything is written. Acceptance: criterion
@@ -10225,6 +10225,27 @@ bugs in the same area.
   Kind: implement.
   Source: in-session-2026-08-03.
   Priority: 2.
+  Decided (user, 2026-10-02): the first-run screen lists every project
+  found, each with a tick box (ticked by default); Save stores the ticked
+  ones, Not now stores nothing and the next start asks again. Below it, a
+  "Not added" list gives one plain reason per skipped folder, so
+  known-issue-017's reason format (every reason names its folder) is
+  settled here. Build first, no spec (one feature, no new file format).
+  Resolved (2026-10-02): src/lwsm/firstrun.py lists the first scan's
+  projects, ticked, before anything is written; Not now writes nothing.
+  __main__.start_first_run starts the scan once the window is shown and
+  asks for a folder when no scan root exists, saving it to scan-roots.
+  Skip reasons now name their folder (known-issue-017 resolved). A first
+  run shows no load error, so LWSM-1005 INV-15's test now uses an
+  unparseable file; the spec was folded back to match. Full gate: 2169
+  passed. Acceptance on a real machine with no config is still to be
+  run by hand.
+  Acceptance (2026-10-02, supersedes "still to be run by hand" above):
+  the real app, on a private X display with empty config, scanned the
+  author's real root unprompted, showed the dialog, and saved on Save;
+  every project found was listed with its launcher, and one whose port
+  lives in a config file read "port not found" (design.md's stated
+  limit). The skipped list was noisy; filed as LWSM-1383.
   Lanes: ui, tests.
 
 - 📋 [LWSM-1121] **P03b: Scanner reads the extra port sources and reports conflicts.**
@@ -10681,6 +10702,20 @@ bugs in the same area.
   Kind: doc-fix.
   Source: in-session-2026-10-02 (LWSM-1381 gate loop 4).
   Lanes: docs.
+
+- 📋 [LWSM-1383] **Trim the first-run "Not added" list to folders a user would expect to see.**
+  Measured 2026-10-02 on the author's real scan root, on a private X
+  display: the list under "Not added, or not fully read" ran past the
+  fold with hidden dot-folders ("no launcher matched"), plain files ("is
+  not a directory") and a systemctl failure line (that one an artifact of
+  the isolated XDG_RUNTIME_DIR). The user asked for one reason per skipped
+  FOLDER. Recommendation: leave plain files and dot-folders out of the
+  dialog (they still reach the log), and keep the rest.
+  Priority: 3.
+  **Layman:** The first-run screen lists every hidden folder and stray file it passed over, which buries the few that matter.
+  Kind: ux.
+  Source: in-session-2026-10-02 (LWSM-1008 end-to-end run).
+  Lanes: ui.
 
 ## 0.3.0 — The full state model
 

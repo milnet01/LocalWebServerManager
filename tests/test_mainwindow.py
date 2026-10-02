@@ -941,8 +941,12 @@ def test_row_follows_a_real_socket(qtbot, built) -> None:
 
 def test_registry_error_opens_an_empty_window(qtbot, built, tmp_path) -> None:
     # build_window rather than main: main blocks in app.exec(), so a test that
-    # called it would never return.
-    window, controller = build_window(tmp_path / "absent" / "projects.json")
+    # called it would never return. A file that cannot be parsed, not a missing
+    # one: since LWSM-1008 a missing file is the first run, which is not an
+    # error and shows none.
+    projects = tmp_path / "projects.json"
+    projects.write_text("{ not json", encoding="utf-8")
+    window, controller = build_window(projects)
     built.append(controller)
     qtbot.addWidget(window)
 
@@ -1536,6 +1540,12 @@ def test_the_window_carries_the_theme_palette(qtbot, built) -> None:
 # --- LWSM-1131 § 4.4: the Rescan seam ----------------------------------------
 
 
+def accept_all(records, _skipped):
+    """The first-run confirmation (LWSM-1008), answered Save with every box
+    left ticked — what a rescan test written before that dialog assumed."""
+    return list(records)
+
+
 def rescan_window(
     qtbot,
     built,
@@ -1548,6 +1558,7 @@ def rescan_window(
     browsers_refused: frozenset[str] = frozenset(),
     browsers_complete: bool = True,
     size: tuple[int, int] | None = None,
+    confirm_first_run=accept_all,
 ) -> tuple[MainWindow, ProjectController]:
     """A window with a Rescan context whose scan and writer are both fakes.
 
@@ -1577,6 +1588,7 @@ def rescan_window(
         projects_file=files,
         size=size,
         load=load if load is not None else RegistryMissing("first run"),
+        confirm_first_run=confirm_first_run,
         # Injected, never scanned: conftest points XDG_DATA_DIRS at an empty
         # directory so the real scan finds nothing, and a test that wants
         # browsers says which (`§ T1`).
@@ -1658,8 +1670,94 @@ def test_a_rescan_adds_a_new_project_and_says_so(qtbot, built, tmp_path) -> None
     run_rescan(qtbot, window)
 
     assert [row.name for row in controller.rows()] == ["web"]
-    assert "1 new" in message_of(window)
+    # A first run says what it saved out of what it found (LWSM-1008); a later
+    # rescan's "Rescan: 1 new" is `summarise_merge`'s, tested directly below.
+    assert "Saved 1 of 1 projects" in message_of(window)
     assert saves, "first run must write, or projects.json never comes into existence"
+    window.shutdown()
+
+
+def two_project_scan(tmp_path: Path) -> FakeScanResult:
+    roots = tmp_path / "roots"
+    return FakeScanResult(
+        projects=(
+            FakeDetected(roots / "api", "api", port=FakePortFinding(8000)),
+            FakeDetected(roots / "web", "web", port=FakePortFinding(3000)),
+        ),
+        skipped=("'notes': no launcher matched",),
+    )
+
+
+def test_a_first_run_saves_only_the_ticked_projects(qtbot, built, tmp_path) -> None:
+    """LWSM-1008: an unticked project is neither saved nor listed."""
+    asked: list = []
+
+    def untick_api(records, skipped):
+        asked.append(([record.name for record in records], skipped))
+        return [record for record in records if record.name != "api"]
+
+    saves: list = []
+    window, controller = rescan_window(
+        qtbot,
+        built,
+        [],
+        tmp_path,
+        two_project_scan(tmp_path),
+        saves=saves,
+        confirm_first_run=untick_api,
+    )
+
+    run_rescan(qtbot, window)
+
+    assert asked == [(["api", "web"], ("'notes': no launcher matched",))]
+    assert [record.name for record in saves[0][1]] == ["web"]
+    assert [row.name for row in controller.rows()] == ["web"]
+    assert "Saved 1 of 2 projects" in message_of(window)
+    assert not window.is_first_run(), "a saved first run must not ask again"
+    window.shutdown()
+
+
+def test_not_now_on_a_first_run_saves_nothing_and_asks_again(
+    qtbot, built, tmp_path
+) -> None:
+    """LWSM-1008: Not now writes no file, lists nothing, and stays a first run."""
+    saves: list = []
+    window, controller = rescan_window(
+        qtbot,
+        built,
+        [],
+        tmp_path,
+        two_project_scan(tmp_path),
+        saves=saves,
+        confirm_first_run=lambda _records, _skipped: None,
+    )
+
+    run_rescan(qtbot, window)
+
+    assert saves == []
+    assert controller.rows() == []
+    assert "Nothing saved" in message_of(window)
+    assert window.is_first_run()
+    window.shutdown()
+
+
+def test_a_rescan_with_a_saved_list_does_not_ask(qtbot, built, tmp_path) -> None:
+    """The confirmation is for the first run only; later rescans merge as before."""
+    asked: list = []
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [],
+        tmp_path,
+        two_project_scan(tmp_path),
+        load=LoadResult(records=[], reasons=[], rows_refused=0),
+        confirm_first_run=lambda records, skipped: asked.append(records),
+    )
+
+    run_rescan(qtbot, window)
+
+    assert asked == []
+    assert "Rescan: 2 new" in message_of(window)
     window.shutdown()
 
 
@@ -1951,6 +2049,7 @@ def test_a_writer_that_escapes_the_slot_still_re_enables_the_button(
         rescan=context,
         projects_file=files,
         load=RegistryMissing("first run"),
+        confirm_first_run=accept_all,
     )
     qtbot.addWidget(window)
 
@@ -3386,6 +3485,7 @@ def blocking_rescan_window(qtbot, built, tmp_path, saves: list, release):
         rescan=context,
         projects_file=files,
         load=RegistryMissing("first run"),
+        confirm_first_run=accept_all,
     )
     qtbot.addWidget(window)
     return window
@@ -7822,6 +7922,7 @@ def test_a_save_that_was_not_made_durable_reads_as_saved(
         rescan=context,
         projects_file=files,
         load=registry.RegistryMissing("first run"),
+        confirm_first_run=accept_all,
     )
     qtbot.addWidget(window)
 

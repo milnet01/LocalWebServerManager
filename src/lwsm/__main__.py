@@ -390,7 +390,9 @@ def build_window(
     # when the user has chosen something.
     controller.set_poll_interval_ms(poll_interval_ms)
     supervisor.max_log_bytes = log_max_mib * 1024 * 1024
-    if error is not None:
+    # A first run is not an error: `start_first_run` says what is happening
+    # instead (LWSM-1008). A missing file with nowhere to save still is one.
+    if error is not None and not window.is_first_run():
         window.show_load_error(error)
     # Still polls with zero records: INV-5's zero-record case depends on it.
     controller.start_polling()
@@ -405,6 +407,80 @@ Not cosmetic. On Wayland the compositor matches a window to a launcher by
 without this the pinned entry and the running window are two different things
 in the task manager, which is the one job a pin has.
 """
+
+
+def start_first_run(
+    window: MainWindow,
+    choose_directory: Callable[[MainWindow], str | None] | None = None,
+) -> None:
+    """With no project list yet, scan straight away (LWSM-1008).
+
+    The window then shows what was found and saves nothing until the user
+    confirms. When none of the scan folders exists — `~/projects` on a machine
+    that keeps its work elsewhere — the user is asked for one first, rather
+    than shown an empty list (`design.md § Detection rules`); the folder is
+    remembered in the scan-roots file, as Preferences would remember it.
+
+    Called from the event loop, not from `build_window`: the window is on
+    screen first, and a test building a window never reaches a real chooser.
+    """
+    from PySide6.QtCore import QCoreApplication
+
+    from lwsm.configfile import ConfigFileError
+    from lwsm.scanroots import save_scan_roots
+
+    if not window.is_first_run():
+        return
+    if not any(_is_dir(root) for root in window.scan_roots()):
+        choose = (
+            _choose_first_scan_root if choose_directory is None else choose_directory
+        )
+        chosen = choose(window)
+        if not chosen:
+            window.set_status_message(
+                QCoreApplication.translate(
+                    "Startup",
+                    "No folder chosen. Choose one in Preferences, then press Rescan.",
+                )
+            )
+            return
+        window.set_scan_roots((Path(chosen),))
+        try:
+            save_scan_roots((Path(chosen),))
+        except (ConfigFileError, OSError, RuntimeError) as exc:
+            # Scanned anyway: the choice holds for this session, and the log
+            # says why the next start will ask again.
+            applog.get_logger(__name__).warning(
+                "the chosen folder could not be remembered: %s", exc
+            )
+    window.set_status_message(
+        QCoreApplication.translate("Startup", "Looking for projects...")
+    )
+    window.start_rescan()
+
+
+def _is_dir(root: Path) -> bool:
+    # `Path.is_dir` re-raises EACCES and ENAMETOOLONG on 3.13; an unusable
+    # folder is simply not one to scan.
+    try:
+        return root.is_dir()
+    except OSError:
+        return False
+
+
+def _choose_first_scan_root(window: MainWindow) -> str | None:
+    """The real folder chooser, used whenever nothing was injected."""
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtWidgets import QFileDialog
+
+    chosen = QFileDialog.getExistingDirectory(
+        window,
+        QCoreApplication.translate(
+            "Startup", "Choose the folder that holds your projects"
+        ),
+        str(Path.home()),
+    )
+    return chosen or None
 
 
 def _ask_restore_dialog(saved_at: datetime) -> bool:
@@ -684,10 +760,20 @@ def main(argv: list[str] | None = None) -> int:
     # inside build_window's RegistryError catch rather than out here (LWSM-1116).
     window, controller = build_window()
     shown.append(window)
+    # Queued, so the window is on screen before the first-run scan and its
+    # dialog (LWSM-1008). A timer object rather than `singleShot`, so it can be
+    # stopped below: one still pending when `main` returns must not fire later.
+    from PySide6.QtCore import QTimer
+
+    first_run = QTimer()
+    first_run.setSingleShot(True)
+    first_run.timeout.connect(lambda: start_first_run(window))
     try:
         window.show()
+        first_run.start(0)
         return app.exec()
     finally:
+        first_run.stop()
         # In a `finally`, so an exception out of show() or exec() cannot leave a
         # pool thread outliving its controller — the race INV-16 exists to
         # prevent.

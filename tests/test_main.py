@@ -2000,3 +2000,84 @@ def test_a_first_run_is_not_a_damaged_list(qtbot, tmp_path) -> None:
     window, controller = build_window(projects, ask_restore=never)
     qtbot.addWidget(window)
     controller.stop()
+
+
+# --- LWSM-1008: the first run --------------------------------------------------
+
+
+def first_run_window(qtbot, tmp_path, monkeypatch, confirm=None):
+    """A first-run window whose default scan folder does not exist.
+
+    HOME is pointed at an empty directory, so `~/projects` is absent whatever
+    the developer's machine holds (`testing-overrides.md § T1`), and the
+    confirmation is injected: the real one is a modal nobody would click.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        window,
+        "_confirm_first_run",
+        confirm if confirm is not None else (lambda records, _skipped: list(records)),
+    )
+    return window, controller
+
+
+@pytest.mark.gui
+def test_a_first_run_asks_for_a_folder_remembers_it_and_saves_what_it_finds(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    projects = tmp_path / "work"
+    site = projects / "site"
+    site.mkdir(parents=True)
+    (site / "start.sh").write_text("#!/bin/sh\nexec python3 -m http.server 8080\n")
+    (site / "start.sh").chmod(0o755)
+    window, controller = first_run_window(qtbot, tmp_path, monkeypatch)
+    try:
+        assert window._load_error is None, "a first run is not an error"
+
+        entry.start_first_run(window, choose_directory=lambda _window: str(projects))
+        qtbot.waitUntil(lambda: not window._rescan_in_flight, timeout=10000)
+
+        assert window.scan_roots() == (projects,)
+        assert str(projects) in scanroots.scan_roots_path().read_text()
+        saved = json.loads((tmp_path / "projects.json").read_text())
+        assert [entry_["name"] for entry_ in saved["projects"]] == ["site"]
+        assert not window.is_first_run()
+    finally:
+        controller.stop()
+        window.shutdown()
+
+
+@pytest.mark.gui
+def test_a_first_run_with_no_folder_chosen_scans_nothing(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    window, controller = first_run_window(qtbot, tmp_path, monkeypatch)
+    try:
+        entry.start_first_run(window, choose_directory=lambda _window: None)
+
+        assert not window._rescan_in_flight
+        assert "No folder chosen" in message_of(window)
+        assert window.is_first_run()
+        assert not (tmp_path / "projects.json").exists()
+    finally:
+        controller.stop()
+        window.shutdown()
+
+
+@pytest.mark.gui
+def test_a_saved_list_starts_no_first_run(qtbot, tmp_path, monkeypatch) -> None:
+    (tmp_path / "projects.json").write_text('{"schema_version": 1, "projects": []}\n')
+    window, controller = first_run_window(qtbot, tmp_path, monkeypatch)
+    asked: list = []
+    try:
+        entry.start_first_run(window, choose_directory=lambda w: asked.append(w))
+
+        assert asked == []
+        assert not window._rescan_in_flight
+    finally:
+        controller.stop()
+        window.shutdown()

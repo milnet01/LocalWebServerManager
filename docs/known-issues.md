@@ -455,6 +455,9 @@ otherwise. What is missing is the thing that would notice it stopping.
   rather than have this changed twice.
 - **Will be addressed in:** LWSM-1008 (P03 — first-run flow)
 - **Logged:** 2026-08-12
+- **Resolved 2026-10-02 by LWSM-1008:** every reason a candidate raises now
+  starts with that folder's quoted name, so the first-run screen shows which
+  project a hop refusal came from.
 
 ## known-issue-018 — A hex literal yields a fabricated port (`0x1F90` → 1)
 

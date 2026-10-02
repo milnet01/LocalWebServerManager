@@ -400,6 +400,17 @@ Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
   interleaved ones** — a stated loss, pinned by a test: re-attaching a comment
   to the wrong surviving line is worse than dropping it.
 
+Added for LWSM-1008. **No spec** — build-first, per § Review cadence:
+
+- **`src/lwsm/firstrun.py`** — UI layer. `FirstRunDialog`, `ask_first_run`,
+  `describe`. With no `projects.json` yet, the first scan's projects are
+  listed here, each ticked, before anything is written; Save returns the
+  ticked records and Not now returns `None`, never `[]`, which would save an
+  empty list. **It owns no I/O**: `MainWindow._apply_rescan` calls it through
+  the injected `confirm_first_run` seam and writes through `_apply_merge`.
+  `__main__.start_first_run` starts the scan once the window is shown, and asks
+  for a folder first when no scan root exists.
+
 Added later, both core with no Qt at all:
 
 - **`src/lwsm/browsers.py`** (LWSM-1187) — the desktop's own registered

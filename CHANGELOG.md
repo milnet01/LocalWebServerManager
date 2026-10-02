@@ -23,6 +23,13 @@ signaling per
 
 ### Added
 
+- **The first start finds your projects and asks before saving them.** (LWSM-1008)
+  With no project list yet, the app scans straight away and lists every
+  project it found, each with a tick box. Save keeps the ticked ones; Not
+  now saves nothing and the next start asks again. Folders it skipped are
+  listed below, each with its reason. If none of the folders it scans
+  exists, it asks you to choose one first and remembers it.
+
 - **The app keeps a backup of your project list, and offers it if the list ever cannot be read.** (LWSM-1039)
   The first save of each run copies the list as it was at startup to
   projects.json.bak. If the list later fails to load, the app asks before

@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 SOURCES = [
     REPO / "src" / "lwsm" / "mainwindow.py",
     REPO / "src" / "lwsm" / "settingsdialog.py",
+    REPO / "src" / "lwsm" / "firstrun.py",
 ]
 
 
@@ -73,7 +74,9 @@ def test_each_module_uses_exactly_one_context(extracted) -> None:
     It is also what now holds the rule the `_TR_CONTEXT` constant used to hold
     by construction (LWSM-1304).
     """
-    assert set(extracted) == {"ProjectRow", "SettingsDialog"}, sorted(extracted)
+    assert set(extracted) == {"ProjectRow", "SettingsDialog", "FirstRunDialog"}, sorted(
+        extracted
+    )
 
 
 def _translate_calls(path: Path) -> list[ast.Call]:
