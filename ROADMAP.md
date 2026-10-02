@@ -26,7 +26,7 @@
 
 **Legend** (per `docs/standards/roadmap-format.md § 3.3`)
 
-- 📋 Planned (next up for this phase)
+- 📋 Planned (next up for its release)
 - 🚧 In progress (being tackled now)
 - ✅ Done (shipped)
 - 💭 Considered (research phase; scope or feasibility uncertain)
@@ -10529,7 +10529,7 @@ bugs in the same area.
   Source: in-session-2026-10-01 (0.1.0 release).
   Lanes: docs.
 
-- 📋 [LWSM-1313] **The roadmap legend still says 📋 means "next up for this phase".**
+- ✅ [LWSM-1313] **The roadmap legend still says 📋 means "next up for this phase".**
   The legend list under the preamble is stored as a separate element.
   roadmap_log set_preamble does not reach it, and no op edits it, so the
   wording could not be changed with LWSM-1311. A hand edit is reverted by
@@ -10541,6 +10541,9 @@ bugs in the same area.
   MCP the same day. Moved from the released 0.1.0 section to 0.2.0.
   Blocked-by: ANTS-5615 (filed by Ants Terminal 2026-10-02). That session
   will message when it ships. No workaround; do not hand-edit the line.
+  Resolved (2026-10-02): ANTS-5615 shipped op set_legend. The planned
+  line now reads "Planned (next up for its release)". The considered
+  line's "research phase" is a different sense of phase and was kept.
   **Layman:** One line in the roadmap's key still talks about phases, though the roadmap is now grouped by version.
   Kind: doc-fix.
   Source: in-session-2026-09-25, found while updating the preamble for LWSM-1311.
