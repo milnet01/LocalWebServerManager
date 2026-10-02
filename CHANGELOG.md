@@ -38,6 +38,10 @@ signaling per
 
 ### Changed
 
+- **The first-run "Not added" list shows real folders only** (LWSM-1383)
+  Plain files and hidden dot-folders are left out of the dialog, so the
+  folders that matter are not buried. Both still reach the log.
+
 - **The project's rulebooks now follow the author's shared standards, and keep only this project's differences.** (LWSM-1326)
   The seven project-owned copies in docs/standards/ were replaced by
   short *-overrides.md files, each holding one rule per difference with

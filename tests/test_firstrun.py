@@ -12,10 +12,11 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QDialog
 
-from lwsm import firstrun
+from lwsm import firstrun, scanner
 from lwsm.firstrun import FirstRunDialog, describe
 from lwsm.mainwindow import MIN_TARGET_PX
 from lwsm.registry import ProjectRecord
+from scanner_fixtures import FakeUnits
 
 pytestmark = pytest.mark.gui
 
@@ -68,6 +69,49 @@ def test_the_scan_reasons_are_shown_and_hidden_when_there_are_none(qtbot) -> Non
     assert not shown._skipped.isHidden()
     assert none._skipped.isHidden()
     assert none._skipped_title.isHidden()
+
+
+def test_only_real_folders_are_listed_as_not_added(qtbot) -> None:
+    """LWSM-1383 (user, 2026-10-02): plain files and dot-folders are left out
+    of the dialog; the tail line and a folder's own reason stay."""
+    dialog = build(
+        qtbot,
+        [project("web")],
+        (
+            "'notes': no launcher matched",
+            "'README.md': is not a directory",
+            "'.cache': no launcher matched",
+            '".it\'s": cannot be examined (Permission denied)',
+            "and 3 more problems, not shown",
+        ),
+    )
+
+    assert dialog._skipped.text().splitlines() == [
+        "'notes': no launcher matched",
+        "and 3 more problems, not shown",
+    ]
+
+
+def test_a_scan_of_only_files_and_dot_folders_shows_no_list(qtbot) -> None:
+    """Nothing left after the filter hides the heading too, not just the text."""
+    dialog = build(qtbot, [project("web")], ("'a.txt': is not a directory",))
+
+    assert dialog._skipped.isHidden()
+    assert dialog._skipped_title.isHidden()
+
+
+def test_the_filter_matches_the_real_scanners_wording(qtbot, tmp_path) -> None:
+    """`worth_showing` reads the scanner's reason strings, so this runs the
+    real scanner: a reworded reason fails here instead of quietly coming back."""
+    (tmp_path / "notes").mkdir()
+    (tmp_path / ".cache").mkdir()
+    (tmp_path / "README.md").write_text("")
+    result = scanner.scan([tmp_path], units=FakeUnits())
+    assert len(result.skipped) == 3  # the scanner still reports all three
+
+    dialog = build(qtbot, [], result.skipped)
+
+    assert dialog._skipped.text() == "'notes': no launcher matched"
 
 
 def test_an_empty_scan_still_offers_save(qtbot) -> None:

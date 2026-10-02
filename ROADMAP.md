@@ -10703,7 +10703,7 @@ bugs in the same area.
   Source: in-session-2026-10-02 (LWSM-1381 gate loop 4).
   Lanes: docs.
 
-- 📋 [LWSM-1383] **Trim the first-run "Not added" list to folders a user would expect to see.**
+- ✅ [LWSM-1383] **Trim the first-run "Not added" list to folders a user would expect to see.**
   Measured 2026-10-02 on the author's real scan root, on a private X
   display: the list under "Not added, or not fully read" ran past the
   fold with hidden dot-folders ("no launcher matched"), plain files ("is
@@ -10714,10 +10714,31 @@ bugs in the same area.
   Priority: 3.
   Decided (user, 2026-10-02): real folders only. The dialog leaves out
   plain files and dot-folders; both still reach the log.
+  Shipped 2026-10-02: firstrun.worth_showing drops reasons ending
+  "is not a directory" and reasons naming a dot-entry; the scanner and
+  the log are unchanged. Three tests in test_firstrun.py, one running
+  the real scanner so a reworded reason fails there; all three proven
+  red with the filter removed. Side effect filed as LWSM-1384.
   **Layman:** The first-run screen lists every hidden folder and stray file it passed over, which buries the few that matter.
   Kind: ux.
   Source: in-session-2026-10-02 (LWSM-1008 end-to-end run).
   Lanes: ui.
+
+- 📋 [LWSM-1384] **The scan's reason cap counts lines the first-run dialog then hides.**
+  Measured 2026-10-02 on a real scan root: the scanner kept 100 reasons
+  (MAX_SKIP_REASONS) plus "and 75 more problems, not shown"; 40 of the 100
+  were plain files or dot-folders, which LWSM-1383 now drops in
+  FirstRunDialog. So the dialog showed about 60 lines while real folders
+  sat in the uncounted tail. Options: count the cap only on reasons the
+  dialog shows, or make the tail say how many hidden entries it skipped.
+  The log still wants every reason, so the fix is not to filter in the
+  scanner. Recommendation: let the scanner tag each reason with what kind
+  of entry it is, and apply the cap per kind.
+  Priority: 3.
+  **Layman:** Hidden files still use up the first-run list's limited space, so some real folders end up in the "and N more" line instead.
+  Kind: ux.
+  Source: in-session-2026-10-02 (LWSM-1383 real-population check).
+  Lanes: core, ui.
 
 ## 0.3.0 — The full state model
 

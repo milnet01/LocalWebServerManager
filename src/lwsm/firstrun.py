@@ -8,7 +8,9 @@ anything is written (`design.md § Data flow`, LWSM-1131 § 4.4). Settled with
 the user on 2026-10-02: every project found is listed with a tick box, ticked;
 Save stores the ticked ones, Not now stores nothing and the next start asks
 again. Below them, the scan's own reasons — folders not added, files not read —
-one per line, because a project the scan missed is otherwise invisible.
+one per line, because a project the scan missed is otherwise invisible. Only
+real folders are listed there (user, 2026-10-02, LWSM-1383): plain files and
+dot-folders buried the few that mattered, and both still reach the log.
 
 **The dialog owns no I/O**, for `SettingsDialog`'s reason: it is handed records
 and returns records, and the write stays in `MainWindow._apply_merge`, behind
@@ -44,6 +46,20 @@ def _launcher(record: ProjectRecord) -> str:
     if record.unit:
         return record.unit
     return " ".join(record.argv)
+
+
+def worth_showing(reason: str) -> bool:
+    """Whether one scan reason belongs in the dialog's "Not added" list.
+
+    Read from the reason's wording, because `ScanResult.skipped` is strings:
+    every per-entry reason opens with the entry's `repr`, so a dot-name opens
+    `'.` or `".`. The filter lives here, not in the scanner, because the merge
+    and the log read the scanner's reasons whole. `test_firstrun.py` runs the
+    real scanner so a reworded reason fails there rather than reappearing here.
+    """
+    if reason.endswith(": is not a directory"):
+        return False
+    return not reason.startswith(("'.", '".'))
 
 
 def describe(record: ProjectRecord) -> str:
@@ -97,6 +113,7 @@ class FirstRunDialog(QDialog):
         heading = self._skipped_title.font()
         heading.setBold(True)
         self._skipped_title.setFont(heading)
+        skipped = [reason for reason in skipped if worth_showing(reason)]
         self._skipped = QLabel("\n".join(skipped))
         # Plain and selectable, as `MainWindow.show_load_error` does: these
         # carry folder names from somebody else's tree.
