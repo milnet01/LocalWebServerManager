@@ -276,9 +276,12 @@ are **row** refusals: a non-string `name` or `path` drops the whole object, as
 accepted rather than defended.** The record holds the parsed value, so the
 writer emits the default and the hand-typed `"port": "3000"` is gone. The
 asymmetry with a refused *row* (§ 4.3, which refuses to write at all) is
-deliberate and rests on one distinction: **a refused field's text is by
-definition not a valid value of that field, while a refused row may be entirely
-valid apart from one typo.** The user is told at load either way. § 8 records it
+deliberate and rests on one distinction: **a refused field's text is not a
+valid value of that field to this build, while a refused row may be entirely
+valid apart from one typo.** A newer build may have written it, such as a fifth
+`kind`; that loss is accepted because `kind` is detected, nothing outside the
+scanner reads it, and the next rescan by the newer build writes it again
+(LWSM-1353). The user is told at load either way. § 8 records it
 beside the carry-through alternative.
 
 **`kind` accepts only a value of `LauncherKind` — `"systemd"`, `"shell"`,
@@ -816,9 +819,9 @@ by asserting harder.
   ImportError that rules out the naive third option, importing the enum upward.
 - **Preserve the original text of a field the loader dropped**, so a mistyped
   `"port": "3000"` survives the next write. Rejected on the same scope grounds
-  as the row case above, and on a narrower one: a refused *field's* text is by
-  definition not a valid value of that field, so preserving it means carrying
-  text that can never be used for anything except being written back. § 4.2
+  as the row case above, and on a narrower one: a refused *field's* text is not
+  a valid value of that field to this build, so preserving it means carrying
+  text this build can use for nothing except writing it back. § 4.2
   states the loss instead.
 - **Ship the writer and the merge as one item** — which is what the umbrella
   spec was. Rejected by measurement, not by taste: § 3 carries the numbers.

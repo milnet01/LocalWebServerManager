@@ -330,8 +330,10 @@ def _port_or_reason(
 # required keys `name` and `path` are the only row refusals.
 #
 # A dropped field's original text is lost on the next write, and that is accepted
-# rather than defended: a refused field's text is by definition not a valid value
-# of that field, while a refused row may be entirely valid apart from one typo.
+# rather than defended: a refused field's text is not a valid value of that field
+# to this build, while a refused row may be entirely valid apart from one typo. A
+# newer build's fifth `kind` is lost the same way until its next rescan, which
+# costs nothing while no code outside the scanner reads `kind` (LWSM-1353).
 
 
 def _string_or_reason(
