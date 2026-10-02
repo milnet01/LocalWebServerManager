@@ -98,8 +98,11 @@ trap 'fail "$CURRENT_STEP"' ERR
 # blocker check did not run" must not print the same way.
 BLOCKERS=()
 SKIPPED=()
+# Worth knowing before a release, and not a reason to stop one (LWSM-1347).
+WARNINGS=()
 block() { BLOCKERS+=("$1"); printf '%s  BLOCKED: %s%s\n' "$RED" "$1" "$RESET"; }
 skip() { SKIPPED+=("$1"); printf '%s  SKIPPED: %s%s\n' "$YELLOW" "$1" "$RESET"; }
+warn() { WARNINGS+=("$1"); printf '%s  WARNING: %s%s\n' "$YELLOW" "$1" "$RESET"; }
 ok() { printf '  %s\n' "$1"; }
 
 # --- 0a: the recipe exists and is in the dialect cut-release reads -----------
@@ -435,6 +438,48 @@ else
     fi
 fi
 
+# --- 0h: the CI tool pins against their latest releases --------------------
+
+# Where each pin in scripts/ci-tools.env is released. dependabot reads none of
+# these pins, so this release-time check is the only thing that notices one
+# falling behind (LWSM-1347; the user chose a release check over a scheduled
+# workflow, 2026-10-02).
+TOOL_REPOS=(
+    "SHELLCHECK_VERSION koalaman/shellcheck"
+    "YAMLLINT_VERSION adrienverge/yamllint"
+    "ACTIONLINT_VERSION rhysd/actionlint"
+    "UV_VERSION astral-sh/uv"
+)
+
+# One pin against its repository's latest release. Behind is a WARNING, not a
+# blocker: a tool bump can turn the gate red, and is its own piece of work
+# (scripts/ci-tools.env says how). A lookup that fails is a skip, never "up to
+# date" — the split this whole script draws.
+pin_status() {
+    local key=$1 repo=$2 pinned latest
+    pinned=$(sed -n "s/^${key}=//p" scripts/ci-tools.env)
+    if [[ -z $pinned ]]; then
+        skip "$key is not in scripts/ci-tools.env"
+        return 0
+    fi
+    latest=$(gh api "repos/$repo/releases/latest" --jq .tag_name 2>/dev/null || true)
+    latest=${latest#v}
+    if [[ -z $latest ]]; then
+        skip "$key: could not read $repo's latest release"
+    elif [[ $pinned == "$latest" ]]; then
+        ok "$key $pinned is the latest release"
+    else
+        warn "$key is pinned at $pinned; $repo's latest release is $latest"
+    fi
+    return 0
+}
+
+step "0h  CI tool pins against their latest releases"
+for entry in "${TOOL_REPOS[@]}"; do
+    # shellcheck disable=SC2086  # two words, split on purpose
+    pin_status $entry
+done
+
 # --- optional: prove the bump applies and post_check passes ------------------
 
 # Apply the recipe's bump, run its post_check, and ALWAYS put the tree back.
@@ -515,6 +560,11 @@ fi
 # --- verdict -----------------------------------------------------------------
 
 printf '\n'
+if ((${#WARNINGS[@]})); then
+    printf '%s%d warning(s), none of them a blocker:%s\n' \
+        "$YELLOW" "${#WARNINGS[@]}" "$RESET"
+    for item in "${WARNINGS[@]}"; do printf '  - %s\n' "$item"; done
+fi
 if ((${#BLOCKERS[@]})); then
     printf '%sNOT READY — %d blocker(s):%s\n' "$RED" "${#BLOCKERS[@]}" "$RESET"
     for item in "${BLOCKERS[@]}"; do printf '  - %s\n' "$item"; done

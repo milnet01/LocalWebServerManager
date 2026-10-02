@@ -491,3 +491,81 @@ def test_a_missing_python_is_named_rather_than_blamed_on_the_recipe(tmp_path) ->
     )
     assert result.returncode == 2, result.stderr
     assert "python3 is not on PATH" in result.stderr
+
+
+# --- LWSM-1347: the CI tool pins against their latest releases ---------------
+
+
+def _pin_status(tmp_path: Path, answer: str | None, pinned: str = "1.2.3") -> list[str]:
+    """Run the script's OWN `pin_status()` against a `gh` answering `answer`
+    as the latest tag (None: a gh that fails), in a tree pinning `pinned`."""
+    body = re.search(r"^pin_status\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M)
+    assert body, "the release script has no pin_status() to run"
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/ci-tools.env").write_text(f"TOOL_VERSION={pinned}\n")
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    for tool in ("bash", "sed"):
+        found = shutil.which(tool)
+        assert found, f"{tool} is not on PATH"
+        (binaries / tool).symlink_to(found)
+    stub = binaries / "gh"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        + (f"echo {answer}\n" if answer is not None else "exit 1\n")
+    )
+    stub.chmod(0o755)
+    script = (
+        "set -Eeuo pipefail\n"
+        'warn() { printf "WARN %s\\n" "$1"; }\n'
+        'skip() { printf "SKIP %s\\n" "$1"; }\n'
+        'ok()   { printf "OK %s\\n" "$1"; }\n'
+        f"{body.group(0)}\n"
+        'pin_status "$1" "$2"'
+    )
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    done = subprocess.run(
+        [bash, "-c", script, "_", "TOOL_VERSION", "owner/tool"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PATH": str(binaries)},
+    )
+    assert done.returncode == 0, f"pin_status() failed: {done.stderr}"
+    return done.stdout.splitlines()
+
+
+def test_a_pin_at_the_latest_release_is_ok(tmp_path) -> None:
+    """A `v` prefix on the tag is not a difference: shellcheck tags `v0.11.0`
+    and pins `0.11.0`."""
+    (line,) = _pin_status(tmp_path, "v1.2.3")
+    assert line.startswith("OK ")
+
+
+def test_a_pin_behind_its_latest_release_warns(tmp_path) -> None:
+    """LWSM-1347: a warning naming both versions, never a blocker."""
+    (line,) = _pin_status(tmp_path, "1.2.13")
+    assert (
+        line
+        == "WARN TOOL_VERSION is pinned at 1.2.3; owner/tool's latest release is 1.2.13"
+    )
+
+
+def test_a_failed_lookup_is_a_skip_and_never_up_to_date(tmp_path) -> None:
+    """The script's one rule: "not checked" must not read as "clear"."""
+    (line,) = _pin_status(tmp_path, None)
+    assert line.startswith("SKIP ")
+
+
+def test_every_pin_in_the_tools_file_is_checked() -> None:
+    """A pin added to scripts/ci-tools.env without a TOOL_REPOS row would never
+    be checked, silently. SHA256 lines pin an artifact, not a version."""
+    pinned = set(
+        re.findall(
+            r"^(\w+_VERSION)=", (REPO / "scripts/ci-tools.env").read_text(), re.M
+        )
+    )
+    checked = set(re.findall(r'^\s+"(\w+_VERSION) ', RELEASE.read_text(), re.M))
+    assert pinned and pinned == checked
