@@ -190,8 +190,8 @@ Port probing is unchanged — ADR-0004 classifies from the socket
 table either way, which is precisely the benefit of deriving
 state from observation rather than from ownership. A
 service-managed project is never `running (foreign)` merely
-because this manager did not spawn it; the launcher kind tells
-the classifier that systemd's instance *is* the managed one.
+because this manager did not spawn it: a holder in the project's
+own unit is `running (managed)` (ADR-0004's service row).
 
 **Detection:** a unit whose name matches the project is only a
 candidate. It binds by the location rule below, and the registry

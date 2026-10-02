@@ -41,9 +41,10 @@ asks the wider question, whether anything is bound at all
 
 Each poll takes **one** socket-table snapshot and classifies
 every project against it. Classification combines what the
-`Supervisor` knows about a child it owns with two questions
-`PortProbe` answers from that snapshot: *what holds the effective
-port?* and *which ports does this process group hold?* The second
+`Supervisor` knows about a child it owns with two questions asked
+of that snapshot: *what holds the effective port?* and *which ports
+does this process group hold?* The controller answers the second
+from the snapshot's holders and `Supervisor.owns_pid`. The second
 is what makes the post-flight check in ADR-0002 implementable.
 
 **Seven derived states** — `stopped`, `starting`,
@@ -96,13 +97,15 @@ Three rules the table depends on:
   executable and the working directory is home, which is how
   XDG-autostart units run (measured 2026-10-02). Without it, any unrelated process on port 5000
   would make project-d read as running, and the pre-flight warning
-  that discovery success criterion 4 requires could never fire. A
-  holder that fails the test — or whose PID cannot be resolved at
-  all — is `port blocked`: the project is not running, something is
+  that discovery success criterion 4 requires could never fire. With
+  no live child of ours, a holder that fails the test — or whose PID
+  cannot be resolved at all — is `port blocked` (beside a live child
+  it is `failed`, per the table): the project is not running, something is
   in its way, and Start is refused with that explanation.
 
-  **It is a display heuristic with no security value, and nothing
-  may be gated on it** (security review, 2026-08-03). `chdir()` is
+  **It is a display heuristic with no security value: no trust
+  decision rests on it, and it never skips a disclosure** (security
+  review, 2026-08-03). `chdir()` is
   free: any local process can `cd` into a project directory and
   bind its port, and the manager will then label it
   `running (foreign)`, show an uptime for it, and — as originally
@@ -111,9 +114,11 @@ Three rules the table depends on:
   Restart through a unit, on a server this app did not start first
   show a disclosure naming the holder: its executable path, uid,
   cmdline, start time and unit. Stopping a foreign set shows the
-  set instead (below). The disclosure is skipped only where our own
-  child's group holds the port, so a `running (managed)` row that is
-  a systemd instance still shows it. For a *managed* server, identity is
+  set instead (below). The disclosure is skipped where our own
+  child's group holds the port, and for Stop and Restart wherever we
+  hold a live child, since those signal our child and never the
+  holder. A `running (managed)` row that is a systemd instance still
+  shows it. For a *managed* server, identity is
   the recorded child PID **plus its `create_time`**, never the
   working directory.
 - **An exited child is remembered for exactly one classification**,
@@ -135,7 +140,8 @@ Three rules the table depends on:
   table would say `stopped` — then Start would cheerfully spawn a
   duplicate. Probing both ports means a restarted manager
   re-adopts it as `running (foreign)` on the port it really
-  holds, which is the truth. This costs nothing extra: both ports
+  holds, when that holder looks like the project, and reads
+  `stopped` otherwise. This costs nothing extra: both ports
   are read from the same snapshot.
 
 ### Slowness is not failure — amended 2026-08-03
@@ -227,8 +233,9 @@ Consequences of the rule:
   see — measured on this machine 2026-08-03: 5 of 11 listening
   sockets were attributable and 6 were not. When the PID is
   unavailable the port shows as held by a process this user
-  cannot inspect, the project reads `port blocked`, Stop is
-  disabled, and no name is invented.
+  cannot inspect and no name is invented. With no live child of
+  ours the project reads `port blocked` and Stop is disabled;
+  beside a live child it reads `failed` and Stop reaches our child.
 
 ## Consequences
 
@@ -257,8 +264,8 @@ Consequences of the rule:
   overlay** so buttons feel immediate: pressing Start shows
   `starting` at once rather than waiting for the next poll. The
   overlay is a labelled layer over the derived state, discarded
-  when a poll reports the state it was heading for and never on a
-  timer —
+  when a poll reports the state it was heading for or shows it
+  can never get there, and never on a timer —
   its rules are in `docs/design.md § State management`, and it
   never becomes a second store.
 - Two projects deliberately sharing a port cannot be told apart
