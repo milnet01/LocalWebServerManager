@@ -11344,6 +11344,26 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: review-contract ADR-0004 loop 2, 2026-10-02.
   Lanes: core, tests.
 
+- 📋 [LWSM-1390] **tests/test_supervisor.py defines `_pgid` twice.**
+  Noticed while adding LWSM-1389's test: two identical `def _pgid` in
+  tests/test_supervisor.py, the later one shadowing the earlier. Delete one
+  and confirm the suite still collects the same tests.
+  **Layman:** A small helper in the test files is written out twice; keep one.
+  Kind: chore.
+  Source: in-session-2026-10-02.
+  Lanes: tests.
+
+- 📋 [LWSM-1391] **Mark known-issue-043 resolved if unknown keys now survive a save.**
+  docs/known-issues.md known-issue-043 says unknown keys in projects.json
+  are deleted on the next write. ProjectRecord.unknown and _unknown_or_reason
+  in src/lwsm/registry.py now carry them through a save. Confirm with a test
+  that a key this build does not know survives load-then-save, then mark the
+  entry resolved, naming the item that fixed it. LWSM-1038 depends on it.
+  **Layman:** A recorded data-loss bug looks fixed but its record still says open.
+  Kind: doc-fix.
+  Source: in-session-2026-10-02 (LWSM-1038 prep).
+  Lanes: docs.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.
