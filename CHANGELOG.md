@@ -78,6 +78,13 @@ signaling per
 
 ### Fixed
 
+- **Stop and Restart act only on a server's own login service** (LWSM-1012)
+  A server started from a terminal inside another login-started app
+  (an editor, say) could have had Stop shut down that whole app. The
+  app now checks that a service belongs to the project before driving
+  it, and refuses with a reason when it does not. Stop now also works
+  for a login service whose process this user cannot inspect.
+
 - **The first-run "Not added" list no longer loses real folders behind hidden files** (LWSM-1384)
 
 - **On X11 desktops, a window remembered at the bottom of the screen no longer comes back with its edge hanging off it.** (LWSM-1354)

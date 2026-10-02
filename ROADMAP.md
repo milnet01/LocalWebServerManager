@@ -10870,7 +10870,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
 
 [ADR-0004](docs/decisions/0004-runtime-truth-from-probing.md) is the contract.
 
-- 🚧 [LWSM-1012] **P06: foreign-server adoption and guarded stop.**
+- ✅ [LWSM-1012] **P06: foreign-server adoption and guarded stop.**
   A server started outside the app shows as running and
   labelled; Stop enumerates the holder's descendants, names them
   in a confirmation dialog, and signals exactly that set — never
@@ -10946,6 +10946,12 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   the code's: the command-line anchor is what XDG-autostart units carry.
   ADR-0003 amended in e092a10; its rule-14 gate is running. What remains
   here is the unit-less signalling half, which LWSM-1301 also carries.
+  Closed (2026-10-02). L3-M4 fixed (59372e9, 5faaf5f, 01565bb, 71d7379):
+  an adopted unit is driven only when it binds to the project, and Stop
+  and Restart fall back to the bound unit when no holder is named.
+  ADR-0003 records the rules; its gate ran to its cap (tail LWSM-1388).
+  The one criterion left, signalling a holder that is in no unit, is
+  LWSM-1301's whole scope, so it is carried there rather than here.
 
 - 📋 [LWSM-1011] **P06: the seven-state classifier.**
   One
@@ -11081,6 +11087,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: implement.
   Source: in-session-2026-09-06 (LWSM-1012 residual).
   Lanes: core, ui, tests.
+  Splits-from: LWSM-1012.
 
 - 📋 [LWSM-1194] **Check whether a change to `RowView.managed` alone ever re-renders the row.**
   **Filed unverified, and the reasoning is here so the check is cheap.**
