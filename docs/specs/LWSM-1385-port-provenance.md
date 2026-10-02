@@ -1,7 +1,7 @@
 <!-- ants-spec-format: 1 -->
 # LWSM-1385 — Save where a project's port came from, and show any disagreement on its row
 
-**Status:** spec draft (2026-10-02).
+**Status:** accepted (2026-10-02).
 **Kind:** feature.
 **Source:** ROADMAP LWSM-1385 (in-session-2026-10-02, split from LWSM-1121).
 **Blocked by:** LWSM-1121 (shipped 2026-10-02).
@@ -125,7 +125,7 @@ them back untouched.
 | Key | Type | Default when absent | Refused when |
 |---|---|---|---|
 | `port_from` | object `{port, rule, source}` or `null` | `null` | not an object; a key missing or extra; `port` not an int in `DECLARED_PORT_RANGE`; `rule` not a lower-cased `PortRule` name; `source` not a non-empty string of at most `MAX_DISPLAY_NAME_CHARS` characters that `is_writable_text` accepts; **or `port` differs from the record's `port`** |
-| `port_conflicts` | array of the same object | `[]` | not an array; more than `MAX_PORT_CONFLICTS = 8` elements; any element refused by `port_from`'s rules (less the last); any element's `port` equal to `port_from.port`; **or non-empty while `port_from` is absent or refused** |
+| `port_conflicts` | array of the same object | `[]` | not an array; more than `MAX_PORT_CONFLICTS = 8` elements; any element refused by `port_from`'s rules (less the last); any element's `port` equal to `port_from.port`; **or non-empty while `port_from` is absent**. A refused `port_from` drops it too, under `port_from`'s reason and with none of its own |
 
 A refusal follows LWSM-1007 § 4.2's blanket rule: the field takes its default
 and a reason is reported. Both are detected fields, so a refusal never adds to
@@ -158,7 +158,9 @@ in a record.
 
 **A provenance-only difference is not *changed*.** `merge` compares the old and
 new record with `port_from` and `port_conflicts` set aside when deciding the
-`CHANGED` outcome; any other detected field differing still counts. The
+`CHANGED` and `UNCHANGED` outcomes; any other detected field differing still
+counts. The record is still replaced, so `MainWindow._apply_merge` saves the
+new provenance. The
 `OVERRIDE_DIFFERS` and `NOT_REOBSERVED` tests already read `port` alone and do
 not change.
 
@@ -207,9 +209,9 @@ is visible text in the cell; the tooltip and description add which files.
   is the case an older build produces by updating `port` and carrying the
   provenance through `unknown` unchanged.
 
-- **INV-3** — Each refusal in § 4.3's table drops only that field, adds one
-  reason, and leaves `user_fields_refused` empty. A refused `port_from` takes
-  `port_conflicts` with it, under the same reason.
+- **INV-3** — Each refusal in § 4.3's table drops that field (a refused
+  `port_from` also drops `port_conflicts`), adds exactly one reason, and
+  leaves `user_fields_refused` empty.
   *Test:* `tests/test_registry.py`, parametrised over one fixture per refusal
   cell, including nine conflicts and a conflict equal to the winning port.
   *Breaks when:* a refusal raises, drops the row, or is recorded as a
@@ -226,8 +228,9 @@ is visible text in the cell; the tooltip and description add which files.
 - **INV-5** — A rescan that changes only `port_from` or `port_conflicts` counts
   the project as unchanged, and one that changes `port` still counts it as
   changed.
-  *Test:* `tests/test_registry.py`, two cases, asserting `counts[CHANGED]`.
-  *Breaks when:* `merge` compares whole records for the `CHANGED` outcome.
+  *Test:* `tests/test_registry.py`, two cases, asserting `counts[CHANGED]`
+  and `counts[UNCHANGED]`.
+  *Breaks when:* `merge` compares whole records for either outcome.
 
 - **INV-6** — The port cell shows the marker exactly when `port_conflicts` is
   non-empty and the port is not overridden.
@@ -314,7 +317,7 @@ before its rule is written, by breaking that rule once in a scratch copy per
 | INV-2 | `tests/test_registry.py`, the stale-`port_from` case |
 | INV-3 | `tests/test_registry.py`, the parametrised refusal cases |
 | INV-4 | `tests/test_registry.py`, the three merge cases |
-| INV-5 | `tests/test_registry.py`, the two `CHANGED` cases |
+| INV-5 | `tests/test_registry.py`, the two outcome-count cases |
 | INV-6 | `tests/test_mainwindow.py`, the four marker cases |
 | INV-7 | `tests/test_mainwindow.py`, the hostile-source case |
 | INV-8 | `tests/test_layering.py` |

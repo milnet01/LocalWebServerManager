@@ -363,6 +363,9 @@ So a hand-written `/srv/a/` comes back as `/srv/a`. That is a real change to the
 user's file and is stated rather than promised against; carrying the raw string
 would mean a second field in `ProjectRecord` holding text no consumer reads.
 
+**Superseded by [LWSM-1385](LWSM-1385-port-provenance.md)**, which persists
+provenance; the paragraph below records the original decision.
+
 **The stored `port` is a bare `int`, and a detected port's provenance is
 deliberately not persisted.** This is the one detected field where the format
 and `DetectedProject` are not the same type: `scanner.DetectedProject.port` is
@@ -844,7 +847,8 @@ by asserting harder.
   ownership all land with the item that builds the action surface. Untracked —
   no roadmap item claims it yet, and it is named here so the omission is visible
   rather than discovered by whoever builds it.
-- **Persisting a detected port's provenance** (`PortFinding.rule` and
+- **Persisting a detected port's provenance** (taken up by
+  [LWSM-1385](LWSM-1385-port-provenance.md)) (`PortFinding.rule` and
   `.source`). § 4.2 stores the bare `int`; provenance is recomputed by the next
   scan. Untracked, and cheap to add later — two optional keys, both defaulting
   to absent, under the same `schema_version`.
@@ -878,7 +882,7 @@ by asserting harder.
 | § 4.3 the `MAX_FILE_BYTES` write bound | `test_registry.py::test_a_registry_over_the_size_limit_is_refused_before_anything_is_written` |
 | § 4.3 the gate lives inside `save_projects` | covered by INV-6, whose fixtures call the writer directly |
 | § 4.2 a dropped field's original text is lost | **nothing** — an accepted cost, stated in § 4.2 and § 8, not a rule |
-| § 4.2 port provenance not persisted | **nothing** — deliberate (§ 9); `rule` and `source` are recomputed by the next scan |
+| § 4.2 port provenance not persisted | superseded — [LWSM-1385](LWSM-1385-port-provenance.md) § 10 owns the checks |
 | § 4.3 steps 4 and 6 (directory `fsync`, and its failure reported not reversed) | **nothing** — a durability claim a unit test cannot falsify without power loss; the call site is reviewed, not tested |
 | § 6 concurrent writers | **nothing** — out of scope by § 9; last writer wins and no reader sees a half-file |
 | § 9 five fields persisted but inert | **nothing** — deliberate; INV-3's round-trip proves they survive, and nothing reads them |
