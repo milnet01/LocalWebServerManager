@@ -1235,11 +1235,18 @@ class ProjectRow(QFrame):
         # after the pre-flight. The child is ours to stop, and a Start would
         # only be refused as already running (LWSM-1011).
         failed_ours = status is ProjectStatus.FAILED and row.supervised
-        can_restart = running or failed_ours
+        # Not on a foreign server we hold no child for: its set can be
+        # stopped, but nothing of ours would start in its place (ADR-0004).
+        foreign_only = status is ProjectStatus.RUNNING_FOREIGN and not row.supervised
+        can_restart = (running and not foreign_only) or failed_ours
         # A start of our own child can be stopped before it binds: that needs
         # no socket table, so it is the way out when none can be read, and it
         # cancels a slow start (LWSM-1372).
-        can_stop = can_restart or (status is ProjectStatus.STARTING and row.supervised)
+        can_stop = (
+            running
+            or failed_ours
+            or (status is ProjectStatus.STARTING and row.supervised)
+        )
         # `not in_transition` appears once, on Start, and that is not an
         # oversight on the other three. The overlay REPLACES the status, so
         # `running` and `in_transition` are mutually exclusive — a guard on

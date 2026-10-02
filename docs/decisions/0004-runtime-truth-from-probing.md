@@ -60,6 +60,9 @@ derived state, and an overlay label has nothing to derive.
 **Own child** is the process group this app started (ADR-0003),
 not only its launcher. The rows that ask who holds a port come
 first: a launcher that exits while its group serves has not exited.
+"Live" in the table means the group is alive, so a wrapper that
+forks its server and exits is `starting` until the server binds
+(the code still keys this on the launcher: LWSM-1389).
 
 | Own child | Effective port held by | Child holds any port | State |
 |---|---|---|---|
@@ -108,7 +111,9 @@ Three rules the table depends on:
   Restart through a unit, on a server this app did not start first
   show a disclosure naming the holder: its executable path, uid,
   cmdline, start time and unit. Stopping a foreign set shows the
-  set instead (below). For a *managed* server, identity is
+  set instead (below). The disclosure is skipped only where our own
+  child's group holds the port, so a `running (managed)` row that is
+  a systemd instance still shows it. For a *managed* server, identity is
   the recorded child PID **plus its `create_time`**, never the
   working directory.
 - **An exited child is remembered for exactly one classification**,
@@ -214,7 +219,9 @@ Consequences of the rule:
   create-time as separate columns** — never one formatted sentence
   a hostile process can shape into "only one harmless thing will
   die". This dialog is the only guard on signalling something the
-  app did not create, so it has to be unspoofable.
+  app did not create, so it has to be unspoofable. Restart is not
+  offered on such a row: its set can be stopped, but nothing of ours
+  would start in its place.
 - **An unattributable holder is reported, not guessed.** `psutil`
   resolves an owning PID only for processes the current user can
   see — measured on this machine 2026-08-03: 5 of 11 listening

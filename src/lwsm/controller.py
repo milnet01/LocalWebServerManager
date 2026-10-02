@@ -1708,9 +1708,9 @@ class ProjectController(QObject):
         project running (LWSM-1232). The declared port is probed too whenever
         it differs from the effective one (ADR-0004; LWSM-1201).
 
-        A holder in a systemd user unit that looks like the project is
-        `running (managed)`: ADR-0003 says systemd's instance is the managed
-        one. "Looks like" is a display heuristic and gates nothing (ADR-0004).
+        A holder in the project's own systemd user unit is `running
+        (managed)`: ADR-0003 says systemd's instance is the managed one.
+        "Looks like" is a display heuristic and gates nothing (ADR-0004).
         """
         port = record.effective_port
         if port is None:
@@ -1746,12 +1746,15 @@ class ProjectController(QObject):
                 if other is not None and looks_like(other, path):
                     return ProjectStatus.RUNNING_FOREIGN
             return ProjectStatus.STOPPED
-        if holder is None or not looks_like(holder, path):
-            # Unnamed, or implausible: something is in the way (ADR-0004).
-            return ProjectStatus.PORT_BLOCKED
+        if holder is None:
+            return ProjectStatus.PORT_BLOCKED  # unnamed (ADR-0004)
+        # The project's own unit first: it is evidence, where "looks like"
+        # is only a heuristic (ADR-0004's service row).
         if self._is_project_unit(record, unit_for_pid(holder)):
             return ProjectStatus.RUNNING
-        return ProjectStatus.RUNNING_FOREIGN
+        if looks_like(holder, path):
+            return ProjectStatus.RUNNING_FOREIGN
+        return ProjectStatus.PORT_BLOCKED  # something unrelated is in the way
 
     def _is_project_unit(self, record: ProjectRecord, unit: str | None) -> bool:
         """Whether `unit` is this project's own: bound by the scanner, adopted

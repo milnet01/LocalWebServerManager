@@ -3032,6 +3032,17 @@ OURS, STRANGER = 4100, 4200
             None,
             "PORT_BLOCKED",
         ),
+        # The project's own unit is the stronger evidence: its process need
+        # not look like the project (ADR-0004's service row).
+        (
+            "managed: the project's unit, implausible process",
+            {5005: STRANGER},
+            None,
+            False,
+            False,
+            "p.service",
+            "RUNNING",
+        ),
         # Terminals run as user services on this machine (measured
         # 2026-10-02), so a unit that is not the project's makes no claim.
         (

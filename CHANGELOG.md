@@ -23,6 +23,13 @@ signaling per
 
 ### Added
 
+- **Every row says exactly what its server is doing** (LWSM-1011)
+  A project now reads running, running (wrong port), running
+  (foreign), port blocked, failed, starting or stopped, each with its
+  own word, symbol and colour. A login-started server that belongs to
+  the project reads running; one you started yourself reads running
+  (foreign); something unrelated on the port reads port blocked.
+
 - **Stop a server you started yourself in a terminal** (LWSM-1301)
   Stop now works on a server started by hand. The app lists every
   process it would stop, with each one's ID, start time, program and
@@ -83,6 +90,11 @@ signaling per
   read, so such a release could never pass.
 
 ### Fixed
+
+- **A server can be stopped while it is still starting** (LWSM-1372)
+  Stop is offered during starting for a server this app launched, and
+  a stop on a machine where port information cannot be read ends on
+  unknown instead of showing stopping for ever.
 
 - **Stop and Restart act only on a server's own login service** (LWSM-1012)
   A server started from a terminal inside another login-started app

@@ -11103,7 +11103,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Lanes: core, ui, tests.
   Splits-from: LWSM-1012.
 
-- 📋 [LWSM-1194] **Check whether a change to `RowView.managed` alone ever re-renders the row.**
+- ✅ [LWSM-1194] **Check whether a change to `RowView.managed` alone ever re-renders the row.**
   **Filed unverified, and the reasoning is here so the check is cheap.**
   LWSM-1191 hit exactly this shape for `stopping`: `_maybe_emit` compares
   `_statuses` and nothing else, so a field that changed while every status
@@ -11127,6 +11127,12 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   `ManagingSupervisor` already has. Reproduce before designing; the fix may
   be as small as `_on_stopped`'s was, or the case may turn out unreachable,
   in which case say so and close it.
+  Closed (2026-10-02) with no code changed by this item: LWSM-1011
+  (1fc0117) makes who holds the port part of the status. The case named
+  here, our child dying and a stranger binding the port between two
+  polls, now changes the status (`running` to `failed` or `port
+  blocked`), so `_maybe_emit` sees it and the row re-renders with Open's
+  gate recomputed.
   **Layman:** The Open button may stay available after the app stops being able to vouch for what is answering on that port.
   Kind: investigate.
   Source: in-session-2026-08-31, noticed while shipping LWSM-1191.
@@ -11146,7 +11152,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: review-code 2026-09-01 lane 8, queued from LWSM-1278 on 2026-10-01.
   Lanes: theme.
 
-- 📋 [LWSM-1372] **With the socket table permanently unreadable, a started row reads "starting" for ever and cannot be stopped.**
+- ✅ [LWSM-1372] **With the socket table permanently unreadable, a started row reads "starting" for ever and cannot be stopped.**
   Split from LWSM-1295 by the user on 2026-10-02. Statuses start UNKNOWN
   and only a successful poll settles an overlay (`_settle_overlay`), so on
   a machine where every probe fails a Start leaves the row on the STARTING
@@ -11156,6 +11162,13 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   "stopping" for ever. The fix decides what a row shows when nothing can
   be observed, which is LWSM-1011's state model, so it lands with it.
   Dependencies: LWSM-1011.
+  Fixed (2026-10-02, f971f82). A start of our own child can be stopped
+  while still `starting` (no socket table needed), and a stop that
+  finishes while the table is unreadable clears the overlay, so the row
+  reads its held status, `unknown`, instead of `stopping` for ever. Red
+  tests first:
+  test_a_start_of_our_own_child_can_be_stopped_while_still_starting,
+  test_a_stop_with_the_table_unreadable_ends_on_unknown_not_stopping.
   **Layman:** On a system where the app can never see which programs hold which ports, a server you start gets stuck showing "starting" and can't be stopped from the app.
   Kind: fix.
   Source: in-session-2026-10-02 (split from LWSM-1295).
@@ -11271,6 +11284,25 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-contract ADR-0003 loop 3 (cap), 2026-10-02.
   Lanes: core, docs.
+
+- 📋 [LWSM-1389] **A wrapper script that exits before its server binds reads failed, then stopped, while the server is still starting.**
+  ADR-0004 (as amended 2026-10-02) defines "own child" as the process
+  group, so a group that is alive and has bound nothing is `starting`.
+  The code keys that on the LAUNCHER: `_spawning_paths` drops a path
+  whose launcher `exited()`, and `_settle_overlay` clears `starting` on
+  `exited(path)`. A `start.sh` that forks a slow-binding server and exits
+  therefore reads `failed` (if reaped) or `stopped`, and offers a Start
+  that the supervisor refuses as already running.
+  Fix: key both on the group being alive. For the real Supervisor an
+  entry that survives `reap_exited` has a live group, so `path in
+  running()` after the reap is the group test; the test fakes'
+  `exited_projects` model "launcher and group gone" without reaping and
+  need to follow. Reproduce first with a launcher that backgrounds a
+  server, exits, and binds after a delay.
+  **Layman:** A project whose start script hands off to a slow server shows as stopped while that server is still coming up, and offers Start again.
+  Kind: review-fix.
+  Source: review-contract ADR-0004 loop 2, 2026-10-02.
+  Lanes: core, tests.
 
 ## 0.4.0 — Ports
 

@@ -8560,3 +8560,22 @@ def test_a_start_of_our_own_child_can_be_stopped_while_still_starting(qtbot) -> 
 
     row.update_from(dataclasses.replace(view, supervised=False))
     assert not row.stop_button.isEnabled(), "a start we hold no child for"
+
+
+def test_restart_is_not_offered_on_a_foreign_server(qtbot) -> None:
+    """ADR-0004: a `running (foreign)` server can be stopped by its set, but
+    nothing of ours would start in its place, so Restart is not offered."""
+    from lwsm.controller import RowView
+
+    view = RowView(
+        path=Path("/srv/a"),
+        name="a",
+        effective_port=5005,
+        status=ProjectStatus.RUNNING_FOREIGN,
+        managed=False,
+    )
+    row = ProjectRow(view, Theme.default())
+    qtbot.addWidget(row)
+
+    assert row.stop_button.isEnabled()
+    assert not row.restart_button.isEnabled()
