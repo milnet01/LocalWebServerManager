@@ -11476,6 +11476,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Priority: 2.
   Decision (user, 2026-09-28): stays in 0.4.0. Workaround meanwhile:
   change the port in one project's own settings, then Rescan.
+  Owed from LWSM-1038 (2026-10-07): when this item changes a record's
+  port_override, it must also clear that record's confirmed_port, as
+  registry.merge_imported already does on import. Otherwise a project
+  that honours PORT keeps the old override's port as its confirmed port
+  after the override is removed. See docs/specs/LWSM-1038-confirmed-ports.md
+  § 4.4.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**

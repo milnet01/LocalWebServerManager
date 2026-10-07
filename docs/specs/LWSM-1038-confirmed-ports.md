@@ -179,7 +179,7 @@ clears the field also changed `port`.
 `merge_imported` applies the import rows in its existing-record branch, after
 `user_half_applied`. Without them, a project that honours `PORT` and was launched
 on an override would keep the override's port as its confirmed port after the
-override was removed. LWSM-1034's settings editor is the next writer of
+override was removed. LWSM-1014's settings editor is the next writer of
 `port_override`, and it owes the same rule.
 
 ### 4.5 The row
@@ -312,7 +312,7 @@ port 5005.` follows `You set this port.`
 - **A hand edit removes `port_override`.** The loader cannot tell, so a
   confirmed port recorded under the override stays. For a project that honours
   `PORT`, it then keeps binding that port. The supported route is the settings
-  editor (LWSM-1034), which clears it.
+  editor (LWSM-1014), which clears it.
 - **The save fails, or the session is read-only.** The value holds for this
   session and is retried on the next change. `_write_records` logs each failure.
 - **A rescan runs while a port is confirmed.** `merge` folds into the records it
@@ -367,7 +367,7 @@ the *(detected)* or *(confirmed)* word.
   changes the port, or an override change, clears it.
 - Learning how long a project takes to bind, which ADR-0004 § Slowness is not
   failure names beside this item — deferred; not yet queued.
-- The settings editor's own clearing of `confirmed_port` — LWSM-1034.
+- The settings editor's own clearing of `confirmed_port` — LWSM-1014.
 
 ## 10. What checks this
 
@@ -385,7 +385,7 @@ the *(detected)* or *(confirmed)* word.
 | INV-10 | `tests/test_mainwindow.py`, the port-cell cases |
 | INV-11 | `tests/test_controller.py`, the second-poll foreign case |
 | § 4.1 the new field is DETECTED | `tests/test_registry.py::test_an_imported_project_arrives_with_no_confirmed_port` |
-| § 4.4 LWSM-1034 clears on an override change | **nothing** — that item is not built; its spec owes the rule |
+| § 4.4 LWSM-1014 clears on an override change | **nothing** — that item is not built; its spec owes the rule |
 | § 4.5 the tooltip's wording | **nothing** — copy, reviewed by reading |
 
 ## 11. Cross-doc impact
