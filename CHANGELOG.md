@@ -23,6 +23,13 @@ signaling per
 
 ### Added
 
+- **The app remembers the port it saw each project running on.** (LWSM-1038)
+  Once a project has run, its row says "confirmed", and the app
+  checks, starts and opens it on the port it really used instead of a
+  guess read from the project's files. A row still guessing says
+  "detected". A project with no port in its files gets one the first
+  time the app starts it and sees it open a single port.
+
 - **Every row says exactly what its server is doing** (LWSM-1011)
   A project now reads running, running (wrong port), running
   (foreign), port blocked, failed, starting or stopped, each with its

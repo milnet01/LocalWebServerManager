@@ -269,7 +269,9 @@ def test_accessible_name_never_says_port_none(qtbot, built) -> None:
 
 def test_accessible_name_carries_the_word_port(qtbot, built) -> None:
     window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
-    assert rows_of(window)[0].accessibleName() == "running, port 5005, named a"
+    assert (
+        rows_of(window)[0].accessibleName() == "running, port 5005 (confirmed), named a"
+    )
 
 
 def test_a_row_is_keyboard_focusable(qtbot, built) -> None:
@@ -544,7 +546,7 @@ def test_the_row_exposes_its_cells_and_its_buttons(qtbot, built) -> None:
     assert names == [
         "running",
         "a",
-        "port 5005",
+        "port 5005 (confirmed)",
         # LWSM-1187's browser picker. A control, so it carries its own name
         # rather than joining the row's announcement -- and it is present on
         # every row whether or not any browser is installed, because the
@@ -1166,7 +1168,10 @@ def test_an_unmapped_state_does_not_crash_the_row(qtbot, built) -> None:
 def test_the_row_resizes_its_cells_when_the_font_grows(qtbot, built) -> None:
     """Computed once, the minimum widths would go stale under LWSM-1032's
     100-200 % text-size control."""
-    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    # No port, so the cell reads "no port", the floor's own text: a longer
+    # cell widens the shared column past the floor, and the comparison below
+    # would then measure the column rather than the floor (LWSM-1038).
+    window, _ = window_for(qtbot, built, [record("a", None)], FakeProbe())
     row = rows_of(window)[0]
     state_before = row._state.minimumWidth()
     # The port cell too: `_port.setMinimumWidth` could be deleted outright and
@@ -1294,7 +1299,7 @@ def test_every_visible_string_goes_through_a_translator(qtbot, built) -> None:
         with_port, _ = window_for(qtbot, built, [record("b", 5005)], FakeProbe(5005))
         # The number is interpolated into the translated string, not appended
         # to it — a translator must be able to move it.
-        assert rows_of(with_port)[0]._port.text() == "PORT 5005"
+        assert rows_of(with_port)[0]._port.text() == "PORT 5005 (CONFIRMED)"
     finally:
         app.removeTranslator(translator)
 
@@ -1303,7 +1308,9 @@ def test_the_untranslated_words_are_unchanged(qtbot, built) -> None:
     """With no translator installed the source strings render as before, so
     INV-6's announcement and every existing assertion still hold."""
     window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
-    assert rows_of(window)[0].accessibleName() == "running, port 5005, named a"
+    assert (
+        rows_of(window)[0].accessibleName() == "running, port 5005 (confirmed), named a"
+    )
 
 
 def test_a_translator_installed_later_reaches_an_existing_row(qtbot, built) -> None:
@@ -1348,10 +1355,10 @@ def test_a_translator_installed_later_reaches_an_existing_row(qtbot, built) -> N
         assert row._state.text() == "RUNNING", (
             "a row built before the translator was installed never retranslated"
         )
-        assert row._port.text() == "PORT 5005"
+        assert row._port.text() == "PORT 5005 (CONFIRMED)"
         assert window.windowTitle() == f"LOCAL WEB SERVER MANAGER {__version__}"
         # The announcement must follow the words a listener actually hears.
-        assert row.accessibleName() == "RUNNING, PORT 5005, NAMED a"
+        assert row.accessibleName() == "RUNNING, PORT 5005 (CONFIRMED), NAMED a"
     finally:
         app.removeTranslator(translator)
 
@@ -2358,9 +2365,13 @@ class ManagingSupervisor:
     everything could not express the hazard at all.
     """
 
-    def __init__(self, managed=()) -> None:
+    def __init__(self, managed=(), pids=None) -> None:
         self._running = {Path(path): object() for path in managed}
         self.trust = RecordingTrust()
+        # Each project's own child, where a test needs two groups told apart;
+        # OUR_PID otherwise. One PID owned by every project lets a project
+        # claim another's port as its own group's (LWSM-1038 § 4.3 step 1).
+        self._pids = {Path(path): pid for path, pid in (pids or {}).items()}
 
     def running(self) -> dict:
         return dict(self._running)
@@ -2371,7 +2382,8 @@ class ManagingSupervisor:
         Both halves, so the fake can express the state LWSM-1167 was wrong
         about: an entry we hold, on a port somebody else is sitting on.
         """
-        return Path(project) in self._running and pid == OUR_PID
+        project = Path(project)
+        return project in self._running and pid == self._pids.get(project, OUR_PID)
 
     def exited(self, project: Path) -> bool:
         return False
@@ -2469,7 +2481,7 @@ def test_start_stays_disabled_while_a_stop_is_still_running(qtbot, built) -> Non
 
 
 def opening_window(
-    qtbot, built, records, probe, opened: list, managed=None, disclose=None
+    qtbot, built, records, probe, opened: list, managed=None, disclose=None, pids=None
 ) -> MainWindow:
     """A window whose `openUrl` is a spy — a test must never launch a browser.
 
@@ -2478,7 +2490,7 @@ def opening_window(
     disable Open on every row and make all of them pass for the wrong reason.
     """
     owned = [row.path for row in records] if managed is None else managed
-    controller = ProjectController(records, probe, ManagingSupervisor(owned))
+    controller = ProjectController(records, probe, ManagingSupervisor(owned, pids))
     built.append(controller)
     window = MainWindow(
         controller,
@@ -3287,6 +3299,8 @@ def test_open_is_refused_when_a_stranger_holds_the_registered_port(
         opened,
         managed=[Path("/srv/ours"), Path("/srv/theirs")],
         disclose=lambda path, holder: asked.append(path) or True,
+        # Our child for "theirs" is alive and holds nothing.
+        pids={Path("/srv/theirs"): OUR_PID + 1},
     )
     ours, theirs = rows_of(window)
 
@@ -6711,7 +6725,9 @@ def test_a_long_project_name_is_elided_and_keeps_its_full_name(qtbot, built) -> 
     assert tooltip_text(row._name.toolTip()) == long_name, (
         "the whole name must stay reachable"
     )
-    assert row.accessibleName() == f"running, port 5005, named {long_name}", (
+    assert (
+        row.accessibleName() == f"running, port 5005 (confirmed), named {long_name}"
+    ), (
         "a screen reader is read the FULL name — elision is a fitting concern, "
         "and an announcement of a truncated name helps nobody"
     )
@@ -8092,7 +8108,10 @@ def test_a_name_holding_a_placeholder_cannot_inject_into_the_announcement(
     """The announcement is filled from one translated template in one pass, so
     a `%3` in a project's name stays text rather than becoming the port."""
     window, _ = window_for(qtbot, built, [record("a%3b", 5005)], FakeProbe(5005))
-    assert rows_of(window)[0].accessibleName() == "running, port 5005, named a%3b"
+    assert (
+        rows_of(window)[0].accessibleName()
+        == "running, port 5005 (confirmed), named a%3b"
+    )
 
 
 def test_a_name_shaped_like_a_row_cannot_forge_the_announcement(qtbot, built) -> None:
@@ -8106,7 +8125,7 @@ def test_a_name_shaped_like_a_row_cannot_forge_the_announcement(qtbot, built) ->
     window, _ = window_for(qtbot, built, [forged], FakeProbe())
     assert (
         rows_of(window)[0].accessibleName()
-        == "stopped, port 5005, named x, running, port 80"
+        == "stopped, port 5005 (detected), named x, running, port 80"
     )
 
 
@@ -8579,3 +8598,80 @@ def test_restart_is_not_offered_on_a_foreign_server(qtbot) -> None:
 
     assert row.stop_button.isEnabled()
     assert not row.restart_button.isEnabled()
+
+
+# --- LWSM-1038: the port a project was seen running on ------------------------
+
+CONFLICT = (registry.PortFinding(4000, registry.PortRule.README, "README.md"),)
+
+
+@pytest.mark.parametrize(
+    ("view", "expected"),
+    [
+        (
+            {"effective_port": 5999, "port_overridden": True, "confirmed_port": 5002},
+            "port 5999",
+        ),
+        ({"effective_port": 5002, "port_confirmed": True}, "port 5002 (confirmed)"),
+        ({"effective_port": None}, "no port"),
+        (
+            {"effective_port": 4000, "port_conflicts": CONFLICT},
+            "port 4000 (sources differ)",
+        ),
+        ({"effective_port": 3000}, "port 3000 (detected)"),
+        (
+            {
+                "effective_port": 5002,
+                "port_confirmed": True,
+                "port_conflicts": CONFLICT,
+            },
+            "port 5002 (confirmed)",
+        ),
+    ],
+    ids=[
+        "overridden",
+        "confirmed",
+        "no port",
+        "sources differ",
+        "detected",
+        "confirmed beats a conflict",
+    ],
+)
+def test_the_port_cell_says_how_sure_the_port_is(qtbot, view, expected) -> None:
+    """INV-10, first match winning. The confidence word is cell text, so the
+    announcement carries it too. Dies on the conflict test placed above the
+    confirmed one, which was LWSM-1385's order before this amendment."""
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(path=Path("/srv/a"), name="a", status=ProjectStatus.STOPPED, **view),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    assert row._port.text() == expected
+    assert expected in row.accessibleName()
+
+
+def test_the_window_saves_a_confirmed_port_once(
+    qtbot, built, tmp_path: Path, monkeypatch
+) -> None:
+    """INV-9. Three polls: the first confirms 3000, the second sees the same,
+    the third finds the project stopped. One save. Dies on a window that never
+    hears of the confirmation, which leaves the port in memory only."""
+    monkeypatch.setattr(controller_module, "looks_like", lambda pid, path: True)
+    monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: None)
+    saves: list = []
+    window, controller = rescan_window(
+        qtbot, built, [record("a", 3000)], tmp_path, FakeScanResult(), saves=saves
+    )
+    held = PortSnapshot(frozenset({3000}), {3000: 4242})
+
+    controller._on_snapshot(held)
+    controller._on_snapshot(held)
+    controller._on_snapshot(PortSnapshot(frozenset()))
+
+    assert len(saves) == 1
+    (saved,) = saves[0][1]
+    assert saved.confirmed_port == 3000
+    window.shutdown()

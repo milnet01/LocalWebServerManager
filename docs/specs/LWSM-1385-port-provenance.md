@@ -238,6 +238,7 @@ is visible text in the cell; the tooltip and description add which files.
   asserting the cell text and that the row's accessible name contains it.
   *Breaks when:* the marker tests `port_from` instead of `port_conflicts`, or
   ignores the override.
+  *Amended by:* [LWSM-1038 § 4.5](LWSM-1038-confirmed-ports.md#45-the-row).
 
 - **INV-7** — A `source` holding a control character reaches the tooltip and
   the accessible description with it replaced by U+FFFD, and markup in it is

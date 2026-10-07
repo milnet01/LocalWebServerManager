@@ -133,6 +133,13 @@ Running before `_classify` is what reaches `project-e`. In the poll where its
 group binds 5002, step 1 records 5002, `effective_port` becomes 5002, and the
 same poll classifies it `running (managed)`.
 
+Rule 3 also changes what a project without an override reads when its group
+binds one port other than its declared one: that port is confirmed, so the row
+reads `running (managed)` rather than `running (wrong port)`. `running (wrong
+port)` remains for an override the project ignores, ADR-0002's case: the
+override outranks the confirmed port, so the bound port is never the effective
+one.
+
 **Step 2, after `_classify`: someone else's server.** Where `our_ports` is empty
 and the status is `RUNNING` or `RUNNING_FOREIGN`, the port to confirm is the
 `effective_port` if `snapshot.answers_localhost` says it is held, otherwise the
@@ -270,8 +277,9 @@ port 5005.` follows `You set this port.`
   poll that changed nothing.
   *Test:* `tests/test_mainwindow.py`, an injected `ProjectsFile.save` counted
   across three polls, the first of which confirms a port.
-  *Breaks when:* the window saves on `projects_changed`, which fires on every
-  status change.
+  *Breaks when:* the window never hears of the confirmation, which leaves the
+  port in memory only. A save on a poll that changed nothing is already
+  stopped by `_should_write`.
 
 - **INV-10** — The port cell follows § 4.5's table, first match winning.
   *Test:* `tests/test_mainwindow.py`, one case per row of the table, plus a row
@@ -326,9 +334,9 @@ The cases are named with each invariant in § 5, all in existing files:
 
 Each new test is seen to fail against the code before its rule is written, by
 breaking that rule once in a scratch copy per
-`docs/standards/testing-overrides.md` § T9. LWSM-1385's INV-6 cases in
-`tests/test_mainwindow.py` gain the *(detected)* suffix where they assert a bare
-port.
+`docs/standards/testing-overrides.md` § T9. Existing tests in
+`tests/test_mainwindow.py` that assert a bare port cell or announcement gain
+the *(detected)* or *(confirmed)* word.
 
 ## 8. Alternatives considered (and rejected)
 
@@ -376,7 +384,7 @@ port.
 | INV-9 | `tests/test_mainwindow.py`, the save-count case |
 | INV-10 | `tests/test_mainwindow.py`, the port-cell cases |
 | INV-11 | `tests/test_controller.py`, the second-poll foreign case |
-| § 4.1 the new field is DETECTED | `tests/test_registry.py::test_every_record_field_is_classified` checks it is in one set; **nothing** checks it is the detected one |
+| § 4.1 the new field is DETECTED | `tests/test_registry.py::test_an_imported_project_arrives_with_no_confirmed_port` |
 | § 4.4 LWSM-1034 clears on an override change | **nothing** — that item is not built; its spec owes the rule |
 | § 4.5 the tooltip's wording | **nothing** — copy, reviewed by reading |
 

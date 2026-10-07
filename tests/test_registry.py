@@ -926,10 +926,12 @@ def test_write_then_load_round_trips(tmp_path: Path) -> None:
         # name starts "he said", path /srv/project-a. Provenance populated for
         # LWSM-1385 INV-1: a rule written by value and read by name, or a
         # conflicts list loaded back as a list, fails the equality below.
+        # LWSM-1038 INV-2: a confirmed port the writer forgets loads as None.
         dataclasses.replace(
             every_field_record(),
             port_from=PortFinding(3000, PortRule.ENV_FILE, ".env"),
             port_conflicts=(PortFinding(4000, PortRule.README, "README.md"),),
+            confirmed_port=5002,
         ),
         ProjectRecord(path=Path("/srv/aaa-written-second"), name="aaa-written-second"),
     ]
@@ -3132,3 +3134,113 @@ def test_a_port_change_is_still_counted_changed(tmp_path: Path) -> None:
 
     assert result.counts[registry.CHANGED] == 1
     assert result.counts[registry.UNCHANGED] == 0
+
+
+# --- LWSM-1038: the port a project was seen running on ------------------------
+
+
+@pytest.mark.parametrize(
+    ("override", "confirmed", "declared", "expected"),
+    [(8080, 5002, 3000, 8080), (None, 5002, 3000, 5002), (None, None, 3000, 3000)],
+    ids=["override", "confirmed", "declared"],
+)
+def test_the_effective_port_is_override_then_confirmed_then_declared(
+    override, confirmed, declared, expected
+) -> None:
+    """INV-1. Every lower rung holds a different port, so a rung read in the
+    wrong order shows. Dies on `confirmed_port` placed above the override,
+    which makes a typed port do nothing on a project seen once."""
+    record = ProjectRecord(
+        path=Path("/srv/a"),
+        name="a",
+        port=declared,
+        port_override=override,
+        confirmed_port=confirmed,
+    )
+
+    assert record.effective_port == expected
+
+
+@pytest.mark.parametrize("value", ["5002", True, 0, 70000])
+def test_a_bad_confirmed_port_loads_as_none_and_never_locks_the_session(
+    tmp_path: Path, value
+) -> None:
+    """INV-2. One reason, the field dropped, and the session still writable:
+    the field is detected, so the next run measures it again. `True` is the
+    case `_is_int` exists for."""
+    path = write(
+        tmp_path,
+        {"schema_version": 1, "projects": [{**one_good(), "confirmed_port": value}]},
+    )
+
+    loaded = load_projects(path)
+
+    assert loaded.records[0].confirmed_port is None
+    assert len(loaded.reasons) == 1 and "confirmed_port" in loaded.reasons[0]
+    assert loaded.user_fields_refused == frozenset()
+    assert loaded.rows_refused == 0
+
+
+@pytest.mark.parametrize(
+    ("found", "read_cleanly", "expected"),
+    [
+        (FakeFinding(3000), False, 5002),
+        (None, False, 5002),
+        (FakeFinding(4000), False, None),
+        (None, True, None),
+    ],
+    ids=["same port", "port not re-read", "a new port", "a clean read with no port"],
+)
+def test_a_rescan_keeps_a_confirmed_port_until_the_declared_port_changes(
+    tmp_path: Path, found, read_cleanly, expected
+) -> None:
+    """INV-3. A changed `port` means the project's files now say something
+    else, and the old observation may be why the app still passes the old
+    value as `PORT`. A port the scan could not read changes nothing."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(path=project, name="web", port=3000, confirmed_port=5002)
+    scan = FakeScan(
+        (FakeProject(project, "web", port=found, read_cleanly=read_cleanly),)
+    )
+
+    (merged,) = registry.merge([stored], scan, (root,), stamp).records
+
+    assert merged.confirmed_port == expected
+
+
+@pytest.mark.parametrize(
+    ("profile_override", "expected"), [(8080, 5002), (9090, None), (None, None)]
+)
+def test_an_import_clears_a_confirmed_port_when_it_changes_the_override(
+    profile_override, expected
+) -> None:
+    """INV-4. A project that honours `PORT` and was launched on an override
+    binds the override, so its confirmed port is the override's and must go
+    with it. `user_half_applied` alone never touches a detected field."""
+    stored = ProjectRecord(
+        path=Path("/srv/a"),
+        name="a",
+        port=3000,
+        port_override=8080,
+        confirmed_port=5002,
+    )
+    profile = ProjectRecord(
+        path=Path("/srv/a"), name="a", port_override=profile_override
+    )
+
+    (merged,) = registry.merge_imported([stored], [profile]).records
+
+    assert merged.confirmed_port == expected
+
+
+def test_an_imported_project_arrives_with_no_confirmed_port() -> None:
+    """§ 4.1: a profile never carries one machine's observations to another as
+    fact. Dies on `confirmed_port` classified USER, which `INV-1`'s
+    classification test alone cannot tell from DETECTED."""
+    profile = ProjectRecord(path=Path("/srv/new"), name="new", confirmed_port=5002)
+
+    (added,) = registry.merge_imported([], [profile]).records
+
+    assert added.confirmed_port is None

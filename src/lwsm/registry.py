@@ -183,6 +183,11 @@ class ProjectRecord:
     # provenance an older build left behind a changed port is caught.
     port_from: PortFinding | None = None
     port_conflicts: tuple[PortFinding, ...] = ()
+    # The port this project was last seen listening on, by our own process
+    # group or a holder that is plausibly the project (LWSM-1038). An
+    # observation rather than a choice, so classified DETECTED: an import
+    # clears it, and a rescan keeps it only while `port` is unchanged.
+    confirmed_port: int | None = None
     # Keys this build does not recognise, kept so it cannot delete what a
     # newer one wrote. Pairs of (key, canonical JSON text), sorted — the shape
     # `actions` uses and for its reason: a `dict` here would make the frozen
@@ -197,13 +202,16 @@ class ProjectRecord:
 
     @property
     def effective_port(self) -> int | None:
-        """Override first, else declared.
+        """Override first, then the port the project was seen on, then declared.
 
-        The top and third rungs of `docs/design.md § The effective port`;
-        confirmed_port (rung 2) is LWSM-1038 and the framework default
-        (rung 4) is LWSM-1006.
+        `docs/design.md § The effective port`'s first three rungs; the
+        framework default (rung 4) is LWSM-1006.
         """
-        return self.port_override if self.port_override is not None else self.port
+        if self.port_override is not None:
+            return self.port_override
+        if self.confirmed_port is not None:
+            return self.confirmed_port
+        return self.port
 
 
 # The record's two halves, as explicit membership rather than two types:
@@ -216,7 +224,16 @@ class ProjectRecord:
 # one field no write may resolve. `added` is *user*-owned because ADR-0005 makes
 # it the duplicate-port tie-break, and a rescan must not reorder that.
 DETECTED_FIELDS: frozenset[str] = frozenset(
-    {"path", "port", "port_from", "port_conflicts", "kind", "argv", "unit"}
+    {
+        "path",
+        "port",
+        "port_from",
+        "port_conflicts",
+        "confirmed_port",
+        "kind",
+        "argv",
+        "unit",
+    }
 )
 USER_FIELDS: frozenset[str] = frozenset(
     {
@@ -796,6 +813,11 @@ def load_projects(path: Path) -> LoadResult:
         )
         if reason:
             note_field(provenance_field, reason)
+        confirmed, reason = _port_or_reason(
+            entry.get("confirmed_port"), "confirmed_port", *DECLARED_PORT_RANGE, name
+        )
+        if reason:
+            note_field("confirmed_port", reason)
 
         # The remaining ten keys, each defaulting when absent and each losing
         # only itself when present at the wrong type. Collected through one list
@@ -864,6 +886,7 @@ def load_projects(path: Path) -> LoadResult:
                 browser=browser,
                 port_from=port_from,
                 port_conflicts=port_conflicts,
+                confirmed_port=confirmed,
                 unknown=unknown,
             )
         )
@@ -914,6 +937,7 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
         "port": record.port,
         "port_from": _finding_payload(record.port_from),
         "port_conflicts": [_finding_payload(c) for c in record.port_conflicts],
+        "confirmed_port": record.confirmed_port,
         "port_override": record.port_override,
         "kind": None if record.kind is None else record.kind.value,
         "argv": list(record.argv),
@@ -1337,8 +1361,9 @@ def _detected_half_applied(
 
     Derived from the set, not listed by hand (known-issue-044, LWSM-1322):
     listed, a fifth detected field would be classified correctly, keep INV-1
-    green, and never be refreshed by a rescan. The port with its provenance,
-    and `argv`'s tuple, are the only per-field knowledge.
+    green, and never be refreshed by a rescan. The port with its provenance
+    and its confirmed port, and `argv`'s tuple, are the only per-field
+    knowledge.
 
     A `None` from a scan that read every file cleanly is the exception: that is
     an observation that the project declares no port, so it clears the stored
@@ -1356,14 +1381,22 @@ def _detected_half_applied(
         # The stored port is kept, and its provenance with it, so the pair
         # still describes each other (LWSM-1385 § 4.4, third row).
         changes["port"] = record.port
+    # Kept while the declared port is: a changed one means the project's own
+    # files now say something else, and the old observation may be why the
+    # app still passes the old value as `PORT` (LWSM-1038 § 4.4).
+    changes["confirmed_port"] = (
+        record.confirmed_port if changes["port"] == record.port else None
+    )
     changes["argv"] = tuple(found.argv)
     return replace(record, **changes)
 
 
 # Set explicitly above rather than copied: `path` is the identity, `port` is
-# qualified by § 4.1, and the scan has no `port_from` attribute at all, so a
-# generic copy would raise.
-_NOT_COPIED = frozenset({"path", "port", "port_from", "port_conflicts"})
+# qualified by § 4.1, and the scan has no `port_from` or `confirmed_port`
+# attribute at all, so a generic copy would raise.
+_NOT_COPIED = frozenset(
+    {"path", "port", "port_from", "port_conflicts", "confirmed_port"}
+)
 
 
 def _finding(found: DetectedPort) -> PortFinding:
@@ -1880,6 +1913,10 @@ def merge_imported(
             user_half_applied(current, record),
             **{name: getattr(current, name) for name in NEVER_IMPORTED_FIELDS},
         )
+        if restored.port_override != current.port_override:
+            # A project that honours `PORT` was seen on the old override, so
+            # its confirmed port goes with it (LWSM-1038 § 4.4).
+            restored = replace(restored, confirmed_port=None)
         if restored == current:
             counts[UNCHANGED] += 1
             continue

@@ -3174,3 +3174,124 @@ def test_a_wrapper_that_exits_before_its_server_binds_is_still_starting(
     assert controller._overlay is not None, "the start was settled by the launcher"
     assert controller.rows()[0].status is ProjectStatus.STARTING
     assert controller._spawning_paths() == {Path("/srv/a")}
+
+
+# --- LWSM-1038: the port a project was seen running on ------------------------
+
+
+def ours_holding(*ports: int) -> tuple[FakeSupervisor, PortSnapshot]:
+    """A supervisor whose child for /srv/a holds `ports`, and that snapshot."""
+    supervisor = FakeSupervisor()
+    supervisor._running[Path("/srv/a")] = object()
+    supervisor.child_pids[Path("/srv/a")] = OURS
+    return supervisor, PortSnapshot(frozenset(ports), dict.fromkeys(ports, OURS))
+
+
+@pytest.mark.parametrize(
+    ("override", "held", "expected"),
+    [
+        (5999, (5999, 24678), 5999),
+        (5999, (5005, 24678), 5005),
+        (None, (6006,), 6006),
+        (None, (6006, 7007), None),
+    ],
+    ids=[
+        "the effective port among two",
+        "the declared port when the effective is not held",
+        "a single unrelated port",
+        "two unrelated ports",
+    ],
+)
+def test_our_group_confirms_by_the_order_and_never_guesses(
+    controllers, override, held, expected
+) -> None:
+    """INV-5. Dies on `min(our_ports)` or the first port iterated: those pass
+    the single-port case and fail the ambiguous one."""
+    supervisor, snapshot = ours_holding(*held)
+    record = replace(startable("a", 5005), port_override=override)
+    controller = supervised(controllers, [record], FakeProbe(), supervisor)
+
+    controller._on_snapshot(snapshot)
+
+    assert controller.records()[0].confirmed_port == expected
+
+
+def test_a_project_with_no_port_is_managed_in_the_poll_its_group_binds_one(
+    controllers,
+) -> None:
+    """INV-6, the `project-e` case. Dies on confirming after `_classify`, which
+    returns UNKNOWN for a record with no effective port."""
+    supervisor, snapshot = ours_holding(5002)
+    controller = supervised(
+        controllers, [startable("a", None)], FakeProbe(), supervisor
+    )
+
+    controller._on_snapshot(snapshot)
+
+    assert controller.records()[0].confirmed_port == 5002
+    assert controller.rows()[0].status is ProjectStatus.RUNNING
+
+
+STRANGER_PID = 4200
+
+
+@pytest.mark.parametrize(
+    ("override", "plausible", "reaped", "expected"),
+    [(5999, True, False, 5005), (None, False, False, None), (None, False, True, None)],
+    ids=[
+        "a look-alike on the declared port, the effective one free",
+        "an unrelated holder on the effective port",
+        "our child exited and an unrelated holder",
+    ],
+)
+def test_a_server_we_did_not_start_confirms_only_when_it_is_plausibly_the_project(
+    controllers, monkeypatch, override, plausible, reaped, expected
+) -> None:
+    """INV-7. `port blocked` and `failed` exist because an unrelated process on
+    the port is not the project (ADR-0004). Dies on confirming from any
+    holder of the effective port."""
+    monkeypatch.setattr(controller_module, "looks_like", lambda pid, path: plausible)
+    monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: None)
+    record = replace(startable("a", 5005), port_override=override)
+    controller = supervised(controllers, [record], FakeProbe(), FakeSupervisor())
+    if reaped:
+        controller._reaped.add(Path("/srv/a"))
+
+    controller._on_snapshot(PortSnapshot(frozenset({5005}), {5005: STRANGER_PID}))
+
+    assert controller.records()[0].confirmed_port == expected
+
+
+def test_a_poll_that_sees_nothing_keeps_the_confirmed_port(controllers) -> None:
+    """INV-8. A stopped project keeps its port, and so does a poll that could
+    not read the table. Dies on writing what the poll saw, including None."""
+    record = replace(startable("a", 5005), confirmed_port=5002)
+    controller = supervised(controllers, [record], FakeProbe(), FakeSupervisor())
+    fired: list[bool] = []
+    controller.confirmed_ports_changed.connect(lambda: fired.append(True))
+
+    controller._on_snapshot(PortSnapshot(frozenset()))
+    controller._on_probe_error(ProbeError("socket table unavailable"))
+
+    assert controller.records()[0].confirmed_port == 5002
+    assert fired == []
+
+
+def test_a_confirmed_port_never_makes_a_server_ours(controllers, monkeypatch) -> None:
+    """INV-11, the trust boundary. ADR-0004 calls "looks like" a display
+    heuristic with no security value, and `chdir()` is free, so a confirmed
+    port may choose which port is probed but never whether a holder is ours."""
+    monkeypatch.setattr(controller_module, "looks_like", lambda pid, path: True)
+    monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: None)
+    controller = supervised(
+        controllers, [startable("a", 5005)], FakeProbe(), FakeSupervisor()
+    )
+    snapshot = PortSnapshot(frozenset({5005}), {5005: STRANGER_PID})
+
+    controller._on_snapshot(snapshot)
+    controller._on_snapshot(snapshot)
+
+    assert controller.records()[0].confirmed_port == 5005
+    (row,) = controller.rows()
+    assert row.status is ProjectStatus.RUNNING_FOREIGN
+    assert row.managed is False

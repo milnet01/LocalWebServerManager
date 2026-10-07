@@ -14,7 +14,7 @@ import sys
 import time
 from collections.abc import Collection
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -360,6 +360,28 @@ class RowView:
     port_from: PortFinding | None = None
     port_conflicts: tuple[PortFinding, ...] = ()
     port_overridden: bool = False
+    # Whether the effective port is the one the project was seen running on,
+    # and that port whatever wins (LWSM-1038 § 4.5). True exactly when rung 2
+    # of the effective port supplies it, so never beside `port_overridden`.
+    port_confirmed: bool = False
+    confirmed_port: int | None = None
+
+
+def _port_seen_by_our_group(record: ProjectRecord, ours: frozenset[int]) -> int | None:
+    """Which of the ports our group holds is this project's (LWSM-1038 § 4.3).
+
+    The effective port, else the declared one, else the only port held. Two or
+    more unrelated ports are ambiguous and give None: guessing between a dev
+    server and its websocket port would store a wrong fact under a word that
+    claims certainty.
+    """
+    for port in (record.effective_port, record.port):
+        if port is not None and port in ours:
+            return port
+    if len(ours) == 1:
+        (only,) = ours
+        return only
+    return None
 
 
 class _SnapshotSignals(QObject):
@@ -644,6 +666,10 @@ class ProjectController(QObject):
     # and the fingerprint — "not security theatre only if it shows what will
     # actually run".
     confirmation_required = Signal(object, object)  # path, LauncherUntrusted
+    # A poll recorded a port some project was seen running on (LWSM-1038). The
+    # window saves on it, rather than on `projects_changed`, which fires on
+    # every status change.
+    confirmed_ports_changed = Signal()
 
     def __init__(
         self,
@@ -761,6 +787,10 @@ class ProjectController(QObject):
                 port_from=record.port_from,
                 port_conflicts=record.port_conflicts,
                 port_overridden=record.port_override is not None,
+                port_confirmed=(
+                    record.port_override is None and record.confirmed_port is not None
+                ),
+                confirmed_port=record.confirmed_port,
             )
             for record in self._records
         ]
@@ -1542,15 +1572,37 @@ class ProjectController(QObject):
         self._flush_repeated_error()
         previous = self._statuses
         spawning = self._spawning_paths()
-        self._statuses = {
-            record.path: self._classify(
-                record,
-                snapshot,
-                record.path in spawning,
-                self._our_ports(record.path, snapshot),
-            )
-            for record in self._records
-        }
+        records = list(self._records)
+        statuses: dict[Path, ProjectStatus] = {}
+        for index, record in enumerate(records):
+            ours = self._our_ports(record.path, snapshot)
+            # LWSM-1038 § 4.3 step 1, BEFORE classifying: a project with no
+            # port of its own gets one here, and so reads `running (managed)`
+            # in the same poll rather than `unknown`.
+            seen = _port_seen_by_our_group(record, ours)
+            if seen is not None and seen != record.confirmed_port:
+                record = records[index] = replace(record, confirmed_port=seen)
+            status = self._classify(record, snapshot, record.path in spawning, ours)
+            # Step 2: a server we did not start, that is the project's own unit
+            # or looks like the project. Only the two ports `_classify` probes.
+            # It never decides whether a holder is ours (INV-11).
+            if not ours and status in (
+                ProjectStatus.RUNNING,
+                ProjectStatus.RUNNING_FOREIGN,
+            ):
+                port = record.effective_port
+                seen = (
+                    port
+                    if port is not None and snapshot.answers_localhost(port)
+                    else record.port
+                )
+                if seen is not None and seen != record.confirmed_port:
+                    record = records[index] = replace(record, confirmed_port=seen)
+            statuses[record.path] = status
+        confirmed = records != self._records
+        if confirmed:
+            self._records = records
+        self._statuses = statuses
         # Derived from the SAME snapshot as the statuses, in the same tick.
         # Asking the supervisor separately at render time is what LWSM-1167 was
         # -- the answer has to come from the socket table, and this is the only
@@ -1559,6 +1611,8 @@ class ProjectController(QObject):
         self._holders = self._holder_pids(snapshot)
         settled = self._settle_overlay()
         self._reaped.clear()
+        if confirmed:
+            self.confirmed_ports_changed.emit()
         if settled:
             # Probing always wins, so a settled overlay is a visible change even
             # when the derived map happens to match the previous one.

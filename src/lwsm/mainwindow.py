@@ -376,16 +376,26 @@ def port_text(effective_port: int | None) -> str:
     )
 
 
-def disputed_port_text(port: int) -> str:
-    """`port_text`, marked for a row whose port sources disagree (LWSM-1385).
+def port_cell_text(row: RowView) -> str:
+    """The port cell: the number, and how sure the app is of it.
 
-    Text, not a colour or an icon: the row's accessible name is built from the
-    rendered cells, so the marker reaches a screen reader with no extra code.
-    `str.replace` for `port_text`'s reason.
+    LWSM-1038 § 4.5, first match winning. A port the user set says nothing
+    more; a port the project was seen on says *confirmed*, above LWSM-1385's
+    *sources differ*, which only a guess can carry. Text, not a colour or an
+    icon: the row's accessible name is built from the rendered cells, so the
+    word reaches a screen reader with no extra code. `str.replace` for
+    `port_text`'s reason.
     """
-    return QCoreApplication.translate("ProjectRow", "port %1 (sources differ)").replace(
-        "%1", str(port)
-    )
+    port = row.effective_port
+    if port is None or row.port_overridden:
+        return port_text(port)
+    if row.port_confirmed:
+        template = QCoreApplication.translate("ProjectRow", "port %1 (confirmed)")
+    elif row.port_conflicts:
+        template = QCoreApplication.translate("ProjectRow", "port %1 (sources differ)")
+    else:
+        template = QCoreApplication.translate("ProjectRow", "port %1 (detected)")
+    return template.replace("%1", str(port))
 
 
 def rule_words(rule: PortRule) -> str:
@@ -425,10 +435,24 @@ def port_detail(row: RowView) -> str:
     found = row.port_from
     if row.port_overridden:
         sentences.append(QCoreApplication.translate("ProjectRow", "You set this port."))
+        seen = row.confirmed_port
+        if seen is not None and seen != row.effective_port:
+            sentences.append(
+                _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow", "Last seen running on port %1."
+                    ),
+                    str(seen),
+                )
+            )
+    elif row.port_confirmed:
+        sentences.append(
+            QCoreApplication.translate("ProjectRow", "Seen running on this port.")
+        )
     if found is not None:
         source = display_text(found.source)
         words = rule_words(found.rule)
-        if row.port_overridden:
+        if row.port_overridden or row.port_confirmed:
             template = QCoreApplication.translate(
                 "ProjectRow", "Detected port %1 is from %2 (%3)."
             )
@@ -1462,11 +1486,7 @@ class ProjectRow(QFrame):
         self.forget_trust_action.setText(
             QCoreApplication.translate("ProjectRow", "&Ask before starting again")
         )
-        port = row.effective_port
-        if row.port_conflicts and not row.port_overridden and port is not None:
-            self._port.setText(disputed_port_text(port))
-        else:
-            self._port.setText(port_text(port))
+        self._port.setText(port_cell_text(row))
         # Hover for a pointer, the description for a screen reader; the
         # disagreement itself is in the cell text above (LWSM-1385 § 4.5).
         detail = port_detail(row)
@@ -2050,6 +2070,7 @@ class MainWindow(QMainWindow):
         controller.action_failed.connect(self._report_failure)
         controller.action_done.connect(self._report_done)
         controller.confirmation_required.connect(self._ask_to_trust)
+        controller.confirmed_ports_changed.connect(self._save_confirmed_ports)
 
     def _build_menus(self) -> None:
         """The bar every later item hangs off (LWSM-1146).
@@ -3429,6 +3450,15 @@ class MainWindow(QMainWindow):
                 "hide",
             )
         )
+
+    def _save_confirmed_ports(self) -> None:
+        """Save a port a poll saw a project running on (LWSM-1038 § 4.3).
+
+        Silent: the row's *confirmed* is the feedback, and a banner once per
+        project per run would be noise. A failed save is logged by
+        `_write_records`, and the value holds in memory for this session.
+        """
+        self._write_records(self._controller.records(), "", "confirmed port")
 
     def forget_trust(self, path: Path) -> None:
         """Withdraw the user's "yes, run it" for one project (LWSM-1319).

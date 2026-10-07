@@ -264,6 +264,9 @@ a default for, which is how `kind` was missed in an earlier draft:
 | `actions` | `tuple[str, ...]` of canonical JSON, see below | `()` | field dropped, reported |
 | `added` | `str \| None`, any RFC 3339 instant | `null` | field dropped, reported |
 
+`confirmed_port` is specified in
+[LWSM-1038 § 4.2](LWSM-1038-confirmed-ports.md#42-the-file-format).
+
 **The fourth column is one blanket rule, and it is stated because the file is
 hand-editable and most of these keys had no answer.** A present value of the
 wrong type **loses the field and is reported** — exactly what `_port_or_reason`
