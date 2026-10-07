@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import gc
 import json
 import logging
 import re
@@ -21,7 +22,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QPalette, QShowEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidgetItem
 
 from banner import message_of
 from lwsm import __version__, browsers, mainwindow, placement, registry, scanner
@@ -3886,6 +3887,32 @@ def test_filtering_hides_rows_rather_than_rebuilding_them(qtbot, built) -> None:
     qtbot.keyClick(window._filter, Qt.Key.Key_Escape)
 
     assert window._ordered_rows() == before, "the row widgets must be the same objects"
+
+
+def test_reading_the_row_order_leaves_no_layout_item_wrapper_behind(
+    qtbot, built
+) -> None:
+    """LWSM-1395. `QLayout.itemAt` hands back a `QWidgetItem` whose Python
+    wrapper PySide keeps alive after Qt frees the item with its row. When Qt
+    later puts a new object at that address, PySide returns the stale wrapper
+    for it: CI run 37677757417 got a `QWidgetItem` back from `addMenu`.
+
+    The wrappers are found through the rows layout, which is what keeps them
+    alive, and never dereferenced: one whose item is already freed would crash
+    the run rather than fail this test."""
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"])
+
+    rows = window._ordered_rows()
+
+    assert len(rows) == 3
+    # Zero, not "no more than before": building the window reads the order
+    # too, and a second read reuses the wrappers the first one left.
+    held = [
+        obj
+        for obj in gc.get_referents(window._rows_layout)
+        if isinstance(obj, QWidgetItem)
+    ]
+    assert held == [], "reading the rows left QWidgetItem wrappers alive"
 
 
 def test_a_project_scanned_under_an_active_filter_stays_hidden(qtbot, built) -> None:

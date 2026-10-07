@@ -106,6 +106,10 @@ signaling per
 
 ### Fixed
 
+- **The window could, rarely, fail while building its menus after rows had been removed.** (LWSM-1395)
+  Reading the order of the project rows left behind bookkeeping that
+  outlived the rows; a new menu could later be mistaken for it.
+
 - **A login-started server no longer keeps the app's port after you quit the app** (LWSM-1387)
   The app now removes its port setting as soon as such a server has
   started. The running server keeps its port, and the next login start

@@ -2689,14 +2689,17 @@ class MainWindow(QMainWindow):
         that is a coincidence of how rows are added rather than a property
         anything states, and no test tells the two apart. Reading the layout
         asks the question directly.
+
+        By `indexOf`, never `itemAt` (LWSM-1395). PySide keeps the wrapper of
+        every `QWidgetItem` that `itemAt` returns alive after Qt frees the item
+        with its row, and later hands that stale wrapper back for whatever new
+        object Qt puts at the same address — in CI, the Theme menu.
         """
-        rows = []
-        for index in range(self._rows_layout.count()):
-            item = self._rows_layout.itemAt(index)
-            widget = item.widget() if item is not None else None
-            if isinstance(widget, ProjectRow):
-                rows.append(widget)
-        return rows
+        layout = self._rows_layout
+        rows = self._rows_host.findChildren(
+            ProjectRow, options=Qt.FindChildOption.FindDirectChildrenOnly
+        )
+        return sorted((r for r in rows if layout.indexOf(r) >= 0), key=layout.indexOf)
 
     def _visible_rows(self) -> list[ProjectRow]:
         """The rows the filter is currently showing, in the order they appear.

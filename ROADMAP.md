@@ -11473,6 +11473,27 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: in-session-2026-10-07.
   Lanes: ci.
 
+- ✅ [LWSM-1395] **Reading the row order leaves stale layout-item wrappers, and one came back as the Theme menu.**
+  CI on 0a799fb (docs-only) failed two test_mainwindow tests with
+  "'QWidgetItem' object has no attribute 'setTitle'/'addAction'" on
+  self._theme_menu. MainWindow._ordered_rows calls QLayout.itemAt; PySide
+  keeps each returned QWidgetItem wrapper alive (refcount 3 with one local
+  ref) after Qt frees the item when its row is deleted. Measured
+  2026-10-07: 50 items read, rows deleted, 50 wrappers still alive. A new
+  QMenu allocated at a freed address is then handed back as the stale
+  QWidgetItem wrapper. Fix: order rows by indexOf, never itemAt.
+  Resolved (2026-10-07): _ordered_rows now orders the rows host's direct
+  ProjectRow children by layout.indexOf. Red-first test
+  test_reading_the_row_order_leaves_no_layout_item_wrapper_behind checks
+  gc.get_referents(window._rows_layout) holds no QWidgetItem: failed
+  before the fix, passes after. addLayout also wraps the sub-layout's
+  items (measured); here only the filter strip's, which are never
+  removed. Trap recorded in docs/claude/traps.md.
+  **Layman:** The app could very rarely crash while building its menus, because of leftover bookkeeping from reading the list of rows.
+  Kind: fix.
+  Source: ci-run-37677757417-2026-10-07.
+  Lanes: ui, tests.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.

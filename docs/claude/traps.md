@@ -636,3 +636,13 @@ does, here because the rule as stated was not the rule that was wanted.
 missing — 21 bogus findings on 2026-08-06 against a `pyproject.toml`
 that declares them. Same family as `python` not being on PATH: the
 output looks authoritative and is about the wrong interpreter.
+
+**Trap: never take a layout item from `QLayout.itemAt` or `takeAt`.** PySide
+keeps the returned `QWidgetItem`'s wrapper alive, held by the layout's wrapper,
+after Qt frees the item when its widget goes. A new object that Qt later puts
+at that address comes back to Python as the stale wrapper. CI run 37677757417
+got a `QWidgetItem` from `addMenu` and failed two unrelated tests (LWSM-1395).
+Ask the layout for a widget's position with `indexOf(widget)` instead.
+`addLayout` also wraps the items already in the sub-layout it is given, so a
+widget later removed from that sub-layout leaves the same stale wrapper. Measured
+2026-10-07; `gc.get_referents(layout)` lists the wrappers a layout holds.
