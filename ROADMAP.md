@@ -11104,6 +11104,18 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   The per-project opt-in and path are saved in the registry file, an
   on-disk format. Write it with /write-spec; the user has not yet
   confirmed starting it.
+  Decided (user, 2026-10-07), before the spec: (1) turned on from
+  the row's right-click menu, with a second item to change the page
+  it asks for; (2) the answer shows on a second line under the state
+  word, so the row still fits the 600 px lens; (3) every 10 seconds,
+  fixed, no new setting; (4) words only: a bad answer changes no
+  state, colour or glyph. Spec being written with /write-spec.
+  Revised (user, 2026-10-07): decision (2) changed. The answer goes
+  on a new last line of the PORT cell, not under the state word.
+  Measured in the suite font (DejaVu Sans 9): under the state it
+  widened the widest row by 3 to 19 px past the 600 px lens (state
+  floor 54 px; "HTTP 500" 57, "no response" 73). In the port cell
+  it cannot: "(sources differ)" is 91 px, wider than any answer.
   Lanes: core, ui, tests.
 
 - ✅ [LWSM-1054] **P06: cover the sibling that respawns itself detached.**
