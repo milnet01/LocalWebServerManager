@@ -514,9 +514,14 @@ class _ServiceTask(QRunnable):
         """The verb with this app's drop-in around it (LWSM-1028).
 
         Written before a start or restart, so `PORT` and `LWSM_MANAGED` reach a
-        unit systemd starts in its own environment; removed after a successful
-        stop, so the unit's next start at logon is its own default (user,
-        2026-10-02). A drop-in that cannot be written stops the start.
+        unit systemd starts in its own environment; removed after any successful
+        verb, so the unit's next start at logon is its own default (user,
+        2026-10-02). After a start that is safe because systemd read the file
+        when it started the unit, so the running server keeps its port; and it
+        is what keeps a unit still running when the app quits from carrying the
+        app's port into its next logon start (LWSM-1387). Only a success clears
+        it: a `systemctl start` that timed out here may still be starting the
+        unit. A drop-in that cannot be written stops the start.
 
         A unit found from the port's holder rather than bound by the scanner is
         checked first (`bind_to`), on this worker because it asks `systemctl`.
@@ -535,14 +540,15 @@ class _ServiceTask(QRunnable):
                     reason=prepared.reason,
                 )
         outcome = drive_unit(self._verb, self._unit)
-        if self._verb == "stop" and outcome.ok:
+        if outcome.ok:
             cleared = clear_drop_in(self._unit)
             if not cleared.ok:
-                # The stop itself worked, so it is not reported as failing;
+                # The verb itself worked, so it is not reported as failing;
                 # the leftover file is logged for whoever reads why the unit
                 # still sees LWSM_MANAGED at its next logon start.
                 log.warning(
-                    "stopped %s but its drop-in remains: %s",
+                    "%s of %s worked but its drop-in remains: %s",
+                    self._verb,
                     self._unit,
                     cleared.reason,
                 )

@@ -382,8 +382,9 @@ def reload_user_manager(*, run: object = None) -> UnitOutcome:
 def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
     """Write this app's drop-in for `unit`, then reload — before a start.
 
-    Unchanged bytes skip both the write and the reload, so a second Start does
-    not reload the user's whole service manager for nothing. A failure is
+    Unchanged bytes skip both the write and the reload, which matters only
+    where an earlier clear failed and left the file behind (LWSM-1387 removes
+    it after every successful verb, so normally it is absent). A failure is
     reported and the caller does not start: a unit started without its drop-in
     runs on its own default port, which is ADR-0002's silent no-op.
     """
@@ -405,7 +406,8 @@ def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
 
 
 def clear_drop_in(unit: str) -> UnitOutcome:
-    """Remove this app's drop-in for `unit`, then reload — after a stop.
+    """Remove this app's drop-in for `unit`, then reload — after a successful
+    start, restart or stop (LWSM-1387).
 
     Removing rather than rewriting returns the unit to exactly its packaged
     default (ADR-0003), so its next start at logon is its own. Nothing to

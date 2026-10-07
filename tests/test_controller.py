@@ -2851,6 +2851,57 @@ def test_a_unit_bound_project_starts_through_systemd_with_its_drop_in(
     assert supervisor.started == [], "systemd owns it, so nothing is spawned"
     assert "Environment=PORT=4321" in seen[0]
     assert "Environment=LWSM_MANAGED=1" in seen[0]
+    assert reloads[0] == "daemon-reload"
+
+
+@pytest.mark.parametrize("verb", ["start", "restart"])
+def test_a_started_unit_loses_its_drop_in_straight_away(
+    qtbot, controllers, monkeypatch, reloads, verb
+) -> None:
+    """LWSM-1387: systemd read the drop-in when the unit started, so removing it
+    then keeps the running server's port and leaves the next logon start the
+    unit's own — even when the app quits with the server still running."""
+    from lwsm.service import drop_in_path
+
+    drive = RecordingDrive()
+    if verb == "start":
+        monkeypatch.setattr(controller_module, "drive_unit", drive)
+        controller = supervised(
+            controllers, [unit_record()], FakeProbe(), FakeSupervisor()
+        )
+    else:
+        adopted(monkeypatch, drive, "a.service")
+        controller = supervised(
+            controllers, [unit_record()], HoldingProbe({4321: 1290}), FakeSupervisor()
+        )
+        with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+            controller.poll_once()
+
+    if verb == "start":
+        controller.start_project(Path("/srv/a"))
+    else:
+        controller.restart_project(Path("/srv/a"), disclosed_holder=1290)
+    qtbot.waitUntil(lambda: len(reloads) == 2, timeout=2000)
+
+    assert drive.calls == [(verb, "a.service")]
+    assert not drop_in_path("a.service").exists()
+
+
+def test_a_unit_that_fails_to_start_keeps_its_drop_in(
+    qtbot, controllers, monkeypatch, reloads
+) -> None:
+    """Only a successful verb clears it (user, 2026-10-07): systemd may still be
+    starting a unit whose `systemctl start` timed out here."""
+    from lwsm.service import drop_in_path
+
+    drive = RecordingDrive(ok=False, reason="boom")
+    monkeypatch.setattr(controller_module, "drive_unit", drive)
+    controller = supervised(controllers, [unit_record()], FakeProbe(), FakeSupervisor())
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000):
+        controller.start_project(Path("/srv/a"))
+
+    assert drop_in_path("a.service").exists()
     assert reloads == ["daemon-reload"]
 
 

@@ -240,11 +240,14 @@ make this safe rather than clever:
   One unit shape defeats it: settings from `EnvironmentFile=`
   override `Environment=` (systemd.exec(5)), so a unit that sets
   `PORT` that way keeps its own port.
-- **It is written before a start or restart and removed after a
-  successful stop from this app**, so a unit stopped here starts at
-  logon on its own settings. A removal that fails is logged; the
-  stop still succeeded. A unit still running when the app quits
-  keeps the drop-in, and its next logon start uses it.
+- **It is written before a start or restart and removed after any
+  successful start, restart or stop from this app** (LWSM-1387). So
+  the unit's next logon start is on its own settings, even when the
+  app quits with the unit still running. systemd reads the drop-in
+  only when it starts the unit, so the running server keeps its
+  port. The cost: a restart systemd makes itself, such as
+  `Restart=on-failure`, is on the unit's own port. A removal that
+  fails is logged; the verb still succeeded.
 - **Removing the override removes the file** and reloads, rather
   than writing the old value back — so the project returns to
   exactly its packaged default rather than to whatever the manager
