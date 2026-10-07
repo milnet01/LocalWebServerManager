@@ -174,7 +174,8 @@ record in `ProjectController.rows`, and `port_overridden: bool`
 
 - **The port cell.** When `port_conflicts` is non-empty and the port is not
   overridden, the cell reads `port 3000 (sources differ)`, translated, with the
-  number substituted by `str.replace` as `port_text` does today. Otherwise it is
+  number substituted by `str.replace` as `port_text` does today. Since
+  LWSM-1393 the marker is on a second line under the port. Otherwise it is
   `port_text`'s output, unchanged. The marker is text, so the row's accessible
   name, which is built from the rendered cells, carries it with no extra code.
 - **The detail.** The port cell's tooltip and the row's accessible description

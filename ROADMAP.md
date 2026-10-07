@@ -11313,7 +11313,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: LWSM-1326 user decision 2026-10-02 (shared documentation.md § 2.9).
   Lanes: docs.
 
-- 📋 [LWSM-1387] **A service still running when the app quits keeps the app's port at its next logon start.**
+- ✅ [LWSM-1387] **A service still running when the app quits keeps the app's port at its next logon start.**
   The drop-in (PORT, LWSM_MANAGED) is removed only after a Stop from
   this app (service._ServiceTask._drive). Servers are left running when
   the app quits, by design, so a unit running at quit keeps the drop-in
@@ -11329,6 +11329,9 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   drop-in and reload straight after a successful start or restart,
   accepting that a systemd restart of a crashed unit comes back on the
   unit's own port.
+  Resolved (2026-10-07, e4e9b35): the drop-in is removed after any
+  successful start, restart or stop; ADR-0003 updated. Not yet pushed:
+  it rides with LWSM-1392/1393, which unbreak CI.
   **Layman:** If you quit the app while one of its login-started servers is running, that server keeps the app's port the next time you log in.
   Kind: review-fix.
   Source: review-contract ADR-0003 loop 2, 2026-10-02.

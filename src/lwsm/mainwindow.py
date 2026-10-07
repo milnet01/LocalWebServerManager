@@ -194,8 +194,9 @@ BROWSER_COLUMN_CHARS = 10
 # at 593 px for a 30-character name, 7 px inside the limit before a browser
 # column existed at all.
 # `design-accessibility.md` derives that band from who this app is for, so it
-# is the name that gives way, not the controls.
-NAME_COLUMN_CHARS = 16
+# is the name that gives way, not the controls. 15 since LWSM-1393: the widest
+# port cell, with the suite's DejaVu Sans, ended the controls at 601 px on 16.
+NAME_COLUMN_CHARS = 15
 
 MIN_TARGET_PX = 24
 """`design.md § Accessibility`: no clickable target smaller than 24x24 at
@@ -383,19 +384,24 @@ def port_cell_text(row: RowView) -> str:
     more; a port the project was seen on says *confirmed*, above LWSM-1385's
     *sources differ*, which only a guess can carry. Text, not a colour or an
     icon: the row's accessible name is built from the rendered cells, so the
-    word reaches a screen reader with no extra code. `str.replace` for
-    `port_text`'s reason.
+    word reaches a screen reader with no extra code.
+
+    The word sits on a second line under the port (LWSM-1393, the user
+    2026-10-07). On one line, "port 65535 (sources differ)" pushed a row's
+    controls past the 600 px a magnifier user reads through; stacked, the cell
+    is only as wide as its longer line. `ProjectRow` joins the lines with a
+    space wherever the text is read aloud.
     """
     port = row.effective_port
     if port is None or row.port_overridden:
         return port_text(port)
     if row.port_confirmed:
-        template = QCoreApplication.translate("ProjectRow", "port %1 (confirmed)")
+        word = QCoreApplication.translate("ProjectRow", "(confirmed)")
     elif row.port_conflicts:
-        template = QCoreApplication.translate("ProjectRow", "port %1 (sources differ)")
+        word = QCoreApplication.translate("ProjectRow", "(sources differ)")
     else:
-        template = QCoreApplication.translate("ProjectRow", "port %1 (detected)")
-    return template.replace("%1", str(port))
+        word = QCoreApplication.translate("ProjectRow", "(detected)")
+    return f"{port_text(port)}\n{word}"
 
 
 def rule_words(rule: PortRule) -> str:
@@ -1486,7 +1492,11 @@ class ProjectRow(QFrame):
         self.forget_trust_action.setText(
             QCoreApplication.translate("ProjectRow", "&Ask before starting again")
         )
-        self._port.setText(port_cell_text(row))
+        cell = port_cell_text(row)
+        self._port.setText(cell)
+        # One phrase when spoken: a line break read aloud is a pause in the
+        # middle of "port 5005 (confirmed)", or nothing at all (LWSM-1393).
+        self._port.setAccessibleName(cell.replace("\n", " "))
         # Hover for a pointer, the description for a screen reader; the
         # disagreement itself is in the cell text above (LWSM-1385 § 4.5).
         detail = port_detail(row)
@@ -1555,7 +1565,7 @@ class ProjectRow(QFrame):
         parts = {
             "1": self._state.text(),
             "2": self._name_display,
-            "3": self._port.text(),
+            "3": self._port.accessibleName(),
         }
         announced = re.sub(
             r"%([123])",

@@ -200,6 +200,10 @@ and its number substituted by `str.replace` as `port_text` does:
 | `port_conflicts` non-empty | `port 4000 (sources differ)` (LWSM-1385) |
 | otherwise | `port 3000 (detected)` |
 
+On screen the word sits on a second line under `port_text`'s output, which
+keeps the row inside the 600 px lens (LWSM-1393). The cell's accessible name
+joins the two lines with a space, so the row is announced as the table reads.
+
 The second row is above the fourth, which is the amendment to LWSM-1385 INV-6:
 the marker now shows when `port_conflicts` is non-empty and the port is neither
 overridden nor confirmed.

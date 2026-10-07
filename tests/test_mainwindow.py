@@ -1299,7 +1299,7 @@ def test_every_visible_string_goes_through_a_translator(qtbot, built) -> None:
         with_port, _ = window_for(qtbot, built, [record("b", 5005)], FakeProbe(5005))
         # The number is interpolated into the translated string, not appended
         # to it — a translator must be able to move it.
-        assert rows_of(with_port)[0]._port.text() == "PORT 5005 (CONFIRMED)"
+        assert rows_of(with_port)[0]._port.text() == "PORT 5005\n(CONFIRMED)"
     finally:
         app.removeTranslator(translator)
 
@@ -1355,7 +1355,7 @@ def test_a_translator_installed_later_reaches_an_existing_row(qtbot, built) -> N
         assert row._state.text() == "RUNNING", (
             "a row built before the translator was installed never retranslated"
         )
-        assert row._port.text() == "PORT 5005 (CONFIRMED)"
+        assert row._port.text() == "PORT 5005\n(CONFIRMED)"
         assert window.windowTitle() == f"LOCAL WEB SERVER MANAGER {__version__}"
         # The announcement must follow the words a listener actually hears.
         assert row.accessibleName() == "RUNNING, PORT 5005 (CONFIRMED), NAMED a"
@@ -1479,7 +1479,7 @@ def test_a_broken_translation_loses_the_number_not_the_window(qtbot, built) -> N
     assert app.installTranslator(translator)
     try:
         window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
-        assert rows_of(window)[0]._port.text() == "{port} %2 porta"
+        assert rows_of(window)[0]._port.text() == "{port} %2 porta\n{port} %2 porta"
     finally:
         app.removeTranslator(translator)
 
@@ -4493,6 +4493,10 @@ def test_nothing_is_clipped_at_two_hundred_percent(qtbot, built, app_font) -> No
     Every cell must be at least as wide as the text it holds. A `QLabel` does
     not elide by default, it CLIPS — so the failure is silent, and the last
     characters of a project's name simply are not there.
+
+    Measured per line, and checked for height too, since the port cell holds
+    two lines (LWSM-1393): a stacked cell can lose its second line to a row
+    that is too short, which a width check alone cannot see.
     """
     window, _ = window_for(
         qtbot,
@@ -4513,9 +4517,15 @@ def test_nothing_is_clipped_at_two_hundred_percent(qtbot, built, app_font) -> No
             ("name", row._name),
             ("port", row._port),
         ):
-            needs = label.fontMetrics().horizontalAdvance(label.text())
+            metrics = label.fontMetrics()
+            needs = max(
+                metrics.horizontalAdvance(line) for line in label.text().split("\n")
+            )
             if needs > label.width():
                 clipped[f"{row._name.text()}.{name}"] = (needs, label.width())
+            tall = label.sizeHint().height()
+            if tall > label.height():
+                clipped[f"{row._name.text()}.{name} height"] = (tall, label.height())
         for button in (row.start_button, row.stop_button, row.open_button):
             if button.sizeHint().width() > button.width():
                 clipped[f"{row._name.text()}.{button.text()}"] = (
@@ -6813,6 +6823,40 @@ def test_the_row_still_fits_one_lens_view_with_a_browser_picker(
     )
 
 
+def test_the_widest_port_wording_still_fits_one_lens_view(
+    qtbot, built, tmp_path
+) -> None:
+    """LWSM-1393: the band against the widest port cell there is — a five-digit
+    port, "(sources differ)", the long name and the picker together. One line,
+    that cell put the controls near 665 px in the suite's font; the confidence
+    word on its own line is what brings it back. The cell text is asserted too,
+    so a fixture that stopped producing that wording cannot pass by accident."""
+    window, _ = browser_window(
+        qtbot,
+        built,
+        tmp_path,
+        [
+            dataclasses.replace(
+                record("customer-dashboard-frontend-v2", 65535),
+                port_conflicts=CONFLICT,
+            )
+        ],
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    window.resize(1400, window.height())
+    qtbot.waitUntil(lambda: window.width() == 1400, timeout=2000)
+    row = rows_of(window)[0]
+
+    assert row._port.text() == "port 65535\n(sources differ)"
+    assert row.browser_box.isVisible(), "the picker must actually be in the row"
+    right_edge = row.open_button.geometry().right()
+    assert right_edge <= READABLE_BAND_PX, (
+        f"the row's controls end at x={right_edge}, outside the "
+        f"{READABLE_BAND_PX} px lens the user has to read it through"
+    )
+
+
 # --- LWSM-1244: Follow system -------------------------------------------------
 
 
@@ -8612,20 +8656,20 @@ CONFLICT = (registry.PortFinding(4000, registry.PortRule.README, "README.md"),)
             {"effective_port": 5999, "port_overridden": True, "confirmed_port": 5002},
             "port 5999",
         ),
-        ({"effective_port": 5002, "port_confirmed": True}, "port 5002 (confirmed)"),
+        ({"effective_port": 5002, "port_confirmed": True}, "port 5002\n(confirmed)"),
         ({"effective_port": None}, "no port"),
         (
             {"effective_port": 4000, "port_conflicts": CONFLICT},
-            "port 4000 (sources differ)",
+            "port 4000\n(sources differ)",
         ),
-        ({"effective_port": 3000}, "port 3000 (detected)"),
+        ({"effective_port": 3000}, "port 3000\n(detected)"),
         (
             {
                 "effective_port": 5002,
                 "port_confirmed": True,
                 "port_conflicts": CONFLICT,
             },
-            "port 5002 (confirmed)",
+            "port 5002\n(confirmed)",
         ),
     ],
     ids=[
@@ -8650,7 +8694,8 @@ def test_the_port_cell_says_how_sure_the_port_is(qtbot, view, expected) -> None:
     qtbot.addWidget(row)
 
     assert row._port.text() == expected
-    assert expected in row.accessibleName()
+    # Two lines on screen (LWSM-1393), one phrase when read aloud.
+    assert expected.replace("\n", " ") in row.accessibleName()
 
 
 def test_the_window_saves_a_confirmed_port_once(
