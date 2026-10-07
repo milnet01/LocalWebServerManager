@@ -2479,13 +2479,6 @@ def test_owns_pid_accepts_the_server_a_wrapper_left_behind(
     )
 
 
-def _pgid(pid: int) -> int | None:
-    try:
-        return os.getpgid(pid)
-    except OSError:
-        return None
-
-
 def test_a_wrapper_whose_server_lives_on_has_a_live_group(
     supervisor: Supervisor, project: Path
 ) -> None:
