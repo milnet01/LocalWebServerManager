@@ -10838,7 +10838,7 @@ bugs in the same area.
   Source: in-session-2026-10-02 (split from LWSM-1121).
   Lanes: core, ui.
 
-- 📋 [LWSM-1386] **Bump the uv pin from 0.12.2 to the latest release.**
+- ✅ [LWSM-1386] **Bump the uv pin from 0.12.2 to the latest release.**
   local-release.sh step 0h reported UV_VERSION pinned at 0.12.2 while
   astral-sh/uv's latest release is 0.12.22. The pin lives in
   scripts/ci-tools.env and is repeated as a literal in ci.yml (a uses:
@@ -10861,6 +10861,10 @@ bugs in the same area.
   Afterwards delete build/uv-0.12.22/.
   Progress (2026-10-07): user agreed to run the swap; commands handed
   over in session.
+  Resolved (2026-10-07, 27cf8e3): bumped to 0.12.23, the latest by then
+  (D2), here and in CI; the user swapped the local binaries. setup-uv
+  bumped 9.0.0 -> 10.2.0 in bce99fa under D2. build/uv-0.12.22/ and
+  build/uv-0.12.23/ deleted.
   **Layman:** The tool that installs this project's dependencies is a few versions behind; update it.
   Kind: chore.
   Source: in-session-2026-10-02 (LWSM-1347's first run).
