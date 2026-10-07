@@ -94,7 +94,7 @@ HEALTH_THREADS = 4
 
 @dataclass(frozen=True)
 class HealthAnswer:
-    code: int | None  # None: no HTTP answer within the timeout
+    code: int | None  # None: no HTTP answer
 ```
 
 `ProjectController` gains:
@@ -208,8 +208,8 @@ The cell's accessible name joins the confidence line with a space, as today,
 and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
 
 **The detail.** `port_detail` gains one last sentence when `health` is set:
-`The site answered HTTP %1 to %2.` or `The site did not answer %2 within 2
-seconds.`, `%2` being the page through `configfile.display_text`.
+`The site answered HTTP %1 to %2.` or `The site gave no HTTP answer to %2.`,
+`%2` being the page through `configfile.display_text`.
 
 ## 5. Invariants
 
@@ -300,12 +300,12 @@ seconds.`, `%2` being the page through `configfile.display_text`.
   `health_page_action` with `_ask_health_page` replaced, for `"/health"`, `""`,
   `None` and `"health"`, asserting the saved record each time.
   *Breaks when:* the menu path skips `health_path_ok`, which lets the UI store
-  what the loader would refuse, so the next start makes the session read-only.
+  what the loader would refuse, so the next start drops the page and reports
+  it.
 
 - **INV-12** — A page holding a control character or markup reaches the
   tooltip and the accessible description as plain text with the control
-  character replaced. This is the trust boundary: `projects.json` is
-  hand-editable.
+  character replaced.
   *Test:* `tests/test_mainwindow.py`, a `RowView` with `health_path`
   `"/<b>x</b>\u0007"` and `health=HealthAnswer(None)`.
   *Breaks when:* `port_detail` puts `health_path` in without `display_text`.
@@ -330,8 +330,9 @@ seconds.`, `%2` being the page through `configfile.display_text`.
   every ten seconds and nothing else.
 - **An older build edits the file.** It keeps both keys as unknown and writes
   them back. It does not ask.
-- **A hand edit breaks a key.** § 4.3's refusals apply. The session goes
-  read-only for user fields, as for any other user field.
+- **A hand edit breaks a key.** § 4.3's refusals apply: the field takes its
+  default and is reported, and `registry.export_profile` refuses an export
+  until a good value is saved (LWSM-1215).
 
 ## 7. Tests
 

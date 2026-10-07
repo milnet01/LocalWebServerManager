@@ -11512,6 +11512,24 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: ci-run-37677757417-2026-10-07.
   Lanes: ui, tests.
 
+- 📋 [LWSM-1396] **Two shipped specs misstate what a refused field does, and LWSM-1005 INV-16's stop bound is stale.**
+  Found by the LWSM-1034 spec gate, outside its subject.
+  (1) LWSM-1385 INV-3 and LWSM-1038's confirmed_port invariant give
+  "recorded as a user-field refusal and so makes the session
+  read-only" as a breach. False: registry._refuse_unwritable_load
+  refuses only on a row refusal or a RegistryError; a user-field
+  refusal blocks export_profile (LWSM-1215), not writes. Reword
+  both Breaks-when clauses to name the export refusal.
+  (2) LWSM-1005 INV-16 says stop() returns within STOP_WAIT_MS.
+  ProjectController.stop() waits on the snapshot pool, then the
+  service pool, each up to STOP_WAIT_MS, so the bound is already
+  two waits; LWSM-1034 adds a third. Restate the bound, or give
+  the pools one shared deadline.
+  **Layman:** Fix two old design notes that describe the app wrongly, so nobody builds from the wrong description.
+  Kind: doc-fix.
+  Source: review-contract-2026-10-07 LWSM-1034 loop 1 (out of scope).
+  Lanes: docs.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.
