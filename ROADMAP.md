@@ -11100,6 +11100,10 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 2.
+  Next (2026-10-07): spec first, under CLAUDE.md review cadence rule 2.
+  The per-project opt-in and path are saved in the registry file, an
+  on-disk format. Write it with /write-spec; the user has not yet
+  confirmed starting it.
   Lanes: core, ui, tests.
 
 - ✅ [LWSM-1054] **P06: cover the sibling that respawns itself detached.**
@@ -11468,6 +11472,8 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   run `uv run ruff format` over src, tests and docs/specs if the format
   check fails. Dependabot closes each PR itself once main has the bump.
   Offered to the user, not yet approved.
+  Decided (user, 2026-10-07): approved. Do it after LWSM-1034 ships,
+  not before.
   **Layman:** Two of the project's tools have newer versions waiting; update them.
   Kind: chore.
   Source: in-session-2026-10-07.
