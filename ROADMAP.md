@@ -11453,6 +11453,20 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: in-session-2026-10-07 (CI run 37671387994 on 7a335cb).
   Lanes: ui, tests.
 
+- 📋 [LWSM-1394] **Take Dependabot's ruff and setuptools bumps by hand.**
+  Open Dependabot PRs on 2026-10-07: #12 ruff 0.16.1 -> 0.16.10 and #3
+  setuptools 83.0.0 -> 84.0.0. Do each by hand in its own commit, as
+  setup-uv was (bce99fa): read dependencies-overrides.md first, resolve
+  the latest release with the registry rather than the PR's number (D2),
+  re-lock, run ./scripts/local-ci.sh. A ruff bump can change formatting;
+  run `uv run ruff format` over src, tests and docs/specs if the format
+  check fails. Dependabot closes each PR itself once main has the bump.
+  Offered to the user, not yet approved.
+  **Layman:** Two of the project's tools have newer versions waiting; update them.
+  Kind: chore.
+  Source: in-session-2026-10-07.
+  Lanes: ci.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.

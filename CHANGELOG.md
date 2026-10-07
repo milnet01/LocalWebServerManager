@@ -82,6 +82,9 @@ signaling per
 
 ### Changed
 
+- **uv is moved from 0.12.2 to 0.12.23, both on this machine and in CI** (LWSM-1386)
+  CI's setup-uv step moves from 9.0.0 to 10.2.0 alongside it.
+
 - **Status colours are easier to tell apart** (LWSM-1338)
   Some status colours were nearly identical, such as wrong port and
   unknown. Every pair now differs clearly in every colour theme, with
@@ -102,6 +105,23 @@ signaling per
   read, so such a release could never pass.
 
 ### Fixed
+
+- **A login-started server no longer keeps the app's port after you quit the app** (LWSM-1387)
+  The app now removes its port setting as soon as such a server has
+  started. The running server keeps its port, and the next login start
+  uses the server's own port. One catch: if the system restarts a
+  crashed server by itself, it comes back on its own port.
+
+- **A row's buttons stay inside a 600 px magnifier view again** (LWSM-1393)
+  The word after a port (confirmed, detected, sources differ) now sits
+  on a second line under the port, so a long row no longer pushes its
+  buttons out of view with a wider font. A screen reader still hears
+  "port 5005 (confirmed)". Long project names lose one more character
+  before the "...".
+
+- **The local checks measure text in the same font as CI** (LWSM-1392)
+  A row width that passed on this machine had failed on GitHub,
+  because the two drew text in different fonts.
 
 - **A project whose start script hands off to a slow server shows starting, not stopped** (LWSM-1389)
   A start script that launches the real server and exits no longer
