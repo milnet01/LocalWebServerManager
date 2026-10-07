@@ -72,6 +72,7 @@ A new core module importing no Qt at all, like `ports.py`.
 ```python
 HEALTH_TIMEOUT_SECONDS = 2.0
 
+
 def ask(port: int, path: str, *, timeout: float = HEALTH_TIMEOUT_SECONDS) -> int | None:
     """GET `path` from localhost:`port`. The status code, or None for no answer."""
 ```
@@ -92,6 +93,7 @@ validated before it reaches here (§ 4.3).
 ```python
 HEALTH_INTERVAL_MS = 10_000
 HEALTH_THREADS = 4
+
 
 @dataclass(frozen=True)
 class HealthAnswer:
@@ -168,6 +170,7 @@ entries `"health check setting was"` and `"health check page was"`.
 ```python
 MAX_HEALTH_PATH_CHARS = 512
 HEALTH_PATH_PATTERN = re.compile(r"\A/[A-Za-z0-9\-._~!$&'()*+,;=:@/%?]*\Z")
+
 
 def health_path_ok(value: str) -> bool:
     """The one test the loader and the menu both apply."""
