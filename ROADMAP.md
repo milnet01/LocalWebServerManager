@@ -11007,7 +11007,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   its server binds reads stopped). Glyphs ▲ ◆ ■ ✖ are the author's
   choice and open to the user's.
 
-- 📋 [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
+- 🚧 [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
   The first time a project is observed
   listening — started by us, or found already running with a
   holder whose working directory is inside the project — record
@@ -11050,6 +11050,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   review-contract gate, genre spec, cap 2; no lane dispatched yet, so
   start it from Phase 1. Pointer edits to LWSM-1385 INV-6 and LWSM-1007
   § 4.2 land with the build (spec § 11).
+  Progress (2026-10-07): the user skipped the review-contract gate
+  ("the implementation will be the review"), so no lane ran and the
+  loop log stays empty. Spec marked accepted; the build is next, and
+  what it proves wrong is folded back into the spec (CLAUDE.md
+  review cadence rule 1).
   Lanes: core, tests.
 
 - 📋 [LWSM-1034] **P06: health check — bound is not the same as working.**

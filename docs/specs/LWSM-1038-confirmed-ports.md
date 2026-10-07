@@ -1,7 +1,7 @@
 <!-- ants-spec-format: 1 -->
 # LWSM-1038 — Remember the port each project was seen running on
 
-**Status:** spec draft (2026-10-07).
+**Status:** accepted (2026-10-07).
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1038 (user-2026-08-03).
 **Blocked by:** LWSM-1011 (shipped 2026-10-02).
