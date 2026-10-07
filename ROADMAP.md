@@ -11415,7 +11415,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: in-session-2026-10-02 (LWSM-1038 prep).
   Lanes: docs.
 
-- 📋 [LWSM-1392] **The local gate draws text in a different font from CI, so a width that passes here fails there.**
+- ✅ [LWSM-1392] **The local gate draws text in a different font from CI, so a width that passes here fails there.**
   CI (ubuntu-24.04, offscreen Qt) resolves the default font to DejaVu Sans
   9 pt; this machine resolves it to Roboto 9 pt. Measured: the lens test's
   row ends at x=607 under DejaVu (CI's figure exactly) and x=558 under
@@ -11424,12 +11424,15 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   ci.yml installs fonts-dejavu-core explicitly rather than relying on the
   runner image. Same family as docs/claude/traps.md's runner-font trap.
   Priority: 1.
+  Resolved (2026-10-07, 261854f): conftest pins DejaVu Sans for the
+  whole session and stops the run if it is missing; ci.yml installs
+  fonts-dejavu-core. Local now reproduced CI's 607/636 px exactly.
   **Layman:** The checks on this computer used a narrower font than GitHub's, so a too-wide row passed here and failed there.
   Kind: fix.
   Source: in-session-2026-10-07 (CI run 37671387994 on 7a335cb).
   Lanes: tests, ci.
 
-- 📋 [LWSM-1393] **The port cell's confidence word pushes a row's buttons past the 600 px lens.**
+- ✅ [LWSM-1393] **The port cell's confidence word pushes a row's buttons past the 600 px lens.**
   Under DejaVu Sans 9 pt the lens tests fail at 607 px and 636 px (with a
   browser picker) since LWSM-1038 added "(confirmed)". The widest wording,
   "port 65535 (sources differ)" (LWSM-1385), is 161 px and puts a picker
@@ -11438,6 +11441,9 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   line below it. Add a worst-case lens test: that wording, a five-digit
   port, the browser picker, under DejaVu.
   Priority: 1.
+  Resolved (2026-10-07, 8ffc218): confidence word on a second line; name
+  column 16 -> 15 x-widths; worst-case lens test added. Local gate 2347
+  passed.
   **Layman:** With a wider font, the extra word after a project's port pushed its buttons off the part of the screen the magnifier shows.
   Kind: fix.
   Source: in-session-2026-10-07 (CI run 37671387994 on 7a335cb).
