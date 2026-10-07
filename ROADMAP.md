@@ -11116,6 +11116,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   widened the widest row by 3 to 19 px past the 600 px lens (state
   floor 54 px; "HTTP 500" 57, "no response" 73). In the port cell
   it cannot: "(sources differ)" is 91 px, wider than any answer.
+  Progress (2026-10-07): spec accepted at
+  docs/specs/LWSM-1034-health-check.md. review-contract ran to its cap
+  of 2 loops, 6 findings verified and fixed (loop log in
+  docs/reviews/). Out-of-scope defects filed as LWSM-1396. NEXT: build
+  it with /write-code, then fold back what the build proves wrong.
   Lanes: core, ui, tests.
 
 - ✅ [LWSM-1054] **P06: cover the sibling that respawns itself detached.**
