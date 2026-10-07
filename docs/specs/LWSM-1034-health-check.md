@@ -1,7 +1,7 @@
 <!-- ants-spec-format: 1 -->
 # LWSM-1034 — Ask a running site whether it works, and show the answer on its row
 
-**Status:** spec draft (2026-10-07).
+**Status:** accepted (2026-10-07).
 **Kind:** implement.
 **Source:** ROADMAP LWSM-1034 (user-2026-08-03).
 **Blocked by:** LWSM-1011 (shipped 2026-10-02).
@@ -50,7 +50,8 @@ From the user, 2026-10-07 (notes on LWSM-1034):
 
 Decided by the author, recorded so they are not re-argued:
 
-- **Only a row reading `running` is asked.** `running (wrong port)` means the
+- **Only a project whose derived status is `running` is asked, and its answer
+  shows only while its row reads `running`** (§ 4.2). `running (wrong port)` means the
   server is not on the port asked about, and `running (foreign)` is a server
   this app cannot vouch for, which is why LWSM-1141 keeps Open off those rows.
 - **A redirect is an answer, not an instruction.** `HTTP 302` is shown and not
@@ -119,7 +120,7 @@ to show", which removes any stored answer and clears the in-flight mark.
 
 The slot, on the owning thread, returns at once after `stop()`. Otherwise it
 clears the in-flight mark and stores the answer **only if** the record still
-has `health_check` set, still reads `RUNNING`, and still has that port and that
+has `health_check` set, still has the derived status `RUNNING`, and still has that port and that
 page. It then emits `projects_changed` only if the stored answer changed.
 
 A stored answer is removed when a poll's classification moves the project out
@@ -138,7 +139,8 @@ health: HealthAnswer | None = None  # None: nothing to show
 ```
 
 `rows` fills `health` only when the stored answer's port and page match the
-record's current ones.
+record's current ones and `_status_of` is `RUNNING`, so a row under a
+`starting` or `stopping` overlay shows no health line.
 
 ### 4.3 The file format
 
@@ -173,7 +175,7 @@ def health_path_ok(value: str) -> bool:
 
 | Key | Type | Default when absent | Refused when |
 |---|---|---|---|
-| `health_check` | `true` / `false` | `false` | not a JSON boolean (`_bool_or_reason`) |
+| `health_check` | `true` / `false` / `null` | `false` | not `true`, `false` or `null` (`_bool_or_reason`; `null` loads as `false` with no reason, as `hidden` does) |
 | `health_path` | string or `null` | `null` | not a string; longer than `MAX_HEALTH_PATH_CHARS`; or not matched by `HEALTH_PATH_PATTERN` |
 
 A refusal follows LWSM-1007 § 4.2's blanket rule: the field takes its default
@@ -254,19 +256,22 @@ and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
   project.
   *Test:* `tests/test_controller.py`, a fake `ask` counting calls, over records
   in each derived state with the check on and off, a `RUNNING` record under a
-  `STOPPING` overlay, and two ticks with one blocked call outstanding.
+  `STOPPING` overlay (asked), and two ticks with one blocked call outstanding.
   *Breaks when:* the test reads `_status_of`, which returns the overlay; or the
   in-flight mark is cleared on start instead of on the answer.
 
 - **INV-6** — An answer is shown only for the port and page it was asked for,
-  and only while the project reads `RUNNING`.
-  *Test:* `tests/test_controller.py`, three cases: the answer arrives after the
+  and only while `_status_of` is `RUNNING`.
+  *Test:* `tests/test_controller.py`, four cases: the answer arrives after the
   page changed, after the port changed, and after a poll moved the project to
-  `stopped`; `rows()` carries `health is None` in each.
-  *Breaks when:* the slot stores the answer keyed by path alone.
+  `stopped`, and a stored answer under a `STOPPING` overlay; `rows()` carries
+  `health is None` in each.
+  *Breaks when:* the slot stores the answer keyed by path alone, or `rows`
+  reads the derived status instead of `_status_of`.
 
-- **INV-7** — No answer is delivered after `stop()` returns, and `stop()` stays
-  within `STOP_WAIT_MS` with a health call that never returns.
+- **INV-7** — No answer is delivered after `stop()` returns, and the wait on
+  `_health_pool` is bounded by `STOP_WAIT_MS` when a health call never
+  returns. The pools are waited on one after another; LWSM-1396 owns the total.
   *Test:* `tests/test_controller.py`, LWSM-1005 INV-16's two shapes applied to
   the health pool: a completed call before `stop()`, and a blocked one.
   *Breaks when:* `stop()` waits on the snapshot and service pools only.
@@ -288,9 +293,11 @@ and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
 
 - **INV-10** — A row with the widest port wording, the long name, the browser
   picker and a `no response` line still ends inside the 600 px band.
-  *Test:* `tests/test_mainwindow.py`, a copy of
-  `test_the_widest_port_wording_still_fits_one_lens_view` with
-  `health=HealthAnswer(None)`.
+  *Test:* `tests/test_mainwindow.py`, built as
+  `test_the_widest_port_wording_still_fits_one_lens_view` is, then the row's
+  `update_from` called with that row's `RowView` replaced to carry
+  `health=HealthAnswer(None)`; it asserts the cell reads `port 65535\n(sources
+  differ)\nno response` before measuring.
   *Breaks when:* the health line goes under the state word, which measured
   73 px against the state column's 54 px floor.
 
