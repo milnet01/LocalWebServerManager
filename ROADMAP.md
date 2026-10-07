@@ -11007,7 +11007,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   its server binds reads stopped). Glyphs ▲ ◆ ■ ✖ are the author's
   choice and open to the user's.
 
-- 🚧 [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
+- ✅ [LWSM-1038] **P06: confirmed ports — detection learns from what actually happens.**
   The first time a project is observed
   listening — started by us, or found already running with a
   holder whose working directory is inside the project — record
@@ -11055,6 +11055,26 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   loop log stays empty. Spec marked accepted; the build is next, and
   what it proves wrong is folded back into the spec (CLAUDE.md
   review cadence rule 1).
+  Progress (2026-10-07, build, NOT committed): registry.py, controller.py,
+  mainwindow.py and the three test files are edited on disk per the spec.
+  The 34 new cases are green (red first: 31 failed before the code). The
+  three files in full: 651 passed, 10 failed, all in test_mainwindow.py,
+  all asserting a bare "port 5005" cell or announcement that now carries
+  "(detected)" or "(confirmed)" (spec § 7 expected this). NEXT: fix those
+  10, break each rule once to prove the tests (T9), run local-ci.sh, fold
+  back into the spec, add the CHANGELOG entry and the § 11 pointer edits,
+  then commit. Fold-back items: (1) without an override, a project whose
+  own group binds one other port is now confirmed and reads running, not
+  running (wrong port); wrong port remains for an override the project
+  ignores (ADR-0002's case). State it in § 4.3. (2) INV-9's "Breaks when"
+  is wrong: _should_write already blocks a save on an unchanged poll; what
+  the test catches is a window that never saves. (3) § 10's "nothing
+  checks it is the detected one" is now checked by
+  test_an_imported_project_arrives_with_no_confirmed_port.
+  Resolved (2026-10-07): shipped in b3dc84e. Local gate green, 2343
+  tests; 14 mutants, one per rule, all killed. The three fold-back items
+  above are in the spec. The review gate was skipped by the user; the
+  build was its review.
   Lanes: core, tests.
 
 - 📋 [LWSM-1034] **P06: health check — bound is not the same as working.**
