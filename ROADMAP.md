@@ -11041,6 +11041,15 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   on write) looks fixed: ProjectRecord.unknown carries them through a
   save; confirm and mark it. Cite LWSM-1385's spec rather than
   contradict it.
+  Progress (2026-10-07): spec drafted at
+  docs/specs/LWSM-1038-confirmed-ports.md (commit bd8ce54), empty loop log
+  at docs/reviews/LWSM-1038-confirmed-ports-loop-log.md. check-doc-facts
+  run, candidates kept as-is. The user chose (2026-10-07): the confidence
+  word shows in the port cell, and a confirmed port hides "(sources
+  differ)" (amends LWSM-1385 INV-6; both in spec § 3). NEXT: the
+  review-contract gate, genre spec, cap 2; no lane dispatched yet, so
+  start it from Phase 1. Pointer edits to LWSM-1385 INV-6 and LWSM-1007
+  § 4.2 land with the build (spec § 11).
   Lanes: core, tests.
 
 - 📋 [LWSM-1034] **P06: health check — bound is not the same as working.**
