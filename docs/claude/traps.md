@@ -613,7 +613,9 @@ text-size control. And **parametrise the test over the font** rather than
 trusting the ambient one: the 6 pt case fails on a build with no explicit floor
 whatever machine it runs on, while the ambient case passes on this one either
 way. Same family as the TOOL DRIFT note above — two machines running the same
-steps with different inputs is not one gate.
+steps with different inputs is not one gate. **Since LWSM-1392 the suite pins
+its font** (`tests/conftest.py`'s `TEST_FONT_FAMILY`, DejaVu Sans, which
+`ci.yml` installs): a width that passed here under Roboto had failed in CI.
 
 **Trap: a colour solved for CONTRAST alone converges on white.** LWSM-1031
 derives each palette's state tokens by walking a fixed hue's lightness until it

@@ -83,12 +83,14 @@ jobs:
 
       # Qt needs these even to start offscreen; a bare runner has none of them
       # and PySide6 fails to import with a bare "libEGL.so.1: cannot open
-      # shared object file".
+      # shared object file". fonts-dejavu-core is the font tests/conftest.py
+      # pins every test to, so widths measure the same here as locally
+      # (LWSM-1392); named so a runner image change cannot drop it.
       - name: Install Qt runtime libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libegl1 libgl1 libxkbcommon0 libdbus-1-3
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 fonts-dejavu-core
 
       # Every version comes from scripts/ci-tools.env, which local-ci.sh reads
       # too — so this job and a developer's machine cannot install different

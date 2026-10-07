@@ -136,6 +136,38 @@ def _reap_abandoned_pools():
         )
 
 
+# The font every test measures in, on this machine and on CI alike (LWSM-1392).
+# Unpinned, offscreen Qt takes fontconfig's default sans: Roboto here, DejaVu
+# Sans on the ubuntu-24.04 runner. The lens test's row measured 558 px under one
+# and 607 px under the other on 2026-10-07, so a width passed locally and failed
+# in CI. DejaVu is the wider of the two, so it is the stricter one to hold.
+TEST_FONT_FAMILY = "DejaVu Sans"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _pinned_test_font(qapp):
+    """Create the application once, in `TEST_FONT_FAMILY`, before any test.
+
+    Session-wide rather than per GUI test, so it cannot depend on which test
+    happens to create the application first under a shuffled order. A missing
+    font stops the run: fontconfig would substitute one silently, which is the
+    very split this exists to close.
+    """
+    from PySide6.QtGui import QFont, QFontInfo
+
+    font = QFont(qapp.font())
+    font.setFamily(TEST_FONT_FAMILY)
+    qapp.setFont(font)
+    resolved = QFontInfo(qapp.font()).family()
+    if resolved != TEST_FONT_FAMILY:
+        pytest.exit(
+            f"tests need the {TEST_FONT_FAMILY} font, but Qt resolved "
+            f"{resolved!r}; install it (openSUSE: dejavu-fonts, Debian/Ubuntu: "
+            "fonts-dejavu-core)",
+            returncode=1,
+        )
+
+
 @pytest.fixture(autouse=True)
 def _restore_application_appearance():
     """Undo per-test writes to the application palette and font.
