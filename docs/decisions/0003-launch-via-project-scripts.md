@@ -220,8 +220,10 @@ Environment=LWSM_MANAGED=1
 ```
 
 `$XDG_CONFIG_HOME` falls back to `~/.config` when unset or not
-absolute. Then `systemctl --user daemon-reload` before starting. Notes that
-make this safe rather than clever:
+absolute. Then `systemctl --user daemon-reload` before starting. A unit
+made by `systemd-xdg-autostart-generator` reads the drop-in too: measured
+2026-10-07 on one, with `systemctl --user show -p DropInPaths -p
+Environment` (LWSM-1388). Notes that make this safe rather than clever:
 
 - **It is not a write into a sibling project.** The drop-in lives
   in the *user's* systemd configuration, so

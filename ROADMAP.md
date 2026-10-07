@@ -11341,7 +11341,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: review-contract ADR-0003 loop 2, 2026-10-02.
   Lanes: core.
 
-- 📋 [LWSM-1388] **ADR-0003 review tail: systemd rows' classified state, and drop-ins on generated units.**
+- ✅ [LWSM-1388] **ADR-0003 review tail: systemd rows' classified state, and drop-ins on generated units.**
   Filed at the cap rather than fixed; both outside the change gated.
   1. [Q2, lane B] ADR-0003 says a service-managed project is "never
   running (foreign)" because the launcher kind tells the classifier so.
@@ -11364,6 +11364,12 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   user's agreement to test on a live login unit.
   Decided (user, 2026-10-07): question 2 may be tested on a live login
   unit the user names.
+  Resolved (2026-10-07): question 2 answered yes. On the unit the user
+  named, app-org.gnome.SettingsDaemon.DiskUtilityNotify@autostart.service
+  (fragment under generator.late), a drop-in under
+  ~/.config/systemd/user/<unit>.d/ plus daemon-reload showed in
+  DropInPaths and Environment; removed afterwards and both read empty
+  again. Recorded in ADR-0003 § Service-managed projects. No code changed.
   **Layman:** Two open questions left by the review of how the app runs login-started servers.
   Kind: review-fix.
   Source: review-contract ADR-0003 loop 3 (cap), 2026-10-02.
