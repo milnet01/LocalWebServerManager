@@ -65,7 +65,8 @@ jobs:
           # entry-point names, so a malicious wheel's console_scripts can place
           # an executable outside the intended environment. Fixed in 0.11.15,
           # no workaround. Re-locking under 0.12.2 left uv.lock byte-identical.
-          version: "0.12.2"
+          # 0.12.23 since 2026-10-07 (LWSM-1386).
+          version: "0.12.23"
           enable-cache: true
           # Saved by the last step instead, which runs on failure too.
           # setup-uv's own save is `post-if: success()`, so a run that fails
