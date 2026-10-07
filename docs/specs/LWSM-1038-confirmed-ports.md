@@ -66,9 +66,18 @@ which projects are still guesses.
 confirmed_port: int | None = None
 
 DETECTED_FIELDS = frozenset(
-    {"path", "port", "port_from", "port_conflicts", "confirmed_port",
-     "kind", "argv", "unit"}
+    {
+        "path",
+        "port",
+        "port_from",
+        "port_conflicts",
+        "confirmed_port",
+        "kind",
+        "argv",
+        "unit",
+    }
 )
+
 
 @property
 def effective_port(self) -> int | None:
