@@ -14,7 +14,7 @@ confirmation flow).
 split. This spec owns what a record *is* and how it reaches the disk;
 LWSM-1131 owns what a rescan does to it.
 
-**Layman:** Remember the project list between runs — and never lose a
+Remember the project list between runs — and never lose a
 hand-edited file to a bad save.
 
 ## 1. Goal

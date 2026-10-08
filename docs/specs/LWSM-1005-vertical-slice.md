@@ -7,7 +7,7 @@
 **Blocked by:** LWSM-1001 (shipped — `src/lwsm/__main__.py::main`).
 **Blocker for:** LWSM-1006, LWSM-1007, LWSM-1009, LWSM-1011.
 
-**Layman:** One project you list by hand shows up in a window with a
+One project you list by hand shows up in a window with a
 coloured dot and the word *running* or *stopped*, and the dot follows
 reality within two seconds.
 

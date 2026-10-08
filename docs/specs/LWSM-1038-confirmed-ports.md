@@ -8,7 +8,7 @@
 **Amends:** [LWSM-1385 INV-6](LWSM-1385-port-provenance.md#5-invariants)'s rule
 for when the port cell shows *(sources differ)*.
 
-**Layman:** Once the app has seen a project run, its row says "confirmed" and the
+Once the app has seen a project run, its row says "confirmed" and the
 app uses the port it saw, instead of a guess read from the project's files.
 
 ## 1. Goal

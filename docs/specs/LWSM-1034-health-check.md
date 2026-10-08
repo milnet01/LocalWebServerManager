@@ -6,7 +6,7 @@
 **Source:** ROADMAP LWSM-1034 (user-2026-08-03).
 **Blocked by:** LWSM-1011 (shipped 2026-10-02).
 
-**Layman:** For a project you choose, the app asks the site for a page every
+For a project you choose, the app asks the site for a page every
 ten seconds and shows the answer under its port, so a site that is running but
 broken stops looking fine.
 

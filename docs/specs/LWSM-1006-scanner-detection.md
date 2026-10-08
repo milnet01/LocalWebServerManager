@@ -10,7 +10,7 @@ LWSM-1121 (the remaining port sources and conflict reporting).
 **Pairs with:** LWSM-1050 — this item lands that bullet's implementation, per
 its own text; LWSM-1050 does not ship separately.
 
-**Layman:** Teach the app to look through a folder of projects and work out,
+Teach the app to look through a folder of projects and work out,
 for each one, how it starts and which port it wants — and to say plainly when
 it cannot tell, rather than guessing.
 

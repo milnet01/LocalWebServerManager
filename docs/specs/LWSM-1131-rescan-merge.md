@@ -15,7 +15,7 @@ neither needs the merge.
 of the split. That spec owns what a record *is* and how it reaches the disk;
 this one owns what a rescan does to it.
 
-**Layman:** Let a rescan pick up new projects without undoing anything you have
+Let a rescan pick up new projects without undoing anything you have
 changed by hand — and when the scan cannot tell something it knew before, say so
 instead of forgetting it.
 

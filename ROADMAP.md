@@ -11298,23 +11298,37 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: LWSM-1326 user decision 2026-10-02 (shared testing.md § 7).
   Lanes: tests.
 
-- 📋 [LWSM-1375] **Keep review loop-log rows in docs/reviews/, with a one-line pointer in each spec.**
+- ✅ [LWSM-1375] **Keep review loop-log rows in docs/reviews/, with a one-line pointer in each spec.**
   Shared rules keep loop-log rows outside the reviewed document. Binds
   forward: new logs go to docs/reviews/<doc>-loop-log.md. Decide whether
   the four specs' existing inline tables move too (a landed row is never
   edited, so a move copies them verbatim).
   Priority: 4.
+  Resolved (2026-10-08): no file changed. The forward rule is already
+  followed: LWSM-1034, LWSM-1038 and LWSM-1385 keep the heading and a
+  pointer, rows in docs/reviews/. The decision this item left open is
+  settled by the shared rules, not here: documentation.md § 9.1 has
+  rows written where the section names a record, and
+  skills/_shared/writing-documents.md rule 1 says an existing log is not
+  moved to satisfy that (CFG-0675). So LWSM-1005, 1006, 1007 and 1131,
+  and versioning-overrides.md § 4, keep their inline tables. No project
+  override restates or contradicts this.
   **Layman:** Move the record of each document's reviews out of the document and into its own file.
   Kind: doc.
   Source: LWSM-1326 user decision 2026-10-02 (shared spec-format.md § 6, documentation.md § 9.1).
   Lanes: docs.
 
-- 📋 [LWSM-1376] **Write each spec's Layman summary as a prose sentence, not a bold header field.**
+- ✅ [LWSM-1376] **Write each spec's Layman summary as a prose sentence, not a bold header field.**
   Shared spec-format § 5.6 requires the Layman gloss always, as prose
   with a blank line before it, never as a bold key-value. All four specs
   use the bold form in their header block. Rule 14: an edit that changes
   only this form changes nothing anyone builds; say so in the commit.
   Priority: 4.
+  Resolved (2026-10-08): the bold `**Layman:**` label dropped from all
+  seven specs (the four named plus LWSM-1034, 1038 and 1385, written
+  since). Each sentence stays where it was, as prose after a blank line,
+  per shared spec-format.md § 5.6. Nothing in tests, tools or scripts
+  reads the label. spec_lint since HEAD: no finding on the edit.
   **Layman:** Write the plain-English summary at the top of each spec as an ordinary sentence.
   Kind: doc.
   Source: LWSM-1326 user decision 2026-10-02 (shared spec-format.md § 5.6).

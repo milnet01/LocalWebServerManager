@@ -9,7 +9,7 @@
 rule that a detected port's provenance is not persisted, and its § 9 deferral of
 the same.
 
-**Layman:** When two files in a project disagree about its port, the project's
+When two files in a project disagree about its port, the project's
 row says so every time the app opens, not only in the log after a scan.
 
 ## 1. Goal
