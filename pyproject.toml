@@ -19,8 +19,8 @@ dependencies = [
     # QProcess.setChildProcessModifier, so the version is load-bearing rather
     # than incidental: re-verify that `hasattr` on every bump, because the day
     # it returns True is the day ADR-0003 could be revisited.
-    # 6.11.1 is current (PyPI, 2026-08-03) and was checked — still absent.
-    "PySide6==6.11.1",
+    # 6.12.0 is current (PyPI, 2026-10-08) and was checked — still absent.
+    "PySide6==6.12.0",
     # Port ownership and process trees: "what holds port N", "which ports does
     # this process group hold", and the descendant walk the foreign-stop path
     # needs (ADR-0004). The alternative was parsing `ss -tlnp`, rejected as
