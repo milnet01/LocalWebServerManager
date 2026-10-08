@@ -11631,7 +11631,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: LWSM-1379 coverage audit 2026-10-08.
   Lanes: tests.
 
-- 🚧 [LWSM-1399] **A window destroyed with a zero-delay re-measure or placement pending raises in the event loop.**
+- ✅ [LWSM-1399] **A window destroyed with a zero-delay re-measure or placement pending raises in the event loop.**
   CI failed twice on test_settingsdialog's target-floor test with
   "Internal C++ object (QVBoxLayout) already deleted" in
   MainWindow._apply_size_floor: an earlier window test's
@@ -11645,6 +11645,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   _restore_position calls. Fix: the context form at every singleShot.
   Also: the gate's pytest -q hides pytest-randomly's seed, so a CI
   shuffle failure cannot be replayed; print it.
+  Resolved (2026-10-08, 73019c6): all four singleShot calls in
+  mainwindow.py pass the window as context. test_a_deferred_call_dies_
+  with_its_window was red on both cases before and green after. The gate
+  now prints the shuffle seed. CI run 37785771712 on 65cea32: green, 2420
+  passed, seed printed.
   **Layman:** Closing a window at the wrong moment could leave a leftover task that crashes quietly; make the task go away with the window.
   Kind: fix.
   Source: CI runs 37781788960 and 37783461025, 2026-10-08.

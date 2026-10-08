@@ -933,6 +933,29 @@ def test_focus_survives_a_status_change(qtbot, built) -> None:
     assert row._state.text() == "stopped"
 
 
+def test_keyboard_focus_is_still_held_after_a_status_change(qtbot, built) -> None:
+    """INV-13's own words: the widget that had keyboard focus still has it
+    (LWSM-1398). The test above checks the row is the same widget, in a window
+    never shown, where nothing can hold focus at all."""
+    probe = FakeProbe(5005)
+    window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
+    with qtbot.waitExposed(window):
+        window.show()
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    row = rows_of(window)[0]
+    row.setFocus()
+    assert row.hasFocus(), "the fixture must actually focus the row"
+
+    probe.listening.clear()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert row._state.text() == "stopped", "the status must actually change"
+    assert row.hasFocus(), "a status change took keyboard focus off the row"
+    assert window.focusWidget() is row
+
+
 # --- INV-7: the row follows a real socket, within 2 seconds -------------------
 
 
@@ -977,6 +1000,8 @@ def test_registry_error_opens_an_empty_window(qtbot, built, tmp_path) -> None:
     assert rows_of(window) == []
     message = message_of(window)
     assert "projects.json" in message, message
+    # INV-15 promises the file AND the reason (LWSM-1398).
+    assert "not valid JSON" in message, message
 
 
 def test_a_dense_malformed_file_does_not_flood_the_log_before_the_window(
@@ -8450,7 +8475,10 @@ def test_a_hostile_source_cannot_break_a_line_or_draw_markup(qtbot) -> None:
     assert "\n" not in detail
     assert "<b>x</b>\ufffd.env" in detail
     # Escaped for the tooltip's rich-text renderer: the tags are shown, not drawn.
-    assert "&lt;b&gt;" in row._port.toolTip()
+    tooltip = row._port.toolTip()
+    assert "&lt;b&gt;" in tooltip
+    # And the control character replaced there too, as INV-7 says (LWSM-1398).
+    assert "&lt;/b&gt;\ufffd.env" in tooltip, tooltip
 
 
 # --- LWSM-1319: withdrawing a "yes, run it" ----------------------------------
@@ -8929,6 +8957,10 @@ def test_the_menu_changes_the_page_it_checks(
 
     assert asked == [("a", "/before")]
     assert controller.records()[0].health_path == stored
+    # The page and nothing else, as INV-11 says (LWSM-1398).
+    assert controller.records()[0] == dataclasses.replace(
+        record("a", 3000), health_path=stored
+    )
     assert bool(saves) is saved
     if typed == "health":
         assert message_of(window) == "A page starts with / and has no spaces"
@@ -8957,4 +8989,8 @@ def test_a_hostile_page_reaches_the_detail_as_plain_text(qtbot) -> None:
     assert "�" in detail
     assert "The site gave no HTTP answer to /<b>x</b>\ufffd." in detail
     # Escaped for the tooltip's rich-text renderer: the tags are shown, not drawn.
-    assert "&lt;b&gt;" in row._port.toolTip()
+    tooltip = row._port.toolTip()
+    assert "&lt;b&gt;" in tooltip
+    # And the control character replaced there too, as INV-12 says (LWSM-1398).
+    assert "\u0007" not in tooltip
+    assert "&lt;/b&gt;\ufffd." in tooltip, tooltip

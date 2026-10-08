@@ -123,6 +123,10 @@ signaling per
 
 ### Fixed
 
+- **Closing a window just after it resized or opened no longer leaves a task that fails in the background** (LWSM-1399)
+  A re-measure or a placement queued by the window now goes away with
+  it, instead of running afterwards against parts that no longer exist.
+
 - **The window could, rarely, fail while building its menus after rows had been removed.** (LWSM-1395)
   Reading the order of the project rows left behind bookkeeping that
   outlived the rows; a new menu could later be mistaken for it.
