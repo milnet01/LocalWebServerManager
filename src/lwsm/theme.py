@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtCore import QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QProxyStyle,
     QStyle,
     QStyleOption,
+    QStyleOptionButton,
     QWidget,
 )
 
@@ -632,10 +633,40 @@ class OutlineStyle(QProxyStyle):
             rect = rect.intersected(option.rect.adjusted(inset, inset, -inset, -inset))
         return rect
 
+    # A check box's ring goes round the whole control, which starts with the
+    # indicator, so the ring sat ON the indicator's edge and hid its outline.
+    # Fusion is handed the control's rect shrunk by the ring and a gap, so it
+    # lays the indicator and the text out inside the ring, and the size grows
+    # to match. Not by `subElementRect`: Fusion's own check box drawing asks
+    # its own, never the proxy's (measured 2026-10-08).
+    @staticmethod
+    def check_box_inset(metrics: QFontMetrics) -> int:
+        # Three pixels of the window between ring and indicator, so the ring
+        # reads as round the control rather than as the indicator's edge.
+        return focus_ring_width(metrics) + 3
+
+    def sizeFromContents(self, kind, option, size, widget=None) -> QSize:
+        grown = super().sizeFromContents(kind, option, size, cast(QWidget, widget))
+        if kind == QStyle.ContentsType.CT_CheckBox:
+            inset = self.check_box_inset(option.fontMetrics)
+            grown = grown + QSize(2 * inset, 2 * inset)
+        return grown
+
     def drawControl(self, element, option, painter, widget=None) -> None:
-        super().drawControl(element, option, painter, widget)
+        if element == QStyle.ControlElement.CE_CheckBox:
+            inset = self.check_box_inset(option.fontMetrics)
+            inner = QStyleOptionButton(option)
+            inner.rect = option.rect.adjusted(inset, inset, -inset, -inset)
+            super().drawControl(element, inner, painter, widget)
+        else:
+            super().drawControl(element, option, painter, widget)
         if element == QStyle.ControlElement.CE_PushButtonBevel:
             self._outline(option, painter)
+        elif element == QStyle.ControlElement.CE_CheckBox:
+            # A check box has no frame to outline, so only the ring, round the
+            # whole control (review-code 2026-10-08 L09-H1). Its outline is on
+            # the indicator, below.
+            self._outline(option, painter, resting=False)
 
     def drawPrimitive(self, element, option, painter, widget=None) -> None:
         super().drawPrimitive(element, option, painter, widget)
@@ -643,6 +674,12 @@ class OutlineStyle(QProxyStyle):
         # reports a zero line width and gets no outline, as under Fusion.
         if element in self._PRIMITIVES and getattr(option, "lineWidth", 1) > 0:
             self._outline(option, painter)
+        elif element == QStyle.PrimitiveElement.PE_IndicatorCheckBox:
+            # Fusion's indicator edge is a shade of the window colour, so a
+            # ticked box on a dark palette read as a bare tick (rendered on
+            # midnight, 2026-10-08). Outlined always; the ring goes round the
+            # whole control, not this small square.
+            self._outline(option, painter, ring=False)
 
     def drawComplexControl(self, control, option, painter, widget=None) -> None:
         super().drawComplexControl(control, option, painter, widget)
@@ -650,20 +687,35 @@ class OutlineStyle(QProxyStyle):
             self._outline(option, painter)
 
     @staticmethod
-    def _outline(option: QStyleOption, painter: QPainter) -> None:
+    def _outline(
+        option: QStyleOption,
+        painter: QPainter,
+        *,
+        ring: bool = True,
+        resting: bool = True,
+    ) -> None:
+        """The ring on keyboard focus, else the 1 px outline.
+
+        `ring=False` for an element that never takes the ring itself, and
+        `resting=False` for one with no outline of its own.
+        """
         # Fusion's own test for showing focus: it needs the keyboard to have
         # moved it, so a click does not draw a ring (CLAUDE.md's
         # `QStyleOption` trap).
         state = option.state
-        focused = bool(state & QStyle.StateFlag.State_HasFocus) and bool(
-            state & QStyle.StateFlag.State_KeyboardFocusChange
+        focused = (
+            ring
+            and bool(state & QStyle.StateFlag.State_HasFocus)
+            and bool(state & QStyle.StateFlag.State_KeyboardFocusChange)
         )
         if focused:
             width = focus_ring_width(option.fontMetrics)
             pen = QPen(option.palette.highlight().color(), width)
-        else:
+        elif resting:
             width = 1
             pen = QPen(option.palette.mid().color(), width)
+        else:
+            return
         pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
         painter.save()
         # Square and unblended, so the edge pixel IS the token: an

@@ -11730,11 +11730,14 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: feature.
   Source: review-code-2026-10-08 L02-H1; user-decision-2026-10-08.
 
-- 📋 [LWSM-1404] **Close the persistence findings from the 0.3.0 review.**
+- ✅ [LWSM-1404] **Close the persistence findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L03-H1 merge()
   skips is_writable_text, so a non-UTF-8 scanned path breaks every save;
   L03-M1 import append keeps unknown keys; L03-M2 export gate fires with a
   false reason; L03-L1..L5.
+  Resolved (2026-10-08): H1, M1, M2 and L1-L4 fixed with red-first
+  tests; L03-L5 queued as LWSM-1412 (needs a saved field). Gate 2459
+  passed.
   **Layman:** Saving and importing settings can no longer get stuck or keep things they should drop.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-03.

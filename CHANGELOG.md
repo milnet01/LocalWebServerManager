@@ -129,6 +129,12 @@ signaling per
 
 ### Fixed
 
+- **The first-run check boxes have a visible outline, and a thick focus ring.** (LWSM-1405)
+  On the dark themes a ticked box showed as a bare tick with no box
+  around it, and the keyboard focus was a faint thin line.
+
+- **The first-run dialog's count uses your language's digits, and its project lines follow a language change.** (LWSM-1405)
+
 - **A project folder whose name is not valid text no longer stops the project list saving.** (LWSM-1404)
   A rescan that found one added it anyway, and then every save failed,
   on every run. Such a project is now left out, with a note saying why.

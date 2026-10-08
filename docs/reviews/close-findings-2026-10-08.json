@@ -24,6 +24,12 @@
     "docs/specs/LWSM-1034 § 4.3 user_fields_refused": "agrees — still recorded; only the export gate subtracts",
     "docs/specs/LWSM-1007 § 4.x user_fields_refused read by export_profile": "agrees",
     "docs/known-issues.md _prepare_config_dir entry": "frozen — dated record"
+   },
+   "LWSM-1405": {
+    "design-accessibility.md ring check row": "fixed — a check box added",
+    "design-accessibility.md outline promise": "agrees — every control",
+    "mainwindow.show_load_error (same label flags)": "agrees — ClickFocus by the same measurement",
+    "LWSM-1402 render (state column width)": "agrees — slow label 178 px vs running (wrong port) 174 px; buttons unmoved"
    }
   },
   "collateral": [],
@@ -1213,13 +1219,13 @@
    "location": "theme.py:598-606",
    "finding": "`OutlineStyle`'s `_PRIMITIVES`/`_COMPLEX` omit check boxes, so firstrun's `QCheckBox` gets Fusion's near-invisible outline and thin focus frame.",
    "remedy": "Extend `OutlineStyle` to outline `PE_IndicatorCheckBox` and ring the check box at `focus_ring_width`, and add a check box to the check table.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — rendered on midnight 2026-10-08: ticked boxes a bare tick, focus a thin Fusion frame; red: 32 theme tests",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1405",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "OutlineStyle outlines PE_IndicatorCheckBox, rings CE_CheckBox on keyboard focus, draws it inside an inset rect; check_box added to FOCUSABLE",
    "must_agree": []
   },
   {
@@ -1230,9 +1236,9 @@
    "location": "firstrun.py:127-130",
    "finding": "`TextSelectableByKeyboard` makes `self._skipped` a Tab stop with only a text cursor as focus indicator and no accessible name.",
    "remedy": "Drop `TextSelectableByKeyboard`, or give the label a ring and an accessible name.",
-   "verified": null,
-   "disposition": null,
-   "why": null,
+   "verified": "measured PySide6 6.12.0: TextSelectableByKeyboard gives ClickFocus (2), not a Tab stop; only keyboard links do",
+   "disposition": "dismissed",
+   "why": "premise false by measurement; a label is named by its text. Pinned by test_the_skipped_list_is_not_a_tab_stop",
    "roadmap_id": "LWSM-1405",
    "files": [],
    "was": null,
@@ -1247,13 +1253,13 @@
    "location": "firstrun.py:193-194",
    "finding": "`str(len(self.chosen()))` and `str(len(self._records))` assume Western digits.",
    "remedy": "Use `QLocale().toString(n)`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — red with an Arabic default locale",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1405",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "QLocale().toString for both counts",
    "must_agree": []
   },
   {
@@ -1264,13 +1270,13 @@
    "location": "firstrun.py:108",
    "finding": "Check box text from `describe()` is translated once at construction and not refreshed in `_retranslate` on `LanguageChange`.",
    "remedy": "Re-set each box's text in `_retranslate`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — red",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1405",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "box text set in _retranslate",
    "must_agree": []
   },
   {

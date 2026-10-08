@@ -34,6 +34,7 @@ from lwsm.controller import ProjectStatus
 from lwsm.theme import (
     DEFAULT_THEME,
     FOLLOW_SYSTEM,
+    OutlineStyle,
     Theme,
     install_outline_style,
     resolve_theme_id,
@@ -105,14 +106,16 @@ def _hexed(pixel: int) -> str:
 
 
 # Every kind of focusable control the app builds: the row's buttons, the
-# filter box, the browser picker, and the settings dialog's port fields and
-# folder list. The row paints its own ring and has its own tests in
+# filter box, the browser picker, the settings dialog's port fields and
+# folder list, and the first-run dialog's check boxes (review-code 2026-10-08
+# L09-H1). The row paints its own ring and has its own tests in
 # `test_mainwindow.py` (LWSM-1292).
-FOCUSABLE = ["button", "line_edit", "combo_box", "spin_box", "list"]
+FOCUSABLE = ["button", "line_edit", "combo_box", "spin_box", "list", "check_box"]
 
 
 def _control(kind: str) -> QWidget:
     from PySide6.QtWidgets import (
+        QCheckBox,
         QComboBox,
         QFrame,
         QLineEdit,
@@ -133,6 +136,13 @@ def _control(kind: str) -> QWidget:
         return box
     if kind == "spin_box":
         return QSpinBox()
+    if kind == "check_box":
+        # Ticked, as the first-run dialog opens: Fusion drew a ticked box as a
+        # bare tick on the dark palettes, with no outline at all (rendered on
+        # midnight, 2026-10-08).
+        box = QCheckBox("alpha")
+        box.setChecked(True)
+        return box
     if kind == "list":
         # Empty, so the inside sample is the list's own fill, not an item.
         listing = QListWidget()
@@ -142,6 +152,24 @@ def _control(kind: str) -> QWidget:
     frame.setFrameShape(QFrame.Shape.StyledPanel)
     frame.setMinimumSize(60, 30)
     return frame
+
+
+def _outline_point(target: QWidget) -> tuple[int, int]:
+    """Where a control's outline is: its left edge at mid-height, except a
+    check box, whose outline is on its indicator rather than its edge."""
+    from PySide6.QtWidgets import QCheckBox, QStyle, QStyleOptionButton
+
+    if isinstance(target, QCheckBox):
+        # Where `OutlineStyle` has Fusion draw it: inside the inset rect.
+        option = QStyleOptionButton()
+        option.initFrom(target)
+        inset = OutlineStyle.check_box_inset(target.fontMetrics())
+        option.rect = option.rect.adjusted(inset, inset, -inset, -inset)
+        indicator = target.style().subElementRect(
+            QStyle.SubElement.SE_CheckBoxIndicator, option, target
+        )
+        return indicator.left(), indicator.center().y()
+    return 0, target.height() // 2
 
 
 def _rendered_ring(
@@ -316,10 +344,11 @@ def test_the_outline_on_screen_is_the_border_token(
         with qtbot.waitExposed(window):
             window.show()
         image = target.grab().toImage()
+        x, y = _outline_point(target)
     finally:
         app.setPalette(previous)
 
-    edge = _hexed(image.pixel(0, image.height() // 2))
+    edge = _hexed(image.pixel(x, y))
     assert edge == theme.border, (
         f"the {kind}'s outline is drawn in {edge}, not the border token {theme.border}"
     )

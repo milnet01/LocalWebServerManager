@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QLocale, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -102,10 +102,9 @@ class FirstRunDialog(QDialog):
         self._boxes: list[QCheckBox] = []
         body = QWidget()
         column = QVBoxLayout(body)
-        for record in self._records:
-            # `&` doubled: a check box reads a lone one as a keyboard shortcut,
-            # and a folder name is not the place for one.
-            box = QCheckBox(describe(record).replace("&", "&&"))
+        for _ in self._records:
+            # Its text is set in `_retranslate`, with every other string.
+            box = QCheckBox()
             box.setChecked(True)
             box.setMinimumHeight(MIN_TARGET_PX)
             box.toggled.connect(self._update_count)
@@ -182,6 +181,11 @@ class FirstRunDialog(QDialog):
                 "FirstRunDialog", "Not added, or not fully read:"
             )
         )
+        for record, box in zip(self._records, self._boxes, strict=True):
+            # `&` doubled: a check box reads a lone one as a keyboard shortcut,
+            # and a folder name is not the place for one. Here rather than at
+            # construction, so a language change reaches it (L09-L2).
+            box.setText(describe(record).replace("&", "&&"))
         self._save.setText(QCoreApplication.translate("FirstRunDialog", "&Save"))
         self._later.setText(QCoreApplication.translate("FirstRunDialog", "&Not now"))
         self._update_count()
@@ -190,8 +194,9 @@ class FirstRunDialog(QDialog):
         self._count.setText(
             _filled(
                 QCoreApplication.translate("FirstRunDialog", "Ticked: %1 of %2"),
-                str(len(self.chosen())),
-                str(len(self._records)),
+                # The locale's digits, as the window's numbers are (L09-L1).
+                QLocale().toString(len(self.chosen())),
+                QLocale().toString(len(self._records)),
             )
         )
 

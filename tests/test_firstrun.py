@@ -159,3 +159,56 @@ def test_ask_returns_the_ticked_records_or_none(
     chosen = firstrun.ask_first_run([project("web")], (), None)
 
     assert (None if chosen is None else [r.name for r in chosen]) == expected
+
+
+# --- review-code 2026-10-08, lane 9 --------------------------------------------
+
+
+def test_the_counts_use_the_locales_digits(qtbot) -> None:
+    """L09-L1. `str(len(...))` writes Western digits whatever the locale; the
+    window formats its numbers with `QLocale().toString`, and so must this.
+
+    Dies on `str()` for either count.
+    """
+    from PySide6.QtCore import QLocale
+
+    previous = QLocale()
+    QLocale.setDefault(QLocale(QLocale.Language.Arabic, QLocale.Country.Egypt))
+    try:
+        dialog = build(qtbot, [project("a"), project("b")])
+    finally:
+        QLocale.setDefault(previous)
+
+    text = dialog._count.text()
+    assert "٢" in text, f"no Arabic-Indic two in {text!r}"
+    assert "2" not in text, f"a Western digit in {text!r}"
+
+
+def test_each_projects_line_is_retranslated_with_the_rest(qtbot, monkeypatch) -> None:
+    """L09-L2. `_retranslate` promises every user-visible string, and each
+    check box's line was set once at construction and never again on a
+    language change.
+
+    Dies on setting the line only in `__init__`.
+    """
+    from PySide6.QtCore import QEvent
+
+    dialog = build(qtbot, [project("a")])
+    monkeypatch.setattr(firstrun, "describe", lambda record: "in another language")
+
+    dialog.changeEvent(QEvent(QEvent.Type.LanguageChange))
+
+    assert dialog._boxes[0].text() == "in another language"
+
+
+def test_the_skipped_list_is_not_a_tab_stop(qtbot) -> None:
+    """L09-M1 claimed that keyboard selection makes this label a Tab stop with
+    no ring. Measured on PySide6 6.12.0 (2026-10-08): it gets ClickFocus, as
+    mouse selection alone does; only keyboard-accessible LINKS make a label a
+    Tab stop. This pins that, so a change that makes it one is seen.
+    """
+    from PySide6.QtCore import Qt
+
+    dialog = build(qtbot, [project("a")], ["skipped: b (no launcher)"])
+
+    assert not dialog._skipped.focusPolicy() & Qt.FocusPolicy.TabFocus
