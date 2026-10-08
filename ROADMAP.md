@@ -11722,6 +11722,10 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   User decided 2026-10-08: build it, threshold FIXED at 30 s (no setting);
   amend ADR-0004 and design.md § Data flow to say fixed. Learned bind
   time is LWSM-1403.
+  Progress (2026-10-08): built in 3998ba6 (gate 2445 passed). Still owed
+  before shipping: render a slow row on screen and check the wider state
+  column does not push the row's buttons out; done with LWSM-1405's
+  render on "midnight".
   **Layman:** A project that is slow to start shows how long it has been starting, instead of looking stuck.
   Kind: feature.
   Source: review-code-2026-10-08 L02-H1; user-decision-2026-10-08.

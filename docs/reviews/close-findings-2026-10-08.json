@@ -11,6 +11,13 @@
     "tests asserting whole-file backup (3)": "fixed — two restated (FIFO, hard link), three comparisons corrected",
     "CHANGELOG [Unreleased]": "fixed — two Fixed entries",
     "docs/specs, design.md, decisions: _reap_exited/_rotate_logs/group_alive/unit_belongs_to": "agrees — no mention"
+   },
+   "LWSM-1402": {
+    "ADR-0004 soft threshold bullet": "fixed — fixed 30 s",
+    "ADR-0004 bind-time bullet": "fixed — points at LWSM-1403",
+    "design.md § Data flow step 4": "fixed",
+    "design-accessibility.md § Screen readers": "fixed — exception recorded",
+    "docs/specs/*: settings-backed threshold": "agrees — none"
    }
   },
   "collateral": [],
@@ -153,13 +160,19 @@
    "location": "controller.py:333-396",
    "finding": "`RowView` has no start-time field, so ADR-0004's elapsed-time display and `starting (slow — 42s)` label are never rendered.",
    "remedy": "Add `RowView.starting_since` from the supervisor's spawn time and render elapsed time, or strike those bullets from ADR-0004 and design.md.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — no elapsed field on RowView; search of src for \"slow —\" found nothing",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1402",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/controller.py",
+    "src/lwsm/mainwindow.py",
+    "docs/decisions/0004-runtime-truth-from-probing.md",
+    "docs/design.md",
+    "docs/design-accessibility.md"
+   ],
+   "was": "ADR-0004 elapsed display and slow label never built",
+   "now": "RowView.starting_for, state_text/state_spoken, fixed 30 s; built 3998ba6, render check pending",
    "must_agree": []
   },
   {
