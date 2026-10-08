@@ -1831,6 +1831,60 @@ def test_a_record_without_added_loses_the_port_tie_break(tmp_path: Path) -> None
     assert any("claimed by 'with'" in reason for reason in result.reasons)
 
 
+@pytest.mark.parametrize("first", ["one", "two"])
+def test_two_records_without_added_are_ordered_by_file_position(
+    tmp_path: Path, first: str
+) -> None:
+    """INV-7's last tie-break (LWSM-1398): neither record is stamped, so the one
+    earlier in the file wins. Both orders, so a fixed winner by name or path
+    cannot pass."""
+    root = a_root(tmp_path)
+    records = {
+        name: ProjectRecord(path=root / name, name=name, port=3000)
+        for name in ("one", "two")
+    }
+    second = "two" if first == "one" else "one"
+
+    result = registry.merge(
+        [records[first], records[second]],
+        FakeScan((), timed_out=True),
+        (root,),
+        stamp,
+    )
+
+    assert any(
+        f"'{second}': port 3000 is claimed by '{first}'" in reason
+        for reason in result.reasons
+    ), result.reasons
+
+
+def test_a_port_override_claims_its_port_in_a_merge(tmp_path: Path) -> None:
+    """INV-7's *Breaks when*: a user sets an override equal to another project's
+    declared port (LWSM-1398). The claim is on the EFFECTIVE port; every other
+    merge test claims through `port` alone."""
+    root = a_root(tmp_path)
+    declared = ProjectRecord(
+        path=root / "a", name="declared", port=3000, added="2026-08-01T00:00:00Z"
+    )
+    overridden = ProjectRecord(
+        path=root / "b",
+        name="overridden",
+        port=5000,
+        port_override=3000,
+        added="2026-08-05T00:00:00Z",
+    )
+
+    result = registry.merge(
+        [overridden, declared], FakeScan((), timed_out=True), (root,), stamp
+    )
+
+    assert result.counts[registry.DUPLICATE_PORT] == 1
+    assert any(
+        "'overridden': port 3000 is claimed by 'declared'" in reason
+        for reason in result.reasons
+    ), result.reasons
+
+
 def test_the_added_tie_break_compares_instants_not_text(tmp_path: Path) -> None:
     """INV-9, and the fixture only discriminates because of the ORDERING.
 
@@ -3038,6 +3092,10 @@ def test_provenance_naming_another_port_is_dropped_with_its_conflicts() -> None:
         ),
         ({"port_from": {**GOOD_FROM, "source": ""}}, False, "port_from"),
         ({"port_from": {**GOOD_FROM, "source": "x" * 121}}, False, "port_from"),
+        # `is_writable_text` refuses a lone surrogate, and a source must be a
+        # string at all (LWSM-1398).
+        ({"port_from": {**GOOD_FROM, "source": "\ud800"}}, False, "port_from"),
+        ({"port_from": {**GOOD_FROM, "source": 7}}, False, "port_from"),
         # A refused port_from takes its conflicts with it, under ONE reason.
         (
             {"port_from": "start.sh", "port_conflicts": [GOOD_CONFLICT]},
@@ -3078,8 +3136,8 @@ def test_each_provenance_refusal_drops_only_its_field(
 ) -> None:
     """LWSM-1385 INV-3 — one case per refusal in § 4.3's table. Each drops its
     field (a refused `port_from` also `port_conflicts`), adds exactly one
-    reason, and never counts as a user-field refusal, which would make the
-    session read-only (asserted in `load_projects_from`)."""
+    reason, and never counts as a user-field refusal, which would block a
+    profile export (asserted in `load_projects_from`)."""
     record, reasons = load_projects_from(provenance_entry(**keys))
     assert record.port == 3000, "the row and its port survive"
     assert record.port_conflicts == ()
@@ -3212,6 +3270,39 @@ def test_a_provenance_only_change_is_stored_but_counted_unchanged(
     result = registry.merge([stored], scan, (root,), stamp)
 
     assert result.records[0].port_from == PortFinding(3000, PortRule.ENV_FILE, ".env")
+    assert result.counts[registry.CHANGED] == 0
+    assert result.counts[registry.UNCHANGED] == 1
+
+
+def test_a_conflicts_only_change_is_stored_but_counted_unchanged(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1385 INV-5's other field (LWSM-1398). The test above changes only
+    `port_from`, so a merge that set aside `port_from` and still counted a
+    `port_conflicts` difference as *changed* would pass it."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    env = PortFinding(3000, PortRule.ENV_FILE, ".env")
+    stored = ProjectRecord(
+        path=project,
+        name="web",
+        port=3000,
+        kind=LauncherKind.SHELL,
+        argv=("./start.sh",),
+        port_from=env,
+    )
+    scan = provenance_scan(
+        project,
+        port=FakeFinding(3000, PortRule.ENV_FILE, ".env"),
+        port_conflicts=(FakeFinding(4000, PortRule.README, "README.md"),),
+    )
+
+    result = registry.merge([stored], scan, (root,), stamp)
+
+    assert result.records[0].port_conflicts == (
+        PortFinding(4000, PortRule.README, "README.md"),
+    )
     assert result.counts[registry.CHANGED] == 0
     assert result.counts[registry.UNCHANGED] == 1
 
