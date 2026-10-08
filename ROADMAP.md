@@ -11884,6 +11884,22 @@ author's own use, which is why it sits after the app works.
   Source: user-decision-2026-08-24.
   Lanes: release, docs.
 
+- 📋 [LWSM-1397] **Depend on PySide6-Essentials, not the PySide6 meta-package that pulls Addons, WebEngine and Pdf.**
+  Measured 2026-10-08 under PySide6 6.12.0: src/ imports only QtCore,
+  QtGui, QtWidgets and QtNetwork, all in PySide6-Essentials. The
+  PySide6 meta-package also installs pyside6-addons and, new in 6.12,
+  pyside6-webengine and pyside6-pdf. .venv's PySide6 directory is 673M;
+  the WebEngine and Pdf files in it are 202M. Not measured: whether 6.12
+  grew the total or only split files out of Addons.
+  Before LWSM-1021 builds the AppImage: pin PySide6-Essentials (and
+  shiboken6 via the lock), re-check ADR-0003's hasattr on it, run the
+  gate. pyproject.toml's comment above the pins names the AppImage
+  weight as the reason the runtime set stays small.
+  **Layman:** The app installs a large browser engine and PDF library it never uses; drop them so the download is smaller.
+  Kind: package.
+  Source: in-session-2026-10-08 (LWSM-1394 PySide6 bump).
+  Lanes: packaging.
+
 ## After 1.0.0
 
 Work with no version yet: the tray, settings and session shell (was P09), the
