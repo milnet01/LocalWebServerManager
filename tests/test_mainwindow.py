@@ -5857,7 +5857,7 @@ def test_no_window_handle_waits_rather_than_firing_at_zero(
     monkeypatch.setattr(
         mainwindow.QTimer,
         "singleShot",
-        staticmethod(lambda ms, _fn: armed.append(ms)),
+        staticmethod(lambda ms, *_: armed.append(ms)),
     )
 
     window.show()
@@ -5866,6 +5866,47 @@ def test_no_window_handle_waits_rather_than_firing_at_zero(
         f"with no window handle the placement was armed at {armed} ms; 0 ms is "
         "the delay measured to fail under Wayland"
     )
+
+
+@pytest.mark.parametrize("deferred", ["size floor", "placement"])
+def test_a_deferred_call_dies_with_its_window(
+    qtbot, built, monkeypatch, deferred: str
+) -> None:
+    """A window destroyed before its zero-timer fires is left alone (LWSM-1399).
+
+    `QTimer.singleShot(ms, bound_method)` has no receiver, so Qt cannot cancel
+    it when the window goes: the call runs against a deleted layout and raises
+    in the event loop. Found by LWSM-1374's shuffled order on CI, where a
+    window test's queued `_apply_size_floor` fired inside the NEXT test. In the
+    app it is a window torn down with a re-measure or a placement pending.
+    pytest-qt fails this test on any exception the event loop catches.
+    """
+    import types
+
+    import shiboken6
+
+    controller = build_controller(built, two_rows(), FakeProbe(5005))
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        position=(300, 400),
+        size=(640, 480),
+        place=wayland_place([]),
+    )
+    if deferred == "size floor":
+        window._schedule_size_floor()
+    else:
+        # A handle already exposed, so `showEvent` queues the placement at
+        # 0 ms. Only a ZERO delay outlives its object: PySide6 cancels a
+        # non-zero `singleShot` to a deleted object's method and does not
+        # cancel a zero one (measured 2026-10-08, PySide6 6.12.0).
+        exposed = types.SimpleNamespace(isExposed=lambda: True)
+        monkeypatch.setattr(window, "windowHandle", lambda: exposed)
+        window.show()
+
+    shiboken6.delete(window)
+    qtbot.wait(50)
 
 
 def test_the_default_size_asks_for_the_screen_margin(

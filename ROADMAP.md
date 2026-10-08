@@ -11631,6 +11631,25 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: LWSM-1379 coverage audit 2026-10-08.
   Lanes: tests.
 
+- 🚧 [LWSM-1399] **A window destroyed with a zero-delay re-measure or placement pending raises in the event loop.**
+  CI failed twice on test_settingsdialog's target-floor test with
+  "Internal C++ object (QVBoxLayout) already deleted" in
+  MainWindow._apply_size_floor: an earlier window test's
+  QTimer.singleShot(0, self._apply_size_floor) fired inside the next
+  test. LWSM-1374's shuffled order exposed it; 12de258 passed between
+  the two failures. QTimer.singleShot(0, bound_method) carries no
+  receiver, so Qt cannot cancel it when the window is deleted. Measured
+  2026-10-08 on PySide6 6.12.0: a 0 ms bound-method singleShot fires
+  after shiboken6.delete; a 50 ms one does not; the context form
+  singleShot(ms, self, fn) does not fire. Same shape at both 0 ms
+  _restore_position calls. Fix: the context form at every singleShot.
+  Also: the gate's pytest -q hides pytest-randomly's seed, so a CI
+  shuffle failure cannot be replayed; print it.
+  **Layman:** Closing a window at the wrong moment could leave a leftover task that crashes quietly; make the task go away with the window.
+  Kind: fix.
+  Source: CI runs 37781788960 and 37783461025, 2026-10-08.
+  Lanes: ui.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.

@@ -4210,12 +4210,13 @@ class MainWindow(QMainWindow):
             # delay measured to work rather than to the one measured to fail.
             # Defensive: a top-level widget has a handle by the time `showEvent`
             # runs, so this is unreached today.
-            QTimer.singleShot(PLACEMENT_FALLBACK_MS, self._restore_position)
+            QTimer.singleShot(PLACEMENT_FALLBACK_MS, self, self._restore_position)
             return
         if handle.isExposed():
             # Genuinely nothing to wait for: the Expose has already been and
             # gone, so waiting for another would mean never restoring at all.
-            QTimer.singleShot(0, self._restore_position)
+            # `self` as the context, as in `_schedule_size_floor` (LWSM-1399).
+            QTimer.singleShot(0, self, self._restore_position)
             return
         handle.installEventFilter(self)
 
@@ -4233,7 +4234,7 @@ class MainWindow(QMainWindow):
             and self.windowHandle().isExposed()
         ):
             watched.removeEventFilter(self)
-            QTimer.singleShot(0, self._restore_position)
+            QTimer.singleShot(0, self, self._restore_position)
         return super().eventFilter(watched, event)
 
     def _restore_size_and_state(self) -> None:
@@ -4468,7 +4469,10 @@ class MainWindow(QMainWindow):
         measurement and did not move at all. A zero-timer runs after that
         posted event.
         """
-        QTimer.singleShot(0, self._apply_size_floor)
+        # `self` as the context, so the call dies with the window: a bare
+        # bound method is not cancelled at 0 ms and ran against a deleted
+        # layout (LWSM-1399).
+        QTimer.singleShot(0, self, self._apply_size_floor)
 
     def _apply_window_metrics(self) -> None:
         """The central layout's margin and spacing, from the text metric.

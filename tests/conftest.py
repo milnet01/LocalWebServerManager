@@ -139,6 +139,20 @@ def pytest_runtest_teardown(item, nextitem):
     return result
 
 
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Name the shuffle's seed after every run, `-q` included (LWSM-1399).
+
+    pytest-randomly prints it in the header, which `-q` drops, and the gate
+    runs `-q`: the first order-dependent CI failure could not be replayed.
+    """
+    seed = getattr(config.option, "randomly_seed", None)
+    if isinstance(seed, int):
+        terminalreporter.write_line(
+            f"test order shuffled with --randomly-seed={seed}; "
+            "pass that to replay this order"
+        )
+
+
 def _assert_left_clean(cwd: str, environ: dict[str, str], children_before: set[int]):
     problems = []
     if os.getcwd() != cwd:
