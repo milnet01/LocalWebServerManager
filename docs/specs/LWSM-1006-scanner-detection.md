@@ -1884,7 +1884,7 @@ orders of magnitude rather than by a hair — which is what keeps it off
 | INV-14 | `tests/test_layering.py::test_core_never_imports_qtwidgets`, `::test_the_core_module_list_matches_the_criterion` |
 | INV-15 | `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack` |
 | INV-16 | `tests/test_scanner.py::test_the_app_does_not_detect_itself` |
-| INV-17 | Partial: `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit` (from `Environment=`), `::test_exec_start_is_a_record_and_only_its_argv_field_is_scanned` (`ExecStart` parsed on its own) — does not cover `ExecStart=` as a port source in a scan, nor `Environment=` winning over it (LWSM-1398) |
+| INV-17 | `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit`, `::test_a_systemd_project_reads_exec_start_after_environment`, `::test_exec_start_is_a_record_and_only_its_argv_field_is_scanned` |
 | INV-18 | `tests/test_scanner.py::test_the_reason_list_is_capped_and_says_so`, `::test_a_newline_in_a_directory_name_cannot_forge_a_log_record`, `::test_the_source_of_a_port_finding_is_sanitised_like_a_reason`, `::test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours` |
 | INV-19 | `tests/test_scanner.py::test_a_commented_out_port_is_not_detected`, `::test_a_negative_number_is_not_a_port` |
 | INV-20 | `tests/test_scanner.py::test_nothing_inside_node_modules_is_read` |
@@ -1896,8 +1896,7 @@ orders of magnitude rather than by a hair — which is what keeps it off
 The bolded `nothing` rows are this spec's honest error budget, per
 `spec-format.md § 0`. Most are one shape — a test fake, a
 fixture tree and a measured command line can only be as true as the day
-someone last checked them against reality. The `Partial:` row's gap is
-LWSM-1398's.
+someone last checked them against reality.
 
 ## 11. Cross-doc impact
 

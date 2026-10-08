@@ -1442,30 +1442,30 @@ empty return, the suite is run red, and only then is the body written.
 | INV-10 | `tests/test_registry.py::test_port_ranges_differ_by_field` |
 | INV-11 | `tests/test_controller.py::test_probe_runs_off_the_owning_thread` |
 | INV-12 | `tests/test_controller.py::test_tick_skipped_while_probe_in_flight` |
-| INV-13 | Partial: `tests/test_mainwindow.py::test_focus_survives_a_status_change` — does not cover the widget still holding keyboard focus; it asserts the row's identity and text, never `hasFocus()` (LWSM-1398) |
-| INV-14 | Partial: `tests/test_main.py::test_version_needs_no_display` — does not cover `lwsm --help` with no display (LWSM-1398) |
-| INV-15 | Partial: `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window`, `tests/test_main.py::test_starts_even_when_there_is_no_home_directory` — does not cover the banner naming the reason a file could not be parsed; only the filename is asserted (LWSM-1398) |
-| INV-16 | Partial: `tests/test_controller.py::test_no_snapshot_is_delivered_after_stop`, `::test_a_poll_started_after_stop_delivers_nothing`, `::test_stop_does_not_wait_on_unrelated_work`, `::test_stop_is_bounded_when_a_probe_never_returns`, `::test_stop_is_bounded_when_a_health_check_never_returns`, `::test_the_shipped_stop_budget_is_pinned`, `::test_the_process_exits_promptly_when_a_probe_is_abandoned` — does not cover the service pool's wait being bounded (LWSM-1398) |
+| INV-13 | `tests/test_mainwindow.py::test_focus_survives_a_status_change`, `::test_keyboard_focus_is_still_held_after_a_status_change` |
+| INV-14 | `tests/test_main.py::test_version_needs_no_display`, `::test_help_needs_no_display` |
+| INV-15 | `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window` (the file and the reason), `tests/test_main.py::test_starts_even_when_there_is_no_home_directory` |
+| INV-16 | `tests/test_controller.py::test_no_snapshot_is_delivered_after_stop`, `::test_a_poll_started_after_stop_delivers_nothing`, `::test_stop_does_not_wait_on_unrelated_work`, `::test_stop_is_bounded_when_a_probe_never_returns`, `::test_stop_is_bounded_when_a_systemctl_verb_never_returns`, `::test_stop_is_bounded_when_a_health_check_never_returns`, `::test_the_shipped_stop_budget_is_pinned`, `::test_the_process_exits_promptly_when_a_probe_is_abandoned` |
 | INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held`, `tests/test_theme.py::test_the_focus_ring_clears_the_indicator_floor` |
 | INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
 | INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_its_cells_and_its_buttons`, `::test_the_glyph_is_never_a_child_of_the_accessibility_tree`, `::test_the_glyph_is_still_painted_after_leaving_the_label` |
 | INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide`, `::test_the_cells_keep_their_order_and_do_not_overlap` |
-| INV-21 | Partial: `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`, `::test_an_enormous_name_is_clipped`, `::test_the_clip_bounds_the_escaped_text_not_the_raw_text`, `::test_a_hostile_port_field_cannot_flood_the_reason`, `::test_a_hostile_schema_version_cannot_flood_the_error`, plus `::test_no_file_sourced_value_is_interpolated_without_the_clip` for the sweep — does not cover a value interpolated bare (`{value}`), which the sweep's `!r}` match cannot see (LWSM-1398) |
+| INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`, `::test_an_enormous_name_is_clipped`, `::test_the_clip_bounds_the_escaped_text_not_the_raw_text`, `::test_a_hostile_port_field_cannot_flood_the_reason`, `::test_a_hostile_schema_version_cannot_flood_the_error`, `::test_a_hostile_value_in_every_key_reaches_no_reason_raw`, plus `::test_no_file_sourced_value_is_interpolated_without_the_clip` for the `!r}` sweep |
 | INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced`, `::test_an_unchanged_row_is_never_re_announced` |
 | INV-23 | `tests/test_mainwindow.py::test_the_state_word_takes_its_colour_from_the_status` |
 | INV-24 | `tests/test_mainwindow.py::test_the_theme_reaches_the_cells_not_only_the_window` |
 | INV-25 | `tests/test_mainwindow.py::test_an_application_font_change_reflows_an_existing_row` |
-| O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
-| O8.2 — tab order matching visual order | **nothing** — same surface, same item |
+| O8.2 — a row being keyboard-**reachable** at all | `tests/test_mainwindow.py::test_every_row_is_itself_a_tab_stop`, `::test_every_action_is_reachable_by_tab_in_the_order_it_is_read` |
+| O8.2 — tab order matching visual order | `tests/test_mainwindow.py::test_every_action_is_reachable_by_tab_in_the_order_it_is_read` |
 | O8.4 — reflow at 200 % text size | Partial: `tests/test_mainwindow.py::test_the_glyph_is_not_clipped_when_the_text_size_doubles`, `::test_the_row_resizes_its_cells_when_the_font_grows`, `::test_an_application_font_change_reflows_an_existing_row` (INV-25) — does not cover the row reflowing at 200 % |
-| "The state word is first in the row" | **nothing** — §4.4 claims it and no invariant asserts it; LWSM-1032's x-position row is the surface |
+| "The state word is first in the row" | `tests/test_mainwindow.py::test_the_state_word_comes_first_in_the_row` |
 | `§ O7`'s font-family and pixel-size half | **nothing**, and **unowned** — INV-8b checks colour literals only, so a widget pinning `setFont(QFont("DejaVu Sans"))` or a fixed height passes every test here. No roadmap item schedules this check; LWSM-1032's rows are about rendered output, not about source literals |
 | The 2 s criterion under load | **nothing** — INV-7 measures one project on an idle machine; the ≤250 ms snapshot budget at 20 projects is unmeasured until there are 20 projects to measure, which no roadmap item yet creates |
 
-The `nothing` rows are LWSM-1032's surfaces, except two that no item owns:
-the `§ O7` font/size check and the 2-second criterion under load. Listing
-them unowned is the point, since a gap with a roadmap id is scheduled and a
-gap without one is only known. The `Partial:` rows' gaps are LWSM-1398's.
+The `nothing` rows are the `§ O7` font/size check and the 2-second
+criterion under load, and no item owns either. Listing them unowned is the
+point, since a gap with a roadmap id is scheduled and a gap without one is
+only known.
 
 ## 11. Cross-doc impact
 

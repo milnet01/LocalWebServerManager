@@ -317,11 +317,11 @@ before its rule is written, by breaking that rule once in a scratch copy per
 |------|----------------------|
 | INV-1 | `tests/test_registry.py::test_write_then_load_round_trips` |
 | INV-2 | `tests/test_registry.py::test_provenance_naming_another_port_is_dropped_with_its_conflicts` |
-| INV-3 | Partial: `tests/test_registry.py::test_each_provenance_refusal_drops_only_its_field` — does not cover a `source` that `is_writable_text` refuses, or a non-string `source` (LWSM-1398) |
+| INV-3 | `tests/test_registry.py::test_each_provenance_refusal_drops_only_its_field` |
 | INV-4 | `tests/test_registry.py::test_a_detected_port_stores_its_provenance`, `::test_a_project_that_declares_no_port_loses_its_provenance`, `::test_a_port_kept_through_an_unreadable_scan_keeps_its_provenance` |
-| INV-5 | Partial: `tests/test_registry.py::test_a_provenance_only_change_is_stored_but_counted_unchanged`, `::test_a_port_change_is_still_counted_changed` — does not cover a rescan that changes only `port_conflicts` (LWSM-1398) |
+| INV-5 | `tests/test_registry.py::test_a_provenance_only_change_is_stored_but_counted_unchanged`, `::test_a_conflicts_only_change_is_stored_but_counted_unchanged`, `::test_a_port_change_is_still_counted_changed` |
 | INV-6 | `tests/test_mainwindow.py::test_the_port_cell_marks_disagreeing_sources` |
-| INV-7 | Partial: `tests/test_mainwindow.py::test_a_hostile_source_cannot_break_a_line_or_draw_markup` — does not cover the control character being replaced by U+FFFD in the tooltip (LWSM-1398) |
+| INV-7 | `tests/test_mainwindow.py::test_a_hostile_source_cannot_break_a_line_or_draw_markup` |
 | INV-8 | `tests/test_layering.py::test_registry_never_imports_the_scanner`, `::test_the_port_types_are_the_registrys` |
 | § 4.2 both new fields are DETECTED | `tests/test_registry.py::test_every_record_field_is_classified` (each field in exactly one set), and `::test_each_provenance_refusal_drops_only_its_field`, whose loader helper asserts `user_fields_refused` stays empty — it would not if either field were USER |
 | § 4.5 the detail's wording | **nothing** — copy, reviewed by reading |

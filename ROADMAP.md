@@ -11605,7 +11605,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: review-contract-2026-10-07 LWSM-1034 loop 1 (out of scope).
   Lanes: docs.
 
-- 📋 [LWSM-1398] **Close the test gaps the specs' Partial: rows name.**
+- ✅ [LWSM-1398] **Close the test gaps the specs' Partial: rows name.**
   LWSM-1379's audit (four read-only agents, each claim re-checked against
   tests/) found clauses no test reaches. Each is a `Partial:` row:
   LWSM-1005 INV-13 focus still held; INV-14 --help with no display;
@@ -11626,6 +11626,16 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Also re-check LWSM-1005's nothing rows that name LWSM-1032 as their
   surface: LWSM-1032 has shipped.
   Each test is proved red first. Flip its row to a named check as it lands.
+  Resolved (2026-10-08, 8331b44..5313c8d): every gap has a test, and
+  every Partial: row it named is now a named check. All are write-test
+  Route 4 (shipped behaviour, never seen broken), so each was proved by
+  mutation_probe instead of a red run: every mutant killed, every file
+  restored clean. The LWSM-1032 re-check found two existing tests for
+  three nothing rows, and one more gap (the row frame as a Tab stop),
+  now tested. Not covered here: LWSM-1005's O8.4 reflow row, which was
+  never in this item. Narrow probes, said in their commits: the tooltip
+  routes (shares one string with the description) and duplicate identity
+  (no route in the merge narrower than the slot's write decision).
   **Layman:** Some of the app's promises are only half-tested; write the missing tests.
   Kind: test.
   Source: LWSM-1379 coverage audit 2026-10-08.

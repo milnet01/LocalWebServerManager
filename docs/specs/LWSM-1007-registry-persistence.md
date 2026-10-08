@@ -877,12 +877,12 @@ by asserting harder.
 | INV-5 | `test_registry.py::test_a_pre_existing_file_still_loads` |
 | INV-6 | `test_registry.py::test_a_file_with_a_rejected_row_is_never_written_back`, `::test_an_unparseable_file_is_never_written_over`, `::test_a_dropped_field_does_not_block_the_write`, `::test_a_missing_file_is_first_run_and_writes` |
 | INV-7 | `test_registry.py::test_the_shipped_bounds_are_pinned` (widened additively; the existing `MAX_REASONS` and product assertions stay) |
-| INV-8 | Partial: `tests/test_registry.py::test_a_writer_refusal_reason_is_clipped_and_escaped`, `::test_no_file_sourced_value_is_interpolated_without_the_clip` — does not cover, at run time, any refusal reason but the not-a-regular-file one, nor a reason built in `configfile.py`, which the source sweep does not read (LWSM-1398) |
+| INV-8 | `tests/test_registry.py::test_a_writer_refusal_reason_is_clipped_and_escaped`, `::test_every_writer_refusal_reason_is_clipped_and_escaped`, `::test_no_file_sourced_value_is_interpolated_without_the_clip` |
 | § 4.1 `LauncherKind` moves without closing an import cycle | `tests/test_layering.py::test_registry_never_imports_the_scanner` — an AST check, not a subprocess: a fresh-interpreter import test would spawn a process, earn the `integration` marker and be skipped by `--fast`, which is the run most likely to be the only one anybody does |
 | § 4.2 `kind` rejected when not a `LauncherKind` | `test_registry.py::test_a_wrong_typed_field_loses_the_field_and_keeps_the_row`, its `kind` cases |
 | § 4.2 the wrong-type rule, over every optional key | `test_registry.py::test_a_wrong_typed_field_loses_the_field_and_keeps_the_row`, parametrised over every optional key — not the table's eight rows, three of which pair two keys, which would leave `port_override`, `launcher_override` and `start_at_login` with no case |
 | § 4.2 a non-string `name` or `path` is a ROW refusal | `test_registry.py::test_bad_record_skipped_others_load`, its non-string `name` and `path` cases |
-| § 4.2 `added` verbatim on write, `Z` only when stamped | Partial: `tests/test_registry.py::test_an_added_stamp_carrying_an_offset_is_kept_verbatim` — does not cover the app's own stamp being spelt with `Z` at second precision (LWSM-1398) |
+| § 4.2 `added` verbatim on write, `Z` only when stamped | `tests/test_registry.py::test_an_added_stamp_carrying_an_offset_is_kept_verbatim`, `::test_the_apps_own_stamp_is_utc_with_z_at_second_precision` |
 | § 4.2 `added` unparseable is dropped and reported | `test_registry.py::test_a_wrong_typed_field_loses_the_field_and_keeps_the_row`, its `added` cases |
 | § 4.2 `actions` round-trips opaquely, and a record carrying one stays hashable | `test_registry.py::test_an_action_is_persisted_opaquely_with_its_keys_normalised`, and `::test_argv_and_actions_load_back_as_tuples`, which calls `hash()` on the record — the assertion a `tuple[dict, ...]` would fail |
 | § 4.2 `argv` tuple round-trip | covered by INV-3's round-trip over a fully-populated record |
@@ -901,7 +901,7 @@ can falsify without power loss; concurrent writers, excluded by § 9; the
 five persisted-but-inert fields and the unpersisted port provenance, both
 § 9 deferrals with their cost stated; and the dropped field's lost text,
 accepted in § 8. **None carries a roadmap id, because none is a gap to
-close.** The `Partial:` rows' gaps are LWSM-1398's.
+close.**
 
 *Command, run against this file:*
 
