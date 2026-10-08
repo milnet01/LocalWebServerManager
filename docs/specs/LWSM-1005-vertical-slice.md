@@ -1427,13 +1427,13 @@ empty return, the suite is run red, and only then is the body written.
 | Rule | What catches a breach |
 |------|----------------------|
 | INV-1 | `tests/test_registry.py::test_unusable_files_are_refused` |
-| INV-2 | `tests/test_registry.py::test_bad_record_skipped_others_load` |
+| INV-2 | `tests/test_registry.py::test_bad_record_skipped_others_load`, `::test_duplicate_path_is_skipped` |
 | INV-3 | `tests/test_controller.py::test_one_snapshot_per_poll` |
 | INV-3b | `tests/test_ports.py::test_one_net_connections_call_per_snapshot` |
 | INV-4 | `tests/test_controller.py::test_status_is_rederived_not_remembered` |
-| INV-4b | `tests/test_controller.py::test_probe_error_holds_previous_status` |
-| INV-4c | `tests/test_controller.py::test_an_unexpected_exception_does_not_wedge_the_poll_loop` |
-| INV-5 | `tests/test_controller.py::test_first_poll_emits_then_only_on_change` |
+| INV-4b | `tests/test_controller.py::test_probe_error_holds_previous_status`, `::test_a_held_status_survives_an_unexpected_exception`, `::test_a_failing_first_poll_still_emits` |
+| INV-4c | `tests/test_controller.py::test_an_unexpected_exception_does_not_wedge_the_poll_loop`, `::test_the_loop_recovers_once_the_probe_does`, and `::test_a_task_whose_signaller_is_gone_reports_rather_than_raises` for the emit layer |
+| INV-5 | `tests/test_controller.py::test_first_poll_emits_then_only_on_change`, `::test_first_poll_emits_with_zero_records` |
 | INV-6 | `tests/test_mainwindow.py::test_state_is_a_word_not_only_colour` |
 | INV-7 | `tests/test_mainwindow.py::test_row_follows_a_real_socket` |
 | INV-8 | `tests/test_layering.py::test_core_never_imports_qtwidgets` |
@@ -1442,44 +1442,30 @@ empty return, the suite is run red, and only then is the body written.
 | INV-10 | `tests/test_registry.py::test_port_ranges_differ_by_field` |
 | INV-11 | `tests/test_controller.py::test_probe_runs_off_the_owning_thread` |
 | INV-12 | `tests/test_controller.py::test_tick_skipped_while_probe_in_flight` |
-| INV-13 | `tests/test_mainwindow.py::test_focus_survives_a_status_change` |
-| INV-14 | `tests/test_main.py::test_version_needs_no_display` |
-| INV-15 | `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window` |
-| INV-16 | `tests/test_controller.py::test_stop_waits_for_the_outstanding_task` |
-| INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held` |
+| INV-13 | Partial: `tests/test_mainwindow.py::test_focus_survives_a_status_change` — does not cover the widget still holding keyboard focus; it asserts the row's identity and text, never `hasFocus()` (LWSM-1398) |
+| INV-14 | Partial: `tests/test_main.py::test_version_needs_no_display` — does not cover `lwsm --help` with no display (LWSM-1398) |
+| INV-15 | Partial: `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window`, `tests/test_main.py::test_starts_even_when_there_is_no_home_directory` — does not cover the banner naming the reason a file could not be parsed; only the filename is asserted (LWSM-1398) |
+| INV-16 | Partial: `tests/test_controller.py::test_no_snapshot_is_delivered_after_stop`, `::test_a_poll_started_after_stop_delivers_nothing`, `::test_stop_does_not_wait_on_unrelated_work`, `::test_stop_is_bounded_when_a_probe_never_returns`, `::test_stop_is_bounded_when_a_health_check_never_returns`, `::test_the_shipped_stop_budget_is_pinned`, `::test_the_process_exits_promptly_when_a_probe_is_abandoned` — does not cover the service pool's wait being bounded (LWSM-1398) |
+| INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held`, `tests/test_theme.py::test_the_focus_ring_clears_the_indicator_floor` |
 | INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
-| INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_its_cells_and_its_buttons` |
-| INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide` |
-| INV-21 | `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`, plus `::test_no_file_sourced_value_is_interpolated_without_the_clip` for the mechanism-wide sweep |
-| INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced` |
+| INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_its_cells_and_its_buttons`, `::test_the_glyph_is_never_a_child_of_the_accessibility_tree`, `::test_the_glyph_is_still_painted_after_leaving_the_label` |
+| INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide`, `::test_the_cells_keep_their_order_and_do_not_overlap` |
+| INV-21 | Partial: `tests/test_registry.py::test_a_newline_in_a_name_cannot_forge_a_log_line`, `::test_an_enormous_name_is_clipped`, `::test_the_clip_bounds_the_escaped_text_not_the_raw_text`, `::test_a_hostile_port_field_cannot_flood_the_reason`, `::test_a_hostile_schema_version_cannot_flood_the_error`, plus `::test_no_file_sourced_value_is_interpolated_without_the_clip` for the sweep — does not cover a value interpolated bare (`{value}`), which the sweep's `!r}` match cannot see (LWSM-1398) |
+| INV-22 | `tests/test_mainwindow.py::test_a_state_change_is_announced`, `::test_an_unchanged_row_is_never_re_announced` |
 | INV-23 | `tests/test_mainwindow.py::test_the_state_word_takes_its_colour_from_the_status` |
 | INV-24 | `tests/test_mainwindow.py::test_the_theme_reaches_the_cells_not_only_the_window` |
 | INV-25 | `tests/test_mainwindow.py::test_an_application_font_change_reflows_an_existing_row` |
 | O8.2 — a row being keyboard-**reachable** at all | **nothing** — INV-13 focuses a row programmatically and asserts the focus survives a flip; nothing asserts the row is in the tab chain. LWSM-1032's keyboard-reachability row is the surface |
 | O8.2 — tab order matching visual order | **nothing** — same surface, same item |
-| O8.4 — reflow at 200 % text size | **partly** — `test_the_glyph_is_not_clipped_when_the_text_size_doubles` renders at 200 % and asserts the glyph's ink stays inside its column (LWSM-1101), and `test_the_row_resizes_its_cells_when_the_font_grows` covers the cell minimums. Neither covers the row *reflowing*; the text-size control itself is LWSM-1032. Both drive `row.setFont`, and until LWSM-1119 that was the **only** route that worked, so this row read "partly covered" while the application-font route was dead — INV-25 now covers that route, and it is the one a control uses |
+| O8.4 — reflow at 200 % text size | Partial: `tests/test_mainwindow.py::test_the_glyph_is_not_clipped_when_the_text_size_doubles`, `::test_the_row_resizes_its_cells_when_the_font_grows`, `::test_an_application_font_change_reflows_an_existing_row` (INV-25) — does not cover the row reflowing at 200 % |
 | "The state word is first in the row" | **nothing** — §4.4 claims it and no invariant asserts it; LWSM-1032's x-position row is the surface |
 | `§ O7`'s font-family and pixel-size half | **nothing**, and **unowned** — INV-8b checks colour literals only, so a widget pinning `setFont(QFont("DejaVu Sans"))` or a fixed height passes every test here. No roadmap item schedules this check; LWSM-1032's rows are about rendered output, not about source literals |
 | The 2 s criterion under load | **nothing** — INV-7 measures one project on an idle machine; the ≤250 ms snapshot budget at 20 projects is unmeasured until there are 20 projects to measure, which no roadmap item yet creates |
 
-**Five `nothing` rows**, plus one partly-covered. Three are surfaces
-LWSM-1032 creates; **two are unowned** — the `§ O7` font/size check and the
-2-second criterion under load — and being unowned is the point of listing
-them, since a gap with a roadmap id is scheduled and a gap without one is
-only known. Per `spec-format § 0`'s "one number that matters", five is this
-spec's honest error budget, and the accessibility rows are still the bulk of
-it — the expected shape for a phase that builds the row correctly but cannot
-yet test that it did.
-
-The count was **eight**, and stayed eight after INV-17 and INV-18 landed
-(LWSM-1108). Two rows claimed "nothing" against checks that existed: focus-ring
-contrast is `test_theme.py::test_the_focus_ring_clears_the_indicator_floor`,
-and the three state tokens' contrast is
-`test_every_text_token_clears_the_text_floor`, which parametrises over
-`state_running`, `state_stopped` and `state_unknown`. § 7's table *was* updated
-when they landed and this section was not — so the number was wrong by two, and
-a count re-asserted rather than re-derived is how it stayed wrong. Recomputed
-from the rows above, not carried forward.
+The `nothing` rows are LWSM-1032's surfaces, except two that no item owns:
+the `§ O7` font/size check and the 2-second criterion under load. Listing
+them unowned is the point, since a gap with a roadmap id is scheduled and a
+gap without one is only known. The `Partial:` rows' gaps are LWSM-1398's.
 
 ## 11. Cross-doc impact
 

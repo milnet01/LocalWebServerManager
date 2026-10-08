@@ -11375,12 +11375,22 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: LWSM-1326 user decision 2026-10-02 (shared dependencies.md § 7).
   Lanes: docs, tooling.
 
-- 📋 [LWSM-1379] **Mark partly-checked rows as Partial: in every What-checks-this table.**
+- ✅ [LWSM-1379] **Mark partly-checked rows as Partial: in every What-checks-this table.**
   Shared documentation.md § 2.9 requires a `Partial:` cell wherever
   coverage is incomplete, and spec-format § 0 measures the share of
   nothing-or-Partial rows rather than a count. The specs' tables write
   partial coverage as plain rows and state counts.
   Priority: 4.
+  Resolved (2026-10-08). The standards' tables already used Partial:;
+  the seven specs' did not. Four read-only agents audited each spec row
+  against its invariant and tests; every test name and gap claim was
+  re-checked before editing. Rows naming one test where more exist now
+  name them all; rows naming a file or a case count now name tests;
+  clauses no test reaches are Partial: rows, their gaps filed as
+  LWSM-1398. Two **nothing** rows had tests (LWSM-1034's interval,
+  LWSM-1131's Start refusal, now LWSM-1205's test); one "partly" became
+  Partial:. Count prose under four tables dropped; LWSM-1005's history
+  paragraph moved to docs/history/LWSM-1005-vertical-slice.md.
   **Layman:** Make each rulebook's checklist say honestly when a rule is only partly checked.
   Kind: doc.
   Source: LWSM-1326 user decision 2026-10-02 (shared documentation.md § 2.9).
@@ -11594,6 +11604,32 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: doc-fix.
   Source: review-contract-2026-10-07 LWSM-1034 loop 1 (out of scope).
   Lanes: docs.
+
+- 📋 [LWSM-1398] **Close the test gaps the specs' Partial: rows name.**
+  LWSM-1379's audit (four read-only agents, each claim re-checked against
+  tests/) found clauses no test reaches. Each is a `Partial:` row:
+  LWSM-1005 INV-13 focus still held; INV-14 --help with no display;
+  INV-15 the banner names the reason; INV-16 the service pool's wait
+  bound; INV-21 a value interpolated bare, past the !r} sweep.
+  LWSM-1006 INV-17 ExecStart= as a port source in a scan, and its order.
+  LWSM-1007 INV-8 refusal reasons other than not-a-regular-file;
+  § 4.2 the app's own stamp spelt with Z.
+  LWSM-1385 INV-3 a surrogate or non-string source; INV-5 a
+  port_conflicts-only change; INV-7 U+FFFD in the tooltip.
+  LWSM-1034 INV-11 the page action saves nothing else; INV-12 U+FFFD in
+  the tooltip.
+  LWSM-1131 INV-7 two records with no added, and a port_override in
+  merge(); INV-10 scan-sourced values and outcomes other than missing;
+  § 4.4 not-re-observed and duplicate-identity not writing; the slot
+  passing load= to save_projects; § 4.3 now()'s Z; new-record defaults;
+  an argv of () overwriting.
+  Also re-check LWSM-1005's nothing rows that name LWSM-1032 as their
+  surface: LWSM-1032 has shipped.
+  Each test is proved red first. Flip its row to a named check as it lands.
+  **Layman:** Some of the app's promises are only half-tested; write the missing tests.
+  Kind: test.
+  Source: LWSM-1379 coverage audit 2026-10-08.
+  Lanes: tests.
 
 ## 0.4.0 — Ports
 

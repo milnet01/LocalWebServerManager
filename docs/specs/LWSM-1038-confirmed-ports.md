@@ -377,20 +377,20 @@ the *(detected)* or *(confirmed)* word.
 
 | Rule | What catches a breach |
 |------|----------------------|
-| INV-1 | `tests/test_registry.py`, the three precedence cases |
-| INV-2 | `tests/test_registry.py::test_write_then_load_round_trips` and the four refusal cases |
-| INV-3 | `tests/test_registry.py`, the three rescan cases |
-| INV-4 | `tests/test_registry.py`, the two import cases |
-| INV-5 | `tests/test_controller.py`, the four our-group cases |
-| INV-6 | `tests/test_controller.py`, the no-port case |
-| INV-7 | `tests/test_controller.py`, the three foreign-holder cases |
-| INV-8 | `tests/test_controller.py`, the stopped and unreadable cases |
-| INV-9 | `tests/test_mainwindow.py`, the save-count case |
-| INV-10 | `tests/test_mainwindow.py`, the port-cell cases |
-| INV-11 | `tests/test_controller.py`, the second-poll foreign case |
+| INV-1 | `tests/test_registry.py::test_the_effective_port_is_override_then_confirmed_then_declared` |
+| INV-2 | `tests/test_registry.py::test_write_then_load_round_trips`, `::test_a_bad_confirmed_port_loads_as_none_and_never_locks_the_session` |
+| INV-3 | `tests/test_registry.py::test_a_rescan_keeps_a_confirmed_port_until_the_declared_port_changes` |
+| INV-4 | `tests/test_registry.py::test_an_import_clears_a_confirmed_port_when_it_changes_the_override` |
+| INV-5 | `tests/test_controller.py::test_our_group_confirms_by_the_order_and_never_guesses` |
+| INV-6 | `tests/test_controller.py::test_a_project_with_no_port_is_managed_in_the_poll_its_group_binds_one` |
+| INV-7 | `tests/test_controller.py::test_a_server_we_did_not_start_confirms_only_when_it_is_plausibly_the_project` |
+| INV-8 | `tests/test_controller.py::test_a_poll_that_sees_nothing_keeps_the_confirmed_port` |
+| INV-9 | `tests/test_mainwindow.py::test_the_window_saves_a_confirmed_port_once` |
+| INV-10 | `tests/test_mainwindow.py::test_the_port_cell_says_how_sure_the_port_is` |
+| INV-11 | `tests/test_controller.py::test_a_confirmed_port_never_makes_a_server_ours` |
 | § 4.1 the new field is DETECTED | `tests/test_registry.py::test_an_imported_project_arrives_with_no_confirmed_port` |
 | § 4.4 LWSM-1014 clears on an override change | **nothing** — that item is not built; its spec owes the rule |
-| § 4.5 the tooltip's wording | **nothing** — copy, reviewed by reading |
+| § 4.5 the tooltip's wording | **nothing mechanical** — copy, read by whoever reviews the change |
 
 ## 11. Cross-doc impact
 

@@ -736,40 +736,36 @@ scratch. Both are honest limits of a unit suite.
 | INV-1 | `test_registry.py::test_a_rescan_never_writes_a_user_field` |
 | INV-2 | `test_registry.py::test_unknown_does_not_erase_a_known_port` |
 | INV-3 | `test_registry.py::test_a_timed_out_scan_marks_nothing_missing`, `::test_an_unlistable_root_marks_nothing_missing_under_it` |
-| INV-4 | `test_registry.py::test_a_missing_project_is_kept_and_flagged` |
+| INV-4 | `test_registry.py::test_a_missing_project_is_kept_and_flagged`, `::test_two_paths_resolving_to_one_directory_are_one_project` (the duplicate-identity loser is kept) |
 | INV-5 | `test_registry.py::test_two_paths_resolving_to_one_directory_are_one_project` |
-| INV-6 | `test_registry.py::test_the_merge_report_is_bounded` |
-| INV-7 | `test_registry.py::test_duplicate_ports_are_flagged_with_the_first_registered_winning`, `::test_a_record_without_added_loses_the_port_tie_break` |
+| INV-6 | `test_registry.py::test_the_merge_report_is_bounded`, `test_configfile.py::test_bounded_reasons_keeps_the_first_cap_and_counts_the_rest` |
+| INV-7 | Partial: `test_registry.py::test_duplicate_ports_are_flagged_with_the_first_registered_winning`, `::test_a_record_without_added_loses_the_port_tie_break`, `::test_the_added_tie_break_compares_instants_not_text` — does not cover two records with no `added` ordered by file position, nor a port reached through `port_override` in `merge()` (LWSM-1398) |
 | INV-8 | `test_registry.py::test_a_merge_does_not_rewrite_the_stored_path` |
 | INV-9 | `test_registry.py::test_the_added_tie_break_compares_instants_not_text` |
-| INV-10 | `test_registry.py::test_no_merge_value_is_interpolated_without_the_clip` |
-| § 4.3 write trigger | `test_mainwindow.py::test_a_rescan_that_changes_nothing_says_so_and_does_not_write`, `::test_a_flag_only_outcome_does_not_write` (`gui`) |
+| INV-10 | Partial: `test_registry.py::test_no_merge_value_is_interpolated_without_the_clip` — does not cover scan-sourced values, or entries from outcomes other than *missing* (LWSM-1398) |
+| § 4.3 write trigger | Partial: `test_mainwindow.py::test_a_rescan_that_changes_nothing_says_so_and_does_not_write`, `::test_a_flag_only_outcome_does_not_write`, `::test_a_refused_write_is_retried_by_the_next_rescan` (`gui`) — does not cover *not re-observed* or *duplicate identity* staying unwritten (LWSM-1398) |
 | § 4.4 first run writes even with zero projects | `test_mainwindow.py::test_a_first_run_finding_nothing_still_creates_the_file` (`gui`) — the case where both sets are empty and the difference trigger says no |
-| § 4.4 the slot owns the gate, not `merge()` | `test_mainwindow.py::test_a_read_only_session_reports_rather_than_writing` (`gui`) — asserts the merge still ran and reported |
-| § 4.3 `now()` returns a `Z`-suffixed RFC 3339 instant | `test_registry.py::test_the_production_now_stamps_a_value_the_loader_accepts` — round-trips the real callable through `load_projects`, so a naive stamp fails here rather than silently on the next start |
-| § 4.4 the summary is counts per outcome | `test_mainwindow.py::test_the_rescan_summary_names_each_outcome_count` (`gui`) |
+| § 4.4 the slot owns the gate, not `merge()` | Partial: `test_mainwindow.py::test_a_read_only_session_reports_rather_than_writing` (`gui`) — does not cover the slot passing its startup load to `save_projects` as `load=` (LWSM-1398) |
+| § 4.3 `now()` returns a `Z`-suffixed RFC 3339 instant | Partial: `test_registry.py::test_the_production_now_stamps_a_value_the_loader_accepts` — catches a naive stamp; does not cover the `Z` suffix or second precision (LWSM-1398) |
+| § 4.4 the summary is counts per outcome | `test_mainwindow.py::test_the_rescan_summary_names_each_outcome_count`, `::test_the_summary_omits_zero_counts_and_never_renders_unchanged`, `::test_the_summary_order_is_fixed_and_not_dict_order` (`gui`) |
 | § 4.3 scope of *missing* | `test_registry.py::test_a_project_outside_every_scan_root_is_not_missing` |
 | § 4.3 containment resolves BOTH sides | `test_registry.py::test_a_symlinked_scan_root_still_scopes_missing` — a root symlinked to the directory the records resolve under; unresolved-vs-resolved makes *missing* unreachable |
 | § 4.3 only an unlistable root suppresses *missing* | `test_registry.py::test_an_ordinary_skip_does_not_suppress_the_missing_check`, `::test_an_unlistable_root_marks_nothing_missing_under_it` |
-| § 4.3 *new*-record seeding | `test_registry.py::test_a_new_project_is_seeded_with_a_name_and_a_stamp` |
+| § 4.3 *new*-record seeding | Partial: `test_registry.py::test_a_new_project_is_seeded_with_a_name_and_a_stamp` — does not cover every other user field taking its LWSM-1007 § 4.2 default (LWSM-1398) |
 | § 4.3 *changed* on a first detection | `test_registry.py::test_a_first_detection_is_changed_not_silent` |
 | § 4.2 an unresolvable path does not abort the merge | **nothing** — measured: non-strict `Path.resolve()` returns normally even where `exists()` raises `PermissionError`, so no fixture here produces the raise. The per-record handler stays as defence-in-depth; the test is not written rather than written green against a branch that never runs |
 | § 4.4 Rescan disabled while in flight | `test_mainwindow.py::test_rescan_from_the_menu_greys_the_button_with_it` (`gui`) |
 | § 4.4 the worker's catch-all | `test_mainwindow.py::test_a_rescan_that_raises_re_enables_the_button` (`gui`) |
-| § 4.1 per-field unknown table | **nothing** — only `port` has an unknown sentinel, so the other three rows assert an absence; INV-2 covers the one field that can break |
+| § 4.1 per-field unknown table | Partial: `test_registry.py::test_a_units_none_is_a_real_value_and_does_overwrite` (`unit` and `kind`), and INV-2's test for `port` — does not cover an `argv` of `()` overwriting a stored one (LWSM-1398) |
 | § 4.2 duplicate still polled | **nothing** — a stated limitation (§ 9), not a rule; no channel carries the excluded set to the poller |
 | § 4.3 `hidden` / `launcher_override` preserved but inert | **nothing** — deliberate; LWSM-1007's INV-3 round-trip proves they survive, and nothing reads them |
 | § 4.1 a clean read clears a stored port | `test_registry.py::test_a_clean_read_declaring_no_port_clears_a_stored_one`, `test_scanner.py::test_a_project_says_whether_every_file_was_read_cleanly` |
-| § 9 Start refused for a duplicate-port claimant | **nothing** — ADR-0005's other half, deferred to P05 because no Start exists to refuse; INV-7's flag is the input it will act on |
+| § 9 Start refused for a duplicate-port claimant | `test_controller.py::test_a_later_claimant_on_a_port_is_refused_at_start` (LWSM-1205) |
 
-**Twenty-eight rows, five of which say `nothing`.** All five are limits or
-deliberate omissions rather than defects: § 4.1's per-field unknown table, three
-rows of which assert an *absence* of a sentinel and so have nothing to break;
-§ 4.2's duplicate row still being polled; `hidden` / `launcher_override` being
-preserved but inert; and the
-Start refusal, which has no Start to refuse until P05. **Only the last carries a
-roadmap owner, and it is the only one that is a gap rather than a cost** — the
-other three are § 9 deferrals with their price stated.
+**The `nothing` rows are limits or deliberate omissions rather than
+defects**: § 4.2's unresolvable path, which no fixture can produce; § 4.2's
+duplicate row still being polled; and `hidden` / `launcher_override` being
+preserved but inert. The `Partial:` rows' gaps are LWSM-1398's.
 
 *Command, run against this file:*
 
@@ -780,10 +776,9 @@ awk '/^\| Rule \| What catches/{f=1;next} f&&/^\|---/{next} \
   docs/specs/LWSM-1131-rescan-merge.md
 ```
 
-→ `rows=28 inv=10 nothing=6`, against `grep -c '^- \*\*INV-'` → `10`. So the
-table and § 5 enumerate the same ten invariants, and the eighteen non-`INV` rows
-are the six `nothing` limits plus twelve § 4 rules that carry a test without
-carrying an invariant of their own.
+Its `inv` figure equals `grep -c '^- \*\*INV-'` over § 5, so the table and
+§ 5 enumerate the same invariants. Re-run it rather than trust a figure
+written here.
 
 ## 11. Cross-doc impact
 

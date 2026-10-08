@@ -1868,24 +1868,24 @@ orders of magnitude rather than by a hair — which is what keeps it off
 
 | Rule | What catches a breach |
 |------|----------------------|
-| INV-1 | `tests/test_scanner.py::test_a_hop_out_of_the_project_is_refused` |
+| INV-1 | `tests/test_scanner.py::test_a_hop_out_of_the_project_is_refused`, `::test_a_symlinked_launcher_is_refused`, `::test_a_hop_token_holding_a_nul_byte_does_not_raise` |
 | INV-2 | `tests/test_scanner.py::test_a_symlinked_candidate_is_not_scanned` |
 | INV-3 | `tests/test_scanner.py::test_an_oversized_file_is_refused`, `::test_an_over_long_line_is_clipped_and_its_tail_not_scanned` |
-| INV-4 | `tests/test_scanner.py::test_a_fifo_launcher_does_not_block` |
+| INV-4 | `tests/test_scanner.py::test_a_fifo_launcher_does_not_block`, `::test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours` |
 | INV-5 | `tests/test_scanner.py::test_the_budget_stops_a_scan_mid_candidate` |
-| INV-6 | `tests/test_scanner.py::test_launcher_precedence` |
-| INV-7 | `tests/test_scanner.py::test_a_name_match_alone_does_not_bind_a_unit` |
-| INV-8 | `tests/test_scanner.py::test_a_hostile_unit_name_is_rejected` |
+| INV-6 | `tests/test_scanner.py::test_launcher_precedence`, `::test_a_candidate_with_no_launcher_is_not_listed` |
+| INV-7 | `tests/test_scanner.py::test_a_name_match_alone_does_not_bind_a_unit`, `::test_a_not_found_unit_is_not_confused_with_a_masked_one` |
+| INV-8 | `tests/test_scanner.py::test_a_hostile_unit_name_is_rejected`, `::test_the_unit_name_validator_bounds_length`, `::test_the_show_argv_separates_options_from_the_name` |
 | INV-9 | `tests/test_scanner.py::test_port_rule_2_keys`, `::test_port_rule_1_forms`, `::test_the_literal_ends_in_port_rule_would_accept_four_more` |
-| INV-10 | `tests/test_scanner.py::test_the_launcher_outranks_the_hop_file` |
+| INV-10 | `tests/test_scanner.py::test_the_launcher_outranks_the_hop_file`, `::test_the_launcher_outranks_its_own_imports` |
 | INV-11 | `tests/test_scanner.py::test_a_finding_reports_the_rule_that_matched`, `::test_the_wrapped_walk_is_bounded_at_one_invocation_and_one_import` (on `project-e-deep`, since LWSM-1184 moved `project-e` to detected) |
 | INV-12 | `tests/test_scanner.py::test_a_detected_project_has_no_user_owned_field` |
 | INV-13 | `tests/test_scanner.py::test_a_scan_leaves_the_tree_untouched` |
 | INV-14 | `tests/test_layering.py::test_core_never_imports_qtwidgets`, `::test_the_core_module_list_matches_the_criterion` |
 | INV-15 | `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack` |
 | INV-16 | `tests/test_scanner.py::test_the_app_does_not_detect_itself` |
-| INV-17 | `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit` |
-| INV-18 | `tests/test_scanner.py::test_the_reason_list_is_capped_and_says_so`, `::test_a_newline_in_a_directory_name_cannot_forge_a_log_record` |
+| INV-17 | Partial: `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit` (from `Environment=`), `::test_exec_start_is_a_record_and_only_its_argv_field_is_scanned` (`ExecStart` parsed on its own) — does not cover `ExecStart=` as a port source in a scan, nor `Environment=` winning over it (LWSM-1398) |
+| INV-18 | `tests/test_scanner.py::test_the_reason_list_is_capped_and_says_so`, `::test_a_newline_in_a_directory_name_cannot_forge_a_log_record`, `::test_the_source_of_a_port_finding_is_sanitised_like_a_reason`, `::test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours` |
 | INV-19 | `tests/test_scanner.py::test_a_commented_out_port_is_not_detected`, `::test_a_negative_number_is_not_a_port` |
 | INV-20 | `tests/test_scanner.py::test_nothing_inside_node_modules_is_read` |
 | § 4.4 rule 0's real `systemctl` calls behave as measured | **nothing** — every test injects `SupportsUnitLookup`, per `testing-overrides.md § T1`. The measurements in § 4.4 are dated and reproducible by hand; nothing re-runs them, and a `systemctl` whose output shape changes breaks detection with every test green |
@@ -1893,11 +1893,11 @@ orders of magnitude rather than by a hair — which is what keeps it off
 | § 4.3's `errors="replace"` decode never raises on any real file | **nothing** — untestable in general; the tests cover UTF-8, Latin-1 bytes and a binary blob |
 | § 4.2's self-exclusion under a **non-editable** install | **nothing** — INV-16 covers the source-checkout case, which is the one that occurs. A wheel install plus a checkout inside a scan root lists the checkout; judged not worth a second mechanism |
 
-Twenty-four rows, **four** with a bolded `nothing` — this spec's honest error
-budget, per `spec-format.md § 0`. Recounted after each review loop rather than
-adjusted: 20 invariant rows plus 4. Three of the four are one shape — a test
-fake, a fixture tree and a measured command line can only be as true as the day
-someone last checked them against reality.
+The bolded `nothing` rows are this spec's honest error budget, per
+`spec-format.md § 0`. Most are one shape — a test fake, a
+fixture tree and a measured command line can only be as true as the day
+someone last checked them against reality. The `Partial:` row's gap is
+LWSM-1398's.
 
 ## 11. Cross-doc impact
 
