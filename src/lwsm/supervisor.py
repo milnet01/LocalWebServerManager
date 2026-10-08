@@ -31,6 +31,7 @@ import re
 import signal
 import stat
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -1064,20 +1065,23 @@ class Supervisor:
             return False
 
         backup = log_path.with_name(log_path.name + ROTATION_SUFFIX)
-        # The same open as the log's, and it was NOT until LWSM-1229: this
-        # one carried `O_NOFOLLOW` alone, so a FIFO planted here blocked
-        # the poll thread forever -- `O_NOFOLLOW` refuses a symlink and
-        # says nothing about a pipe.
-        #
-        # Emptying it is `ftruncate` AFTER the check rather than `O_TRUNC`
-        # in the flags, which is not a detail: `O_TRUNC` destroys the
-        # target as part of opening it, so on a hard link planted here the
-        # file would be blanked and the refusal would arrive too late to
-        # matter. The check has to gate the destruction to be worth having.
-        out = _open_private_regular(backup, os.O_WRONLY | os.O_CREAT)
+        # The copy goes to a NEW file that replaces the backup only once it is
+        # complete (review-code 2026-10-08 L01-L3). Emptying the backup in
+        # place first lost the previous rotation whenever the copy failed --
+        # a full disk, every tick. `mkstemp` creates exclusively and private,
+        # so nothing planted can be opened in its place, and the rename
+        # replaces whatever sits at the backup's name without following or
+        # emptying it: a FIFO, a symlink or a hard link there is unlinked,
+        # never written through (what LWSM-1229 guarded by refusing them).
+        out, tmp_name = tempfile.mkstemp(
+            dir=log_path.parent, prefix=backup.name + ".", suffix=".tmp"
+        )
         try:
-            os.ftruncate(out, 0)
-            offset = 0
+            # Only the newest `max_log_bytes` (L01-M1): a log nothing capped --
+            # a server left running while the manager was closed -- can be
+            # gigabytes, and copying all of it needs that much disk again and
+            # leaves a backup far over the cap.
+            offset = max(0, size - self.max_log_bytes)
             while offset < size:
                 # Read through our own descriptor, never by reopening the
                 # path: reopening is a second chance for a symlink to be
@@ -1097,8 +1101,18 @@ class Supervisor:
                         # nothing; refuse and leave the original alone.
                         raise OSError(errno.ENOSPC, "rotation copy made no progress")
                     pending = pending[written:]
-        finally:
+        except BaseException:
             os.close(out)
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_name)
+            raise
+        os.close(out)
+        try:
+            os.replace(tmp_name, backup)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_name)
+            raise
         os.ftruncate(fd, 0)
         log.info("rotated the log for %s at %d bytes", name, size)
         return True

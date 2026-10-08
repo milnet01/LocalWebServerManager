@@ -1764,7 +1764,7 @@ def test_a_start_reaped_before_the_snapshot_still_settles(qtbot, controllers) ->
     (2026-10-01 review, L6-H1). The fake above never reaps, which is why it
     passed.
 
-    Dies on dropping the reaped set from `_reap_exited` or from the settle.
+    Dies on dropping the reaped set from `_on_upkeep` or from the settle.
     """
 
     class ReapingSupervisor(FakeSupervisor):
@@ -1955,7 +1955,7 @@ def test_the_poll_caps_a_running_projects_log(qtbot, controllers, tmp_path) -> N
     running set is what the cap is keyed on, and it must not depend on the row
     happening to be in the list.
 
-    Dies on removing the `self._rotate_logs()` call from `poll_once`.
+    Dies on removing the rotation from `_do_upkeep`.
     """
     project = tmp_path / "chatty"
     project.mkdir()
@@ -1978,6 +1978,8 @@ def test_the_poll_caps_a_running_projects_log(qtbot, controllers, tmp_path) -> N
         controller = build(controllers, [], FakeProbe())
         controller._supervisor = supervisor
         controller.poll_once()
+        # Off the window's thread since LWSM-1401.
+        assert controller._upkeep_pool.waitForDone(3000), "the upkeep never finished"
 
         assert rotated.exists(), "a poll left the log over the cap"
         assert managed.log_path.stat().st_size < MAX_LOG_BYTES
@@ -2057,7 +2059,7 @@ def test_the_poll_releases_the_slot_of_a_child_that_exited_on_its_own(
     Start on that project raises `AlreadyRunning` with Stop and Restart both
     greyed out.
 
-    Dies on removing the `self._reap_exited()` call from `poll_once`.
+    Dies on removing the reap from `_do_upkeep`.
     """
     project = tmp_path / "crasher"
     project.mkdir()
@@ -2074,6 +2076,8 @@ def test_the_poll_releases_the_slot_of_a_child_that_exited_on_its_own(
             controller = build(controllers, [], FakeProbe())
             controller._supervisor = supervisor
             controller.poll_once()
+            # Off the window's thread since LWSM-1401.
+            assert controller._upkeep_pool.waitForDone(3000), "upkeep never ended"
 
         assert not supervisor.running(), "the poll never released the slot"
         # The whole point: there is a route back.
@@ -2082,6 +2086,127 @@ def test_the_poll_releases_the_slot_of_a_child_that_exited_on_its_own(
         for path in list(supervisor.running()):
             supervisor.stop(path, grace=0.5)
         supervisor.close()
+
+
+# --- LWSM-1401: the poll's process work runs off the window's thread -----------
+
+
+class ThreadRecordingSupervisor(FakeSupervisor):
+    """Records the thread each once-a-tick call runs on."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.threads: dict[str, set[int]] = {}
+        self.rotations = 0
+
+    def _note(self, name: str) -> None:
+        self.threads.setdefault(name, set()).add(threading.get_ident())
+
+    def reap_exited(self):
+        self._note("reap_exited")
+        return {}
+
+    def rotate_if_needed(self, project: Path) -> bool:
+        self._note("rotate_if_needed")
+        self.rotations += 1
+        return False
+
+    def rotate_log_at(self, project: Path, name: str) -> bool:
+        self._note("rotate_log_at")
+        return False
+
+    def group_alive(self, project: Path) -> bool:
+        self._note("group_alive")
+        return True
+
+
+def test_the_poll_asks_the_os_nothing_on_the_window_thread(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """`design.md § State management`: "probing and process I/O do not block
+    the UI". The poll walked every process on the machine (`group_alive`),
+    reaped, rotated logs and ran `systemctl` (`unit_belongs_to`) on the GUI
+    thread, so a slow system froze the window once a second (review-code
+    2026-10-08 L01-M1, L01-M2, L02-M1).
+
+    `a` is a launcher that exited while its group lives, so its group is
+    walked; `b` is held by a process in a unit that is not the record's, so
+    its binding is asked; the second poll rotates `b`'s log by path, since
+    the first saw it running.
+
+    Dies on moving any of the six calls back onto the poll's own thread.
+    """
+    supervisor = ThreadRecordingSupervisor()
+    a = Path("/srv/a")
+    supervisor._running[a] = object()
+    supervisor.exited_projects.add(a)
+    asked: dict[str, set[int]] = {}
+
+    def noting(name, answer):
+        def call(*args):
+            asked.setdefault(name, set()).add(threading.get_ident())
+            return answer
+
+        return call
+
+    monkeypatch.setattr(
+        controller_module, "unit_for_pid", noting("unit_for_pid", "term.service")
+    )
+    monkeypatch.setattr(
+        controller_module, "unit_belongs_to", noting("unit_belongs_to", True)
+    )
+    probe = FakeProbe(5006)
+    controller = supervised(
+        controllers, [startable("a", 5005), startable("b", 5006)], probe, supervisor
+    )
+
+    for polls in (1, 2):
+        controller.poll_once()
+        qtbot.waitUntil(
+            lambda polls=polls: probe.calls == polls and not controller._in_flight,
+            timeout=3000,
+        )
+
+    assert controller.rows()[1].status is ProjectStatus.RUNNING
+    calls = {**supervisor.threads, **asked}
+    assert set(calls) == {
+        "reap_exited",
+        "rotate_if_needed",
+        "rotate_log_at",
+        "group_alive",
+        "unit_for_pid",
+        "unit_belongs_to",
+    }
+    main = threading.get_ident()
+    on_main = sorted(name for name, threads in calls.items() if main in threads)
+    assert on_main == [], f"ran on the window's thread: {on_main}"
+
+
+def test_a_slow_snapshot_does_not_stop_the_logs_being_capped(
+    qtbot, controllers
+) -> None:
+    """LWSM-1136 ran the rotation before the poll's in-flight guard, because a
+    log cap that lapses while the socket table is slow is not a cap. Moving the
+    work off the window's thread (LWSM-1401) must keep that: a tick that finds
+    the snapshot still out still rotates.
+
+    Dies on running the rotation inside the snapshot task, or behind its guard.
+    """
+    supervisor = ThreadRecordingSupervisor()
+    supervisor._running[Path("/srv/a")] = object()
+    probe = FakeProbe(5005)
+    probe.gate = threading.Event()
+    controller = supervised(controllers, [startable("a", 5005)], probe, supervisor)
+    try:
+        controller.poll_once()
+        qtbot.waitUntil(lambda: probe.calls == 1, timeout=3000)
+        assert controller._in_flight, "precondition: the snapshot is still out"
+
+        controller.poll_once()
+        qtbot.waitUntil(lambda: supervisor.rotations == 2, timeout=3000)
+        assert probe.calls == 1, "a second snapshot was queued behind the first"
+    finally:
+        probe.gate.set()
 
 
 # --- LWSM-1018: the poll cadence is a setting ----------------------------------
@@ -2730,12 +2855,13 @@ def test_a_running_row_this_session_did_not_start_has_its_log_capped(
     )
     controller._supervisor = supervisor
 
-    # The first poll classifies the rows; rotation runs synchronously at the
-    # start of the next one, which is all this needs to observe.
+    # The first poll classifies the rows; the next one's upkeep rotates, on
+    # its own pool since LWSM-1401, so this waits for that pool.
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
     qtbot.waitUntil(lambda: not controller._in_flight, timeout=2000)
     controller.poll_once()
+    assert controller._upkeep_pool.waitForDone(3000), "the upkeep never finished"
 
     assert supervisor.by_path == [(Path("/srv/b"), "b")], (
         "only the running row's log is a candidate, and it must be asked"
@@ -3154,6 +3280,10 @@ def test_each_derived_state_has_its_row(
         frozenset(held), {port: pid for port, pid in held.items() if pid is not None}
     )
     spawning = path in controller._spawning_paths()
+    # What the poll's snapshot task resolves on its own thread (LWSM-1401).
+    resolved = controller._resolve_here(snapshot)
+    controller._units = resolved.units
+    controller._unit_binding.update(resolved.bindings)
 
     status = controller._classify(
         controller._record(path),

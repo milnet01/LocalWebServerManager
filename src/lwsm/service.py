@@ -186,9 +186,22 @@ def unit_belongs_to(
     # inside it without being its server. Checked after `bound_inside`, so a
     # relative token is never resolved against our own cwd.
     return any(
-        bound_inside(token, candidate) and Path(token).is_file()
+        bound_inside(token, candidate) and _is_visible_file(token)
         for token in (raw.strip("'\"") for raw in argv.split())
     )
+
+
+def _is_visible_file(token: str) -> bool:
+    """`Path.is_file()`, with a file we cannot see counted as no evidence.
+
+    Python 3.13 re-raises `EACCES` and `ENAMETOOLONG` from it, so a unit naming
+    a path under a folder we cannot enter raised out of `unit_belongs_to`, whose
+    contract is a verdict or None (review-code 2026-10-08 L05-M2).
+    """
+    try:
+        return Path(token).is_file()
+    except (OSError, ValueError):
+        return False
 
 
 def describe_holder(

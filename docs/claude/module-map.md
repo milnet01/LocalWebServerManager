@@ -111,9 +111,15 @@ Added at P02 (LWSM-1005), contract in
   `stop()` waits for the pool, and every test fixture calls it. Its bounded-wait
   escape is **`abandon_pool`**, public since LWSM-1139 because the window's
   rescan pool needs the identical two lines and a second copy that forgot the
-  `setParent(None)` would look right and hang on exit. Since LWSM-1136 the poll
-  also calls **`_rotate_logs`** — before the in-flight guard, since a log cap
-  that lapses when the socket table is slow is not a cap — and `RowView` carries
+  `setParent(None)` would look right and hang on exit. **Nothing in a tick
+  asks the OS on the GUI thread** (LWSM-1401). The reap, the log rotation
+  (LWSM-1136) and the process-group walk run as **`_do_upkeep`** on their own
+  one-thread pool. That pool sits outside the snapshot's in-flight guard,
+  since a log cap that lapses when the socket table is slow is not a cap. Its
+  slot starts the snapshot, so a released slot is known before the snapshot
+  that reads it. **`_resolve_holders`** finds each holder's unit and ADR-0003's
+  `systemctl` binding inside the snapshot task; `_classify` only reads the
+  answers. `RowView` carries
   **`managed`**, read once per render from `supervisor.running()`, because
   ADR-0004 derives state from the socket table and `status` therefore cannot say
   whose server it is.

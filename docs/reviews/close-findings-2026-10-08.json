@@ -2,7 +2,17 @@
  "run": {
   "producer": "review-code 2026-10-08 (lwsm-0.3.0-2026-10-08)",
   "cited_by": [],
-  "swept": {},
+  "swept": {
+   "LWSM-1401": {
+    "docs/claude/module-map.md controller entry": "fixed (named _rotate_logs before the guard)",
+    "docs/claude/module-map.md supervisor entry (copies and truncates rather than renaming)": "agrees — live log still copy-then-truncate",
+    "design.md § Observability \"capped at 5 MB with one rotation\"": "agrees",
+    "docs/known-issues.md known-issue-038": "frozen — resolved record, hazard still gone by a new route",
+    "tests asserting whole-file backup (3)": "fixed — two restated (FIFO, hard link), three comparisons corrected",
+    "CHANGELOG [Unreleased]": "fixed — two Fixed entries",
+    "docs/specs, design.md, decisions: _reap_exited/_rotate_logs/group_alive/unit_belongs_to": "agrees — no mention"
+   }
+  },
   "collateral": [],
   "surfaced": [],
   "out_of_scope": [],
@@ -17,13 +27,16 @@
    "location": "supervisor.py:1080-1081",
    "finding": "Log rotation (`offset = 0` / `while offset < size:`) copies the whole log into `.1` from byte 0 on the window's thread, however large it is.",
    "remedy": "Copy only the last `max_log_bytes` via `pread` from `max(0, size - max_log_bytes)`, or run rotation on the poll's worker.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — supervisor.py _rotate_through copied from offset 0; test red: backup held the whole log",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1401",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/supervisor.py",
+    "src/lwsm/controller.py"
+   ],
+   "was": "copy whole log on the GUI thread",
+   "now": "tail-only copy, in _do_upkeep on its own pool; red: test_a_rotation_keeps_only_the_newest_cap_of_bytes",
    "must_agree": []
   },
   {
@@ -34,13 +47,15 @@
    "location": "supervisor.py:1544",
    "finding": "`psutil.process_iter()` walks every process on each poll via `reap_exited`/`group_alive` on the window's thread, breaking design.md's no-blocking-UI rule.",
    "remedy": "Run `reap_exited` and the group checks inside `_SnapshotTask`, or walk once per tick and share the result.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — controller._child_gone called group_alive (process_iter walk) from _on_snapshot; red: thread test listed group_alive and reap_exited on main",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1401",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/controller.py"
+   ],
+   "was": "reap and group walk on the GUI thread",
+   "now": "_do_upkeep computes reaped and gone off-thread; red: test_the_poll_asks_the_os_nothing_on_the_window_thread",
    "must_agree": []
   },
   {
@@ -85,13 +100,15 @@
    "location": "supervisor.py:1079",
    "finding": "`os.ftruncate(out, 0)` empties the previous `.1` before the copy succeeds, so ENOSPC loses the old backup every tick.",
    "remedy": "Copy into a temporary file and rename it over `.1` only once the copy succeeds.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — ftruncate(out,0) before the copy; red: previous backup came back empty",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1401",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/supervisor.py"
+   ],
+   "was": "backup emptied in place before copy",
+   "now": "mkstemp copy renamed over the backup; red: test_a_failed_rotation_keeps_the_previous_backup",
    "must_agree": []
   },
   {
@@ -153,13 +170,15 @@
    "location": "controller.py:2034",
    "finding": "`unit_belongs_to(unit, record.path)` runs `systemctl --user show` (5 s timeout) on the GUI thread inside `_classify`, re-asked every poll when unreadable.",
    "remedy": "Resolve the binding on `_service_pool`, cache it, and treat a pending answer as not the project's unit.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — _is_project_unit called unit_belongs_to from _classify; red: thread test listed unit_belongs_to and unit_for_pid on main",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1401",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/controller.py"
+   ],
+   "was": "systemctl in the classification slot",
+   "now": "_resolve_holders in the snapshot task; _classify reads answers; red: thread test",
    "must_agree": []
   },
   {
@@ -663,13 +682,15 @@
    "location": "service.py:188-191",
    "finding": "`Path(token).is_file()` runs unguarded and raises `PermissionError` out of `_classify`'s slot on every poll.",
    "remedy": "Wrap `is_file()` in `try/except OSError: return None` or count the token as no evidence.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — red: PermissionError from Path.is_file under a mode-0 folder",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1401",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/service.py"
+   ],
+   "was": "is_file raised out of unit_belongs_to",
+   "now": "_is_visible_file counts an unreadable path as no evidence; red: test_a_command_path_behind_a_locked_folder_is_no_evidence",
    "must_agree": []
   },
   {

@@ -12,10 +12,11 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import Future
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 
@@ -413,8 +414,63 @@ def _port_seen_by_our_group(record: ProjectRecord, ours: frozenset[int]) -> int 
     return None
 
 
+@dataclass(frozen=True)
+class _Resolved:
+    """Who the snapshot's holders are, asked on the pool thread (LWSM-1401).
+
+    `units` maps each holder PID of an effective port to its systemd user unit,
+    and `bindings` holds ADR-0003's answer for each (unit, project) pair not
+    already known. Both ask the OS — `/proc` and `systemctl`, up to
+    `ADOPTION_TIMEOUT_SECONDS` — so neither may run in the classification slot
+    (review-code 2026-10-08 L02-M1).
+    """
+
+    units: Mapping[int, str | None] = field(default_factory=dict)
+    bindings: Mapping[tuple[str, Path], bool] = field(default_factory=dict)
+
+
+def _resolve_holders(
+    records: list[ProjectRecord],
+    adopted: Mapping[Path, str],
+    known: frozenset[tuple[str, Path]],
+    snapshot: PortSnapshot,
+) -> _Resolved:
+    """`_Resolved` for the holders `_classify` will ask about.
+
+    The same holders it reads: the one on each record's effective port, when
+    that port answers localhost. An unreadable binding is left out rather than
+    stored, so it is asked again on the next poll. Contained per record, so one
+    holder that raises costs only its own row its unit.
+    """
+    units: dict[int, str | None] = {}
+    bindings: dict[tuple[str, Path], bool] = {}
+    for record in records:
+        port = record.effective_port
+        if port is None or not snapshot.answers_localhost(port):
+            continue
+        holder = snapshot.holder(port)
+        if holder is None:
+            continue
+        try:
+            if holder not in units:
+                units[holder] = unit_for_pid(holder)
+            unit = units[holder]
+            if unit is None or unit in (record.unit, adopted.get(record.path)):
+                continue
+            key = (unit, record.path)
+            if key in known or key in bindings:
+                continue
+            belongs = unit_belongs_to(unit, record.path)
+        except Exception:
+            log.warning("could not tell whose unit holds %s", port, exc_info=True)
+            continue
+        if belongs is not None:
+            bindings[key] = belongs
+    return _Resolved(units, bindings)
+
+
 class _SnapshotSignals(QObject):
-    done = Signal(object)
+    done = Signal(object, object)  # PortSnapshot, _Resolved | None
     failed = Signal(object)
 
 
@@ -435,10 +491,31 @@ class _SnapshotTask(QRunnable):
     the moment `run()` returns, which is what `autoDelete` is for.
     """
 
-    def __init__(self, probe: SupportsSnapshot, signals: _SnapshotSignals) -> None:
+    def __init__(
+        self,
+        probe: SupportsSnapshot,
+        signals: _SnapshotSignals,
+        resolve: Callable[[PortSnapshot], _Resolved] | None = None,
+    ) -> None:
         super().__init__()
         self._probe = probe
         self.signals = signals
+        self._resolve = resolve
+
+    def _resolved(self, snapshot: PortSnapshot) -> _Resolved | None:
+        """The holders' units, here on the pool thread rather than in the slot.
+
+        A resolver that fails yields an empty answer, never None: None tells
+        the slot to resolve on the GUI thread, which is the thing this exists
+        to prevent. With nothing resolved, a holder reads as in no unit.
+        """
+        if self._resolve is None:
+            return None
+        try:
+            return self._resolve(snapshot)
+        except BaseException:
+            log.warning("could not resolve the port holders' units", exc_info=True)
+            return _Resolved()
 
     def run(self) -> None:
         # Two layers, because the emit can fail too. The inner one turns any
@@ -473,7 +550,7 @@ class _SnapshotTask(QRunnable):
                 failure.__cause__ = exc
                 self.signals.failed.emit(failure)
             else:
-                self.signals.done.emit(snapshot)
+                self.signals.done.emit(snapshot, self._resolved(snapshot))
         except RuntimeError:
             # A task abandoned by stop() outlives the QApplication that owned
             # every other QObject, so by the time it finishes its signaller can
@@ -489,6 +566,125 @@ class _SnapshotTask(QRunnable):
             # at DEBUG that had no record at all (LWSM-1251, the rescan task's
             # twin — the same clause, the same argument).
             log.warning("the port probe ended without reporting", exc_info=True)
+
+
+@dataclass(frozen=True)
+class _Upkeep:
+    """What one tick's process work found, delivered to the GUI thread.
+
+    `reaped`: projects whose slot the supervisor released this tick, because
+    their whole group exited on its own. `gone`: projects whose launcher
+    exited and whose group is gone too — the walk that answers it visits every
+    process on the machine (LWSM-1389).
+    """
+
+    reaped: frozenset[Path] = frozenset()
+    gone: frozenset[Path] = frozenset()
+
+
+def _do_upkeep(
+    supervisor: SupportsSupervision, adopted_logs: tuple[tuple[Path, str], ...]
+) -> _Upkeep:
+    """The poll's process work, on a pool thread (review-code 2026-10-08
+    L01-M1, L01-M2): reap, then rotate, then find the gone groups.
+
+    **Reap** (LWSM-1165): only `start()` inserted and only `stop()` popped, so
+    a launcher that died by itself kept its slot for the session — Stop and
+    Restart greyed out, every Start raising `AlreadyRunning`.
+    `Supervisor.reap_exited` decides what is safe to release. First, so a log
+    about to be released is not rotated on the way out.
+
+    **Rotate** (LWSM-1136): `design.md § Observability` caps each log with one
+    rotation, and a method with no caller is not a cap. A row reading `running`
+    that this session did not start has a log nothing else holds, so it is
+    rotated by path (review-code 2026-10-01 L3-M5).
+
+    Every method beyond `SupportsSupervision` is reached through `getattr`: a
+    supervision fake need not have it, and requiring it would rewrite every
+    fixture to no purpose. Each step is contained, per project where there are
+    several, so one unreadable log cannot stop the others being capped.
+    """
+    reaped: set[Path] = set()
+    reap = getattr(supervisor, "reap_exited", None)
+    if reap is not None:
+        try:
+            reaped.update(reap() or ())
+        except Exception:
+            log.warning("could not release exited projects", exc_info=True)
+
+    rotate = getattr(supervisor, "rotate_if_needed", None)
+    if rotate is not None:
+        for path in supervisor.running():
+            try:
+                rotate(path)
+            except Exception:
+                log.warning("could not rotate the log for %s", path, exc_info=True)
+    rotate_at = getattr(supervisor, "rotate_log_at", None)
+    if rotate_at is not None:
+        managed = supervisor.running()
+        for path, name in adopted_logs:
+            if path in managed:
+                continue
+            try:
+                rotate_at(path, name)
+            except Exception:
+                log.warning("could not rotate the log for %s", path, exc_info=True)
+
+    # ADR-0004's "own child" is the group: a wrapper that forks its server and
+    # exits is not gone while the server binds (LWSM-1389). A fake with no
+    # `group_alive` lets the launcher's exit decide, as before.
+    gone: set[Path] = set()
+    group_alive = getattr(supervisor, "group_alive", None)
+    for path in supervisor.running():
+        try:
+            if not supervisor.exited(path):
+                continue
+            if group_alive is None or not group_alive(path):
+                gone.add(path)
+        except Exception:
+            log.warning("could not tell whether %s is gone", path, exc_info=True)
+    return _Upkeep(frozenset(reaped), frozenset(gone))
+
+
+class _UpkeepSignals(QObject):
+    done = Signal(object, object)  # _Upkeep, whether a snapshot follows
+
+
+class _UpkeepTask(QRunnable):
+    """`_do_upkeep` on its own pool, reporting back by signal.
+
+    Its own one-thread pool rather than the snapshot's, because LWSM-1136 ran
+    the rotation BEFORE the poll's in-flight guard: a log cap that lapses
+    whenever the socket table is slow is not a cap. And the snapshot is
+    started from this task's slot rather than beside it, so a slot the reap
+    released is known before the snapshot that would otherwise read it as
+    `stopped` (L6-H1).
+
+    Wrapped whole for `_SnapshotTask`'s reason: an exception escaping `run()`
+    is swallowed and nothing is emitted, which here would leave the upkeep in
+    flight, and so the poll skipped, for the life of the process.
+    """
+
+    def __init__(
+        self, work: Callable[[], _Upkeep], snapshot_next: bool, signals: _UpkeepSignals
+    ) -> None:
+        super().__init__()
+        self._work = work
+        self._snapshot_next = snapshot_next
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            try:
+                upkeep = self._work()
+            except BaseException:
+                log.warning("the poll's process work failed", exc_info=True)
+                upkeep = _Upkeep()
+            self._signals.done.emit(upkeep, self._snapshot_next)
+        except RuntimeError:
+            log.debug("the poll's upkeep ended with no live signaller", exc_info=True)
+        except BaseException:
+            log.warning("the poll's upkeep ended without reporting", exc_info=True)
 
 
 class _HealthSignals(QObject):
@@ -803,6 +999,16 @@ class ProjectController(QObject):
         self._signals = _SnapshotSignals(self)
         self._signals.done.connect(self._on_snapshot)
         self._signals.failed.connect(self._on_probe_error)
+        # The poll's process work, off this thread (LWSM-1401): `_UpkeepTask`.
+        self._upkeep_signals = _UpkeepSignals(self)
+        self._upkeep_signals.done.connect(self._on_upkeep)
+        self._upkeep_pool = QThreadPool(self)
+        self._upkeep_pool.setMaxThreadCount(1)
+        self._upkeep_in_flight = False
+        # From the last upkeep: projects whose launcher and group are both gone.
+        self._gone: frozenset[Path] = frozenset()
+        # From the last snapshot: the unit each effective port's holder is in.
+        self._units: Mapping[int, str | None] = {}
         # Not the task itself: with autoDelete on, the pool frees it as soon as
         # `run()` returns, so a reference held here would outlive the C++ object.
         self._in_flight = False
@@ -973,15 +1179,18 @@ class ProjectController(QObject):
         supervisor can say, its process group with it (LWSM-1389).
 
         ADR-0004's "own child" is the group, so a wrapper that forks its
-        server and exits is not gone while the server binds. Reached through
-        `getattr` for `_rotate_logs`' reason: a supervision fake need not have
-        the method, and without it the launcher's exit decides, as before.
+        server and exits is not gone while the server binds.
+
+        The group walk visits every process on the machine, so it runs in the
+        poll's upkeep and this reads its answer (review-code 2026-10-08
+        L01-M2). `exited()` is still asked here, and it is cheap: a new child
+        started on the same path since the upkeep ran is alive, and is not
+        gone whatever that answer says.
         """
         supervisor = self._supervisor
         if supervisor is None or not supervisor.exited(path):
             return False
-        group_alive = getattr(supervisor, "group_alive", None)
-        return group_alive is None or not group_alive(path)
+        return path in self._gone
 
     def _managed_paths(self, snapshot: PortSnapshot) -> set[Path]:
         """The projects whose EFFECTIVE PORT is held by our own child's group.
@@ -1573,6 +1782,19 @@ class ProjectController(QObject):
             self._health_pool = QThreadPool(self)
             self._health_pool.setMaxThreadCount(HEALTH_THREADS)
 
+        # And the upkeep pool (LWSM-1401): a group walk or a log copy on a slow
+        # disk must not hold the quit either.
+        self._upkeep_in_flight = False
+        if not self._upkeep_pool.waitForDone(STOP_WAIT_MS):
+            log.warning(
+                "the poll's process work was still running after %d ms; "
+                "abandoning it so the app can quit",
+                STOP_WAIT_MS,
+            )
+            abandon_pool(self._upkeep_pool, self._upkeep_signals)
+            self._upkeep_pool = QThreadPool(self)
+            self._upkeep_pool.setMaxThreadCount(1)
+
     def close_supervisor(self) -> None:
         """Release the supervisor's descriptors and threads, if there is one.
 
@@ -1590,53 +1812,72 @@ class ProjectController(QObject):
             # A stray tick after stop() would re-arm delivery into a controller
             # the app has already torn down (LWSM-1111).
             return
-        # Both before the in-flight guard, not after it: neither is a probe,
-        # and a bound that lapses whenever the socket table is slow is weaker
-        # than the one design.md promises (LWSM-1136).
-        #
-        # Reaping first so a log about to be released is not rotated on the way
-        # out.
-        self._reap_exited()
-        self._rotate_logs()
         self._check_watched_unit()
-        if self._in_flight:
-            # design.md § Data flow: "the poll skips a tick rather than
-            # queueing". Queueing is how a briefly-slow socket table becomes a
-            # permanently-lagging one.
-            return
-        self._in_flight = True
-        self._pool.start(_SnapshotTask(self._probe, self._signals))
-
-    def _reap_exited(self) -> None:
-        """Release the slot of any project whose group has gone (LWSM-1165).
-
-        Only `start()` inserted and only `stop()` popped, so a launcher that
-        died by itself kept its slot for the session: Stop and Restart greyed
-        out because the port was free, and every Start raising `AlreadyRunning`
-        with no route back. `Supervisor.reap_exited` decides *what* is safe to
-        release — a launcher that forked and exited is not, since `stop()`
-        signals the group through that entry — and this is the caller that
-        makes it happen, which is the half LWSM-1136 shipped without.
-
-        The poll is where it belongs for `_rotate_logs`' reason: it is the one
-        thing already running once a second, and the cost on an ordinary tick
-        is one `/proc` read per running project.
-
-        Reached through `getattr` and contained, both for `_rotate_logs`'
-        reasons — a supervision fake need not have the method, and this runs in
-        a timer slot on the GUI thread where an escaping exception is swallowed
-        by PySide6, taking the tick's probe with it.
-        """
         supervisor = self._supervisor
         if supervisor is None:
+            # Nothing to reap or rotate, so straight to the snapshot.
+            if self._in_flight:
+                # design.md § Data flow: "the poll skips a tick rather than
+                # queueing". Queueing is how a briefly-slow socket table
+                # becomes a permanently-lagging one.
+                return
+            self._start_snapshot()
             return
-        reap = getattr(supervisor, "reap_exited", None)
-        if reap is None:
+        if self._upkeep_in_flight:
+            # Skipped rather than queued, for the snapshot's reason.
             return
-        try:
-            self._reaped.update(reap() or ())
-        except Exception:
-            log.warning("could not release exited projects", exc_info=True)
+        # The upkeep runs whether or not a snapshot is out (LWSM-1136: a log
+        # cap that lapses when the socket table is slow is not a cap). Only a
+        # tick that finds no snapshot out reserves the next one, which
+        # `_on_upkeep` starts once the reap is known.
+        snapshot_next = not self._in_flight
+        self._in_flight = True
+        self._upkeep_in_flight = True
+        self._upkeep_pool.start(
+            _UpkeepTask(
+                partial(_do_upkeep, supervisor, self._adopted_logs()),
+                snapshot_next,
+                self._upkeep_signals,
+            )
+        )
+
+    def _start_snapshot(self) -> None:
+        """Take one snapshot on the pool, resolving its holders there too."""
+        self._in_flight = True
+        resolve = partial(
+            _resolve_holders,
+            list(self._records),
+            dict(self._adopted_units),
+            frozenset(self._unit_binding),
+        )
+        self._pool.start(_SnapshotTask(self._probe, self._signals, resolve))
+
+    def _adopted_logs(self) -> tuple[tuple[Path, str], ...]:
+        """The rows the last poll saw running, for rotation by path.
+
+        Only those, so an ordinary tick costs nothing for the stopped majority.
+        `_do_upkeep` drops the ones this session is running, whose logs it
+        holds.
+        """
+        return tuple(
+            (record.path, record.name)
+            for record in self._records
+            if self._statuses.get(record.path) in RUNNING_STATES
+        )
+
+    def _on_upkeep(self, upkeep: object, snapshot_next: object) -> None:
+        self._upkeep_in_flight = False
+        if self._stopped:
+            return
+        if isinstance(upkeep, _Upkeep):
+            # Kept until the next snapshot reads it: the reap dropped the
+            # supervisor's entry, after which `exited()` answers False, so
+            # this is the only place the settle can still learn the child
+            # died (L6-H1).
+            self._reaped.update(upkeep.reaped)
+            self._gone = upkeep.gone
+        if snapshot_next:
+            self._start_snapshot()
 
     def _check_watched_unit(self) -> None:
         """Ask systemd about a unit whose start is still showing `starting`.
@@ -1677,67 +1918,18 @@ class ProjectController(QObject):
             path, f"{display_text(path.name)} did not stay up: its service is {state}"
         )
 
-    def _rotate_logs(self) -> None:
-        """Hold every managed log to `MAX_LOG_BYTES`, once a tick.
-
-        `design.md § Observability` promises each project's log is capped with
-        one rotation and `Supervisor.rotate_if_needed` implements it — but until
-        LWSM-1136 nothing outside a test called it, so a chatty or looping
-        server appended to an `O_APPEND` descriptor with no bound at all until
-        the disk filled. A method with no caller is not a cap.
-
-        The poll is where the call belongs: it is the one thing already running
-        once a second holding the running set. Cost on an ordinary tick is one
-        `fstat` per running project; the copy happens only on the tick that
-        crosses the cap, so the overshoot is bounded by one poll interval of
-        output rather than being unbounded.
-
-        Reached through `getattr` for `close_supervisor`'s reason rather than by
-        widening `SupportsSupervision`: a fake with no logs has nothing to
-        rotate, and requiring the method would rewrite every supervision fixture
-        in the suite to no purpose.
-        """
-        supervisor = self._supervisor
-        if supervisor is None:
-            return
-        rotate = getattr(supervisor, "rotate_if_needed", None)
-        if rotate is None:
-            return
-        for path in supervisor.running():
-            try:
-                rotate(path)
-            except Exception:
-                # Contained per project, and as wide as INV-4c's clause for the
-                # same reason: this runs in a timer slot on the GUI thread, so
-                # anything escaping it is swallowed by PySide6 — no crash, no
-                # dialog, and one unreadable log would silently stop every other
-                # project's being capped.
-                log.warning("could not rotate the log for %s", path, exc_info=True)
-        # A row reading `running` that this session did not start — a server
-        # left running by an earlier session — has a log nothing above holds
-        # (review-code 2026-10-01 L3-M5). Rotated by path, and only for rows
-        # the last poll saw running, so an ordinary tick costs nothing for the
-        # stopped majority.
-        rotate_at = getattr(supervisor, "rotate_log_at", None)
-        if rotate_at is None:
-            return
-        managed = supervisor.running()
-        for record in self._records:
-            if record.path in managed:
-                continue
-            if self._statuses.get(record.path) not in RUNNING_STATES:
-                continue
-            try:
-                rotate_at(record.path, record.name)
-            except Exception:
-                log.warning(
-                    "could not rotate the log for %s", record.path, exc_info=True
-                )
-
-    def _on_snapshot(self, snapshot: PortSnapshot) -> None:
+    def _on_snapshot(
+        self, snapshot: PortSnapshot, resolved: _Resolved | None = None
+    ) -> None:
         if self._stopped:
             return
         self._in_flight = False
+        if resolved is None:
+            # Only a direct caller — a test handing in a snapshot. The poll's
+            # own snapshot arrives resolved on the pool thread (LWSM-1401).
+            resolved = self._resolve_here(snapshot)
+        self._units = resolved.units
+        self._unit_binding.update(resolved.bindings)
         # A success ends any suppressed run, so a failure that recurs after a
         # recovery is logged again rather than folded into the old count.
         #
@@ -2008,7 +2200,7 @@ class ProjectController(QObject):
             return ProjectStatus.FAILED if exited else ProjectStatus.PORT_BLOCKED
         # The project's own unit first: it is evidence, where "looks like"
         # is only a heuristic (ADR-0004's service row).
-        if self._is_project_unit(record, unit_for_pid(holder)):
+        if self._is_project_unit(record, self._units.get(holder)):
             return ProjectStatus.RUNNING
         if looks_like(holder, path):
             return ProjectStatus.RUNNING_FOREIGN
@@ -2021,21 +2213,26 @@ class ProjectController(QObject):
 
         Membership of any unit is not enough: terminals run as user services
         here (measured 2026-10-02), so a server started in one sits in the
-        terminal's unit. ADR-0003's check asks `systemctl`, so its answer is
-        kept per unit and project; an unreadable answer is not kept, and is
-        asked again on the next poll.
+        terminal's unit. ADR-0003's check asks `systemctl`, so it is asked on
+        the pool thread by `_resolve_holders` and its answer kept per unit and
+        project; this only reads it (review-code 2026-10-08 L02-M1). An
+        unreadable answer is not kept, so it reads as not the project's own
+        and is asked again on the next poll.
         """
         if unit is None:
             return False
         if unit == record.unit or unit == self._adopted_units.get(record.path):
             return True
-        key = (unit, record.path)
-        if key not in self._unit_binding:
-            belongs = unit_belongs_to(unit, record.path)
-            if belongs is None:
-                return False
-            self._unit_binding[key] = belongs
-        return self._unit_binding[key]
+        return self._unit_binding.get((unit, record.path), False)
+
+    def _resolve_here(self, snapshot: PortSnapshot) -> _Resolved:
+        """`_resolve_holders` on the calling thread, for a direct caller."""
+        return _resolve_holders(
+            list(self._records),
+            dict(self._adopted_units),
+            frozenset(self._unit_binding),
+            snapshot,
+        )
 
     def _owns(self, path: Path, pid: int) -> bool:
         return self._supervisor is not None and self._supervisor.owns_pid(path, pid)

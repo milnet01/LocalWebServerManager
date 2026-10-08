@@ -123,6 +123,16 @@ signaling per
 
 ### Fixed
 
+- **A slow system no longer freezes the window once a second.** (LWSM-1401)
+  The once-a-second check released exited projects, rotated logs,
+  walked every process on the machine and asked systemd about port
+  holders on the window's own thread. All of it now runs in the
+  background.
+
+- **A project's rotated log is capped at the log limit, and a failed rotation keeps the previous one.** (LWSM-1401)
+  The backup used to take the whole log, however large, and was
+  emptied before the copy had succeeded.
+
 - **Closing a window just after it resized or opened no longer leaves a task that fails in the background** (LWSM-1399)
   A re-measure or a placement queued by the window now goes away with
   it, instead of running afterwards against parts that no longer exist.

@@ -1013,7 +1013,9 @@ def test_the_log_rotates_once_at_the_cap_and_the_child_keeps_writing(
 
     rotated = managed.log_path.with_name(managed.log_path.name + ".1")
     assert rotated.exists()
-    assert rotated.stat().st_size > MAX_LOG_BYTES
+    # Exactly the cap: this asserted MORE than the cap until LWSM-1401, which
+    # was the uncapped whole-file copy review-code 2026-10-08 L01-M1 found.
+    assert rotated.stat().st_size == MAX_LOG_BYTES
     assert managed.log_path.stat().st_size < MAX_LOG_BYTES
 
     assert wait_until(
@@ -2180,6 +2182,57 @@ def _rotatable(supervisor, project):
     return managed
 
 
+def test_a_rotation_keeps_only_the_newest_cap_of_bytes(supervisor, project) -> None:
+    """review-code 2026-10-08 L01-M1. The copy started at byte 0 however large
+    the log was, so a server left running while the manager was closed had its
+    whole uncapped log — gigabytes, possibly — copied in one call, needing that
+    much free disk again and leaving a backup far over `design.md §
+    Observability`'s "capped at 5 MB with one rotation".
+
+    Dies on copying from offset 0.
+    """
+    managed = _rotatable(supervisor, project)
+    cap = supervisor.max_log_bytes
+    body = b"old" * cap + b"n" * cap
+    os.pwrite(managed.log_fd, body, 0)
+
+    try:
+        assert supervisor.rotate_if_needed(project) is True
+        backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
+        assert backup.read_bytes() == body[-cap:]
+    finally:
+        supervisor.stop(project, grace=0.5)
+
+
+def test_a_failed_rotation_keeps_the_previous_backup(
+    supervisor, project, monkeypatch
+) -> None:
+    """review-code 2026-10-08 L01-L3. The backup was emptied before the copy
+    had succeeded, so a full disk lost the previous backup and kept the
+    oversized log — and did it again every tick. The copy goes to a new file
+    that replaces the backup only once it is complete.
+
+    Dies on emptying the backup in place before the copy.
+    """
+    managed = _rotatable(supervisor, project)
+    backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
+    backup.write_bytes(b"the previous rotation")
+    backup.chmod(0o600)
+
+    try:
+        monkeypatch.setattr(os, "write", lambda fd, data: 0)
+        with pytest.raises(OSError, match="no progress"):
+            supervisor.rotate_if_needed(project)
+        monkeypatch.undo()
+        assert backup.read_bytes() == b"the previous rotation"
+        assert sorted(p.name for p in backup.parent.iterdir()) == sorted(
+            [managed.log_path.name, backup.name]
+        ), "the half-written copy was left behind"
+    finally:
+        monkeypatch.undo()
+        supervisor.stop(project, grace=0.5)
+
+
 def test_a_short_write_during_rotation_loses_no_bytes(
     supervisor, project, monkeypatch
 ) -> None:
@@ -2200,7 +2253,8 @@ def test_a_short_write_during_rotation_loses_no_bytes(
         assert supervisor.rotate_if_needed(project) is True
         monkeypatch.setattr(os, "write", real_write)
         backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
-        assert backup.read_bytes() == original
+        # The newest cap of bytes, which is all a rotation keeps (L01-M1).
+        assert backup.read_bytes() == original[-supervisor.max_log_bytes :]
     finally:
         monkeypatch.setattr(os, "write", real_write)
         supervisor.stop(project, grace=0.5)
@@ -2277,47 +2331,40 @@ def test_a_write_that_takes_nothing_refuses_rotation_and_keeps_the_log(
         supervisor.stop(project, grace=0.5)
 
 
-def test_a_fifo_planted_where_the_rotated_log_goes_refuses_instead_of_hanging(
+def test_a_fifo_planted_where_the_rotated_log_goes_is_replaced_not_opened(
     supervisor, project
 ) -> None:
-    """`O_NOFOLLOW` refuses a symlink and says nothing about a FIFO.
+    """Opening a FIFO for writing blocks until a reader appears -- forever, on
+    the thread that asked, with no error and no log line (LWSM-1229).
 
-    Opening one for writing blocks until a reader appears — forever, on the
-    thread that asked, which here is the poll. No error, no log line, and
-    every project's log cap stops being enforced. `O_NONBLOCK` turns that
-    into an immediate ENXIO, which is why it is in the open rather than
-    beside it.
+    LWSM-1229 refused the FIFO. Since LWSM-1401 the backup is never opened at
+    all: the copy is written to a fresh private file and renamed over it, so a
+    FIFO there is unlinked and the rotation completes.
 
-    If this test ever hangs rather than fails, that IS the defect: the flag
-    is gone.
+    If this test ever hangs rather than fails, that IS the defect: something
+    opened the backup's name again.
     """
     managed = _rotatable(supervisor, project)
     backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
     os.mkfifo(backup, 0o600)
 
     try:
-        with pytest.raises(OSError):
-            supervisor.rotate_if_needed(project)
-        assert managed.log_path.stat().st_size > supervisor.max_log_bytes, (
-            "the source log must be left alone when the backup is refused"
-        )
+        assert supervisor.rotate_if_needed(project) is True
+        assert stat.S_ISREG(os.lstat(backup).st_mode), "the FIFO is still there"
     finally:
         supervisor.stop(project, grace=0.5)
 
 
-def test_a_hard_link_at_the_rotated_path_is_refused_before_it_is_emptied(
-    supervisor, project
-) -> None:
-    """The check has to gate the destruction, or it is not worth having.
+def test_a_hard_link_at_the_rotated_path_is_never_emptied(supervisor, project) -> None:
+    """A file the user cares about, hard-linked at the backup's name, must
+    come through a rotation intact.
 
-    `O_TRUNC` empties the target as PART of opening it, so with the flags in
-    the open the refusal arrives after the damage: a file the user cares
-    about, hard-linked here, is already blank. Emptying with `ftruncate`
-    after `_require_private_regular_file` has passed is what makes the
-    refusal mean anything.
+    LWSM-1229 refused it after checking, which only worked because emptying
+    came after the check. Since LWSM-1401 nothing is emptied in place: the
+    copy is renamed over the name, which unlinks that one name and leaves the
+    user's file and its contents alone.
 
-    Dies on moving the truncation back into the open flags — the refusal
-    still fires, and the bystander comes back empty.
+    Dies on writing the backup through its existing name.
     """
     managed = _rotatable(supervisor, project)
     backup = managed.log_path.with_name(managed.log_path.name + ROTATION_SUFFIX)
@@ -2326,10 +2373,9 @@ def test_a_hard_link_at_the_rotated_path_is_refused_before_it_is_emptied(
     os.link(bystander, backup)
 
     try:
-        with pytest.raises(OSError):
-            supervisor.rotate_if_needed(project)
+        assert supervisor.rotate_if_needed(project) is True
         assert bystander.read_bytes() == b"not ours to destroy", (
-            "the hard-linked file was emptied before the refusal fired"
+            "the hard-linked file was written through"
         )
     finally:
         supervisor.stop(project, grace=0.5)
@@ -2918,7 +2964,8 @@ def test_the_log_of_a_server_this_session_did_not_start_is_still_capped(
     assert supervisor.rotate_log_at(project, "demo") is True
     assert log_path.stat().st_size == 0
     backup = log_path.with_name(log_path.name + ROTATION_SUFFIX)
-    assert backup.read_bytes() == body
+    # The newest cap of bytes, which is all a rotation keeps (LWSM-1401).
+    assert backup.read_bytes() == body[-supervisor.max_log_bytes :]
     assert supervisor.rotate_log_at(project, "demo") is False, "under the cap now"
 
 

@@ -11,6 +11,7 @@ on 8765, neither of which the app started and both of which it must manage.
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -492,6 +493,34 @@ def test_a_sibling_sharing_the_project_s_name_prefix_does_not_belong(
         "ExecStart": _exec_start(f"/usr/bin/node {sibling}/serve.mjs"),
     }
     assert unit_belongs_to("b.service", project, properties=_reader(props)) is False
+
+
+def test_a_command_path_behind_a_locked_folder_is_no_evidence(tmp_path) -> None:
+    """review-code 2026-10-08 L05-M2. `Path.is_file()` re-raises `EACCES` on
+    Python 3.13 (`docs/claude/traps.md`, the pathlib trap), and this function
+    runs inside the poll's classification, where an escaping exception is
+    swallowed and the tick's statuses are lost — every second, since nothing
+    is cached on an exception. A file we cannot see proves nothing, so the
+    token anchors nothing.
+
+    Dies on removing the guard around `is_file()`.
+    """
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    props = {
+        "FragmentPath": GENERATED,
+        "WorkingDirectory": "!/home/ants",
+        "ExecStart": _exec_start(f"/usr/bin/python3 {locked}/serve.py"),
+    }
+    locked.chmod(0)
+    try:
+        if os.access(locked, os.X_OK):
+            pytest.skip("running with privileges that ignore the mode bits")
+        assert (
+            unit_belongs_to("a.service", tmp_path, properties=_reader(props)) is False
+        )
+    finally:
+        locked.chmod(0o700)
 
 
 def test_an_unreadable_unit_answers_none_rather_than_a_verdict(tmp_path) -> None:
