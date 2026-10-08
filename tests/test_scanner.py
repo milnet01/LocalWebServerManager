@@ -351,6 +351,26 @@ def test_a_port_inside_prose_is_not_a_declaration(
 
 
 @pytest.mark.parametrize(
+    "line",
+    [
+        "SERVER_PORT=${SERVER_PORT:-8080}",
+        'export PORT="${PORT:-8080}"',
+        "export APP_PORT=${APP_PORT:-8080}",
+    ],
+)
+def test_the_shell_default_after_colon_dash_is_the_port(line: str) -> None:
+    """review-code 2026-10-08 L04-M4. Rule 1's `${PORT:-N}` form needs a bare,
+    unquoted `PORT=`, and rule 2's negative-number guard rejected the `8080`
+    after `:-` -- so the quoted form shellcheck recommends, and any other name,
+    came back unknown. `:-` is a fallback operator like `||`: the default
+    after it is what the program falls back to.
+
+    Dies on `_FALLBACK` without `:-`.
+    """
+    assert scanner.rule_2(line) == 8080
+
+
+@pytest.mark.parametrize(
     ("line", "expected"),
     [("PORT = -1", None), ("PORT = 80.80", 80)],
 )
@@ -2753,6 +2773,100 @@ def test_the_import_hop_reads_at_most_MAX_IMPORT_HOPS_files(
     assert len(hopped) == scanner.MAX_IMPORT_HOPS
 
 
+def test_a_walk_stopped_at_the_hop_cap_is_not_a_clean_read(tmp_path: Path) -> None:
+    """review-code 2026-10-08 L04-M3. The walk stopped at `MAX_IMPORT_HOPS`
+    without a word, so a port in the ninth module came back `None` with
+    `read_cleanly` True -- and the merge reads a clean `None` as "declares no
+    port" and may drop a stored one. A capped walk is cut short.
+
+    Dies on returning at the cap without noting it.
+    """
+    modules = {f"m{i}.py": "VALUE = 1\n" for i in range(scanner.MAX_IMPORT_HOPS)}
+    modules["late.py"] = "PORT = 4321\n"
+    imports = "".join(f"import m{i}\n" for i in range(scanner.MAX_IMPORT_HOPS))
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(root, "many", {"serve.py": imports + "import late\n", **modules})
+
+    result = scan_root(root)
+    project = by_name(result)["many"]
+
+    assert project.port is None
+    assert project.read_cleanly is False
+    assert any("import" in reason and "many" in reason for reason in result.skipped)
+
+
+def test_a_framework_import_inside_a_docstring_invents_no_default(
+    tmp_path: Path,
+) -> None:
+    """review-code 2026-10-08 L04-L1. The framework check read the lines with
+    docstrings left in, so a module docstring showing `from flask import
+    Flask` as an example gave a project with no Flask app Flask's 5000. An
+    import inside a docstring does not run.
+
+    Dies on passing the unblanked lines to `_python_framework`.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(
+        root,
+        "plain",
+        {
+            "serve.py": (
+                '"""A tiny server.\n'
+                "\n"
+                "To use it from an app:\n"
+                "\n"
+                "    from flask import Flask\n"
+                '"""\n'
+                "import http.server\n"
+            )
+        },
+    )
+
+    assert by_name(scan_root(root))["plain"].port is None
+
+
+def test_a_root_holding_a_nul_is_skipped_and_the_others_scanned(
+    tmp_path: Path,
+) -> None:
+    """review-code 2026-10-08 L04-L2. `os.scandir` raises `ValueError` on a
+    NUL, and only `OSError` was caught, so one bad root failed the whole scan
+    against § 6's "one reason in skipped, and the other roots are scanned".
+
+    Dies on catching `OSError` alone.
+    """
+    good = tmp_path / "good"
+    good.mkdir()
+    make_project(good, "web", {"serve.py": "PORT = 4321\n"})
+
+    result = scanner.scan([Path("/srv/nul\x00root"), good], units=FakeUnits())
+
+    assert "web" in by_name(result)
+    assert any("nul" in reason.lower() for reason in result.skipped)
+
+
+def test_a_scan_says_when_it_could_not_ask_systemd(tmp_path: Path) -> None:
+    """review-code 2026-10-08 L04-M5, the scanner's half. A timeout turns rule
+    0 off for the rest of the scan, and the only trace was a reason string,
+    which LWSM-1131 forbids the merge to parse. `units_unavailable` is the
+    value the merge reads instead.
+
+    Dies on a `ScanResult` that does not carry the lookup's state.
+    """
+
+    class TimingOut(FakeUnits):
+        def unit_names(self, timeout: float) -> list[str]:
+            raise TimeoutError("systemctl did not answer")
+
+    root = tmp_path / "root"
+    root.mkdir()
+    make_project(root, "web", {"serve.py": "PORT = 4321\n"})
+
+    assert scan_root(root).units_unavailable is False
+    assert scan_root(root, units=TimingOut()).units_unavailable is True
+
+
 def test_a_shell_launcher_hands_its_program_to_the_import_walk(
     tmp_path: Path, opened_paths: list[Path]
 ) -> None:
@@ -3328,6 +3442,25 @@ def test_a_port_key_outside_a_ports_block_is_not_read(tmp_path: Path) -> None:
     compose = (
         "services:\n  web:\n    ports:\n      - 8080:80\n"
         "    environment:\n      - 9999:1\n"
+    )
+    make_project(tmp_path, "web", {**PORTLESS, "compose.yml": compose}, "start.sh")
+
+    found = by_name(scan_root(tmp_path))["web"]
+
+    assert found.port is not None
+    assert found.port.port == 8080
+
+
+def test_a_ports_list_at_the_keys_own_indent_is_read(tmp_path: Path) -> None:
+    """review-code 2026-10-08 L04-L6. YAML lets a sequence sit at its key's
+    own indent (`ports:` then `- 8080:80` beneath it, not indented), and the
+    block ended at the first line no deeper than the key, so those ports were
+    missed. A same-indent item stays in the block; the next key still ends it.
+
+    Dies on ending the block at any line no deeper than the key.
+    """
+    compose = (
+        "services:\n  web:\n    ports:\n    - 8080:80\n    environment:\n    - 9999:1\n"
     )
     make_project(tmp_path, "web", {**PORTLESS, "compose.yml": compose}, "start.sh")
 

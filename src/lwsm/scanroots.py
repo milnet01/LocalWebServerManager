@@ -14,7 +14,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from lwsm.configfile import ConfigFileError, read_bounded, write_atomically
+from lwsm.configfile import (
+    ConfigFileError,
+    is_writable_text,
+    read_bounded,
+    write_atomically,
+)
 from lwsm.registry import RegistryError, default_projects_path
 
 
@@ -87,16 +92,38 @@ def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
         # chooser is not the only way a root reaches this function, and a strip
         # would change the directory the user picked without saying so.
         text = str(root)
-        if text != text.strip() or "\n" in text:
+        # `splitlines()` is the READER's rule, so the guard uses it: it splits
+        # on form feeds, separators and more besides "\n", all legal in a
+        # directory name (review-code 2026-10-08 L04-M2).
+        if text != text.strip() or len(text.splitlines()) != 1:
             raise ConfigFileError(
                 f"{root!r}: a scan root cannot start or end with whitespace, "
                 "or contain a line break"
+            )
+        # A NUL fails the scan that walks it (L04-L2), and text that is not
+        # UTF-8 cannot be written at all (L04-L4).
+        if "\x00" in text or not is_writable_text(text):
+            raise ConfigFileError(
+                f"{root!r}: a scan root cannot hold a NUL or text that is not UTF-8"
             )
 
     path = scan_roots_path(config)
     body = "".join(f"{root}\n" for root in roots)
     data = (_leading_comment_block(path) + body).encode("utf-8")
     write_atomically(path, data, prefix=".scan-roots-")
+
+
+def _expanded(line: str) -> Path | None:
+    """`~` expanded, or None for a `~user` naming nobody.
+
+    `expanduser` raises `RuntimeError` there, and this runs before any window
+    exists, so a typo in the file stopped the app opening (review-code
+    2026-10-08 L04-M1). The line is skipped; the others still count.
+    """
+    try:
+        return Path(line).expanduser()
+    except RuntimeError:
+        return None
 
 
 def _leading_comment_block(path: Path) -> str:
@@ -221,9 +248,11 @@ def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
         return fallback
 
     roots = tuple(
-        Path(line.strip()).expanduser()
-        for line in text.splitlines()
-        if _is_root_line(line)
+        root
+        for root in (
+            _expanded(line.strip()) for line in text.splitlines() if _is_root_line(line)
+        )
+        if root is not None
     )
     # An empty or comments-only file means "nothing was configured", not "scan
     # nowhere" — the second is indistinguishable from the first to whoever

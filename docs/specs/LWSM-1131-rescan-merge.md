@@ -131,21 +131,25 @@ The rule this spec exists to add:
 > known value. It is the absence of an observation, not an observation of
 > absence.
 
-**`port` is the only detected field that has an unknown value at all**, and
-saying so is half the rule. The others carry no sentinel, so a completed scan's
-value for them is always an observation and always wins:
+**`port` is the only detected field with an unknown value on every scan**, and
+saying so is half the rule. `unit` has one only on a scan that could not ask
+systemd (`ScanResult.units_unavailable`). Otherwise a completed scan's value is
+an observation and wins:
 
 | Field | Is there an "unknown"? | On a completed scan |
 |---|---|---|
 | `port` | **yes** — `DetectedProject.port is None` means *could not tell*, unless `read_cleanly` | the rule below |
-| `kind` | no — a detected project always has a launcher kind | overwrite |
-| `argv` | no — `()` is a real value, and is what every `SYSTEMD` project has | overwrite |
-| `unit` | no — `None` is a real value, and is what every non-systemd project has | overwrite |
+| `kind` | no — a detected project always has a launcher kind | overwrite, except as `unit`'s row |
+| `argv` | no — `()` is a real value, and is what every `SYSTEMD` project has | overwrite, except as `unit`'s row |
+| `unit` | only when `units_unavailable` — then a project was not seen to leave systemd | overwrite; but under `units_unavailable` a record with a stored unit keeps `kind`, `argv` and `unit` |
 
 The distinction matters most for `unit`. Treating its `None` as *unknown* would
 keep a stale unit name forever on a project that stopped being a systemd
 service — the mirror of the defect this rule exists to prevent, produced by
-applying the rule too widely rather than too narrowly.
+applying the rule too widely rather than too narrowly. The `units_unavailable`
+exception is narrow on purpose: one `systemctl` timeout turns rule 0 off for the
+whole scan, and applying that scan's launcher made Start spawn a second copy of
+a server systemd already runs (review-code 2026-10-08 L04-M5).
 
 Concretely, for `port`:
 

@@ -177,6 +177,13 @@ class ScanResult:
     # missing on any populated machine, while a clean fixture passed.
     unlistable_roots: tuple[Path, ...] = ()
 
+    # Rule 0 did not run for the whole scan: systemd could not be asked, or a
+    # call to it failed and turned the lookup off. Then a project with no unit
+    # has not been SEEN to have none, and the merge keeps a stored unit's
+    # launch fields (review-code 2026-10-08 L04-M5). A value, for
+    # `unlistable_roots`' reason: the reason string may not be parsed.
+    units_unavailable: bool = False
+
 
 @dataclass(slots=True)
 class Deadline:
@@ -547,8 +554,9 @@ KEY_IS_PORT = re.compile(r"(?:^|[^A-Za-z0-9])port$", re.IGNORECASE)
 
 # What separates a value from its fallback. After the LAST of these, the rest
 # of the right-hand side is the default the program falls back to — the one
-# number on the line that is the port when nothing overrides it.
-_FALLBACK = re.compile(r"\|\||\?\?|\bor\b|\belse\b")
+# number on the line that is the port when nothing overrides it. `:-` is the
+# shell's: `${NAME:-8080}` (review-code 2026-10-08 L04-M4).
+_FALLBACK = re.compile(r"\|\||\?\?|\bor\b|\belse\b|:-")
 # A number base passed to a parse call: `parseInt(x, 10)`, `int(x, 16)`.
 _RADIX = re.compile(r"\b(?:parseInt|int)\([^()]*,\s*(\d+)\s*\)")
 
@@ -752,10 +760,15 @@ def _python_framework(root: Path, lines: Sequence[str]) -> PortFinding | None:
     """Django before Flask, because the table order is the precedence: a project
     with a root-level `manage.py` *and* an `import flask` matches both, and
     nothing else breaks the tie. `source` names the framework that won, so a
-    wrong guess is diagnosable rather than mysterious."""
-    if _is_plain_file(root / "manage.py") or _imports(lines, "django"):
+    wrong guess is diagnosable rather than mysterious.
+
+    Docstrings blanked first: an import shown as an example inside one does
+    not run, and gave a project with no Flask app Flask's 5000 (review-code
+    2026-10-08 L04-L1)."""
+    code = _without_docstrings(lines)
+    if _is_plain_file(root / "manage.py") or _imports(code, "django"):
         return _framework_finding("Django")
-    if _imports(lines, "flask"):
+    if _imports(code, "flask"):
         return _framework_finding("Flask")
     return None
 
@@ -983,8 +996,15 @@ def _walk_imports(
                 # depending on which line of this function noticed it.
                 raise _BudgetExpired
             if hops >= MAX_IMPORT_HOPS:
-                # Exhausting the hops is not a failure: the walk simply stops
-                # looking, and an unknown port here IS honest.
+                # Exhausting the hops is not a failure, and an unknown port
+                # here IS honest -- but it is a read cut short, so it is said:
+                # silence left `read_cleanly` True, and the merge reads a
+                # clean `None` as "declares no port" (review-code 2026-10-08
+                # L04-M3).
+                note(
+                    f"{_quoted(candidate.name)}: stopped following imports "
+                    f"after {MAX_IMPORT_HOPS} files"
+                )
                 return None
             try:
                 target, reason = _accept_hop(
@@ -1300,6 +1320,11 @@ class _UnitLookup:
         self._note = note
         self._names: list[str] | None = None
         self._disabled = source is None
+
+    @property
+    def unavailable(self) -> bool:
+        """Whether rule 0 was off for any of this scan."""
+        return self._disabled
 
     def _timeout(self) -> float:
         return min(SYSTEMCTL_TIMEOUT_SECONDS, self._deadline.remaining())
@@ -1741,7 +1766,8 @@ def _compose_port(lines: Sequence[str], source: str) -> PortFinding | None:
 
     No YAML parser: the project has none, and this needs only the list items
     under one key. A `ports:` block ends at the first line indented no deeper
-    than the key itself.
+    than the key itself, except a list item at the key's own indent, which
+    YAML allows (review-code 2026-10-08 L04-L6).
     """
     found: list[str] = []
     block: int | None = None  # the indent of the open `ports:` key
@@ -1749,7 +1775,8 @@ def _compose_port(lines: Sequence[str], source: str) -> PortFinding | None:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         indent = len(line) - len(line.lstrip())
-        if block is not None and indent <= block:
+        same_indent_item = indent == block and line.lstrip().startswith("-")
+        if block is not None and indent <= block and not same_indent_item:
             block = None
         key = _YAML_KEY.match(line)
         if block is None:
@@ -1969,10 +1996,12 @@ def scan(
                             break
                         entries.append(entry)
                     entries.sort(key=lambda entry: entry.name)
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 # A missing root is ordinary — an unmounted drive — and must not
-                # blank the result.
-                note(f"{_quoted(str(root))}: cannot be listed ({exc.strerror or exc})")
+                # blank the result. `ValueError` is a NUL in the root, which
+                # failed the whole scan (review-code 2026-10-08 L04-L2).
+                why = getattr(exc, "strerror", None) or exc
+                note(f"{_quoted(str(root))}: cannot be listed ({why})")
                 # Recorded as a value as well as a reason: LWSM-1131's merge has
                 # to distinguish "this root hid an unknown number of projects"
                 # from an ordinary per-entry skip, and parsing the reason string
@@ -2084,4 +2113,5 @@ def scan(
         skipped=(*bounded.close(), *minor.close()),
         timed_out=timed_out,
         unlistable_roots=tuple(unlistable),
+        units_unavailable=lookup.unavailable,
     )

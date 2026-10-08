@@ -129,6 +129,19 @@ signaling per
 
 ### Fixed
 
+- **A service-run project keeps its systemd setup when a rescan cannot reach systemd.** (LWSM-1406)
+  A single slow answer from systemd made the rescan record the project
+  as a plain launcher, so Start would have run a second copy of a server
+  systemd already runs.
+
+- **A typo like `~typo/projects` in the scan-roots file no longer stops the app opening.** (LWSM-1406)
+
+- **The scan finds ports set with the shell default form, such as `${SERVER_PORT:-8080}`.** (LWSM-1406)
+
+- **The scan finds compose ports listed at the same indent as `ports:`, and no longer takes Flask's port from an example in a docstring.** (LWSM-1406)
+
+- **One unusable scan folder no longer fails the whole scan, and a folder name that cannot be saved is refused when you add it.** (LWSM-1406)
+
 - **The first-run check boxes have a visible outline, and a thick focus ring.** (LWSM-1405)
   On the dark themes a ticked box showed as a bare tick with no box
   around it, and the keyboard focus was a faint thin line.

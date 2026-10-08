@@ -1333,6 +1333,8 @@ class ScanLike(Protocol):
     def timed_out(self) -> bool: ...  # the budget expired; `projects` is partial
     @property
     def unlistable_roots(self) -> tuple[Path, ...]: ...
+    @property
+    def units_unavailable(self) -> bool: ...  # rule 0 did not run throughout
 
 
 NEW = "new"
@@ -1424,7 +1426,7 @@ def _resolve_or_lexical(path: Path) -> tuple[Path, str | None]:
 
 
 def _detected_half_applied(
-    record: ProjectRecord, found: ScannedProject
+    record: ProjectRecord, found: ScannedProject, *, units_seen: bool = True
 ) -> ProjectRecord:
     """`DETECTED_FIELDS - {"path"}`, with `port` qualified by § 4.1.
 
@@ -1471,6 +1473,13 @@ def _detected_half_applied(
         record.confirmed_port if changes["port"] == record.port else None
     )
     changes["argv"] = tuple(found.argv)
+    if not units_seen and record.unit is not None:
+        # A scan that could not ask systemd has not seen the project leave it.
+        # Applying its launcher made Start spawn a second copy of a server
+        # systemd already runs, which ADR-0003 exists to prevent (review-code
+        # 2026-10-08 L04-M5). So here `unit`'s None is unknown, as `port`'s is
+        # for an unclean read, and the launch fields stay together.
+        changes.update(kind=record.kind, argv=record.argv, unit=record.unit)
     return replace(record, **changes)
 
 
@@ -1564,7 +1573,9 @@ def merge(
             )
             continue
 
-        updated = _detected_half_applied(record, found)
+        updated = _detected_half_applied(
+            record, found, units_seen=not scan.units_unavailable
+        )
         if not _saveable(updated):
             # The stored half stays: applying it would fail every later save
             # of the whole list, not only this record's (L03-H1).

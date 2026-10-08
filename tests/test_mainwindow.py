@@ -122,6 +122,7 @@ class FakeScanResult:
     projects: tuple[FakeDetected, ...] = ()
     timed_out: bool = False
     unlistable_roots: tuple[Path, ...] = ()
+    units_unavailable: bool = False
     skipped: tuple[str, ...] = ()
 
 

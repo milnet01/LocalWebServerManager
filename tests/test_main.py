@@ -635,6 +635,20 @@ def test_a_scan_root_expands_a_leading_tilde(tmp_path) -> None:
     assert scanroots.default_scan_roots(config) == (Path.home() / "code",)
 
 
+def test_a_tilde_naming_nobody_is_skipped_not_fatal(tmp_path) -> None:
+    """review-code 2026-10-08 L04-M1. `~typo/projects` makes `expanduser`
+    raise `RuntimeError`, outside the only handler, in code `main` runs before
+    any window exists -- so a typo stopped the app opening, against this
+    function's promise that a config the user cannot fix without a window is
+    the worse failure. The line is skipped and the others kept.
+
+    Dies on expanding without a handler.
+    """
+    config = tmp_path / "scan-roots"
+    config.write_text("~no-such-user-here/projects\n/srv/real\n", encoding="utf-8")
+    assert scanroots.default_scan_roots(config) == (Path("/srv/real"),)
+
+
 def test_a_config_with_nothing_in_it_falls_back_rather_than_scanning_nowhere(
     tmp_path,
 ) -> None:
@@ -1471,7 +1485,22 @@ def test_a_scan_roots_file_that_cannot_be_read_is_not_written_over(
     assert config.read_bytes() == payload
 
 
-@pytest.mark.parametrize("name", ["/srv/trailing ", "/srv/two\nlines", "/srv/tabbed\t"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "/srv/trailing ",
+        "/srv/two\nlines",
+        "/srv/tabbed\t",
+        # review-code 2026-10-08 L04-M2: the reader's `splitlines()` also
+        # splits on these, so the guard has to use the reader's own rule.
+        "/srv/form\x0cfeed",
+        "/srv/line\u2028separator",
+        # A NUL fails the whole scan (L04-L2), and text that is not UTF-8
+        # cannot be written at all (L04-L4).
+        "/srv/nul\x00byte",
+        "/srv/bad\udcff",
+    ],
+)
 def test_a_root_the_file_cannot_represent_is_refused_not_silently_lost(
     tmp_path, name
 ) -> None:

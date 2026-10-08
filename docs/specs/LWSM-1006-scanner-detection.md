@@ -155,6 +155,9 @@ class ScanResult:
     # Roots `os.scandir` refused; added by LWSM-1131 § 4.3, which needs them
     # apart from `skipped` to suppress its *missing* check.
     unlistable_roots: tuple[Path, ...] = ()
+    # Rule 0 was off for some of the scan (systemd could not be asked); the
+    # merge then keeps a stored unit's launch fields (LWSM-1131 § 4.1).
+    units_unavailable: bool = False
 
 
 class SupportsUnitLookup(Protocol):
@@ -1009,8 +1012,8 @@ costs more**:
 
 ```python
 RULE_1 = re.compile(
-    r"(?:^|[^A-Za-z0-9_])PORT=\$\{PORT:-(\d{1,5})\}(?![0-9])"  # PORT=${PORT:-N}
-    r"|(?:^|[^A-Za-z0-9_])PORT=(\d{1,5})(?![0-9])"  # PORT=N
+    r"(?<![A-Za-z0-9_])PORT=\$\{PORT:-(\d{1,5})\}(?![0-9])"  # PORT=${PORT:-N}
+    r"|(?<![A-Za-z0-9_])PORT=(\d{1,5})(?![0-9])"  # PORT=N
     r"|--port[= ](\d{1,5})(?![0-9])"  # --port N / --port=N
     r"|(?:localhost|127\.0\.0\.1):(\d{1,5})(?![0-9])",  # localhost:N
     re.IGNORECASE,
@@ -1075,7 +1078,7 @@ line or out of the left side `=` produced — and they differ on
 
 ```python
 KEY_IS_PORT = re.compile(r"(?:^|[^A-Za-z0-9])port$", re.IGNORECASE)
-_FALLBACK = re.compile(r"\|\||\?\?|\bor\b|\belse\b")
+_FALLBACK = re.compile(r"\|\||\?\?|\bor\b|\belse\b|:-")
 _RADIX = re.compile(r"\b(?:parseInt|int)\([^()]*,\s*(\d+)\s*\)")
 # `_not_a_port_spans(text)`: the spans of every `_RADIX` group and every
 # top-level `[...]` in `text`.
@@ -1102,7 +1105,7 @@ def rule_2(line: str) -> int | None:
         # the tail — ` 123456` yields `23456`. Rule 1 is immune only because
         # `PORT=` anchors its digits to a fixed position.
         #
-        # After a fallback operator (`||`, `??`, `or`, `else`) only the text
+        # After a fallback operator (`||`, `??`, `or`, `else`, `:-`) only the text
         # past the LAST one is read, and a number inside `[...]` or in a
         # radix position (`parseInt(x, 10)`, `int(x, 16)`) is skipped:
         # `parseInt(process.env.PORT, 10) || 3000` is 3000, not 10.

@@ -1546,6 +1546,7 @@ class FakeScan:
     timed_out: bool = False
     unlistable_roots: tuple[Path, ...] = ()
     skipped: tuple[str, ...] = ()
+    units_unavailable: bool = False
 
 
 def a_root(tmp_path: Path, name: str = "projects") -> Path:
@@ -1651,6 +1652,61 @@ def test_a_rescan_that_cannot_be_saved_keeps_the_stored_details(
         result.records,
         load=registry.RegistryMissing("first run"),
     )
+
+
+def test_a_scan_that_could_not_ask_systemd_keeps_a_units_launch(
+    tmp_path: Path,
+) -> None:
+    """review-code 2026-10-08 L04-M5. One `systemctl` timeout turns rule 0 off
+    for the rest of the scan, so a project systemd runs came back as a plain
+    launcher with no unit -- and the merge took that as an observation and
+    rewrote the record, after which Start spawned a second copy of a server
+    systemd already runs (the hazard ADR-0003 exists for). A scan that could
+    not ask has not seen the project leave systemd: its launch fields stay.
+
+    Dies on applying `kind`, `argv` and `unit` from such a scan.
+    """
+    root = a_root(tmp_path)
+    project = root / "site"
+    project.mkdir()
+    stored = ProjectRecord(
+        path=project,
+        name="site",
+        kind=LauncherKind.SYSTEMD,
+        argv=(),
+        unit="site.service",
+    )
+    scan = FakeScan(
+        (FakeProject(project, "site", kind=LauncherKind.SHELL, unit=None),),
+        units_unavailable=True,
+    )
+
+    (after,) = registry.merge([stored], scan, (root,), stamp).records
+
+    assert (after.kind, after.argv, after.unit) == (
+        LauncherKind.SYSTEMD,
+        (),
+        "site.service",
+    )
+
+
+def test_a_scan_that_asked_systemd_still_clears_a_unit_that_left(
+    tmp_path: Path,
+) -> None:
+    """The other side of L04-M5, and the rule `_detected_half_applied` states:
+    `unit`'s None is a real value when systemd WAS asked, or a project that
+    stopped being a service would keep a stale unit for ever."""
+    root = a_root(tmp_path)
+    project = root / "site"
+    project.mkdir()
+    stored = ProjectRecord(
+        path=project, name="site", kind=LauncherKind.SYSTEMD, unit="site.service"
+    )
+    scan = FakeScan((FakeProject(project, "site", kind=LauncherKind.SHELL),))
+
+    (after,) = registry.merge([stored], scan, (root,), stamp).records
+
+    assert (after.kind, after.unit) == (LauncherKind.SHELL, None)
 
 
 def test_unknown_does_not_erase_a_known_port(tmp_path: Path) -> None:
