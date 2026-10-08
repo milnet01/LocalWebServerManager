@@ -129,6 +129,17 @@ signaling per
 
 ### Fixed
 
+- **A project folder whose name is not valid text no longer stops the project list saving.** (LWSM-1404)
+  A rescan that found one added it anyway, and then every save failed,
+  on every run. Such a project is now left out, with a note saying why.
+
+- **Importing a profile no longer brings in settings this version cannot read.** (LWSM-1404)
+  A newer version could later have acted on them.
+
+- **A hand-edited setting that an import never uses no longer blocks exporting a profile.** (LWSM-1404)
+
+- **Restoring the project list from its backup says when the system could not confirm the file is safely on disk.** (LWSM-1404)
+
 - **A slow system no longer freezes the window once a second.** (LWSM-1401)
   The once-a-second check released exited projects, rotated logs,
   walked every process on the machine and asked systemd about port

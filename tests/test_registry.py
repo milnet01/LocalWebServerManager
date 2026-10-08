@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import errno
 import json
+import logging
 import os
 import signal
 import stat
@@ -1584,6 +1585,74 @@ def test_a_rescan_never_writes_a_user_field(tmp_path: Path) -> None:
         assert getattr(after, field) == getattr(stored, field), field
 
 
+# A directory name that is not UTF-8, as `os.scandir` returns it: a lone
+# surrogate, which every writer's `encode("utf-8")` refuses (scanner.py says so).
+UNSAVEABLE = "bad\udcff"
+
+
+@pytest.mark.parametrize("where", ["path", "argv", "unit", "port source"])
+def test_a_scanned_project_that_cannot_be_saved_is_not_added(
+    tmp_path: Path, where: str
+) -> None:
+    """review-code 2026-10-08 L03-H1. The loader refuses a row whose text cannot
+    be written back; the merge's new-project branch added one anyway, and then
+    EVERY save of the merged list failed -- the rescan's, and every later hide,
+    browser or port write -- on every run while that directory existed.
+
+    Dies on adding the project, and on checking the path alone.
+    """
+    root = a_root(tmp_path)
+    good = root / "web"
+    good.mkdir()
+    fields: dict[str, object] = {
+        "path": root / UNSAVEABLE if where == "path" else root / "other",
+        "name": "other",
+    }
+    if where == "argv":
+        fields["argv"] = ("./" + UNSAVEABLE,)
+    if where == "unit":
+        fields["unit"] = UNSAVEABLE + ".service"
+    if where == "port source":
+        fields["port"] = FakeFinding(3000, source=UNSAVEABLE)
+    scan = FakeScan((FakeProject(good, "web"), FakeProject(**fields)))  # type: ignore[arg-type]
+
+    result = registry.merge([], scan, (root,), stamp)
+
+    assert [record.name for record in result.records] == ["web"]
+    assert any("cannot be saved" in reason for reason in result.reasons)
+    registry.save_projects(
+        tmp_path / "projects.json",
+        result.records,
+        load=registry.RegistryMissing("first run"),
+    )
+
+
+def test_a_rescan_that_cannot_be_saved_keeps_the_stored_details(
+    tmp_path: Path,
+) -> None:
+    """L03-H1's other branch: an existing record's detected half is replaced
+    from the scan, so an unsaveable launcher reached the file the same way.
+    The stored details stay, and the merged list still saves.
+
+    Dies on applying a detected half that cannot be written.
+    """
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(path=project, name="web", argv=("./start.sh",))
+    scan = FakeScan((FakeProject(project, "web", argv=("./" + UNSAVEABLE,)),))
+
+    result = registry.merge([stored], scan, (root,), stamp)
+
+    assert result.records[0].argv == ("./start.sh",)
+    assert any("cannot be saved" in reason for reason in result.reasons)
+    registry.save_projects(
+        tmp_path / "projects.json",
+        result.records,
+        load=registry.RegistryMissing("first run"),
+    )
+
+
 def test_unknown_does_not_erase_a_known_port(tmp_path: Path) -> None:
     """INV-2. The rule this spec exists to add.
 
@@ -2218,6 +2287,32 @@ def test_a_dropped_field_does_not_block_an_export(tmp_path: Path) -> None:
     assert load_projects(profile).records == records
 
 
+@pytest.mark.parametrize("field", ["start_at_login", "unknown"])
+def test_a_refused_field_an_import_never_takes_does_not_block_an_export(
+    tmp_path: Path, field: str
+) -> None:
+    """review-code 2026-10-08 L03-M2. The gate exists because a nulled user
+    field "would erase a good one when imported" (LWSM-1215). An import never
+    applies `NEVER_IMPORTED_FIELDS` or `unknown`, on either branch, so for
+    those the refusal's reason is false -- and one hand-typed
+    `"start_at_login": 1` blocked every export while it stayed in the file.
+
+    Dies on gating on every refused user field.
+    """
+    profile = tmp_path / "saved.json"
+    records = [every_field_record()]
+    refused = registry.LoadResult(
+        records=records,
+        reasons=[f"{field} was refused"],
+        rows_refused=0,
+        user_fields_refused=frozenset({field}),
+    )
+
+    registry.export_profile(profile, records, load=refused)
+
+    assert profile.exists()
+
+
 def test_the_loader_names_the_user_field_it_dropped(tmp_path: Path) -> None:
     """The wiring, not the gate — and they fail differently.
 
@@ -2441,6 +2536,31 @@ def test_an_imported_project_this_machine_has_never_seen_brings_no_launcher() ->
     assert added.kind is None
     assert added.port is None
     assert added.unit is None
+
+
+def test_a_project_added_from_a_profile_takes_none_of_its_unknown_keys() -> None:
+    """review-code 2026-10-08 L03-M1. The existing-record branch drops a
+    profile's `unknown` keys; the append branch kept them, so a key this build
+    cannot name was written into the local registry and honoured by the build
+    that can -- around `NEVER_IMPORTED_FIELDS`, whose point is that "a profile
+    is a file someone can hand you". And it is said, not silently dropped.
+
+    Dies on appending the profile's `unknown`.
+    """
+    profile = dataclasses.replace(
+        every_field_record(),
+        path=Path("/srv/elsewhere"),
+        unknown=(("runs_something_later", '"rm -rf ~"'),),
+    )
+
+    merged = registry.merge_imported([], [profile])
+
+    (added,) = merged.records
+    assert added.unknown == ()
+    assert any(
+        "not imported" in reason and "unrecognised" in reason
+        for reason in merged.reasons
+    )
 
 
 def test_an_import_keeps_this_machines_actions_not_the_profiles() -> None:
@@ -3168,6 +3288,102 @@ def test_restoring_twice_never_overwrites_an_earlier_damaged_file(
 
     kept = sorted(p.read_text() for p in tmp_path.glob("projects.json.damaged-*"))
     assert kept == ["first damage", "second damage"]
+
+
+def _written_but_not_durable(monkeypatch) -> None:
+    """`write_atomically` that writes, then reports the directory fsync failed."""
+    from lwsm.configfile import ConfigFileNotDurable
+
+    real = registry.write_atomically
+
+    def not_durable(path, data, **kwargs):
+        real(path, data, **kwargs)
+        raise ConfigFileNotDurable(f"{path}: written, but not made durable")
+
+    monkeypatch.setattr(registry, "write_atomically", not_durable)
+
+
+def test_a_restore_that_is_not_durable_says_so(tmp_path: Path, monkeypatch) -> None:
+    """review-code 2026-10-08 L03-L1. The restored list WAS written, so the
+    restore goes ahead -- but the doubt about it surviving a crash was
+    swallowed with no word to anyone, where `save_projects` reports the same
+    condition (known-issue-047).
+
+    Dies on `except ConfigFileNotDurable: pass` in `restore_backup`.
+    """
+    path, raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    path.write_text("{ this is not json", encoding="utf-8")
+    _written_but_not_durable(monkeypatch)
+
+    restored = registry.restore_backup(path)
+
+    assert path.read_bytes() == raw
+    assert any("not be confirmed" in reason for reason in restored.reasons)
+
+
+def test_a_backup_that_is_not_durable_is_logged(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """L03-L1's twin in `_back_up`: written, so the save goes on, and logged
+    rather than passed over in silence.
+
+    Dies on `except ConfigFileNotDurable: pass` in `_back_up`.
+    """
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    _written_but_not_durable(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), pytest.raises(RegistryError):
+        # The save's own write reports the same doubt, as `RegistryNotDurable`.
+        save_projects(path, [], load=loaded)
+
+    assert "backup" in caplog.text and "durable" in caplog.text
+
+
+def test_a_restore_that_cannot_check_the_aside_name_raises_registry_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """review-code 2026-10-08 L03-L2. On Python 3.13 `Path.exists()` re-raises
+    `EACCES` (`docs/claude/traps.md`), and the loop choosing the damaged
+    file's name sat outside the handler, so a bare `OSError` escaped a
+    function documented to raise `RegistryError`.
+
+    Dies on moving the loop back outside the `try`.
+    """
+    path, _raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    real_exists = Path.exists
+
+    def refusing(self, *args, **kwargs):
+        if ".damaged-" in self.name:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", refusing)
+
+    with pytest.raises(RegistryError, match="could not be restored"):
+        registry.restore_backup(path)
+
+
+def test_an_unknown_top_level_key_never_overwrites_one_the_writer_owns(
+    tmp_path: Path,
+) -> None:
+    """review-code 2026-10-08 L03-L3. The record-level write-back refuses a key
+    the writer owns (LWSM-1218); the file-level one did not, so a load built
+    any way but the loader could rewrite `schema_version`.
+
+    Dies on writing `unknown` last with no guard.
+    """
+    path = tmp_path / "projects.json"
+    load = registry.LoadResult(
+        records=[], reasons=[], rows_refused=0, unknown=(("schema_version", "2"),)
+    )
+
+    save_projects(path, [], load=load)
+
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["schema_version"] == registry.SCHEMA_VERSION
 
 
 # --- LWSM-1385: a port's source and its conflicts are saved -----------------

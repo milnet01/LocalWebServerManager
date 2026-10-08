@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, TypeGuard
 
+from lwsm import applog
 from lwsm.configfile import (
     MAX_DISPLAY_NAME_CHARS,
     MAX_FILE_BYTES,
@@ -37,6 +38,8 @@ from lwsm.configfile import (
     read_bounded,
     write_atomically,
 )
+
+log = applog.get_logger(__name__)
 
 SCHEMA_VERSION = 1
 
@@ -1015,6 +1018,18 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
     return payload
 
 
+def _saveable(record: ProjectRecord) -> bool:
+    """Whether `_encoded` could write this record: the writer's own test,
+    one record at a time, so no field is left out of the check."""
+    try:
+        json.dumps(_serialised(record), ensure_ascii=False, allow_nan=False).encode(
+            "utf-8"
+        )
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return False
+    return True
+
+
 def _encoded(
     path: Path,
     records: Sequence[ProjectRecord],
@@ -1044,8 +1059,12 @@ def _encoded(
             "schema_version": SCHEMA_VERSION,
             "projects": [_serialised(record) for record in records],
         }
+        # Never over a key this writer owns, as `_serialised` guards for a
+        # record's (LWSM-1218): the loader cannot collide, a hand-built load
+        # can (review-code 2026-10-08 L03-L3).
         for key, encoded in unknown:
-            payload[key] = json.loads(encoded)
+            if key not in payload:
+                payload[key] = json.loads(encoded)
         # ensure_ascii=False so a non-Latin project name stays readable in the
         # file the user is invited to hand-edit; the bound below is on the
         # encoded bytes, which is what the reader's cap measures.
@@ -1167,9 +1186,10 @@ def _back_up(path: Path, raw: bytes) -> None:
     """
     try:
         write_atomically(backup_path(path), raw, prefix=".projects-bak-")
-    except ConfigFileNotDurable:
-        # Written; only its survival of a crash is in doubt, as for the file.
-        pass
+    except ConfigFileNotDurable as exc:
+        # Written, so the save goes on; only its survival of a crash is in
+        # doubt. Logged rather than passed over (review-code 2026-10-08 L03-L1).
+        log.warning("the project list's backup may not be durable: %s", exc)
     except ConfigFileError as exc:
         raise RegistryError(
             f"{quoted(str(path))}: not writing; its backup could not be saved "
@@ -1202,23 +1222,38 @@ def restore_backup(path: Path) -> LoadResult:
             f"{quoted(str(path))}: its backup could not be read ({quoted(str(exc))})"
         ) from exc
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    aside = path.with_name(f"{path.name}.damaged-{stamp}")
-    count = 1
-    while aside.exists():
-        count += 1
-        aside = path.with_name(f"{path.name}.damaged-{stamp}-{count}")
+    not_durable = False
     try:
+        # Inside the handler: `exists()` raises on Python 3.13 where a name
+        # cannot be checked, and this function promises `RegistryError`
+        # (review-code 2026-10-08 L03-L2).
+        aside = path.with_name(f"{path.name}.damaged-{stamp}")
+        count = 1
+        while aside.exists():
+            count += 1
+            aside = path.with_name(f"{path.name}.damaged-{stamp}-{count}")
         if path.exists():
             path.rename(aside)
         write_atomically(path, saved, prefix=".projects-")
     except ConfigFileNotDurable:
-        pass
+        # Written, so the restore goes on, and said (L03-L1).
+        not_durable = True
     except (ConfigFileError, OSError) as exc:
         raise RegistryError(
             f"{quoted(str(path))}: the backup could not be restored "
             f"({quoted(str(exc))})"
         ) from exc
-    return load_projects(path)
+    loaded = load_projects(path)
+    if not_durable:
+        loaded = replace(
+            loaded,
+            reasons=[
+                "the restored list was written, but its safety on disk could "
+                "not be confirmed",
+                *loaded.reasons,
+            ],
+        )
+    return loaded
 
 
 @dataclass(frozen=True)
@@ -1530,6 +1565,14 @@ def merge(
             continue
 
         updated = _detected_half_applied(record, found)
+        if not _saveable(updated):
+            # The stored half stays: applying it would fail every later save
+            # of the whole list, not only this record's (L03-H1).
+            note(
+                f"{quoted(record.name)}: detected details not applied, "
+                "they cannot be saved (text that is not UTF-8)"
+            )
+            updated = record
         merged[index] = updated
 
         not_reobserved = (
@@ -1569,23 +1612,32 @@ def merge(
         # implementer obeying it literally would add unnamed rows with no
         # `added` — leaving the port tie-break nothing to compare on any record
         # the app itself created.
-        merged.append(
-            ProjectRecord(
-                path=project.path,
-                name=project.name,
-                port=None if project.port is None else project.port.port,
-                port_from=None if project.port is None else _finding(project.port),
-                port_conflicts=(
-                    ()
-                    if project.port is None
-                    else tuple(_finding(c) for c in project.port_conflicts)
-                ),
-                kind=project.kind,
-                argv=tuple(project.argv),
-                unit=project.unit,
-                added=now(),
-            )
+        new = ProjectRecord(
+            path=project.path,
+            name=project.name,
+            port=None if project.port is None else project.port.port,
+            port_from=None if project.port is None else _finding(project.port),
+            port_conflicts=(
+                ()
+                if project.port is None
+                else tuple(_finding(c) for c in project.port_conflicts)
+            ),
+            kind=project.kind,
+            argv=tuple(project.argv),
+            unit=project.unit,
+            added=now(),
         )
+        if not _saveable(new):
+            # The loader refuses such a row; adding it here instead failed every
+            # save of the merged list, on every run while the directory existed
+            # (review-code 2026-10-08 L03-H1). A non-UTF-8 directory name is
+            # what `os.scandir` hands the scanner as a lone surrogate.
+            note(
+                f"{quoted(project.name)}: not added, its details cannot be "
+                "saved (text that is not UTF-8)"
+            )
+            continue
+        merged.append(new)
         flag(NEW, f"{quoted(project.name)}: new")
 
     _flag_duplicate_ports(merged, flag)
@@ -1750,7 +1802,15 @@ def export_profile(
             f"{quoted(str(path))}: not exporting a profile from a registry that "
             f"could not be loaded ({quoted(str(load))})"
         )
-    if isinstance(load, LoadResult) and load.user_fields_refused:
+    # Only fields an import would apply: `NEVER_IMPORTED_FIELDS` and `unknown`
+    # never are, on either branch, so a refusal of one erases nothing anywhere
+    # and the reason below would be false (review-code 2026-10-08 L03-M2).
+    erasing = (
+        load.user_fields_refused - NEVER_IMPORTED_FIELDS - _NOT_RESTORED_BY_IMPORT
+        if isinstance(load, LoadResult)
+        else frozenset()
+    )
+    if erasing:
         # A dropped ROW is visibly absent from the profile; a nulled FIELD
         # looks intentional. It re-loads cleanly, so the window's
         # refuse-any-refusal gate passes it, and `user_half_applied` then
@@ -1760,7 +1820,7 @@ def export_profile(
         # USER fields only. A dropped detected field is harmless here because
         # the next scan re-derives it, which is what
         # `test_a_dropped_field_does_not_block_an_export` pins.
-        refused = ", ".join(sorted(load.user_fields_refused))
+        refused = ", ".join(sorted(erasing))
         raise RegistryError(
             f"{quoted(str(path))}: not exporting; the stored value of "
             f"{refused} was refused at load, and a profile carrying it would "
@@ -1956,7 +2016,17 @@ def merge_imported(
             # The USER half only. The profile's detected fields describe the
             # machine it came from, and this one has never scanned this path
             # (LWSM-1216); a rescan derives them here.
-            records.append(replace(_detected_half_cleared(record), **defaults))
+            # Nor its `unknown` keys, which the other branch never restores
+            # either: a key this build cannot name would be honoured by the
+            # build that can, around `NEVER_IMPORTED_FIELDS` (L03-M1).
+            if record.unknown:
+                note(
+                    f"{quoted(record.name)}: the profile's unrecognised "
+                    "fields were not imported"
+                )
+            records.append(
+                replace(_detected_half_cleared(record), unknown=(), **defaults)
+            )
             flag(NEW, f"{quoted(record.name)}: added from the profile")
             continue
 

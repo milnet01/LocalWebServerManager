@@ -11905,6 +11905,19 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: enhancement.
   Source: in-session-2026-09-02.
 
+- 📋 [LWSM-1412] **A confirmed port carried through an older build can outrank a port that changed beneath it.**
+  A pre-LWSM-1038 build carries `confirmed_port` through `unknown` and can
+  change `port` beneath it; after an upgrade the stale value outranks
+  `port` in `effective_port`. Not fixable from the file as it stands: a
+  confirmed port legitimately differs from the declared one, so staleness
+  cannot be told at load. `port_from` solved the same case by storing the
+  port it was found against (LWSM-1385 INV-2); the analogue here adds a
+  saved field, so it is spec-first under CLAUDE.md rule 2 and amends
+  LWSM-1038 § 4.2. Queued from LWSM-1404, not fixed there.
+  **Layman:** After a downgrade and upgrade, a project could keep showing an old port it no longer uses.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 L03-L5.
+
 ## 0.5.0 — Logs
 
 Criterion 5: failures readable without a terminal.

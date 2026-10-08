@@ -28,6 +28,7 @@ import os
 import re
 import stat
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -312,8 +313,10 @@ def load_json_object(path: Path) -> JsonObject:
     return JsonObject(data, tuple(repeated), raw)
 
 
-def prepare_config_dir(directory: Path) -> None:
-    """Create `directory` and every missing component of it at mode 0700.
+def prepare_config_dir(directory: Path) -> list[Path]:
+    """Create `directory` and every missing component of it at mode 0700, and
+    return the ones this call created, outermost first, so a writer can make
+    their entries durable (review-code 2026-10-08 L03-L4).
 
     Each component explicitly, because `mkdir(parents=True, mode=0o700)` applies
     the mode to the **leaf only** and leaves everything it created at the umask
@@ -329,11 +332,48 @@ def prepare_config_dir(directory: Path) -> None:
         if probe.parent == probe:
             break
         probe = probe.parent
+    created: list[Path] = []
     for path in reversed(missing):
         # exist_ok: the check above and this create are not atomic, and a
         # directory another process made in between is the one we wanted
         # (known-issue-056, LWSM-1322). A FILE there still raises.
         path.mkdir(mode=0o700, exist_ok=True)
+        created.append(path)
+    return created
+
+
+# A temporary older than this is a crash's leftover: a live write holds one for
+# milliseconds, so this can never take a temporary another write is filling.
+STALE_TEMPORARY_SECONDS = 3600
+
+
+def _remove_stale_temporaries(directory: Path, prefix: str) -> None:
+    """Remove this writer's own temporaries that a crash left behind.
+
+    A crash between `mkstemp` and `os.replace` leaves `<prefix>*.tmp` in the
+    directory, and nothing else ever removes it (review-code 2026-10-08
+    L03-L4). Only this prefix, only regular files of ours, only old ones; and
+    best-effort, because a leftover costs a little disk and a write must not
+    fail over it.
+    """
+    cutoff = time.time() - STALE_TEMPORARY_SECONDS
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return
+    for entry in entries:
+        if not (entry.name.startswith(prefix) and entry.name.endswith(".tmp")):
+            continue
+        try:
+            info = entry.stat(follow_symlinks=False)
+            if (
+                stat.S_ISREG(info.st_mode)
+                and info.st_uid == os.getuid()
+                and info.st_mtime < cutoff
+            ):
+                os.unlink(entry.path)
+        except OSError:
+            continue
 
 
 def refuse_existing_target(path: Path) -> None:
@@ -409,13 +449,14 @@ def write_atomically(path: Path, data: bytes, *, prefix: str) -> None:
 
     directory = path.parent
     try:
-        prepare_config_dir(directory)
+        created = prepare_config_dir(directory)
     except OSError as exc:
         raise ConfigFileError(
             f"{quoted(str(directory))}: cannot be created ({exc.strerror or exc})"
         ) from exc
 
     refuse_existing_target(path)
+    _remove_stale_temporaries(directory, prefix)
 
     # mkstemp creates at 0600 and in the target's own directory, so the rename
     # cannot cross a filesystem. `Path.write_text` would create at
@@ -458,12 +499,17 @@ def write_atomically(path: Path, data: bytes, *, prefix: str) -> None:
     # having kept a copy of the old one — which is LWSM-1039. A failure here is
     # REPORTED and not reversed, or § 6 would tell the user a durable write
     # failed.
+    #
+    # And the parent of every directory created above: on a first run the new
+    # directory's own entry is what a crash would lose, taking the file with
+    # it (review-code 2026-10-08 L03-L4).
     try:
-        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        for synced in [directory, *(made.parent for made in reversed(created))]:
+            directory_fd = os.open(synced, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     except OSError as exc:
         raise ConfigFileNotDurable(
             f"{quoted(str(path))}: written, but the directory entry could not be "

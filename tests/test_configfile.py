@@ -124,3 +124,68 @@ def test_bounded_reasons_says_nothing_extra_when_nothing_was_dropped() -> None:
     bounded.note("only")
 
     assert bounded.close() == ["only"]
+
+
+# --- review-code 2026-10-08 L03-L4: what a crash or a first run leaves ---------
+
+
+def test_a_temporary_a_crash_left_behind_is_removed_by_the_next_write(
+    tmp_path: Path,
+) -> None:
+    """A crash between `mkstemp` and `os.replace` leaves `.projects-*.tmp` in
+    the config directory, and nothing ever removed it. The next write of the
+    same file removes its own prefix's leftovers -- only old ones, so a
+    temporary another write is filling right now is never touched.
+
+    Dies on removing nothing, and on removing a fresh temporary.
+    """
+    import os
+    import time
+
+    from lwsm.configfile import write_atomically
+
+    stale = tmp_path / ".projects-crashed.tmp"
+    stale.write_bytes(b"half a file")
+    an_hour_ago = time.time() - 2 * 3600
+    os.utime(stale, (an_hour_ago, an_hour_ago))
+    fresh = tmp_path / ".projects-in-flight.tmp"
+    fresh.write_bytes(b"being written")
+    other = tmp_path / ".settings-crashed.tmp"
+    other.write_bytes(b"not this writer's")
+    os.utime(other, (an_hour_ago, an_hour_ago))
+
+    write_atomically(tmp_path / "projects.json", b"{}", prefix=".projects-")
+
+    assert not stale.exists()
+    assert fresh.exists()
+    assert other.exists(), "another writer's leftover is its own to remove"
+
+
+def test_a_first_write_makes_the_directories_it_created_durable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """On a first run `prepare_config_dir` creates the config directory, and
+    only the file's own directory was synced: the new directory's entry in its
+    parent could be lost to a crash, taking the file with it. Each parent of a
+    directory created here is synced too.
+
+    Dies on syncing the file's directory alone.
+    """
+    import os
+
+    from lwsm.configfile import write_atomically
+
+    synced: list[str] = []
+    real_fsync = os.fsync
+
+    def recording(fd: int) -> None:
+        synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", recording)
+    target = tmp_path / "a" / "b" / "projects.json"
+
+    write_atomically(target, b"{}", prefix=".projects-")
+
+    for directory in (tmp_path, tmp_path / "a", tmp_path / "a" / "b"):
+        assert str(directory) in synced, f"{directory} was not synced"

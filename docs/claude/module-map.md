@@ -76,7 +76,8 @@ Added at P02 (LWSM-1005), contract in
   takes `NEVER_IMPORTED_FIELDS`** — `actions`, `launcher_override`,
   `start_at_login`, the fields that run something (LWSM-1344, LWSM-1369), and
   `health_check` / `health_path`, which decide what request is sent (LWSM-1034) —
-  on either branch of `merge_imported`; the rescan's use of
+  on either branch of `merge_imported`, nor a profile's `unknown` keys
+  (LWSM-1404); the rescan's use of
   `user_half_applied` does. **`user_half_applied` takes the
   user half whole except `unknown`** (LWSM-1218; its docstring says why),
   where `_detected_half_applied` qualifies `port`: a scan's `None` means
