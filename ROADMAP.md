@@ -11355,13 +11355,21 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: LWSM-1326 user decision 2026-10-02 (shared documentation.md §§ 2.8, 3.4, 5.2).
   Lanes: docs.
 
-- 📋 [LWSM-1378] **Record in one place every file that carries a version string.**
+- ✅ [LWSM-1378] **Record in one place every file that carries a version string.**
   Shared dependencies.md § 7 asks each project to record where its
   version strings live. Here they are spread across pyproject.toml,
   uv.lock, .python-version, scripts/ci-tools.env, the workflows and
   dependabot.yml, with no single list. Put it in dependencies-overrides.md
   or next to .claude/bump.json.
   Priority: 4.
+  Resolved (2026-10-08): dependencies-overrides.md § D8 lists every
+  dependency, tool and interpreter version's home and what moves with
+  it; .claude/bump.json keeps the project's own version. Found by reading
+  pyproject.toml, uv.lock, .python-version, ci-tools.env, ci.yml,
+  dependabot.yml and a tree search for each current pin. Two homes nobody
+  listed before: README's "Python 3.13+" and ci.yml's setup-uv version.
+  Its What-checks-this row is Partial: nothing ties the three Python
+  homes together.
   **Layman:** Write down every place a version number lives, so an update never misses one.
   Kind: doc.
   Source: LWSM-1326 user decision 2026-10-02 (shared dependencies.md § 7).

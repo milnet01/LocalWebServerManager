@@ -92,6 +92,27 @@ pin also carries a comment beside it pointing here.
 An empty register means no pin is held on purpose. It does not mean every
 pin is current.
 
+## D8. Where the versions live
+
+Shared `dependencies.md` § 7's list for this project: every file carrying a
+dependency, tool or interpreter version. The project's own version is
+`.claude/bump.json`'s list, not this one.
+
+| What | Where | Moves with |
+|---|---|---|
+| Runtime and dev dependencies | `pyproject.toml` `[project]` | `uv.lock`, re-locked |
+| Build backend | `pyproject.toml` `[build-system] requires` | `[tool.uv] build-constraint-dependencies` in the same file, and `uv.lock`'s `build-constraints` |
+| Python interpreter | `.python-version` | `requires-python` in `pyproject.toml` (a floor), and README's "Python 3.13+" |
+| CI tools | `scripts/ci-tools.env` | uv also in `.github/workflows/ci.yml`'s setup-uv `version:` |
+| GitHub Actions | `.github/workflows/ci.yml` `uses:` SHAs, release in a trailing comment | — |
+| Runner image | `.github/workflows/ci.yml` `runs-on:` | — |
+| Design premises tied to a version (D6) | the comment above PySide6 in `pyproject.toml`; psutil's `_send_signal` behaviour in `src/lwsm/foreign.py` and ADR-0003 | re-checked on that dependency's bump |
+
+Dated mentions in `ROADMAP.md`, `CHANGELOG.md`, `docs/journal/`,
+`docs/reviews/` and the traps records are history and do not move.
+
+Why: a version that lives somewhere nobody listed is the one a bump misses.
+
 ## What checks this
 
 | Rule | What checks it |
@@ -103,3 +124,4 @@ pin is current.
 | D5 every ecosystem in dependabot | nothing |
 | D6 re-verify the design premise | nothing |
 | D7 hold register | nothing checks that a hold has a row |
+| D8 where the versions live | Partial: `tests/test_ci_contract.py::test_the_workflow_installs_the_pinned_uv` holds the workflow's uv to `ci-tools.env`, and the gate's `uv sync --locked` holds `uv.lock` to `pyproject.toml` — nothing ties the Python version's three homes together, or finds a new version-bearing file the table lacks |
