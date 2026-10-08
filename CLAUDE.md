@@ -49,14 +49,6 @@ and the point is the pitfalls the skill already knows about:
 | Applying fixes a review produced | **`close-findings`** |
 | Writing or editing source code | **`/write-code`** |
 
-**`/cold-eyes` and `/doc-lint` no longer exist** — the documentation
-family cut over on 2026-08-12 (global `~/.claude/CLAUDE.md`):
-`review-contract` replaced `/cold-eyes`, `check-doc-facts` replaced
-`/doc-lint`, and each predecessor was **deleted** in the same commit
-that promoted its replacement. This table named the dead ones until
-2026-08-12, so a session following it would have invoked a skill that
-is not there.
-
 `/write-spec` carries the `review-contract` gate itself, so a spec
 written through it does not need the review invoked separately.
 `close-findings` is for closing a list someone else produced —
@@ -157,50 +149,16 @@ workflow instead of the script** — that produces a check nobody can
 run before pushing, which is the whole thing this arrangement
 exists to prevent.
 
-## Standing quality passes
-
-Both added by the user on 2026-08-03, and both run as part of the
-pre-release review (see **Before a release: the big review**) rather than
-when someone remembers:
-
-- **Look for refactoring opportunities.** Python is interpreted, so
-  there is no compiler catching a tangle — structure is held by
-  reading alone. Before every release, ask what got duplicated, what
-  grew a second responsibility, and what a name now lies about.
-  Refactor when there is something to refactor; **say "nothing to
-  refactor at this size" when there isn't**, rather than inventing
-  churn to look diligent.
-- **Run a security pass.** Not just the scanners — this app spawns
-  processes, signals process groups, reads other projects' files and
-  will eventually run user-authored commands. That is a real attack
-  surface, and the scanners only see the code that exists today.
-
 ## Subagents
 
-**Agents are permitted where they genuinely help and are token-
-efficient** (user, 2026-08-03). Reviews are the clearest case —
-`review-contract` and `review-code` both depend on a
-fresh pair of eyes that has not been reading along, so the rule-14
-gate runs its reviewers here without asking first. Broad
-"where is X used across the tree" searches are the other case.
+Global rule 15 governs, confirmed for this project by the user on
+2026-08-03: reviews and broad tree searches run agents without asking.
 
-This overrides any session-level default that says not to spawn
-agents unless asked. It is not a licence to fan out on work one
-context can already do.
+## Releases
 
-## Before a release: the big review
-
-**Before cutting a release, run `check-code` over the whole tree and
-`review-code` over the codebase, then `close-findings` on what they
-return** (user, 2026-09-28), plus the two **Standing quality passes** above.
-This is in addition to the per-item checks `~/.claude/workflow.md` § 6
-requires, not instead of them. This replaces the retired `/close-phase`,
-which ran the same pair at every phase close; the roadmap is now grouped
-by version, so the release is the checkpoint. Read
-`docs/audit-allowlist.md` first, as **Where state lives** says. The findings
-`close-findings` queues are filed into the release's roadmap section, and
-the release waits on those. `./scripts/local-release.sh` (below) is the
-mechanical pre-flight and does not replace this.
+**Before cutting a release, read [`docs/claude/release.md`](docs/claude/release.md)**:
+the big review (`check-code`, `review-code`, `close-findings`), the standing
+refactoring and security passes, and `./scripts/local-release.sh`.
 
 ## Tech stack
 
@@ -236,30 +194,6 @@ behind `yamllint --strict`, fatal SKIPs and the committed
 
 See **Before pushing** above for when the gate is mandatory.
 
-## Before releasing
-
-**Run `./scripts/local-release.sh [X.Y.Z]`** (LWSM-1151). It is
-`cut-release`'s Phase 0 made runnable, and it reports without changing
-anything.
-
-**It mirrors nothing, and that is the difference from `local-ci.sh`.**
-That script is the CI — the workflow calls it. CI here fires on `push`
-and `pull_request` only, with **no tag trigger and no release trigger**,
-so *nothing on GitHub ever checks a release*. This script is the only
-automated gate a release gets; the big review above is the other.
-
-Two things to know. **The verdict never reads "ready" while a check was
-skipped** — a blocker and a check that could not run are tracked
-separately, because "no blockers found" and "the blocker check did not
-run" must not print the same way. And **`--dry-bump` refuses on a dirty
-tree**: its revert is a `git checkout`, which destroys uncommitted work.
-That is the mistake LWSM-1067 made twice in one session, once taking a
-`roadmap_log` flip with it and leaving ROADMAP.md saying 📋 while the
-store said ✅.
-
-`cut-release` still owns the release itself — this performs no bump, no
-commit, no tag and no publish.
-
 ## Commit conventions
 
 Per `~/.claude/standards/commits.md` § 1.1 and
@@ -269,24 +203,9 @@ roadmap item's `LWSM-NNNN`.
 
 **Phases are retired.** A commit with no item id follows `commits.md`
 § 1.2: `chore:`, `docs:`, a release or a hotfix subject. No new `P##`,
-`FP##`, `DS##`, `DOC##` or `R##` is opened. The 2026-09-28 rule that chore and
-doc commits use `P04:` lapsed when 0.1.0 shipped on 2026-10-01.
-
-**A phase ID may carry a lowercase continuation suffix — `P03b`**
-(user, 2026-08-12). It names a phase that finishes a predecessor's
-undelivered scope, and exists because this roadmap assigns
-`P04`–`P09` to named themes *in advance*, so a phase closed against
-partial scope has no free number to spill into. `P03` closed
-2026-08-12 with the scanner shipped and four planned items
-undelivered; `P03b` carries those four. Renumbering the themes
-instead would have re-labelled 28 bullets and every doc that cites
-a phase by number, and re-pointing the pushed `P03-complete` tag
-needs the force-push authorisation `commits.md § 4.3` withholds.
-
-That rule is history now: no new phase opens, and no new `<ID>-complete` tag
-is cut. The existing tags stay. `P03b`'s three open items (LWSM-1039,
-LWSM-1008, LWSM-1121) sit in the roadmap's 0.2.0 section. A release is
-tagged by `cut-release`.
+`FP##`, `DS##`, `DOC##` or `R##` is opened, and no new `<ID>-complete` tag is
+cut; the existing tags stay. A release is tagged by `cut-release`. The
+phase-ID history is in [`docs/claude/claude-md-history.md`](docs/claude/claude-md-history.md).
 
 ## Licence and visibility
 
@@ -307,14 +226,8 @@ Two consequences to hold on to:
 
 ## Push policy
 
-Inherits from the user's global `~/.claude/CLAUDE.md` § 6
-(public repos: push freely; private: batch + ask). This repo is
-**public**, so the free-CI-minutes rule applies: push freely, no
-batching gate. `main` tracks `origin/main`.
-
-Detect repo visibility once per session via
-`gh repo view --json visibility -q .visibility` and cache it for
-the session.
+Global rule 6. This repo is **public**, so push freely; `main` tracks
+`origin/main`.
 
 ## The roadmap store
 
