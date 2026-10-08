@@ -347,13 +347,38 @@ def test_a_listener_on_a_lan_address_is_bound_but_does_not_answer_localhost(
     assert snapshot.holder(5005) is None, "not reachable, so not ours"
 
 
-@pytest.mark.parametrize("ip", ["127.0.0.1", "127.0.1.9", WILDCARD_V4, "::", "::1"])
+@pytest.mark.parametrize("ip", ["127.0.1.9", "127.0.0.2"])
+def test_the_rest_of_127_8_does_not_answer_localhost(
+    monkeypatch: pytest.MonkeyPatch, ip: str
+) -> None:
+    """review-code 2026-10-08 L02-M2. `localhost` resolves to 127.0.0.1 and
+    ::1, so a socket on 127.0.0.2 never receives a connection sent to it; the
+    whole 127/8 block counted, the row read `running`, and Open targeted a
+    URL that reached nothing -- LWSM-1232's defect by another address.
+
+    Dies on `is_loopback`.
+    """
+    monkeypatch.setattr(
+        psutil,
+        "net_connections",
+        lambda **_: [FakeConn(psutil.CONN_LISTEN, FakeAddr(5005, ip), pid=111)],
+    )
+
+    snapshot = PortProbe().snapshot()
+    assert snapshot.is_bound(5005)
+    assert not snapshot.answers_localhost(5005)
+
+
+@pytest.mark.parametrize(
+    "ip", ["127.0.0.1", "::ffff:127.0.0.1", WILDCARD_V4, "::", "::1"]
+)
 def test_a_loopback_or_wildcard_listener_answers_localhost(
     monkeypatch: pytest.MonkeyPatch, ip: str
 ) -> None:
-    """Every address `localhost` can arrive on, including the whole 127/8
-    block and both wildcards. One fixture per member, because the code
-    branches on a closed set."""
+    """Every address `localhost` can arrive on: the two loopback addresses it
+    resolves to, the v4-mapped form of one, and both wildcards. One fixture
+    per member, because the code branches on a closed set. Until
+    review-code 2026-10-08 L02-M2 this listed 127.0.1.9 here."""
     monkeypatch.setattr(
         psutil,
         "net_connections",

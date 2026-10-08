@@ -129,6 +129,10 @@ signaling per
 
 ### Fixed
 
+- **A server listening on an unusual loopback address such as 127.0.0.2 no longer shows as running.** (LWSM-1408)
+  `localhost` only reaches 127.0.0.1 and ::1, so Open would have pointed
+  at a page that never answers.
+
 - **Starting a systemd-run project always gives systemd the port, even after an earlier start failed part-way.** (LWSM-1407)
   It also checks systemd actually read the setting, and says so if it
   did not, instead of starting the project on its own port.

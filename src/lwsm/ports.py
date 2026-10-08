@@ -18,9 +18,12 @@ import psutil
 def _answers_localhost(ip: str) -> bool:
     """Would a connection to `localhost` arrive on a socket bound to `ip`?
 
-    Loopback (the whole 127/8 block, and `::1`) or a wildcard, which accepts
-    on every interface including loopback. A LAN address answers the machine's
-    own name and not `localhost`, which is the URL Open builds (LWSM-1232).
+    The two addresses `localhost` resolves to, `127.0.0.1` and `::1`, or a
+    wildcard, which accepts on every interface including loopback. The rest of
+    127/8 does not: a socket on 127.0.0.2 never receives a connection sent to
+    `localhost` (review-code 2026-10-08 L02-M2). A LAN address answers the
+    machine's own name and not `localhost`, which is the URL Open builds
+    (LWSM-1232).
 
     An address the stdlib cannot parse answers False. That direction is the
     conservative one for the caller that matters: the row reads `stopped`
@@ -35,7 +38,10 @@ def _answers_localhost(ip: str) -> bool:
     mapped = getattr(address, "ipv4_mapped", None)
     if mapped is not None:
         address = mapped
-    return address.is_loopback or address.is_unspecified
+    return address in _LOCALHOST or address.is_unspecified
+
+
+_LOCALHOST = (ipaddress.ip_address("127.0.0.1"), ipaddress.ip_address("::1"))
 
 
 class ProbeError(Exception):

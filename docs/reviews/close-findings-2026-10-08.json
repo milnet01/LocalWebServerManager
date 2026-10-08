@@ -228,13 +228,13 @@
    "location": "ports.py:38",
    "finding": "`address.is_loopback` counts all of 127/8 as reachable by `localhost`, so a `127.0.0.2` listener reads `running` and Open targets nothing.",
    "remedy": "Accept exactly `127.0.0.1`, `::1` (incl. v4-mapped) and wildcards, or compare against `getaddrinfo(\"localhost\")` once per snapshot.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — red: 127.0.1.9 and 127.0.0.2 answered localhost",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "only 127.0.0.1, ::1 (and v4-mapped) and wildcards; the old test asserting 127.0.1.9 restated",
    "must_agree": []
   },
   {

@@ -11698,6 +11698,13 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   design.md amended to say fixed). Learned bind time ("usually ready in
   about 40 seconds") is deferred past 0.3.0 as its own item: it changes
   the saved file, so it is spec-first under CLAUDE.md rule 2.
+  Progress (2026-10-08, later): close-findings run under way; ledger
+  docs/reviews/close-findings-2026-10-08.json (disposition column is the
+  state). Shipped: LWSM-1401, 1402, 1404, 1405, 1406. LWSM-1407 done but
+  for L05-M3 (awaits the user). LWSM-1408: L02-M2 fixed; next L01-L1,
+  L01-L2, L01-L4, L02-L1..L5. Then LWSM-1409, 1410, 1411. Last gate 2516
+  passed. Method per item: red test first, mutation check, fold docs
+  back, changelog_log, ledger row, full gate, commit, flip.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
@@ -11768,6 +11775,10 @@ Criterion 3: tell the truth in every case, including the awkward ones.
 - 📋 [LWSM-1407] **Close the service and placement findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L05-M1, L05-M3,
   L05-L1..L5.
+  Progress (2026-10-08): M1, L1-L5 fixed (gate 2514 passed). Open:
+  L05-M3 needs the user — clear the drop-in after a start systemd
+  REJECTED (non-zero exit)? The user ruled 2026-10-07 that only a success
+  clears it, for a start that timed out; a rejection is a different case.
   **Layman:** Fixes for systemd services and window placement edge cases.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-05.
