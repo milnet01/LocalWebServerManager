@@ -4799,6 +4799,19 @@ def test_every_action_is_reachable_by_tab_in_the_order_it_is_read(qtbot, built) 
     )
 
 
+def test_every_row_is_itself_a_tab_stop(qtbot, built) -> None:
+    """LWSM-1005 O8.2, a row keyboard-reachable at all (LWSM-1398). The test
+    above walks buttons and the filter box, which `clickable` collects; the row
+    frame, which draws INV-17's focus ring, is not among them."""
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+
+    stops = tab_stops(window)
+    missing = [row.accessibleName() for row in rows_of(window) if row not in stops]
+    assert not missing, f"no Tab reaches these rows: {missing}"
+
+
 def test_every_interactive_widget_has_a_name_a_screen_reader_can_read(
     qtbot, built
 ) -> None:
