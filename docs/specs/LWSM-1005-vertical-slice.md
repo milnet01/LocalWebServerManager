@@ -1022,7 +1022,9 @@ importing `lwsm.__main__` in a test does not require a display.
 
 - **INV-16** — After `ProjectController.stop()` returns, **no snapshot is
   ever delivered to the controller again**, `stop()` has not waited on work
-  that is not its own, and it has returned within `STOP_WAIT_MS`.
+  that is not its own, and it has returned within one `STOP_WAIT_MS` for each
+  pool it waits on: its snapshot pool, then the service and health pools
+  (LWSM-1034 INV-7).
   *Wording note (LWSM-1073):* this read "no task is outstanding" until the
   P02 close, and that sentence was **true while the invariant's stated
   purpose was being violated** — the task had indeed finished, and its queued

@@ -11524,7 +11524,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: ci-run-37677757417-2026-10-07.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1396] **Two shipped specs misstate what a refused field does, and LWSM-1005 INV-16's stop bound is stale.**
+- ✅ [LWSM-1396] **Two shipped specs misstate what a refused field does, and LWSM-1005 INV-16's stop bound is stale.**
   Found by the LWSM-1034 spec gate, outside its subject.
   (1) LWSM-1385 INV-3 and LWSM-1038's confirmed_port invariant give
   "recorded as a user-field refusal and so makes the session
@@ -11537,6 +11537,14 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   service pool, each up to STOP_WAIT_MS, so the bound is already
   two waits; LWSM-1034 adds a third. Restate the bound, or give
   the pools one shared deadline.
+  Resolved (2026-10-08): no code changed. (1) LWSM-1385 § 4.3 and INV-3,
+  and LWSM-1038 § 4.2 and INV-2, now say a user-field refusal blocks a
+  profile export (registry.export_profile), not writes; the write gate
+  (_refuse_unwritable_load) refuses only on a row refusal, a load error
+  or a load from another file. (2) LWSM-1005 INV-16 restated: one
+  STOP_WAIT_MS per pool stop() waits on (snapshot, service, health),
+  matching the tests, which bound each stuck pool alone. No shared
+  deadline added. LWSM-1034 INV-7's pointer now names INV-16.
   **Layman:** Fix two old design notes that describe the app wrongly, so nobody builds from the wrong description.
   Kind: doc-fix.
   Source: review-contract-2026-10-07 LWSM-1034 loop 1 (out of scope).

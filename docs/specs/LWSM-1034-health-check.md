@@ -274,7 +274,7 @@ and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
 
 - **INV-7** — No answer is delivered after `stop()` returns, and the wait on
   `_health_pool` is bounded by `STOP_WAIT_MS` when a health call never
-  returns. The pools are waited on one after another; LWSM-1396 owns the total.
+  returns. The pools are waited on one after another; LWSM-1005 INV-16 states the total.
   *Test:* `tests/test_controller.py`, LWSM-1005 INV-16's shapes applied to
   the health pool: a completed call before `stop()`, a blocked one, and
   `test_the_process_exits_promptly_when_a_health_check_hangs`, which measures

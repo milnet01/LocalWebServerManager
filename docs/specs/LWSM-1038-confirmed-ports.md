@@ -113,7 +113,7 @@ optional, and a file without it loads as before. An older build keeps it through
 
 A refusal takes the default and reports a reason, under LWSM-1007 § 4.2's rule.
 The field is detected, so it never adds to `LoadResult.user_fields_refused` and
-never makes the session read-only.
+never blocks a profile export.
 
 ### 4.3 Observing a port
 
@@ -231,7 +231,7 @@ port 5005.` follows `You set this port.`
   *Test:* `tests/test_registry.py`, `test_write_then_load_round_trips` extended
   with the field, plus one case each for `"5002"`, `true`, `0` and `70000`.
   *Breaks when:* the loader accepts a `bool` as an int, or records the refusal
-  as a user-field refusal and so makes the session read-only.
+  as a user-field refusal and so blocks a profile export (LWSM-1215).
 
 - **INV-3** — A rescan keeps `confirmed_port` when the stored `port` is
   unchanged and clears it when the merge changes `port`.

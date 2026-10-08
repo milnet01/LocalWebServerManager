@@ -129,7 +129,7 @@ them back untouched.
 
 A refusal follows LWSM-1007 § 4.2's blanket rule: the field takes its default
 and a reason is reported. Both are detected fields, so a refusal never adds to
-`LoadResult.user_fields_refused` and never makes the session read-only; the
+`LoadResult.user_fields_refused` and never blocks a profile export; the
 next scan re-derives them. `port_conflicts` is refused whole, not element by
 element, because a partial list would claim fewer disagreements than the scan
 found.
@@ -216,7 +216,7 @@ is visible text in the cell; the tooltip and description add which files.
   *Test:* `tests/test_registry.py`, parametrised over one fixture per refusal
   cell, including nine conflicts and a conflict equal to the winning port.
   *Breaks when:* a refusal raises, drops the row, or is recorded as a
-  user-field refusal and so makes the session read-only.
+  user-field refusal and so blocks a profile export (LWSM-1215).
 
 - **INV-4** — The merge stores provenance per § 4.4's three rows.
   *Test:* `tests/test_registry.py`, one case per row, using the existing fake
