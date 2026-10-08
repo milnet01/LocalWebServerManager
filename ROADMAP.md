@@ -11665,6 +11665,18 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: CI runs 37781788960 and 37783461025, 2026-10-08.
   Lanes: ui.
 
+- 🚧 [LWSM-1400] **Release 0.3.0, covering 0.2.0's items too, after the pre-release review.**
+  Decided (user, 2026-10-08): one release, numbered 0.3.0, carrying
+  both finished sections; 0.2.0 is not cut on its own. First the big
+  review docs/claude/release.md names (check-code over the tree,
+  review-code over the codebase, close-findings, the refactoring and
+  security passes), then ./scripts/local-release.sh 0.3.0, then
+  cut-release. The user tries the health check (LWSM-1034) by hand
+  before the cut.
+  **Layman:** Publish the next version of the app, with everything finished since the last one.
+  Kind: release.
+  Source: user-decision-2026-10-08.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.
