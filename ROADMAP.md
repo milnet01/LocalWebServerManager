@@ -11673,6 +11673,25 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   security passes), then ./scripts/local-release.sh 0.3.0, then
   cut-release. The user tries the health check (LWSM-1034) by hand
   before the cut.
+  Progress (2026-10-08): big review done, findings not yet closed.
+  check-code --tree: clean on src (ruff, pyright 21 files, bandit -ll,
+  semgrep, shellcheck, actionlint, zizmor, yamllint, gitleaks); typos and
+  vulture hits are docs/tests noise; 3 semgrep hits are in tests only.
+  review-code, 10 lanes: 0 critical, 3 high, 19 medium. Full lane returns
+  and index: ~/.cache/review-code/lwsm-0.3.0-2026-10-08/ (lane-NN-*.result).
+  Calibrated (SECURITY.md threat model): lane-02 high (no starting-elapsed
+  display vs ADR-0004) -> medium, and code-or-ADR is the user's call;
+  lane-03 high (rescan stores a non-UTF-8 path, every save then fails) and
+  lane-09 high (first-run check boxes get no outline/focus ring; render
+  first) stay high. Cross-cutting: OS work on the GUI thread in the poll
+  (supervisor.py:1544, controller.py:2034, service.py:188).
+  Refactoring pass: only the two already-diverged copies the lanes found
+  (foreign vs supervisor stop, the two NotDurable handlers). Security pass:
+  no finding is a hole by the threat model; profile-import unknown keys
+  (registry.py:1959) is closest.
+  NEXT: close-findings over all 22 (high + medium), file each in this
+  section, fix with red-first tests; then the user tries the health check
+  by hand; then ./scripts/local-release.sh 0.3.0; then cut-release.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
