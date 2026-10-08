@@ -11692,9 +11692,94 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   NEXT: close-findings over all 22 (high + medium), file each in this
   section, fix with red-first tests; then the user tries the health check
   by hand; then ./scripts/local-release.sh 0.3.0; then cut-release.
+  Decided (user, 2026-10-08): lane-02's high is BUILT, not struck.
+  0.3.0 gets the elapsed time while starting and the label
+  "starting (slow — 42s)" past a FIXED 30 s (no setting; ADR-0004 and
+  design.md amended to say fixed). Learned bind time ("usually ready in
+  about 40 seconds") is deferred past 0.3.0 as its own item: it changes
+  the saved file, so it is spec-first under CLAUDE.md rule 2.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
+
+- 📋 [LWSM-1401] **Move the poll's OS work off the window's thread.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. Findings:
+  L01-M2 supervisor process_iter walk per poll on the GUI thread;
+  L02-M1 unit_belongs_to runs systemctl in the _classify slot;
+  L05-M2 unguarded is_file() raises PermissionError out of _classify;
+  L01-M1 log rotation copies the whole log on the window's thread;
+  L01-L3 ftruncate empties the old .1 before the copy succeeds.
+  **Layman:** A slow system can no longer freeze the window once a second.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 L01-M1 L01-M2 L01-L3 L02-M1 L05-M2.
+
+- 📋 [LWSM-1402] **Show elapsed time while starting, and a slow label past 30 s.**
+  ADR-0004 § Slowness is not failure promises it; the code never built it.
+  User decided 2026-10-08: build it, threshold FIXED at 30 s (no setting);
+  amend ADR-0004 and design.md § Data flow to say fixed. Learned bind
+  time is LWSM-1403.
+  **Layman:** A project that is slow to start shows how long it has been starting, instead of looking stuck.
+  Kind: feature.
+  Source: review-code-2026-10-08 L02-H1; user-decision-2026-10-08.
+
+- 📋 [LWSM-1404] **Close the persistence findings from the 0.3.0 review.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. L03-H1 merge()
+  skips is_writable_text, so a non-UTF-8 scanned path breaks every save;
+  L03-M1 import append keeps unknown keys; L03-M2 export gate fires with a
+  false reason; L03-L1..L5.
+  **Layman:** Saving and importing settings can no longer get stuck or keep things they should drop.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 lane-03.
+
+- 📋 [LWSM-1405] **Close the look and first-run findings from the 0.3.0 review.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. L09-H1
+  OutlineStyle never paints check boxes (render on midnight first);
+  L09-M1 selectable label becomes an unnamed Tab stop; L09-L1, L09-L2.
+  **Layman:** The first-run check boxes get a visible outline and focus ring.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 lane-09.
+
+- 📋 [LWSM-1406] **Close the scanner and scan-root findings from the 0.3.0 review.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. L04-M1..M5,
+  L04-L1..L4, L04-L6, L09-L5.
+  **Layman:** Fixes for edge cases where a scan crashes, stops the app opening, or reports a port wrongly.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 lane-04, L09-L5.
+
+- 📋 [LWSM-1407] **Close the service and placement findings from the 0.3.0 review.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. L05-M1, L05-M3,
+  L05-L1..L5.
+  **Layman:** Fixes for systemd services and window placement edge cases.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 lane-05.
+
+- 📋 [LWSM-1408] **Close the process, port and controller findings from the 0.3.0 review.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. L02-M2 all of
+  127/8 counted as localhost; L01-L1, L01-L2, L01-L4; L02-L1..L5.
+  **Layman:** Fixes so status and Stop stay truthful in rare cases.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 lane-01, lane-02.
+
+- 📋 [LWSM-1409] **Close the main-window findings from the 0.3.0 review.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. L06-M1 Enter
+  during starting stops the row; L07-M1, L07-M2; L06-L1..L4,
+  L07-L1..L8.
+  **Layman:** Fixes to buttons, messages and dialogs in the main window.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 lane-06, lane-07.
+
+- 📋 [LWSM-1410] **Close the startup and browser findings from the 0.3.0 review.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. L08-M1
+  NoDisplay=true refusal drops real http handlers; L08-L1..L5.
+  **Layman:** Fixes to opening the app and finding browsers.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 lane-08.
+
+- 📋 [LWSM-1411] **Close the tooling findings from the 0.3.0 review.**
+  Ledger: docs/reviews/close-findings-2026-10-08.json. L10-L1..L9.
+  **Layman:** Fixes to the project's helper scripts and CI.
+  Kind: review-fix.
+  Source: review-code-2026-10-08 lane-10.
 
 ## 0.4.0 — Ports
 
@@ -12399,6 +12484,14 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: security.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
   Lanes: core.
+
+- 📋 [LWSM-1403] **Learn each project's usual start time and show it while starting.**
+  ADR-0004's third bullet ("usually ready in about 40 seconds").
+  Deferred past 0.3.0 by the user 2026-10-08: it adds a saved field, so
+  it is spec-first under CLAUDE.md rule 2.
+  **Layman:** The app remembers how long a project usually takes to start and says so.
+  Kind: feature.
+  Source: user-decision-2026-10-08.
 
 ## 💭 Considered — not scheduled
 
