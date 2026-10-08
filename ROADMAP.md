@@ -11717,7 +11717,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-code-2026-10-08 L01-M1 L01-M2 L01-L3 L02-M1 L05-M2.
 
-- 📋 [LWSM-1402] **Show elapsed time while starting, and a slow label past 30 s.**
+- ✅ [LWSM-1402] **Show elapsed time while starting, and a slow label past 30 s.**
   ADR-0004 § Slowness is not failure promises it; the code never built it.
   User decided 2026-10-08: build it, threshold FIXED at 30 s (no setting);
   amend ADR-0004 and design.md § Data flow to say fixed. Learned bind
@@ -11726,6 +11726,8 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   before shipping: render a slow row on screen and check the wider state
   column does not push the row's buttons out; done with LWSM-1405's
   render on "midnight".
+  Resolved (2026-10-08): render checked with LWSM-1405 — the slow label
+  is 4 px wider than "running (wrong port)" and the buttons are unmoved.
   **Layman:** A project that is slow to start shows how long it has been starting, instead of looking stuck.
   Kind: feature.
   Source: review-code-2026-10-08 L02-H1; user-decision-2026-10-08.
@@ -11742,10 +11744,13 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-03.
 
-- 📋 [LWSM-1405] **Close the look and first-run findings from the 0.3.0 review.**
+- ✅ [LWSM-1405] **Close the look and first-run findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L09-H1
   OutlineStyle never paints check boxes (render on midnight first);
   L09-M1 selectable label becomes an unnamed Tab stop; L09-L1, L09-L2.
+  Resolved (2026-10-08): H1, L1, L2 fixed with red-first tests after a
+  render on midnight; M1 dismissed by measurement (ClickFocus, not a Tab
+  stop) and pinned by a test.
   **Layman:** The first-run check boxes get a visible outline and focus ring.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-09.
