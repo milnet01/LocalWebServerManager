@@ -1915,6 +1915,89 @@ def test_a_flag_only_outcome_does_not_write(qtbot, built, tmp_path) -> None:
     window.shutdown()
 
 
+@pytest.mark.parametrize("outcome", ["not re-observed", "duplicate identity"])
+def test_the_other_flag_only_outcomes_do_not_write(
+    qtbot, built, tmp_path, outcome: str
+) -> None:
+    """LWSM-1131 § 4.4 names three flag-only outcomes; the test above covers
+    *missing* (LWSM-1398). Each leaves every field identical, so none writes."""
+    roots = tmp_path / "roots"
+    web = roots / "web"
+    web.mkdir(parents=True)
+    scanned = FakeScanResult(projects=(FakeDetected(web, "web"),))
+    if outcome == "not re-observed":
+        # Found again, but its port could not be read: kept, and flagged.
+        stored = [
+            ProjectRecord(
+                path=web,
+                name="web",
+                port=3000,
+                kind=LauncherKind.SHELL,
+                argv=("./start.sh",),
+            )
+        ]
+        summary = "1 port no longer detected"
+    else:
+        link = tmp_path / "linked"
+        link.symlink_to(roots)
+        stored = [
+            ProjectRecord(
+                path=web, name="web", kind=LauncherKind.SHELL, argv=("./start.sh",)
+            ),
+            ProjectRecord(
+                path=link / "web",
+                name="web again",
+                kind=LauncherKind.SHELL,
+                argv=("./start.sh",),
+            ),
+        ]
+        summary = "1 duplicate"
+    saves: list = []
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        stored,
+        tmp_path,
+        scanned,
+        load=LoadResult(records=stored, reasons=[], rows_refused=0),
+        saves=saves,
+    )
+
+    run_rescan(qtbot, window)
+
+    assert summary in message_of(window), message_of(window)
+    assert saves == []
+    window.shutdown()
+
+
+def test_a_rescan_write_passes_the_startup_load_to_the_writer(
+    qtbot, built, tmp_path
+) -> None:
+    """LWSM-1131 § 4.4: the slot owns the gate by handing `save_projects` the
+    load it started with, as `load=` (LWSM-1398). The writer refuses on what
+    that load says, so a slot passing anything else turns the gate off."""
+    web = tmp_path / "roots" / "web"
+    web.mkdir(parents=True)
+    stored = [ProjectRecord(path=web, name="web", argv=("./old.sh",))]
+    load = LoadResult(records=stored, reasons=[], rows_refused=0)
+    saves: list = []
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        stored,
+        tmp_path,
+        FakeScanResult(projects=(FakeDetected(web, "web"),)),
+        load=load,
+        saves=saves,
+    )
+
+    run_rescan(qtbot, window)
+
+    assert len(saves) == 1, "the changed launcher must be written"
+    assert saves[0][2] is load
+    window.shutdown()
+
+
 def test_a_successful_write_stops_the_next_identical_rescan(
     qtbot, built, tmp_path
 ) -> None:
