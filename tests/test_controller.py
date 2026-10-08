@@ -3577,6 +3577,47 @@ def test_stop_is_bounded_when_a_health_check_never_returns(
     controller_module.wait_for_abandoned_pools(2000)
 
 
+def test_stop_is_bounded_when_a_systemctl_verb_never_returns(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """INV-16 of LWSM-1005, the service pool's wait (LWSM-1398). `stop()` waits
+    on that pool too, and a `systemctl` verb can wait out a unit's whole
+    `TimeoutStopSec`, so a quit must not wait with it."""
+    from lwsm.service import UnitOutcome
+
+    monkeypatch.setattr(controller_module, "STOP_WAIT_MS", 100)
+    gate = threading.Event()
+    entered = threading.Event()
+
+    def hanging_drive(verb: str, unit: str, **kwargs: object) -> UnitOutcome:
+        entered.set()
+        gate.wait(5)
+        return UnitOutcome(ok=True, verb=verb, unit=unit, reason="")
+
+    adopted(monkeypatch, hanging_drive, "ants-stats.service")
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    controller.restart_project(Path("/srv/a"))
+    assert entered.wait(3)
+
+    started = time.perf_counter()
+    controller.stop()
+    elapsed = time.perf_counter() - started
+
+    budget = controller_module.STOP_WAIT_MS / 1000
+    assert elapsed < budget * 5, (
+        f"stop() blocked for {elapsed:.2f}s against a {budget:.2f}s budget"
+    )
+    gate.set()
+    controller_module.wait_for_abandoned_pools(2000)
+
+
 @pytest.mark.integration
 def test_the_process_exits_promptly_when_a_health_check_hangs(tmp_path) -> None:
     """INV-7 of LWSM-1034, measured on the PROCESS for LWSM-1100's reason: a

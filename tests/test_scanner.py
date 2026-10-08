@@ -680,6 +680,34 @@ def test_a_systemd_project_takes_its_port_from_the_unit(corpus_tree: Path) -> No
     assert project.port.source == "the project-a.service unit"
 
 
+EXEC_START_8080 = (
+    "{ path=/usr/bin/node ; argv[]=/usr/bin/node serve.mjs --port 8080 ; pid=0 }"
+)
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [("", 8080), ("APP_PORT=4321", 4321)],
+    ids=["exec-start-alone", "environment-first"],
+)
+def test_a_systemd_project_reads_exec_start_after_environment(
+    corpus_tree: Path, environment: str, expected: int
+) -> None:
+    """INV-17's second source and its order (LWSM-1398): with no port in
+    `Environment=` the unit's `ExecStart=` argv supplies it, and where both
+    carry one `Environment=` wins. The other test's unit has no `ExecStart`."""
+    units = corpus_units(corpus_tree)
+    unit = units.units["project-a.service"]
+    unit["Environment"] = environment
+    unit["ExecStart"] = EXEC_START_8080
+
+    project = by_name(scan_root(corpus_tree, units))["project-a"]
+
+    assert project.port is not None
+    assert project.port.port == expected
+    assert project.port.source == "the project-a.service unit"
+
+
 def test_a_machine_with_no_systemd_scans_normally(tmp_path: Path) -> None:
     """§ 6: `OSError` from either call disables rule 0 for the whole scan and is
     recorded **once**, not once per candidate."""

@@ -1244,6 +1244,23 @@ def test_the_production_now_stamps_a_value_the_loader_accepts(tmp_path: Path) ->
     assert loaded.reasons == []
 
 
+def test_the_apps_own_stamp_is_utc_with_z_at_second_precision() -> None:
+    """LWSM-1007 § 4.2 and LWSM-1131 § 4.3 pin the SPELLING of the stamp this app
+    writes (LWSM-1398). The round-trip test above cannot see it: the loader keeps
+    `+00:00` and fractional seconds verbatim, so either would pass there. Checked
+    on `utc_stamp` and on the rescan's default `now`, which is what writes it."""
+    import re
+    from datetime import UTC, datetime
+
+    from lwsm.mainwindow import RescanContext, utc_stamp
+
+    (now_field,) = [f for f in dataclasses.fields(RescanContext) if f.name == "now"]
+    for stamp in (utc_stamp(), now_field.default()):
+        assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", stamp), stamp
+        written = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+        assert abs((datetime.now(UTC) - written).total_seconds()) < 60, stamp
+
+
 def test_a_missing_file_is_first_run_and_writes(tmp_path: Path) -> None:
     """INV-6's second discriminating case, plus § 4.3 step 0.
 

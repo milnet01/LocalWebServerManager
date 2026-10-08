@@ -253,6 +253,30 @@ def test_version_needs_no_display():
     assert __version__ in result.stdout
 
 
+@pytest.mark.integration
+def test_help_needs_no_display():
+    """INV-14's other half — `--help` must not need a platform plugin either
+    (LWSM-1398). The in-process `--help` test runs under conftest.py's offscreen
+    platform, so only a subprocess with the display stripped can see this."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"QT_QPA_PLATFORM", "DISPLAY", "WAYLAND_DISPLAY"}
+    }
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "lwsm", "--help"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
+
+
 # --- LWSM-1113: the two shutdown promises, wired rather than assumed ----------
 
 
