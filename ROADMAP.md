@@ -11487,7 +11487,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: in-session-2026-10-07 (CI run 37671387994 on 7a335cb).
   Lanes: ui, tests.
 
-- 📋 [LWSM-1394] **Take Dependabot's ruff and setuptools bumps by hand.**
+- ✅ [LWSM-1394] **Take Dependabot's ruff and setuptools bumps by hand.**
   Open Dependabot PRs on 2026-10-07: #12 ruff 0.16.1 -> 0.16.10 and #3
   setuptools 83.0.0 -> 84.0.0. Do each by hand in its own commit, as
   setup-uv was (bce99fa): read dependencies-overrides.md first, resolve
@@ -11498,6 +11498,10 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Offered to the user, not yet approved.
   Decided (user, 2026-10-07): approved. Do it after LWSM-1034 ships,
   not before.
+  Resolved (2026-10-08): ruff 0.16.10 (3b61fac), setuptools 84.0.0
+  (b5a83b2), and under D2 PySide6 6.12.0 (75333f5), each its own commit,
+  all latest per PyPI. ADR-0003's hasattr still False. local-ci.sh: 2403
+  passed. 6.12's added webengine/pdf wheels filed as LWSM-1397.
   **Layman:** Two of the project's tools have newer versions waiting; update them.
   Kind: chore.
   Source: in-session-2026-10-07.
