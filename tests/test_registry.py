@@ -904,6 +904,8 @@ def every_field_record() -> ProjectRecord:
         actions=('{"kind":"open_url","label":"Docs"}',),
         added="2026-08-12T14:03:11Z",
         browser="firefox.desktop",
+        health_check=True,
+        health_path="/health?full=1",
     )
 
 
@@ -944,6 +946,77 @@ def test_write_then_load_round_trips(tmp_path: Path) -> None:
         record.path for record in written
     ]
     assert result.reasons == []
+    assert result.rows_refused == 0
+
+
+def test_a_file_without_the_health_keys_loads_with_checking_off(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1034 INV-3: both keys are optional inside schema v1, and `null`
+    for either is the default rather than a refusal, as `hidden` is."""
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [
+                {"path": "/srv/a", "name": "a"},
+                {
+                    "path": "/srv/b",
+                    "name": "b",
+                    "health_check": None,
+                    "health_path": None,
+                },
+            ],
+        },
+    )
+
+    result = load_projects(path)
+
+    assert [(r.health_check, r.health_path) for r in result.records] == [
+        (False, None),
+        (False, None),
+    ]
+    assert result.reasons == []
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("health_check", "yes"),
+        ("health_check", 1),
+        ("health_path", 7),
+        ("health_path", "health"),
+        ("health_path", "/a b"),
+        ("health_path", "/a#b"),
+        ("health_path", "/\u00e9"),
+        ("health_path", "/a\n"),
+        ("health_path", "/" + "a" * registry.MAX_HEALTH_PATH_CHARS),
+    ],
+)
+def test_a_bad_health_field_loses_only_itself(tmp_path: Path, key, value) -> None:
+    """LWSM-1034 INV-3. The page becomes a request line sent to someone else's
+    server, so a type check alone would let `health` and a newline through.
+    One reason, the field at its default, the row kept, and the field named as
+    a USER refusal — which is what blocks an export (LWSM-1215)."""
+    good = {"health_check": True, "health_path": "/ok"}
+    path = write(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "projects": [{"path": "/srv/a", "name": "a", **good, key: value}],
+        },
+    )
+
+    result = load_projects(path)
+
+    (record,) = result.records
+    default = getattr(ProjectRecord(path=Path("/x"), name="x"), key)
+    assert getattr(record, key) == default
+    other = "health_path" if key == "health_check" else "health_check"
+    assert getattr(record, other) == good[other], "the other field was lost too"
+    assert len(result.reasons) == 1, result.reasons
+    assert key in result.reasons[0]
+    assert result.user_fields_refused == frozenset({key})
     assert result.rows_refused == 0
 
 
@@ -1426,6 +1499,9 @@ def test_a_rescan_never_writes_a_user_field(tmp_path: Path) -> None:
         start_at_login=True,
         actions=('{"kind":"open_url"}',),
         added="2026-08-01T00:00:00Z",
+        # LWSM-1034 INV-4: a rescan that cleared these would turn checking off.
+        health_check=True,
+        health_path="/health",
     )
 
     result = registry.merge(
@@ -2191,6 +2267,9 @@ def test_an_imported_project_this_machine_has_never_seen_brings_no_actions() -> 
     [
         ("launcher_override", "./mine.sh", "./theirs.sh"),
         ("start_at_login", False, True),
+        # LWSM-1034 INV-4: a profile neither turns checking on nor picks the page.
+        ("health_check", False, True),
+        ("health_path", "/mine", "/admin/reset"),
     ],
 )
 def test_an_import_never_takes_a_start_command_or_start_at_login(
@@ -2211,7 +2290,12 @@ def test_an_import_never_takes_a_start_command_or_start_at_login(
     assert getattr(kept, field) == mine, "the profile's value replaced this one"
     default = getattr(registry.ProjectRecord(path=Path("/x"), name="x"), field)
     assert getattr(added, field) == default, "a new project brought the value in"
-    words = {"launcher_override": "start command", "start_at_login": "at login"}
+    words = {
+        "launcher_override": "start command",
+        "start_at_login": "at login",
+        "health_check": "health check setting",
+        "health_path": "health check page",
+    }
     assert any(words[field] in reason for reason in merged.reasons), merged.reasons
 
 

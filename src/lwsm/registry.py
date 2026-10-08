@@ -13,6 +13,7 @@ from __future__ import annotations
 import enum
 import json
 import os
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import MISSING as _NO_DEFAULT
 from dataclasses import dataclass, replace
@@ -66,6 +67,21 @@ MAX_RECORDS = 1000
 # ADR-0005's 1024-65535 floor governs the *override*, which the user types.
 DECLARED_PORT_RANGE = (1, 65535)
 OVERRIDE_PORT_RANGE = (1024, 65535)
+
+# The page a health check asks for (LWSM-1034 § 4.3). It becomes the request
+# line `health.ask` sends to someone else's server, so it is held to RFC 3986's
+# path-and-query characters: no space, no control character, no `#`, nothing
+# outside ASCII, and a leading `/` so it can only ever be a path on that server.
+MAX_HEALTH_PATH_CHARS = 512
+HEALTH_PATH_PATTERN = re.compile(r"\A/[A-Za-z0-9\-._~!$&'()*+,;=:@/%?]*\Z")
+
+
+def health_path_ok(value: str) -> bool:
+    """The one test the loader and the menu both apply (LWSM-1034 § 4.3)."""
+    return (
+        len(value) <= MAX_HEALTH_PATH_CHARS
+        and HEALTH_PATH_PATTERN.match(value) is not None
+    )
 
 
 class LauncherKind(enum.Enum):
@@ -188,6 +204,12 @@ class ProjectRecord:
     # observation rather than a choice, so classified DETECTED: an import
     # clears it, and a rescan keeps it only while `port` is unchanged.
     confirmed_port: int | None = None
+    # Whether the app asks this project's site for a page while it runs, and
+    # which page; None means `/` (LWSM-1034). The user's choice, so USER, and
+    # never taken from an imported profile: together they decide what request
+    # this app sends to a server.
+    health_check: bool = False
+    health_path: str | None = None
     # Keys this build does not recognise, kept so it cannot delete what a
     # newer one wrote. Pairs of (key, canonical JSON text), sorted — the shape
     # `actions` uses and for its reason: a `dict` here would make the frozen
@@ -246,6 +268,8 @@ USER_FIELDS: frozenset[str] = frozenset(
         "actions",
         "added",
         "browser",
+        "health_check",
+        "health_path",
         # See `ProjectRecord.unknown`: preserved by a rescan, which is what
         # this half means. INV-1 requires every field to be in exactly one.
         "unknown",
@@ -386,6 +410,19 @@ def _bool_or_reason(value: object, field: str, name: str) -> tuple[bool, str | N
     if type(value) is not bool:
         return False, f"{name}: {field} {quoted(value)} is not true or false"
     return value, None
+
+
+def _health_path_or_reason(value: object, name: str) -> tuple[str | None, str | None]:
+    """`health_path`: None, or a page `health_path_ok` accepts (LWSM-1034 § 4.3)."""
+    page, reason = _string_or_reason(value, "health_path", name)
+    if reason or page is None:
+        return None, reason
+    if not health_path_ok(page):
+        return None, (
+            f"{name}: health_path {quoted(page)} is not a page starting with / "
+            "and holding only URL path characters"
+        )
+    return page, None
 
 
 def _kind_or_reason(value: object, name: str) -> tuple[LauncherKind | None, str | None]:
@@ -819,7 +856,7 @@ def load_projects(path: Path) -> LoadResult:
         if reason:
             note_field("confirmed_port", reason)
 
-        # The remaining ten keys, each defaulting when absent and each losing
+        # The remaining keys, each defaulting when absent and each losing
         # only itself when present at the wrong type. Collected through one list
         # so no field can be parsed and then forgotten on the way to the record —
         # the shape an earlier draft of § 4.2 missed `kind` through.
@@ -844,6 +881,11 @@ def load_projects(path: Path) -> LoadResult:
             ("actions", _actions_or_reason(entry.get("actions"), name)),
             ("added", _added_or_reason(entry.get("added"), name)),
             ("browser", _string_or_reason(entry.get("browser"), "browser", name)),
+            (
+                "health_check",
+                _bool_or_reason(entry.get("health_check"), "health_check", name),
+            ),
+            ("health_path", _health_path_or_reason(entry.get("health_path"), name)),
         ]
         for field_name, (_value, reason) in fields_and_reasons:
             if reason:
@@ -859,6 +901,8 @@ def load_projects(path: Path) -> LoadResult:
             actions,
             added,
             browser,
+            health_check,
+            health_path,
         ) = (value for _field, (value, _reason) in fields_and_reasons)
 
         # Everything this build has no name for. Serialised to canonical text
@@ -884,6 +928,8 @@ def load_projects(path: Path) -> LoadResult:
                 actions=actions,
                 added=added,
                 browser=browser,
+                health_check=health_check,
+                health_path=health_path,
                 port_from=port_from,
                 port_conflicts=port_conflicts,
                 confirmed_port=confirmed,
@@ -951,6 +997,8 @@ def _serialised(record: ProjectRecord) -> dict[str, object]:
         "actions": [json.loads(action) for action in record.actions],
         "added": record.added,
         "browser": record.browser,
+        "health_check": record.health_check,
+        "health_path": record.health_path,
     }
     # Written back exactly as they arrived, and never over a key this writer
     # owns (LWSM-1218). The loader cannot produce a collision — it collects
@@ -1743,16 +1791,20 @@ _NOT_RESTORED_BY_IMPORT = frozenset({"unknown"})
 
 # The user fields that run something, which an import never takes, on either
 # branch: a profile is a file someone can hand you (LWSM-1344 for `actions`,
-# LWSM-1369 for the other two; user, 2026-10-01). Excluded in `merge_imported`
-# rather than in `user_half_applied`, whose other caller is the rescan, where
-# these ARE the user's. Each maps to the words the import report uses.
+# LWSM-1369 for the next two; user, 2026-10-01). The health pair joins them
+# because it decides what request this app sends to a server (LWSM-1034).
+# Excluded in `merge_imported` rather than in `user_half_applied`, whose other
+# caller is the rescan, where these ARE the user's. Each maps to the words the
+# import report uses.
 NEVER_IMPORTED_FIELDS: frozenset[str] = frozenset(
-    {"actions", "launcher_override", "start_at_login"}
+    {"actions", "launcher_override", "start_at_login", "health_check", "health_path"}
 )
 _NEVER_IMPORTED_WORDS = {
     "actions": "custom actions were",
     "launcher_override": "start command was",
     "start_at_login": "start at login setting was",
+    "health_check": "health check setting was",
+    "health_path": "health check page was",
 }
 
 

@@ -33,6 +33,7 @@ CORE_MODULES = [
     "configfile.py",
     "controller.py",
     "foreign.py",
+    "health.py",
     "placement.py",
     "service.py",
     "ports.py",
@@ -116,6 +117,14 @@ def test_core_never_imports_qtwidgets(module: str) -> None:
         f"{module} is a core module: a QtWidgets import is what makes it "
         f"need a display — found {sorted(offenders)}"
     )
+
+
+def test_the_health_module_imports_no_qt_at_all() -> None:
+    """INV-13 of LWSM-1034. Stricter than the core rule, as `ports.py` is: the
+    request runs on a pool thread, and a `QObject` grown here to emit from would
+    tie the one module that talks to a project's server to the event loop."""
+    offenders = {name for name in imported_names("health.py") if "PySide6" in name}
+    assert not offenders, f"health.py imports Qt: {sorted(offenders)}"
 
 
 def test_the_core_module_list_matches_the_criterion() -> None:

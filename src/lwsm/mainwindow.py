@@ -62,6 +62,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -88,6 +89,7 @@ from lwsm import (
 from lwsm.configfile import ConfigFileError, display_text, quoted
 from lwsm.controller import (
     RUNNING_STATES,
+    HealthAnswer,
     ProjectController,
     ProjectStatus,
     RowView,
@@ -392,6 +394,26 @@ def port_cell_text(row: RowView) -> str:
     is only as wide as its longer line. `ProjectRow` joins the lines with a
     space wherever the text is read aloud.
     """
+    lines = _port_lines(row)
+    if row.health is not None:
+        lines = f"{lines}\n{health_text(row.health)}"
+    return lines
+
+
+def port_cell_spoken(row: RowView) -> str:
+    """The port cell as a screen reader hears it: one phrase, then the answer.
+
+    The confidence word joins with a space (LWSM-1393), the health answer with
+    a comma, so it is heard as a second fact: "port 5005 (confirmed), HTTP 500"
+    (LWSM-1034 § 4.4).
+    """
+    spoken = _port_lines(row).replace("\n", " ")
+    if row.health is not None:
+        spoken = f"{spoken}, {health_text(row.health)}"
+    return spoken
+
+
+def _port_lines(row: RowView) -> str:
     port = row.effective_port
     if port is None or row.port_overridden:
         return port_text(port)
@@ -402,6 +424,21 @@ def port_cell_text(row: RowView) -> str:
     else:
         word = QCoreApplication.translate("ProjectRow", "(detected)")
     return f"{port_text(port)}\n{word}"
+
+
+def health_text(answer: HealthAnswer) -> str:
+    """The health check's answer as the port cell's last line (LWSM-1034).
+
+    In the PORT cell, not under the state word: measured in the suite's font,
+    `no response` is 73 px against the state column's 54 px floor, which pushed
+    the widest row past the 600 px lens, while the port cell's widest line,
+    `(sources differ)`, is 91 px (the user, 2026-10-07).
+    """
+    if answer.code is None:
+        return QCoreApplication.translate("ProjectRow", "no response")
+    return QCoreApplication.translate("ProjectRow", "HTTP %1").replace(
+        "%1", str(answer.code)
+    )
 
 
 def rule_words(rule: PortRule) -> str:
@@ -472,6 +509,30 @@ def port_detail(row: RowView) -> str:
                     QCoreApplication.translate("ProjectRow", "%1 says %2."),
                     display_text(conflict.source),
                     str(conflict.port),
+                )
+            )
+    if row.health is not None:
+        # The page through `display_text`, as every source above is: the
+        # loader refuses a page that is not path-shaped, and this is the
+        # widget-side half of that boundary (LWSM-1034 INV-12).
+        page = display_text(row.health_path)
+        if row.health.code is None:
+            sentences.append(
+                _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow", "The site gave no HTTP answer to %1."
+                    ),
+                    page,
+                )
+            )
+        else:
+            sentences.append(
+                _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow", "The site answered HTTP %1 to %2."
+                    ),
+                    str(row.health.code),
+                    page,
                 )
             )
     return " ".join(sentences)
@@ -739,6 +800,14 @@ class ProjectRow(QFrame):
         # would mean hashing the launcher on every poll.
         self.forget_trust_action = QAction(self)
         self.addAction(self.forget_trust_action)
+        # LWSM-1034 § 4.4: the health check is switched on here, the only
+        # per-project control the row has room for. Checkable, so the menu
+        # shows whether it is on.
+        self.health_action = QAction(self)
+        self.health_action.setCheckable(True)
+        self.addAction(self.health_action)
+        self.health_page_action = QAction(self)
+        self.addAction(self.health_page_action)
 
         # Two layouts, not one: the cells and controls across, and the failure
         # message under them (LWSM-1032). A message beside the controls would
@@ -1492,11 +1561,20 @@ class ProjectRow(QFrame):
         self.forget_trust_action.setText(
             QCoreApplication.translate("ProjectRow", "&Ask before starting again")
         )
+        self.health_action.setText(
+            QCoreApplication.translate("ProjectRow", "Check that the site &answers")
+        )
+        # `setChecked` emits `toggled`, never `triggered`, which is the one the
+        # window connects: a poll cannot write the registry through this.
+        self.health_action.setChecked(row.health_check)
+        self.health_page_action.setText(
+            QCoreApplication.translate("ProjectRow", "Change the page it &checks…")
+        )
         cell = port_cell_text(row)
         self._port.setText(cell)
         # One phrase when spoken: a line break read aloud is a pause in the
         # middle of "port 5005 (confirmed)", or nothing at all (LWSM-1393).
-        self._port.setAccessibleName(cell.replace("\n", " "))
+        self._port.setAccessibleName(port_cell_spoken(row))
         # Hover for a pointer, the description for a screen reader; the
         # disagreement itself is in the cell text above (LWSM-1385 § 4.5).
         detail = port_detail(row)
@@ -3464,6 +3542,80 @@ class MainWindow(QMainWindow):
             )
         )
 
+    def set_project_health_check(self, path: Path, on: bool) -> None:
+        """Turn one project's health check on or off (LWSM-1034 § 4.4).
+
+        `set_project_browser`'s shape, through the same `_write_records`.
+        """
+        records = [
+            replace(record, health_check=on) if record.path == path else record
+            for record in self._controller.records()
+        ]
+        name = next((r.name for r in records if r.path == path), path.name)
+        message = (
+            QCoreApplication.translate(
+                "ProjectRow", "%1: the site is now checked every 10 seconds"
+            )
+            if on
+            else QCoreApplication.translate("ProjectRow", "%1: the site is not checked")
+        ).replace("%1", name)
+        self.set_status_message(self._write_records(records, message, "health check"))
+
+    def change_health_page(self, path: Path) -> None:
+        """Ask for the page the health check requests, and save it (§ 4.4).
+
+        Cancelled changes nothing; empty means the front page. A page the
+        loader would refuse is refused HERE too, by the same test: saving one
+        would only have it dropped and reported on the next start.
+        """
+        record = self._record_at(path)
+        if record is None:
+            return
+        answer = self._ask_health_page(record.name, record.health_path or "/")
+        if answer is None:
+            return
+        page = answer.strip() or None
+        if page is not None and not registry.health_path_ok(page):
+            self.set_status_message(
+                QCoreApplication.translate(
+                    "ProjectRow", "A page starts with / and has no spaces"
+                )
+            )
+            return
+        records = [
+            replace(r, health_path=page) if r.path == path else r
+            for r in self._controller.records()
+        ]
+        message = _filled(
+            QCoreApplication.translate("ProjectRow", "%1 checks %2"),
+            record.name,
+            display_text(page or "/"),
+        )
+        self.set_status_message(self._write_records(records, message, "health page"))
+
+    def _record_at(self, path: Path) -> ProjectRecord | None:
+        return next((r for r in self._controller.records() if r.path == path), None)
+
+    def _ask_health_page(self, name: str, current: str) -> str | None:
+        """The text the user typed, or None if they cancelled.
+
+        A seam: the dialog is modal, so tests replace this rather than drive
+        `QInputDialog` (LWSM-1034 INV-11).
+        """
+        text, accepted = QInputDialog.getText(
+            self,
+            QCoreApplication.translate("ProjectRow", "Health check"),
+            _filled(
+                QCoreApplication.translate(
+                    "ProjectRow", "Page to ask %1 for, such as /health:"
+                ),
+                display_text(name),
+            ),
+            QLineEdit.EchoMode.Normal,
+            current,
+        )
+        return text if accepted else None
+
     def _save_confirmed_ports(self) -> None:
         """Save a port a poll saw a project running on (LWSM-1038 § 4.3).
 
@@ -3844,6 +3996,14 @@ class MainWindow(QMainWindow):
                 )
                 widget.forget_trust_action.triggered.connect(
                     lambda _checked=False, p=path: self.forget_trust(p)
+                )
+                widget.health_action.triggered.connect(
+                    lambda checked=False, p=path: self.set_project_health_check(
+                        p, checked
+                    )
+                )
+                widget.health_page_action.triggered.connect(
+                    lambda _checked=False, p=path: self.change_health_page(p)
                 )
                 # Same binding, same reason. `update_from` blocks this signal
                 # while it sets the box from the poll, so reaching here means a

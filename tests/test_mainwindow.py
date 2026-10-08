@@ -8747,3 +8747,173 @@ def test_the_window_saves_a_confirmed_port_once(
     (saved,) = saves[0][1]
     assert saved.confirmed_port == 3000
     window.shutdown()
+
+
+# --- LWSM-1034: the health check on the row -----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("answer", "line", "spoken"),
+    [
+        (None, None, "port 5002 (confirmed)"),
+        (
+            controller_module.HealthAnswer(500),
+            "HTTP 500",
+            "port 5002 (confirmed), HTTP 500",
+        ),
+        (
+            controller_module.HealthAnswer(None),
+            "no response",
+            "port 5002 (confirmed), no response",
+        ),
+    ],
+    ids=["no answer to show", "an error", "no answer"],
+)
+def test_the_answer_is_the_port_cells_last_line(qtbot, answer, line, spoken) -> None:
+    """INV-9 of LWSM-1034: on screen a line of its own, aloud a second fact
+    after a comma. Dies on the line put under the state word, or on the raw
+    newline reaching the accessible name."""
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            status=ProjectStatus.RUNNING,
+            effective_port=5002,
+            port_confirmed=True,
+            health=answer,
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    lines = row._port.text().split("\n")
+    assert lines[:2] == ["port 5002", "(confirmed)"]
+    assert lines[2:] == ([] if line is None else [line])
+    assert row._state.text() == "running", "the answer leaked into the state cell"
+    assert row._port.accessibleName() == spoken
+    assert spoken in row.accessibleName()
+
+
+def test_the_widest_port_wording_with_an_answer_still_fits_one_lens_view(
+    qtbot, built, tmp_path
+) -> None:
+    """INV-10 of LWSM-1034: `test_the_widest_port_wording_still_fits_one_lens_view`
+    with the widest answer added. Under the state word, `no response` measured
+    73 px against the state column's 54 px floor."""
+    window, _ = browser_window(
+        qtbot,
+        built,
+        tmp_path,
+        [
+            dataclasses.replace(
+                record("customer-dashboard-frontend-v2", 65535),
+                port_conflicts=CONFLICT,
+            )
+        ],
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    window.resize(1400, window.height())
+    qtbot.waitUntil(lambda: window.width() == 1400, timeout=2000)
+    row = rows_of(window)[0]
+    assert row._view is not None
+    row.update_from(
+        dataclasses.replace(row._view, health=controller_module.HealthAnswer(None))
+    )
+    QApplication.processEvents()
+
+    assert row._port.text() == "port 65535\n(sources differ)\nno response"
+    assert row.browser_box.isVisible(), "the picker must actually be in the row"
+    right_edge = row.open_button.geometry().right()
+    assert right_edge <= READABLE_BAND_PX, (
+        f"the row's controls end at x={right_edge}, outside the "
+        f"{READABLE_BAND_PX} px lens the user has to read it through"
+    )
+
+
+def test_the_menu_turns_the_health_check_on_and_off(qtbot, built, tmp_path) -> None:
+    """INV-11 of LWSM-1034: each trigger saves the switch and nothing else."""
+    saves: list = []
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [record("a", 3000)], saves
+    )
+    action = row_named(window, "a").health_action
+    assert not action.isChecked()
+
+    action.trigger()
+    assert controller.records()[0].health_check is True
+    assert row_named(window, "a").health_action.isChecked()
+    row_named(window, "a").health_action.trigger()
+
+    assert [r.health_check for _path, records, _load in saves for r in records] == [
+        True,
+        False,
+    ]
+    assert controller.records()[0] == record("a", 3000)
+
+
+@pytest.mark.parametrize(
+    ("typed", "stored", "saved"),
+    [
+        ("/health", "/health", True),
+        ("", None, True),
+        (None, "/before", False),
+        ("health", "/before", False),
+    ],
+    ids=["a page", "empty is the front page", "cancelled", "refused"],
+)
+def test_the_menu_changes_the_page_it_checks(
+    qtbot, built, tmp_path, monkeypatch, typed, stored, saved
+) -> None:
+    """INV-11 of LWSM-1034: a page the loader would refuse is refused here,
+    or the next start drops it and reports it."""
+    saves: list = []
+    window, controller = browser_window(
+        qtbot,
+        built,
+        tmp_path,
+        [dataclasses.replace(record("a", 3000), health_path="/before")],
+        saves,
+    )
+    asked: list[tuple[str, str]] = []
+
+    def ask(name: str, current: str) -> str | None:
+        asked.append((name, current))
+        return typed
+
+    monkeypatch.setattr(window, "_ask_health_page", ask)
+    row_named(window, "a").health_page_action.trigger()
+
+    assert asked == [("a", "/before")]
+    assert controller.records()[0].health_path == stored
+    assert bool(saves) is saved
+    if typed == "health":
+        assert message_of(window) == "A page starts with / and has no spaces"
+
+
+def test_a_hostile_page_reaches_the_detail_as_plain_text(qtbot) -> None:
+    """INV-12 of LWSM-1034: the loader refuses such a page, so this guards the
+    widget-side half — the row never renders what it is handed."""
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            status=ProjectStatus.RUNNING,
+            effective_port=5002,
+            health_path="/<b>x</b>\u0007",
+            health=controller_module.HealthAnswer(None),
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    detail = row.accessibleDescription()
+    assert "\u0007" not in detail
+    assert "�" in detail
+    assert "The site gave no HTTP answer to /<b>x</b>\ufffd." in detail
+    # Escaped for the tooltip's rich-text renderer: the tags are shown, not drawn.
+    assert "&lt;b&gt;" in row._port.toolTip()

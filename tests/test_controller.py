@@ -3346,3 +3346,260 @@ def test_a_confirmed_port_never_makes_a_server_ours(controllers, monkeypatch) ->
     (row,) = controller.rows()
     assert row.status is ProjectStatus.RUNNING_FOREIGN
     assert row.managed is False
+
+
+# --- LWSM-1034: the health check --------------------------------------------
+
+
+class FakeAsk:
+    """Stands in for `health.ask`: records each call, answers `code`.
+
+    `gate`, when set, holds every call open until released, so a test can act
+    while a check is still out. `raise_first` makes the first call raise
+    something `ask` never raises, the INV-8 case.
+    """
+
+    def __init__(self, code: int | None = 200) -> None:
+        self.code = code
+        self.calls: list[tuple[int, str]] = []
+        self.gate: threading.Event | None = None
+        self.started = threading.Event()
+        self.returned = threading.Event()
+        self.raise_first = False
+
+    def __call__(self, port: int, path: str, **_kwargs: object) -> int | None:
+        self.calls.append((port, path))
+        self.started.set()
+        try:
+            if self.gate is not None:
+                self.gate.wait(timeout=5)
+            if self.raise_first:
+                self.raise_first = False
+                raise RuntimeError("a defect inside ask")
+            return self.code
+        finally:
+            self.returned.set()
+
+
+@pytest.fixture
+def fake_ask(monkeypatch) -> FakeAsk:
+    fake = FakeAsk()
+    monkeypatch.setattr(controller_module.health, "ask", fake)
+    return fake
+
+
+def checked(name: str, port: int = 5005, **changes: object) -> ProjectRecord:
+    return replace(record(name, port), health_check=True, **changes)
+
+
+def polled(qtbot, controllers, records, *listening: int) -> ProjectController:
+    controller = build(controllers, records, FakeProbe(*listening))
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    return controller
+
+
+def ask_and_settle(qtbot, controller: ProjectController) -> None:
+    """One round of checks, every call finished and every answer delivered."""
+    controller.check_health_once()
+    assert controller._health_pool.waitForDone(3000), "a check never finished"
+    qtbot.wait(50)
+
+
+def test_only_a_running_project_with_its_check_on_is_asked(
+    qtbot, controllers, fake_ask
+) -> None:
+    """INV-5 of LWSM-1034. `b` runs with its check off; `c` has it on and is
+    stopped; `d` has it on, runs, and asks for its own page."""
+    controller = polled(
+        qtbot,
+        controllers,
+        [
+            checked("a", 5005),
+            record("b", 5006),
+            checked("c", 5007),
+            checked("d", 5008, health_path="/health"),
+        ],
+        5005,
+        5006,
+        5008,
+    )
+
+    ask_and_settle(qtbot, controller)
+
+    assert sorted(fake_ask.calls) == [(5005, "/"), (5008, "/health")]
+
+
+@pytest.mark.parametrize("status", list(ProjectStatus))
+def test_only_the_derived_running_state_is_asked(
+    qtbot, controllers, fake_ask, status
+) -> None:
+    """INV-5 of LWSM-1034, over every state: `running (wrong port)` is not on
+    the port asked about, and `running (foreign)` is not this app's to vouch
+    for (§ 3)."""
+    controller = polled(qtbot, controllers, [checked("a")], 5005)
+    controller._statuses[Path("/srv/a")] = status
+
+    ask_and_settle(qtbot, controller)
+
+    assert bool(fake_ask.calls) is (status is ProjectStatus.RUNNING)
+
+
+def test_a_running_project_under_a_stopping_overlay_is_still_asked(
+    qtbot, controllers, fake_ask
+) -> None:
+    """INV-5 of LWSM-1034: the ask reads the DERIVED status, not `_status_of`."""
+    controller = polled(qtbot, controllers, [checked("a")], 5005)
+    controller._set_overlay(Path("/srv/a"), ProjectStatus.STOPPING)
+
+    ask_and_settle(qtbot, controller)
+
+    assert fake_ask.calls == [(5005, "/")]
+
+
+def test_a_project_still_waiting_is_not_asked_again(
+    qtbot, controllers, fake_ask
+) -> None:
+    """INV-5 of LWSM-1034: skipped, not queued, while its last call is out."""
+    controller = polled(qtbot, controllers, [checked("a")], 5005)
+    fake_ask.gate = threading.Event()
+
+    controller.check_health_once()
+    assert fake_ask.started.wait(3), "the first check never started"
+    controller.check_health_once()
+    fake_ask.gate.set()
+    assert controller._health_pool.waitForDone(3000)
+    qtbot.wait(50)
+
+    assert fake_ask.calls == [(5005, "/")]
+    assert controller.rows()[0].health == controller_module.HealthAnswer(200)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"health_path": "/other"},
+        {"port_override": 8080},
+        {"health_check": False},
+    ],
+)
+def test_an_answer_for_an_old_port_or_page_is_not_shown(
+    qtbot, controllers, fake_ask, change
+) -> None:
+    """INV-6 of LWSM-1034: the record changed while its check was out."""
+    controller = polled(qtbot, controllers, [checked("a")], 5005)
+    fake_ask.gate = threading.Event()
+    controller.check_health_once()
+    assert fake_ask.started.wait(3)
+
+    controller.set_records([replace(controller.records()[0], **change)])
+    fake_ask.gate.set()
+    assert controller._health_pool.waitForDone(3000)
+    qtbot.wait(50)
+
+    assert controller.rows()[0].health is None
+    assert controller._health == {}
+
+
+def test_an_answer_is_dropped_once_a_poll_says_the_project_stopped(
+    qtbot, controllers, fake_ask
+) -> None:
+    """INV-6 of LWSM-1034."""
+    probe = FakeProbe(5005)
+    controller = build(controllers, [checked("a")], probe)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    ask_and_settle(qtbot, controller)
+    assert controller.rows()[0].health == controller_module.HealthAnswer(200)
+
+    probe.listening.clear()
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.rows()[0].status is ProjectStatus.STOPPED
+    assert controller.rows()[0].health is None
+    assert controller._health == {}
+
+
+def test_an_answer_is_hidden_under_an_overlay_and_shown_after_it(
+    qtbot, controllers, fake_ask
+) -> None:
+    """INV-6 of LWSM-1034: `rows` reads `_status_of`, so a `stopping` row shows
+    no health line, and the same stored answer shows again once it clears."""
+    controller = polled(qtbot, controllers, [checked("a")], 5005)
+    ask_and_settle(qtbot, controller)
+    path = Path("/srv/a")
+
+    controller._set_overlay(path, ProjectStatus.STOPPING)
+    assert controller.rows()[0].health is None
+
+    controller._clear_overlay(path)
+    assert controller.rows()[0].health == controller_module.HealthAnswer(200)
+
+
+def test_no_answer_is_delivered_after_stop(qtbot, controllers, fake_ask) -> None:
+    """INV-7 of LWSM-1034, LWSM-1005 INV-16's shape: the call COMPLETES before
+    stop(), so its emission is already posted when stop() returns."""
+    controller = polled(qtbot, controllers, [checked("a")], 5005)
+    emissions: list[int] = []
+    controller.projects_changed.connect(lambda: emissions.append(1))
+
+    controller.check_health_once()
+    assert fake_ask.returned.wait(3), "the check never ran"
+    time.sleep(0.05)
+    controller.stop()
+    qtbot.wait(200)
+
+    assert emissions == [], "an answer arrived after stop() returned"
+    assert controller._health == {}
+
+
+def test_stop_is_bounded_when_a_health_check_never_returns(
+    qtbot, controllers, fake_ask, monkeypatch
+) -> None:
+    """INV-7 of LWSM-1034: the health pool's wait is bounded like the others."""
+    monkeypatch.setattr(controller_module, "STOP_WAIT_MS", 100)
+    controller = polled(qtbot, controllers, [checked("a")], 5005)
+    gate = threading.Event()
+    fake_ask.gate = gate
+    controller.check_health_once()
+    assert fake_ask.started.wait(3)
+
+    started = time.perf_counter()
+    controller.stop()
+    elapsed = time.perf_counter() - started
+
+    budget = controller_module.STOP_WAIT_MS / 1000
+    assert elapsed < budget * 5, (
+        f"stop() blocked for {elapsed:.2f}s against a {budget:.2f}s budget"
+    )
+    gate.set()
+    controller_module.wait_for_abandoned_pools(2000)
+
+
+def test_a_defect_inside_ask_leaves_the_project_checkable(
+    qtbot, controllers, fake_ask
+) -> None:
+    """INV-8 of LWSM-1034: an exception escaping `run()` would be swallowed by
+    PySide6 and leave the in-flight mark set, so the project is never asked
+    again."""
+    controller = polled(qtbot, controllers, [checked("a")], 5005)
+    fake_ask.raise_first = True
+
+    ask_and_settle(qtbot, controller)
+    assert controller.rows()[0].health is None
+    ask_and_settle(qtbot, controller)
+
+    assert len(fake_ask.calls) == 2, "the second tick did not ask"
+    assert controller.rows()[0].health == controller_module.HealthAnswer(200)
+
+
+def test_polling_arms_the_health_check_every_ten_seconds(
+    qtbot, controllers, fake_ask
+) -> None:
+    """LWSM-1034 § 4.2: without this the feature asks nothing in the real app."""
+    controller = build(controllers, [checked("a")], FakeProbe(5005))
+    controller.start_polling()
+
+    assert controller._health_timer.isActive()
+    assert controller._health_timer.interval() == 10_000

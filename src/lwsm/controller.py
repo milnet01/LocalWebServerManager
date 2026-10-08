@@ -21,6 +21,7 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
+from lwsm import health
 from lwsm.configfile import display_text
 from lwsm.foreign import Tree, TreeOutcome, looks_like, stop_tree
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
@@ -64,6 +65,12 @@ POLL_INTERVAL_MS = DEFAULT_POLL_INTERVAL_MS
 # times out into a *state* (ADR-0004, "slowness is not failure") — the display
 # stays stale, and only the app's ability to quit is bounded.
 STOP_WAIT_MS = 2000
+
+# How often a project with its health check on is asked for its page, and how
+# many may be asked at once (LWSM-1034 § 4.2, the user 2026-10-07). Its own
+# timer and pool: a slow server must never hold the one-second status poll.
+HEALTH_INTERVAL_MS = 10_000
+HEALTH_THREADS = 4
 
 # Pools abandoned by stop() because their probe was still running. The list
 # exists because ~QThreadPool calls waitForDone() with NO timeout, so letting
@@ -308,6 +315,22 @@ class SupportsTrust(Protocol):
 
 
 @dataclass(frozen=True)
+class HealthAnswer:
+    """What a project's site said to its last health check (LWSM-1034 § 4.2).
+
+    In memory only: it describes the server a few seconds ago, and a saved one
+    would show a stale answer after a restart.
+    """
+
+    code: int | None  # None: no HTTP answer
+
+
+def _health_page(record: ProjectRecord) -> str:
+    """The page a health check asks for; None in the record means `/`."""
+    return record.health_path or "/"
+
+
+@dataclass(frozen=True)
 class RowView:
     """Everything one row renders.
 
@@ -365,6 +388,12 @@ class RowView:
     # of the effective port supplies it, so never beside `port_overridden`.
     port_confirmed: bool = False
     confirmed_port: int | None = None
+    # The health check's switch and page, and the last answer to show (LWSM-1034
+    # § 4.2). `health` is None whenever there is nothing to show — checking off,
+    # no answer yet, or the row not reading `running`.
+    health_check: bool = False
+    health_path: str = "/"
+    health: HealthAnswer | None = None
 
 
 def _port_seen_by_our_group(record: ProjectRecord, ours: frozenset[int]) -> int | None:
@@ -460,6 +489,44 @@ class _SnapshotTask(QRunnable):
             # at DEBUG that had no record at all (LWSM-1251, the rescan task's
             # twin — the same clause, the same argument).
             log.warning("the port probe ended without reporting", exc_info=True)
+
+
+class _HealthSignals(QObject):
+    done = Signal(object, object, object, object)  # path, port, page, answer
+
+
+class _HealthTask(QRunnable):
+    """One health check on a pool thread (LWSM-1034 § 4.2).
+
+    `_SnapshotTask`'s two layers, for its reason: PySide6 swallows an exception
+    escaping `run()` and emits nothing, which here would leave the project's
+    in-flight mark set and it would never be asked again. A defect inside
+    `ask` is therefore logged and delivered as "no answer to show".
+    """
+
+    def __init__(
+        self, path: Path, port: int, page: str, signals: _HealthSignals
+    ) -> None:
+        super().__init__()
+        self._path = path
+        self._port = port
+        self._page = page
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            try:
+                answer: HealthAnswer | None = HealthAnswer(
+                    health.ask(self._port, self._page)
+                )
+            except BaseException:
+                log.warning("the health check raised unexpectedly", exc_info=True)
+                answer = None
+            self._signals.done.emit(self._path, self._port, self._page, answer)
+        except RuntimeError:
+            log.debug("health check ended with no live signaller", exc_info=True)
+        except BaseException:
+            log.warning("the health check ended without reporting", exc_info=True)
 
 
 class _ActionSignals(QObject):
@@ -765,6 +832,18 @@ class ProjectController(QObject):
         self._unit_check_in_flight = False
         self._service_pool = QThreadPool(self)
         self._service_pool.setMaxThreadCount(2)
+        # LWSM-1034: the last answer per project, keyed by the port and page it
+        # was asked for so a stale one is never shown, and the projects whose
+        # check is still out. Its own timer and pool (see HEALTH_THREADS).
+        self._health: dict[Path, tuple[int, str, HealthAnswer]] = {}
+        self._health_in_flight: set[Path] = set()
+        self._health_signals = _HealthSignals(self)
+        self._health_signals.done.connect(self._on_health)
+        self._health_timer = QTimer(self)
+        self._health_timer.setInterval(HEALTH_INTERVAL_MS)
+        self._health_timer.timeout.connect(self.check_health_once)
+        self._health_pool = QThreadPool(self)
+        self._health_pool.setMaxThreadCount(HEALTH_THREADS)
 
     def rows(self) -> list[RowView]:
         """File order, so rows do not jump between polls."""
@@ -797,9 +876,74 @@ class ProjectController(QObject):
                     record.port_override is None and record.confirmed_port is not None
                 ),
                 confirmed_port=record.confirmed_port,
+                health_check=record.health_check,
+                health_path=_health_page(record),
+                health=self._health_shown(record),
             )
             for record in self._records
         ]
+
+    def _health_shown(self, record: ProjectRecord) -> HealthAnswer | None:
+        """The stored answer, if it is for this port and page and the row reads
+        `running` (LWSM-1034 § 4.2) — so not under a `starting` or `stopping`
+        overlay, which `_status_of` returns."""
+        stored = self._health.get(record.path)
+        if stored is None or self._status_of(record.path) is not ProjectStatus.RUNNING:
+            return None
+        port, page, answer = stored
+        if port != record.effective_port or page != _health_page(record):
+            return None
+        return answer
+
+    def check_health_once(self) -> None:
+        """Ask each project that wants it, once (LWSM-1034 § 4.2, INV-5).
+
+        On the DERIVED status, not the overlay: a `stopping` row whose server
+        still answers is still asked. A project whose last check is still out is
+        skipped, not queued, as `poll_once` skips a tick.
+        """
+        if self._stopped:
+            return
+        for record in self._records:
+            port = record.effective_port
+            if (
+                not record.health_check
+                or port is None
+                or self._statuses.get(record.path) is not ProjectStatus.RUNNING
+                or record.path in self._health_in_flight
+            ):
+                continue
+            self._health_in_flight.add(record.path)
+            self._health_pool.start(
+                _HealthTask(
+                    record.path, port, _health_page(record), self._health_signals
+                )
+            )
+
+    def _on_health(
+        self, path: Path, port: object, page: object, answer: object
+    ) -> None:
+        """Store an answer only if it still describes the project (INV-6)."""
+        if self._stopped:
+            return
+        self._health_in_flight.discard(path)
+        before = self._health.get(path)
+        record = self._record(path)
+        if (
+            isinstance(answer, HealthAnswer)
+            and isinstance(port, int)
+            and isinstance(page, str)
+            and record is not None
+            and record.health_check
+            and self._statuses.get(path) is ProjectStatus.RUNNING
+            and record.effective_port == port
+            and _health_page(record) == page
+        ):
+            self._health[path] = (port, page, answer)
+        else:
+            self._health.pop(path, None)
+        if self._health.get(path) != before:
+            self.projects_changed.emit()
 
     def _spawning_paths(self) -> set[Path]:
         """The projects we hold a live child for.
@@ -1328,6 +1472,19 @@ class ProjectController(QObject):
             record.path: self._statuses.get(record.path, ProjectStatus.UNKNOWN)
             for record in records
         }
+        # A record that left, turned its check off, or moved its port or page
+        # keeps no answer (LWSM-1034 § 4.2). `rows` would hide it anyway; this
+        # stops it lingering in memory.
+        current = {record.path: record for record in records}
+        for path, (port, page, _answer) in list(self._health.items()):
+            kept = current.get(path)
+            if (
+                kept is None
+                or not kept.health_check
+                or kept.effective_port != port
+                or _health_page(kept) != page
+            ):
+                del self._health[path]
         self.projects_changed.emit()
 
     def set_poll_interval_ms(self, interval_ms: int) -> None:
@@ -1351,6 +1508,7 @@ class ProjectController(QObject):
         # Poll immediately rather than leaving the window blank for a second.
         self.poll_once()
         self._timer.start()
+        self._health_timer.start()
 
     def stop(self) -> None:
         """Timer off, delivery refused, then a bounded wait for the task.
@@ -1369,6 +1527,7 @@ class ProjectController(QObject):
         """
         self._stopped = True
         self._timer.stop()
+        self._health_timer.stop()
         # Otherwise a suppressed run's count dies with the process.
         self._flush_repeated_error()
         self._in_flight = False
@@ -1400,6 +1559,19 @@ class ProjectController(QObject):
             abandon_pool(self._service_pool, self._service_signals)
             self._service_pool = QThreadPool(self)
             self._service_pool.setMaxThreadCount(2)
+
+        # And the health pool (LWSM-1034 INV-7). One call is bounded by
+        # `health.HEALTH_TIMEOUT_SECONDS` per socket operation, not overall, so
+        # a server trickling its reply could otherwise hold the quit.
+        if not self._health_pool.waitForDone(STOP_WAIT_MS):
+            log.warning(
+                "a health check was still running after %d ms; abandoning it so "
+                "the app can quit",
+                STOP_WAIT_MS,
+            )
+            abandon_pool(self._health_pool, self._health_signals)
+            self._health_pool = QThreadPool(self)
+            self._health_pool.setMaxThreadCount(HEALTH_THREADS)
 
     def close_supervisor(self) -> None:
         """Release the supervisor's descriptors and threads, if there is one.
@@ -1609,6 +1781,13 @@ class ProjectController(QObject):
         if confirmed:
             self._records = records
         self._statuses = statuses
+        # An answer belongs to a server that is running; once a poll says the
+        # project is not, it is dropped (LWSM-1034 § 4.2). The status change
+        # itself is what makes this tick emit.
+        for path in [
+            p for p in self._health if statuses.get(p) is not ProjectStatus.RUNNING
+        ]:
+            del self._health[path]
         # Derived from the SAME snapshot as the statuses, in the same tick.
         # Asking the supervisor separately at render time is what LWSM-1167 was
         # -- the answer has to come from the socket table, and this is the only
