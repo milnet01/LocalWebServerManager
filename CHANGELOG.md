@@ -23,6 +23,15 @@ signaling per
 
 ### Added
 
+- **The app can ask a running site whether it works.** (LWSM-1034)
+  Right-click a project and choose "Check that the site answers".
+  While it runs, the app asks it for a page every 10 seconds and
+  shows the answer under its port: "HTTP 200", "HTTP 500" or "no
+  response". So a site that is running but broken no longer looks
+  fine. "Change the page it checks…" picks a page other than the
+  front page. Both choices are saved with the project, and an
+  imported profile cannot turn checking on or change the page.
+
 - **The app remembers the port it saw each project running on.** (LWSM-1038)
   Once a project has run, its row says "confirmed", and the app
   checks, starts and opens it on the port it really used instead of a

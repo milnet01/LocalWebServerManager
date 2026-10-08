@@ -275,9 +275,14 @@ and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
 - **INV-7** — No answer is delivered after `stop()` returns, and the wait on
   `_health_pool` is bounded by `STOP_WAIT_MS` when a health call never
   returns. The pools are waited on one after another; LWSM-1396 owns the total.
-  *Test:* `tests/test_controller.py`, LWSM-1005 INV-16's two shapes applied to
-  the health pool: a completed call before `stop()`, and a blocked one.
-  *Breaks when:* `stop()` waits on the snapshot and service pools only.
+  *Test:* `tests/test_controller.py`, LWSM-1005 INV-16's shapes applied to
+  the health pool: a completed call before `stop()`, a blocked one, and
+  `test_the_process_exits_promptly_when_a_health_check_hangs`, which measures
+  the process.
+  *Breaks when:* `stop()` waits on the snapshot and service pools only. Only
+  the process test sees that: `stop()` still returns at once, and the hang
+  moves to `~QThreadPool` at exit (measured: the two in-process tests stayed
+  green against it).
 
 - **INV-8** — An exception other than those INV-1 names leaves that project
   checkable on the next tick.
@@ -321,7 +326,9 @@ and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
   *Breaks when:* `port_detail` puts `health_path` in without `display_text`.
 
 - **INV-13** — `health.py` imports no Qt.
-  *Test:* `tests/test_layering.py`, `health` added to `CORE_MODULES`.
+  *Test:* `tests/test_layering.py::test_the_health_module_imports_no_qt_at_all`,
+  and `health.py` added to `CORE_MODULES`, whose own check sees `QtWidgets`
+  only and so would pass a `QObject`.
   *Breaks when:* the module grows a `QObject` to emit from.
 
 ## 6. Failure modes

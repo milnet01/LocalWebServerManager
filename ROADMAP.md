@@ -11083,7 +11083,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   build was its review.
   Lanes: core, tests.
 
-- 📋 [LWSM-1034] **P06: health check — bound is not the same as working.**
+- ✅ [LWSM-1034] **P06: health check — bound is not the same as working.**
   An optional HTTP `GET` to `http://localhost:<bound
   port>/` per project, on a slower cadence than the status poll,
   showing the result **as words**: "running, HTTP 200",
@@ -11121,6 +11121,13 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   of 2 loops, 6 findings verified and fixed (loop log in
   docs/reviews/). Out-of-scope defects filed as LWSM-1396. NEXT: build
   it with /write-code, then fold back what the build proves wrong.
+  Shipped (2026-10-08): built to the accepted spec. health.py asks
+  via http.client (no redirects); two user fields saved, never
+  imported; controller asks derived-running projects every 10 s on
+  its own pool; the answer is the port cell's last line. Local gate
+  green, 2401 tests; 23 mutants, one per rule, all killed. Two test
+  clauses folded back into the spec (INV-7 process test, INV-13
+  no-Qt test). Not tried by hand in the real app yet.
   Lanes: core, ui, tests.
 
 - ✅ [LWSM-1054] **P06: cover the sibling that respawns itself detached.**

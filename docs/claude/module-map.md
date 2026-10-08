@@ -74,7 +74,8 @@ Added at P02 (LWSM-1005), contract in
   reverse, and both are driven by `DETECTED_FIELDS` / `USER_FIELDS` so
   LWSM-1007 INV-1 keeps each complete. **One exception: an import never
   takes `NEVER_IMPORTED_FIELDS`** — `actions`, `launcher_override`,
-  `start_at_login`, the fields that run something (LWSM-1344, LWSM-1369) —
+  `start_at_login`, the fields that run something (LWSM-1344, LWSM-1369), and
+  `health_check` / `health_path`, which decide what request is sent (LWSM-1034) —
   on either branch of `merge_imported`; the rescan's use of
   `user_half_applied` does. **`user_half_applied` takes the
   user half whole except `unknown`** (LWSM-1218; its docstring says why),
@@ -85,6 +86,11 @@ Added at P02 (LWSM-1005), contract in
   **`export_profile`'s gate is not `save_projects`' gate**: there the risk is
   destroying a recoverable registry, here it is saving a profile that looks
   known-good and silently lost the rows the load refused.
+- **`src/lwsm/health.py`** — core, no Qt at all (LWSM-1034). `ask`, the
+  one place the app makes a request: an HTTP `GET` to `localhost:<port>`
+  through `http.client`, which follows no redirect, returning the status code
+  or None. The controller schedules it every `HEALTH_INTERVAL_MS` on its own
+  pool; the page is validated by `registry.health_path_ok` before it gets here.
 - **`src/lwsm/ports.py`** — core, no Qt at all. `PortProbe`,
   `PortSnapshot`, `ProbeError`, and the `SupportsSnapshot`
   Protocol the controller accepts so test fakes are the contract.

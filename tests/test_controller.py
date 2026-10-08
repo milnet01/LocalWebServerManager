@@ -3577,6 +3577,63 @@ def test_stop_is_bounded_when_a_health_check_never_returns(
     controller_module.wait_for_abandoned_pools(2000)
 
 
+@pytest.mark.integration
+def test_the_process_exits_promptly_when_a_health_check_hangs(tmp_path) -> None:
+    """INV-7 of LWSM-1034, measured on the PROCESS for LWSM-1100's reason: a
+    `stop()` that never waited on the health pool still returns at once, and the
+    hang moves to `~QThreadPool` at exit. Only the process shows it."""
+    script = tmp_path / "hang_a_health_check.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import os, sys, time
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            from pathlib import Path
+            from PySide6.QtCore import QCoreApplication
+            from lwsm import controller as cm
+            from lwsm.controller import ProjectController, ProjectStatus
+            from lwsm.ports import PortSnapshot
+            from lwsm.registry import ProjectRecord
+
+            cm.STOP_WAIT_MS = 100
+
+            def hanging_ask(port, path, **kwargs):
+                time.sleep(30)
+                return 200
+
+            cm.health.ask = hanging_ask
+
+            class IdleProbe:
+                def snapshot(self):
+                    return PortSnapshot(frozenset())
+
+            app = QCoreApplication([])
+            record = ProjectRecord(
+                path=Path("/srv/a"), name="a", port=5005, health_check=True
+            )
+            controller = ProjectController([record], IdleProbe())
+            controller._statuses[record.path] = ProjectStatus.RUNNING
+            controller.check_health_once()
+            time.sleep(0.3)          # let the check reach its sleep
+            controller.stop()        # bounded at 100 ms, abandons the pool
+            cm.exit_without_waiting_for_abandoned_pools(0)
+            sys.exit(0)              # only reached when nothing was abandoned
+            """
+        )
+    )
+
+    started = time.perf_counter()
+    proc = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=90
+    )
+    elapsed = time.perf_counter() - started
+
+    assert proc.returncode == 0, proc.stderr
+    assert elapsed < 10.0, (
+        f"the process took {elapsed:.2f}s to exit behind a hung health check"
+    )
+
+
 def test_a_defect_inside_ask_leaves_the_project_checkable(
     qtbot, controllers, fake_ask
 ) -> None:
