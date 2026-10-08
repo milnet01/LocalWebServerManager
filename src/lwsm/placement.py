@@ -131,7 +131,15 @@ def position_is_readable(environ: dict[str, str] | None = None) -> bool:
     why `saveGeometry()`/`restoreGeometry()` loses position there. A position
     that IS in the file — recorded under X11, or typed in by hand — is still
     restored on Wayland, because placement and reading are different problems.
+
+    An explicit `XDG_SESSION_TYPE=x11` decides it, whatever `WAYLAND_DISPLAY`
+    says: `on_wayland` lets a stray one win because a wrong Wayland answer
+    PLACES honestly, but here it cost an X11 session every position it would
+    have recorded (review-code 2026-10-08 L05-L4).
     """
+    env = os.environ if environ is None else environ
+    if env.get("XDG_SESSION_TYPE", "").lower() == "x11":
+        return True
     return not on_wayland(environ)
 
 
@@ -658,7 +666,9 @@ def place_window(
             )
             move(framed.x, framed.y)
             asked = Rect(framed.x, framed.y, framed.width - dw, framed.height - dh)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
+        # `OverflowError` is `int()` of an infinite coordinate, which reaches
+        # the script unclamped when there are no screens (L05-L5).
         log.warning("could not compute a placement for %r: %s", target, exc)
         return None
     return asked

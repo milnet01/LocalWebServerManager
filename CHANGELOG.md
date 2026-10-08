@@ -129,6 +129,14 @@ signaling per
 
 ### Fixed
 
+- **Starting a systemd-run project always gives systemd the port, even after an earlier start failed part-way.** (LWSM-1407)
+  It also checks systemd actually read the setting, and says so if it
+  did not, instead of starting the project on its own port.
+
+- **A port held by another user's service is never mistaken for one of your own services.** (LWSM-1407)
+
+- **An X11 session remembers where its window was, even with a stray Wayland setting in its environment.** (LWSM-1407)
+
 - **A service-run project keeps its systemd setup when a rescan cannot reach systemd.** (LWSM-1406)
   A single slow answer from systemd made the rescan record the project
   as a plain launcher, so Start would have run a second copy of a server

@@ -11755,9 +11755,12 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-09.
 
-- 📋 [LWSM-1406] **Close the scanner and scan-root findings from the 0.3.0 review.**
+- ✅ [LWSM-1406] **Close the scanner and scan-root findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L04-M1..M5,
   L04-L1..L4, L04-L6, L09-L5.
+  Resolved (2026-10-08): L04-M1..M5, L1..L4 and L6 fixed with red-first
+  tests; L09-L5 dismissed (fixed launcher names). Specs LWSM-1006 and
+  LWSM-1131 folded back. Live-tree verdicts unchanged. Gate 2509 passed.
   **Layman:** Fixes for edge cases where a scan crashes, stops the app opening, or reports a port wrongly.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-04, L09-L5.

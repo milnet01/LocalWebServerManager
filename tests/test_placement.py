@@ -655,6 +655,43 @@ def test_on_wayland_the_compositor_is_asked_and_move_is_never_called(
     assert "c.pid !== 99" in run.scripts[0]
 
 
+def test_an_infinite_target_with_no_screens_returns_none(tmp_path: Path) -> None:
+    """review-code 2026-10-08 L05-L5. With no screens the target passes the
+    clamp unchanged, and `int(inf)` in the script raises `OverflowError`,
+    which the guard's `(TypeError, ValueError)` did not name -- a traceback
+    out of a startup path, which `run_kwin_script` says must not happen.
+
+    Dies on the guard without `OverflowError`.
+    """
+    asked = place_window(
+        Rect(float("inf"), 0, 800, 600),  # type: ignore[arg-type]
+        screens=[],
+        pid=1,
+        move=lambda x, y: None,
+        state_dir=tmp_path,
+        environ=WAYLAND,
+        which=have_dbus_send,
+        run=FakeRun(),
+    )
+
+    assert asked is None
+
+
+def test_an_explicit_x11_session_reads_its_position(tmp_path: Path) -> None:
+    """review-code 2026-10-08 L05-L4. A stray `WAYLAND_DISPLAY` outranked an
+    explicit `XDG_SESSION_TYPE=x11` -- deliberate for PLACING, where a wrong
+    Wayland answer degrades honestly -- and `position_is_readable` inherited
+    it, so that X11 session never recorded where its window was. An explicit
+    x11 can read its own position.
+
+    Dies on `position_is_readable` answering from `on_wayland` alone.
+    """
+    assert position_is_readable(
+        {"XDG_SESSION_TYPE": "x11", "WAYLAND_DISPLAY": "wayland-0"}
+    )
+    assert not position_is_readable({"WAYLAND_DISPLAY": "wayland-0"})
+
+
 def test_placement_that_cannot_be_asked_for_returns_none(tmp_path: Path) -> None:
     """What the Centre action reports to the user rather than appearing to
     work. Both routes to it: the session cannot honour placement at all, and

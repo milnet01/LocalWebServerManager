@@ -238,6 +238,9 @@ def reloads(monkeypatch) -> list[str]:
         return service.UnitOutcome(ok=True, verb="daemon-reload", unit="")
 
     monkeypatch.setattr(service, "reload_user_manager", record)
+    # And the check after it that systemd read the drop-in (review-code
+    # 2026-10-08 L05-L3), which would ask the same real manager.
+    monkeypatch.setattr(service, "drop_in_seen", lambda unit, path: True)
     return calls
 
 

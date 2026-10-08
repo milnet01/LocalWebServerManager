@@ -37,10 +37,17 @@
     "docs/specs/LWSM-1006 § 4.6 RULE_1 and _FALLBACK blocks": "fixed",
     "docs/claude/module-map.md registry entry (unit None is a real value)": "agrees — that sentence is about profiles",
     "live tree verdicts (8 projects, before vs after)": "agrees — no change"
+   },
+   "LWSM-1407": {
+    "ADR-0003 drop-in section": "fixed — always reload, DropInPaths check",
+    "ADR-0007 platform detection bullet": "fixed — reading rule",
+    "tests asserting the same-bytes skip": "fixed — restated"
    }
   },
   "collateral": [],
-  "surfaced": [],
+  "surfaced": [
+   "L05-M3: clear the drop-in after a start systemd rejected? Conflicts with the user ruling of 2026-10-07 (only a success clears)."
+  ],
   "out_of_scope": [],
   "falsified": []
  },
@@ -697,13 +704,13 @@
    "location": "service.py:396-398",
    "finding": "`if path.read_bytes() == data` skips `daemon-reload` when bytes match, so a drop-in whose earlier reload failed is never loaded.",
    "remedy": "Always reload when the file exists, or skip only when `NeedDaemonReload` says `no`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — set_drop_in skipped the reload on equal bytes; mutation of the fix red",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1407",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "always write and reload",
    "must_agree": []
   },
   {
@@ -733,9 +740,9 @@
    "location": "controller.py:610-611",
    "finding": "`if outcome.ok: cleared = clear_drop_in(self._unit)` leaves the drop-in after a rejected start, so the next logon start uses the app's port.",
    "remedy": "Clear the drop-in after a non-zero start too.",
-   "verified": null,
+   "verified": "yes — only ok clears the drop-in (controller _drive)",
    "disposition": null,
-   "why": null,
+   "why": "awaiting the user: test_a_unit_that_fails_to_start_keeps_its_drop_in records \"Only a successful verb clears it (user, 2026-10-07)\"; the lane asks to clear after a rejected (non-zero) start too",
    "roadmap_id": "LWSM-1407",
    "files": [],
    "was": null,
@@ -750,13 +757,13 @@
    "location": "service.py:97",
    "finding": "`_USER_MANAGER = re.compile(r\"/user@\\d+\\.service/\")` matches any uid's manager, so another user's unit name drives our own same-named unit.",
    "remedy": "Use `rf\"/user@{os.getuid()}\\.service/\"`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — regex matched any uid; mutation red",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1407",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "own uid only; fixtures use the running uid",
    "must_agree": []
   },
   {
@@ -767,13 +774,13 @@
    "location": "service.py:397",
    "finding": "`path.read_bytes()` has no size limit and blocks forever on a FIFO, hanging a pool worker.",
    "remedy": "Read through `read_bounded`, or `lstat` first and refuse non-regular files.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — unbounded read_bytes in set_drop_in",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1407",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "the read is gone with the M1 fix",
    "must_agree": []
   },
   {
@@ -784,13 +791,13 @@
    "location": "service.py:321-323",
    "finding": "`os.environ.get(\"XDG_CONFIG_HOME\")` reads the app's environment, not the user manager's, so the drop-in can land where systemd never looks.",
    "remedy": "After the reload, check `systemctl --user show -p DropInPaths <unit>`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — no check that systemd read the drop-in; mutation red",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1407",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "drop_in_seen after the reload; a definite no refuses the start",
    "must_agree": []
   },
   {
@@ -801,13 +808,13 @@
    "location": "placement.py:217-223",
    "finding": "A non-empty `WAYLAND_DISPLAY` overrides explicit `XDG_SESSION_TYPE=x11`, so `position_is_readable` never records a position there.",
    "remedy": "Let an explicit `x11` decide `position_is_readable`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — red",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1407",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "explicit x11 decides position_is_readable",
    "must_agree": []
   },
   {
@@ -818,13 +825,13 @@
    "location": "placement.py:178-179",
    "finding": "With no screens `clamp_to_screens` returns the target unchanged and `int(target.x)` raises an uncaught `OverflowError` in `kwin_script`.",
    "remedy": "Add `OverflowError` to the caught tuple.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — red: OverflowError escaped",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1407",
    "files": [],
    "was": null,
-   "now": null,
+   "now": "OverflowError in the guard",
    "must_agree": []
   },
   {

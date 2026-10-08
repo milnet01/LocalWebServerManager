@@ -127,7 +127,11 @@ centre, so there is one code path and one set of failure modes.
   ranked, because the errors do not cost the same — a wrong False is
   that silent success, while a wrong True asks KWin, which either
   works (KWin scripts run on KDE X11 too) or fails and degrades
-  honestly down the path below.
+  honestly down the path below. Reading a position back is decided
+  differently: an explicit `XDG_SESSION_TYPE=x11` can read its own,
+  whatever `WAYLAND_DISPLAY` says, since there the OR cost an X11
+  session every position it would have recorded (review-code
+  2026-10-08 L05-L4).
 - The KWin call is **deferred by one event-loop tick** after the
   window is shown, because KWin can only move a window it already
   knows about. This is why the restore happens after `show()`

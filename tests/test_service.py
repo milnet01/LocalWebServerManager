@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -32,15 +33,19 @@ from lwsm.service import (
 # Taken at import, before `conftest.reloads` replaces the module attribute for
 # every test, so the real reload can still be tested against a fake runner.
 REAL_RELOAD = service.reload_user_manager
+REAL_SEEN = service.drop_in_seen
 
 # Verbatim from `/proc/<pid>/cgroup` on the reporting machine, escaped name and
-# all. Transcribed rather than composed: the escaping is the part that breaks.
+# all, except the uid: only OUR user manager's units are ours to drive
+# (review-code 2026-10-08 L05-L1), so the fixture is in the running user's.
+# Transcribed rather than composed: the escaping is the part that breaks.
+UID = os.getuid()
 ESCAPED = (
-    "0::/user.slice/user-1000.slice/user@1000.service/app.slice/"
+    f"0::/user.slice/user-{UID}.slice/user@{UID}.service/app.slice/"
     "app-ai\\x2dprompts\\x2dtray@autostart.service\n"
 )
 PLAIN = (
-    "0::/user.slice/user-1000.slice/user@1000.service/app.slice/ants-stats.service\n"
+    f"0::/user.slice/user-{UID}.slice/user@{UID}.service/app.slice/ants-stats.service\n"
 )
 
 
@@ -71,6 +76,22 @@ def test_the_session_manager_is_never_returned_as_a_unit() -> None:
     """
     raw = "0::/user.slice/user-1000.slice/user@1000.service\n"
     assert unit_for_pid(1, read_cgroup=lambda pid: raw) is None
+
+
+def test_another_users_service_is_not_ours_to_drive() -> None:
+    """review-code 2026-10-08 L05-L1. `/proc/<pid>/cgroup` is readable by
+    everyone, and the pattern matched any uid's user manager, so a port held
+    by another user's `foo.service` named `foo.service` -- and `systemctl
+    --user` then drove OUR `foo.service`, a different unit.
+
+    Dies on matching `user@<any uid>`.
+    """
+    other = UID + 1
+    raw = (
+        f"0::/user.slice/user-{other}.slice/user@{other}.service/app.slice/"
+        "foo.service\n"
+    )
+    assert unit_for_pid(77, read_cgroup=lambda pid: raw) is None
 
 
 def test_a_scope_is_not_a_service() -> None:
@@ -370,15 +391,22 @@ def test_the_drop_in_carries_port_and_managed_and_no_port_when_unknown() -> None
     assert service.drop_in_text(None) == "[Service]\nEnvironment=LWSM_MANAGED=1\n"
 
 
-def test_setting_writes_once_and_reloads_once(reloads) -> None:
-    """An unchanged drop-in is neither rewritten nor reloaded: a second Start
-    must not reload the user's whole service manager for nothing."""
+def test_every_set_reloads_even_with_the_same_bytes(reloads) -> None:
+    """review-code 2026-10-08 L05-M1. Unchanged bytes used to skip the reload,
+    assuming systemd had loaded them. It had not, where the first Start's
+    reload failed: the next Start found the bytes in place, skipped the
+    reload, and the unit started without its drop-in, on its own port --
+    ADR-0002's silent no-op. So every set reloads; a Start is rare and a
+    reload is cheap next to starting a server on the wrong port.
+
+    Until 2026-10-08 this test asserted the skip.
+    """
     first = service.set_drop_in("a.service", 4321)
     second = service.set_drop_in("a.service", 4321)
     third = service.set_drop_in("a.service", 5000)
 
     assert first.ok and second.ok and third.ok
-    assert reloads == ["daemon-reload", "daemon-reload"]
+    assert reloads == ["daemon-reload", "daemon-reload", "daemon-reload"]
     assert "PORT=5000" in service.drop_in_path("a.service").read_text(encoding="utf-8")
 
 
@@ -392,6 +420,33 @@ def test_clearing_removes_only_our_file_and_reloads(reloads) -> None:
     assert not service.drop_in_path("a.service").exists()
     assert theirs.exists()
     assert reloads == ["daemon-reload"]
+
+
+def test_a_drop_in_systemd_does_not_read_stops_the_start(reloads, monkeypatch) -> None:
+    """review-code 2026-10-08 L05-L3. The folder comes from THIS app's
+    `XDG_CONFIG_HOME`, and systemd reads its user manager's. Set only in a
+    shell profile, the two differ: the drop-in lands where systemd never
+    looks, every step reports success, and the unit starts on its own port.
+    So after the reload systemd is asked which drop-ins it read.
+
+    Dies on not asking.
+    """
+    monkeypatch.setattr(service, "drop_in_seen", lambda unit, path: False)
+
+    outcome = service.set_drop_in("a.service", 4321)
+
+    assert not outcome.ok
+    assert "XDG_CONFIG_HOME" in outcome.reason
+
+
+def test_drop_in_seen_reads_systemds_own_list() -> None:
+    """Through a fake runner only, like the reload."""
+    path = Path("/home/u/.config/systemd/user/a.service.d/50-lwsm-port.conf")
+    listed = f"/etc/systemd/user/a.service.d/10.conf {path}\n"
+
+    assert REAL_SEEN("a.service", path, run=FakeRun(stdout=listed)) is True
+    assert REAL_SEEN("a.service", path, run=FakeRun(stdout="\n")) is False
+    assert REAL_SEEN("a.service", path, run=FakeRun(returncode=1)) is None
 
 
 def test_clearing_with_nothing_to_remove_does_not_reload(reloads) -> None:

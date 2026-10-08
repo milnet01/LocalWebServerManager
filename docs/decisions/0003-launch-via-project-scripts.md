@@ -220,7 +220,12 @@ Environment=LWSM_MANAGED=1
 ```
 
 `$XDG_CONFIG_HOME` falls back to `~/.config` when unset or not
-absolute. Then `systemctl --user daemon-reload` before starting. A unit
+absolute. Then `systemctl --user daemon-reload` before starting, on
+every Start even when the bytes are unchanged, since an earlier reload
+may have failed; then `systemctl --user show -p DropInPaths` must list
+the file, or the start is refused, because the app's `$XDG_CONFIG_HOME`
+can differ from the user manager's (review-code 2026-10-08 L05-M1,
+L05-L3). A unit
 made by `systemd-xdg-autostart-generator` reads the drop-in too: measured
 2026-10-07 on one, with `systemctl --user show -p DropInPaths -p
 Environment` (LWSM-1388). Notes that make this safe rather than clever:

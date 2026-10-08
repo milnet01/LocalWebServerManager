@@ -93,8 +93,10 @@ class UnitOutcome:
     unbound: bool = False
 
 
-# A unit under a user's own service manager, the only kind `--user` drives.
-_USER_MANAGER = re.compile(r"/user@\d+\.service/")
+# A unit under OUR user's service manager, the only kind `--user` drives. Any
+# uid matched another user's: `/proc/<pid>/cgroup` is world-readable, and their
+# `foo.service` named ours (review-code 2026-10-08 L05-L1).
+_USER_MANAGER = re.compile(rf"/user@{os.getuid()}\.service/")
 
 
 def _read_cgroup(pid: int) -> str:
@@ -393,13 +395,14 @@ def reload_user_manager(*, run: object = None) -> UnitOutcome:
 
 
 def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
-    """Write this app's drop-in for `unit`, then reload — before a start.
+    """Write this app's drop-in for `unit`, reload, and check systemd read it
+    — before a start.
 
-    Unchanged bytes skip both the write and the reload, which matters only
-    where an earlier clear failed and left the file behind (LWSM-1387 removes
-    it after every successful verb, so normally it is absent). A failure is
-    reported and the caller does not start: a unit started without its drop-in
-    runs on its own default port, which is ADR-0002's silent no-op.
+    A failure is reported and the caller does not start: a unit started
+    without its drop-in runs on its own default port, which is ADR-0002's
+    silent no-op. Always written and reloaded, even with the same bytes: those
+    may be in place from a Start whose reload failed, in which case systemd
+    never loaded them (review-code 2026-10-08 L05-M1).
     """
     try:
         path = drop_in_path(unit)
@@ -407,15 +410,54 @@ def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
         return UnitOutcome(ok=False, verb="start", unit=unit, reason=str(exc))
     data = drop_in_text(port).encode("utf-8")
     try:
-        if path.read_bytes() == data:
-            return UnitOutcome(ok=True, verb="daemon-reload", unit=unit)
-    except OSError:
-        pass  # absent, or unreadable: write it
-    try:
         write_atomically(path, data, prefix=".lwsm-")
     except ConfigFileError as exc:
         return UnitOutcome(ok=False, verb="start", unit=unit, reason=str(exc))
-    return reload_user_manager()
+    reloaded = reload_user_manager()
+    if reloaded.ok and drop_in_seen(unit, path) is False:
+        # The folder is THIS app's `XDG_CONFIG_HOME`; systemd reads its user
+        # manager's, and the two differ when the variable is set only in a
+        # shell profile (L05-L3). An unreadable answer proves nothing, so
+        # only a definite "not read" refuses.
+        return UnitOutcome(
+            ok=False,
+            verb="start",
+            unit=unit,
+            reason=(
+                f"systemd did not read the port setting written to "
+                f"{path.parent}; XDG_CONFIG_HOME may differ between this app "
+                "and your user's service manager"
+            ),
+        )
+    return reloaded
+
+
+def drop_in_seen(unit: str, path: Path, *, run: object = None) -> bool | None:
+    """Whether systemd lists `path` among `unit`'s drop-ins, or None when it
+    cannot be asked. A query that changes nothing, like `unit_state`."""
+    runner = run if run is not None else subprocess.run
+    try:
+        completed = runner(  # type: ignore[operator]
+            [
+                "systemctl",
+                "--user",
+                "show",
+                "--property=DropInPaths",
+                "--value",
+                "--",
+                unit,
+            ],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=UNIT_VERB_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if getattr(completed, "returncode", 1) != 0:
+        return None
+    return str(path) in (getattr(completed, "stdout", "") or "").split()
 
 
 def clear_drop_in(unit: str) -> UnitOutcome:
