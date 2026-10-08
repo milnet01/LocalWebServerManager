@@ -9090,3 +9090,76 @@ def test_a_hostile_page_reaches_the_detail_as_plain_text(qtbot) -> None:
     # And the control character replaced there too, as INV-12 says (LWSM-1398).
     assert "\u0007" not in tooltip
     assert "&lt;/b&gt;\ufffd." in tooltip, tooltip
+
+
+# --- LWSM-1402: a slow start shows how long it has been starting -------------
+
+
+def starting_view(seconds: float | None):
+    from lwsm.controller import RowView
+
+    return RowView(
+        path=Path("/srv/a"),
+        name="a",
+        effective_port=5005,
+        status=ProjectStatus.STARTING,
+        supervised=True,
+        starting_for=seconds,
+    )
+
+
+@pytest.mark.parametrize(
+    ("seconds", "shown"),
+    [
+        (None, "starting"),
+        (0.0, "starting (0s)"),
+        (29.9, "starting (29s)"),
+        (30.0, "starting (slow — 30s)"),
+        (42.5, "starting (slow — 42s)"),
+    ],
+)
+def test_a_starting_row_shows_how_long_it_has_been_starting(
+    qtbot, seconds, shown
+) -> None:
+    """ADR-0004 § Slowness is not failure: while our child is alive and has
+    bound nothing the project is `starting` with no deadline, "and the UI
+    shows the elapsed time"; past a soft threshold, fixed at 30 s (user,
+    2026-10-08), the label reads `starting (slow — 42s)`. It informs and never
+    reclassifies. Never built until review-code 2026-10-08 L02-H1.
+
+    Dies on dropping the counter, on a threshold other than 30 s, and on
+    rounding up rather than counting whole seconds.
+    """
+    from lwsm.mainwindow import ProjectRow
+
+    row = ProjectRow(starting_view(seconds), Theme.default())
+    qtbot.addWidget(row)
+
+    assert row._state.text() == shown
+
+
+def test_the_starting_counter_is_announced_once_when_slow_not_every_second(
+    qtbot, announcements
+) -> None:
+    """`design-accessibility.md`: "A state change announces itself once, not per
+    poll". The visible counter changes every second, so the spoken name carries
+    the state without it — `starting`, then `starting (slow)` once, as the
+    threshold passes.
+
+    Dies on building the spoken name from the label with its counter.
+    """
+    from lwsm.mainwindow import ProjectRow
+
+    row = ProjectRow(starting_view(1.0), Theme.default())
+    qtbot.addWidget(row)
+    announcements.clear()
+
+    for second in range(2, 30):
+        row.update_from(starting_view(float(second)))
+    assert announcements == [], "a counter tick was announced"
+    assert row.accessibleName().startswith("starting, ")
+
+    for second in range(30, 36):
+        row.update_from(starting_view(float(second)))
+    assert len(announcements) == 1, "passing the threshold is one announcement"
+    assert row.accessibleName().startswith("starting (slow), ")

@@ -176,7 +176,7 @@ So the rule is now:
   its own, or the port was taken after the pre-flight (the table's
   two `failed` rows). An exit is a fact; a
   stopwatch is an opinion.
-- A **soft threshold** (default 30 s, settings-backed) changes the
+- A **soft threshold** (30 s, fixed; user 2026-10-08) changes the
   *label* to `starting (slow — 42s)`. It informs; it never
   reclassifies. A genuinely hung server sits visibly in
   `starting` with a rising counter, which is both true and
@@ -187,6 +187,7 @@ So the rule is now:
   that and can say "usually ready in about 40 seconds" instead of
   implying something is wrong. The same principle as
   `confirmed_port`: observe the project rather than assume it.
+  Not built yet: LWSM-1403 holds it.
 
 The log panel streams throughout, so the user is never staring at
 a bare spinner — the slow project's own output is the progress

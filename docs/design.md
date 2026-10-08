@@ -658,7 +658,7 @@ correctness one, and the poll skips a tick rather than queueing.
    tail of its log as the explanation — a launcher that exits 0
    having bound nothing is failed, because silence is not success.
    Taking a long time is not failure and never becomes it; past the
-   soft threshold (**30 s** by default, settings-backed) the label
+   soft threshold (**30 s**, fixed) the label
    reads `starting (slow — 42s)`.
 
 **Stopping.** `SIGTERM` to the **process group**, then `SIGKILL`

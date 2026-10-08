@@ -11702,13 +11702,17 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: release.
   Source: user-decision-2026-10-08.
 
-- 📋 [LWSM-1401] **Move the poll's OS work off the window's thread.**
+- ✅ [LWSM-1401] **Move the poll's OS work off the window's thread.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. Findings:
   L01-M2 supervisor process_iter walk per poll on the GUI thread;
   L02-M1 unit_belongs_to runs systemctl in the _classify slot;
   L05-M2 unguarded is_file() raises PermissionError out of _classify;
   L01-M1 log rotation copies the whole log on the window's thread;
   L01-L3 ftruncate empties the old .1 before the copy succeeds.
+  Resolved (2026-10-08): all five findings fixed with red-first tests;
+  the poll's process work runs in _do_upkeep on its own pool, holder
+  units resolve in the snapshot task, rotation keeps the newest cap and
+  replaces the backup by rename. Gate 2436 passed.
   **Layman:** A slow system can no longer freeze the window once a second.
   Kind: review-fix.
   Source: review-code-2026-10-08 L01-M1 L01-M2 L01-L3 L02-M1 L05-M2.

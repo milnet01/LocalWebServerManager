@@ -2209,6 +2209,87 @@ def test_a_slow_snapshot_does_not_stop_the_logs_being_capped(
         probe.gate.set()
 
 
+# --- LWSM-1402: a starting row carries how long it has been starting ----------
+
+
+def clocked(controllers, records, probe, supervisor, now: list[float]):
+    controller = ProjectController(records, probe, supervisor, clock=lambda: now[0])
+    controllers.append(controller)
+    return controller
+
+
+def test_a_starting_row_carries_the_seconds_since_its_start(qtbot, controllers) -> None:
+    """ADR-0004 § Slowness is not failure: `starting` has no deadline "and the
+    UI shows the elapsed time" (review-code 2026-10-08 L02-H1). The count ends
+    when the row stops reading `starting`.
+
+    Dies on a view with no elapsed time, and on keeping it once the port binds.
+    """
+    now = [1000.0]
+    supervisor = FakeSupervisor()
+    probe = FakeProbe()
+    controller = clocked(controllers, [startable()], probe, supervisor, now)
+    assert controller.rows()[0].starting_for is None
+
+    controller.start_project(Path("/srv/a"))
+    assert controller.rows()[0].starting_for == 0
+    now[0] += 42
+    assert controller.rows()[0].starting_for == 42
+
+    supervisor.child_pids[Path("/srv/a")] = HOLDER_PID
+    probe.listening.add(5005)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.RUNNING
+    assert controller.rows()[0].starting_for is None
+
+
+def test_a_starting_row_keeps_its_count_when_another_project_starts(
+    qtbot, controllers
+) -> None:
+    """The overlay is one slot, so starting a second project hands the first
+    back to its derived `starting` (LWSM-1202). Its count must carry on from
+    its own start, not restart from the second one's.
+
+    Dies on keying the start time on the overlay.
+    """
+    now = [1000.0]
+    controller = clocked(
+        controllers,
+        [startable("a", 5005), startable("b", 5006)],
+        FakeProbe(),
+        FakeSupervisor(),
+        now,
+    )
+    controller.start_project(Path("/srv/a"))
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    now[0] += 10
+    controller.start_project(Path("/srv/b"))
+    now[0] += 5
+
+    a, b = controller.rows()
+    assert a.status is ProjectStatus.STARTING
+    assert (a.starting_for, b.starting_for) == (15, 5)
+
+
+def test_every_poll_re_renders_while_a_row_is_starting(qtbot, controllers) -> None:
+    """The count changes every second while nothing else does, and the window
+    renders on `projects_changed` alone, so a poll that changes no status must
+    still emit while a row is starting — or the counter freezes on screen.
+
+    Dies on emitting only when a status changes.
+    """
+    controller = clocked(
+        controllers, [startable()], FakeProbe(), FakeSupervisor(), [1000.0]
+    )
+    controller.start_project(Path("/srv/a"))
+    for _ in range(3):
+        with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+            controller.poll_once()
+        qtbot.waitUntil(lambda: not controller._in_flight, timeout=2000)
+
+
 # --- LWSM-1018: the poll cadence is a setting ----------------------------------
 
 

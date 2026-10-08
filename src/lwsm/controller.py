@@ -395,6 +395,10 @@ class RowView:
     health_check: bool = False
     health_path: str = "/"
     health: HealthAnswer | None = None
+    # Seconds since this row began reading `starting`, while it does; None
+    # otherwise. ADR-0004 § Slowness is not failure: `starting` has no deadline
+    # "and the UI shows the elapsed time" (LWSM-1402).
+    starting_for: float | None = None
 
 
 def _port_seen_by_our_group(record: ProjectRecord, ours: frozenset[int]) -> int | None:
@@ -946,9 +950,14 @@ class ProjectController(QObject):
         probe: SupportsSnapshot,
         supervisor: SupportsSupervision | None = None,
         parent: QObject | None = None,
+        *,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         super().__init__(parent)
         self._records = records
+        # When each row began reading `starting`, by this clock (LWSM-1402).
+        self._clock = clock or time.monotonic
+        self._starting_since: dict[Path, float] = {}
         self._probe = probe
         # Optional so every pre-LWSM-1010 caller still builds: a controller with
         # no supervisor polls and renders exactly as before, and its Start
@@ -1057,12 +1066,18 @@ class ProjectController(QObject):
         holders = self._holders
         supervisor = self._supervisor
         supervised = set(supervisor.running()) if supervisor is not None else set()
+        now = self._clock()
         return [
             RowView(
                 path=record.path,
                 name=record.name,
                 effective_port=record.effective_port,
                 status=self._status_of(record.path),
+                starting_for=(
+                    now - self._starting_since[record.path]
+                    if record.path in self._starting_since
+                    else None
+                ),
                 managed=record.path in managed,
                 holder_pid=holders.get(record.path),
                 # Asked at render time, unlike `managed`. That one has to come
@@ -1651,12 +1666,35 @@ class ProjectController(QObject):
         # action is about to spawn.
         self._reaped.discard(path)
         self._overlay = (path, status)
+        self._track_starting()
         self.projects_changed.emit()
 
     def _clear_overlay(self, path: Path) -> None:
         if self._overlay is not None and self._overlay[0] == path:
             self._overlay = None
+            self._track_starting()
             self.projects_changed.emit()
+
+    def _track_starting(self) -> None:
+        """Start the clock for a row that now reads `starting`, and drop it for
+        one that no longer does (LWSM-1402).
+
+        Keyed on the row, not the overlay: the overlay is one slot, so a second
+        Start hands the first project back to its derived `starting`, and its
+        count must carry on from its own start (LWSM-1202).
+        """
+        starting = {
+            path
+            for path in self._statuses
+            if self._status_of(path) is ProjectStatus.STARTING
+        }
+        if self._overlay is not None and self._overlay[1] is ProjectStatus.STARTING:
+            starting.add(self._overlay[0])
+        for path in set(self._starting_since) - starting:
+            del self._starting_since[path]
+        now = self._clock()
+        for path in starting:
+            self._starting_since.setdefault(path, now)
 
     def records(self) -> list[ProjectRecord]:
         """The records themselves, for a caller that merges rather than renders.
@@ -1987,6 +2025,7 @@ class ProjectController(QObject):
         self._managed = self._managed_paths(snapshot)
         self._holders = self._holder_pids(snapshot)
         settled = self._settle_overlay()
+        self._track_starting()
         self._reaped.clear()
         if confirmed:
             self.confirmed_ports_changed.emit()
@@ -2131,7 +2170,10 @@ class ProjectController(QObject):
             self._emitted_once = True
             self.projects_changed.emit()
             return
-        if previous != self._statuses:
+        # Or while a row is starting: its elapsed time changes every tick
+        # while its status does not, and the window renders on this signal
+        # alone (LWSM-1402).
+        if previous != self._statuses or self._starting_since:
             self.projects_changed.emit()
 
     def _classify(

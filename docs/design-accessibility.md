@@ -220,8 +220,11 @@ announces "running, port 5005, named project-b" rather than an unnamed
 icon — no separate accessibility-only string to drift, with the one
 exception § Eliding governs: where a cell renders a cut string the
 announcement keeps the whole one, so there the accessible text is
-deliberately not the rendered text. A state change announces itself
-once, not on every poll.
+deliberately not the rendered text. The other exception is a starting
+row's elapsed time: the cell shows `starting (12s)` and is spoken as
+`starting`, then `starting (slow)` once past the threshold. A state
+change announces itself once, not on every poll, and a counter
+changing every second would not.
 
 **Respects the desktop, not our preferences.** System font family
 and size, honouring the desktop's font scaling and high-DPI

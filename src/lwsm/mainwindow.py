@@ -360,6 +360,50 @@ def state_word(status: ProjectStatus) -> str:
     }.get(status, str(status))
 
 
+# ADR-0004 § Slowness is not failure: past this, a starting row's label says it
+# is slow. It informs and never reclassifies. Fixed, not a setting (user,
+# 2026-10-08, LWSM-1402).
+SLOW_START_SECONDS = 30
+
+
+def _starting_seconds(row: RowView) -> int | None:
+    """Whole seconds a starting row has been starting, or None."""
+    if row.status is not ProjectStatus.STARTING or row.starting_for is None:
+        return None
+    return max(0, int(row.starting_for))
+
+
+def state_text(row: RowView) -> str:
+    """The state cell as shown: a starting row carries its elapsed time, and
+    past `SLOW_START_SECONDS` says it is slow (LWSM-1402).
+
+    Qt's %1 filled by `str.replace`, for `port_text`'s reason: a translation
+    is data from outside the program and must not be able to raise here.
+    """
+    elapsed = _starting_seconds(row)
+    if elapsed is None:
+        return state_word(row.status)
+    template = (
+        QCoreApplication.translate("ProjectRow", "starting (%1s)")
+        if elapsed < SLOW_START_SECONDS
+        else QCoreApplication.translate("ProjectRow", "starting (slow — %1s)")
+    )
+    return template.replace("%1", QLocale().toString(elapsed))
+
+
+def state_spoken(row: RowView) -> str:
+    """The state cell as a screen reader hears it: without the counter.
+
+    The counter changes every second, and `design-accessibility.md` promises "a
+    state change announces itself once, not per poll". So the spoken state
+    changes once, to `starting (slow)`, as the threshold passes.
+    """
+    elapsed = _starting_seconds(row)
+    if elapsed is not None and elapsed >= SLOW_START_SECONDS:
+        return QCoreApplication.translate("ProjectRow", "starting (slow)")
+    return state_word(row.status)
+
+
 def port_text(effective_port: int | None) -> str:
     """The word and the number, never a bare number.
 
@@ -1545,7 +1589,11 @@ class ProjectRow(QFrame):
         # repaint request — nothing else marks the row dirty.
         self.update()
 
-        self._state.setText(state_word(row.status))
+        self._state.setText(state_text(row))
+        # Named for `port_cell_spoken`'s reason: what a screen reader hears.
+        # A label with a name of its own also stops Qt announcing every change
+        # of its text, which here is the counter, once a second (LWSM-1402).
+        self._state.setAccessibleName(state_spoken(row))
         # The marker is rendered TEXT, not a colour and not an accessibility-only
         # string. Colour alone carries no meaning to a screen reader, and the
         # announcement below is built from the rendered cells precisely so no
@@ -1641,7 +1689,7 @@ class ProjectRow(QFrame):
         # in the middle, a project named "x, running, port 80" read as a
         # running row, and the facts must come before anything a name holds.
         parts = {
-            "1": self._state.text(),
+            "1": self._state.accessibleName(),
             "2": self._name_display,
             "3": self._port.accessibleName(),
         }

@@ -23,6 +23,12 @@ signaling per
 
 ### Added
 
+- **A starting project shows how long it has been starting, and says when it is slow.** (LWSM-1402)
+  The row reads `starting (12s)`, then `starting (slow — 42s)` past
+  30 seconds. Nothing is ever marked failed for being slow. A screen
+  reader hears `starting`, then `starting (slow)` once, not a count
+  every second.
+
 - **The app can ask a running site whether it works.** (LWSM-1034)
   Right-click a project and choose "Check that the site answers".
   While it runs, the app asks it for a page every 10 seconds and
