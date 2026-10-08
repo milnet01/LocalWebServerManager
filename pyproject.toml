@@ -36,6 +36,11 @@ dev = [
     # duration, the flakiness shape this codebase is most exposed to.
     # 4.5.0 is the current release; verified against PyPI, not recalled.
     "pytest-qt==4.5.0",
+    # LWSM-1374. Shuffles test order and reseeds per test on every run, so a
+    # test that depends on another's leftovers fails (shared testing.md § 7).
+    # A failing order reproduces with `--randomly-seed=N`, N being the seed the
+    # run prints (or `last`); disabling it with `-p no:randomly` is a smell.
+    "pytest-randomly==5.0.0",
     "ruff==0.16.10",
     # LWSM-1066. The `nodejs` extra pins the Node runtime pyright needs through
     # uv.lock, instead of whatever Node a machine happens to have.

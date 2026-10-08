@@ -11277,12 +11277,22 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: in-session-2026-10-02 (split from LWSM-1295).
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1374] **Shuffle the test order on every run, and check each test leaves shared state clean.**
+- ✅ [LWSM-1374] **Shuffle the test order on every run, and check each test leaves shared state clean.**
   Shared testing.md § 7 and languages/python.md assume pytest-randomly
   and teardown checks on shared process state; this project has neither.
   Add the plugin through the dependency rules, fix what a shuffled run
   exposes, and say which state each teardown check covers.
   Priority: 4.
+  Resolved (2026-10-08): pytest-randomly 5.0.0 added (latest per PyPI).
+  tests/conftest.py's pytest_runtest_setup/teardown hooks snapshot the
+  cwd, os.environ (less PYTEST_CURRENT_TEST) and direct child processes
+  before any fixture, and fail the test whose teardown leaves any of them
+  changed; a strayed child is killed. Hooks, not an autouse fixture: a
+  fixture tore down before monkeypatch's undo and flagged every setenv.
+  Child list read from /proc/<pid>/task/*/children (0.07 ms) because
+  psutil's children() scans every process (13 ms, about a minute a run).
+  Proved by five probe cases (three red, two green). Shuffled full runs,
+  seeds 7919, 15838, 23757 and 31676: 2403 passed each, no leak found.
   **Layman:** Run the tests in a random order so a test that secretly depends on another one gets caught.
   Kind: test.
   Source: LWSM-1326 user decision 2026-10-02 (shared testing.md § 7).

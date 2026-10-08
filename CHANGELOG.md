@@ -91,6 +91,11 @@ signaling per
 
 ### Changed
 
+- **The tests run in a different random order every time, and each one is checked for leaving a mess behind** (LWSM-1374)
+  A test that only passes because of the one before it now gets caught. A
+  test that leaves a changed folder, setting or running program behind
+  fails by name.
+
 - **PySide6 moves from 6.11.1 to 6.12.0, ruff from 0.16.1 to 0.16.10 and setuptools from 83.0.0 to 84.0.0** (LWSM-1394)
   The app now runs on Qt 6.12; every automated check passes on it.
 

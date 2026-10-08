@@ -48,14 +48,133 @@ every `XDG_*` variable `src/` reads is pinned here (LWSM-1330).
 from __future__ import annotations
 
 import contextlib
+import glob
 import os
 import sys
+import time
 from pathlib import Path
 
 import psutil
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+# How long a child the test already told to stop gets to finish going before it
+# counts as left behind. A killed server is reaped a moment after the kill.
+CHILD_EXIT_GRACE_SECONDS = 1.0
+
+
+def _running(child: psutil.Process) -> bool:
+    """Still running, and not a zombie waiting for its parent to collect it."""
+    try:
+        return child.status() != psutil.STATUS_ZOMBIE
+    except psutil.Error:
+        return False
+
+
+# pytest rewrites it at every phase of every test, so it is never a leak.
+_PYTEST_OWNED_ENVIRON = frozenset({"PYTEST_CURRENT_TEST"})
+
+_SHARED_STATE = pytest.StashKey[tuple[str, dict[str, str], set[int]]]()
+
+
+def _environ() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in _PYTEST_OWNED_ENVIRON}
+
+
+def _child_pids() -> set[int]:
+    """This process's DIRECT children, read from `/proc`.
+
+    Not `psutil.Process().children()`: that scans every process on the
+    machine, 13 ms each with ~3400 running, which is a minute over a run at
+    two calls per test (measured 2026-10-08). The kernel's own list costs
+    0.07 ms. Direct children only: a grandchild whose parent died is no longer
+    ours, and `_no_orphans_outlive_the_run` finds it by cwd. Where the kernel
+    lacks the file (CONFIG_PROC_CHILDREN), psutil answers instead.
+    """
+    files = glob.glob(f"/proc/{os.getpid()}/task/*/children")
+    if not files:
+        return {child.pid for child in psutil.Process().children()}
+    pids: set[int] = set()
+    for name in files:
+        with contextlib.suppress(OSError):  # a thread ended since the glob
+            pids.update(int(pid) for pid in Path(name).read_text().split())
+    return pids
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item):
+    """Snapshot the shared state before ANY fixture of this test is set up."""
+    item.stash[_SHARED_STATE] = (os.getcwd(), _environ(), _child_pids())
+    return (yield)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    """Fail the test that left the process's shared state dirty (LWSM-1374).
+
+    Shared testing.md § 7: where tests share a process, each asserts at
+    teardown that it left that state clean, so the test that dirtied it fails
+    rather than a later one. `pytest-randomly` shuffles the order on every
+    run, so a later victim would be a different test each time.
+
+    Three things every test here shares and no fixture restores:
+
+    - **the working directory** — a stray `os.chdir` moves every relative path;
+    - **`os.environ`**, written directly rather than through `monkeypatch`;
+    - **child processes** still running, which a later test's port or process
+      count then trips over. `_no_orphans_outlive_the_run` catches the same
+      leak once per run; this names the test.
+
+    A hook around setup and teardown rather than an autouse fixture: a fixture
+    cannot be ordered after `monkeypatch`'s undo, so it reported every
+    `monkeypatch.setenv` as a leak (measured while building this). Runs after
+    every fixture is torn down. A strayed child is killed as well as reported,
+    so one leak fails one test.
+    """
+    result = yield
+    if _SHARED_STATE in item.stash:
+        _assert_left_clean(*item.stash[_SHARED_STATE])
+    return result
+
+
+def _assert_left_clean(cwd: str, environ: dict[str, str], children_before: set[int]):
+    problems = []
+    if os.getcwd() != cwd:
+        problems.append(f"working directory moved to {os.getcwd()}")
+        os.chdir(cwd)
+    now = _environ()
+    if now != environ:
+        changed = sorted(
+            key
+            for key in environ.keys() | now.keys()
+            if environ.get(key) != now.get(key)
+        )
+        problems.append(f"environment variables changed: {', '.join(changed)}")
+        for key in changed:
+            if key in environ:
+                os.environ[key] = environ[key]
+            else:
+                os.environ.pop(key, None)
+    new = []
+    for pid in _child_pids() - children_before:
+        with contextlib.suppress(psutil.Error):  # exited since the listing
+            new.append(psutil.Process(pid))
+    # Polled rather than `psutil.wait_procs`, which REAPS a finished child and
+    # so takes its exit status from the `Popen` that owns it. A zombie has
+    # exited; whoever started it collects it.
+    deadline = time.monotonic() + CHILD_EXIT_GRACE_SECONDS
+    alive = [child for child in new if _running(child)]
+    while alive and time.monotonic() < deadline:
+        time.sleep(0.05)
+        alive = [child for child in alive if _running(child)]
+    for child in alive:
+        with contextlib.suppress(psutil.Error):
+            problems.append(f"child process {child.pid} {child.cmdline()} running")
+            child.kill()
+    if problems:
+        pytest.fail("test left shared state dirty: " + "; ".join(problems))
 
 
 @pytest.fixture(autouse=True)
