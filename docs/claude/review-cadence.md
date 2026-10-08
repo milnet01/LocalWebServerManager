@@ -20,6 +20,13 @@ Both corrections came from the `~/.claude` session (2026-09-25). It ruled that
 capping an ADR at 2 is a redefinition. It flagged the finding filter as a grey
 area and did not settle it; the user chose the built-in test.
 
+**The measurement rule 1 was decided on** (moved from `CLAUDE.md` on
+2026-10-08): Decided after measuring `review-contract`'s yield across four
+loops on `LWSM-1007` + `LWSM-1131`: of ~42 verified findings, **roughly 1 in 10
+was a defect implementation would not have caught**, and about a third were the
+review's own collateral — loop 2 of each document landed almost entirely in text
+loop 1's fixes had added.
+
 **The rationale for rule 1, because it is the part that generalises:** global
 rule 14 assumes the spec is handed to a *different* implementer, so "a wrong
 contract makes the implementation wrong by construction". When the author and

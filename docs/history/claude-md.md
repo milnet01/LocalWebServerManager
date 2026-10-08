@@ -33,3 +33,16 @@ That rule is history now: no new phase opens, and no new `<ID>-complete` tag
 is cut. The existing tags stay. `P03b`'s three open items (LWSM-1039,
 LWSM-1008, LWSM-1121) sit in the roadmap's 0.2.0 section. A release is
 tagged by `cut-release`.
+
+## From § Before pushing
+
+It was a complete skip until 2026-09-28, when `local-gate.md` § 2.1
+(user, same day) ruled out dropping checks for speed.
+
+**Since 2026-08-18 a `pre-push` hook enforces all of that**, so
+it is no longer a rule someone has to remember.
+
+## From § Tech stack
+
+Phase A chose `QProcess`; the build
+did not use it.

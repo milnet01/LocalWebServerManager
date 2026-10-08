@@ -11334,13 +11334,22 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Source: LWSM-1326 user decision 2026-10-02 (shared spec-format.md § 5.6).
   Lanes: docs.
 
-- 📋 [LWSM-1377] **Move rule history out of CLAUDE.md, and leave pointers to decisions rather than the decisions.**
+- ✅ [LWSM-1377] **Move rule history out of CLAUDE.md, and leave pointers to decisions rather than the decisions.**
   Shared documentation.md puts pedigree in docs/history/<doc>.md and
   keeps only pointers to design decisions in CLAUDE.md. This CLAUDE.md
   carries dated decisions and history inline (Review cadence, Commit
   conventions). CLAUDE.md is a rule-14 document: ask the trigger of each
   edit.
   Priority: 4.
+  Resolved (2026-10-08), with 1c6379a's start-up trim: CLAUDE.md's
+  pedigree now lives in docs/history/claude-md.md, the name shared
+  documentation.md § 3.4 gives (moved from docs/claude/). Moved verbatim
+  this pass: the pre-push gate's dated history and the dropped QProcess
+  choice to the history file; the measurement behind review rule 1 to
+  docs/claude/review-cadence.md beside its rationale. The review-cadence
+  rules, the hard rules and the incidents behind kill-by-pattern stay as
+  instructions. Tech stack drops PySide6's version, which the 6.12 bump
+  had made false; the pin's home is pyproject.toml.
   **Layman:** Make the project's instructions file shorter by moving old history and long decisions into their own files.
   Kind: doc.
   Source: LWSM-1326 user decision 2026-10-02 (shared documentation.md §§ 2.8, 3.4, 5.2).

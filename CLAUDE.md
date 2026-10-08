@@ -58,11 +58,7 @@ blast-radius sweep that catches what a fix moved elsewhere.
 ## Review cadence — build first (user, 2026-08-13; revised 2026-09-25)
 
 **Build first and fold the spec back afterwards; spec-first is the exception,
-not the default.** Decided after measuring `review-contract`'s yield across four
-loops on `LWSM-1007` + `LWSM-1131`: of ~42 verified findings, **roughly 1 in 10
-was a defect implementation would not have caught**, and about a third were the
-review's own collateral — loop 2 of each document landed almost entirely in text
-loop 1's fixes had added.
+not the default.**
 
 Two rules, in force for this project:
 
@@ -84,10 +80,11 @@ the commit body. A spec written first under rule 2 is gated before building.
 
 **When the gate runs, it runs as global rule 14 and `review-contract` define
 it — this project sets no cap and no finding filter of its own** (user,
-2026-09-25, LWSM-1305). Two earlier rules here are withdrawn:
+2026-09-25, LWSM-1305).
 
-They are recorded, with the rationale for rule 1 and the evidence that
-has cut against it since, in [`docs/claude/review-cadence.md`](docs/claude/review-cadence.md).
+The measurement behind rule 1, its rationale, the evidence that has cut
+against it since, and two withdrawn rules are in
+[`docs/claude/review-cadence.md`](docs/claude/review-cadence.md).
 Read it before arguing for or against rule 1.
 
 **Never silently drift.** When code diverges from its spec, decide which was
@@ -109,8 +106,7 @@ text (found 2026-09-25, logged in `~/.claude` as CFG-0593).
 tooling or CI config** (user, 2026-08-03). A **docs-only push runs
 `./scripts/local-ci.sh --docs`** — the steps that read prose, not the
 whole gate, because a full gate on every typo fix trains people to skip
-it. It was a complete skip until 2026-09-28, when `local-gate.md` § 2.1
-(user, same day) ruled out dropping checks for speed. `--docs` runs the
+it. `--docs` runs the
 steps up to and including the format check, which reads every `.md`
 because ruff formats the Python blocks inside markdown; among them, the
 version lockstep reads `ROADMAP.md`. It does **not** run the suite, which
@@ -120,8 +116,7 @@ is why a file the suite reads takes the full gate (below).
 `--secrets-only` mode, before the gate. `LWSM_SKIP_PREPUSH=1` skips the
 gate and not the scan.
 
-**Since 2026-08-18 a `pre-push` hook enforces all of that**, so
-it is no longer a rule someone has to remember. Enable it once per
+**A `pre-push` hook enforces all of that.** Enable it once per
 clone — `core.hooksPath` cannot be committed:
 
 ```bash
@@ -165,12 +160,11 @@ refactoring and security passes, and `./scripts/local-release.sh`.
 Chosen in Phase A (2026-08-03) — full reasoning and runner-ups
 in [`docs/discovery.md § Tech stack`](docs/discovery.md).
 
-- **Python 3.13** + **PySide6 6.11** (Qt 6) — a desktop app, not
-  a website. Native on KDE; both already installed.
+- **Python 3.13** + **PySide6** (Qt 6; the pin is in `pyproject.toml`) —
+  a desktop app, not a website. Native on KDE; both already installed.
 - **`subprocess.Popen`** for launching servers, in
   `supervisor.py`, which imports no Qt so the process boundary is
-  testable without a display. Phase A chose `QProcess`; the build
-  did not use it. **`psutil`** for "who holds this port".
+  testable without a display. **`psutil`** for "who holds this port".
 - **`uv`** + `pyproject.toml` for dependencies; **`pytest`** +
   **`pytest-qt`** for tests; **`ruff`** for lint and format.
 
@@ -205,7 +199,7 @@ roadmap item's `LWSM-NNNN`.
 § 1.2: `chore:`, `docs:`, a release or a hotfix subject. No new `P##`,
 `FP##`, `DS##`, `DOC##` or `R##` is opened, and no new `<ID>-complete` tag is
 cut; the existing tags stay. A release is tagged by `cut-release`. The
-phase-ID history is in [`docs/claude/claude-md-history.md`](docs/claude/claude-md-history.md).
+phase-ID history is in [`docs/history/claude-md.md`](docs/history/claude-md.md).
 
 ## Licence and visibility
 
