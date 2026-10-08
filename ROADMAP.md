@@ -12138,7 +12138,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   reads as port 8080 by the explicit rule.
   Lanes: docs.
 
-- 📋 [LWSM-1161] **`write_json_atomically` now writes a file that is not JSON.**
+- ✅ [LWSM-1161] **`write_json_atomically` now writes a file that is not JSON.**
   LWSM-1018's `save_scan_roots` writes the plain-text `scan-roots`
   file through `configfile.write_json_atomically`. Reusing it was
   the right call and is not in question: every line in that
@@ -12164,6 +12164,10 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Picked up by § Standing quality passes at the next phase close,
   which asks precisely this question — what does a name now lie
   about.
+  Resolved (2026-10-08): already done by LWSM-1362 (e17dc1f, 2026-10-01),
+  which renamed it to configfile.write_atomically. No code changed here
+  beyond the one comment still naming the old function, in
+  scripts/install-desktop-entry.sh.
   **Layman:** Rename a helper whose name stopped being true, so the next reader is not misled.
   Kind: refactor.
   Source: in-session-2026-08-21 (noted while shipping LWSM-1018).

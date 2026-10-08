@@ -112,7 +112,7 @@ chmod 0644 "$entry_tmp"
 # then exits leaving it there for the user to find. The temporary file sits in
 # the destination directory so the publish below is a rename within one
 # filesystem — atomic, so nothing sees a half-written entry either. Same
-# discipline as configfile.write_json_atomically on the Python side.
+# discipline as configfile.write_atomically on the Python side.
 if command -v desktop-file-validate >/dev/null 2>&1; then
     desktop-file-validate "$entry_tmp"
 else
