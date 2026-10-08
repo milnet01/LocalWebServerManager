@@ -1620,6 +1620,26 @@ def test_a_units_none_is_a_real_value_and_does_overwrite(tmp_path: Path) -> None
     assert result.counts[registry.CHANGED] == 1
 
 
+def test_an_empty_argv_is_a_real_value_and_does_overwrite(tmp_path: Path) -> None:
+    """LWSM-1131 § 4.1's `argv` row (LWSM-1398): `()` is what a systemd project
+    has, not *unknown*, so it replaces a stored launcher argv. Read as unknown,
+    a project that became a service would keep a launcher it no longer has."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+    stored = ProjectRecord(
+        path=project, name="web", kind=LauncherKind.SHELL, argv=("./start.sh",)
+    )
+    became_a_service = FakeProject(
+        project, "web", kind=LauncherKind.SYSTEMD, argv=(), unit="web.service"
+    )
+
+    result = registry.merge([stored], FakeScan((became_a_service,)), (root,), stamp)
+
+    assert result.records[0].argv == ()
+    assert result.counts[registry.CHANGED] == 1
+
+
 def test_a_first_detection_is_changed_not_silent(tmp_path: Path) -> None:
     """ "the scan value is known", not "both known".
 
@@ -1941,6 +1961,34 @@ def test_a_new_project_is_seeded_with_a_name_and_a_stamp(tmp_path: Path) -> None
     assert load_projects(path).records[0].added == stamp()
 
 
+def test_a_new_project_takes_every_other_user_field_at_its_default(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1131 § 4.3 (LWSM-1398): beyond `name` and `added`, a merge writes no
+    user-owned field, so each takes LWSM-1007 § 4.2's default. Read from
+    `USER_FIELDS` and the dataclass, so a user field added later is covered."""
+    root = a_root(tmp_path)
+    project = root / "web"
+    project.mkdir()
+
+    result = registry.merge(
+        [],
+        FakeScan((FakeProject(project, "web", port=FakeFinding(3000)),)),
+        (root,),
+        stamp,
+    )
+
+    (added,) = result.records
+    defaults = {
+        f.name: f.default_factory() if callable(f.default_factory) else f.default
+        for f in dataclasses.fields(ProjectRecord)
+    }
+    others = sorted(registry.USER_FIELDS - {"name", "added"})
+    assert others, "USER_FIELDS lost its other members"
+    for name in others:
+        assert getattr(added, name) == defaults[name], name
+
+
 def test_the_merge_report_is_bounded(tmp_path: Path) -> None:
     """INV-6. LWSM-1115's shape, arriving on a second surface."""
     root = a_root(tmp_path)
@@ -1973,6 +2021,49 @@ def test_no_merge_value_is_interpolated_without_the_clip(tmp_path: Path) -> None
 
     assert result.reasons
     assert all("\n" not in reason for reason in result.reasons)
+    assert all("y" * 200 not in reason for reason in result.reasons)
+
+
+HOSTILE = "evil\nname " + "y" * 500
+
+
+def _merge_outcome(root: Path, outcome: str) -> registry.MergeResult:
+    web = root / "web"
+    web.mkdir()
+    if outcome == "new, named by the scan":
+        return registry.merge(
+            [], FakeScan((FakeProject(web, HOSTILE),)), (root,), stamp
+        )
+    if outcome == "changed":
+        stored = ProjectRecord(path=web, name=HOSTILE, argv=("./old.sh",))
+        return registry.merge(
+            [stored], FakeScan((FakeProject(web, "web"),)), (root,), stamp
+        )
+    if outcome == "duplicate port":
+        other = root / "other"
+        other.mkdir()
+        claims = [
+            ProjectRecord(path=web, name=HOSTILE, port=3000),
+            ProjectRecord(path=other, name=HOSTILE + "2", port=3000),
+        ]
+        return registry.merge(claims, FakeScan((), timed_out=True), (root,), stamp)
+    stored = ProjectRecord(path=web, name=HOSTILE)
+    return registry.merge([stored], FakeScan((), timed_out=True), (root,), stamp)
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ["new, named by the scan", "changed", "duplicate port", "not re-observed"],
+)
+def test_every_merge_outcome_clips_and_escapes_the_names_it_reports(
+    tmp_path: Path, outcome: str
+) -> None:
+    """INV-10 beyond *missing* (LWSM-1398): a name from the scan as well as the
+    file, in each outcome that writes one into the report."""
+    result = _merge_outcome(a_root(tmp_path), outcome)
+
+    assert result.reasons, "the outcome reported nothing"
+    assert all("\n" not in reason for reason in result.reasons), result.reasons
     assert all("y" * 200 not in reason for reason in result.reasons)
 
 
