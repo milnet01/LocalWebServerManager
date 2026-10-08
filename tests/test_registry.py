@@ -545,6 +545,24 @@ def test_no_file_sourced_value_is_interpolated_without_the_clip() -> None:
     )
 
 
+def test_a_hostile_value_in_every_key_reaches_no_reason_raw(tmp_path: Path) -> None:
+    """INV-21 at run time (LWSM-1398). The sweep above sees `{value!r}` and not a
+    bare `{value}`, and a grep cannot tell a file-sourced value from a count.
+    So every key the loader knows holds a hostile string, and every reason it
+    returns is checked: whatever the interpolation, a raw value shows here."""
+    hostile = "evil\n" + "z" * 500
+    entry: dict[str, object] = {"path": "/srv/a", "name": "a"}
+    for key in sorted(registry._known_keys() - {"path", "name"}):
+        entry[key] = hostile
+
+    result = load_projects(write(tmp_path, {"schema_version": 1, "projects": [entry]}))
+
+    assert result.reasons, "no key refused a string, so nothing was checked"
+    for reason in result.reasons:
+        assert "\n" not in reason, reason
+        assert "z" * 200 not in reason, reason
+
+
 def test_the_shipped_bounds_are_pinned() -> None:
     """Every clip assertion is relative to the constant, so none pins its value.
 
@@ -1307,6 +1325,42 @@ def test_a_writer_refusal_reason_is_clipped_and_escaped(tmp_path: Path) -> None:
     message = str(caught.value)
     assert "\n" not in message
     assert len(message) <= len(str(path)) + 3 * configfile.MAX_REASON_CHARS
+
+
+@pytest.mark.parametrize(
+    "refusal", ["rows refused", "another file's load", "unloadable", "symlink"]
+)
+def test_every_writer_refusal_reason_is_clipped_and_escaped(
+    tmp_path: Path, refusal: str
+) -> None:
+    """INV-8 says EVERY refusal reason (LWSM-1398). The test above reaches only
+    the non-regular-target one; these are the load gate's three and
+    `configfile`'s symlink refusal, which the source sweep does not read."""
+    hostile = tmp_path / "bad\nname"
+    hostile.mkdir()
+    for _ in range(4):
+        hostile = hostile / ("x" * 200)
+        hostile.mkdir()
+    path = hostile / "projects.json"
+    load: registry.LoadResult | RegistryError = RegistryMissing("first run")
+    if refusal == "rows refused":
+        load = registry.LoadResult(records=[], reasons=["x"], rows_refused=1, path=path)
+    elif refusal == "another file's load":
+        load = registry.LoadResult(records=[], reasons=[], rows_refused=0, path=hostile)
+    elif refusal == "unloadable":
+        load = RegistryError("bad\n" + "y" * 500)
+    else:
+        target = tmp_path / "real.json"
+        target.write_text("{}", encoding="utf-8")
+        path.symlink_to(target)
+
+    with pytest.raises(RegistryError) as caught:
+        save_projects(path, [], load=load)
+
+    message = str(caught.value)
+    assert "\n" not in message, message
+    # Each value is clipped to MAX_REASON_CHARS, so no 200-long run survives.
+    assert "x" * 200 not in message and "y" * 200 not in message
 
 
 def test_a_registry_over_the_size_limit_is_refused_before_anything_is_written(
