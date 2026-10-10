@@ -113,8 +113,9 @@ of that release. The gate checks it like a tool, against
 that does not reproduce locally. Until 2026-10-10 the file said `3.13`:
 GitHub took the newest 3.13 (3.13.16) while this machine used the
 distro's 3.13.15, and nothing compared them (LWSM-1413). **To bump
-Python**, change `.python-version`; the next gate run rebuilds `.venv`,
-which the installed app runs from, so close the app first.
+Python**, close the app first: the very next `uv` command after
+`.python-version` changes (not only the gate) rebuilds `.venv`, which the
+installed app runs from (measured 2026-10-10).
 
 **The gate pins the rest of the environment the runner has**: `LC_ALL`
 and `TZ`, and it clears `PYTEST_ADDOPTS`, `PYTHONPATH`, `VIRTUAL_ENV`
