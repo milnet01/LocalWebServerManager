@@ -248,7 +248,10 @@ Environment` (LWSM-1388). Notes that make this safe rather than clever:
   override `Environment=` (systemd.exec(5)), so a unit that sets
   `PORT` that way keeps its own port.
 - **It is written before a start or restart and removed after any
-  successful start, restart or stop from this app** (LWSM-1387). So
+  successful start, restart or stop from this app** (LWSM-1387),
+  **and after one systemd rejected** (L05-M3): nothing is starting
+  to read it. A verb that timed out keeps it, since systemd may
+  still be starting the unit. So
   the unit's next logon start is on its own settings, even when the
   app quits with the unit still running. systemd reads the drop-in
   only when it starts the unit, so the running server keeps its

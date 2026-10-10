@@ -97,6 +97,11 @@ signaling per
 
 ### Changed
 
+- **When systemd refuses to start a project, the app removes the port setting it wrote for that start.** (LWSM-1407)
+  Otherwise the service's next start at logon would use the app's
+  port. A start that only timed out keeps the setting, because
+  systemd may still be starting it.
+
 - **The tests run in a different random order every time, and each one is checked for leaving a mess behind** (LWSM-1374)
   A test that only passes because of the one before it now gets caught. A
   test that leaves a changed folder, setting or running program behind

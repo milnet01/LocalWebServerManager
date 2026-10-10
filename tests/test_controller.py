@@ -2349,16 +2349,25 @@ class UnnamedHolderProbe:
 class RecordingDrive:
     """Stands in for `systemctl`, recording the verb and unit it was given."""
 
-    def __init__(self, ok: bool = True, reason: str = "") -> None:
+    def __init__(
+        self, ok: bool = True, reason: str = "", *, rejected: bool = False
+    ) -> None:
         self.ok = ok
         self.reason = reason
+        self.rejected = rejected
         self.calls: list[tuple[str, str]] = []
 
     def __call__(self, verb: str, unit: str, **kwargs: object):
         self.calls.append((verb, unit))
         from lwsm.service import UnitOutcome
 
-        return UnitOutcome(ok=self.ok, verb=verb, unit=unit, reason=self.reason)
+        return UnitOutcome(
+            ok=self.ok,
+            verb=verb,
+            unit=unit,
+            reason=self.reason,
+            rejected=self.rejected,
+        )
 
 
 def adopted(
@@ -3094,14 +3103,19 @@ def test_a_started_unit_loses_its_drop_in_straight_away(
     assert not drop_in_path("a.service").exists()
 
 
-def test_a_unit_that_fails_to_start_keeps_its_drop_in(
+def test_a_start_that_timed_out_keeps_its_drop_in(
     qtbot, controllers, monkeypatch, reloads
 ) -> None:
-    """Only a successful verb clears it (user, 2026-10-07): systemd may still be
-    starting a unit whose `systemctl start` timed out here."""
+    """A failure systemd did not answer keeps it (user, 2026-10-07): systemd may
+    still be starting a unit whose `systemctl start` timed out here, and that
+    start reads the drop-in.
+
+    This test was `..._fails_to_start_keeps_its_drop_in` and held EVERY failure
+    to that rule. A refusal is a different case (user, 2026-10-10, L05-M3), and
+    has its own test below."""
     from lwsm.service import drop_in_path
 
-    drive = RecordingDrive(ok=False, reason="boom")
+    drive = RecordingDrive(ok=False, reason="timed out", rejected=False)
     monkeypatch.setattr(controller_module, "drive_unit", drive)
     controller = supervised(controllers, [unit_record()], FakeProbe(), FakeSupervisor())
 
@@ -3110,6 +3124,25 @@ def test_a_unit_that_fails_to_start_keeps_its_drop_in(
 
     assert drop_in_path("a.service").exists()
     assert reloads == ["daemon-reload"]
+
+
+def test_a_start_systemd_rejected_loses_its_drop_in(
+    qtbot, controllers, monkeypatch, reloads
+) -> None:
+    """L05-M3 (user, 2026-10-10): `systemctl start` answered non-zero, so no
+    start is in progress to read the file. Left in place, the unit's next
+    logon start would take the app's port."""
+    from lwsm.service import drop_in_path
+
+    drive = RecordingDrive(ok=False, reason="Job failed", rejected=True)
+    monkeypatch.setattr(controller_module, "drive_unit", drive)
+    controller = supervised(controllers, [unit_record()], FakeProbe(), FakeSupervisor())
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000):
+        controller.start_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: len(reloads) == 2, timeout=2000)
+
+    assert not drop_in_path("a.service").exists()
 
 
 def test_a_stop_from_the_app_removes_the_drop_in(

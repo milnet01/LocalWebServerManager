@@ -91,6 +91,9 @@ class UnitOutcome:
     # Refused because the unit is not this project's (ADR-0003's binding rule),
     # so the caller forgets it rather than offering it again.
     unbound: bool = False
+    # systemd itself answered no (non-zero exit), so nothing is in progress. A
+    # timeout or a systemctl that never ran is not a rejection (L05-M3).
+    rejected: bool = False
 
 
 # A unit under OUR user's service manager, the only kind `--user` drives. Any
@@ -315,6 +318,7 @@ def drive_unit(verb: str, unit: str, *, run: object = None) -> UnitOutcome:
         verb=verb,
         unit=unit,
         reason=detail[:MAX_REASON_CHARS] or f"systemctl {verb} failed",
+        rejected=True,
     )
 
 

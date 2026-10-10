@@ -41,13 +41,15 @@
    "LWSM-1407": {
     "ADR-0003 drop-in section": "fixed — always reload, DropInPaths check",
     "ADR-0007 platform detection bullet": "fixed — reading rule",
-    "tests asserting the same-bytes skip": "fixed — restated"
+    "tests asserting the same-bytes skip": "fixed — restated",
+    "ADR-0003 drop-in removal bullet (L05-M3)": "fixed — rejected start clears, timeout keeps",
+    "docs/claude/module-map.md service.py entry": "fixed",
+    "docs/design.md drop-in passage": "agrees — states no clearing rule",
+    "test_a_unit_that_fails_to_start_keeps_its_drop_in": "fixed — restated as the timeout case, renamed"
    }
   },
   "collateral": [],
-  "surfaced": [
-   "L05-M3: clear the drop-in after a start systemd rejected? Conflicts with the user ruling of 2026-10-07 (only a success clears)."
-  ],
+  "surfaced": [],
   "out_of_scope": [],
   "falsified": []
  },
@@ -741,12 +743,17 @@
    "finding": "`if outcome.ok: cleared = clear_drop_in(self._unit)` leaves the drop-in after a rejected start, so the next logon start uses the app's port.",
    "remedy": "Clear the drop-in after a non-zero start too.",
    "verified": "yes — only ok clears the drop-in (controller _drive)",
-   "disposition": null,
-   "why": "awaiting the user: test_a_unit_that_fails_to_start_keeps_its_drop_in records \"Only a successful verb clears it (user, 2026-10-07)\"; the lane asks to clear after a rejected (non-zero) start too",
+   "disposition": "fixed",
+   "why": "user decided 2026-10-10: clear on a definite rejection, keep on a timeout",
    "roadmap_id": "LWSM-1407",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/service.py",
+    "src/lwsm/controller.py",
+    "docs/decisions/0003-launch-via-project-scripts.md",
+    "docs/claude/module-map.md"
+   ],
+   "was": "only ok cleared the drop-in",
+   "now": "UnitOutcome.rejected (systemctl answered non-zero) also clears it; timeout keeps it; old test restated as test_a_start_that_timed_out_keeps_its_drop_in; 3 mutants killed",
    "must_agree": []
   },
   {

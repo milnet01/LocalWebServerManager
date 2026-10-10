@@ -208,6 +208,23 @@ def test_systemd_s_own_message_is_reported_and_bounded() -> None:
     assert len(outcome.reason) <= MAX_REASON_CHARS
 
 
+def test_only_systemd_s_own_non_zero_answer_is_a_rejection() -> None:
+    """L05-M3: a rejection means no start is in progress, so the caller may
+    remove the drop-in. A timeout is no answer at all: systemd may still be
+    starting the unit."""
+
+    def slow(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, UNIT_VERB_TIMEOUT_SECONDS)
+
+    refused = drive_unit("start", "a.service", run=FakeRun(returncode=1))
+    timed_out = drive_unit("start", "a.service", run=slow)
+    worked = drive_unit("start", "a.service", run=FakeRun())
+
+    assert (refused.ok, refused.rejected) == (False, True)
+    assert (timed_out.ok, timed_out.rejected) == (False, False)
+    assert worked.rejected is False
+
+
 def test_a_failure_with_no_message_still_says_something() -> None:
     """An empty reason renders as a dialog explaining nothing."""
     outcome = drive_unit("stop", "ants-stats.service", run=FakeRun(returncode=1))
