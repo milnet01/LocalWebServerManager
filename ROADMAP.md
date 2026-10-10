@@ -11713,6 +11713,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   LWSM-1410 (startup/browsers), LWSM-1411 (tooling).
   NEXT: LWSM-1409, then 1410, 1411; then the user tries the health check
   by hand; then ./scripts/local-release.sh 0.3.0; then cut-release.
+  Before the cut (2026-10-10): Ants Terminal is settling whether
+  roadmap-format § 3.9 rotates a closed minor that was never released.
+  0.2.0 is closed but ships inside 0.3.0, so the cut must not leave a
+  docs/roadmap/0.2.md archive for a version with no tag or changelog
+  section. Check its answer (session_message inbox) before cut-release.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
