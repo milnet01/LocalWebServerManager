@@ -71,6 +71,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QStyle,
+    QStyleOptionComboBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -107,7 +108,7 @@ from lwsm.registry import (
     RegistryNotDurable,
 )
 from lwsm.service import describe_holder
-from lwsm.settings import MIN_TEXT_SCALE, TEXT_SIZE_STEPS
+from lwsm.settings import MIN_TEXT_SCALE, TEXT_SIZE_STEPS, SettingsNotDurable
 from lwsm.theme import (
     DEFAULT_THEME,
     FOLLOW_SYSTEM,
@@ -244,6 +245,33 @@ STATE_GLYPHS = {
 # one pass (LWSM-1181). Sequential `.replace` calls let the first value land in
 # a template that still held the others.
 _TRUST_FIELD = re.compile(r"%[1234]")
+
+
+def _default_browser_label() -> str:
+    """The browser picker's first entry: the desktop's own default browser.
+
+    Short, because the column is capped and every row shows it. "Default
+    browser" showed as "Default b" (LWSM-1315, user 2026-09-25), and once the
+    column was measured from the combo's real text area "Default" was cut as
+    well, while widening it put the row past the magnifier band, so it reads
+    "Auto" (L06-L1, user 2026-10-10). The tooltip carries the full words.
+    """
+    return QCoreApplication.translate("ProjectRow", "Auto")
+
+
+def _answered(dialog: QDialog) -> int:
+    """Run a modal prompt and let it go once it has been answered.
+
+    Each prompt is parented to the window, so without this every Start, Open
+    or Stop that asked left a dialog alive for the window's lifetime
+    (review-code 2026-10-08 L07-L5). `deleteLater` for `open_settings`'
+    reason (LWSM-1276): it is deferred to the event loop, so nothing the
+    caller reads after `exec()` is gone yet.
+    """
+    try:
+        return dialog.exec()
+    finally:
+        dialog.deleteLater()
 
 
 def _filled(template: str, *values: str) -> str:
@@ -1025,27 +1053,26 @@ class ProjectRow(QFrame):
         # It therefore does NOT join `natural_widths`' tuple: every row gets the
         # same width from the same font, so the column is aligned by
         # construction and there is nothing for `_align_columns` to reconcile.
+        # The default entry's label counts: it is on every row, and it was the
+        # one left out (L06-L1).
         widest = max(
-            (metrics.horizontalAdvance(b.name) for b in self._browsers),
-            default=0,
-        )
-        cap = metrics.horizontalAdvance("x") * BROWSER_COLUMN_CHARS
-        # The arrow is furniture the text may not overlap; taken from the
-        # style rather than guessed, so it follows the platform.
-        arrow = self.browser_box.style().pixelMetric(
-            QStyle.PixelMetric.PM_ScrollBarExtent
-        )
-        # Floored like `_fit_buttons` does, and for the same reason: with
-        # no browser installed `widest` is 0 and the control lands at the
-        # arrow's width alone -- around 20px, under the 24px target floor
-        # `design-accessibility.md` puts under every clickable thing. The
-        # height already took the floor and the width did not (LWSM-1253).
-        self.browser_box.setFixedWidth(
-            max(
-                min(widest, cap) + arrow + layout.spacing(),
-                MIN_TARGET_PX,
+            metrics.horizontalAdvance(text)
+            for text in (
+                _default_browser_label(),
+                *(b.name for b in self._browsers),
             )
         )
+        cap = metrics.horizontalAdvance("x") * BROWSER_COLUMN_CHARS
+        # Everything in the box that is not text -- arrow, frame, the style
+        # sheet's padding -- measured from the style rather than guessed. The
+        # arrow alone was 14 px of a 39 px difference, so every name was drawn
+        # cut ("Firefo", review-code 2026-10-08 L06-L1).
+        furniture = self.browser_box.width() - self._browser_text_room()
+        # Floored like `_fit_buttons` does, and for the same reason: the
+        # 24px target floor `design-accessibility.md` puts under every
+        # clickable thing. The height already took the floor and the width
+        # did not (LWSM-1253).
+        self.browser_box.setFixedWidth(max(min(widest, cap) + furniture, MIN_TARGET_PX))
         self.browser_box.setMinimumHeight(MIN_TARGET_PX)
         self._apply_browser_tooltip()
 
@@ -1096,6 +1123,25 @@ class ProjectRow(QFrame):
             return None
         return QRect(self._error.mapToGlobal(QPoint(0, 0)), self._error.size())
 
+    def _browser_text_room(self) -> int:
+        """The width the browser picker draws its text in: its edit field.
+
+        The one measure both the column's width and the tooltip's "is it cut?"
+        read, so they cannot disagree about what fits (L06-L1).
+        """
+        option = QStyleOptionComboBox()
+        self.browser_box.initStyleOption(option)
+        return (
+            self.browser_box.style()
+            .subControlRect(
+                QStyle.ComplexControl.CC_ComboBox,
+                option,
+                QStyle.SubControl.SC_ComboBoxEditField,
+                self.browser_box,
+            )
+            .width()
+        )
+
     def _apply_browser_tooltip(self) -> None:
         """The full browser name in a tooltip whenever the combo cuts it.
 
@@ -1106,7 +1152,7 @@ class ProjectRow(QFrame):
         Empty when the text fits, because a tooltip repeating what is already
         on screen is noise — and on a `QWidget`, unlike a `QAction`, an empty
         string really does remove it. The one exception is the default entry,
-        shortened to "Default" so it fits, whose tooltip always says "Default
+        shortened to "Auto" so it fits, whose tooltip always says "Default
         browser" (LWSM-1315).
 
         The combo elides when it PAINTS and its item text stays whole, so a
@@ -1114,14 +1160,12 @@ class ProjectRow(QFrame):
         user, who otherwise cannot read it at all.
         """
         text = self.browser_box.currentText()
-        arrow = self.browser_box.style().pixelMetric(
-            QStyle.PixelMetric.PM_ScrollBarExtent
-        )
-        fits = self.browser_box.fontMetrics().horizontalAdvance(text) <= (
-            self.browser_box.width() - arrow
+        fits = (
+            self.browser_box.fontMetrics().horizontalAdvance(text)
+            <= self._browser_text_room()
         )
         if self.browser_box.currentIndex() == 0:
-            # The default entry is shortened to "Default" to fit, so its tooltip
+            # The default entry is shortened to "Auto" to fit, so its tooltip
             # always carries the words it gave up (LWSM-1315).
             self.browser_box.setToolTip(
                 QCoreApplication.translate("ProjectRow", "Default browser")
@@ -1269,9 +1313,14 @@ class ProjectRow(QFrame):
         It CLICKS the button rather than calling the controller, so which
         action is legal in which state stays stated once, in
         `_apply_button_state`. A second copy of that rule here would be free to
-        drift from the buttons this key press stands in for — and both overlay
-        states disable Start and Stop together, so Enter correctly does nothing
-        mid-transition without naming the states at all.
+        drift from the buttons this key press stands in for.
+
+        **Except while starting, where Enter does nothing at all.** Stop stays
+        live while our own child starts, so a slow start can be cancelled
+        (LWSM-1372) — and clicking it from here let a second press, or key
+        auto-repeat, cancel the start the first press made (review-code
+        2026-10-08 L06-M1). Cancelling is a click on Stop, never a key press
+        that also means "start".
 
         Start is offered before Stop because they are mutually exclusive:
         `_apply_button_state` enables Start only when not running and not in
@@ -1289,7 +1338,16 @@ class ProjectRow(QFrame):
         # is not active.
         focus = self.focusWidget()
         from_child = focus is not None and focus is not self
-        if not from_child and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        # STARTING alone: while stopping, `_apply_button_state` disables both
+        # buttons already, so naming it here would be a dead condition.
+        starting = (
+            self._view is not None and self._view.status is ProjectStatus.STARTING
+        )
+        if (
+            not from_child
+            and not starting
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        ):
             for button in (self.start_button, self.stop_button):
                 if button.isEnabled():
                     button.click()
@@ -1357,10 +1415,12 @@ class ProjectRow(QFrame):
     def _apply_button_state(self, row: RowView) -> None:
         """Labels and enablement, both derived from the one status.
 
-        **Both overlay states disable all three.** A second Stop while one is in
-        flight would signal a group whose leader may already be reaped, and a
-        Start during a stop is the race the pre-flight check exists to refuse —
-        so the disable is correctness rather than politeness.
+        **Both overlay states disable Start and Restart, and stopping disables
+        Stop too.** A second Stop while one is in flight would signal a group
+        whose leader may already be reaped, and a Start during a stop is the
+        race the pre-flight check exists to refuse — so the disable is
+        correctness rather than politeness. Stop stays live while our own child
+        starts, which is how a slow start is cancelled (LWSM-1372).
 
         `unknown` means nobody has looked yet, so Start is offered and Stop is
         not: starting something that turns out to be running is refused by the
@@ -1472,7 +1532,10 @@ class ProjectRow(QFrame):
         )
         for gated, explanation in (
             (self.stop_button, stranger_text),
-            (self.restart_button, stranger_text),
+            # Only a Restart that can act says what acting will show: a
+            # disabled one promising a dialog is a promise a screen reader
+            # reads aloud and the button cannot keep (L06-L2).
+            (self.restart_button, stranger_text if can_restart else ""),
             (self.open_button, stranger_text or unconfirmed_text),
         ):
             gated.setToolTip(_plain_tooltip(explanation) if explanation else "")
@@ -1635,13 +1698,7 @@ class ProjectRow(QFrame):
         # read -- a write loop that would look like nothing at all until the
         # disk activity was noticed.
         with QSignalBlocker(self.browser_box):
-            # "Default", not "Default browser": the long form showed as
-            # "Default b" on every row, and widening the column would push the
-            # buttons out of the magnifier band. The tooltip carries the full
-            # words (LWSM-1315, user decision 2026-09-25).
-            self.browser_box.setItemText(
-                0, QCoreApplication.translate("ProjectRow", "Default")
-            )
+            self.browser_box.setItemText(0, _default_browser_label())
             index = self.browser_box.findData(row.browser or "")
             # -1 means the stored browser is not installed any more. Fall back to
             # the default entry; the id stays in the file, so reinstalling the
@@ -2437,6 +2494,12 @@ class MainWindow(QMainWindow):
                         "The text size cannot be changed on this desktop",
                     )
                 )
+            # From the menu, the exclusive group ticked the refused entry
+            # before this ran, so the tick goes back to the size in force
+            # (review-code 2026-10-08 L07-M2).
+            current = self._text_size_actions.get(self._text_scale)
+            if current is not None:
+                current.setChecked(True)
             return
         self._text_scale = percent
         font = app.font()
@@ -2447,17 +2510,44 @@ class MainWindow(QMainWindow):
             action.setChecked(True)
         if not remember or self._save_text_scale is None:
             return
+        self._save_setting(
+            self._save_text_scale,
+            percent,
+            "text size",
+            QCoreApplication.translate(
+                "ProjectRow", "The text size could not be saved: %1"
+            ),
+            QCoreApplication.translate(
+                "ProjectRow", "The text size was saved, but may not survive a crash: %1"
+            ),
+        )
+
+    def _save_setting[T](
+        self,
+        save: Callable[[T], None],
+        value: T,
+        what: str,
+        failed: str,
+        not_durable: str,
+    ) -> None:
+        """Hand one setting to its saver and say what became of it.
+
+        One copy for the text size and the theme. `design.md § Observability`:
+        every config write reaches the log, failures included (L2-L4).
+
+        Caught by name, as the geometry saver does: `except Exception` reported
+        a bug in the saver as a full disk (review-code 2026-10-08 L07-L7). And
+        `SettingsNotDurable` first, because the file WAS written and only its
+        survival of a crash is in doubt (known-issue-047; L07-M1's mechanism).
+        """
         try:
-            self._save_text_scale(percent)
-        except Exception as exc:
-            # `design.md § Observability`: every config write reaches the log,
-            # failures included (L2-L4).
-            log.warning("the text size could not be saved: %s", exc)
-            self.set_status_message(
-                QCoreApplication.translate(
-                    "ProjectRow", "The text size could not be saved: %1"
-                ).replace("%1", str(exc))
-            )
+            save(value)
+        except SettingsNotDurable as exc:
+            log.warning("the %s was saved but not made durable: %s", what, exc)
+            self.set_status_message(not_durable.replace("%1", str(exc)))
+        except (ConfigFileError, OSError) as exc:
+            log.warning("the %s could not be saved: %s", what, exc)
+            self.set_status_message(failed.replace("%1", str(exc)))
 
     def _retranslate_menus(self) -> None:
         """`QCoreApplication.translate` under the file's one context, never
@@ -2616,15 +2706,17 @@ class MainWindow(QMainWindow):
             action.setChecked(True)
         if self._save_theme is None:
             return
-        try:
-            self._save_theme(theme_id)
-        except Exception as exc:
-            log.warning("the theme could not be saved: %s", exc)
-            self.set_status_message(
-                QCoreApplication.translate(
-                    "ProjectRow", "The theme could not be saved: %1"
-                ).replace("%1", str(exc))
-            )
+        self._save_setting(
+            self._save_theme,
+            theme_id,
+            "theme",
+            QCoreApplication.translate(
+                "ProjectRow", "The theme could not be saved: %1"
+            ),
+            QCoreApplication.translate(
+                "ProjectRow", "The theme was saved, but may not survive a crash: %1"
+            ),
+        )
 
     def _settings_unavailable(self) -> None:
         """What Preferences does when no opener was injected.
@@ -2673,6 +2765,22 @@ class MainWindow(QMainWindow):
             registry.export_profile(
                 Path(chosen), self._controller.records(), load=self._load
             )
+        except RegistryNotDurable as exc:
+            # Written: only its survival across a crash is in doubt, so it is
+            # not called unsaved, as `_write_records` words the same case
+            # (known-issue-047; review-code 2026-10-08 L07-M1).
+            log.warning("the profile was exported but not made durable: %s", exc)
+            self.set_status_message(
+                _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow",
+                        "Profile saved to %1, but may not survive a crash: %2",
+                    ),
+                    chosen,
+                    str(exc),
+                )
+            )
+            return
         except RegistryError as exc:
             log.warning("the profile could not be exported: %s", exc)
             self.set_status_message(
@@ -2970,7 +3078,7 @@ class MainWindow(QMainWindow):
         if len(notices) == 1:
             return first
         extra = QCoreApplication.translate("ProjectRow", " (+%1 more)").replace(
-            "%1", str(len(notices) - 1)
+            "%1", QLocale().toString(len(notices) - 1)
         )
         return f"{first}{extra}"
 
@@ -3065,7 +3173,7 @@ class MainWindow(QMainWindow):
         template = wording.get(
             verb, QCoreApplication.translate("ProjectRow", "%1: %2 finished")
         )
-        self.set_status_message(_filled(template, path.name, verb))
+        self.set_status_message(_filled(template, display_text(path.name), verb))
 
     def _report_failure(self, path: Path, message: str) -> None:
         """A failure goes to the row it is about, and to the message banner
@@ -3198,7 +3306,7 @@ class MainWindow(QMainWindow):
         # No by default: a confirmation whose default is yes is a confirmation
         # that gets dismissed rather than read.
         box.setDefaultButton(QMessageBox.StandardButton.No)
-        return box.exec() == QMessageBox.StandardButton.Yes
+        return _answered(box) == QMessageBox.StandardButton.Yes
 
     def _ask_to_trust(self, project: Path, refusal: object) -> None:
         resolved = getattr(refusal, "resolved", None)
@@ -3218,7 +3326,7 @@ class MainWindow(QMainWindow):
                 QCoreApplication.translate(
                     "ProjectRow",
                     "%1 was not started: there is no launcher to show you",
-                ).replace("%1", project.name)
+                ).replace("%1", display_text(project.name))
             )
             return
         npm_shown = getattr(refusal, "npm_shown", ())
@@ -3227,7 +3335,7 @@ class MainWindow(QMainWindow):
         else:
             self.set_status_message(
                 QCoreApplication.translate("ProjectRow", "%1 was not started").replace(
-                    "%1", project.name
+                    "%1", display_text(project.name)
                 )
             )
 
@@ -3275,7 +3383,9 @@ class MainWindow(QMainWindow):
             "%1": project.name,
             "%2": unit or QCoreApplication.translate("ProjectRow", "(not a service)"),
             "%3": str(getattr(holder, "exe", None) or "?"),
-            "%4": str(getattr(holder, "uid", None) if holder is not None else "?"),
+            # "?" for an unanswered uid as for every other field: a holder
+            # owned by another user answers none without privileges (L07-L6).
+            "%4": "?" if (uid := getattr(holder, "uid", None)) is None else str(uid),
             "%5": getattr(holder, "cmdline", "") or "?",
             "%6": datetime.fromtimestamp(started).isoformat(" ", "seconds")
             if started
@@ -3302,7 +3412,7 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         box.setDefaultButton(QMessageBox.StandardButton.No)
-        return box.exec() == QMessageBox.StandardButton.Yes
+        return _answered(box) == QMessageBox.StandardButton.Yes
 
     def _confirm_tree_dialog(self, project: Path, tree: Tree, changed: bool) -> bool:
         """ADR-0004's foreign-stop confirmation, on screen.
@@ -3384,7 +3494,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(table)
         layout.addWidget(buttons)
         cancel.setFocus()
-        return dialog.exec() == QDialog.DialogCode.Accepted
+        return _answered(dialog) == QDialog.DialogCode.Accepted
 
     def _may_act_on(self, path: Path, *, own_child_suffices: bool = False) -> bool:
         """True when the action may proceed: ours, or the user has been shown
@@ -3466,7 +3576,12 @@ class MainWindow(QMainWindow):
                 current = enumerate_tree(pid)
             except TreeRefused as exc:
                 self._report_failure(
-                    path, f"cannot stop {display_text(path.name)}: {exc}"
+                    path,
+                    _filled(
+                        QCoreApplication.translate("ProjectRow", "cannot stop %1: %2"),
+                        display_text(path.name),
+                        str(exc),
+                    ),
                 )
                 return True
             if current.identity() == shown.identity():
@@ -3494,7 +3609,7 @@ class MainWindow(QMainWindow):
             self.set_status_message(
                 QCoreApplication.translate(
                     "ProjectRow", "%1 has no port to open"
-                ).replace("%1", path.name)
+                ).replace("%1", display_text(path.name))
             )
             return
         url = project_url(view.effective_port)
@@ -3503,7 +3618,7 @@ class MainWindow(QMainWindow):
             if view.browser is not None:
                 # LWSM-1055's third acceptance criterion: an uninstalled browser
                 # falls back to the default WITH a visible message. The picker
-                # reading "Default" is not that message -- it looks
+                # reading "Auto" is not that message -- it looks
                 # identical to a project nobody ever set one for, which is the
                 # silent failure the criterion names.
                 #
@@ -3550,7 +3665,7 @@ class MainWindow(QMainWindow):
             self.set_status_message(
                 QCoreApplication.translate(
                     "ProjectRow", "Could not open a browser for %1"
-                ).replace("%1", path.name)
+                ).replace("%1", display_text(path.name))
             )
 
     def _set_show_hidden(self, showing: bool) -> None:
@@ -3577,7 +3692,9 @@ class MainWindow(QMainWindow):
             replace(record, hidden=hidden) if record.path == path else record
             for record in self._controller.records()
         ]
-        name = next((r.name for r in records if r.path == path), path.name)
+        name = display_text(
+            next((r.name for r in records if r.path == path), path.name)
+        )
         self.set_status_message(
             self._write_records(
                 records,
@@ -3599,7 +3716,9 @@ class MainWindow(QMainWindow):
             replace(record, health_check=on) if record.path == path else record
             for record in self._controller.records()
         ]
-        name = next((r.name for r in records if r.path == path), path.name)
+        name = display_text(
+            next((r.name for r in records if r.path == path), path.name)
+        )
         message = (
             QCoreApplication.translate(
                 "ProjectRow", "%1: the site is now checked every 10 seconds"
@@ -3708,7 +3827,9 @@ class MainWindow(QMainWindow):
             replace(record, browser=entry_id) if record.path == path else record
             for record in self._controller.records()
         ]
-        name = next((r.name for r in records if r.path == path), path.name)
+        name = display_text(
+            next((r.name for r in records if r.path == path), path.name)
+        )
         chosen = browsers.by_id(self._browsers, entry_id)
         message = (
             _filled(
@@ -3868,8 +3989,8 @@ class MainWindow(QMainWindow):
                 replace(merged, records=chosen),
                 _filled(
                     QCoreApplication.translate("ProjectRow", "Saved %1 of %2 projects"),
-                    str(len(chosen)),
-                    str(len(merged.records)),
+                    QLocale().toString(len(chosen)),
+                    QLocale().toString(len(merged.records)),
                 ),
                 "rescan",
             )
@@ -3897,11 +4018,28 @@ class MainWindow(QMainWindow):
         """
         current = {record.path: record for record in self._controller.records()}
         return [
-            registry.user_half_applied(record, current[record.path])
+            self._with_current_confirmation(
+                registry.user_half_applied(record, current[record.path]),
+                current[record.path],
+            )
             if record.path in current
             else record
             for record in records
         ]
+
+    @staticmethod
+    def _with_current_confirmation(
+        merged: ProjectRecord, now: ProjectRecord
+    ) -> ProjectRecord:
+        """`confirmed_port` is not a user field, but it has the same race: a
+        poll can confirm a port while the rescan runs, and the merge carried the
+        stale copy over it (review-code 2026-10-08 L07-L2). Taken from now on
+        the merge's own rule — while the declared port is unchanged, since a
+        changed one means the project's files now say something else
+        (LWSM-1038 § 4.4)."""
+        if merged.port != now.port:
+            return merged
+        return replace(merged, confirmed_port=now.confirmed_port)
 
     def _apply_merge(self, merged: MergeResult, message: str, source: str) -> str:
         """Write a merge and show it, whichever merge produced it.

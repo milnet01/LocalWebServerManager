@@ -223,8 +223,8 @@ The cell's accessible name joins the confidence line with a space, as today,
 and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
 
 **The detail.** `port_detail` gains one last sentence when `health` is set:
-`The site answered HTTP %1 to %2.` or `The site gave no HTTP answer to %2.`,
-`%2` being the page through `configfile.display_text`.
+`The site answered HTTP %1 to %2.` or `The site gave no HTTP answer to %1.`,
+the page going through `configfile.display_text`.
 
 ## 5. Invariants
 

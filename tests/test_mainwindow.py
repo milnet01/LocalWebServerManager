@@ -15,6 +15,7 @@ import re
 import socket
 import subprocess
 import threading
+import types
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
@@ -552,8 +553,8 @@ def test_the_row_exposes_its_cells_and_its_buttons(qtbot, built) -> None:
         # LWSM-1187's browser picker. A control, so it carries its own name
         # rather than joining the row's announcement -- and it is present on
         # every row whether or not any browser is installed, because the
-        # "Default" entry always exists (LWSM-1315 shortened it).
-        "Default",
+        # default entry always exists (LWSM-1315 shortened it, L06-L1 to "Auto").
+        "Auto",
         "Start a",
         "Stop a",
         "Restart a",
@@ -5500,6 +5501,31 @@ def test_an_export_refusal_reaches_the_status_bar(qtbot, built, tmp_path) -> Non
     assert not (tmp_path / "saved.json").exists()
 
 
+def test_an_export_written_but_not_made_durable_is_called_saved(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """review-code 2026-10-08 L07-M1: `RegistryNotDurable` is a
+    `RegistryError`, so a profile that WAS written, with only its survival of
+    a crash in doubt, was reported "Profile not saved" — and a user who
+    believes that may delete the file or export again somewhere else. Worded
+    as `_write_records` words the same case (known-issue-047)."""
+    window, _ = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_save=str(tmp_path / "saved.json")
+    )
+
+    def written_not_durable(*_args, **_kwargs) -> None:
+        raise registry.RegistryNotDurable("fsync of the directory failed")
+
+    monkeypatch.setattr(registry, "export_profile", written_not_durable)
+
+    window._export_action.trigger()
+
+    message = message_of(window)
+    assert "not saved" not in message, message
+    assert "may not survive a crash" in message, message
+    assert "fsync of the directory failed" in message, message
+
+
 def write_profile(tmp_path: Path, projects: list[dict]) -> Path:
     profile = tmp_path / "profile.json"
     profile.write_text(
@@ -6727,7 +6753,7 @@ def test_the_picker_offers_the_default_and_every_installed_browser(
     box = row_named(window, "a").browser_box
 
     assert [box.itemText(i) for i in range(box.count())] == [
-        "Default",
+        "Auto",
         "Firefox",
         "Brave",
     ]
@@ -6765,8 +6791,8 @@ def test_opening_with_an_uninstalled_browser_says_so(
     """LWSM-1055's third acceptance criterion, which LWSM-1187 first missed.
 
     "a browser since uninstalled falls back to the default with a visible
-    message rather than failing silently". The picker already reads "Default
-    browser" in this state, and that is NOT the message: it is indistinguishable
+    message rather than failing silently". The picker already reads "Auto"
+    in this state, and that is NOT the message: it is indistinguishable
     from a project nobody ever chose one for.
     """
     opened: list = []
@@ -7208,16 +7234,16 @@ def test_the_default_entry_fits_and_its_tooltip_names_it(
     """LWSM-1315: the default entry read "Default browser" inside a
     ten-character column and showed as "Default b" on every row. Widening the
     column would push the row's buttons out of the magnifier band, so the entry
-    reads "Default" and the tooltip keeps the full words (user, 2026-09-25)."""
-    from PySide6.QtWidgets import QStyle
+    reads "Default" and the tooltip keeps the full words (user, 2026-09-25).
+    Measured from the real text area, "Default" was cut too, so it reads "Auto"
+    (L06-L1, user 2026-10-10)."""
 
     window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
     box = row_named(window, "a").browser_box
 
-    assert box.currentText() == "Default"
-    arrow = box.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
-    assert box.fontMetrics().horizontalAdvance(box.currentText()) <= (
-        box.width() - arrow
+    assert box.currentText() == "Auto"
+    assert box.fontMetrics().horizontalAdvance(box.currentText()) <= browser_text_room(
+        box
     ), "the default entry is cut"
     assert box.toolTip() == "Default browser"
 
@@ -7244,17 +7270,80 @@ def test_a_browser_name_that_fits_carries_no_tooltip(qtbot, built, tmp_path) -> 
     """Empty when it fits, `_elide_name`'s rule: a tooltip repeating what is
     already legible is noise. Asserted alongside the case above so neither can
     be satisfied by setting the tooltip unconditionally."""
-    from PySide6.QtWidgets import QStyle
 
     window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
     box = row_named(window, "a").browser_box
     box.setCurrentIndex(box.findText("Brave"))
 
-    arrow = box.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
-    assert box.fontMetrics().horizontalAdvance("Brave") <= (box.width() - arrow), (
+    assert box.fontMetrics().horizontalAdvance("Brave") <= browser_text_room(box), (
         "precondition: this one fits"
     )
     assert box.toolTip() == ""
+
+
+def browser_text_room(box) -> int:
+    """The width the combo draws its text in: its edit field, from the style.
+
+    Not `width() - PM_ScrollBarExtent`: the frame and the style sheet's padding
+    sit inside the box too, and measured 2026-10-10 a 60 px picker drew text in
+    35 px (L06-L1)."""
+    from PySide6.QtWidgets import QStyle, QStyleOptionComboBox
+
+    option = QStyleOptionComboBox()
+    box.initStyleOption(option)
+    return (
+        box.style()
+        .subControlRect(
+            QStyle.ComplexControl.CC_ComboBox,
+            option,
+            QStyle.SubControl.SC_ComboBoxEditField,
+            box,
+        )
+        .width()
+    )
+
+
+def test_every_browser_name_under_the_cap_is_drawn_whole(
+    qtbot, built, tmp_path
+) -> None:
+    """review-code 2026-10-08 L06-L1, widened on measuring it: the column was
+    sized as names plus the arrow, so every entry — "Default" and "Firefox"
+    included — was drawn cut off ("Firefo", rendered 2026-10-10) and none
+    carried a tooltip, because the tooltip check made the same assumption."""
+    window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    box = row_named(window, "a").browser_box
+    room = browser_text_room(box)
+
+    for index in range(box.count()):
+        text = box.itemText(index)
+        assert box.fontMetrics().horizontalAdvance(text) <= room, (
+            f"{text!r} is cut: {box.fontMetrics().horizontalAdvance(text)} px "
+            f"in {room} px"
+        )
+
+
+def test_a_browser_name_just_past_the_cap_carries_its_tooltip(
+    qtbot, built, tmp_path
+) -> None:
+    """L06-L1's own case: a name a few pixels past the ten-character cap is cut
+    by the edit field, while `width() - arrow` said it fitted, so it lost its
+    tooltip (`design-accessibility.md` § Eliding)."""
+    long_name = "x" * 10 + "i"
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [record("a", 3000)],
+        tmp_path,
+        FakeScanResult(projects=()),
+        browsers_available=(Browser("long.desktop", long_name, ("/bin/l", "%u")),),
+    )
+    box = row_named(window, "a").browser_box
+    box.setCurrentIndex(box.findText(long_name))
+    assert box.fontMetrics().horizontalAdvance(long_name) > browser_text_room(box), (
+        "precondition: the name is cut"
+    )
+
+    assert long_name in box.toolTip()
 
 
 # --- LWSM-1297: a disabled control says why ----------------------------------
@@ -7304,6 +7393,68 @@ def test_a_control_acting_on_a_foreign_server_says_so(qtbot, button_name) -> Non
     assert "did not start" in tip, (
         f"{button_name}'s tooltip does not say whose server this is: {tip!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "act",
+    [
+        lambda w, p: w._report_done(p, "start"),
+        lambda w, p: w._open_project(p),
+        lambda w, p: w.set_project_hidden(p, True),
+        lambda w, p: w.set_project_health_check(p, True),
+        lambda w, p: w.set_project_browser(p, "firefox.desktop"),
+        lambda w, p: w._ask_to_trust(p, types.SimpleNamespace(resolved=None, argv=())),
+        lambda w, p: (
+            setattr(w, "_confirm", lambda *_a: False),
+            w._ask_to_trust(p, types.SimpleNamespace(resolved=p / "start.sh", argv=())),
+        ),
+    ],
+    ids=["done", "no port", "hidden", "health", "browser", "no launcher", "declined"],
+)
+def test_a_project_name_reaches_the_banner_through_display_text(
+    qtbot, built, tmp_path, act
+) -> None:
+    """review-code 2026-10-08 L07-L1: these banners took the raw directory or
+    record name, where their siblings use `display_text` — `projects.json` is
+    hand-editable and a directory name may hold a newline, which split the
+    banner into a forged second line."""
+    forged = "evil\nAll projects saved"
+    window, _ = browser_window(qtbot, built, tmp_path, [record(forged, None)])
+    path = Path(f"/srv/{forged}")
+
+    act(window, path)
+
+    message = message_of(window)
+    assert message, "precondition: the action reported something"
+    assert "\n" not in message, f"a raw name reached the banner: {message!r}"
+    assert "\ufffd" in message, message
+
+
+def test_a_disabled_restart_promises_nothing(qtbot) -> None:
+    """review-code 2026-10-08 L06-L2: on a foreign server we hold no child for,
+    Restart is disabled (nothing of ours would start in its place), yet it
+    carried "You will be shown what is holding the port before anything
+    happens" — a screen reader promised an action the button cannot take.
+    Stop, still live, keeps the sentence.
+    """
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            effective_port=5005,
+            status=ProjectStatus.RUNNING_FOREIGN,
+            managed=False,
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    assert not row.restart_button.isEnabled(), "precondition: Restart is off"
+    assert row.restart_button.toolTip() == ""
+    assert row.restart_button.accessibleDescription() == ""
+    assert "did not start" in row.stop_button.accessibleDescription()
 
 
 # --- LWSM-1295: our own server while the socket table cannot be read ---------
@@ -7440,6 +7591,36 @@ def test_enter_on_the_focused_row_still_stops_it(qtbot) -> None:
     qtbot.keyClick(row, Qt.Key.Key_Return)
 
     assert stops, "Enter on the focused row no longer stops it"
+
+
+def test_enter_does_not_cancel_a_start_of_our_own(qtbot) -> None:
+    """review-code 2026-10-08 L06-M1: Stop is live while our own child starts
+    (LWSM-1372), so Enter clicked it — a second press, or key auto-repeat,
+    cancelled the start the first press made. Enter does nothing mid-start;
+    the Stop button still cancels a slow start for a user who means it.
+    """
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            effective_port=5005,
+            status=ProjectStatus.STARTING,
+            supervised=True,
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+    row.show()
+    stops: list[bool] = []
+    row.stop_button.clicked.connect(lambda: stops.append(True))
+    assert row.stop_button.isEnabled(), "precondition: Stop cancels a slow start"
+
+    row.setFocus()
+    qtbot.keyClick(row, Qt.Key.Key_Return)
+
+    assert not stops, "Enter cancelled a start in progress"
 
 
 def tooltip_text(tip: str) -> str:
@@ -7982,6 +8163,27 @@ def test_a_scale_that_cannot_be_applied_is_not_reported_as_applied(
     assert message_of(window), "the failure was silent"
 
 
+def test_a_refused_size_chosen_from_the_menu_leaves_the_old_tick(qtbot, built) -> None:
+    """review-code 2026-10-08 L07-M2: the test above calls `set_text_scale`
+    directly, so nothing is ticked before it runs. From the MENU, the
+    exclusive group ticks the chosen entry before the handler runs, and the
+    refusal returned without putting the tick back — the menu then claimed a
+    size the window never took."""
+    window = scaling_window(qtbot, built)
+    window._base_point_size = 0.0
+    before = window._text_scale
+    assert window._text_size_actions[before].isChecked(), "precondition"
+
+    window._text_size_actions[200].trigger()
+
+    assert not window._text_size_actions[200].isChecked(), (
+        "the refused size is still ticked"
+    )
+    assert window._text_size_actions[before].isChecked(), (
+        "the size still in force lost its tick"
+    )
+
+
 # --- LWSM-1259: a jump the user can see --------------------------------------
 
 
@@ -8423,6 +8625,118 @@ def test_the_text_size_labels_use_the_users_digits(qtbot, built) -> None:
     assert "١٠٠" in text, text  # ARABIC-INDIC ONE, ZERO, ZERO
 
 
+def test_the_notice_count_uses_the_users_digits(qtbot, built) -> None:
+    """review-code 2026-10-08 L07-L4: `str(len(...))` is always ASCII digits,
+    where the text-size labels beside it use the user's own."""
+    from PySide6.QtCore import QLocale
+
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    before = QLocale()
+    QLocale.setDefault(QLocale(QLocale.Language.Arabic, QLocale.Country.Egypt))
+    try:
+        summary = window._notice_summary(["first", "second", "third"])
+    finally:
+        QLocale.setDefault(before)
+    assert "٢" in summary, summary  # ARABIC-INDIC TWO
+
+
+def test_the_first_run_count_uses_the_users_digits(qtbot, built, tmp_path) -> None:
+    """L07-L4's second site: "Saved %1 of %2 projects"."""
+    from PySide6.QtCore import QLocale
+
+    project = tmp_path / "roots" / "web"
+    scan = FakeScanResult(
+        projects=(FakeDetected(project, "web", port=FakePortFinding(3000)),)
+    )
+    window, _ = rescan_window(qtbot, built, [], tmp_path, scan)
+    before = QLocale()
+    QLocale.setDefault(QLocale(QLocale.Language.Arabic, QLocale.Country.Egypt))
+    try:
+        run_rescan(qtbot, window)
+        message = message_of(window)
+    finally:
+        QLocale.setDefault(before)
+        window.shutdown()
+    assert "Saved ١ of ١ projects" in message, message  # ARABIC-INDIC ONE
+
+
+def test_an_unknown_uid_reads_as_unknown_in_the_disclosure(
+    qtbot, built, monkeypatch
+) -> None:
+    """review-code 2026-10-08 L07-L6: a holder owned by another user answers
+    no uid without privileges, and the dialog showed "None" where every other
+    missing field shows "?"."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from lwsm.service import Holder
+
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    seen: dict[str, str] = {}
+
+    def capture(box: QMessageBox) -> QMessageBox.StandardButton:
+        seen["text"] = box.text()
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "exec", capture)
+    window._disclose_dialog(Path("/srv/a"), Holder(pid=4242))
+
+    assert "Running as uid:\n?\n" in seen["text"], seen["text"]
+    assert "None" not in seen["text"], seen["text"]
+
+
+@pytest.mark.parametrize(
+    ("merged_port", "kept"), [(3000, 5005), (4000, None)], ids=["same", "changed"]
+)
+def test_a_port_confirmed_during_a_rescan_survives_it(
+    qtbot, built, merged_port, kept
+) -> None:
+    """review-code 2026-10-08 L07-L2: the merge runs against the records as
+    they were when the rescan STARTED, and only `USER_FIELDS` were re-applied
+    from now — so a port a poll confirmed meanwhile was written back as the
+    old value. Kept on the merge's own rule: while the declared port is
+    unchanged (LWSM-1038 § 4.4)."""
+    confirmed_now = dataclasses.replace(record("a", 3000), confirmed_port=5005)
+    window, _ = window_for(qtbot, built, [confirmed_now], FakeProbe())
+    from_the_scan = dataclasses.replace(record("a", merged_port), confirmed_port=None)
+
+    [applied] = window._with_current_user_half([from_the_scan])
+
+    assert applied.confirmed_port == kept
+
+
+@pytest.mark.parametrize("prompt", ["trust", "disclosure", "process set"])
+def test_a_confirmation_does_not_outlive_its_answer(
+    qtbot, built, monkeypatch, prompt
+) -> None:
+    """review-code 2026-10-08 L07-L5: each prompt was parented to the window
+    and never deleted, so every Start, Open or Stop that asked left one more
+    dialog alive for the window's lifetime."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QDialog, QMessageBox
+
+    from lwsm.foreign import Member, Tree
+    from lwsm.service import Holder
+
+    monkeypatch.setattr(QMessageBox, "exec", lambda _box: QMessageBox.StandardButton.No)
+    monkeypatch.setattr(QDialog, "exec", lambda _d: QDialog.DialogCode.Rejected)
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    before = len(window.findChildren(QDialog))
+
+    if prompt == "trust":
+        window._confirm_dialog(Path("/srv/a"), "/srv/a/start.sh", ("./start.sh",))
+    elif prompt == "disclosure":
+        window._disclose_dialog(Path("/srv/a"), Holder(pid=4242))
+    else:
+        tree = Tree(
+            members=(Member(pid=9999, started=0.0, exe="/bin/x", cmdline="x"),),
+            handles=(),
+        )
+        window._confirm_tree_dialog(Path("/srv/a"), tree, False)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    assert len(window.findChildren(QDialog)) == before, "the dialog is still alive"
+
+
 def test_the_file_menu_has_no_two_separators_in_a_row(qtbot, built, tmp_path) -> None:
     """Qt collapses them by default, which is why the dead one went unseen."""
     window, _ = profile_window(qtbot, built, two_rows(), tmp_path)
@@ -8492,6 +8806,49 @@ def test_a_failed_theme_or_text_size_save_reaches_the_log(qtbot, built, caplog) 
 
     assert "the text size could not be saved" in caplog.text
     assert "the theme could not be saved" in caplog.text
+
+
+@pytest.mark.parametrize("which", ["text size", "theme"])
+def test_a_setting_written_but_not_made_durable_is_called_saved(
+    qtbot, built, which
+) -> None:
+    """L07-M1's mechanism on the two settings this window saves (O9): a
+    `SettingsNotDurable` is a `SettingsError`, so a written file read
+    "could not be saved"."""
+    from lwsm.settings import SettingsNotDurable
+
+    def written(_value) -> None:
+        raise SettingsNotDurable("fsync of the directory failed")
+
+    window, _ = scaled_window(qtbot, built, save_text_scale=written, save_theme=written)
+    if which == "text size":
+        window._text_size_actions[200].trigger()
+    else:
+        window.set_theme("emerald")
+
+    message = message_of(window)
+    assert "could not be saved" not in message, message
+    assert "may not survive a crash" in message, message
+
+
+@pytest.mark.parametrize("which", ["text size", "theme"])
+def test_a_saver_s_programming_error_is_not_reported_as_a_save_failure(
+    qtbot, built, which
+) -> None:
+    """review-code 2026-10-08 L07-L7: `except Exception` turned a bug in the
+    saver into "could not be saved", hiding it. Caught by name, as the
+    geometry saver does; anything else propagates."""
+
+    def broken(_value) -> None:
+        raise TypeError("a bug, not a full disk")
+
+    window, _ = scaled_window(qtbot, built, save_text_scale=broken, save_theme=broken)
+
+    with pytest.raises(TypeError):
+        if which == "text size":
+            window.set_text_scale(200)
+        else:
+            window.set_theme("emerald")
 
 
 # --- LWSM-1385: a port's source and any disagreement, on the row -------------
@@ -8713,6 +9070,37 @@ def test_a_set_that_cannot_be_listed_is_reported_not_stopped(
 
     assert asked == [] and stops == []
     assert reported == ["cannot stop theirs: the server has already stopped"]
+
+
+def test_a_set_that_cannot_be_listed_is_reported_in_the_user_s_language(
+    qtbot, built, monkeypatch
+) -> None:
+    """review-code 2026-10-08 L07-L3: the refusal was an f-string, so it never
+    reached a translator."""
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    from lwsm.foreign import TreeRefused
+
+    class Shouting(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return sourceText.upper()
+
+    window, _, _asked, _stops = tree_window(
+        qtbot, built, monkeypatch, [TreeRefused("the server has already stopped")], []
+    )
+    reported: list = []
+    monkeypatch.setattr(
+        window, "_report_failure", lambda path, text: reported.append(text)
+    )
+    translator = Shouting()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window._stop_project(Path("/srv/theirs"))
+    finally:
+        app.removeTranslator(translator)
+
+    assert reported == ["CANNOT STOP theirs: the server has already stopped"]
 
 
 def test_a_terminal_server_inside_the_terminal_s_unit_is_still_a_set(

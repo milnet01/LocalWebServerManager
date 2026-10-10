@@ -53,11 +53,27 @@
     "ProjectController.set_records docstring": "fixed — moved port resets to UNKNOWN",
     "docs (lineage, NoSuchProcess, _stop_sequence, set_records, 'changed while')": "agrees — only dated ROADMAP notes hit, frozen",
     "ADR-0003 NoSuchProcess passage": "agrees"
+   },
+   "LWSM-1409": {
+    "keyPressEvent / _apply_button_state docstrings": "fixed — Stop is live while our own child starts",
+    "docs/claude/module-map.md mainwindow Enter passage": "fixed",
+    "README.md 'Enter starts or stops the one you are on'": "agrees",
+    "CHANGELOG released Enter entries": "frozen",
+    "design-accessibility.md 600 px lens test (browser column widened)": "fixed — failed at 603 px with \"Default\" fitted; passes with \"Auto\" (user, 2026-10-10)",
+    "tests measuring width()-arrow (default entry, Brave)": "fixed — now browser_text_room",
+    "docs/specs/LWSM-1005 § 4.4, LWSM-1034 § 4.4": "fixed",
+    "other dialogs (SettingsDialog, firstrun)": "agrees — both deleteLater already",
+    "f-strings and str(len()) in settingsdialog, firstrun": "agrees — none found",
+    "forget_trust name": "agrees — display_text already",
+    "translation catalogues for the four new strings": "agrees — the repo tracks none"
    }
   },
   "collateral": [],
   "surfaced": [],
-  "out_of_scope": [],
+  "out_of_scope": [
+   "LWSM-1409 O9 sweep of L07-M1: supervisor.py TrustStore._save and service.py set_drop_in treat ConfigFileNotDurable as unwritten — filed LWSM-1415",
+   "LWSM-1409 O9 sweep of L07-M1: __main__ settings saves — L08-L3, owned by LWSM-1410"
+  ],
   "falsified": []
  },
  "findings": [
@@ -873,14 +889,22 @@
    "location": "mainwindow.py:1347",
    "finding": "Stop is enabled while `STARTING` and `row.supervised`, so Enter in `keyPressEvent` starts then stops a row, contrary to three docs.",
    "remedy": "Skip the Enter branch while STARTING/STOPPING, or correct all three texts to say Enter cancels a start.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — mainwindow.py _apply_button_state enables Stop on STARTING+supervised (LWSM-1372); keyPressEvent clicks it; keyPressEvent docstring, _apply_button_state docstring and module-map say the opposite. Side taken: Enter does nothing mid-transition (the docs); Stop by click still cancels a slow start",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "src/lwsm/mainwindow.py",
+    "docs/claude/module-map.md"
+   ],
+   "was": "Enter clicked the enabled Stop while our own child was starting, cancelling the start",
+   "now": "Enter does nothing while STARTING; red: test_enter_does_not_cancel_a_start_of_our_own; mutant (guard removed) killed; STOPPING left out as a dead condition",
+   "must_agree": [
+    "keyPressEvent docstring",
+    "_apply_button_state docstring",
+    "docs/claude/module-map.md mainwindow Enter passage",
+    "README keyboard line"
+   ]
   },
   {
    "key": "L06-L1",
@@ -890,14 +914,22 @@
    "location": "mainwindow.py:1076-1078",
    "finding": "The browser tooltip check reads `self.browser_box.width()` right after `setFixedWidth`, which returns the previous width, so a cut name can lose its tooltip.",
    "remedy": "Compare against the width just set, measured with `subControlRect(CC_ComboBox, SC_ComboBoxEditField)`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "partly — width() DOES follow setFixedWidth at once (measured, offscreen PySide6: 72→300→50), so the stale-width half is false; the edit-field half is real: Fusion 120px box, arrow 14, SC_ComboBoxEditField 95px, so names of 96–106px are cut with no tooltip",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "src/lwsm/mainwindow.py",
+    "tests/test_mainwindow.py",
+    "tests/conftest.py",
+    "CHANGELOG.md"
+   ],
+   "was": "column sized names+arrow+spacing and tooltip check used width()-arrow; edit field was 35 px in a 60 px box, so every entry rendered cut ('Firefo') with no tooltip",
+   "now": "_browser_text_room() (SC_ComboBoxEditField) sizes the column and decides the tooltip; 'Default' counted in the widest; red: test_every_browser_name_under_the_cap_is_drawn_whole, test_a_browser_name_just_past_the_cap_carries_its_tooltip; three mutants killed (tooltip measure, furniture, default label); fitting \"Default\" put the row 3 px past the 600 px lens band, so the entry reads \"Auto\" (user, 2026-10-10)",
+   "must_agree": [
+    "design-accessibility 600 px lens test",
+    "two older tests measuring width()-arrow"
+   ]
   },
   {
    "key": "L06-L2",
@@ -907,13 +939,15 @@
    "location": "mainwindow.py:1431",
    "finding": "`(self.restart_button, stranger_text)` gives a disabled Restart a tooltip promising an action it cannot take.",
    "remedy": "Set the explanation only when `can_restart` is true.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — foreign_only disables Restart; the loop still sets stranger_text on it",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "disabled Restart carried stranger_text",
+   "now": "explanation only when can_restart; red: test_a_disabled_restart_promises_nothing",
    "must_agree": []
   },
   {
@@ -924,13 +958,15 @@
    "location": "docs/specs (LWSM-1005 § 4.4)",
    "finding": "LWSM-1005 § 4.4 says `ProjectRow.retranslate` clears the held view, but the code passes a `rerendering` flag instead (LWSM-1175).",
    "remedy": "Hand to review-contract to correct the spec.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — docs/specs/LWSM-1005-vertical-slice.md: 'ProjectRow.retranslate clears the held view'; code calls _rerender() and keeps _view",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "docs/specs/LWSM-1005-vertical-slice.md"
+   ],
+   "was": "spec: retranslate clears the held view",
+   "now": "spec: re-renders with update_from(..., rerendering=True) (LWSM-1175); no red run: doc only",
    "must_agree": []
   },
   {
@@ -941,13 +977,15 @@
    "location": "docs/specs (LWSM-1034 § 4.4)",
    "finding": "LWSM-1034 § 4.4 gives the template with `%2` while `mainwindow.py:523` uses `%1`.",
    "remedy": "Correct the spec's template.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — docs/specs/LWSM-1034-health-check.md § 4.4 '%2'; mainwindow.py port_detail uses %1",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "docs/specs/LWSM-1034-health-check.md"
+   ],
+   "was": "spec template '%2' for the no-answer sentence",
+   "now": "'%1', matching port_detail; no red run: doc only",
    "must_agree": []
   },
   {
@@ -975,13 +1013,15 @@
    "location": "mainwindow.py:2628",
    "finding": "`except RegistryError as exc:` also catches `RegistryNotDurable`, so a written profile export is reported as not saved.",
    "remedy": "Add `except RegistryNotDurable` before the `RegistryError` branch with \"saved, but may not survive a crash\" wording.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — RegistryNotDurable subclasses RegistryError (registry.py); export_profile raises it after writing; _export_profile's one except reports 'Profile not saved'",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "RegistryNotDurable reported 'Profile not saved'",
+   "now": "own branch: 'Profile saved to %1, but may not survive a crash: %2'; red: test_an_export_written_but_not_made_durable_is_called_saved",
    "must_agree": []
   },
   {
@@ -992,13 +1032,15 @@
    "location": "mainwindow.py:2375-2392",
    "finding": "The text-size refusal branch returns without restoring the old tick, so the refused size stays ticked in the `QActionGroup`.",
    "remedy": "Re-check `self._text_size_actions.get(self._text_scale)` in the refusal branch, or clear the group's check.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — exclusive QActionGroup ticks the triggered action before set_text_scale runs; the refusal branch returns without restoring it",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "refusal left the refused entry ticked",
+   "now": "refusal re-ticks the size in force; red: test_a_refused_size_chosen_from_the_menu_leaves_the_old_tick",
    "must_agree": []
   },
   {
@@ -1009,13 +1051,15 @@
    "location": "mainwindow.py:3020",
    "finding": "`_filled(template, path.name, verb)` and banners at 3182/3449/3505 use raw `path.name`, unlike siblings that use `display_text`.",
    "remedy": "Pass every name through `display_text`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes, wider than cited — raw names reach the banner at _report_finished (path.name), 'has no port to open', 'Could not open a browser for', hidden/shown, health on/off, 'opens in' (record name); loader checks only length and encoding",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "raw names at 8 banner sites",
+   "now": "display_text at all 8 (done, no port, no browser, hidden, health, opens in, no launcher, declined); red: test_a_project_name_reaches_the_banner_through_display_text x7; a site mutant killed",
    "must_agree": []
   },
   {
@@ -1026,13 +1070,15 @@
    "location": "mainwindow.py:3805",
    "finding": "`_with_current_user_half` re-applies only `USER_FIELDS`, so a `confirmed_port` saved during a rescan is reverted when the rescan lands.",
    "remedy": "Also carry `confirmed_port` over when the merged `port` equals the current `port`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — _with_current_user_half copies USER_FIELDS only; confirmed_port comes from the rescan-start snapshot via merge, so a poll confirmation saved mid-rescan is written back as the old value",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "confirmed_port from the rescan-start snapshot overwrote a mid-rescan confirmation",
+   "now": "_with_current_confirmation takes now's confirmed_port while the port is unchanged; red: test_a_port_confirmed_during_a_rescan_survives_it[same]; guard mutant killed by [changed]",
    "must_agree": []
   },
   {
@@ -1043,13 +1089,15 @@
    "location": "mainwindow.py:3421",
    "finding": "`f\"cannot stop {display_text(path.name)}: {exc}\"` is an untranslated user-visible message.",
    "remedy": "Use `QCoreApplication.translate` with `_filled`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — f-string 'cannot stop ...' in the TreeRefused branch",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "f-string 'cannot stop ...'",
+   "now": "translate + _filled; red: test_a_set_that_cannot_be_listed_is_reported_in_the_user_s_language",
    "must_agree": []
   },
   {
@@ -1060,13 +1108,15 @@
    "location": "mainwindow.py:3823-3824",
    "finding": "`str(len(chosen))` and `str(len(merged.records))` (also 2925) bypass the locale's digits.",
    "remedy": "Use `QLocale().toString(n)`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — str(len(...)) in the '(+N more)' banner suffix and 'Saved %1 of %2 projects'; siblings use QLocale().toString",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "str(len(...)) in two messages",
+   "now": "QLocale().toString; red: test_the_notice_count_uses_the_users_digits, test_the_first_run_count_uses_the_users_digits",
    "must_agree": []
   },
   {
@@ -1077,13 +1127,15 @@
    "location": "mainwindow.py:3115",
    "finding": "`QMessageBox(self)`/`QDialog(self)` at 3115/3236/3269 are never deleted, so each confirmation lives for the window's lifetime.",
    "remedy": "Call `deleteLater()` after `exec()`, or set `WA_DeleteOnClose`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — QMessageBox(self) in _confirm_dialog and _disclose_dialog, QDialog(self) in the tree confirm; no deleteLater/WA_DeleteOnClose in the file for them",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "three prompts never deleted",
+   "now": "_answered(): exec then deleteLater, as open_settings does (LWSM-1276); red: test_a_confirmation_does_not_outlive_its_answer x3",
    "must_agree": []
   },
   {
@@ -1094,13 +1146,15 @@
    "location": "mainwindow.py:3230",
    "finding": "`str(getattr(holder, \"uid\", None) ...)` shows \"None\" when a holder's uid is None, where siblings show \"?\".",
    "remedy": "Use `str(uid) if uid is not None else \"?\"`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — Holder.uid is int | None (service.py); str(None) shows 'None'",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "uid None shown as 'None'",
+   "now": "'?'; red: test_an_unknown_uid_reads_as_unknown_in_the_disclosure",
    "must_agree": []
   },
   {
@@ -1111,13 +1165,15 @@
    "location": "mainwindow.py:2404",
    "finding": "`except Exception as exc:` around the text-size and theme savers (2404, 2573) breaks python.md's catch-what-you-can-name.",
    "remedy": "Catch named exceptions as the geometry saver does `(ConfigFileError, OSError)`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — set_text_scale and apply_theme catch Exception; savers raise SettingsError (a ConfigFileError) or OSError; geometry saver names (ConfigFileError, OSError)",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1409",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/mainwindow.py"
+   ],
+   "was": "except Exception around the text-size and theme savers",
+   "now": "_save_setting catches SettingsNotDurable, then (ConfigFileError, OSError); red: test_a_saver_s_programming_error_is_not_reported_as_a_save_failure x2, test_a_setting_written_but_not_made_durable_is_called_saved x2",
    "must_agree": []
   },
   {
@@ -1128,9 +1184,9 @@
    "location": "mainwindow.py:2656-2674",
    "finding": "`_import_profile` does not re-check `_rescan_in_flight` after the modal file chooser returns.",
    "remedy": "Return early if `self._rescan_in_flight` once the chooser returns.",
-   "verified": null,
-   "disposition": null,
-   "why": null,
+   "verified": "no — callers of _start_rescan: the Rescan button and menu (blocked by the application-modal file chooser) and start_rescan(), called only by __main__ at first run before any menu is usable. No path starts a rescan while the chooser is open",
+   "disposition": "dismissed",
+   "why": "Unreachable: no path starts a rescan while the import chooser is open. The chooser is application-modal over the window that holds the Rescan button and menu; start_rescan() is called only by __main__ at first run, before any menu is usable. A guard for it would be dead code (coding.md § 1.1).",
    "roadmap_id": "LWSM-1409",
    "files": [],
    "was": null,

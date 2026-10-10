@@ -134,6 +134,34 @@ signaling per
 
 ### Fixed
 
+- **Pressing Enter again while a project is starting no longer cancels the start.** (LWSM-1409)
+  Enter starts or stops the project you are on. During a slow start
+  the Stop button still cancels it when you click it.
+
+- **Browser names in the browser picker are no longer cut off by a few letters.** (LWSM-1409)
+  "Firefox" showed as "Firefo". The default entry now reads "Auto",
+  which fits; its tooltip still says "Default browser". A name too long
+  for the column always has a tooltip with the full name.
+
+- **A greyed-out Restart button no longer tells a screen reader it will ask before acting.** (LWSM-1409)
+
+- **An exported profile, text size or theme that was saved is no longer reported as not saved.** (LWSM-1409)
+  When the save worked but the computer could not confirm it would
+  survive a crash, the message now says exactly that.
+
+- **A text size that cannot be applied no longer stays ticked in the menu.** (LWSM-1409)
+
+- **A project name holding a line break or other control character can no longer split the message banner into a fake second line.** (LWSM-1409)
+
+- **A port the app confirmed while a rescan was running is no longer forgotten when the rescan finishes.** (LWSM-1409)
+
+- **Some messages now follow your language and your number style.** (LWSM-1409)
+  "Cannot stop" can now be translated. Counts such as "Saved 3 of 4
+  projects" use your own digits. An unknown user id shows as "?" rather
+  than "None".
+
+- **Confirmation dialogs are freed once answered, instead of staying in memory until the window closes.** (LWSM-1409)
+
 - **Stopping a server you started by hand no longer reports a failure when the server quit just before the app forced it to.** (LWSM-1408)
   The app now checks again at the end, so a server that is gone
   is reported as stopped.

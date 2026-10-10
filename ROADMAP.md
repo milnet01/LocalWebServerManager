@@ -11723,6 +11723,9 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   get docs/roadmap/0.2.md. The alternative is to retitle the 0.2.0
   block first and fold it into 0.3.0. Still the user's choice;
   decide before cut-release.
+  Progress (2026-10-10, later): LWSM-1409 shipped (main window). Next
+  LWSM-1410 (startup/browsers), then LWSM-1411 (tooling); then the
+  health-check try-out, local-release.sh 0.3.0, cut-release.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
@@ -11814,10 +11817,18 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-01, lane-02.
 
-- 📋 [LWSM-1409] **Close the main-window findings from the 0.3.0 review.**
+- ✅ [LWSM-1409] **Close the main-window findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L06-M1 Enter
   during starting stops the row; L07-M1, L07-M2; L06-L1..L4,
   L07-L1..L8.
+  Resolved (2026-10-10): 14 fixed, 1 dismissed (L07-L8: no path
+  starts a rescan while the import chooser is open). L06-M1: Enter does
+  nothing while starting; clicking Stop still cancels. L06-L1 widened:
+  the browser picker drew every name cut ("Firefo"), so the column and
+  the tooltip now both use the combo's real text area; fitting
+  "Default" put the row 3 px past the 600 px lens band, so the default
+  entry reads "Auto" (user decision 2026-10-10). The O9 sweep of L07-M1
+  filed LWSM-1415 (trust store, port drop-in). Full gate 2562 passed.
   **Layman:** Fixes to buttons, messages and dialogs in the main window.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-06, lane-07.
@@ -11989,6 +12000,21 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   **Layman:** After a downgrade and upgrade, a project could keep showing an old port it no longer uses.
   Kind: review-fix.
   Source: review-code-2026-10-08 L03-L5.
+
+- 📋 [LWSM-1415] **A written trust file or port drop-in is treated as unwritten when only its crash-safety is in doubt.**
+  Found sweeping L07-M1's mechanism (a NotDurable caught as a plain
+  failure). `supervisor.py` TrustStore._save catches
+  (ConfigFileError, OSError) and says "not saved, so this lasts until
+  the app closes" for a ConfigFileNotDurable, which was written.
+  `service.py` set_drop_in catches ConfigFileError and refuses the start
+  (ok=False) for a drop-in that was written. Fix: catch
+  ConfigFileNotDurable first in both; log it and carry on. Not fixed in
+  LWSM-1409: outside the main window, and the drop-in path needs its
+  own red test against the conftest systemctl stubs.
+  **Layman:** A start can be refused, or a trust choice called unsaved, although the file was written.
+  Kind: fix.
+  Source: close-findings-2026-10-10 LWSM-1409 O9 sweep of L07-M1.
+  Lanes: supervisor, service.
 
 ## 0.5.0 — Logs
 

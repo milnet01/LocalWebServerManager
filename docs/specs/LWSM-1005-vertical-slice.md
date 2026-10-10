@@ -679,7 +679,8 @@ choice rather than a wrapper:
   the one context this file declares; and a translator installed **after** the
   window was built never reached an existing row, because LWSM-1076's equality
   guard suppresses the only path that would re-render. `ProjectRow.retranslate`
-  clears the held view so that guard cannot swallow it.
+  re-renders the held view with `update_from(..., rerendering=True)`, which
+  that guard lets through (LWSM-1175).
 
   **What is pinned here is the handler, not Qt's delivery.** Measured against
   the pinned PySide6 6.11.1, with the loop running and the window the only
