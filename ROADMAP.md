@@ -11718,6 +11718,11 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   0.2.0 is closed but ships inside 0.3.0, so the cut must not leave a
   docs/roadmap/0.2.md archive for a version with no tag or changelog
   section. Check its answer (session_message inbox) before cut-release.
+  Answered (2026-10-10, Ants Terminal 14db35d0): a closed minor
+  rotates whether or not it was released, so the 0.2.0 block will
+  get docs/roadmap/0.2.md. The alternative is to retitle the 0.2.0
+  block first and fold it into 0.3.0. Still the user's choice;
+  decide before cut-release.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
