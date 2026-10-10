@@ -71,6 +71,19 @@ export QT_QPA_PLATFORM=offscreen
 # No `|| true`: the only way `unset` fails is a readonly variable, which is
 # exactly the case worth hearing about rather than hiding.
 unset PORT LWSM_MANAGED
+# The rest of the developer's shell that reaches pytest or uv and is absent on
+# the runner (LWSM-1413): PYTEST_ADDOPTS can deselect tests or turn the random
+# order off, PYTHONPATH can shadow the package under test, and VIRTUAL_ENV
+# points uv at a different environment.
+unset PYTEST_ADDOPTS PYTHONPATH PYTHONHOME PYTHONSTARTUP VIRTUAL_ENV
+# Locale and time zone, which the runner leaves at C.UTF-8 and UTC and a
+# desktop sets to its own. Pinned for both sides here, like QT_QPA_PLATFORM.
+export LC_ALL=C.UTF-8 TZ=UTC
+# uv's own Python build, never the distro's. `.python-version` names the exact
+# patch release, and CI installs it with `uv python install`; a distro build
+# of the same number is compiled differently, and with filterwarnings=error a
+# difference there is a red build on one side only (LWSM-1413).
+export UV_PYTHON_PREFERENCE=only-managed
 
 # Colour only when stdout is a terminal, and never when NO_COLOR is set
 # (no-color.org). Escape codes in a CI log or a pipe are noise.
@@ -167,6 +180,11 @@ step "Sync dependencies (locked)"
 # re-lock gets a green CI run against the OLD version. --locked asserts the two
 # agree, which is the property this step is actually here to guarantee.
 uv sync --extra dev --locked
+# The interpreter is checked like a tool, once the environment exists. Its pin
+# is `.python-version`, which uv and the workflow both read, so it is not
+# repeated in ci-tools.env.
+check_version python "$(tr -d '[:space:]' < .python-version)" \
+    "$(uv run --no-sync python -c 'import platform; print(platform.python_version())')"
 
 step "Version lockstep"
 # Four files state the version and nothing checked they agreed until LWSM-1067.
@@ -241,10 +259,18 @@ for e in eps:
 "
 
 step "Tests"
+# The random order is seeded from the commit, so the pre-push run and GitHub's
+# run of the same commit put the tests in the same order: a test that only
+# fails after some other test fails on both, before the push (LWSM-1413). A
+# new commit still gets a new order. Outside git the seed stays random.
+order=()
+if head=$(git rev-parse --short=8 HEAD 2>/dev/null); then
+    order=("--randomly-seed=$((16#$head))")
+fi
 if [[ $FAST -eq 1 ]]; then
-    uv run pytest -q -m "not integration"
+    uv run pytest -q "${order[@]}" -m "not integration"
 else
-    uv run pytest -q
+    uv run pytest -q "${order[@]}"
 fi
 
 step "Shell scripts (shellcheck)"
@@ -279,11 +305,9 @@ step "Workflow and config YAML"
 # would otherwise reach GitHub and be reported on its dashboard rather than in
 # the build.
 if command -v actionlint >/dev/null 2>&1; then
-    # actionlint bundles a shellcheck of its own, chosen when IT was built, and
-    # runs it over every `run:` block. So SHELLCHECK_VERSION governs
-    # scripts/*.sh and this one governs the workflow's inline shell; pinning
-    # actionlint is what keeps the second reproducible, since there is no way
-    # to point it at ours.
+    # actionlint runs the `shellcheck` on PATH over every `run:` block (its
+    # `-shellcheck` flag; it bundles none), so SHELLCHECK_VERSION governs the
+    # workflow's inline shell as well as scripts/*.sh.
     check_version actionlint "$ACTIONLINT_VERSION" \
         "$(actionlint --version | head -n 1)"
     actionlint

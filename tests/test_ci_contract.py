@@ -97,7 +97,7 @@ def test_the_pin_file_declares_every_tool_the_gate_verifies() -> None:
         # a hard-coded "0.11.0" here would pass today and rot silently.
         ("SHELLCHECK_VERSION", r"shellcheck-v\$\{SHELLCHECK_VERSION\}"),
         ("YAMLLINT_VERSION", r"yamllint==\$\{YAMLLINT_VERSION\}"),
-        ("ACTIONLINT_VERSION", r"actionlint@v\$\{ACTIONLINT_VERSION\}"),
+        ("ACTIONLINT_VERSION", r"actionlint_\$\{ACTIONLINT_VERSION\}_linux_amd64"),
     ],
 )
 def test_the_workflow_installs_the_pinned_version(key: str, pattern: str) -> None:
@@ -118,8 +118,10 @@ def test_the_workflow_installs_the_pinned_version(key: str, pattern: str) -> Non
     )
 
 
-def test_the_workflow_verifies_the_shellcheck_tarball() -> None:
-    """A pinned version is not a pinned artifact (LWSM-1266).
+@pytest.mark.parametrize("tool", ["SHELLCHECK", "ACTIONLINT"])
+def test_the_workflow_verifies_each_downloaded_tarball(tool: str) -> None:
+    """A pinned version is not a pinned artifact (LWSM-1266; actionlint since
+    LWSM-1413, when `go install` gave way to its release tarball).
 
     The tarball is fetched over the network and then executed over the
     checkout, in a job that SHA-pins its two actions precisely to stop that.
@@ -131,16 +133,28 @@ def test_the_workflow_verifies_the_shellcheck_tarball() -> None:
     """
     text = WORKFLOW.read_text()
 
-    assert "SHELLCHECK_SHA256" in pins(), (
-        "scripts/ci-tools.env pins no checksum for the shellcheck tarball"
+    assert f"{tool}_SHA256" in pins(), (
+        f"scripts/ci-tools.env pins no checksum for the {tool.lower()} tarball"
     )
-    assert "${SHELLCHECK_SHA256}" in text, (
+    assert f"${{{tool}_SHA256}}" in text, (
         "the workflow does not verify the tarball against the pinned checksum"
     )
-    assert "| tar -xJ" not in text, (
-        "the tarball is extracted straight out of the pipe, so nothing can "
+    assert not re.search(r"\| *tar ", text), (
+        "a tarball is extracted straight out of the pipe, so nothing can "
         "have verified it"
     )
+
+
+def test_no_tool_is_built_by_the_runner_s_go() -> None:
+    """LWSM-1413: `go install` built actionlint with whatever Go the runner
+    image shipped, and on 2026-10-08 that Go's toolchain fetch 404'd and the
+    run went red. A release tarball has no such dependency."""
+    commands = [
+        line
+        for line in WORKFLOW.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    assert not [line for line in commands if "go install" in line]
 
 
 def test_the_workflow_installs_the_pinned_uv() -> None:
@@ -928,3 +942,56 @@ def test_under_ci_both_drift_and_skips_are_listed_before_the_run_fails(
     out = done.stdout + done.stderr
     assert done.returncode == 1, out
     assert "shellcheck-drifted" in out and "actionlint" in out, out
+
+
+# --- LWSM-1413: the same interpreter, environment and order on both sides -----
+
+
+def test_the_python_pin_names_one_exact_release() -> None:
+    """`3.13` let GitHub take the newest 3.13 on the day (3.13.16 on
+    2026-10-08) while this machine used the distro's 3.13.15. With
+    filterwarnings=error, a difference there fails on one side only."""
+    pinned = (REPO / ".python-version").read_text().strip()
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", pinned), (
+        f".python-version is {pinned!r}; it must name a patch release"
+    )
+
+
+def test_the_gate_checks_the_interpreter_and_takes_uv_s_build() -> None:
+    """The same NUMBER from the distro is a different build; and a pin nothing
+    checks is decoration."""
+    text = LOCAL_CI.read_text()
+
+    assert "export UV_PYTHON_PREFERENCE=only-managed" in text
+    assert re.search(
+        r"check_version python \"\$\(tr [^)]*< \.python-version\)\"", text
+    ), "local-ci.sh does not check the interpreter against .python-version"
+
+
+def test_the_gate_pins_the_environment_the_runner_has() -> None:
+    """Locale, time zone and the variables a developer's shell carries that the
+    runner's does not."""
+    text = LOCAL_CI.read_text()
+
+    assert "export LC_ALL=C.UTF-8 TZ=UTC" in text
+    unset = re.search(r"^unset PYTEST_ADDOPTS .*$", text, re.MULTILINE)
+    assert unset, "local-ci.sh does not clear PYTEST_ADDOPTS"
+    for name in ("PYTHONPATH", "VIRTUAL_ENV"):
+        assert name in unset.group(0).split()
+
+
+def test_the_test_order_is_seeded_from_the_commit() -> None:
+    """The pre-push run and GitHub's run of one commit share an order, so an
+    order-dependent failure shows up before the push."""
+    text = LOCAL_CI.read_text()
+
+    assert "git rev-parse --short=8 HEAD" in text
+    assert "--randomly-seed=$((16#$head))" in text
+
+
+def test_the_runner_has_every_tool_a_test_skips_without() -> None:
+    """A test skipped on GitHub and run here is a check GitHub does not make.
+    `desktop-file-validate` was the one (LWSM-1413)."""
+    assert "desktop-file-validate" in (REPO / "tests/test_desktop_entry.py").read_text()
+    assert "desktop-file-utils" in WORKFLOW.read_text()

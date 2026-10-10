@@ -11772,20 +11772,26 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-04, L09-L5.
 
-- 📋 [LWSM-1407] **Close the service and placement findings from the 0.3.0 review.**
+- ✅ [LWSM-1407] **Close the service and placement findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L05-M1, L05-M3,
   L05-L1..L5.
   Progress (2026-10-08): M1, L1-L5 fixed (gate 2514 passed). Open:
   L05-M3 needs the user — clear the drop-in after a start systemd
   REJECTED (non-zero exit)? The user ruled 2026-10-07 that only a success
   clears it, for a start that timed out; a rejection is a different case.
+  Resolved (2026-10-10): L05-M3 done in acd1ad2. The user decided a
+  start systemd REJECTED (non-zero exit) clears the drop-in; a timeout
+  keeps it (UnitOutcome.rejected). All LWSM-1407 findings closed.
   **Layman:** Fixes for systemd services and window placement edge cases.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-05.
 
-- 📋 [LWSM-1408] **Close the process, port and controller findings from the 0.3.0 review.**
+- ✅ [LWSM-1408] **Close the process, port and controller findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L02-M2 all of
   127/8 counted as localhost; L01-L1, L01-L2, L01-L4; L02-L1..L5.
+  Resolved (2026-10-10): L01-L1, L01-L2, L01-L4, L02-L1..L5 fixed in
+  596d3af, each red first with mutants killed; LWSM-1034 spec folded
+  back for the health deadline. Full gate 2529 passed.
   **Layman:** Fixes so status and Stop stay truthful in rare cases.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-01, lane-02.
@@ -11810,6 +11816,21 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   **Layman:** Fixes to the project's helper scripts and CI.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-10.
+
+- 🚧 [LWSM-1413] **Make the local gate predict GitHub's CI: exact Python, actionlint from its release, same environment.**
+  Found 2026-10-10 by comparing scripts/local-ci.sh with ci.yml, and the two
+  red runs of 2026-10-08: 37805357386 failed installing actionlint (`go install`
+  switched Go toolchain and the download 404'd); 37783461025 was the deferred
+  re-measure LWSM-1399 fixed 16 minutes later.
+  Gaps: GitHub resolves the newest 3.13 (3.13.16) while this machine uses the
+  distro's 3.13.15, and nothing checks it (user, 2026-10-10: match exactly);
+  actionlint is built by whatever Go the runner has, with no checksum; CI lacks
+  desktop-file-utils, so one test skips there only; LANG/TZ, PYTEST_ADDOPTS and
+  PYTHONPATH pass through from the developer's shell; test order differs per
+  run; comments say actionlint bundles its own shellcheck, which it does not.
+  **Layman:** Checks run on this computer before a push now give the same answer GitHub's checks will.
+  Kind: chore.
+  Source: user-request-2026-10-10.
 
 ## 0.4.0 — Ports
 

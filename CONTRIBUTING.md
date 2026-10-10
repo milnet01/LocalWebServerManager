@@ -73,7 +73,8 @@ Before opening a PR:
    `scripts/ci-tools.env`, a locked dependency sync, version
    lockstep, lint, format check, syntax, type check (pyright),
    entry-point resolution, tests, shellcheck and workflow YAML. CI runs that same script rather than restating its
-   steps, so the two cannot drift apart.
+   steps, and the script pins the Python, locale, time zone and
+   test order both sides use, so the two cannot drift apart.
 
    **Running it by hand is more forgiving than CI**, and that is
    deliberate: a missing tool is reported as a SKIP and a tool at

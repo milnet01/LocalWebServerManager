@@ -87,11 +87,15 @@ jobs:
       # shared object file". fonts-dejavu-core is the font tests/conftest.py
       # pins every test to, so widths measure the same here as locally
       # (LWSM-1392); named so a runner image change cannot drop it.
+      # desktop-file-utils is a test's tool, not Qt's: without
+      # `desktop-file-validate` tests/test_desktop_entry.py skipped here while
+      # it ran on a developer's machine (LWSM-1413).
       - name: Install Qt runtime libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libegl1 libgl1 libxkbcommon0 libdbus-1-3 fonts-dejavu-core
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 fonts-dejavu-core \
+            desktop-file-utils
 
       # Every version comes from scripts/ci-tools.env, which local-ci.sh reads
       # too — so this job and a developer's machine cannot install different
@@ -100,9 +104,12 @@ jobs:
       # older, and it failed SC2015 on a file that was clean locally. Pinning
       # the STEPS was never enough; a gate is its tools.
       #
-      # shellcheck comes from the project's own release tarball rather than
-      # apt, because apt can only offer whatever the runner image pins and
-      # dependencies-overrides.md § D1 forbids a floating reference.
+      # shellcheck and actionlint come from their projects' release tarballs,
+      # each checked against a pinned SHA-256, rather than apt or `go install`:
+      # apt offers whatever the runner image pins, `go install` builds with
+      # whatever Go the image ships (and once failed fetching a newer one,
+      # LWSM-1413), and dependencies-overrides.md § D1 forbids a floating
+      # reference.
       # yamllint goes through `uv tool`, which is already on the machine.
       #
       # tests/test_ci_contract.py asserts this step installs exactly the three
@@ -122,10 +129,14 @@ jobs:
           echo "${SHELLCHECK_SHA256}  /tmp/$dir.tar.xz" | sha256sum -c -
           tar -xJf "/tmp/$dir.tar.xz" -C /tmp
           sudo install -m 0755 "/tmp/$dir/shellcheck" /usr/local/bin/shellcheck
+          al="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          base=https://github.com/rhysd/actionlint/releases/download
+          curl -fsSL --retry 3 -o "/tmp/$al" \
+            "$base/v${ACTIONLINT_VERSION}/$al"
+          echo "${ACTIONLINT_SHA256}  /tmp/$al" | sha256sum -c -
+          tar -xzf "/tmp/$al" -C /tmp actionlint
+          sudo install -m 0755 /tmp/actionlint /usr/local/bin/actionlint
           uv tool install "yamllint==${YAMLLINT_VERSION}"
-          actionlint=github.com/rhysd/actionlint/cmd/actionlint
-          go install "$actionlint@v${ACTIONLINT_VERSION}"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # LWSM_REQUIRE_ALL_TOOLS turns a SKIP into a failure HERE only. On a

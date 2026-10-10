@@ -53,7 +53,11 @@ gate is its tools.** Found the hard way on 2026-08-18: local shellcheck
 reports SC2015 on `command -v` guards that 0.11 accepts — so five
 consecutive pushes went red against a green local run. To bump a tool,
 change the version there; the workflow interpolates it and
-`tests/test_ci_contract.py` fails if the two ever part.
+`tests/test_ci_contract.py` fails if the two ever part. shellcheck and
+actionlint are **downloaded release tarballs checked against a pinned
+SHA-256**; actionlint was `go install`ed until a runner's Go failed to
+fetch a newer toolchain on 2026-10-08 (LWSM-1413). actionlint runs the
+`shellcheck` on PATH, so one pin governs both shell checks.
 
 **`uv` is the exception to the interpolation**, because `setup-uv` takes
 its version as a `uses:` input and a `uses:` input cannot read a shell
@@ -100,7 +104,23 @@ running the script **by hand**: a missing linter should not stop you
 testing your own change, and that is the only case the asymmetry was
 ever for.
 
-`.python-version` is committed, so a developer's machine and the
-runner resolve the **same** interpreter. `requires-python` is only
-a floor, and `filterwarnings = ["error"]` would turn any
-divergence into a red build that does not reproduce locally.
+`.python-version` is committed and names an **exact patch release**,
+and the gate sets `UV_PYTHON_PREFERENCE=only-managed`, so a developer's
+machine and the runner resolve the **same** interpreter: uv's own build
+of that release. The gate checks it like a tool, against
+`.python-version`. `requires-python` is only a floor, and
+`filterwarnings = ["error"]` would turn any divergence into a red build
+that does not reproduce locally. Until 2026-10-10 the file said `3.13`:
+GitHub took the newest 3.13 (3.13.16) while this machine used the
+distro's 3.13.15, and nothing compared them (LWSM-1413). **To bump
+Python**, change `.python-version`; the next gate run rebuilds `.venv`,
+which the installed app runs from, so close the app first.
+
+**The gate pins the rest of the environment the runner has**: `LC_ALL`
+and `TZ`, and it clears `PYTEST_ADDOPTS`, `PYTHONPATH`, `VIRTUAL_ENV`
+and their kin, which a developer's shell carries and the runner's does
+not. **The test order is seeded from the commit**, so the pre-push run
+and GitHub's run of one commit shuffle the tests the same way, and an
+order-dependent failure shows before the push. **A tool a test needs is
+installed on the runner too** (`desktop-file-utils`), or that test
+skips on GitHub alone (LWSM-1413).
