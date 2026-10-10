@@ -11843,6 +11843,14 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: chore.
   Source: user-request-2026-10-10.
 
+- 💭 [LWSM-1414] **Nothing proposes updates for the tool pins in scripts/ci-tools.env or for .python-version.**
+  dependabot.yml covers github-actions and uv but cannot read ci-tools.env, so
+  shellcheck, actionlint, yamllint and the exact Python patch never get an update
+  PR. Not a defect today; check-dependencies before each release covers it by hand.
+  **Layman:** The versions of the checking tools are only ever updated by hand, so they can quietly fall behind.
+  Kind: chore.
+  Source: in-session-2026-10-10 LWSM-1413 comparison.
+
 ## 0.4.0 — Ports
 
 Criterion 4: never launch into an occupied port, and make reassignment stick.
