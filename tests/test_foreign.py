@@ -216,6 +216,21 @@ def test_own_lineage_holds_this_process_and_its_parent() -> None:
     assert os.getppid() in lineage
 
 
+def test_an_unreadable_lineage_refuses_the_set(monkeypatch) -> None:
+    """L01-L2: when our own parents cannot be read, the guard against stopping
+    this manager's own shell cannot be built, so nothing is offered. Shrinking
+    the guard to our own PID would fail open."""
+
+    class Hidden:
+        def parents(self) -> list[psutil.Process]:
+            raise psutil.AccessDenied(os.getpid())
+
+    monkeypatch.setattr(foreign.psutil, "Process", Hidden)
+
+    with pytest.raises(TreeRefused, match="this manager's own processes"):
+        foreign._own_lineage()
+
+
 # --- stopping exactly that set ------------------------------------------------
 
 
@@ -293,6 +308,26 @@ def test_a_member_surviving_sigkill_is_reported_as_left() -> None:
 
     assert outcome.left == (20,)
     assert not outcome.ok
+
+
+def test_a_member_that_exits_just_before_sigkill_is_not_left() -> None:
+    """L01-L1: it outlived the grace, then exited before SIGKILL reached it, so
+    `kill()` raised NoSuchProcess and nothing was killed. It is gone, and the
+    stop succeeded; `left` is read afresh, not carried from the grace's end."""
+
+    class ExitsAtKill(FakeProcess):
+        def kill(self) -> None:
+            self.running = False
+            raise psutil.NoSuchProcess(self.pid)
+
+    late = ExitsAtKill(20, dies_on="never")
+    clock = Clock()
+
+    outcome = stop_tree(_tree(late), grace=0.5, clock=clock, sleep=clock.sleep)
+
+    assert outcome.killed == ()
+    assert outcome.left == ()
+    assert outcome.ok
 
 
 # --- a real tree ----------------------------------------------------------------

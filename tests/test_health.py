@@ -10,6 +10,7 @@ from __future__ import annotations
 import http.server
 import socket
 import threading
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -124,6 +125,54 @@ def test_a_server_that_never_replies_is_no_answer(raw_server) -> None:
     """INV-1 of LWSM-1034: a timeout is `OSError`, and caught."""
     port, _replies = raw_server
     assert ask(port, "/", timeout=0.2) is None
+
+
+@pytest.fixture
+def trickling_server() -> Iterator[int]:
+    """Sends a valid status line one byte every 0.1 s: each read is quick, so a
+    per-operation timeout never fires, and the whole line takes 1.7 s."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    done = threading.Event()
+
+    def serve() -> None:
+        try:
+            conn, _ = sock.accept()
+        except OSError:
+            return
+        with conn:
+            conn.recv(4096)
+            for byte in b"HTTP/1.1 200 OK\r\n\r\n":
+                if done.wait(0.1):
+                    return
+                try:
+                    conn.sendall(bytes([byte]))
+                except OSError:
+                    return
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield sock.getsockname()[1]
+    finally:
+        done.set()
+        sock.close()
+        thread.join(timeout=5)
+
+
+@pytest.mark.integration
+def test_a_trickling_server_is_cut_off_at_the_deadline(trickling_server) -> None:
+    """review-code 2026-10-08 L02-L5: the timeout is per socket operation, so a
+    server dribbling its status line held a health thread for as long as it
+    liked, and four such servers held all four. The call as a whole now ends
+    at `deadline`."""
+    started = time.monotonic()
+    answer = ask(trickling_server, "/", timeout=0.5, deadline=0.5)
+    elapsed = time.monotonic() - started
+
+    assert answer is None
+    assert elapsed < 1.2, f"held for {elapsed:.2f} s"
 
 
 @pytest.mark.integration

@@ -134,6 +134,28 @@ signaling per
 
 ### Fixed
 
+- **Stopping a server you started by hand no longer reports a failure when the server quit just before the app forced it to.** (LWSM-1408)
+  The app now checks again at the end, so a server that is gone
+  is reported as stopped.
+
+- **The app will not offer to stop a server if it cannot tell which processes are its own.** (LWSM-1408)
+  Before, it could have included the terminal the app was started
+  from in the set it stopped.
+
+- **Stopping a systemd service while port status is unavailable no longer leaves the row on "stopping" for ever.** (LWSM-1408)
+  The row shows "unknown" instead, as a stop of a project the app
+  started already did.
+
+- **Stop or Restart during a port status outage now says the port table cannot be read.** (LWSM-1408)
+  It used to say the server had changed while you were deciding,
+  which nobody had seen.
+
+- **A project whose port changed after a rescan shows "unknown" until the new port is checked.** (LWSM-1408)
+  It used to keep showing "running" from the old port.
+
+- **A site that answers very slowly can no longer stop the health check working for other projects.** (LWSM-1408)
+  Each check now gives up after 5 seconds in total.
+
 - **A server listening on an unusual loopback address such as 127.0.0.2 no longer shows as running.** (LWSM-1408)
   `localhost` only reaches 127.0.0.1 and ::1, so Open would have pointed
   at a page that never answers.

@@ -2669,11 +2669,15 @@ def test_open_reads_the_port_at_click_time_not_at_build_time(qtbot, built) -> No
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
 
-    # `set_records` emits on its own, and no second poll is waited for on
-    # purpose: both 5005 and 7007 are bound in this fixture, so the derived
-    # status does not change and `_maybe_emit` correctly stays quiet. Waiting
-    # for a signal that must not come is how this test first failed.
+    # A moved port drops what the old port said (review-code 2026-10-08
+    # L02-L4): the row reads `unknown`, and Open is withheld, until a poll has
+    # looked at 7007. This test used to click straight after `set_records`,
+    # which passed only because the row kept `running` from 5005 — the stale
+    # evidence that finding removed. So one poll now runs first; its status
+    # changes (unknown -> running), so its signal does come.
     controller.set_records([record("a", 7007)])
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
     rows_of(window)[0].open_button.click()
 
     assert opened[0].port() == 7007, "the button opened a port that had moved"

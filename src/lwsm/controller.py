@@ -842,6 +842,7 @@ class _ServiceTask(QRunnable):
         try:
             outcome = self._drive()
         except BaseException as exc:
+            log.warning("systemctl %s %s raised", self._verb, self._unit, exc_info=True)
             outcome = UnitOutcome(
                 ok=False, verb=self._verb, unit=self._unit, reason=str(exc)
             )
@@ -871,6 +872,7 @@ class _UnitStateTask(QRunnable):
         try:
             state = unit_state(self._unit)
         except BaseException:
+            log.warning("could not read %s's state", self._unit, exc_info=True)
             state = None
         try:
             self._signals.state.emit(self._path, state)
@@ -897,6 +899,7 @@ class _TreeStopTask(QRunnable):
         try:
             outcome = _tree_outcome(stop_tree(self._tree))
         except BaseException as exc:
+            log.warning("a foreign stop raised", exc_info=True)
             outcome = UnitOutcome(ok=False, verb="stop", unit="", reason=str(exc))
         try:
             self._signals.done.emit(self._path, outcome)
@@ -1466,6 +1469,17 @@ class ProjectController(QObject):
         """
         if disclosed is None or self._holders.get(path) == disclosed:
             return False
+        if self._last_error is not None:
+            # `_on_probe_error` emptied `_holders`: the holder is unknown, not
+            # changed (review-code 2026-10-08 L02-L3). Still refused, since
+            # nothing can confirm it is the one disclosed.
+            self.action_failed.emit(
+                path,
+                "the port table cannot be read right now, so the server holding "
+                f"{display_text(path.name)}'s port could not be checked again — "
+                "nothing was done; try again",
+            )
+            return True
         self.action_failed.emit(
             path,
             f"the server holding {display_text(path.name)}'s port changed while "
@@ -1571,6 +1585,12 @@ class ProjectController(QObject):
                 # success and a failure on screen together, since the user would
                 # believe whichever arrived last.
                 self.action_done.emit(path, outcome.verb)
+                if outcome.verb == "stop" and self._last_error is not None:
+                    # `_apply_stop_outcome`'s LWSM-1372 rule, for a systemd or
+                    # foreign stop: no poll can observe `stopped`, so the
+                    # overlay would stand for ever (review-code 2026-10-08
+                    # L02-L1).
+                    self._clear_overlay(path)
                 if outcome.verb in ("start", "restart") and self._overlay == (
                     path,
                     ProjectStatus.STARTING,
@@ -1709,18 +1729,35 @@ class ProjectController(QObject):
         return list(self._records)
 
     def set_records(self, records: list[ProjectRecord]) -> None:
-        """Replace the project list, keeping every status already derived.
+        """Replace the project list, keeping every status still true.
 
         Resetting to `UNKNOWN` across the board would blank the window for up to
         a poll interval after a rescan that changed one row — and `UNKNOWN`
         means *nobody looked*, which would be false of every record that was
-        already being polled (`§ O5`).
+        already being polled (`§ O5`). It is true of a record whose port moved,
+        so that one alone goes back to `UNKNOWN`.
         """
+        before = {record.path: record.effective_port for record in self._records}
+        # A record whose port moved keeps nothing found on the old one: its
+        # status, ownership and holder were all read off a port it no longer
+        # uses (review-code 2026-10-08 L02-L4). The next poll reads the new one.
+        moved = {
+            record.path
+            for record in records
+            if record.path in before and before[record.path] != record.effective_port
+        }
         self._records = records
         self._statuses = {
-            record.path: self._statuses.get(record.path, ProjectStatus.UNKNOWN)
+            record.path: (
+                ProjectStatus.UNKNOWN
+                if record.path in moved
+                else self._statuses.get(record.path, ProjectStatus.UNKNOWN)
+            )
             for record in records
         }
+        self._managed -= moved
+        for path in moved:
+            self._holders.pop(path, None)
         # A record that left, turned its check off, or moved its port or page
         # keeps no answer (LWSM-1034 § 4.2). `rows` would hide it anyway; this
         # stops it lingering in memory.

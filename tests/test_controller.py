@@ -3945,3 +3945,151 @@ def test_polling_arms_the_health_check_every_ten_seconds(
 
     assert controller._health_timer.isActive()
     assert controller._health_timer.interval() == 10_000
+
+
+# --- review-code 2026-10-08, lane 02 (LWSM-1408) -------------------------------
+
+
+class HoldingThenFailingProbe(HoldingProbe):
+    """`HoldingProbe` until `failing` is set, then the socket table is gone."""
+
+    failing = False
+
+    def snapshot(self) -> PortSnapshot:
+        if self.failing:
+            raise ProbeError("socket table unavailable")
+        return super().snapshot()
+
+
+def test_a_service_stop_with_the_table_unreadable_does_not_stay_stopping(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """L02-L1: LWSM-1372's rule reached the managed stop only. A systemd stop
+    that worked while no poll can read the port table left `stopping` on the
+    row for ever, since only a poll settles it."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "a.service")
+    controller = supervised(
+        controllers, [unit_record()], FailingProbe(), FakeSupervisor()
+    )
+    controller.poll_once()
+    qtbot.waitUntil(lambda: controller._last_error is not None, timeout=2000)
+
+    with qtbot.waitSignal(controller.action_done, timeout=2000):
+        controller.stop_project(Path("/srv/a"))
+
+    assert drive.calls == [("stop", "a.service")]
+    assert controller._overlay is None
+    assert controller.rows()[0].status is ProjectStatus.UNKNOWN
+
+
+def test_a_disclosed_foreign_stop_during_an_outage_says_the_table_is_unreadable(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """L02-L3: the outage empties `_holders`, so every disclosed holder
+    compared unequal and the refusal said the server had changed, which
+    nothing observed. It is still refused, for the true reason."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "a.service")
+    probe = HoldingThenFailingProbe({4321: 1290})
+    controller = supervised(controllers, [unit_record()], probe, FakeSupervisor())
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    probe.failing = True
+    controller.poll_once()
+    qtbot.waitUntil(lambda: controller._last_error is not None, timeout=2000)
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller.stop_project(Path("/srv/a"), disclosed_holder=1290)
+
+    assert drive.calls == []
+    assert messages and "cannot be read" in messages[0]
+    assert "changed while" not in messages[0]
+
+
+def test_a_record_whose_port_moved_drops_what_the_old_port_said(
+    qtbot, controllers
+) -> None:
+    """L02-L4: `set_records` kept the status and holder found on the OLD port,
+    so a rescan that moved the port showed `running` on evidence nobody had
+    checked. Nothing has looked at the new port yet, which is `unknown`."""
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.rows()[0].status is ProjectStatus.RUNNING
+    controller._managed.add(Path("/srv/a"))  # as if our child held the old port
+
+    controller.set_records([startable("a", 5005)])
+
+    assert controller.rows()[0].status is ProjectStatus.UNKNOWN
+    assert Path("/srv/a") not in controller._holders
+    assert Path("/srv/a") not in controller._managed
+
+
+def test_a_record_whose_port_stayed_keeps_its_status(qtbot, controllers) -> None:
+    """L02-L4's other side: `set_records` keeps every status it can (§ O5)."""
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    controller.set_records([startable("a", 4321)])
+
+    assert controller.rows()[0].status is ProjectStatus.RUNNING
+    assert controller._holders.get(Path("/srv/a")) == 1290
+
+
+class _Recorded:
+    def __init__(self) -> None:
+        self.emitted: list[tuple] = []
+
+    def emit(self, *args) -> None:
+        self.emitted.append(args)
+
+
+class _StubSignals:
+    def __init__(self) -> None:
+        self.done = _Recorded()
+        self.state = _Recorded()
+
+
+@pytest.mark.parametrize("task", ["service", "unit_state", "tree_stop"])
+def test_a_task_that_raises_logs_the_traceback(monkeypatch, caplog, task) -> None:
+    """L02-L2: these three caught everything and logged nothing — one did not
+    log at all — where every other task handler logs a warning with the
+    traceback. The row shows the failure; the log is where its cause lives."""
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("kaboom")
+
+    signals = _StubSignals()
+    if task == "service":
+        monkeypatch.setattr(controller_module, "drive_unit", explode)
+        runnable = controller_module._ServiceTask(
+            Path("/srv/a"), "stop", "a.service", signals
+        )
+    elif task == "unit_state":
+        monkeypatch.setattr(controller_module, "unit_state", explode)
+        runnable = controller_module._UnitStateTask(
+            Path("/srv/a"), "a.service", signals
+        )
+    else:
+        monkeypatch.setattr(controller_module, "stop_tree", explode)
+        runnable = controller_module._TreeStopTask(Path("/srv/a"), None, signals)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.controller"):
+        runnable.run()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings and warnings[0].exc_info is not None
+    assert signals.done.emitted or signals.state.emitted, "nothing was reported"

@@ -80,12 +80,18 @@ class TreeOutcome:
 
 
 def _own_lineage() -> frozenset[int]:
-    """This process and its ancestors: never part of a set we signal."""
+    """This process and its ancestors: never part of a set we signal.
+
+    Raises `TreeRefused` when the ancestors cannot be read: a guard shrunk to
+    our own PID would let the set include the shell this manager runs under.
+    """
     pids = {os.getpid()}
     try:
         pids.update(parent.pid for parent in psutil.Process().parents())
-    except psutil.Error:
-        pass
+    except psutil.Error as exc:
+        raise TreeRefused(
+            f"this manager's own processes cannot be inspected ({exc})"
+        ) from None
     return frozenset(pids)
 
 
@@ -178,7 +184,9 @@ def stop_tree(
         except psutil.Error:
             if proc.pid not in refused:
                 refused.append(proc.pid)
-    left = _wait(survivors, KILL_TIMEOUT_SECONDS, clock, sleep) if killed else survivors
+    # Read afresh even when nothing was killed: a survivor whose kill() raised
+    # NoSuchProcess exited in between, and is not left.
+    left = _wait(survivors, KILL_TIMEOUT_SECONDS if killed else 0.0, clock, sleep)
     return TreeOutcome(
         terminated=tuple(terminated),
         killed=tuple(killed),

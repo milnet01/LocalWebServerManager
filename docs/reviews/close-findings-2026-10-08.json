@@ -46,6 +46,13 @@
     "docs/claude/module-map.md service.py entry": "fixed",
     "docs/design.md drop-in passage": "agrees — states no clearing rule",
     "test_a_unit_that_fails_to_start_keeps_its_drop_in": "fixed — restated as the timeout case, renamed"
+   },
+   "LWSM-1408": {
+    "docs/specs/LWSM-1034-health-check.md § 4.1, § 5 INV-1, § 6": "fixed — deadline folded back",
+    "src/lwsm/health.py HEALTH_TIMEOUT_SECONDS comment": "fixed — per-op vs whole-call split",
+    "ProjectController.set_records docstring": "fixed — moved port resets to UNKNOWN",
+    "docs (lineage, NoSuchProcess, _stop_sequence, set_records, 'changed while')": "agrees — only dated ROADMAP notes hit, frozen",
+    "ADR-0003 NoSuchProcess passage": "agrees"
    }
   },
   "collateral": [],
@@ -101,13 +108,15 @@
    "location": "foreign.py:181",
    "finding": "If a process exits before `proc.kill()`, `NoSuchProcess` leaves `killed` empty so `left` still lists it and the stop reads as failed.",
    "remedy": "Always compute `left` from a fresh `_alive` check.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — foreign.stop_tree: left = survivors when killed is empty; red: test_a_member_that_exits_just_before_sigkill_is_not_left",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/foreign.py"
+   ],
+   "was": "left carried from the grace's end when no kill landed",
+   "now": "left read afresh (_wait with 0 s) when nothing was killed; red then green",
    "must_agree": []
   },
   {
@@ -118,13 +127,15 @@
    "location": "foreign.py:87-88",
    "finding": "`except psutil.Error: pass` on reading our parents silently shrinks the lineage guard to our own PID (fail-open).",
    "remedy": "Raise `TreeRefused` when the lineage cannot be read.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — foreign._own_lineage: except psutil.Error: pass; red: test_an_unreadable_lineage_refuses_the_set",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/foreign.py"
+   ],
+   "was": "unreadable parents shrank the guard to our own PID",
+   "now": "raises TreeRefused naming this manager's processes",
    "must_agree": []
   },
   {
@@ -154,13 +165,15 @@
    "location": "supervisor.py:1398",
    "finding": "An exception after the first signal in `stop()` (`survivors = self._group_members(managed)`) leaves the entry popped, `_reap` never runs, `log_fd` leaks and stragglers go unrecorded.",
    "remedy": "Wrap the sequence in `try/finally` that always calls `_reap`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — supervisor._stop_sequence: _group_members after SIGTERM could raise before _reap; red: test_a_stop_that_fails_after_signalling_still_reaps_the_child",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/supervisor.py"
+   ],
+   "was": "error after the first signal skipped _reap",
+   "now": "escalation split into _escalate; any exception reaps then re-raises; mutant (no reap) killed",
    "must_agree": []
   },
   {
@@ -247,13 +260,15 @@
    "location": "controller.py:1343-1352",
    "finding": "LWSM-1372's `_last_error` overlay-clear check was not applied to `_on_service_done`, so a systemd/foreign stop during a socket-table outage stays `stopping`.",
    "remedy": "Apply the same check in `_on_service_done`'s success branch for `verb == \"stop\"`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — _on_service_done success branch had no _last_error check; red: test_a_service_stop_with_the_table_unreadable_does_not_stay_stopping",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/controller.py"
+   ],
+   "was": "systemd/foreign stop during an outage kept STOPPING",
+   "now": "stop success with _last_error set clears the overlay; mutant killed",
    "must_agree": []
   },
   {
@@ -264,13 +279,15 @@
    "location": "controller.py:671-672",
    "finding": "`except BaseException: state = None` logs nothing, and `:642-645`/`:697-698` log no traceback, unlike the other task handlers.",
    "remedy": "Add `log.warning(..., exc_info=True)` to all three handlers.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes (citations moved: _ServiceTask.run, _UnitStateTask.run, _TreeStopTask.run) — red: test_a_task_that_raises_logs_the_traceback x3",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/controller.py"
+   ],
+   "was": "three handlers logged nothing",
+   "now": "log.warning(..., exc_info=True) in each; three mutants killed",
    "must_agree": []
   },
   {
@@ -281,13 +298,15 @@
    "location": "controller.py:1241",
    "finding": "With `_holders` emptied by `_on_probe_error`, every disclosed foreign Stop/Restart is refused with an untrue \"server changed\" message.",
    "remedy": "When `_last_error` is set, say the port table is unreadable instead.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — _holder_changed compared against _holders emptied by _on_probe_error; red: test_a_disclosed_foreign_stop_during_an_outage_says_the_table_is_unreadable",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/controller.py"
+   ],
+   "was": "refused with 'server changed'",
+   "now": "refused with 'port table cannot be read'; mutant killed",
    "must_agree": []
   },
   {
@@ -298,13 +317,15 @@
    "location": "controller.py:1470-1474",
    "finding": "`set_records` keeps old status, `_managed` and `_holders` for a record whose `effective_port` changed, showing `running` on unchecked evidence.",
    "remedy": "Reset status to `UNKNOWN` and drop `_managed`/`_holders` entries for records whose effective port changed.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — set_records kept status/_managed/_holders across a port move; red: test_a_record_whose_port_moved_drops_what_the_old_port_said",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/controller.py"
+   ],
+   "was": "RUNNING kept on the old port's evidence",
+   "now": "moved records reset to UNKNOWN and drop _managed/_holders; status/managed/holders mutants each killed",
    "must_agree": []
   },
   {
@@ -315,13 +336,16 @@
    "location": "health.py:17",
    "finding": "The health timeout is per socket operation, so four trickling servers can hold all four health threads indefinitely.",
    "remedy": "Put an overall wall-clock deadline on `ask`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — health.ask timeout is per socket op; red: test_a_trickling_server_is_cut_off_at_the_deadline (200 after 1.7 s)",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1408",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/health.py",
+    "docs/specs/LWSM-1034-health-check.md"
+   ],
+   "was": "no bound on the whole call",
+   "now": "HEALTH_DEADLINE_SECONDS 5.0; a Timer shuts the socket down; timer and shutdown mutants killed; spec § 4.1, § 5 INV-1, § 6 folded back",
    "must_agree": []
   },
   {

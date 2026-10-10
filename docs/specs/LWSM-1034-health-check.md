@@ -71,9 +71,16 @@ A new core module importing no Qt at all, like `ports.py`.
 
 ```python
 HEALTH_TIMEOUT_SECONDS = 2.0
+HEALTH_DEADLINE_SECONDS = 5.0
 
 
-def ask(port: int, path: str, *, timeout: float = HEALTH_TIMEOUT_SECONDS) -> int | None:
+def ask(
+    port: int,
+    path: str,
+    *,
+    timeout: float = HEALTH_TIMEOUT_SECONDS,
+    deadline: float = HEALTH_DEADLINE_SECONDS,
+) -> int | None:
     """GET `path` from localhost:`port`. The status code, or None for no answer."""
 ```
 
@@ -83,6 +90,9 @@ health check` and `Connection: close`, reads the status line and closes without
 reading the body. `http.client` follows no redirect. It returns `None` on
 `OSError` (refused, reset, timeout) and on `http.client.HTTPException` (a reply
 that is not HTTP). Any other exception propagates to the caller.
+`timeout` applies to each socket operation; `deadline` to the whole call, at
+which a timer shuts the socket down so a blocked read returns and the answer
+is `None` (review-code 2026-10-08 L02-L5).
 
 The connection host is the literal `"localhost"` and `path` is only the
 request target, so `path` cannot change where the request goes. `path` is
@@ -223,11 +233,13 @@ and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
   timeout and a reply that is not HTTP.
   *Test:* `tests/test_health.py`, against an `http.server` thread on port 0
   answering 200, 500 and 302 to a different port, a closed port, a socket that
-  accepts and never replies (with a 0.2 s timeout), and one that replies
-  `hello\r\n`.
+  accepts and never replies (with a 0.2 s timeout), one that replies
+  `hello\r\n`, and one that sends a valid status line a byte at a time,
+  cut off at its `deadline`.
   *Breaks when:* `urllib.request.urlopen` is used, which follows the 302 and
   raises on the 500; or an `except` names only `ConnectionRefusedError`, so a
-  timeout escapes.
+  timeout escapes; or the deadline timer is never started, so a trickling
+  server holds the call.
 
 - **INV-2** — The request goes to `localhost:<port>` whatever `path` holds.
   *Test:* `tests/test_health.py`, `ask(port, "@example.invalid/")` against the
@@ -334,11 +346,12 @@ and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
 ## 6. Failure modes
 
 - **The server is slow.** `ask`'s timeout applies to each socket operation,
-  not to the whole call, so a server that sends its status line a byte at a
-  time can hold one call for longer. The row reads `no response` once a call
-  times out. Only that project's check waits: the in-flight mark skips it, the
-  other threads keep serving, and `stop()` abandons a call that outlives
-  `STOP_WAIT_MS`.
+  so a server that sends its status line a byte at a time resets it with
+  every byte. `deadline` bounds the whole call, so such a server holds a
+  thread for at most `HEALTH_DEADLINE_SECONDS` and four of them cannot hold
+  the pool. The row reads `no response` once a call times out. Only that
+  project's check waits: the in-flight mark skips it, and `stop()` abandons a
+  call that outlives `STOP_WAIT_MS`.
 - **More than `HEALTH_THREADS` projects are checked.** The pool queues the rest
   for that tick. The in-flight mark stops a project being asked twice.
 - **A check is turned on.** The first answer appears at the next tick, within

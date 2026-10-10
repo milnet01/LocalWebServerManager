@@ -2910,6 +2910,39 @@ def test_a_stop_that_fails_with_any_error_before_signalling_keeps_the_project(
         supervisor.stop(project, grace=0.5)
 
 
+def test_a_stop_that_fails_after_signalling_still_reaps_the_child(
+    supervisor, project, monkeypatch
+) -> None:
+    """L01-L4, the other side of the test above: once SIGTERM has gone out the
+    entry stays popped, so an error re-enumerating the group left the child
+    unreaped and its log descriptor open, with nothing left that would ever
+    release either. The reap now runs on the way out."""
+    write_launcher(project, "sleep 30 &\ntouch ready\nwait\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)  # or the stop races the fork and leaks the sleep
+    real = supervisor._group_members
+    calls: list[int] = []
+
+    def fails_after_the_first_signal(target):
+        calls.append(1)
+        if len(calls) > 1:
+            raise OSError(errno.EACCES, "Permission denied")
+        return real(target)
+
+    try:
+        monkeypatch.setattr(supervisor, "_group_members", fails_after_the_first_signal)
+        with pytest.raises(OSError):
+            supervisor.stop(project, grace=0.5)
+        monkeypatch.undo()
+        assert managed.popen.returncode is not None, "the child was never reaped"
+        with pytest.raises(OSError):
+            os.fstat(managed.log_fd)  # the descriptor was released
+    finally:
+        monkeypatch.undo()
+        supervisor.stop(project, grace=0.5)
+
+
 def test_a_child_whose_handle_cannot_be_built_is_not_left_running(
     supervisor, project, monkeypatch
 ) -> None:

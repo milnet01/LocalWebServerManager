@@ -1395,6 +1395,68 @@ class Supervisor:
                 log.info("could not signal pid %d: %s", proc.pid, exc)
                 unsignalled.append(proc.pid)
 
+        try:
+            killed, stragglers = self._escalate(
+                key, managed, members, grace, _on_wait, unsignalled
+            )
+        except BaseException:
+            # The entry was popped before the first signal and is not put back
+            # (`stop()` says why), so nothing else will ever reap this child or
+            # close its log: do both on the way out (review-code 2026-10-08
+            # L01-L4).
+            self._reap(managed)
+            raise
+
+        exit_code = self._reap(managed)
+        bound, warning = self._port_after_stop(managed)
+        if unsignalled:
+            refused = ", ".join(str(pid) for pid in sorted(set(unsignalled)))
+            refused_warning = (
+                f"{managed.name} stopped, but {len(set(unsignalled))} process(es) "
+                f"could not be signalled: {refused}"
+            )
+            warning = (
+                refused_warning if warning is None else f"{warning}; {refused_warning}"
+            )
+        if stragglers:
+            straggler_warning = (
+                f"{managed.name} stopped, but {len(stragglers)} process(es) in "
+                f"its group were still running afterwards: {stragglers}"
+            )
+            warning = (
+                straggler_warning
+                if warning is None
+                else f"{warning}; {straggler_warning}"
+            )
+        log.info(
+            "stopped %s: terminated %r, killed %r, exit %s",
+            managed.name,
+            terminated,
+            killed,
+            exit_code,
+        )
+        return StopOutcome(
+            terminated=tuple(terminated),
+            killed=tuple(killed),
+            exit_code=exit_code,
+            port_still_bound=bound,
+            warning=warning,
+        )
+
+    def _escalate(
+        self,
+        key: Path,
+        managed: ManagedProcess,
+        members: list[psutil.Process],
+        grace: float,
+        _on_wait: Callable[[], None] | None,
+        unsignalled: list[int],
+    ) -> tuple[list[int], list[int]]:
+        """Wait out the grace, SIGKILL what is left, and record stragglers.
+
+        Returns the pids killed and the pids still in the group afterwards.
+        Appends to `unsignalled` what the kernel would not let us kill.
+        """
         self._wait_for(members, grace, _on_wait)
 
         # Re-enumerated rather than reusing what `_wait_for` returned. A
@@ -1438,41 +1500,7 @@ class Supervisor:
             with self._registry.lock:
                 self._registry.stragglers[key] = left
 
-        exit_code = self._reap(managed)
-        bound, warning = self._port_after_stop(managed)
-        if unsignalled:
-            refused = ", ".join(str(pid) for pid in sorted(set(unsignalled)))
-            refused_warning = (
-                f"{managed.name} stopped, but {len(set(unsignalled))} process(es) "
-                f"could not be signalled: {refused}"
-            )
-            warning = (
-                refused_warning if warning is None else f"{warning}; {refused_warning}"
-            )
-        if stragglers:
-            straggler_warning = (
-                f"{managed.name} stopped, but {len(stragglers)} process(es) in "
-                f"its group were still running afterwards: {stragglers}"
-            )
-            warning = (
-                straggler_warning
-                if warning is None
-                else f"{warning}; {straggler_warning}"
-            )
-        log.info(
-            "stopped %s: terminated %r, killed %r, exit %s",
-            managed.name,
-            terminated,
-            killed,
-            exit_code,
-        )
-        return StopOutcome(
-            terminated=tuple(terminated),
-            killed=tuple(killed),
-            exit_code=exit_code,
-            port_still_bound=bound,
-            warning=warning,
-        )
+        return killed, stragglers
 
     def stop_async(
         self,
