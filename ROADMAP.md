@@ -11705,6 +11705,14 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   L01-L2, L01-L4, L02-L1..L5. Then LWSM-1409, 1410, 1411. Last gate 2516
   passed. Method per item: red test first, mutation check, fold docs
   back, changelog_log, ledger row, full gate, commit, flip.
+  Progress (2026-10-10): LWSM-1407 (L05-M3: user chose clear on a
+  rejected start, keep on a timeout) and LWSM-1408 shipped; all pushed,
+  CI green. LWSM-1413 (user request) aligned the local gate with GitHub:
+  exact Python 3.13.16, actionlint from its release, same env and test
+  order. Ledger: 30 findings open, all on LWSM-1409 (main window),
+  LWSM-1410 (startup/browsers), LWSM-1411 (tooling).
+  NEXT: LWSM-1409, then 1410, 1411; then the user tries the health check
+  by hand; then ./scripts/local-release.sh 0.3.0; then cut-release.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
@@ -11817,7 +11825,7 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-10.
 
-- 🚧 [LWSM-1413] **Make the local gate predict GitHub's CI: exact Python, actionlint from its release, same environment.**
+- ✅ [LWSM-1413] **Make the local gate predict GitHub's CI: exact Python, actionlint from its release, same environment.**
   Found 2026-10-10 by comparing scripts/local-ci.sh with ci.yml, and the two
   red runs of 2026-10-08: 37805357386 failed installing actionlint (`go install`
   switched Go toolchain and the download 404'd); 37783461025 was the deferred
@@ -11828,6 +11836,9 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   desktop-file-utils, so one test skips there only; LANG/TZ, PYTEST_ADDOPTS and
   PYTHONPATH pass through from the developer's shell; test order differs per
   run; comments say actionlint bundles its own shellcheck, which it does not.
+  Resolved (2026-10-10): 76bd01f. GitHub run 38038429084 matched the
+  pre-push run exactly: Python 3.13.16, seed 1992098299, 2536 passed,
+  0 skipped (one skipped before), actionlint tarball checksum OK.
   **Layman:** Checks run on this computer before a push now give the same answer GitHub's checks will.
   Kind: chore.
   Source: user-request-2026-10-10.
