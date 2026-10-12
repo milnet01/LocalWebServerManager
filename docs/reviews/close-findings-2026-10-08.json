@@ -66,6 +66,19 @@
     "f-strings and str(len()) in settingsdialog, firstrun": "agrees — none found",
     "forget_trust name": "agrees — display_text already",
     "translation catalogues for the four new strings": "agrees — the repo tracks none"
+   },
+   "LWSM-1410": {
+    "docs/claude/module-map.md browsers entry": "agrees — no refusal list stated",
+    "docs/claude/module-map.md __main__ single-instance passage": "agrees — race recovery not described",
+    "docs/specs/LWSM-1005 § 4.5 step 2 single-instance claim": "agrees",
+    "docs/known-issues.md known-issue-047": "frozen — resolved record",
+    "design.md TrayIcon (window hidden to tray)": "agrees — no tray implemented; old showNormal ran only when minimised, so a hidden window is unaffected",
+    "other ConfigFileNotDurable callers (TrustStore._save, service.set_drop_in)": "out of scope — already filed as LWSM-1415",
+    "mainwindow._save_setting order": "agrees",
+    "tests pinning NoDisplay/TryExec/expand": "agrees — all green",
+    "600 px lens band": "agrees — no row control changed",
+    "CHANGELOG [Unreleased]": "fixed — six Fixed entries",
+    "translation catalogues (new status text)": "agrees — the neighbouring text is untranslated and the repo tracks none"
    }
   },
   "collateral": [],
@@ -1201,14 +1214,19 @@
    "location": "browsers.py:360",
    "finding": "`NoDisplay` == \"true\" entries are refused, dropping real http handlers the desktop would hand links to.",
    "remedy": "Do not refuse on `NoDisplay` when the entry declares an http handler or `mimeapps.list` adds it; keep refusing `Hidden=true`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — browsers.py:360 refused every NoDisplay=true entry before any association test; remedy checked separately: its first arm (any entry declaring the handler) would list Google Chrome twice — /usr/share/applications/com.google.Chrome.desktop is a NoDisplay copy of google-chrome.desktop declaring x-scheme-handler/http (measured 2026-10-12); only the 'mimeapps.list adds it' arm taken",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1410",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "src/lwsm/browsers.py"
+   ],
+   "was": "NoDisplay=true refused even when mimeapps.list added the entry",
+   "now": "refused only when not added (mime_required); red: test_a_nodisplay_entry_the_desktop_adds_is_offered; Hidden still refused under add: test_a_hidden_entry_the_desktop_adds_is_still_not_offered",
+   "must_agree": [
+    "browsers._browser_from docstring (refusals that apply to an added entry)",
+    "test_an_entry_the_desktop_hides_is_not_offered[NoDisplay]"
+   ]
   },
   {
    "key": "L08-L1",
@@ -1218,14 +1236,18 @@
    "location": "__main__.py:652-654",
    "finding": "Between `QLocalServer.removeServer(path)` and `listen`, a fresh copy can win, and the failed `listen` still returns `primary=True`.",
    "remedy": "On `AddressInUseError` from the second `listen`, probe again and return `primary=False` if something answers.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — __main__.py claim_single_instance: second listen() failure returned primary=True with no probe; remedy checked: a re-probe on AddressInUseError is the same probe the first branch uses",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1410",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "src/lwsm/__main__.py"
+   ],
+   "was": "lost re-listen after removeServer returned primary=True",
+   "now": "AddressInUseError re-probes; answered -> primary=False; red: test_a_copy_that_wins_the_path_during_recovery_is_deferred_to; other half: test_a_path_lost_during_recovery_to_nobody_still_lets_the_app_run. The AddressInUseError guard itself is not mutation-tested: a forced race only produces that error",
+   "must_agree": [
+    "docs/claude/module-map.md __main__ single-instance passage"
+   ]
   },
   {
    "key": "L08-L2",
@@ -1235,13 +1257,15 @@
    "location": "__main__.py:674-675",
    "finding": "`window.showNormal()` on a minimised-and-maximised window also clears maximised, so geometry saves `maximized=False`.",
    "remedy": "Use `setWindowState(windowState() & ~Qt.WindowMinimized)`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — __main__._bring_to_front called showNormal() on a minimised window; remedy checked against Qt's QWidget::setWindowState docs (the documented restore idiom)",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1410",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "src/lwsm/__main__.py"
+   ],
+   "was": "showNormal() cleared maximised too",
+   "now": "setWindowState((state & ~WindowMinimized) | WindowActive); red: test_bringing_a_maximised_window_to_the_front_keeps_it_maximised",
    "must_agree": []
   },
   {
@@ -1252,14 +1276,18 @@
    "location": "__main__.py:327-333",
    "finding": "`SettingsNotDurable` is caught with other errors and reported as \"Settings could not be saved\" though the file was written.",
    "remedy": "Catch `SettingsNotDurable` first with \"saved, but may not survive a crash\" wording.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — open_settings caught SettingsNotDurable with (ConfigFileError, OSError, RuntimeError); also save_scan_roots raises ConfigFileNotDurable, which is not a SettingsNotDurable, so both types are needed; the first-run save_scan_roots caller logged the same wrongly (O9 sweep)",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1410",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "src/lwsm/__main__.py"
+   ],
+   "was": "'Settings could not be saved' for a written file; first run logged 'could not be remembered'",
+   "now": "(SettingsNotDurable, ConfigFileNotDurable) caught first: 'Settings saved, but may not survive a crash: …'; first run logs 'remembered but may not survive a crash'; red: test_a_settings_save_written_but_not_made_durable_is_called_saved[settings|scan_roots], test_a_first_run_folder_written_but_not_made_durable_is_logged_as_remembered",
+   "must_agree": [
+    "mainwindow.MainWindow._save_setting (same order)"
+   ]
   },
   {
    "key": "L08-L4",
@@ -1269,14 +1297,19 @@
    "location": "browsers.py:308-317",
    "finding": "Field codes match only as whole tokens, so `--url=%u` passes literally and embedded codes like `--icon=%i` leak through.",
    "remedy": "Substitute `%u`/`%f` inside tokens, strip embedded deprecated codes, and append the URL only when no URL code exists.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — browsers.expand matched whole tokens only; remedy checked against the Desktop Entry spec (only %F/%U are forbidden inside an argument) and GLib's in-place expansion",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1410",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "src/lwsm/browsers.py"
+   ],
+   "was": "'--url=%u' passed literally and the URL appended; '--icon=%i' passed literally",
+   "now": "_expand_codes scans each token left to right; red: test_expand_substitutes_a_url_code_inside_a_longer_argument, test_expand_strips_a_dropped_code_inside_a_longer_argument; %%u guard: test_expand_reads_an_escaped_percent_before_a_code_letter (green before, locks the rewrite)",
+   "must_agree": [
+    "browsers.py _URL_CODES/_DROPPED_CODES comment",
+    "test_expand_leaves_flatpaks_file_forwarding_markers_alone"
+   ]
   },
   {
    "key": "L08-L5",
@@ -1286,14 +1319,18 @@
    "location": "browsers.py:381",
    "finding": "The `Path(try_exec).exists()` fallback accepts a present but non-executable TryExec file.",
    "remedy": "Drop the `exists()` fallback or use `os.access(..., X_OK)`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — browsers.py:381 accepted Path(try_exec).exists(); remedy checked: shutil.which takes an absolute path and checks X_OK",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1410",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "src/lwsm/browsers.py"
+   ],
+   "was": "a present, non-executable TryExec passed",
+   "now": "shutil.which alone; red: test_an_entry_whose_tryexec_file_cannot_be_run_is_not_offered; other half: test_an_entry_whose_tryexec_file_can_be_run_is_offered",
+   "must_agree": [
+    "test_an_entry_whose_tryexec_binary_is_gone_is_not_offered"
+   ]
   },
   {
    "key": "L08-L6",

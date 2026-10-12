@@ -525,6 +525,95 @@ def test_a_socket_left_by_a_crashed_copy_is_taken_over(tmp_path) -> None:
             claim.server.close()
 
 
+def _leave_a_dead_socket(path: Path) -> None:
+    """A socket file with nobody behind it: what a SIGKILLed copy leaves."""
+    import socket
+
+    leftover = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    leftover.bind(str(path))
+    leftover.close()
+
+
+@pytest.mark.gui
+def test_a_copy_that_wins_the_path_during_recovery_is_deferred_to(
+    monkeypatch, tmp_path
+) -> None:
+    """A fresh launch can take the path between the removal and the re-listen.
+
+    It finds no file, so it never reaches the lock. The recovering copy's listen
+    then fails with `AddressInUseError`, and answering `primary=True` there ran
+    two copies against one `app.log` (review-code 2026-10-08 L08-L1). The
+    removal is patched to let the rival in at exactly that moment.
+    """
+    from PySide6.QtNetwork import QLocalServer
+
+    path = tmp_path / "lwsm.sock"
+    _leave_a_dead_socket(path)
+    rival = QLocalServer()
+    real_remove = QLocalServer.removeServer
+
+    def remove_then_lose_the_race(name: str) -> bool:
+        removed = real_remove(name)
+        assert rival.listen(name), rival.errorString()
+        return removed
+
+    monkeypatch.setattr(QLocalServer, "removeServer", remove_then_lose_the_race)
+    try:
+        claim = entry.claim_single_instance(str(path), lambda: None)
+        assert not claim.primary, "both copies ran: the rival won and so did this one"
+    finally:
+        rival.close()
+
+
+@pytest.mark.gui
+def test_a_path_lost_during_recovery_to_nobody_still_lets_the_app_run(
+    monkeypatch, tmp_path
+) -> None:
+    """The other half: `AddressInUseError` with no listener is not a running copy.
+
+    The re-listen fails, nobody answers the probe, so this copy runs unguarded
+    and says why — the rule every other unguarded path here follows.
+    """
+    from PySide6.QtNetwork import QLocalServer
+
+    path = tmp_path / "lwsm.sock"
+    _leave_a_dead_socket(path)
+    real_remove = QLocalServer.removeServer
+
+    def remove_then_find_another_leftover(name: str) -> bool:
+        removed = real_remove(name)
+        _leave_a_dead_socket(Path(name))
+        return removed
+
+    monkeypatch.setattr(QLocalServer, "removeServer", remove_then_find_another_leftover)
+    claim = entry.claim_single_instance(str(path), lambda: None)
+    assert claim.primary, "a copy refused to run with nobody else running"
+    assert claim.problem, "the missing guard was not explained"
+
+
+@pytest.mark.gui
+def test_bringing_a_maximised_window_to_the_front_keeps_it_maximised(qtbot) -> None:
+    """`showNormal()` cleared maximised along with minimised.
+
+    So a second launch un-maximised the running copy, and the next close saved
+    `maximized=False` (review-code 2026-10-08 L08-L2). Only the minimised bit
+    is the request.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QWidget
+
+    window = QWidget()
+    qtbot.addWidget(window)
+    window.setWindowState(
+        Qt.WindowState.WindowMaximized | Qt.WindowState.WindowMinimized
+    )
+
+    entry._bring_to_front(window)
+
+    assert window.windowState() & Qt.WindowState.WindowMaximized, "maximised was lost"
+    assert not window.isMinimized(), "the window was left minimised"
+
+
 @pytest.mark.gui
 def test_a_socket_that_cannot_be_made_still_lets_the_app_run(tmp_path) -> None:
     """No guard is a reason to warn, never a reason not to start."""
@@ -1375,6 +1464,65 @@ def test_a_settings_save_that_works_says_nothing(qtbot, monkeypatch, tmp_path) -
     assert "could not be saved" not in message_of(window)
 
 
+@pytest.mark.gui
+@pytest.mark.parametrize("which", ["settings", "scan_roots"])
+def test_a_settings_save_written_but_not_made_durable_is_called_saved(
+    qtbot, monkeypatch, tmp_path, which: str
+) -> None:
+    """The file WAS written; only the directory fsync failed (known-issue-047).
+
+    Both writers have a type for that — `SettingsNotDurable` for
+    `settings.json`, `ConfigFileNotDurable` for the scan-roots file — and the
+    one handler caught them with real failures, telling the user a saved
+    setting was not saved (review-code 2026-10-08 L08-L3; L07-M1's mechanism).
+    """
+    from lwsm import scanroots
+    from lwsm import settings as settings_module
+    from lwsm import settingsdialog as dialog_module
+    from lwsm.configfile import ConfigFileNotDurable
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    class AcceptingDialog:
+        DialogCode = dialog_module.SettingsDialog.DialogCode
+
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def deleteLater(self) -> None:
+            pass
+
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def values(self):
+            return (Path("/srv/only"),), 1500, 7
+
+    def not_durable_settings(*_args, **_kwargs) -> None:
+        raise settings_module.SettingsNotDurable("fsync of the directory failed")
+
+    def not_durable_roots(*_args, **_kwargs) -> None:
+        raise ConfigFileNotDurable("fsync of the directory failed")
+
+    monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
+    if which == "settings":
+        monkeypatch.setattr(settings_module, "save", not_durable_settings)
+    else:
+        monkeypatch.setattr(scanroots, "save_scan_roots", not_durable_roots)
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        window._settings_action.trigger()
+    finally:
+        controller.stop()
+
+    message = message_of(window)
+    assert "could not be saved" not in message, message
+    assert "saved, but may not survive a crash" in message, message
+    assert "fsync of the directory failed" in message, message
+
+
 # --- LWSM-1018: the scan-roots file the dialog edits ---------------------------
 
 
@@ -2102,6 +2250,40 @@ def test_a_first_run_asks_for_a_folder_remembers_it_and_saves_what_it_finds(
     finally:
         controller.stop()
         window.shutdown()
+
+
+@pytest.mark.gui
+def test_a_first_run_folder_written_but_not_made_durable_is_logged_as_remembered(
+    qtbot, tmp_path, monkeypatch, caplog
+) -> None:
+    """L08-L3's mechanism at the one other `save_scan_roots` caller.
+
+    The folder WAS written, so the log must not say the next start will ask
+    again.
+    """
+    from lwsm.configfile import ConfigFileNotDurable
+
+    projects = tmp_path / "work"
+    projects.mkdir()
+
+    def not_durable(*_args, **_kwargs) -> None:
+        raise ConfigFileNotDurable("fsync of the directory failed")
+
+    window, controller = first_run_window(qtbot, tmp_path, monkeypatch)
+    monkeypatch.setattr(scanroots, "save_scan_roots", not_durable)
+    try:
+        with caplog.at_level(logging.WARNING, logger="lwsm.__main__"):
+            entry.start_first_run(
+                window, choose_directory=lambda _window: str(projects)
+            )
+            qtbot.waitUntil(lambda: not window._rescan_in_flight, timeout=10000)
+    finally:
+        controller.stop()
+        window.shutdown()
+
+    text = caplog.text
+    assert "could not be remembered" not in text, text
+    assert "remembered but may not survive a crash" in text, text
 
 
 @pytest.mark.gui

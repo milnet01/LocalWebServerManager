@@ -292,13 +292,40 @@ def parse_exec(value: str) -> tuple[str, ...]:
     return tuple(tokens)
 
 
+def _expand_codes(token: str, url: str) -> tuple[str, bool]:
+    """One argument with its field codes expanded, and whether a URL code was one.
+
+    Read left to right a pair at a time, so `%%u` is a literal `%u` and not an
+    escaped percent followed by a code. A code inside a longer argument counts:
+    the spec forbids only `%U` and `%F` there, so `--url=%u` is a legal entry
+    (review-code 2026-10-08 L08-L4). A dropped code expands to nothing in place,
+    as GLib's launcher does. An unknown code is left as written.
+    """
+    out: list[str] = []
+    found = False
+    i = 0
+    while i < len(token):
+        code = token[i : i + 2]
+        if code == "%%":
+            out.append("%")
+        elif code in _URL_CODES:
+            out.append(url)
+            found = True
+        elif code not in _DROPPED_CODES:
+            out.append(token[i])
+            i += 1
+            continue
+        i += 2
+    return "".join(out), found
+
+
 def expand(argv: tuple[str, ...], url: str) -> tuple[str, ...]:
     """Substitute the URL for the entry's field code, dropping the rest.
 
-    A token that is exactly a URL code becomes the URL. A token that is exactly
-    a dropped code disappears — `%i` in particular expands to *two* arguments
-    or none, so leaving it in place would pass a literal `%i` to the browser.
-    `%%` is the spec's escape for a literal percent.
+    A URL code becomes the URL, inside a longer argument too. A token that is
+    exactly a dropped code disappears — `%i` in particular expands to *two*
+    arguments or none, so leaving it in place would pass a literal `%i` to the
+    browser. `%%` is the spec's escape for a literal percent.
 
     Where the entry declares no URL code at all the URL is appended, which is
     what a desktop launcher does with a handler whose author left it out.
@@ -306,13 +333,11 @@ def expand(argv: tuple[str, ...], url: str) -> tuple[str, ...]:
     out: list[str] = []
     substituted = False
     for token in argv:
-        if token in _URL_CODES:
-            out.append(url)
-            substituted = True
-        elif token in _DROPPED_CODES:
+        if token in _DROPPED_CODES:
             continue
-        else:
-            out.append(token.replace("%%", "%"))
+        text, found = _expand_codes(token, url)
+        out.append(text)
+        substituted = substituted or found
     if not substituted:
         out.append(url)
     return tuple(out)
@@ -350,14 +375,19 @@ def _browser_from(
     `mime_required` is `False` for an entry the desktop's own `mimeapps.list`
     adds to the http handlers (LWSM-1248): declaring no `MimeType` is exactly
     why such an entry cannot be found by the `MimeType` test. Every other
-    refusal below still applies to it — an added entry that is hidden, or whose
-    binary is gone, is no more launchable than any other.
+    refusal below but `NoDisplay` still applies to it — an added entry that is
+    `Hidden`, or whose binary is gone, is no more launchable than any other.
     """
     fields = _entry_fields(read_bounded(path).decode("utf-8-sig"))
 
     if fields.get("Type", "Application") != "Application":
         return None
-    if fields.get("NoDisplay", "").lower() == "true":
+    # `NoDisplay` means "not in the menus", and the spec's own example is a
+    # handler kept out of them, so it is no refusal where the desktop's
+    # `mimeapps.list` adds the entry (review-code 2026-10-08 L08-M1). It still
+    # refuses one that only declares the handler itself: Google Chrome ships a
+    # `NoDisplay` second copy of its entry that does, and would be listed twice.
+    if mime_required and fields.get("NoDisplay", "").lower() == "true":
         return None
     if fields.get("Hidden", "").lower() == "true":
         return None
@@ -376,9 +406,11 @@ def _browser_from(
 
     # `TryExec` is the spec's own "is this actually installed" key. Honouring it
     # is what keeps a stale entry for an uninstalled browser out of the list,
-    # which would otherwise be offered and then fail at the click.
+    # which would otherwise be offered and then fail at the click. `which`
+    # alone: it takes an absolute path too, and checks it can be run, which an
+    # `exists()` fallback did not (review-code 2026-10-08 L08-L5).
     try_exec = fields.get("TryExec", "")
-    if try_exec and shutil.which(try_exec) is None and not Path(try_exec).exists():
+    if try_exec and shutil.which(try_exec) is None:
         return None
 
     argv = parse_exec(_unescape_string(fields.get("Exec", "")))

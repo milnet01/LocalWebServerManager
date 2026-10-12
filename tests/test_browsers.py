@@ -157,6 +157,41 @@ def test_expand_unescapes_a_literal_percent() -> None:
     )
 
 
+def test_expand_substitutes_a_url_code_inside_a_longer_argument() -> None:
+    """The spec forbids `%U` and `%F` inside an argument, not `%u` or `%f`.
+
+    So `--url=%u` is a legal entry, and matching whole tokens only handed the
+    browser a literal `--url=%u` and then a second, bare URL (review-code
+    2026-10-08 L08-L4).
+    """
+    assert browsers.expand(("/bin/b", "--url=%u"), "http://x/") == (
+        "/bin/b",
+        "--url=http://x/",
+    )
+
+
+def test_expand_strips_a_dropped_code_inside_a_longer_argument() -> None:
+    """Expanded to nothing in place, as GLib's launcher does, never left literal."""
+    assert browsers.expand(("/bin/b", "--icon=%i", "%u"), "http://x/") == (
+        "/bin/b",
+        "--icon=",
+        "http://x/",
+    )
+
+
+def test_expand_reads_an_escaped_percent_before_a_code_letter() -> None:
+    """`%%u` is a literal `%u`, so it is not a URL code and the URL is appended.
+
+    Left to right, one pair at a time: a replace-then-substitute order turns
+    `%%u` into `%u` and then into the URL.
+    """
+    assert browsers.expand(("/bin/b", "--x=%%u"), "http://x/") == (
+        "/bin/b",
+        "--x=%u",
+        "http://x/",
+    )
+
+
 # --------------------------------------------------------------------------
 # installed — which entries count as a browser
 # --------------------------------------------------------------------------
@@ -243,6 +278,34 @@ def test_an_entry_whose_tryexec_binary_is_gone_is_not_offered(tmp_path: Path) ->
     """
     write(tmp_path, "b.desktop", entry(TryExec="/nonexistent/definitely-not-here"))
     assert browsers.installed((tmp_path,)).browsers == ()
+
+
+def test_an_entry_whose_tryexec_file_cannot_be_run_is_not_offered(
+    tmp_path: Path,
+) -> None:
+    """Present is not installed: the spec ignores a TryExec that is not executable.
+
+    An `exists()` fallback accepted it, which is the offered-then-fails-at-the-
+    click case TryExec is there to prevent (review-code 2026-10-08 L08-L5).
+    """
+    target = tmp_path / "bin" / "browser"
+    target.parent.mkdir()
+    target.write_text("#!/bin/sh\n")
+    target.chmod(0o644)
+    write(tmp_path / "apps", "b.desktop", entry(TryExec=str(target)))
+    assert browsers.installed((tmp_path / "apps",)).browsers == ()
+
+
+def test_an_entry_whose_tryexec_file_can_be_run_is_offered(tmp_path: Path) -> None:
+    """The other half: an absolute, executable TryExec still passes."""
+    target = tmp_path / "bin" / "browser"
+    target.parent.mkdir()
+    target.write_text("#!/bin/sh\n")
+    target.chmod(0o755)
+    write(tmp_path / "apps", "b.desktop", entry(TryExec=str(target)))
+    assert [b.entry_id for b in browsers.installed((tmp_path / "apps",)).browsers] == [
+        "b.desktop"
+    ]
 
 
 def test_the_user_directory_shadows_a_system_entry_of_the_same_id(
@@ -750,6 +813,35 @@ def test_an_added_association_is_offered_without_its_own_mimetype(
     result = browsers.installed((apps,), mimeapps=(lists,))
 
     assert [b.entry_id for b in result.browsers] == ["kiosk.desktop"]
+
+
+def test_a_nodisplay_entry_the_desktop_adds_is_offered(tmp_path: Path) -> None:
+    """`NoDisplay` means "not in the menus", and the spec's own example is a
+    handler kept out of the menus. "Open with a custom command" writes exactly
+    that, and adds it in `mimeapps.list` (review-code 2026-10-08 L08-M1).
+
+    Only when ADDED. Google Chrome's package ships a second, `NoDisplay` copy
+    of its entry that declares the handler itself (measured on this machine,
+    2026-10-12), and offering every such entry listed Chrome twice.
+    """
+    apps = tmp_path / "applications"
+    write(apps, "userapp-web.desktop", entry(Name="Custom", NoDisplay="true"))
+    lists = mimeapps(tmp_path / "config", added="userapp-web.desktop;")
+
+    result = browsers.installed((apps,), mimeapps=(lists,))
+
+    assert [b.entry_id for b in result.browsers] == ["userapp-web.desktop"]
+
+
+def test_a_hidden_entry_the_desktop_adds_is_still_not_offered(tmp_path: Path) -> None:
+    """`Hidden` means deleted, which no association brings back."""
+    apps = tmp_path / "applications"
+    write(apps, "gone.desktop", entry(Hidden="true"))
+    lists = mimeapps(tmp_path / "config", added="gone.desktop;")
+
+    result = browsers.installed((apps,), mimeapps=(lists,))
+
+    assert result.browsers == ()
 
 
 def test_the_first_file_to_mention_an_id_wins(tmp_path: Path) -> None:

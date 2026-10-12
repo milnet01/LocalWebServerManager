@@ -1,5 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
+<!-- ants-roadmap-id-high-water: LWSM=1415 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -11726,6 +11727,9 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Progress (2026-10-10, later): LWSM-1409 shipped (main window). Next
   LWSM-1410 (startup/browsers), then LWSM-1411 (tooling); then the
   health-check try-out, local-release.sh 0.3.0, cut-release.
+  Progress (2026-10-12): LWSM-1410 shipped (startup/browsers). Next
+  LWSM-1411 (tooling, L10-L1..L9); then the health-check try-out,
+  local-release.sh 0.3.0, cut-release.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
@@ -11833,9 +11837,20 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-06, lane-07.
 
-- 📋 [LWSM-1410] **Close the startup and browser findings from the 0.3.0 review.**
+- ✅ [LWSM-1410] **Close the startup and browser findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L08-M1
   NoDisplay=true refusal drops real http handlers; L08-L1..L5.
+  Resolved (2026-10-12): all six fixed, red-first, each fix part
+  mutation-killed (13 of 13). L08-M1: a NoDisplay entry is offered
+  only when mimeapps.list adds it; the remedy's other arm would list
+  Google Chrome twice (its NoDisplay second entry declares the
+  handler, measured). L08-L1 re-probes after a lost re-listen. L08-L2
+  clears only the minimised bit. L08-L3 says "saved, but may not
+  survive a crash" for SettingsNotDurable and ConfigFileNotDurable;
+  the first-run scan-roots log got the same fix (O9). L08-L4 expands
+  codes inside an argument. L08-L5 drops the exists() fallback. Gate:
+  2575 passed. Ledger rows and sweep verdicts in
+  docs/reviews/close-findings-2026-10-08.json.
   **Layman:** Fixes to opening the app and finding browsers.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-08.

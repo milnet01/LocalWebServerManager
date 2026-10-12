@@ -51,7 +51,7 @@ def build_window(
     not be read and a backup exists (LWSM-1039). Injected for the same reason
     as the window's dialogs: a test that reached the real one would block.
     """
-    from lwsm.configfile import ConfigFileError
+    from lwsm.configfile import ConfigFileError, ConfigFileNotDurable
     from lwsm.controller import ProjectController
     from lwsm.mainwindow import MainWindow, RescanContext
     from lwsm.placement import pair_or_none
@@ -67,7 +67,12 @@ def build_window(
         restore_backup,
     )
     from lwsm.scanroots import default_scan_roots, save_scan_roots, scan_root_fallback
-    from lwsm.settings import Settings, SettingsError, default_settings_path
+    from lwsm.settings import (
+        Settings,
+        SettingsError,
+        SettingsNotDurable,
+        default_settings_path,
+    )
     from lwsm.settings import load as load_settings
     from lwsm.settings import save as save_settings
     from lwsm.supervisor import Supervisor, TrustStore, default_trust_path
@@ -319,19 +324,31 @@ def build_window(
         # The single message is kept deliberately: the user's question is the
         # same either way — was this remembered? — and which file refused is in
         # the text, since `ConfigFileError` carries the path.
+        #
+        # A file written but not made durable is not a failure: both writers
+        # have a type for it, caught first, as `MainWindow._save_setting` does
+        # (review-code 2026-10-08 L08-L3; L07-M1's mechanism).
         failures: list[str] = []
+        not_durable: list[str] = []
         for write in (
             lambda: save_field(poll_interval_ms=poll_ms, log_max_mib=log_mib),
             lambda: save_scan_roots(roots),
         ):
             try:
                 write()
+            except (SettingsNotDurable, ConfigFileNotDurable) as exc:
+                not_durable.append(str(exc))
             except (ConfigFileError, OSError, RuntimeError) as exc:
                 failures.append(str(exc))
+        parts: list[str] = []
         if failures:
-            window.set_status_message(
-                "Settings could not be saved: " + "; ".join(failures)
+            parts.append("Settings could not be saved: " + "; ".join(failures))
+        if not_durable:
+            parts.append(
+                "Settings saved, but may not survive a crash: " + "; ".join(not_durable)
             )
+        if parts:
+            window.set_status_message(" ".join(parts))
 
     probe = PortProbe()
     # Confirmations persist (LWSM-1046), so ADR-0003's gate asks once per
@@ -426,7 +443,7 @@ def start_first_run(
     """
     from PySide6.QtCore import QCoreApplication
 
-    from lwsm.configfile import ConfigFileError
+    from lwsm.configfile import ConfigFileError, ConfigFileNotDurable
     from lwsm.scanroots import save_scan_roots
 
     if not window.is_first_run():
@@ -447,6 +464,13 @@ def start_first_run(
         window.set_scan_roots((Path(chosen),))
         try:
             save_scan_roots((Path(chosen),))
+        except ConfigFileNotDurable as exc:
+            # Written; only a crash before the disk catches up could lose it
+            # (L08-L3's mechanism, here in the log alone).
+            applog.get_logger(__name__).warning(
+                "the chosen folder was remembered but may not survive a crash: %s",
+                exc,
+            )
         except (ConfigFileError, OSError, RuntimeError) as exc:
             # Scanned anyway: the choice holds for this session, and the log
             # says why the next start will ask again.
@@ -651,6 +675,16 @@ def claim_single_instance(path: str, on_activated: Callable[[], None]) -> Instan
                 return InstanceClaim(primary=False)
             QLocalServer.removeServer(path)
             if not server.listen(path):
+                # A copy launched fresh between the removal and this listen
+                # found no file, so it never reached the lock and took the path
+                # (review-code 2026-10-08 L08-L1). Ask once more who is there.
+                in_use = QAbstractSocket.SocketError.AddressInUseError
+                if server.serverError() == in_use:
+                    probe = QLocalSocket()
+                    probe.connectToServer(path)
+                    if probe.waitForConnected(INSTANCE_CONNECT_MS):
+                        probe.disconnectFromServer()
+                        return InstanceClaim(primary=False)
                 return InstanceClaim(primary=True, problem=server.errorString())
 
     def answer() -> None:
@@ -670,9 +704,18 @@ def _bring_to_front(window: MainWindow) -> None:
     Under Wayland a client may not take focus unasked, so whether the window
     actually comes forward is the compositor's decision — not yet checked on
     KWin. Either way the user gets the running copy, never a second one.
+
+    Only the minimised bit is cleared. `showNormal()` cleared maximised with it,
+    so a second launch un-maximised the window and the next close saved that
+    (review-code 2026-10-08 L08-L2).
     """
+    from PySide6.QtCore import Qt
+
     if window.isMinimized():
-        window.showNormal()
+        window.setWindowState(
+            (window.windowState() & ~Qt.WindowState.WindowMinimized)
+            | Qt.WindowState.WindowActive
+        )
     window.raise_()
     window.activateWindow()
 

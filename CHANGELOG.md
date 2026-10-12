@@ -134,6 +134,31 @@ signaling per
 
 ### Fixed
 
+- **A browser you set up with "open with a custom command" can now be picked for a project.** (LWSM-1410)
+  The desktop keeps such a browser out of its menus, and the picker
+  used to leave it out too. It is offered when your link settings
+  name it. A browser's hidden second menu entry, such as Google
+  Chrome's, is still not listed twice.
+
+- **A browser whose launch line puts the link inside an option now opens the page.** (LWSM-1410)
+  A launch line such as `--url=%u` used to get the text `%u` and
+  then the link as an extra argument.
+
+- **A browser whose program is present but cannot be run is no longer offered.** (LWSM-1410)
+  Picking it used to fail only when you clicked Open.
+
+- **Preferences that were saved are no longer reported as not saved.** (LWSM-1410)
+  When the save worked but the computer could not confirm it would
+  survive a crash, the message now says exactly that.
+
+- **Opening the app a second time no longer un-maximises the running window.** (LWSM-1410)
+  A minimised window comes back as it was, maximised or not, and the
+  size saved on close stays right.
+
+- **Two copies of the app can no longer both start in a rare race after a crash.** (LWSM-1410)
+  A copy recovering from a crashed one now checks again before it
+  runs, and defers to a copy that started at the same moment.
+
 - **Pressing Enter again while a project is starting no longer cancels the start.** (LWSM-1409)
   Enter starts or stops the project you are on. During a slow start
   the Stop button still cancels it when you click it.
