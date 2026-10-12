@@ -34,7 +34,7 @@ cd "$(dirname "$0")/.."
 export PYTHONDONTWRITEBYTECODE=1
 
 usage() {
-    printf 'usage: %s [--fast]\n' "$0"
+    printf 'usage: %s [--fast] [--docs]\n' "$0"
     printf '  --fast   skip the slowest stage (still lints and tests)\n'
     printf '  --docs   only the steps that read documentation\n'
 }
@@ -279,7 +279,7 @@ if command -v shellcheck >/dev/null 2>&1; then
         "$(shellcheck --version | awk '/^version:/ {print $2}')"
     # -x so it FOLLOWS the sourced ci-tools.env rather than reporting SC1091
     # and treating every pin as an unassigned variable. Following the source is
-    # also the stronger check: without it the three pins are opaque to it.
+    # also the stronger check: without it the pins are opaque to it.
     # The hook is shell this project ships and a broken one fails a push at
     # the worst moment, so it is linted with everything else. Named
     # explicitly rather than by glob: .githooks/ may hold a sample or a

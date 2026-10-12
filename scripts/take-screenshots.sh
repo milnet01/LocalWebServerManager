@@ -15,6 +15,21 @@ cd "$(dirname "$0")/.."
 work="$PWD/build/demo"
 out="$PWD/docs/screenshots"
 config="$work/config/localwebservermanager"
+
+# Every sample port must be free, or a row shows someone else's server — or a
+# sample server fails to start with its output thrown away (L7-L7).
+#
+# Checked BEFORE build/demo is cleared and before the trap that clears it on
+# exit: a run already in progress holds two of these ports, so a second run
+# stops here instead of deleting the first run's demo config out from under
+# its app (L10-L4).
+for port in 8601 8602 8603 8604 8605; do
+    if ! python3 -c 'import socket, sys; socket.socket().bind(("127.0.0.1", int(sys.argv[1])))' "$port" 2>/dev/null; then
+        printf 'take-screenshots: port %s is in use; free it and run again\n' "$port" >&2
+        exit 1
+    fi
+done
+
 rm -rf "$work"
 mkdir -p "$config" "$work/state" "$work/projects" "$out"
 # A private runtime directory: the app claims its single-instance socket there,
@@ -22,7 +37,8 @@ mkdir -p "$config" "$work/state" "$work/projects" "$out"
 # screenshot shows an empty display (L7-M4).
 mkdir -m 700 "$work/run"
 
-# Five sample projects, each a real directory with a real launcher.
+# Five sample projects, each a real directory with a real launcher written in
+# the language its argv runs it with (L10-L5).
 python3 - "$work/projects" "$config/projects.json" <<'EOF'
 import json, sys
 from pathlib import Path
@@ -35,12 +51,20 @@ samples = [
     ("book-club", "Book Club", 8604, "shell", ["./start.sh"]),
     ("weather-dashboard", "Weather Dashboard", None, "shell", ["./start.sh"]),
 ]
+launchers = {
+    "shell": "#!/bin/sh\nexec python3 -m http.server PORT\n",
+    "python": 'import os\nos.execvp("python3", ["python3", "-m", "http.server", "PORT"])\n',
+    "node": (
+        'import { spawn } from "node:child_process";\n'
+        'spawn("python3", ["-m", "http.server", "PORT"], { stdio: "inherit" });\n'
+    ),
+}
 records = []
 for folder, name, port, kind, argv in samples:
     base = root / folder
     base.mkdir()
     launcher = base / argv[-1].lstrip("./")
-    launcher.write_text(f"#!/bin/sh\nexec python3 -m http.server {port or 8605}\n")
+    launcher.write_text(launchers[kind].replace("PORT", str(port or 8605)))
     launcher.chmod(0o755)
     records.append({
         "path": str(base), "name": name, "port": port, "kind": kind,
@@ -60,15 +84,6 @@ trap cleanup EXIT
 # Exit rather than return: a returning INT trap let the script carry on into
 # the next shot against a deleted $work (L7-L8). EXIT then cleans up once.
 trap 'exit 130' INT TERM
-
-# Every sample port must be free, or a row shows someone else's server — or a
-# sample server fails to start with its output thrown away (L7-L7).
-for port in 8601 8602 8603 8604 8605; do
-    if ! python3 -c 'import socket, sys; socket.socket().bind(("127.0.0.1", int(sys.argv[1])))' "$port" 2>/dev/null; then
-        printf 'take-screenshots: port %s is in use; free it and run again\n' "$port" >&2
-        exit 1
-    fi
-done
 
 for port in 8602 8604; do
     python3 -m http.server "$port" --bind 127.0.0.1 --directory "$work/projects" \

@@ -191,15 +191,26 @@ PY
 
 # --- 0c: tree state ----------------------------------------------------------
 
+# A failed `git status` prints nothing, which reads as a clean tree (L10-L3).
+# TREE_CLEAN=1 is what lets --dry-bump revert with `git checkout --`, so an
+# unanswered query must leave it 0.
+tree_state() {
+    local status
+    if ! status=$(git status --porcelain); then
+        skip "tree state (git status failed)"
+        TREE_CLEAN=0
+    elif [[ -n $status ]]; then
+        block "uncommitted changes — cut-release Phase 0c stops, or asks to stash"
+        git status --short | sed 's/^/    /'
+        TREE_CLEAN=0
+    else
+        ok "clean"
+        TREE_CLEAN=1
+    fi
+}
+
 step "0c  Tree state"
-if [[ -n $(git status --porcelain) ]]; then
-    block "uncommitted changes — cut-release Phase 0c stops, or asks to stash"
-    git status --short | sed 's/^/    /'
-    TREE_CLEAN=0
-else
-    ok "clean"
-    TREE_CLEAN=1
-fi
+tree_state
 
 # --- 0d: what is already published -------------------------------------------
 
@@ -213,10 +224,15 @@ fi
 # split at the top of this file forbids: a check that did not run must not print
 # like one that came back clean.
 tag_status() {
-    local tag=$1 remote_tag clear=1
+    local tag=$1 local_tag remote_tag clear=1
 
-    if [[ -n $(git tag -l "$tag") ]]; then
-        block "local tag $tag already exists"
+    if local_tag=$(git tag -l "$tag"); then
+        if [[ -n $local_tag ]]; then
+            block "local tag $tag already exists"
+            clear=0
+        fi
+    else
+        skip "local tag existence (git tag failed)"
         clear=0
     fi
 
@@ -551,7 +567,7 @@ PY
 if ((DRY_BUMP)); then
     step "Dry bump (writes, then reverts)"
     if ((TREE_CLEAN == 0)); then
-        fail "--dry-bump refuses on a dirty tree: the revert is a git checkout, and it would destroy the uncommitted work listed above"
+        fail "--dry-bump refuses on a tree not known to be clean: the revert is a git checkout, and it would destroy uncommitted work"
     fi
     [[ -n $TARGET ]] || fail "--dry-bump needs a target version"
     dry_bump "$OLD" "$TARGET" "$RECIPE"

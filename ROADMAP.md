@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1415 -->
+<!-- ants-roadmap-id-high-water: LWSM=1416 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -11730,6 +11730,10 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Progress (2026-10-12): LWSM-1410 shipped (startup/browsers). Next
   LWSM-1411 (tooling, L10-L1..L9); then the health-check try-out,
   local-release.sh 0.3.0, cut-release.
+  Progress (2026-10-12, later): LWSM-1411 shipped (tooling); every
+  0.3.0 review finding now has a disposition. Next: the user tries the
+  health check (LWSM-1034) by hand; then ./scripts/local-release.sh
+  0.3.0; then decide the 0.2.0 section (fold or rotate); then cut-release.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
@@ -11855,8 +11859,16 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-08.
 
-- 📋 [LWSM-1411] **Close the tooling findings from the 0.3.0 review.**
+- ✅ [LWSM-1411] **Close the tooling findings from the 0.3.0 review.**
   Ledger: docs/reviews/close-findings-2026-10-08.json. L10-L1..L9.
+  Resolved (2026-10-12): L10-L1..L7 fixed, L10-L8 dismissed (setup-uv
+  at the pinned SHA saved the cache with a real key on 2026-10-08), L10-L9
+  queued as LWSM-1416. Installer: TryExec takes the string-value escape,
+  a newline or a directory is refused. Release preflight: a failed git
+  status or git tag is a skip, never a clean answer. Screenshots: port
+  check before clearing build/demo; real launchers per kind. Gate usage
+  line names --docs. Red-first; every testable part mutation-killed; the
+  screenshot fixes measured by hand (no harness). Full gate: 2581 passed.
   **Layman:** Fixes to the project's helper scripts and CI.
   Kind: review-fix.
   Source: review-code-2026-10-08 lane-10.
@@ -12030,6 +12042,18 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: fix.
   Source: close-findings-2026-10-10 LWSM-1409 O9 sweep of L07-M1.
   Lanes: supervisor, service.
+
+- 💭 [LWSM-1416] **CI's yamllint pins yamllint itself but lets PyYAML and pathspec float.**
+  .github/workflows/ci.yml installs `yamllint==${YAMLLINT_VERSION}` with
+  `uv tool install`, which resolves PyYAML and pathspec to whatever is newest,
+  and local-ci.sh checks only yamllint's own version. A new PyYAML could turn
+  the gate red with no change of ours. Not fixed in LWSM-1411: pinning them
+  means adding `--with` pins in ci-tools.env and checking them locally, and
+  the local half changes the machine-wide yamllint other projects' gates use,
+  so it needs the user's decision first. Nearest item: LWSM-1414.
+  **Layman:** One checking tool's own helpers are not held to fixed versions, so an update to them could break the checks without warning.
+  Kind: chore.
+  Source: review-code-2026-10-08 lane-10 L10-L9.
 
 ## 0.5.0 — Logs
 

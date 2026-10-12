@@ -81,6 +81,27 @@ def unescape_exec(value: str) -> str:
     return value.replace("%%", "%")
 
 
+def unescape_string(value: str) -> str:
+    """Decode a string-type value as the launcher reads it.
+
+    The spec's string type has its own escapes — `\\s`, `\\n`, `\\t`, `\\r`
+    and `\\\\` — so `back\\slash` is read as `back lash`. Measured 2026-10-12:
+    GLib's KeyFile and `kreadconfig6` both decode it that way (L10-L1).
+    """
+    escapes = {"s": " ", "n": "\n", "t": "\t", "r": "\r", "\\": "\\"}
+    out: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char == "\\" and index + 1 < len(value) and value[index + 1] in escapes:
+            out.append(escapes[value[index + 1]])
+            index += 2
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out)
+
+
 def field(entry: str, key: str) -> str:
     for line in entry.splitlines():
         if line.startswith(f"{key}="):
@@ -121,9 +142,10 @@ def test_the_entry_names_the_executable_that_was_installed(
     entry = install(tmp_path, exec_name)
     expected = str(tmp_path / exec_name)
 
-    # TryExec is a PATH, not a command line, so the spec wants it unquoted and
-    # unescaped — it is compared against the filesystem, not parsed.
-    assert field(entry, "TryExec") == expected
+    # TryExec is a PATH, not a command line, so it is unquoted. It is still a
+    # string value, so the launcher decodes the string escapes before it looks
+    # the path up (L10-L1).
+    assert unescape_string(field(entry, "TryExec")) == expected
 
     assert unescape_exec(field(entry, "Exec")) == expected, (
         f"Exec decodes to something other than the installed path: "
@@ -162,17 +184,21 @@ def test_the_written_entry_still_validates(tmp_path: Path) -> None:
 
 
 def run_installer(
-    tmp_path: Path, *, validator: str
+    tmp_path: Path, *, validator: str, target: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Run the installer with a `desktop-file-validate` that answers as told.
 
     A stub, because the escaping LWSM-1209 fixed is what makes a genuinely
     invalid entry hard to produce — and the property under test is the ORDER of
     write, validate and publish, not what the validator thinks.
+
+    `target` overrides the executable the installer is pointed at; the caller
+    creates it, whatever kind of file it is.
     """
-    target = tmp_path / "lwsm"
-    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    target.chmod(0o755)
+    if target is None:
+        target = tmp_path / "lwsm"
+        target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        target.chmod(0o755)
 
     shims = tmp_path / "bin"
     shims.mkdir()
@@ -255,3 +281,44 @@ def test_a_relative_path_is_written_as_the_absolute_path_it_named(
     entry = (data_home / "applications" / f"{APP_ID}.desktop").read_text()
     assert field(entry, "TryExec") == str(target)
     assert unescape_exec(field(entry, "Exec")) == str(target)
+
+
+# --- 2026-10-08 review, lane 10 ------------------------------------------------
+
+
+def test_a_directory_is_not_accepted_as_the_executable(tmp_path: Path) -> None:
+    """`[ -x ]` is true of a searchable directory, so a directory passed the
+    check and was published as a launcher entry that cannot start (L10-L2).
+
+    The validator is stubbed to pass, so only the installer's own check can
+    refuse it.
+    """
+    target = tmp_path / "lwsm"
+    target.mkdir()
+
+    done = run_installer(tmp_path, validator="passes", target=target)
+
+    assert done.returncode != 0, "a directory was accepted as the executable"
+    entry = tmp_path / "data" / "applications" / f"{APP_ID}.desktop"
+    assert not entry.exists(), "a dead launcher entry was published"
+
+
+def test_a_path_holding_a_newline_is_refused(tmp_path: Path) -> None:
+    """A newline in the path ends the Exec and TryExec lines early, and the
+    rest of the path lands in the entry as a line of its own (L10-L1).
+
+    No escape keeps such a path whole through the Exec quoting, so it is
+    refused before anything is written. The validator is stubbed to pass, so
+    only the installer's own check can refuse it.
+    """
+    target = tmp_path / "new\nline" / "lwsm"
+    target.parent.mkdir()
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+
+    done = run_installer(tmp_path, validator="passes", target=target)
+
+    assert done.returncode != 0, "a path holding a newline was accepted"
+    assert "newline" in done.stderr, done.stderr
+    entry = tmp_path / "data" / "applications" / f"{APP_ID}.desktop"
+    assert not entry.exists(), "an entry split across lines was published"

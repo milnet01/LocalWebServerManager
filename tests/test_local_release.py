@@ -48,11 +48,30 @@ def _gh_stub(behaviour: str) -> str:
     )
 
 
-def _tag_status(repo: Path, tag: str, gh: str, tmp_path: Path) -> list[str]:
+def _git_failing_on(binaries: Path, subcommand: str) -> None:
+    """Put a `git` in `binaries` that fails `subcommand` and runs the rest.
+
+    It prints nothing and exits non-zero, as git does when it cannot read the
+    repository — the shape that reads as an empty answer if only the output is
+    examined.
+    """
+    real = shutil.which("git")
+    assert real, "git is not on PATH"
+    shim = binaries / "git"
+    shim.write_text(
+        f'#!/bin/sh\n[ "$1" = {subcommand} ] && exit 128\nexec {real} "$@"\n'
+    )
+    shim.chmod(0o755)
+
+
+def _tag_status(
+    repo: Path, tag: str, gh: str, tmp_path: Path, *, git_fails: str | None = None
+) -> list[str]:
     """Run the script's OWN `tag_status()` and return the verdicts it emitted.
 
     `block`, `skip` and `ok` are stubbed to print, so the test reads the
-    decision rather than the formatting.
+    decision rather than the formatting. `git_fails` names a git subcommand
+    that fails.
     """
     body = re.search(r"^tag_status\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M)
     assert body, "the release script has no tag_status() to run"
@@ -67,7 +86,10 @@ def _tag_status(repo: Path, tag: str, gh: str, tmp_path: Path) -> list[str]:
     for tool in ("git", "bash"):
         found = shutil.which(tool)
         assert found, f"{tool} is not on PATH"
-        (binaries / tool).symlink_to(found)
+        if tool == "git" and git_fails:
+            _git_failing_on(binaries, git_fails)
+        else:
+            (binaries / tool).symlink_to(found)
     if gh != "absent":
         stub = binaries / "gh"
         stub.write_text(_gh_stub(gh))
@@ -177,6 +199,84 @@ def test_a_tag_that_exists_blocks(tmp_path) -> None:
 
     assert any(v.startswith("BLOCK") for v in verdicts), verdicts
     assert not any(v.startswith("OK") for v in verdicts), verdicts
+
+
+def test_a_failed_local_tag_query_is_a_skip_and_never_an_all_clear(
+    tmp_path,
+) -> None:
+    """`git tag -l` that failed printed nothing, which read as "no local tag"
+    (2026-10-08 review, L10-L3) — LWSM-1265's defect on the local half.
+    """
+    repo = _repo_with_remote(tmp_path, reachable=True)
+
+    verdicts = _tag_status(repo, "v9.9.9", "clean", tmp_path, git_fails="tag")
+
+    assert any(v.startswith("SKIP") for v in verdicts), verdicts
+    assert not any(v.startswith("OK") for v in verdicts), verdicts
+
+
+def _tree_state(repo: Path, tmp_path: Path, *, git_fails: str | None) -> list[str]:
+    """Run the script's OWN `tree_state()`; return its verdicts and TREE_CLEAN."""
+    body = re.search(r"^tree_state\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M)
+    assert body, "the release script has no tree_state() to run"
+
+    binaries = tmp_path / "bin-tree"
+    binaries.mkdir()
+    for tool in ("bash", "sed"):
+        found = shutil.which(tool)
+        assert found, f"{tool} is not on PATH"
+        (binaries / tool).symlink_to(found)
+    if git_fails:
+        _git_failing_on(binaries, git_fails)
+    else:
+        found = shutil.which("git")
+        assert found, "git is not on PATH"
+        (binaries / "git").symlink_to(found)
+
+    script = (
+        "set -Eeuo pipefail\n"
+        'block() { printf "BLOCK %s\\n" "$1"; }\n'
+        'skip()  { printf "SKIP %s\\n" "$1"; }\n'
+        'ok()    { printf "OK %s\\n" "$1"; }\n'
+        f"{body.group(0)}\n"
+        "tree_state\n"
+        'printf "TREE_CLEAN=%s\\n" "$TREE_CLEAN"'
+    )
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    done = subprocess.run(
+        [bash, "-c", script],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PATH": str(binaries)},
+    )
+    assert done.returncode == 0, f"tree_state() failed: {done.stderr}"
+    return done.stdout.splitlines()
+
+
+def test_a_failed_status_query_never_reads_as_a_clean_tree(tmp_path) -> None:
+    """`git status --porcelain` that failed printed nothing, which read as a
+    clean tree (2026-10-08 review, L10-L3). TREE_CLEAN=1 is what lets
+    `--dry-bump` run its `git checkout --` revert, so a wrong "clean" there
+    can destroy uncommitted work.
+    """
+    repo = _repo_with_remote(tmp_path, reachable=True)
+
+    lines = _tree_state(repo, tmp_path, git_fails="status")
+
+    assert "TREE_CLEAN=0" in lines, lines
+    assert not any(v.startswith("OK") for v in lines), lines
+
+
+def test_a_clean_tree_still_reads_as_clean(tmp_path) -> None:
+    """The other half: a tree_state() that never said clean would pass above."""
+    repo = _repo_with_remote(tmp_path, reachable=True)
+
+    lines = _tree_state(repo, tmp_path, git_fails=None)
+
+    assert lines == ["OK clean", "TREE_CLEAN=1"], lines
 
 
 # --- LWSM-1264: the dry bump has to unwind from anywhere ----------------------

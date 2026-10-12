@@ -134,6 +134,13 @@ signaling per
 
 ### Fixed
 
+- **`install-desktop-entry.sh` no longer hides the app from the launcher when its folder name holds a backslash, and refuses a folder or a path with a newline.** (LWSM-1411)
+  A backslash in the install path was written raw into the entry's
+  TryExec line, where `\s` reads as a space, so the launcher looked for
+  a file that did not exist and hid a working entry. A folder given in
+  place of the program was accepted and published as an entry that
+  could not start, and a newline in the path split the entry's lines.
+
 - **A browser you set up with "open with a custom command" can now be picked for a project.** (LWSM-1410)
   The desktop keeps such a browser out of its menus, and the picker
   used to leave it out too. It is offered when your link settings

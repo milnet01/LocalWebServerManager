@@ -50,10 +50,22 @@ else
     exit 1
 fi
 
-if [ ! -x "$exec_path" ]; then
-    echo "error: '$exec_path' is not executable." >&2
+# -f as well as -x: a searchable directory is "executable" to -x, and was
+# published as a launcher entry that cannot start (L10-L2).
+if [ ! -f "$exec_path" ] || [ ! -x "$exec_path" ]; then
+    echo "error: '$exec_path' is not an executable file." >&2
     exit 1
 fi
+
+# A newline ends the Exec and TryExec lines early and writes the rest of the
+# path into the entry as a line of its own. No escape keeps such a path whole
+# through the Exec quoting, so it is refused (L10-L1).
+case $exec_path in
+    *$'\n'*)
+        echo "error: the path to the executable contains a newline." >&2
+        exit 1
+        ;;
+esac
 
 mkdir -p "$apps_dir" "$icon_dir"
 install -m 0644 "packaging/$app_id.svg" "$icon_dir/$app_id.svg"
@@ -66,6 +78,11 @@ install -m 0644 "packaging/$app_id.svg" "$icon_dir/$app_id.svg"
 # Exec is a command line, so it is parsed and must be quoted; TryExec is a
 # path, compared against the filesystem, and quoting it would make the launcher
 # look for a file whose name begins with a quote.
+#
+# Both are still string values, so both take the string-value layer: a
+# backslash is written as two. Raw, `back\slash` reads back as `back lash`,
+# because `\s` is the escape for a space — measured with GLib's KeyFile and
+# kreadconfig6, which hid the entry (L10-L1).
 #
 # TWO escaping layers, applied in this order, because the spec has two: the
 # quoting rule reserves `"`, backtick, `$` and backslash inside a quoted
@@ -81,6 +98,7 @@ install -m 0644 "packaging/$app_id.svg" "$icon_dir/$app_id.svg"
 # And `%` is doubled first: the spec reserves it for field codes in Exec, so a
 # checkout under `.../50%u/` would have had `%u` replaced by a URL (L7-L5).
 exec_quoted=$(printf '%s' "$exec_path" | sed -e 's/%/%%/g' -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g')
+tryexec_escaped=$(printf '%s' "$exec_path" | sed -e 's/\\/\\\\/g')
 
 # awk via ENVIRON, not `sed s|...|$exec_path|` and not `awk -v`. A path is data
 # and both of those treat it as syntax: in a sed replacement `&` expands to the
@@ -96,7 +114,7 @@ entry_tmp=$(mktemp "$apps_dir/.$app_id.XXXXXX.desktop")
 trap 'rm -f "$entry_tmp"' EXIT
 
 LWSM_EXEC_LINE="Exec=\"$exec_quoted\"" \
-LWSM_TRYEXEC_LINE="TryExec=$exec_path" \
+LWSM_TRYEXEC_LINE="TryExec=$tryexec_escaped" \
     awk '
         /^Exec=/     { print ENVIRON["LWSM_EXEC_LINE"];    next }
         /^TryExec=/  { print ENVIRON["LWSM_TRYEXEC_LINE"]; next }

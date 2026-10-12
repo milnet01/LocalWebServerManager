@@ -995,3 +995,20 @@ def test_the_runner_has_every_tool_a_test_skips_without() -> None:
     `desktop-file-validate` was the one (LWSM-1413)."""
     assert "desktop-file-validate" in (REPO / "tests/test_desktop_entry.py").read_text()
     assert "desktop-file-utils" in WORKFLOW.read_text()
+
+
+def test_the_usage_line_names_every_flag_the_gate_accepts() -> None:
+    """The synopsis read `[--fast]` after `--docs` was added, so `--help`'s
+    first line hid a flag the hook itself uses (2026-10-08 review, L10-L6).
+
+    Read from the script's own `case` arms, so a flag added later is held to
+    the same rule.
+    """
+    accepted = re.findall(r"^\s+(--[a-z-]+)\) ", LOCAL_CI.read_text(), re.M)
+    assert accepted, "no flag arms found in local-ci.sh"
+    done = subprocess.run(
+        [str(LOCAL_CI), "--help"], capture_output=True, text=True, check=True
+    )
+    synopsis = done.stdout.splitlines()[0]
+    missing = [flag for flag in accepted if f"[{flag}]" not in synopsis]
+    assert not missing, f"usage line {synopsis!r} omits {missing}"

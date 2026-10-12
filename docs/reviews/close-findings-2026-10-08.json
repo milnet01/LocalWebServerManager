@@ -79,6 +79,21 @@
     "600 px lens band": "agrees — no row control changed",
     "CHANGELOG [Unreleased]": "fixed — six Fixed entries",
     "translation catalogues (new status text)": "agrees — the neighbouring text is untranslated and the repo tracks none"
+   },
+   "LWSM-1411": {
+    "install-desktop-entry.sh TryExec comment ('quoting it would make the launcher look for a file whose name begins with a quote')": "fixed — still true for quoting; a paragraph now states the string-value layer both keys take",
+    "test_desktop_entry TryExec comment ('unquoted and unescaped')": "fixed — rewritten with the assertion",
+    "README.md install-desktop-entry passage": "agrees — states no path rules",
+    "packaging/*.desktop TryExec=lwsm": "agrees — the template value, rewritten at install",
+    "local-release.sh usage text 'Refuses on a dirty tree'": "agrees — a dirty tree still refuses; an unknown one now refuses too",
+    "docs/claude/release.md '--dry-bump refuses on a dirty tree'": "agrees — same",
+    "local-release.sh LWSM-1265 comment above tag_status": "agrees — its rule now holds on the local query too",
+    "take-screenshots.sh header": "agrees",
+    "docs/claude/ci-gate.md flag description": "agrees — describes --docs already",
+    "tests asserting the old messages ('is not executable', 'dirty tree')": "agrees — none assert either",
+    ".claude/code-pairs.json": "absent — no pair list in this project",
+    "CHANGELOG [Unreleased]": "fixed — one Fixed entry for the installer; the release, screenshot and gate-script fixes are developer tooling no user sees",
+    "specs naming scripts/local-ci.sh (LWSM-1005, -1007, -1131)": "agrees — they name it as the gate; none governs its usage line or comments"
    }
   },
   "collateral": [],
@@ -1476,14 +1491,21 @@
    "location": "scripts/install-desktop-entry.sh:99",
    "finding": "`LWSM_TRYEXEC_LINE=\"TryExec=$exec_path\"` applies no string-value escaping, so a backslash or newline in the path breaks the entry.",
    "remedy": "Apply the string-value escape layer to TryExec, or refuse paths containing a newline or backslash.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — install-desktop-entry.sh:99 writes TryExec raw; measured 2026-10-12: GLib KeyFile and kreadconfig6 both read TryExec=/home/u/back\\slash/lwsm as '/home/u/back lash/lwsm' (\\s is an escaped space), so the launcher hides a working entry; a newline breaks Exec too. tests/test_desktop_entry.py asserted the raw form, locking the defect in. Remedy checked: the string-value escape (\\ -> \\\\) is what the X-Two control line read back correctly; refusing a newline covers both keys",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1411",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "scripts/install-desktop-entry.sh",
+    "tests/test_desktop_entry.py",
+    "CHANGELOG.md"
+   ],
+   "was": "TryExec written raw; a path holding a newline split the entry",
+   "now": "TryExec takes the string-value escape (\\ -> \\\\); a newline in the path is refused. red: test_the_entry_names_the_executable_that_was_installed[back\\slash] (read 'back lash'), test_a_path_holding_a_newline_is_refused; both parts mutation-killed. Measured after: kreadconfig6 reads the installed TryExec back as the real path, desktop-file-validate passes",
+   "must_agree": [
+    "install-desktop-entry.sh comment 'TryExec is a path ... quoting it would make the launcher look for a file whose name begins with a quote'",
+    "test_the_entry_names_the_executable_that_was_installed TryExec comment ('unquoted and unescaped')"
+   ]
   },
   {
    "key": "L10-L2",
@@ -1493,14 +1515,20 @@
    "location": "scripts/install-desktop-entry.sh:53",
    "finding": "`[ ! -x \"$exec_path\" ]` passes a directory, publishing a dead launcher entry.",
    "remedy": "Use `[ -f \"$exec_path\" ] && [ -x \"$exec_path\" ]`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — install-desktop-entry.sh:53 `[ ! -x ]` passes a directory; remedy checked: -f && -x refuses a directory and keeps a regular executable or a symlink to one (test -f follows links)",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1411",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "scripts/install-desktop-entry.sh",
+    "tests/test_desktop_entry.py"
+   ],
+   "was": "`[ ! -x ]` accepted a directory",
+   "now": "`-f` and `-x` both required. red: test_a_directory_is_not_accepted_as_the_executable; -f mutation-killed",
+   "must_agree": [
+    "install-desktop-entry.sh error text 'is not executable'",
+    "README.md install-desktop-entry passage"
+   ]
   },
   {
    "key": "L10-L3",
@@ -1510,14 +1538,21 @@
    "location": "scripts/local-release.sh:195",
    "finding": "A failed `git status --porcelain` (and `git tag -l` at 218) prints nothing and reads as clean, setting `TREE_CLEAN=1`.",
    "remedy": "Capture output with `status=$(git status --porcelain) || fail ...`, same for `git tag -l`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — local-release.sh:195 `[[ -n $(git status --porcelain) ]]` and :218 `$(git tag -l)` ignore git's exit status (no errexit inside [[ ]]); a failed status sets TREE_CLEAN=1, which is the one thing --dry-bump's `git checkout --` revert relies on. Remedy checked: capture-then-test is the form tag_status already uses for ls-remote; a failed query becomes a skip, as there",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1411",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "scripts/local-release.sh",
+    "tests/test_local_release.py"
+   ],
+   "was": "a failed git status read as clean (TREE_CLEAN=1); a failed git tag -l read as no local tag",
+   "now": "0c moved into tree_state() (behaviour-preserving, so the test could run it); a failed query is a skip and leaves TREE_CLEAN=0; tag_status skips a failed git tag -l. red: test_a_failed_status_query_never_reads_as_a_clean_tree, test_a_failed_local_tag_query_is_a_skip_and_never_an_all_clear; other half: test_a_clean_tree_still_reads_as_clean; both parts mutation-killed. --dry-bump's refusal message now says 'not known to be clean'",
+   "must_agree": [
+    "docs/claude/release.md '--dry-bump refuses on a dirty tree'",
+    "local-release.sh dry-bump fail message",
+    "local-release.sh LWSM-1265 comment above tag_status"
+   ]
   },
   {
    "key": "L10-L4",
@@ -1527,14 +1562,18 @@
    "location": "scripts/take-screenshots.sh:18",
    "finding": "`rm -rf \"$work\"` runs before the port check, so a second run deletes the first run's live demo config and may expose real project names.",
    "remedy": "Move the port check above the `rm -rf`, or `flock` `build/demo`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — take-screenshots.sh:18 rm -rf build/demo runs before the port check (:66), and the EXIT trap (:59, also before it) deletes it again; a second run deletes a live first run's demo config. Remedy checked: the first run holds 8602/8604 for its whole life, so a port check moved above the rm -rf and the trap refuses before touching build/demo; flock not needed",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1411",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "scripts/take-screenshots.sh"
+   ],
+   "was": "rm -rf build/demo and the EXIT trap ran before the port check",
+   "now": "port check moved above both. No harness (needs demoreel and a display); measured by hand with 8602 held and a sentinel in build/demo: before, the sentinel was deleted; after, the run exits 1 and the sentinel survives",
+   "must_agree": [
+    "take-screenshots.sh header and port-check comment"
+   ]
   },
   {
    "key": "L10-L5",
@@ -1544,14 +1583,18 @@
    "location": "scripts/take-screenshots.sh:42-43",
    "finding": "`launcher.write_text(\"#!/bin/sh ...\")` writes a shell script as `serve.py`/`serve.mjs`, which fail when run by python3/node.",
    "remedy": "Write a real `serve.py`/`serve.mjs` per kind, or narrow the comment.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — take-screenshots.sh:42-43 writes '#!/bin/sh ... exec python3 -m http.server' into serve.py and serve.mjs, which python3 and node read as their own language; the shots never start a row, so nothing visible broke. Remedy checked: a launcher per kind is three short strings; the comment 'a real launcher' then holds",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1411",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "scripts/take-screenshots.sh"
+   ],
+   "was": "a shell script written as serve.py and serve.mjs",
+   "now": "a launcher per kind (sh, Python os.execvp, Node spawn). No harness; measured: before, py_compile and node --check both raised SyntaxError; after, each launcher served HTTP 200 on its port, then stopped by PID",
+   "must_agree": [
+    "take-screenshots.sh 'each a real directory with a real launcher'"
+   ]
   },
   {
    "key": "L10-L6",
@@ -1561,30 +1604,37 @@
    "location": "scripts/local-ci.sh:37",
    "finding": "The usage line `[--fast]` omits the accepted `--docs` flag.",
    "remedy": "Change it to `[--fast] [--docs]`.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — local-ci.sh:37 synopsis is `[--fast]`; the flag lines below it already name --docs. Remedy checked",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1411",
-   "files": [],
-   "was": null,
-   "now": null,
-   "must_agree": []
+   "files": [
+    "scripts/local-ci.sh",
+    "tests/test_ci_contract.py"
+   ],
+   "was": "synopsis `[--fast]`",
+   "now": "`[--fast] [--docs]`. red: test_the_usage_line_names_every_flag_the_gate_accepts, which reads the flags from local-ci.sh's own case arms",
+   "must_agree": [
+    "docs/claude/ci-gate.md flag description"
+   ]
   },
   {
    "key": "L10-L7",
    "lane": "lane-10-tooling",
    "severity": "LOW",
    "dim": "dim 2",
-   "location": "scripts/local-ci.sh:256",
+   "location": "scripts/local-ci.sh:282",
    "finding": "The comment \"the three pins\" is stale: `ci-tools.env` holds four pins plus a SHA-256.",
    "remedy": "Drop the count.",
-   "verified": null,
-   "disposition": null,
+   "verified": "yes — local-ci.sh:282 (cited 256; moved) says 'the three pins'; ci-tools.env holds four versions and two digests. Remedy checked: drop the count (documentation.md § 2.3)",
+   "disposition": "fixed",
    "why": null,
    "roadmap_id": "LWSM-1411",
-   "files": [],
-   "was": null,
-   "now": null,
+   "files": [
+    "scripts/local-ci.sh"
+   ],
+   "was": "'the three pins'",
+   "now": "'the pins'. no red run: a comment, nothing observable changes",
    "must_agree": []
   },
   {
@@ -1595,9 +1645,9 @@
    "location": ".github/workflows/ci.yml:145-149",
    "finding": "Unverified whether `setup-uv` at the pinned SHA exports `steps.uv.outputs.cache-key` and `env.UV_CACHE_DIR`; if empty the save step fails.",
    "remedy": "None proposed.",
-   "verified": null,
-   "disposition": null,
-   "why": null,
+   "verified": "no — setup-uv@c18668ad (v10.2.0, pinned since bce99fa 2026-10-07): run 37781788960 (b923573, 2026-10-08) saved the cache with path /home/runner/work/_temp/setup-uv-cache and key setup-uv-2-x86_64-...-c4af8e98...; both outputs non-empty",
+   "disposition": "dismissed",
+   "why": "the outputs it doubted are present at the pinned SHA, measured on a real save (see verified)",
    "roadmap_id": "LWSM-1411",
    "files": [],
    "was": null,
@@ -1612,9 +1662,9 @@
    "location": ".github/workflows/ci.yml:125",
    "finding": "`uv tool install \"yamllint==...\"` pins yamllint but not PyYAML/pathspec; deferred to check-dependencies.",
    "remedy": "None proposed (check-dependencies' call).",
-   "verified": null,
-   "disposition": null,
-   "why": null,
+   "verified": "yes — ci.yml `uv tool install \"yamllint==${YAMLLINT_VERSION}\"` resolves PyYAML and pathspec to whatever is newest; local-ci.sh checks only the yamllint version. roadmap_query LWSM-1414 (tool pins get no update PRs) is the nearest item and does not cover transitive pins",
+   "disposition": "queued",
+   "why": "pinning PyYAML/pathspec needs ci-tools.env pins checked locally, which changes the machine-wide yamllint other projects use: the user's call. Filed as LWSM-1416 (0.4.0, considered)",
    "roadmap_id": "LWSM-1411",
    "files": [],
    "was": null,
