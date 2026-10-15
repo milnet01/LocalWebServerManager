@@ -11664,7 +11664,7 @@ contracts.
   Source: CI runs 37781788960 and 37783461025, 2026-10-08.
   Lanes: ui.
 
-- 🚧 [LWSM-1400] **Release 0.3.0, covering 0.2.0's items too, after the pre-release review.**
+- ✅ [LWSM-1400] **Release 0.3.0, covering 0.2.0's items too, after the pre-release review.**
   Decided (user, 2026-10-08): one release, numbered 0.3.0, carrying
   both finished sections; 0.2.0 is not cut on its own. First the big
   review docs/claude/release.md names (check-code over the tree,
@@ -11741,6 +11741,12 @@ contracts.
   an error, so LWSM-1418 added the plain word (shipped). NEXT:
   ./scripts/local-release.sh 0.3.0; fold the 0.2.0 section into 0.3.0;
   cut-release.
+  Shipped (2026-10-15): v0.3.0 tagged on b74ab53 and published,
+  https://github.com/milnet01/LocalWebServerManager/releases/tag/v0.3.0
+  (notes = changelog section, read back and matched; 0 assets, as the app
+  has no installer yet). Gate on the bumped tree 2595 passed; first push
+  refused by the hook on LWSM-1417's timing test under load ~71, retry
+  passed; GitHub CI green on 2ad4205. Website session told.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
