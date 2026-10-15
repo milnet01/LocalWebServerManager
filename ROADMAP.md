@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1416 -->
+<!-- ants-roadmap-id-high-water: LWSM=1417 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -11898,6 +11898,17 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   **Layman:** The versions of the checking tools are only ever updated by hand, so they can quietly fall behind.
   Kind: chore.
   Source: in-session-2026-10-10 LWSM-1413 comparison.
+
+- 📋 [LWSM-1417] **test_a_process_that_reaps_does_not_pay_for_shutdown fails under heavy machine load.**
+  Seen 2026-10-15: the pre-push gate for 6bac21f (a docs-only
+  change) failed on this test in tests/test_controller.py with
+  load average about 40. Alone it passed three runs out of three
+  (4.8s, 2.4s, 1.6s), and the retried push passed the full gate.
+  Next: read the test's timing bound and decide whether it
+  measures behaviour or wall-clock speed.
+  **Layman:** One timing test failed once when the computer was very busy, and passed when run again.
+  Kind: test.
+  Source: in-session-2026-10-15.
 
 ## 0.4.0 — Ports
 
