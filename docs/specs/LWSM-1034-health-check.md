@@ -15,7 +15,8 @@ broken stops looking fine.
 After this ships, a project can be marked from its row's right-click menu to
 have its site checked. While that project reads `running`, the app sends an
 HTTP `GET` for one page of it every ten seconds and shows the answer as words
-on the last line of the port cell: `HTTP 200`, `HTTP 500`, `no response`. The
+on the last lines of the port cell: `HTTP 200` over `OK`, `HTTP 500` over
+`server error`, `no response`. The
 choice and the page are saved in `projects.json`. The answer is not saved and
 never changes the row's state, colour or glyph.
 
@@ -218,12 +219,19 @@ Both setters follow `set_project_browser`: `replace` the record, then
 
 **The port cell.** When `RowView.health` is set, `port_cell_text`'s output
 gains a last line: `HTTP %1` with the code substituted by `str.replace` as
-`port_text` does, or `no response` when `code` is `None`. Both are translated.
-The cell's accessible name joins the confidence line with a space, as today,
-and the health line with `, `: `port 5005 (confirmed), HTTP 500`.
+`port_text` does, or `no response` when `code` is `None`. Under `HTTP %1`
+goes `code_meaning`'s word for the code's class (LWSM-1418): `OK` for 200–299,
+`redirects` for 300–399, `not found` for 404, `refused` for the rest of
+400–499, `server error` for 500–599, and no line outside 200–599. A bare
+`HTTP 302` read as an error to the user on a site that only redirected. The
+word gets its own line because `HTTP 500 server error` on one is 132 px, wider
+than the cell's widest line. All are translated. The cell's accessible name
+joins the confidence line with a space, as today, and the health lines with
+`, ` then a space: `port 5005 (confirmed), HTTP 500 server error`.
 
 **The detail.** `port_detail` gains one last sentence when `health` is set:
-`The site answered HTTP %1 to %2.` or `The site gave no HTTP answer to %1.`,
+`The site answered HTTP %1 (%2) to %3.` with the word, `The site answered
+HTTP %1 to %2.` for a code with none, or `The site gave no HTTP answer to %1.`,
 the page going through `configfile.display_text`.
 
 ## 5. Invariants
@@ -303,13 +311,17 @@ the page going through `configfile.display_text`.
   *Breaks when:* the exception escapes `run()`, which PySide6 swallows, so the
   in-flight mark is never cleared.
 
-- **INV-9** — The port cell's last line is `HTTP <code>` or `no response`
-  exactly when `RowView.health` is set, and its accessible name ends `, HTTP
-  <code>` or `, no response`.
-  *Test:* `tests/test_mainwindow.py`, three cases (`None`, `HealthAnswer(500)`,
-  `HealthAnswer(None)`), asserting `row._port.text()` and its accessible name.
-  *Breaks when:* the line is added to the state cell, or the accessible name
-  keeps the raw newline.
+- **INV-9** — The port cell ends with `HTTP <code>` and its class word, or
+  `no response`, exactly when `RowView.health` is set, and its accessible name
+  ends `, HTTP <code> <word>` or `, no response`.
+  *Test:* `tests/test_mainwindow.py::test_the_answer_is_the_port_cells_last_line`,
+  four cases (`None`, `HealthAnswer(500)`, `HealthAnswer(302)`,
+  `HealthAnswer(None)`), asserting `row._port.text()` and its accessible name;
+  `::test_the_answer_says_what_its_code_means` on each class boundary, 404,
+  and a code either side of 200–599; `::test_the_detail_says_what_the_code_means`
+  on the detail sentence.
+  *Breaks when:* the line is added to the state cell, the accessible name
+  keeps a raw newline, or a class boundary moves by one.
 
 - **INV-10** — A row with the widest port wording, the long name, the browser
   picker and a `no response` line still ends inside the 600 px band.

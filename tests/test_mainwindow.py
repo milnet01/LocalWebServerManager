@@ -9316,21 +9316,28 @@ def test_the_window_saves_a_confirmed_port_once(
         (None, None, "port 5002 (confirmed)"),
         (
             controller_module.HealthAnswer(500),
-            "HTTP 500",
-            "port 5002 (confirmed), HTTP 500",
+            ["HTTP 500", "server error"],
+            "port 5002 (confirmed), HTTP 500 server error",
+        ),
+        (
+            controller_module.HealthAnswer(302),
+            ["HTTP 302", "redirects"],
+            "port 5002 (confirmed), HTTP 302 redirects",
         ),
         (
             controller_module.HealthAnswer(None),
-            "no response",
+            ["no response"],
             "port 5002 (confirmed), no response",
         ),
     ],
-    ids=["no answer to show", "an error", "no answer"],
+    ids=["no answer to show", "an error", "a redirect", "no answer"],
 )
 def test_the_answer_is_the_port_cells_last_line(qtbot, answer, line, spoken) -> None:
-    """INV-9 of LWSM-1034: on screen a line of its own, aloud a second fact
+    """INV-9 of LWSM-1034: on screen lines of their own, aloud a second fact
     after a comma. Dies on the line put under the state word, or on the raw
-    newline reaching the accessible name."""
+    newline reaching the accessible name. The meaning sits on its own line
+    under the code (LWSM-1418): "HTTP 500 server error" on one line is 132 px,
+    wider than the cell's widest line, "(sources differ)" at 91 px."""
     from lwsm.controller import RowView
 
     row = ProjectRow(
@@ -9348,10 +9355,57 @@ def test_the_answer_is_the_port_cells_last_line(qtbot, answer, line, spoken) -> 
 
     lines = row._port.text().split("\n")
     assert lines[:2] == ["port 5002", "(confirmed)"]
-    assert lines[2:] == ([] if line is None else [line])
+    assert lines[2:] == ([] if line is None else line)
     assert row._state.text() == "running", "the answer leaked into the state cell"
     assert row._port.accessibleName() == spoken
     assert spoken in row.accessibleName()
+
+
+@pytest.mark.parametrize(
+    ("code", "text"),
+    [
+        (200, "HTTP 200\nOK"),
+        (299, "HTTP 299\nOK"),
+        (300, "HTTP 300\nredirects"),
+        (302, "HTTP 302\nredirects"),
+        (399, "HTTP 399\nredirects"),
+        (400, "HTTP 400\nrefused"),
+        (404, "HTTP 404\nnot found"),
+        (499, "HTTP 499\nrefused"),
+        (500, "HTTP 500\nserver error"),
+        (599, "HTTP 599\nserver error"),
+        (199, "HTTP 199"),
+        (600, "HTTP 600"),
+    ],
+)
+def test_the_answer_says_what_its_code_means(code, text) -> None:
+    """LWSM-1418: a bare "HTTP 302" read as an error to the user on a site
+    that was only sending `/` on to `/dashboard`. Each class of code gets a
+    word; a code outside the classes gets none rather than a wrong one. Dies on
+    a boundary moved by one, or on 404 falling into the class word."""
+    answer = controller_module.HealthAnswer(code)
+    assert mainwindow.health_text(answer) == text
+
+
+def test_the_detail_says_what_the_code_means(qtbot) -> None:
+    """LWSM-1418: the tooltip and description carry the same word as the cell."""
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            status=ProjectStatus.RUNNING,
+            effective_port=5002,
+            health=controller_module.HealthAnswer(302),
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+
+    assert "The site answered HTTP 302 (redirects) to /." in (
+        row.accessibleDescription()
+    )
 
 
 def test_the_widest_port_wording_with_an_answer_still_fits_one_lens_view(

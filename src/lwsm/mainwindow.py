@@ -476,12 +476,13 @@ def port_cell_spoken(row: RowView) -> str:
     """The port cell as a screen reader hears it: one phrase, then the answer.
 
     The confidence word joins with a space (LWSM-1393), the health answer with
-    a comma, so it is heard as a second fact: "port 5005 (confirmed), HTTP 500"
-    (LWSM-1034 § 4.4).
+    a comma, so it is heard as a second fact: "port 5005 (confirmed), HTTP 500
+    server error" (LWSM-1034 § 4.4, LWSM-1418).
     """
     spoken = _port_lines(row).replace("\n", " ")
     if row.health is not None:
-        spoken = f"{spoken}, {health_text(row.health)}"
+        answer = health_text(row.health).replace("\n", " ")
+        spoken = f"{spoken}, {answer}"
     return spoken
 
 
@@ -505,12 +506,37 @@ def health_text(answer: HealthAnswer) -> str:
     `no response` is 73 px against the state column's 54 px floor, which pushed
     the widest row past the 600 px lens, while the port cell's widest line,
     `(sources differ)`, is 91 px (the user, 2026-10-07).
+
+    The code's meaning goes on a line of its own under it (LWSM-1418): a bare
+    "HTTP 302" read as an error on a site that was only redirecting, and
+    "HTTP 500 server error" on one line is 132 px.
     """
     if answer.code is None:
         return QCoreApplication.translate("ProjectRow", "no response")
-    return QCoreApplication.translate("ProjectRow", "HTTP %1").replace(
+    code = QCoreApplication.translate("ProjectRow", "HTTP %1").replace(
         "%1", str(answer.code)
     )
+    meaning = code_meaning(answer.code)
+    return code if meaning is None else f"{code}\n{meaning}"
+
+
+def code_meaning(code: int) -> str | None:
+    """A plain word for an HTTP status code, by class (LWSM-1418).
+
+    None outside 200–599: a code with no class is shown bare rather than
+    given a word that may be wrong.
+    """
+    if code == 404:
+        return QCoreApplication.translate("ProjectRow", "not found")
+    if 200 <= code < 300:
+        return QCoreApplication.translate("ProjectRow", "OK")
+    if 300 <= code < 400:
+        return QCoreApplication.translate("ProjectRow", "redirects")
+    if 400 <= code < 500:
+        return QCoreApplication.translate("ProjectRow", "refused")
+    if 500 <= code < 600:
+        return QCoreApplication.translate("ProjectRow", "server error")
+    return None
 
 
 def rule_words(rule: PortRule) -> str:
@@ -597,13 +623,24 @@ def port_detail(row: RowView) -> str:
                     page,
                 )
             )
-        else:
+        elif (meaning := code_meaning(row.health.code)) is None:
             sentences.append(
                 _filled(
                     QCoreApplication.translate(
                         "ProjectRow", "The site answered HTTP %1 to %2."
                     ),
                     str(row.health.code),
+                    page,
+                )
+            )
+        else:
+            sentences.append(
+                _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow", "The site answered HTTP %1 (%2) to %3."
+                    ),
+                    str(row.health.code),
+                    meaning,
                     page,
                 )
             )

@@ -32,9 +32,11 @@ signaling per
 - **The app can ask a running site whether it works.** (LWSM-1034)
   Right-click a project and choose "Check that the site answers".
   While it runs, the app asks it for a page every 10 seconds and
-  shows the answer under its port: "HTTP 200", "HTTP 500" or "no
-  response". So a site that is running but broken no longer looks
-  fine. "Change the page it checks…" picks a page other than the
+  shows the answer under its port, with a plain word under the code:
+  "HTTP 200 OK", "HTTP 302 redirects", "HTTP 404 not found", "HTTP
+  500 server error" or "no response". So a site that is running but
+  broken no longer looks fine, and one that only sends you on to
+  another page no longer looks broken. "Change the page it checks…" picks a page other than the
   front page. Both choices are saved with the project, and an
   imported profile cannot turn checking on or change the page.
 

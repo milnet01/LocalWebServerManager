@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1417 -->
+<!-- ants-roadmap-id-high-water: LWSM=1418 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -11734,6 +11734,15 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   0.3.0 review finding now has a disposition. Next: the user tries the
   health check (LWSM-1034) by hand; then ./scripts/local-release.sh
   0.3.0; then decide the 0.2.0 section (fold or rotate); then cut-release.
+  Decided (user, 2026-10-15): the 0.2.0 section is FOLDED into
+  0.3.0 before cut-release, not rotated to docs/roadmap/0.2.md.
+  Health-check try-out: user asked which steps to try; steps given
+  2026-10-15, awaiting their report.
+  Progress (2026-10-15): health-check try-out done by the user; it
+  worked, but a working site's redirect read "HTTP 302" and looked like
+  an error, so LWSM-1418 added the plain word (shipped). NEXT:
+  ./scripts/local-release.sh 0.3.0; fold the 0.2.0 section into 0.3.0;
+  cut-release.
   **Layman:** Publish the next version of the app, with everything finished since the last one.
   Kind: release.
   Source: user-decision-2026-10-08.
@@ -11909,6 +11918,22 @@ Criterion 3: tell the truth in every case, including the awkward ones.
   **Layman:** One timing test failed once when the computer was very busy, and passed when run again.
   Kind: test.
   Source: in-session-2026-10-15.
+
+- ✅ [LWSM-1418] **Health check answer says what the code means in a word, not a bare number.**
+  Found in the user's hand try-out of LWSM-1034 (2026-10-15): RetroDB
+  answers / with a 302 to /dashboard and the port cell read "HTTP 302",
+  which the user took for an error. Add a plain word after the code:
+  200 OK, 302 redirects, 404 not found, 500 server error, by class
+  for codes with no word of their own. Redirects stay unfollowed (spec
+  § "A redirect is an answer"). Blocks LWSM-1400.
+  Shipped (2026-10-15): code_meaning in mainwindow.py; the word is its
+  own line under the code ("HTTP 500 server error" on one line is 132 px,
+  past the cell's 91 px widest line). Red first (13 cases), 11/11 mutants
+  killed, full gate 2595 passed. Spec LWSM-1034 and CHANGELOG folded back.
+  **Layman:** A working site that sends you to another page showed "HTTP 302", which looked like an error; the answer now says "redirects" alongside the number.
+  Kind: ux.
+  Source: user-2026-10-15.
+  Lanes: ui, tests.
 
 ## 0.4.0 — Ports
 
