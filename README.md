@@ -34,7 +34,7 @@ your projects with a live status light, and start, stop, restart
 and open them in a browser. There is no installer or download
 yet, so you run it from a copy of the source (see **Install**).
 
-Current version: **0.1.0** — the first release. It is early:
+Current version: **0.3.0**. It is early:
 until 1.0, nothing is promised to keep working from one release
 to the next.
 (That exact line is what `scripts/check-version-drift.sh`
