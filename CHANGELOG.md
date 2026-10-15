@@ -21,6 +21,8 @@ signaling per
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-15
+
 ### Added
 
 - **A starting project shows how long it has been starting, and says when it is slow.** (LWSM-1402)

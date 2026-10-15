@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1418 -->
+<!-- ants-roadmap-id-high-water: LWSM=1419 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -10166,15 +10166,19 @@ O8` forbids retrofitting that.
   Lanes: core, ui.
   Splits-from: LWSM-1012.
 
-## 0.2.0 — Find and run
+## 0.3.0 — The full state model
 
-Finishes criteria 1 and 2. The scanner and the Start, Stop and Restart
-buttons already shipped in 0.1.0. What is left: the first-run confirmation,
-a registry backup, the extra port sources, service-managed projects, and two
-bugs in the same area.
+Criterion 3: tell the truth in every case, including the awkward ones.
 
+[ADR-0004](docs/decisions/0004-runtime-truth-from-probing.md) is the contract.
+
+This release also ships the work planned as 0.2.0 — Find and run, which
+was never released on its own (user, 2026-10-15). That work finishes
+criteria 1 and 2: the first-run confirmation, a registry backup, the extra
+port sources, service-managed projects, and two bugs in the same area.
 `docs/design.md § Detection rules` and
-[ADR-0003](docs/decisions/0003-launch-via-project-scripts.md) are the contracts.
+[ADR-0003](docs/decisions/0003-launch-via-project-scripts.md) are its
+contracts.
 
 - ✅ [LWSM-1039] **P03b: keep one backup of the registry.**
   Every
@@ -10870,12 +10874,6 @@ bugs in the same area.
   Kind: chore.
   Source: in-session-2026-10-02 (LWSM-1347's first run).
   Lanes: ci.
-
-## 0.3.0 — The full state model
-
-Criterion 3: tell the truth in every case, including the awkward ones.
-
-[ADR-0004](docs/decisions/0004-runtime-truth-from-probing.md) is the contract.
 
 - ✅ [LWSM-1012] **P06: foreign-server adoption and guarded stop.**
   A server started outside the app shows as running and
@@ -12090,6 +12088,16 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   **Layman:** One checking tool's own helpers are not held to fixed versions, so an update to them could break the checks without warning.
   Kind: chore.
   Source: review-code-2026-10-08 lane-10 L10-L9.
+
+- 💭 [LWSM-1419] **Consider bumping the uv pin from 0.12.23 to 0.13.1.**
+  ./scripts/local-release.sh 0.3.0 (2026-10-15) warned: UV_VERSION in
+  scripts/ci-tools.env is 0.12.23, upstream's latest is 0.13.1. Not a
+  blocker. Left out of 0.3.0: the bump replaces ~/.local/bin/uv, which
+  other projects' gates check, so ask the user first. A minor jump:
+  read uv's 0.13 changelog for lockfile or resolver changes before it.
+  **Layman:** One of the build tools has a newer version; updating it changes that tool for every project on this machine, so it needs the user's say-so.
+  Kind: chore.
+  Source: local-release-2026-10-15.
 
 ## 0.5.0 — Logs
 
