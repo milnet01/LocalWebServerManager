@@ -125,3 +125,11 @@ and GitHub's run of one commit shuffle the tests the same way, and an
 order-dependent failure shows before the push. **A tool a test needs is
 installed on the runner too** (`desktop-file-utils`), or that test
 skips on GitHub alone (LWSM-1413).
+
+**What `--docs` runs** (moved from `CLAUDE.md` § Before pushing on
+2026-10-15). It is the docs-only mode, not the whole gate, because a full
+gate on every typo fix trains people to skip it. `--docs` runs the
+steps up to and including the format check, which reads every `.md`
+because ruff formats the Python blocks inside markdown; among them, the
+version lockstep reads `ROADMAP.md`. It does **not** run the suite, which
+is why a file the suite reads takes the full gate.

@@ -46,3 +46,24 @@ it is no longer a rule someone has to remember.
 
 Phase A chose `QProcess`; the build
 did not use it.
+
+## From the opening paragraph (moved 2026-10-15)
+
+Scaffolded from the **Ants App-Build** template. The phase-based
+`app-workflow` skill this project started under left it on 2026-09-28
+(CFG-0645). Its status file is kept as history at
+[`docs/journal/workflow-state-to-2026-09-28.md`](../journal/workflow-state-to-2026-09-28.md).
+
+## From § Licence and visibility (moved 2026-10-15)
+
+Published as LWSM-1004, created 2026-08-03 from a squashed orphan commit —
+the pre-publication history named author-private services and is kept
+locally under the `pre-public-history` tag.
+
+## From § The roadmap store (moved 2026-10-15)
+
+Why not `roadmap_migrate`: a `dry_run` has planned dozens of phantom
+headline updates that no diff explains (re-checked 2026-08-19). The full
+record is in the 2026-09-28 journal file named above.
+
+The calibrated-down-finding rule was first applied to LWSM-1230 → LWSM-1011.

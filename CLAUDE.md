@@ -1,13 +1,10 @@
 # LocalWebServerManager — Project instructions for Claude Code
 
-Scaffolded from the **Ants App-Build** template. Follows the machine-wide
-workflow in `~/.claude/workflow.md` (local to the author's machine): its five
-states and gates, with no phases. The phase-based `app-workflow` skill this
-project started under left it on 2026-09-28 (CFG-0645). Where it is still
-installed it fires on phrases this roadmap still uses ("fix-pass", "phase
-close", "drift handling"); do not follow it here. Its status file
-is kept as history at
-[`docs/journal/workflow-state-to-2026-09-28.md`](docs/journal/workflow-state-to-2026-09-28.md).
+Follows the machine-wide workflow in `~/.claude/workflow.md` (local to the
+author's machine): its five states and gates, with no phases. The phase-based
+`app-workflow` skill, where still installed, fires on phrases this roadmap
+still uses ("fix-pass", "phase close", "drift handling"); do not follow it
+here. How the project left it: [`docs/history/claude-md.md`](docs/history/claude-md.md).
 
 ## Where state lives
 
@@ -51,9 +48,6 @@ and the point is the pitfalls the skill already knows about:
 
 `/write-spec` carries the `review-contract` gate itself, so a spec
 written through it does not need the review invoked separately.
-`close-findings` is for closing a list someone else produced —
-review findings, audit findings, a fix-pass — and it owns the
-blast-radius sweep that catches what a fix moved elsewhere.
 
 ## Review cadence — build first (user, 2026-08-13; revised 2026-09-25)
 
@@ -105,16 +99,10 @@ text (found 2026-09-25, logged in `~/.claude` as CFG-0593).
 **Run `./scripts/local-ci.sh` before any push that touches code,
 tooling or CI config** (user, 2026-08-03). A **docs-only push runs
 `./scripts/local-ci.sh --docs`** — the steps that read prose, not the
-whole gate, because a full gate on every typo fix trains people to skip
-it. `--docs` runs the
-steps up to and including the format check, which reads every `.md`
-because ruff formats the Python blocks inside markdown; among them, the
-version lockstep reads `ROADMAP.md`. It does **not** run the suite, which
-is why a file the suite reads takes the full gate (below).
+whole gate. What `--docs` runs, and why: [`docs/claude/ci-gate.md`](docs/claude/ci-gate.md).
 
 **Every push is also scanned for secrets** by the machine-wide hook's
-`--secrets-only` mode, before the gate. `LWSM_SKIP_PREPUSH=1` skips the
-gate and not the scan.
+`--secrets-only` mode, before the gate.
 
 **A `pre-push` hook enforces all of that.** Enable it once per
 clone — `core.hooksPath` cannot be committed:
@@ -204,10 +192,9 @@ phase-ID history is in [`docs/history/claude-md.md`](docs/history/claude-md.md).
 ## Licence and visibility
 
 MIT, and **published as a public repository** at
-`github.com/milnet01/LocalWebServerManager` (LWSM-1004, created
-2026-08-03 from a squashed orphan commit — the pre-publication
-history named author-private services and is kept locally under
-the `pre-public-history` tag).
+`github.com/milnet01/LocalWebServerManager`. The pre-publication history
+is kept locally under the `pre-public-history` tag; how it was published:
+[`docs/history/claude-md.md`](docs/history/claude-md.md).
 
 Two consequences to hold on to:
 
@@ -229,14 +216,12 @@ Global rule 6. This repo is **public**, so push freely; `main` tracks
 `roadmap_log`, never by hand. Three standing rules:
 
 - **Do not run `roadmap_migrate` on this project.** It is already in the
-  store, so there is nothing to migrate, and a `dry_run` has planned
-  dozens of phantom headline updates that no diff explains (re-checked
-  2026-08-19). The store has no undo. The full record is in the
-  2026-09-28 journal file named at the top of this file.
+  store, so there is nothing to migrate, and the store has no undo. The
+  evidence: [`docs/history/claude-md.md`](docs/history/claude-md.md).
 - **A calibrated-down finding is closed as a finding, not built here**
   (user, 2026-09-03). When a fold-in marks a finding as another item's
   scope, flip it shipped, say in the note that no code changed, and name
-  the item that owns the work. First applied to LWSM-1230 → LWSM-1011.
+  the item that owns the work.
 - **Three `roadmap_log` traps** (2026-09-25). `set_intro` does not replace
   a section's table — the old table stays and the text lands above it, so
   delete and recreate the section and rebuild the table with `bundle_row`.
@@ -251,9 +236,7 @@ Read the entry for a module before changing it. The layering rule is
 [`docs/standards/coding-overrides.md § O1`](docs/standards/coding-overrides.md): a
 core module may import `QtCore` but never `QtWidgets`, so every
 one of them is testable without a display. **`tests/test_layering.py`
-enforces it by parsing the AST, not by grepping for the string** —
-every core module *documents* the rule in its docstring, so a
-substring search reports all of them as violations.
+enforces it by parsing the AST**; why not a grep is in the module map.
 
 **Traps** — measured lessons about Qt, the test suite, mutation testing,
 the scanner, KWin and the CI tools — are in
@@ -274,10 +257,8 @@ PID, and confirm the PID is yours before signalling — its cwd, or its
 
 ## Resumption flow — MANDATORY summarise-back
 
-1. **Parallel batch:** read this file, the roadmap's in-progress
-   items, and the intro of the release section they sit in — or,
-   with nothing in flight, of the first unreleased section (one
-   tool-call batch). Fetch an active item's body by id.
+1. **Parallel batch:** read the roadmap as **Where state lives**
+   item 2 says (one tool-call batch). Fetch an active item's body by id.
 2. Once `Kind` is known from the active item, read the
    matching `docs/standards/<which>.md` (single read).
 3. **Summarise back to the user:** "We're on `<ID>`, last did

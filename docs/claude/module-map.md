@@ -7,6 +7,11 @@ always-loaded instructions under Claude Code's size limit.
 The modules below are the list; P03 and P05 each add to it, so no
 count is written here (`documentation-overrides.md § DOC1`).
 
+**`tests/test_layering.py` enforces the layering rule by parsing the AST, not
+by grepping for the string** — every core module *documents* the rule in its
+docstring, so a substring search reports all of them as violations. (Moved
+from `CLAUDE.md` § Module map on 2026-10-15.)
+
 - **`src/lwsm/__init__.py`** — the package docstring stating that
   rule, and `__version__`.
 - **`src/lwsm/__main__.py`** — `main()`, plus the thin **`run()`**
