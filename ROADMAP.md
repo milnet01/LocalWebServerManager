@@ -11913,6 +11913,10 @@ contracts.
   (4.8s, 2.4s, 1.6s), and the retried push passed the full gate.
   Next: read the test's timing bound and decide whether it
   measures behaviour or wall-clock speed.
+  Seen again 2026-10-15, the 0.3.0 release push (b74ab53), load
+  average about 71: "spent 0.74s after its last line". Same session's two
+  full gates on the same tree passed it. Second sighting in one day, so
+  fix in 0.4.0 at the latest.
   **Layman:** One timing test failed once when the computer was very busy, and passed when run again.
   Kind: test.
   Source: in-session-2026-10-15.
