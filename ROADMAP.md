@@ -11934,7 +11934,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
 
 [ADR-0002](docs/decisions/0002-port-contract.md) is the contract.
 
-- 📋 [LWSM-1417] **test_a_process_that_reaps_does_not_pay_for_shutdown fails under heavy machine load.**
+- ✅ [LWSM-1417] **test_a_process_that_reaps_does_not_pay_for_shutdown fails under heavy machine load.**
   Seen 2026-10-15: the pre-push gate for 6bac21f (a docs-only
   change) failed on this test in tests/test_controller.py with
   load average about 40. Alone it passed three runs out of three
@@ -11945,6 +11945,14 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   average about 71: "spent 0.74s after its last line". Same session's two
   full gates on the same tree passed it. Second sighting in one day, so
   fix in 0.4.0 at the latest.
+  Shipped (2026-10-19). Cause: the test could not fail. Its probe waited on
+  a gate the script set just before the reap, so the thread ended in
+  milliseconds with or without the reap (0.03 s both ways); all it timed
+  was interpreter exit, which heavy load stretched past 0.5 s. Now the
+  probe sleeps 4 s and is abandoned mid-sleep, so only the reap keeps
+  the remainder out of shutdown. Red: wait_for_abandoned_pools made a
+  no-op fails at 3.62 s. Threshold 2.0 s, above the worst load noise
+  seen (0.74 s). Full gate 2595 passed.
   **Layman:** One timing test failed once when the computer was very busy, and passed when run again.
   Kind: test.
   Source: in-session-2026-10-15.

@@ -1048,12 +1048,21 @@ def test_a_process_that_reaps_does_not_pay_for_shutdown(tmp_path) -> None:
     that one covers the `os._exit` path, which only the entry point may take.
     This one covers every other caller, which must reach shutdown holding
     nothing rather than exit early.
+
+    **The probe finishes on its own, 4 s in, rather than being released**
+    (LWSM-1417). It used to wait on a gate the script set just before the
+    reap, so the thread ended within milliseconds with or without the reap:
+    removing the reap measured 0.03 s either way, and all the test timed was
+    interpreter exit — which a machine at load 71 stretched past 0.5 s with
+    nothing wrong. Now the reap is what stands between the stamp and the
+    probe's remaining seconds: measured 2026-10-19, a pass with it and 3.62 s
+    with `wait_for_abandoned_pools` made a no-op, on a quiet machine.
     """
     script = tmp_path / "reap_then_exit.py"
     script.write_text(
         textwrap.dedent(
             """
-            import os, sys, threading, time
+            import os, sys, time
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             from pathlib import Path
             from PySide6.QtCore import QCoreApplication
@@ -1063,23 +1072,21 @@ def test_a_process_that_reaps_does_not_pay_for_shutdown(tmp_path) -> None:
             from lwsm.registry import ProjectRecord
 
             cm.STOP_WAIT_MS = 100
-            GATE = threading.Event()
 
-            class GatedProbe:
+            class SlowProbe:
                 def snapshot(self):
-                    GATE.wait(timeout=30)
+                    time.sleep(4.0)
                     return PortSnapshot(frozenset())
 
             app = QCoreApplication([])
             record = ProjectRecord(
                 path=Path("/srv/a"), name="a", port=5005, port_override=None
             )
-            controller = ProjectController([record], GatedProbe())
+            controller = ProjectController([record], SlowProbe())
             controller.poll_once()
             time.sleep(0.3)
             controller.stop()          # bounded at 100 ms, abandons the pool
-            GATE.set()                 # the probe can now finish
-            cm.wait_for_abandoned_pools(5000)
+            cm.wait_for_abandoned_pools(10000)
             print(f"SCRIPT_END {time.time():.6f}", flush=True)
             """
         )
@@ -1095,9 +1102,10 @@ def test_a_process_that_reaps_does_not_pay_for_shutdown(tmp_path) -> None:
     assert stamp, f"the script did not reach its end: {proc.stdout!r} {proc.stderr!r}"
     shutdown_cost = exited_at - float(stamp[0].split()[1])
 
-    # 0.5 s is the acceptance's own figure. Without the reap this is the
-    # remainder of the probe's 30 s wait.
-    assert shutdown_cost < 0.5, (
+    # Without the reap this is the remainder of the probe's 4 s, about 3.6 s.
+    # 2 s sits clear of both that and load noise (0.74 s at load 71), where
+    # LWSM-1117's own 0.5 s did not.
+    assert shutdown_cost < 2.0, (
         f"the process spent {shutdown_cost:.2f}s after its last line — the "
         f"abandoned pool reached interpreter shutdown still holding a thread"
     )
