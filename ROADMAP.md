@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1419 -->
+<!-- ants-roadmap-id-high-water: LWSM=1420 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -11912,21 +11912,6 @@ contracts.
   Kind: chore.
   Source: in-session-2026-10-10 LWSM-1413 comparison.
 
-- 📋 [LWSM-1417] **test_a_process_that_reaps_does_not_pay_for_shutdown fails under heavy machine load.**
-  Seen 2026-10-15: the pre-push gate for 6bac21f (a docs-only
-  change) failed on this test in tests/test_controller.py with
-  load average about 40. Alone it passed three runs out of three
-  (4.8s, 2.4s, 1.6s), and the retried push passed the full gate.
-  Next: read the test's timing bound and decide whether it
-  measures behaviour or wall-clock speed.
-  Seen again 2026-10-15, the 0.3.0 release push (b74ab53), load
-  average about 71: "spent 0.74s after its last line". Same session's two
-  full gates on the same tree passed it. Second sighting in one day, so
-  fix in 0.4.0 at the latest.
-  **Layman:** One timing test failed once when the computer was very busy, and passed when run again.
-  Kind: test.
-  Source: in-session-2026-10-15.
-
 - ✅ [LWSM-1418] **Health check answer says what the code means in a word, not a bare number.**
   Found in the user's hand try-out of LWSM-1034 (2026-10-15): RetroDB
   answers / with a 302 to /dashboard and the port cell read "HTTP 302",
@@ -11948,6 +11933,44 @@ contracts.
 Criterion 4: never launch into an occupied port, and make reassignment stick.
 
 [ADR-0002](docs/decisions/0002-port-contract.md) is the contract.
+
+- 📋 [LWSM-1417] **test_a_process_that_reaps_does_not_pay_for_shutdown fails under heavy machine load.**
+  Seen 2026-10-15: the pre-push gate for 6bac21f (a docs-only
+  change) failed on this test in tests/test_controller.py with
+  load average about 40. Alone it passed three runs out of three
+  (4.8s, 2.4s, 1.6s), and the retried push passed the full gate.
+  Next: read the test's timing bound and decide whether it
+  measures behaviour or wall-clock speed.
+  Seen again 2026-10-15, the 0.3.0 release push (b74ab53), load
+  average about 71: "spent 0.74s after its last line". Same session's two
+  full gates on the same tree passed it. Second sighting in one day, so
+  fix in 0.4.0 at the latest.
+  **Layman:** One timing test failed once when the computer was very busy, and passed when run again.
+  Kind: test.
+  Source: in-session-2026-10-15.
+
+- 📋 [LWSM-1420] **Quitting LWSM kills the servers it started when the desktop launched it.**
+  Seen 2026-10-19 by the user: RetroDB, started from LWSM, stopped
+  when LWSM quit. ADR-0003 promises children are left running, and
+  Supervisor.close does leave them; the kill comes from outside.
+  Cause: Plasma runs a desktop launch as a transient
+  app-<id>@<uuid>.service with KillMode=control-group. When lwsm
+  exits, systemd kills everything left in that cgroup.
+  start_new_session=True (supervisor.py _spawn) changes the session,
+  not the cgroup. Reproduced 2026-10-19 with a throwaway user service:
+  a start_new_session child was killed when its parent exited.
+  Fix direction, checked the same way: spawn through
+  `systemd-run --user --scope --collect`, which moves the child into
+  its own scope and execs in place, so the PID Popen holds is still
+  the server's. That child survived. Plain launch when systemd-run or
+  the user manager is absent.
+  Risk to check first: service.unit_for_pid reads a holder's unit off
+  its cgroup, so a server in a run-*.scope must not be taken for a
+  systemd-managed project (Stop/Restart would drive systemctl).
+  **Layman:** Closing the manager also shut down RetroDB, which it had started; servers should keep running and simply be picked up again next time.
+  Kind: fix.
+  Source: user-2026-10-19.
+  Lanes: supervisor, tests.
 
 - 📋 [LWSM-1013] **P07: the conflict warning UI.**
   When the
