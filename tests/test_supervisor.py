@@ -1673,7 +1673,10 @@ def test_a_server_outlives_a_manager_whose_desktop_unit_ends(tmp_path: Path) -> 
 
     # `--wait` returns once the service has ended, cgroup kill included, so
     # what is alive afterwards is what the desktop would have left alive.
-    subprocess.run(
+    # The unit's own output goes to the journal, not to us, so it is sent to
+    # a file: without it a failing manager reads as a bare exit status.
+    output = tmp_path / "manager.out"
+    unit = subprocess.run(
         [
             "systemd-run",
             "--user",
@@ -1683,15 +1686,26 @@ def test_a_server_outlives_a_manager_whose_desktop_unit_ends(tmp_path: Path) -> 
             f"--unit=lwsm-test-{os.getpid()}-{time.monotonic_ns()}",
             "-p",
             "KillMode=control-group",
+            "-p",
+            f"StandardOutput=file:{output}",
+            "-p",
+            f"StandardError=file:{output}",
             sys.executable,
             str(manager),
             str(tmp_path),
         ],
         stdin=subprocess.DEVNULL,
         capture_output=True,
+        text=True,
         timeout=60,
-        check=True,
+        check=False,
     )
+    if unit.returncode != 0:
+        said = output.read_text(errors="replace") if output.exists() else "(no output)"
+        pytest.fail(
+            f"the manager unit exited {unit.returncode}\n"
+            f"systemd-run: {unit.stderr.strip()}\nmanager:\n{said}"
+        )
 
     pid = int(pid_file.read_text())
     try:
