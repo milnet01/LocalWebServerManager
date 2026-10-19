@@ -646,3 +646,13 @@ Ask the layout for a widget's position with `indexOf(widget)` instead.
 `addLayout` also wraps the items already in the sub-layout it is given, so a
 widget later removed from that sub-layout leaves the same stale wrapper. Measured
 2026-10-07; `gc.get_referents(layout)` lists the wrappers a layout holds.
+
+**Trap: a test reaching the real user systemd must pass the real
+`XDG_RUNTIME_DIR`.** `conftest`'s autouse fixture points it at an empty
+directory. This machine also exports `DBUS_SESSION_BUS_ADDRESS`, so
+`systemd-run --user` still finds the bus here. The GitHub runner does not, so
+there it fails with "Failed to connect to bus" — while a skip guard evaluated
+at collection, before the fixture, says the manager is reachable. CI run
+39312566342 (LWSM-1420). Read the variable at import, as
+`test_a_server_outlives_a_manager_whose_desktop_unit_ends` does, and reproduce
+the runner locally with `env -u DBUS_SESSION_BUS_ADDRESS`.

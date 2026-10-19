@@ -1605,6 +1605,12 @@ def test_close_reaps_every_descriptor_and_leaves_the_servers_running(
     _reap(managed.popen)
 
 
+# Read at import, before `conftest`'s autouse fixture points XDG_RUNTIME_DIR at
+# an empty directory. Where DBUS_SESSION_BUS_ADDRESS is unset, as on GitHub's
+# runner, `systemd-run --user` finds the bus through this variable alone.
+_REAL_RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR")
+
+
 def _user_manager_runs_scopes() -> bool:
     try:
         done = subprocess.run(
@@ -1676,6 +1682,9 @@ def test_a_server_outlives_a_manager_whose_desktop_unit_ends(tmp_path: Path) -> 
     # The unit's own output goes to the journal, not to us, so it is sent to
     # a file: without it a failing manager reads as a bare exit status.
     output = tmp_path / "manager.out"
+    env = dict(os.environ)
+    if _REAL_RUNTIME_DIR is not None:
+        env["XDG_RUNTIME_DIR"] = _REAL_RUNTIME_DIR
     unit = subprocess.run(
         [
             "systemd-run",
@@ -1694,6 +1703,7 @@ def test_a_server_outlives_a_manager_whose_desktop_unit_ends(tmp_path: Path) -> 
             str(manager),
             str(tmp_path),
         ],
+        env=env,
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
