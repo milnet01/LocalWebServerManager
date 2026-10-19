@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1420 -->
+<!-- ants-roadmap-id-high-water: LWSM=1422 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12151,6 +12151,38 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   **Layman:** One of the build tools has a newer version; updating it changes that tool for every project on this machine, so it needs the user's say-so.
   Kind: chore.
   Source: local-release-2026-10-15.
+
+- 📋 [LWSM-1421] **Bring three ports.py comments back in line with the code.**
+  Found by a cold readability read (draft skill review-readability),
+  checked against the code 2026-10-19.
+  - The holders-loop comment in `PortProbe.snapshot` says two
+    different pids on one port give no holder, but the next line calls
+    `_master_of`, which names the root of a pre-fork server.
+  - The comment above the parsing `try` names "the comprehension";
+    the body is now a `for` loop, and the LWSM-1111 story buries the
+    rule (anything raised while parsing becomes a `ProbeError`).
+  - `PortSnapshot.holder`'s docstring lists two reasons for `None`;
+    there are more: a LAN-only listener, an unnamed second claimant,
+    several pids that are not one server.
+  **Layman:** Some explanations inside the port-checking code describe how it used to work, which could mislead whoever changes it next.
+  Kind: doc-fix.
+  Source: review-readability-trial-2026-10-19.
+
+- 📋 [LWSM-1422] **Tie foreign.py's stop sequence to the supervisor's copy.**
+  Found by a cold readability read (draft skill review-readability),
+  checked against the code 2026-10-19.
+  - `foreign.stop_tree` and `_wait` repeat the supervisor's
+    terminate, kill and poll loops (`Supervisor._escalate`,
+    `_wait_for`). The tree-not-group difference is intended; nothing
+    points either copy at the other.
+  - `foreign.py` imports the private `supervisor._alive`, whose
+    docstring argues only for our own children.
+  - `looks_like` skips `argv[0]` with no stated reason.
+  No behaviour is wrong: the supervisor removes duplicate pids when
+  it reports them.
+  **Layman:** Two places in the code stop servers in nearly the same way, and nothing tells someone editing one to check the other.
+  Kind: refactor.
+  Source: review-readability-trial-2026-10-19.
 
 ## 0.5.0 — Logs
 
