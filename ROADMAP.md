@@ -11987,6 +11987,10 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   session stops it through LWSM-1301's confirm path. conftest._no_scopes
   keeps the rest of the suite off the real user manager. ADR-0003 and
   CHANGELOG folded back. Full gate 2602 passed.
+  2026-10-19: the desktop-unit test failed on CI (no
+  DBUS_SESSION_BUS_ADDRESS on the runner, and conftest's fake
+  XDG_RUNTIME_DIR). Fixed in 86e4ce8; the trap is in
+  docs/claude/traps.md. CI green.
   **Layman:** Closing the manager also shut down RetroDB, which it had started; servers should keep running and simply be picked up again next time.
   Kind: fix.
   Source: user-2026-10-19.
