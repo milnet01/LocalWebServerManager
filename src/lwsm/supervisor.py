@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import signal
 import stat
 import subprocess
@@ -84,6 +85,10 @@ ENV_ALLOWLIST = frozenset(
 # `LC_*` is a family, not a name: `LC_ALL`, `LC_TIME`, `LC_NUMERIC` and six more
 # all change how a server formats output. A prefix rather than nine entries.
 ENV_ALLOW_PREFIXES = ("LC_",)
+
+# How long the once-per-supervisor check that the user manager can run a scope
+# may take. It runs on the first start, on the thread that asked for it.
+SCOPE_PROBE_TIMEOUT_SECONDS = 2.0
 
 # ADR-0003 § Decision: five seconds between SIGTERM and SIGKILL.
 GRACE_SECONDS = 5.0
@@ -412,6 +417,47 @@ def build_child_env(
     # of it — this is the only place this project sets it.
     env["LWSM_MANAGED"] = "1"
     return env
+
+
+def scope_prefix(
+    env: Mapping[str, str], *, run: object = None, which: object = None
+) -> tuple[str, ...]:
+    """The argv prefix that puts a server in its own systemd scope, or `()`.
+
+    ADR-0003 leaves servers running when the manager exits, and inside this
+    process that holds. What broke it is outside (LWSM-1420): Plasma runs a
+    desktop launch as a transient `app-…@<uuid>.service` with
+    `KillMode=control-group`, so when `lwsm` exits systemd kills everything
+    left in its cgroup, and `start_new_session=True` changes the session, not
+    the cgroup. `systemd-run --scope` moves the server into a scope of its own
+    and then execs it in place, so the PID `Popen` holds, the process group
+    and the psutil handle are all still the server's.
+
+    Asked once, by running `true` the same way, rather than assumed from
+    `systemd-run` existing: with no user manager to talk to it fails before
+    the exec, and every start would then fail with it. `()` means a plain
+    launch, which is what this did before and still right where no unit
+    exists to kill the server.
+    """
+    finder = which if which is not None else shutil.which
+    executable = finder("systemd-run")  # type: ignore[operator]
+    if not executable:
+        return ()
+    prefix = (executable, "--user", "--scope", "--quiet", "--collect", "--")
+    runner = run if run is not None else subprocess.run
+    try:
+        completed = runner(  # type: ignore[operator]
+            [*prefix, "true"],
+            env=dict(env),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=SCOPE_PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ()
+    return prefix if getattr(completed, "returncode", 1) == 0 else ()
 
 
 # --------------------------------------------------------------------------
@@ -959,6 +1005,8 @@ class Supervisor:
         self._clock = clock or time.monotonic
         self._sleep = sleep or time.sleep
         self._registry = _Registry()
+        # `scope_prefix`'s answer, asked once on the first start.
+        self._scope: tuple[str, ...] | None = None
         self._stoppers = ThreadPoolExecutor(
             max_workers=4, thread_name_prefix="lwsm-stop"
         )
@@ -1253,10 +1301,17 @@ class Supervisor:
         log_path: Path,
         fd: int,
     ) -> ManagedProcess:
+        env = build_child_env(port)
+        if self._scope is None:
+            self._scope = scope_prefix(env)
+            log.info(
+                "launching servers %s",
+                "in their own systemd scopes" if self._scope else "without a scope",
+            )
         popen = subprocess.Popen(  # noqa: S603 - the trust gate above is the check
-            list(argv),
+            [*self._scope, *argv],
             cwd=str(project),
-            env=build_child_env(port),
+            env=env,
             # A file, not a pipe (ADR-0003): a child holding a pipe dies of
             # SIGPIPE the moment it writes after this manager exits, which would
             # make "children are left running" false in practice.

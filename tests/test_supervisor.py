@@ -50,6 +50,7 @@ from lwsm.supervisor import (
     _launcher_path,
     build_child_env,
     launcher_fingerprint,
+    scope_prefix,
     validate_launcher,
 )
 
@@ -1604,8 +1605,190 @@ def test_close_reaps_every_descriptor_and_leaves_the_servers_running(
     _reap(managed.popen)
 
 
-# --------------------------------------------------------------------------
-# Small helpers used by the assertions above
+def _user_manager_runs_scopes() -> bool:
+    try:
+        done = subprocess.run(
+            ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--", "true"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not _user_manager_runs_scopes(), reason="no systemd user manager to run units in"
+)
+def test_a_server_outlives_a_manager_whose_desktop_unit_ends(tmp_path: Path) -> None:
+    """LWSM-1420: quitting the app killed RetroDB, which the app had started.
+
+    The test above holds inside one process and missed it. Plasma runs a
+    desktop launch as a transient `app-…@<uuid>.service` with
+    `KillMode=control-group`, so when `lwsm` exits systemd kills everything
+    left in its cgroup. `start_new_session=True` changes the session, not the
+    cgroup. So the manager here runs as the main process of its own transient
+    service, starts a server, closes and exits — and the server must still be
+    there once systemd has finished with the service.
+
+    This reaches the developer's real user manager, which the suite otherwise
+    keeps away from (`conftest.reloads`). A transient unit with `--collect`
+    leaves nothing behind once it ends, which is why this one test may.
+    """
+    project = tmp_path / "proj"
+    project.mkdir()
+    write_launcher(project, "exec sleep 120\n")
+    pid_file = tmp_path / "pid"
+    manager = tmp_path / "manager.py"
+    manager.write_text(
+        textwrap.dedent(
+            """
+            import sys
+            from pathlib import Path
+            from lwsm.ports import PortSnapshot
+            from lwsm.supervisor import Supervisor, TrustStore, launcher_fingerprint
+
+            class NothingListening:
+                def snapshot(self):
+                    return PortSnapshot(frozenset())
+
+            work = Path(sys.argv[1])
+            project = work / "proj"
+            sup = Supervisor(
+                probe=NothingListening(),
+                log_dir=work / "logs",
+                trust=TrustStore(work / "trust.json"),
+            )
+            sup.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+            managed = sup.start(project, name="demo", argv=["./start.sh"], port=None)
+            (work / "pid").write_text(str(managed.pid))
+            sup.close()
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    # `--wait` returns once the service has ended, cgroup kill included, so
+    # what is alive afterwards is what the desktop would have left alive.
+    subprocess.run(
+        [
+            "systemd-run",
+            "--user",
+            "--quiet",
+            "--collect",
+            "--wait",
+            f"--unit=lwsm-test-{os.getpid()}-{time.monotonic_ns()}",
+            "-p",
+            "KillMode=control-group",
+            sys.executable,
+            str(manager),
+            str(tmp_path),
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=60,
+        check=True,
+    )
+
+    pid = int(pid_file.read_text())
+    try:
+        server = psutil.Process(pid)
+        # Ours, by working directory, before anything is said or signalled
+        # about it (CLAUDE.md § never kill by pattern).
+        alive = server.cwd() == str(project) and _alive(pid)
+    except psutil.Error:
+        server, alive = None, False
+    try:
+        assert alive, "the server died with the unit of the manager that started it"
+    finally:
+        if server is not None and alive:
+            server.kill()
+
+
+SYSTEMD_RUN = "/usr/bin/systemd-run"
+
+
+def test_a_scope_is_used_when_the_user_manager_can_run_one() -> None:
+    """The prefix is exactly what the probe ran, and ends in `--`.
+
+    `--` matters: without it a launcher argv starting with a dash would be read
+    as a `systemd-run` option rather than as the command to exec.
+    """
+    seen: list[list[str]] = []
+
+    def run(argv, **_kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0)
+
+    prefix = scope_prefix({}, run=run, which=lambda name: SYSTEMD_RUN)
+
+    assert prefix == (SYSTEMD_RUN, "--user", "--scope", "--quiet", "--collect", "--")
+    assert seen == [[*prefix, "true"]]
+
+
+def test_no_systemd_run_means_a_plain_launch() -> None:
+    def run(argv, **_kwargs):
+        raise AssertionError("nothing to run without systemd-run")
+
+    assert scope_prefix({}, run=run, which=lambda name: None) == ()
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        subprocess.CompletedProcess([], 1),
+        subprocess.TimeoutExpired("systemd-run", 2.0),
+        PermissionError("not executable"),
+    ],
+    ids=["refused", "hung", "unrunnable"],
+)
+def test_a_user_manager_that_cannot_run_a_scope_means_a_plain_launch(outcome) -> None:
+    """Every start would fail if the prefix were kept here.
+
+    With no user manager to reach, `systemd-run --scope` fails before it execs
+    anything, so a server wrapped in it never runs at all — worse than the
+    cgroup kill this exists to avoid.
+    """
+
+    def run(argv, **_kwargs):
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    assert scope_prefix({}, run=run, which=lambda name: SYSTEMD_RUN) == ()
+
+
+def test_the_scope_check_runs_once_per_supervisor(
+    project: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Asked on the first start and remembered, not paid on every start."""
+    calls: list[int] = []
+
+    def counting(env):
+        calls.append(1)
+        return ()
+
+    monkeypatch.setattr(supervisor_module, "scope_prefix", counting)
+    sup = Supervisor(probe=FakeProbe(), log_dir=tmp_path / "logs")
+    second = tmp_path / "second-project"
+    second.mkdir()
+    try:
+        for directory in (project, second):
+            write_launcher(directory, "exit 0\n")
+            argv = ("./start.sh",)
+            sup.trust.confirm(directory, launcher_fingerprint(directory, argv))
+            sup.start(directory, name=directory.name, argv=list(argv), port=None)
+    finally:
+        for path in sup.running():
+            sup.stop(path, grace=0.5)
+        sup.close()
+
+    assert calls == [1]
+
+
 # --------------------------------------------------------------------------
 
 

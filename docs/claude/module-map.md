@@ -357,7 +357,8 @@ built under § Review cadence's build-first default:
   `ports.py`; stop needs a worker thread and a plain
   `ThreadPoolExecutor` is enough for one. `Supervisor`,
   `ManagedProcess`, `StopOutcome`, `TrustStore`,
-  `build_child_env`, `validate_launcher`, `launcher_fingerprint`,
+  `build_child_env`, `scope_prefix` (each server in its own
+  systemd scope, ADR-0003), `validate_launcher`, `launcher_fingerprint`,
   and the refusals `LauncherRefused` / `LauncherUntrusted` /
   `PortAlreadyBound` / `AlreadyRunning`. **Stop signals the process
   *group*, not the descendants** — a launcher that double-forks

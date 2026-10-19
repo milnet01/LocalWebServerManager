@@ -244,6 +244,23 @@ def reloads(monkeypatch) -> list[str]:
     return calls
 
 
+@pytest.fixture(autouse=True)
+def _no_scopes(monkeypatch) -> None:
+    """Launch every test's servers plainly, outside a systemd scope (LWSM-1420).
+
+    In the app each server gets its own transient scope on the user's real
+    manager. Here that would put a unit on the developer's systemd for every
+    spawn in the suite, and make the suite's behaviour depend on whether the
+    machine has a user manager at all — GitHub's runner may not. The scope is
+    tested where it is the subject: `scope_prefix`'s own tests, and the
+    desktop-unit test in `test_supervisor.py`, which runs its manager in a
+    separate process this fixture does not reach.
+    """
+    from lwsm import supervisor
+
+    monkeypatch.setattr(supervisor, "scope_prefix", lambda env: ())
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _reap_abandoned_pools():
     """Do not let the run end holding an abandoned pool (LWSM-1117).

@@ -148,8 +148,18 @@ actually run: the resolved path and argv, never a friendly summary.
   never a reason to signal.
 - On manager exit (the deliberate Quit, not window-close),
   children are **left running** by design — servers outlive the
-  window, and ADR-0004 lets a later session re-adopt them. This
-  is only true because of the log-file redirection above.
+  window, and ADR-0004 lets a later session re-adopt them. Two
+  things make this true. The first is the log-file redirection
+  above. The second is a **systemd scope per server**
+  (LWSM-1420). Plasma runs a desktop launch as a transient user
+  service with `KillMode=control-group`. When the manager exits,
+  systemd kills everything left in that cgroup, and a new session
+  does not leave the cgroup. So each server is spawned through
+  `systemd-run --user --scope --quiet --collect --`, which moves
+  it into its own scope and execs it in place: the PID, process
+  group and psutil handle stay the server's. `scope_prefix` asks
+  once per supervisor, by running `true` that way. Where that
+  fails, servers launch plainly, as before.
 
 ### Service-managed projects are the exception
 

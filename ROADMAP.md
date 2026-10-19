@@ -11957,7 +11957,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: test.
   Source: in-session-2026-10-15.
 
-- 📋 [LWSM-1420] **Quitting LWSM kills the servers it started when the desktop launched it.**
+- ✅ [LWSM-1420] **Quitting LWSM kills the servers it started when the desktop launched it.**
   Seen 2026-10-19 by the user: RetroDB, started from LWSM, stopped
   when LWSM quit. ADR-0003 promises children are left running, and
   Supervisor.close does leave them; the kill comes from outside.
@@ -11975,6 +11975,18 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Risk to check first: service.unit_for_pid reads a holder's unit off
   its cgroup, so a server in a run-*.scope must not be taken for a
   systemd-managed project (Stop/Restart would drive systemctl).
+  Shipped (2026-10-19). supervisor.scope_prefix: each server is spawned
+  through `systemd-run --user --scope --quiet --collect --`, checked
+  once per Supervisor by running `true` that way; plain launch where
+  that fails. Measured on a real start: same PID, pgid == pid, cgroup
+  run-p<pid>-*.scope, Stop still terminates it. Red first:
+  test_a_server_outlives_a_manager_whose_desktop_unit_ends runs the
+  manager as its own transient service and failed (server gone) before
+  the fix. The scope risk is closed: service.unit_for_pid only accepts
+  .service leaves, so a scoped server is not taken for a unit; a later
+  session stops it through LWSM-1301's confirm path. conftest._no_scopes
+  keeps the rest of the suite off the real user manager. ADR-0003 and
+  CHANGELOG folded back. Full gate 2602 passed.
   **Layman:** Closing the manager also shut down RetroDB, which it had started; servers should keep running and simply be picked up again next time.
   Kind: fix.
   Source: user-2026-10-19.
