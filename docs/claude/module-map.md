@@ -433,6 +433,17 @@ Added for LWSM-1008. **No spec** — build-first, per § Review cadence:
   `__main__.start_first_run` starts the scan once the window is shown, and asks
   for a folder first when no scan root exists.
 
+Added for LWSM-1041. **No spec** — build-first, per § Review cadence:
+
+- **`src/lwsm/portlookup.py`** — UI layer. `PortLookupDialog`, opened from
+  View → *What's using a port...*. It shows the sentence
+  `ProjectController.port_lookup` returns for the typed port; **it owns no
+  answer**, so the wording is tested in `test_controller.py` without a display.
+  The controller answers from the poll's last snapshot and drops it when a
+  probe fails, so the lookup never answers from a table it has lost.
+  `mainwindow` imports it inside `_open_port_lookup`, because it imports
+  `mainwindow` for `MIN_TARGET_PX`.
+
 Added later, both core with no Qt at all:
 
 - **`src/lwsm/browsers.py`** (LWSM-1187) — the desktop's own registered

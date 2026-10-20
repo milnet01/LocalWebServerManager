@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1422 -->
+<!-- ants-roadmap-id-high-water: LWSM=1423 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12020,7 +12020,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   rescanning meanwhile.
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1041] **P07: "what's using this port?" lookup.**
+- ✅ [LWSM-1041] **P07: "what's using this port?" lookup.**
   A
   search box answering the question the whole project started
   from — type a port, get the process holding it, whether or not
@@ -12035,6 +12035,15 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 3.
+  Shipped 2026-10-20. View → "What's using a port..." opens
+  PortLookupDialog (src/lwsm/portlookup.py), which shows
+  ProjectController.port_lookup's sentence for the typed port. It
+  answers from the poll's last snapshot, dropped when a probe fails:
+  nothing listening, the program and PID (and which project it serves),
+  "cannot be inspected" for an unnamed holder, and for a listener on a
+  network address only, that the app does not identify it. The holder
+  wording is shared with LWSM-1013 through controller._holder_phrase.
+  Enter re-asks and announces the answer to a screen reader.
   Lanes: ui, core.
 
 - 📋 [LWSM-1037] **P07: suggest a free port.**
@@ -12202,6 +12211,22 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   **Layman:** Two places in the code stop servers in nearly the same way, and nothing tells someone editing one to check the other.
   Kind: refactor.
   Source: review-readability-trial-2026-10-19.
+
+- 📋 [LWSM-1423] **The conflict warning can name "another user" when it does not know.**
+  Found building LWSM-1041. PortSnapshot.holders covers only
+  addresses localhost reaches, and drops a port two unrelated PIDs
+  hold. So the pre-flight's PortAlreadyBound carries holder None for
+  a server bound to a LAN address only, or for two unrelated
+  listeners, and controller._holder_phrase then says "a process
+  owned by another user, which cannot be inspected". design.md
+  § A port holder that cannot be named forbids asserting who owns
+  it. The LWSM-1041 lookup already tells the LAN-only case apart
+  (port_lookup's answers_localhost branch); the refusal cannot, since
+  it carries only the PID. Not reproduced live; read from ports.py.
+  **Layman:** When a start is refused, the warning may blame another user's program when the real reason is simply that the app did not look.
+  Kind: fix.
+  Source: in-session-2026-10-20.
+  Lanes: core.
 
 ## 0.5.0 — Logs
 

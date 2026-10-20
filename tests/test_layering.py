@@ -52,6 +52,7 @@ CORE_MODULES = [
 NON_CORE_MODULES = {
     "mainwindow.py",
     "settingsdialog.py",
+    "portlookup.py",
     "firstrun.py",
     "theme.py",
     "__main__.py",

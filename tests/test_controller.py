@@ -4153,3 +4153,83 @@ def test_a_task_that_raises_logs_the_traceback(monkeypatch, caplog, task) -> Non
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert warnings and warnings[0].exc_info is not None
     assert signals.done.emitted or signals.state.emitted, "nothing was reported"
+
+
+# --- LWSM-1041: "what's using this port?" --------------------------------------
+
+
+def test_the_lookup_says_when_nothing_is_listening(qtbot, controllers) -> None:
+    controller = build(controllers, [record("a")], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset({5005}), {5005: os.getpid()}))
+
+    assert controller.port_lookup(8080) == "Nothing is listening on port 8080."
+
+
+def test_the_lookup_names_the_holder_and_its_project(qtbot, controllers) -> None:
+    """The holder of a project's port is named as that project's server.
+
+    This test's own PID, so `describe_holder` reads a real program path."""
+    import psutil
+
+    me = os.getpid()
+    controller = build(controllers, [record("a")], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset({5005}), {5005: me}))
+
+    answer = controller.port_lookup(5005)
+
+    assert psutil.Process(me).exe() in answer, answer
+    assert f"PID {me}" in answer, answer
+    assert answer.endswith(", the server of a."), answer
+
+
+def test_the_lookup_names_a_holder_that_is_no_project(qtbot, controllers) -> None:
+    """Any port, not only a project's: the stranger is named, with no project."""
+    me = os.getpid()
+    controller = build(controllers, [record("a")], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset({9000}), {9000: me}))
+
+    answer = controller.port_lookup(9000)
+
+    assert f"PID {me}" in answer, answer
+    assert "server of" not in answer, answer
+
+
+def test_the_lookup_says_when_the_holder_cannot_be_named(qtbot, controllers) -> None:
+    """ADR-0004: a holder the kernel will not name is not given an owner."""
+    controller = build(controllers, [record("a")], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset({5005})))
+
+    answer = controller.port_lookup(5005)
+
+    assert "cannot be inspected" in answer, answer
+    assert "server of" not in answer, answer
+
+
+def test_the_lookup_invents_no_owner_for_a_network_only_listener(
+    qtbot, controllers
+) -> None:
+    """`holders` only covers addresses `localhost` reaches, so a LAN-only
+    listener has no holder for a different reason than another user's — and
+    calling it another user's would be inventing an owner (design.md)."""
+    controller = build(controllers, [record("a")], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset({5005}), {}, local=frozenset()))
+
+    answer = controller.port_lookup(5005)
+
+    assert "another user" not in answer, answer
+    assert "other than localhost" in answer, answer
+
+
+def test_the_lookup_answers_nothing_before_the_first_poll(qtbot, controllers) -> None:
+    controller = build(controllers, [record("a")], FakeProbe())
+
+    assert "not been read yet" in controller.port_lookup(5005)
+
+
+def test_the_lookup_stops_answering_when_the_table_is_lost(qtbot, controllers) -> None:
+    """A failed probe drops the snapshot, so the answer is never a stale one."""
+    controller = build(controllers, [record("a")], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset({5005}), {5005: os.getpid()}))
+    controller._on_probe_error(ProbeError("socket table unavailable"))
+
+    assert controller.port_lookup(5005) == "Port status cannot be read right now."

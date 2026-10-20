@@ -2376,6 +2376,10 @@ class MainWindow(QMainWindow):
         self._show_hidden_action = self._view_menu.addAction("")
         self._show_hidden_action.setCheckable(True)
         self._show_hidden_action.toggled.connect(self._set_show_hidden)
+        self._view_menu.addSeparator()
+        self._port_lookup_action = self._view_menu.addAction("")
+        self._port_lookup_action.triggered.connect(self._open_port_lookup)
+        self._port_lookup: QDialog | None = None
 
         self._settings_menu = bar.addMenu("")
         self._build_theme_menu(self._settings_menu)
@@ -2384,6 +2388,22 @@ class MainWindow(QMainWindow):
         self._settings_action = self._settings_menu.addAction("")
         self._settings_action.triggered.connect(self._open_settings)
         self._retranslate_menus()
+
+    def _open_port_lookup(self) -> None:
+        """Show the port lookup (LWSM-1041), one copy, raised if already open.
+
+        Imported here because `portlookup` imports this module for its size
+        floor, the way `__main__` imports the settings dialog.
+        """
+        if self._port_lookup is None:
+            from lwsm.portlookup import PortLookupDialog
+
+            self._port_lookup = PortLookupDialog(
+                lookup=self._controller.port_lookup, parent=self
+            )
+        self._port_lookup.show()
+        self._port_lookup.raise_()
+        self._port_lookup.activateWindow()
 
     def _build_theme_menu(self, parent: QMenu) -> None:
         """The theme picker (LWSM-1031), a submenu of Settings.
@@ -2638,6 +2658,9 @@ class MainWindow(QMainWindow):
         )
         self._show_hidden_action.setText(
             QCoreApplication.translate("ProjectRow", "Show &hidden projects")
+        )
+        self._port_lookup_action.setText(
+            QCoreApplication.translate("ProjectRow", "What's using a &port...")
         )
         self._settings_menu.setTitle(
             QCoreApplication.translate("ProjectRow", "&Settings")

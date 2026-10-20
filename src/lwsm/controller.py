@@ -333,25 +333,28 @@ def _health_page(record: ProjectRecord) -> str:
     return record.health_path or "/"
 
 
-def _port_conflict(name: str, refusal: PortAlreadyBound) -> str:
-    """The conflict warning: the pre-flight refusal, naming who is in the way.
+def _holder_phrase(holder: int | None) -> str:
+    """Who holds a port, in words: the conflict warning's and the lookup's.
 
     ADR-0002's pre-flight: "the holder is named — or reported as another
     user's process when the PID cannot be resolved". The program path and not
     the command line: a process chooses its own command line, and this is one
     line of text with no dialog around it to keep the two apart (LWSM-1013).
     """
-    if refusal.holder is None:
-        who = "a process owned by another user, which cannot be inspected"
-    else:
-        exe = describe_holder(refusal.holder).exe
-        if exe is None:
-            # Exited since the snapshot, or its program is unreadable to us.
-            who = f"process {refusal.holder}, whose program could not be read"
-        else:
-            who = f"{display_text(exe)} (PID {refusal.holder})"
+    if holder is None:
+        return "a process owned by another user, which cannot be inspected"
+    exe = describe_holder(holder).exe
+    if exe is None:
+        # Exited since the snapshot, or its program is unreadable to us.
+        return f"process {holder}, whose program could not be read"
+    return f"{display_text(exe)} (PID {holder})"
+
+
+def _port_conflict(name: str, refusal: PortAlreadyBound) -> str:
+    """The conflict warning: the pre-flight refusal, naming who is in the way."""
     return (
-        f"{name}: port {refusal.port} is in use by {who} — free it, or change "
+        f"{name}: port {refusal.port} is in use by "
+        f"{_holder_phrase(refusal.holder)} — free it, or change "
         "this project's port and Rescan"
     )
 
@@ -1018,6 +1021,10 @@ class ProjectController(QObject):
         # port holder PIDs from the same snapshot, so a foreign server can be
         # named. Cleared with `_managed` when a probe fails, for its reason.
         self._holders: dict[Path, int] = {}
+        # The last snapshot itself, for `port_lookup` (LWSM-1041). Cleared when
+        # a probe fails, so the lookup never answers from a table it has lost
+        # sight of.
+        self._snapshot: PortSnapshot | None = None
         # Units this session has adopted, remembered so Start works after a
         # Stop: once the unit is stopped nothing holds its port, so the holder
         # PID that named it is gone. In memory only — a restart of the app with
@@ -1289,6 +1296,34 @@ class ProjectController(QObject):
             if holder is not None:
                 holders[record.path] = holder
         return holders
+
+    def port_lookup(self, port: int) -> str:
+        """What is using `port`, answered from the poll's last snapshot.
+
+        LWSM-1041: the question the project started from, for any port, not
+        only a project's. No socket-table read of its own; the one OS read is
+        `describe_holder`'s, made only when the user asks.
+        """
+        if self._snapshot is None:
+            if self._last_error is not None:
+                return "Port status cannot be read right now."
+            return "Port status has not been read yet. Try again in a moment."
+        if not self._snapshot.is_bound(port):
+            return f"Nothing is listening on port {port}."
+        if not self._snapshot.answers_localhost(port):
+            # `holders` covers only the addresses `localhost` reaches, so a
+            # holder here is not looked for. Saying "another user's" would be
+            # inventing an owner, which design.md forbids.
+            return (
+                f"Port {port} is in use on a network address other than "
+                "localhost, by a process this app does not identify."
+            )
+        holder = self._snapshot.holder(port)
+        answer = f"Port {port} is in use by {_holder_phrase(holder)}"
+        for record in self._records:
+            if holder is not None and self._holders.get(record.path) == holder:
+                return f"{answer}, the server of {display_text(record.name)}."
+        return f"{answer}."
 
     def _port_claimed_by(self, record: ProjectRecord) -> ProjectRecord | None:
         """The project that registered this record's port first, if any.
@@ -2093,6 +2128,7 @@ class ProjectController(QObject):
         # scope that holds one.
         self._managed = self._managed_paths(snapshot)
         self._holders = self._holder_pids(snapshot)
+        self._snapshot = snapshot
         settled = self._settle_overlay()
         self._track_starting()
         self._reaped.clear()
@@ -2214,6 +2250,7 @@ class ProjectController(QObject):
         # The emit is not optional: `_maybe_emit` compares statuses alone, so
         # it cannot see this change and the buttons would keep the enablement
         # the last good poll gave them.
+        self._snapshot = None
         if self._managed or self._holders:
             self._managed = set()
             self._holders = {}

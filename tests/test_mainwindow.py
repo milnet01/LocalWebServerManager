@@ -3185,6 +3185,24 @@ def test_quit_from_the_menu_closes_the_window(qtbot, built) -> None:
     assert not window.isVisible()
 
 
+def test_the_view_menu_opens_one_port_lookup(qtbot, built) -> None:
+    """LWSM-1041: the entry opens the lookup, wired to this window's
+    controller, and a second trigger raises the same window."""
+    window, _ = window_for(qtbot, built, two_rows(), FakeProbe(5005))
+    window.show()
+    qtbot.waitUntil(window.isVisible, timeout=2000)
+
+    window._port_lookup_action.trigger()
+    first = window._port_lookup
+    window._port_lookup_action.trigger()
+
+    assert first is not None
+    assert window._port_lookup is first
+    qtbot.waitUntil(first.isVisible, timeout=2000)
+    first._port.setText("5005")
+    assert first._result.text() == window._controller.port_lookup(5005)
+
+
 # --- LWSM-1031: the theme picker, and the switch it drives --------------------
 
 

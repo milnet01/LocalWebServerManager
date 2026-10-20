@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Added
+
+- **View → What's using a port... tells you what is listening on any port.** Type a port number to see the program and its process ID, and which of your projects it serves, if any. It also says when nothing is listening, or when the holder cannot be identified. (LWSM-1041)
+
 ### Changed
 
 - **A start refused because the port is taken now says what is taking it.** The row names the program and its process ID, or says the process belongs to another user and cannot be inspected, instead of only "port 8080 is already bound". (LWSM-1013)
