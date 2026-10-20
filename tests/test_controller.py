@@ -35,6 +35,7 @@ from lwsm.registry import ProjectRecord
 from lwsm.supervisor import (
     MAX_LOG_BYTES,
     LauncherUntrusted,
+    PortAlreadyBound,
     StopOutcome,
     Supervisor,
     launcher_fingerprint,
@@ -1653,6 +1654,57 @@ def test_an_unconfirmed_launcher_asks_rather_than_failing(qtbot, controllers) ->
     controller.confirm_and_start(Path("/srv/a"), refusal.fingerprint)
     assert supervisor.trust.confirmed == [(Path("/srv/a"), "abc123")]
     assert supervisor.started
+
+
+def test_a_refused_start_names_the_process_holding_the_port(qtbot, controllers) -> None:
+    """LWSM-1013: the pre-flight refusal says who is in the way.
+
+    The holder is this test's own process, so `describe_holder` reads a real
+    program path rather than a fake one — the message the user sees is built
+    from what psutil answers, and a fake would only echo itself back.
+    """
+    import psutil
+
+    me = os.getpid()
+    supervisor = FakeSupervisor(refusal=PortAlreadyBound(5005, holder=me))
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    failures: list[str] = []
+    controller.action_failed.connect(lambda _path, text: failures.append(text))
+
+    controller.start_project(Path("/srv/a"))
+
+    assert len(failures) == 1
+    assert "5005" in failures[0]
+    assert psutil.Process(me).exe() in failures[0], failures[0]
+    assert f"PID {me}" in failures[0], failures[0]
+    assert controller.rows()[0].status is not ProjectStatus.STARTING
+
+
+@pytest.mark.parametrize(
+    ("holder", "says"),
+    [
+        # Another user's process: the kernel names no PID (ADR-0004).
+        (None, "another user"),
+        # A PID that names nothing by the time it is described — gone, or
+        # unreadable. Above any `pid_max` Linux allows, so it never exists.
+        (2**23, "could not be read"),
+    ],
+    ids=["unnamed", "unreadable"],
+)
+def test_a_refused_start_says_when_the_holder_cannot_be_named(
+    qtbot, controllers, holder: int | None, says: str
+) -> None:
+    """ADR-0004: "no name is invented" — the message says it does not know."""
+    supervisor = FakeSupervisor(refusal=PortAlreadyBound(5005, holder=holder))
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    failures: list[str] = []
+    controller.action_failed.connect(lambda _path, text: failures.append(text))
+
+    controller.start_project(Path("/srv/a"))
+
+    assert len(failures) == 1
+    assert "5005" in failures[0]
+    assert says in failures[0], failures[0]
 
 
 def test_stopping_a_project_this_manager_did_not_start_is_refused(

@@ -191,12 +191,16 @@ class PortAlreadyBound(SupervisorError):
 
     Step 1 of every start (`docs/design.md`), and of every restart, since
     ADR-0003 defines restart as "stop then start *with the same pre-flight
-    check*". The conflict-warning UI is P07; this is the refusal underneath it.
+    check*". The controller turns it into the conflict warning (LWSM-1013).
+
+    `holder` is the PID the same snapshot names on the port, or None when the
+    kernel would not name one — another user's process (ADR-0004).
     """
 
-    def __init__(self, port: int):
+    def __init__(self, port: int, holder: int | None = None):
         super().__init__(f"port {port} is already bound")
         self.port = port
+        self.holder = holder
 
 
 class AlreadyRunning(SupervisorError):
@@ -1225,8 +1229,10 @@ class Supervisor:
 
         try:
             # Step 1 of every start, and of every restart (ADR-0003).
-            if port is not None and self._probe.snapshot().is_bound(port):
-                raise PortAlreadyBound(port)
+            if port is not None:
+                snapshot = self._probe.snapshot()
+                if snapshot.is_bound(port):
+                    raise PortAlreadyBound(port, snapshot.holder(port))
 
             launcher = _launcher_path(resolved_project, argv)
             if launcher is not None:

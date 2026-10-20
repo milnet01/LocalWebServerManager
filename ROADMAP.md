@@ -11996,7 +11996,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: user-2026-10-19.
   Lanes: supervisor, tests.
 
-- 📋 [LWSM-1013] **P07: the conflict warning UI.**
+- ✅ [LWSM-1013] **P07: the conflict warning UI.**
   When the
   pre-flight check built in LWSM-1009 refuses a start, the window
   says what is holding the port — naming the process, or saying
@@ -12009,6 +12009,15 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: implement.
   Source: in-session-2026-08-03.
   Priority: 2.
+  Shipped 2026-10-20. PortAlreadyBound carries the holder PID from
+  the pre-flight's own snapshot; controller._port_conflict names the
+  program and PID, says "owned by another user, which cannot be
+  inspected" when the kernel names no PID, and says the program could
+  not be read when the PID has gone. Restart goes through the same
+  start_project, so it says the same. The "offer to reassign" moved to
+  LWSM-1014 (user, 2026-10-20): nothing can change a port until it
+  lands, so the warning advises changing the project's port and
+  rescanning meanwhile.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1041] **P07: "what's using this port?" lookup.**
@@ -12068,6 +12077,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   that honours PORT keeps the old override's port as its confirmed port
   after the override is removed. See docs/specs/LWSM-1038-confirmed-ports.md
   § 4.4.
+  Owed from LWSM-1013 (user, 2026-10-20): the conflict warning's
+  "offer to reassign" lands here. A start refused on a taken port
+  shows its warning on the row (controller._port_conflict); this item
+  adds a "Change port…" action beside it, opening the port entry it
+  builds, and drops the warning's "change this project's port and
+  Rescan" advice once that action exists.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**

@@ -31,6 +31,7 @@ from lwsm.service import (
     ENDED_STATES,
     UnitOutcome,
     clear_drop_in,
+    describe_holder,
     drive_unit,
     set_drop_in,
     unit_belongs_to,
@@ -41,6 +42,7 @@ from lwsm.settings import DEFAULT_POLL_INTERVAL_MS
 from lwsm.supervisor import (
     LauncherUntrusted,
     ManagedProcess,
+    PortAlreadyBound,
     StopOutcome,
     SupervisorError,
 )
@@ -329,6 +331,29 @@ class HealthAnswer:
 def _health_page(record: ProjectRecord) -> str:
     """The page a health check asks for; None in the record means `/`."""
     return record.health_path or "/"
+
+
+def _port_conflict(name: str, refusal: PortAlreadyBound) -> str:
+    """The conflict warning: the pre-flight refusal, naming who is in the way.
+
+    ADR-0002's pre-flight: "the holder is named — or reported as another
+    user's process when the PID cannot be resolved". The program path and not
+    the command line: a process chooses its own command line, and this is one
+    line of text with no dialog around it to keep the two apart (LWSM-1013).
+    """
+    if refusal.holder is None:
+        who = "a process owned by another user, which cannot be inspected"
+    else:
+        exe = describe_holder(refusal.holder).exe
+        if exe is None:
+            # Exited since the snapshot, or its program is unreadable to us.
+            who = f"process {refusal.holder}, whose program could not be read"
+        else:
+            who = f"{display_text(exe)} (PID {refusal.holder})"
+    return (
+        f"{name}: port {refusal.port} is in use by {who} — free it, or change "
+        "this project's port and Rescan"
+    )
 
 
 @dataclass(frozen=True)
@@ -1353,6 +1378,11 @@ class ProjectController(QObject):
             # Not a failure: the user has simply not been asked yet. The window
             # shows what would run and calls back in.
             self.confirmation_required.emit(path, refusal)
+            return
+        except PortAlreadyBound as refusal:
+            self.action_failed.emit(
+                path, _port_conflict(display_text(record.name), refusal)
+            )
             return
         except SupervisorError as exc:
             self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")

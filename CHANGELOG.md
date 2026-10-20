@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Changed
+
+- **A start refused because the port is taken now says what is taking it.** The row names the program and its process ID, or says the process belongs to another user and cannot be inspected, instead of only "port 8080 is already bound". (LWSM-1013)
+
 ### Fixed
 
 - **Quitting the app no longer stops the servers it started.** Started from the desktop, closing it took every server it had launched with it; each server now runs in its own systemd scope and keeps running for the next session to pick up. (LWSM-1420)

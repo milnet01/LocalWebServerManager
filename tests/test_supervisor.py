@@ -62,11 +62,14 @@ from lwsm.supervisor import (
 class FakeProbe:
     """A socket table we control, so the pre-flight check is deterministic."""
 
-    def __init__(self, listening: set[int] | None = None) -> None:
+    def __init__(
+        self, listening: set[int] | None = None, holders: dict[int, int] | None = None
+    ) -> None:
         self.listening = set(listening or ())
+        self.holders = dict(holders or {})
 
     def snapshot(self) -> PortSnapshot:
-        return PortSnapshot(frozenset(self.listening))
+        return PortSnapshot(frozenset(self.listening), self.holders)
 
 
 def free_port() -> int:
@@ -916,6 +919,30 @@ def test_start_refuses_when_the_effective_port_is_already_bound(
         with pytest.raises(PortAlreadyBound) as caught:
             sup.start(project, name="demo", argv=["./start.sh"], port=8080)
         assert caught.value.port == 8080
+    finally:
+        sup.close()
+
+
+@pytest.mark.parametrize(
+    ("holders", "expected"),
+    [({8080: 4242}, 4242), ({}, None)],
+    ids=["named", "unnamed"],
+)
+def test_the_pre_flight_refusal_carries_the_port_s_holder(
+    tmp_path: Path, project: Path, holders: dict[int, int], expected: int | None
+) -> None:
+    """LWSM-1013: the refusal names who is in the way, from the same snapshot.
+
+    `None` when the kernel would not name the holder — a port in `listening`
+    with no entry in `holders`, which is another user's process (ADR-0004).
+    """
+    sup = Supervisor(probe=FakeProbe({8080}, holders), log_dir=tmp_path / "logs")
+    write_launcher(project, "exit 0\n")
+    sup.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    try:
+        with pytest.raises(PortAlreadyBound) as caught:
+            sup.start(project, name="demo", argv=["./start.sh"], port=8080)
+        assert caught.value.holder == expected
     finally:
         sup.close()
 
