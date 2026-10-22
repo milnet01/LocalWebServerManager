@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1423 -->
+<!-- ants-roadmap-id-high-water: LWSM=1425 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12046,21 +12046,6 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Enter re-asks and announces the answer to a screen reader.
   Lanes: ui, core.
 
-- 📋 [LWSM-1037] **P07: suggest a free port.**
-  When reassigning,
-  propose a port that is actually free — checked against the live
-  socket table and against every other project's effective port,
-  so the suggestion cannot collide with a project that simply
-  is not running yet. Offered as a default the user can override,
-  never imposed.
-  Dependencies: LWSM-1013.
-  **Layman:** When you change a port, offer one that's actually
-  free instead of letting you guess and be refused.
-  Kind: implement.
-  Source: user-2026-08-03.
-  Priority: 3.
-  Lanes: core, ui.
-
 - 📋 [LWSM-1014] **P07: port override, validated and persisted.**
   Assign a different port from the UI; validated at
   entry against 1024–65535; survives restart; passed as `PORT` on
@@ -12093,6 +12078,21 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   builds, and drops the warning's "change this project's port and
   Rescan" advice once that action exists.
   Lanes: core, ui, tests.
+
+- 📋 [LWSM-1037] **P07: suggest a free port.**
+  When reassigning,
+  propose a port that is actually free — checked against the live
+  socket table and against every other project's effective port,
+  so the suggestion cannot collide with a project that simply
+  is not running yet. Offered as a default the user can override,
+  never imposed.
+  Dependencies: LWSM-1013.
+  **Layman:** When you change a port, offer one that's actually
+  free instead of letting you guess and be refused.
+  Kind: implement.
+  Source: user-2026-08-03.
+  Priority: 3.
+  Lanes: core, ui.
 
 - 📋 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**
   Exposed by LWSM-1214's sibling LWSM-1219, which corrected ADR-0005 to
@@ -12227,6 +12227,33 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: fix.
   Source: in-session-2026-10-20.
   Lanes: core.
+
+- 📋 [LWSM-1424] **Pass XAUTHORITY to started servers, so they can open X11 windows.**
+  supervisor.ENV_ALLOWLIST (ADR-0003) drops XAUTHORITY. On KDE
+  Wayland, Xwayland refuses a client with no cookie, so a server
+  LWSM starts cannot open an X11 window. Measured by the RetroDB
+  session 2026-10-20: LWSM's own process has XAUTHORITY, RetroDB's
+  start.sh does not, and RetroArch (run through Xwayland) segfaulted.
+  RetroDB works around it on its side by reading Xwayland's -auth
+  path. The variable names a file, not a secret, and DISPLAY is
+  already allowed. Amending ADR-0003's allowlist owes the rule-14
+  gate before the code changes.
+  User, 2026-10-22: file it; not before LWSM-1014 and LWSM-1037.
+  **Layman:** A site the app starts can't open a window through the older display system, so RetroArch crashed when RetroDB launched it.
+  Kind: fix.
+  Source: retrodb-session-2026-10-20.
+  Lanes: core, tests.
+
+- 📋 [LWSM-1425] **Show a project row's focus ring only when the keyboard moved focus there.**
+  User, 2026-10-22: the outline is for keyboard users; a mouse
+  user needs none. Every Fusion control already draws its ring
+  only on keyboard focus (theme.py, State_KeyboardFocusChange).
+  The project row paints its own ring in mainwindow.py paintEvent
+  and tests only hasFocus(), so a click draws it too.
+  **Layman:** Clicking a project with the mouse no longer draws the thick outline; Tab still does.
+  Kind: ux.
+  Source: user-2026-10-22.
+  Lanes: ui, tests.
 
 ## 0.5.0 — Logs
 
@@ -12613,6 +12640,12 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: investigate.
   Source: in-session-2026-08-06.
   Priority: 3.
+  RetroDB session, 2026-10-20 (its commit 467977c, at the user's
+  request): RetroDB already reads LWSM_MANAGED=1 to skip opening a
+  browser, because LWSM's Open button gave the user two pages. That
+  is option (b) taken on the sibling side. RetroDB asks that ADR-0006
+  name "tray icon and auto-opening a browser" as the allowed uses.
+  User, 2026-10-22: file it, do it later.
   Lanes: core, docs.
 
 - ✅ [LWSM-1056] **DS01: `main()` is a shipped entry point with no test.**
