@@ -46,6 +46,7 @@ from PySide6.QtGui import (
     QFontInfo,
     QKeyEvent,
     QKeySequence,
+    QMouseEvent,
     QPainter,
     QPaintEvent,
     QPen,
@@ -1400,6 +1401,17 @@ class ProjectRow(QFrame):
         """
         return focus_ring_width(self.fontMetrics())
 
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """A click on a row that already has focus drops its ring.
+
+        Qt clears the window's `WA_KeyboardFocusChange` when a click MOVES
+        focus, and leaves it set when the clicked widget already had it
+        (measured 2026-10-22), so the row clears it and repaints itself.
+        """
+        super().mousePressEvent(event)
+        self.window().setAttribute(Qt.WidgetAttribute.WA_KeyboardFocusChange, False)
+        self.update()
+
     def paintEvent(self, event: QPaintEvent) -> None:
         """Paint the state glyph, and the focus ring `QFrame` does not.
 
@@ -1412,6 +1424,10 @@ class ProjectRow(QFrame):
         `coding-overrides.md § O8` requires a visible focus ring, `design.md
         § Accessibility` calls it the thing a magnifier user's "where am I?"
         depends on entirely, and WCAG 2.4.7 requires it outright.
+
+        Only when the keyboard moved focus here, as Fusion decides for every
+        other control: a click focuses the row and draws no ring (user,
+        LWSM-1425).
         """
         super().paintEvent(event)
 
@@ -1433,7 +1449,12 @@ class ProjectRow(QFrame):
         )
         glyph_painter.end()
 
-        if not self.hasFocus():
+        # Qt sets the window's flag when Tab, Backtab or a shortcut moves focus
+        # and clears it on any mouse press, so it says how focus arrived.
+        keyboard = self.window().testAttribute(
+            Qt.WidgetAttribute.WA_KeyboardFocusChange
+        )
+        if not (self.hasFocus() and keyboard):
             return
 
         width = self.focus_ring_width()

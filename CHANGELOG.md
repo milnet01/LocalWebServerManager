@@ -27,6 +27,7 @@ signaling per
 
 ### Changed
 
+- **Clicking a project no longer draws a thick outline around it.** The outline shows only when you move to a project with the keyboard, as it already did for buttons and boxes. (LWSM-1425)
 - **A start refused because the port is taken now says what is taking it.** The row names the program and its process ID, or says the process belongs to another user and cannot be inspected, instead of only "port 8080 is already bound". (LWSM-1013)
 
 ### Fixed

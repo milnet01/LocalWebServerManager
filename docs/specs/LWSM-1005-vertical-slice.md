@@ -724,8 +724,10 @@ focus ring, `docs/design-accessibility.md § Accessibility` calls it the thing a
 user's "where am I?" depends on entirely, and WCAG 2.4.7 requires it.
 
 `ProjectRow.paintEvent` draws it: a rectangle inset by half its pen width, in
-the colour `Theme.focus_ring_color()` returns. Three consequences worth
-stating, because each was a decision:
+the colour `Theme.focus_ring_color()` returns. It draws it only when the
+keyboard moved focus there, as Fusion does for every other control. A click
+focuses the row and draws no ring (user, 2026-10-22, LWSM-1425). Three
+consequences worth stating, because each was a decision:
 
 - **The ring is the `accent` token**, not a token of its own, so every palette
   LWSM-1031 adds inherits a legible ring from the contrast its accent already
@@ -1049,12 +1051,16 @@ importing `lwsm.__main__` in a test does not require a display.
   emits into a controller the test has already dropped, which is the
   once-a-week flake `§ T5` exists to prevent.
 
-- **INV-17** — A focused row renders differently from an unfocused one, and
-  the ring's colour clears `testing-overrides.md § T8`'s 3:1 indicator floor against
-  the window.
+- **INV-17** — A row focused by the keyboard renders differently from an
+  unfocused one, and the ring's colour clears `testing-overrides.md § T8`'s
+  3:1 indicator floor against the window. A row focused by a mouse click
+  renders as an unfocused one (LWSM-1425).
   *Test:* `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held`,
   which grabs the row in both states and counts changed pixels, plus
-  `tests/test_theme.py::test_the_focus_ring_clears_the_indicator_floor`.
+  `tests/test_theme.py::test_the_focus_ring_clears_the_indicator_floor` and
+  `tests/test_mainwindow.py::test_a_row_focused_by_the_mouse_paints_no_ring`.
+  Focus moves by a real Backtab: `setFocus` never sets the flag the ring
+  reads, whatever reason it is given.
   The pixel count is compared against the row's perimeter, so an
   antialiasing artefact cannot pass for a ring. Measured on the default
   palette: **858 of 6734 pixels** changed, ring width 2 px, contrast
@@ -1447,7 +1453,7 @@ empty return, the suite is run red, and only then is the body written.
 | INV-14 | `tests/test_main.py::test_version_needs_no_display`, `::test_help_needs_no_display` |
 | INV-15 | `tests/test_mainwindow.py::test_registry_error_opens_an_empty_window` (the file and the reason), `tests/test_main.py::test_starts_even_when_there_is_no_home_directory` |
 | INV-16 | `tests/test_controller.py::test_no_snapshot_is_delivered_after_stop`, `::test_a_poll_started_after_stop_delivers_nothing`, `::test_stop_does_not_wait_on_unrelated_work`, `::test_stop_is_bounded_when_a_probe_never_returns`, `::test_stop_is_bounded_when_a_systemctl_verb_never_returns`, `::test_stop_is_bounded_when_a_health_check_never_returns`, `::test_the_shipped_stop_budget_is_pinned`, `::test_the_process_exits_promptly_when_a_probe_is_abandoned` |
-| INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held`, `tests/test_theme.py::test_the_focus_ring_clears_the_indicator_floor` |
+| INV-17 | `tests/test_mainwindow.py::test_focus_is_visible_not_merely_held`, `::test_a_row_focused_by_the_mouse_paints_no_ring`, `tests/test_theme.py::test_the_focus_ring_clears_the_indicator_floor` |
 | INV-18 | `tests/test_theme.py::test_every_text_token_clears_the_text_floor` |
 | INV-19 | `tests/test_mainwindow.py::test_the_row_exposes_its_cells_and_its_buttons`, `::test_the_glyph_is_never_a_child_of_the_accessibility_tree`, `::test_the_glyph_is_still_painted_after_leaving_the_label` |
 | INV-20 | `tests/test_mainwindow.py::test_the_row_stays_grouped_when_the_window_is_wide`, `::test_the_cells_keep_their_order_and_do_not_overlap` |
@@ -1504,6 +1510,7 @@ only known.
 | 1 | 2026-08-06 | 2 | 2 | 6 | 8 | 10 | 26 verified, 0 unverified, 26 fixed. Dimensions: dim 2×6, dim 5×6, dim 7×6, dim 15×4, dim 4×3, dim 6×2, dim 10×2, dim 1×1. Both CRITICALs were doc-vs-design conflicts: the probe ran on the UI thread against `design.md § State management`'s worker rule, and INV-4 forbade the very carry-over §6 required on a failed probe. Contract added: `ProjectStatus.UNKNOWN`, `RowView`, the worker + in-flight skip, in-place row updates. INV-3 and INV-8 split because each claimed more than its named test exercised. 391 → 684 lines. |
 | 2 | 2026-08-06 | 2 | 1 | 8 | 12 | 12 | 25 verified (18 fix collateral from loop 1, 7 draft defects), 0 unverified, 25 fixed. Dimensions: dim 15×7, dim 5×6, dim 7×5, dim 4×4, dim 10×3, dim 2×2, dim 1×1, dim 6×1, dim 12×1. Two invariants could not fail for the breach they named: INV-4's fresh-controller fixture passes under a sticky implementation, and INV-11 named `psutil` and `MainWindow`, neither of which its fixture has. `QRunnable` cannot carry a `Signal` — `issubclass(QRunnable, QObject)` is `False`, verified — so the worker became `_SnapshotTask(QObject, QRunnable)`. Both lanes agreed the XDG citation was wrong and both named the wrong replacement (`§ O6`); verification found `§ O3`. `nothing` rows 4 → 6 once promises that only looked covered were separated. 684 → 833 lines. |
 | 3 | 2026-08-06 | 1 | 0 | 3 | 5 | 5 | 13 verified, 0 unverified, 13 fixed. Almost all fix collateral from loops 1–2, which is why one lane rather than two. The lane named the check this run owed itself: loop 2 prescribed `_SnapshotTask(QObject, QRunnable)` **without executing it**. Executed here — both that shape *and* a plain `QRunnable` with a composed signaller work under 6.11.1, so the lane's premise (Shiboken forbids it) was wrong while its advice was right; the composed signaller is adopted as the documented idiom. Also caught: the accessible name would have included the `●` glyph and announced "black circle"; INV-15 named a test that could not observe it, since `main` blocks in `app.exec()` — `build_window` is the seam that fixes it. Added INV-16 (shutdown waits for the outstanding task). `nothing` rows 6 → 8, two of them unowned. 833 → 921 lines. **Converged by cap.** No verified finding is left unfixed. |
+| impl | 2026-10-22 | 0 | — | — | — | — | Fold-back, not a review; no reviewer dispatched. LWSM-1425 (user, 2026-10-22): the row's focus ring is drawn only on keyboard focus. INV-17 and the paintEvent passage record the built and tested code. |
 
 ## 13. Resource cost
 

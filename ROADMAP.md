@@ -12244,12 +12244,20 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: retrodb-session-2026-10-20.
   Lanes: core, tests.
 
-- 📋 [LWSM-1425] **Show a project row's focus ring only when the keyboard moved focus there.**
+- ✅ [LWSM-1425] **Show a project row's focus ring only when the keyboard moved focus there.**
   User, 2026-10-22: the outline is for keyboard users; a mouse
   user needs none. Every Fusion control already draws its ring
   only on keyboard focus (theme.py, State_KeyboardFocusChange).
   The project row paints its own ring in mainwindow.py paintEvent
   and tests only hasFocus(), so a click draws it too.
+  Shipped 2026-10-22. ProjectRow.paintEvent draws the ring only when
+  the window's WA_KeyboardFocusChange is set, as Fusion does.
+  mousePressEvent clears that flag and repaints: Qt clears it only when
+  a click moves focus, so a click on an already-focused row kept its
+  ring (measured). Red: the new test failed with 2194 ring pixels
+  before the fix, and again with the flag-clearing line removed. Tests
+  now focus the row with a real Backtab, since setFocus never sets the
+  flag. Full gate 2624 passed.
   **Layman:** Clicking a project with the mouse no longer draws the thick outline; Tab still does.
   Kind: ux.
   Source: user-2026-10-22.

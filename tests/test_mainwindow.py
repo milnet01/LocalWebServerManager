@@ -684,6 +684,21 @@ def changed_pixels(first, second) -> int:
     )
 
 
+def focus_by_keyboard(qtbot, row) -> None:
+    """Move focus onto `row` with a real Backtab from the next control.
+
+    The ring is drawn only for keyboard focus (LWSM-1425), and Qt sets the
+    window's `WA_KeyboardFocusChange` on a real Tab key, never on `setFocus`,
+    whatever reason it is given (CLAUDE.md's `QStyleOption` trap).
+    """
+    after = row.nextInFocusChain()
+    while not (after.focusPolicy() & Qt.FocusPolicy.TabFocus and after.isVisible()):
+        after = after.nextInFocusChain()
+    after.setFocus()
+    qtbot.keyClick(after, Qt.Key.Key_Backtab)
+    assert row.hasFocus(), "Backtab did not land on the row"
+
+
 def test_focus_is_visible_not_merely_held(qtbot, built) -> None:
     """The row paints its own focus ring, because `QFrame` paints no
     focus indicator: `StyledPanel` never consults `State_HasFocus`.
@@ -711,7 +726,7 @@ def test_focus_is_visible_not_merely_held(qtbot, built) -> None:
     assert not row.hasFocus(), "the baseline must be an unfocused render"
     unfocused = row.grab().toImage()
 
-    row.setFocus()
+    focus_by_keyboard(qtbot, row)
     assert row.hasFocus(), "the fixture must actually focus the row"
     focused = row.grab().toImage()
 
@@ -725,6 +740,46 @@ def test_focus_is_visible_not_merely_held(qtbot, built) -> None:
     assert difference > perimeter, (
         f"only {difference} pixels changed against a {perimeter}px perimeter — "
         f"too few to be a ring around the row"
+    )
+
+
+def test_a_row_focused_by_the_mouse_paints_no_ring(qtbot, built) -> None:
+    """The ring is for the keyboard; a click focuses the row and draws nothing.
+
+    The user's call (LWSM-1425): someone using the mouse can see what they
+    clicked. Every Fusion control already behaved this way, so before this the
+    row was the one thing that drew a ring on a click.
+
+    A real click, not `setFocus(MouseFocusReason)`: Qt clears the window's
+    `WA_KeyboardFocusChange` on the mouse press itself, and that is the signal
+    the row reads.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    with qtbot.waitExposed(window):
+        window.show()
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    row = rows_of(window)[0]
+    row.clearFocus()
+    unfocused = row.grab().toImage()
+
+    # Keyboard focus first, ring on screen: the click below must take it away
+    # from a row that already has focus, where focus itself does not move.
+    focus_by_keyboard(qtbot, row)
+    assert changed_pixels(unfocused, row.grab().toImage()) > 0, (
+        "a row focused by Tab paints no ring"
+    )
+
+    # The glyph column belongs to the row itself, not to a child control.
+    qtbot.mouseClick(
+        row,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(row._glyph_x + row._glyph_width // 2, row.height() // 2),
+    )
+    assert row.hasFocus(), "the click must actually focus the row"
+
+    assert changed_pixels(unfocused, row.grab().toImage()) == 0, (
+        "a row focused by a mouse click paints a focus ring"
     )
 
 
@@ -794,7 +849,7 @@ def test_the_focus_ring_is_painted_in_the_accent_token(qtbot, built) -> None:
         window.activateWindow()
     row = rows_of(window)[0]
 
-    row.setFocus()
+    focus_by_keyboard(qtbot, row)
     assert row.hasFocus(), "the fixture must actually focus the row"
     focused = row.grab().toImage()
 
