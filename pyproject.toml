@@ -41,7 +41,7 @@ dev = [
     # A failing order reproduces with `--randomly-seed=N`, N being the seed the
     # run prints (or `last`); disabling it with `-p no:randomly` is a smell.
     "pytest-randomly==5.0.0",
-    "ruff==0.17.1",
+    "ruff==0.17.2",
     # LWSM-1066. The `nodejs` extra pins the Node runtime pyright needs through
     # uv.lock, instead of whatever Node a machine happens to have.
     "pyright[nodejs]==1.1.414",
