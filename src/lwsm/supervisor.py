@@ -1642,17 +1642,23 @@ class Supervisor:
                 f"refusing to signal process group {pgid}, which is our own"
             )
 
+        # Filtered on the pid before a `Process` is built: `process_iter`
+        # constructs (and re-validates) one for every process on the machine,
+        # and this runs on every upkeep tick for a wrapper-style launcher.
         members: list[psutil.Process] = []
-        seen: set[int] = set()
-        for proc in psutil.process_iter():
+        seen_leader = False
+        for pid in psutil.pids():
             try:
-                if os.getpgid(proc.pid) != pgid:
+                if os.getpgid(pid) != pgid:
                     continue
+                if pid == managed.pid:
+                    seen_leader = True
+                    members.append(managed.handle)
+                else:
+                    members.append(psutil.Process(pid))
             except (OSError, psutil.Error):
                 continue
-            members.append(proc)
-            seen.add(proc.pid)
-        if managed.pid not in seen:
+        if not seen_leader:
             members.append(managed.handle)
         return [proc for proc in members if _alive(proc)]
 
