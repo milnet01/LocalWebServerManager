@@ -3593,7 +3593,7 @@ class MainWindow(QMainWindow):
         table cannot be read and `managed` has been dropped (LWSM-1295). Open
         never passes it: it must know who holds the port (ADR-0004).
         """
-        view = next((row for row in self._controller.rows() if row.path == path), None)
+        view = self._controller.row(path)
         if view is None or view.managed or (own_child_suffices and view.supervised):
             return True
         if view.status not in RUNNING_STATES:
@@ -3617,7 +3617,7 @@ class MainWindow(QMainWindow):
         while the dialog was open is refused rather than acted on — ADR-0004:
         a set that changed during the dialog is asked again (L6-L5).
         """
-        view = next((row for row in self._controller.rows() if row.path == path), None)
+        view = self._controller.row(path)
         return view.holder_pid if view is not None else None
 
     def _stop_project(self, path: Path) -> None:
@@ -3640,7 +3640,7 @@ class MainWindow(QMainWindow):
         it changed while the dialog was open, the user is asked again about
         the new set rather than shown a stale one.
         """
-        view = next((row for row in self._controller.rows() if row.path == path), None)
+        view = self._controller.row(path)
         if (
             view is None
             or view.managed
@@ -3687,7 +3687,7 @@ class MainWindow(QMainWindow):
         """
         if not self._may_act_on(path):
             return
-        view = next((row for row in self._controller.rows() if row.path == path), None)
+        view = self._controller.row(path)
         if view is None or view.effective_port is None:
             self.set_status_message(
                 QCoreApplication.translate(

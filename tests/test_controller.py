@@ -153,6 +153,19 @@ def test_one_snapshot_per_poll(qtbot, controllers) -> None:
     assert probe.calls == 1, "ten records, one socket-table read"
 
 
+def test_one_row_is_the_row_rows_reports(qtbot, controllers) -> None:
+    """`row(path)` is what a button handler reads instead of building every
+    row; it must be the same view, and None for a path with no record."""
+    probe = FakeProbe(5001)
+    controller = build(controllers, [record("a", 5000), record("b", 5001)], probe)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    assert controller.row(Path("/srv/b")) == controller.rows()[1]
+    assert controller.row(Path("/srv/b")).status is ProjectStatus.RUNNING
+    assert controller.row(Path("/srv/missing")) is None
+
+
 # --- INV-4 / INV-4b: derived, not remembered ----------------------------------
 
 

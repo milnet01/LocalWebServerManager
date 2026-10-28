@@ -1099,47 +1099,59 @@ class ProjectController(QObject):
 
     def rows(self) -> list[RowView]:
         """File order, so rows do not jump between polls."""
-        managed = self._managed
-        holders = self._holders
-        supervisor = self._supervisor
-        supervised = set(supervisor.running()) if supervisor is not None else set()
+        supervised = self._supervised()
         now = self._clock()
-        return [
-            RowView(
-                path=record.path,
-                name=record.name,
-                effective_port=record.effective_port,
-                status=self._status_of(record.path),
-                starting_for=(
-                    now - self._starting_since[record.path]
-                    if record.path in self._starting_since
-                    else None
-                ),
-                managed=record.path in managed,
-                holder_pid=holders.get(record.path),
-                # Asked at render time, unlike `managed`. That one has to come
-                # from the poll's own snapshot (LWSM-1167) because it is a fact
-                # about the socket table; this is the supervisor's own
-                # bookkeeping, and the only useful answer is the current one.
-                stopping=supervisor is not None and supervisor.is_stopping(record.path),
-                # Render time too, for the same reason: bookkeeping, not the
-                # socket table.
-                supervised=record.path in supervised,
-                hidden=record.hidden,
-                browser=record.browser,
-                port_from=record.port_from,
-                port_conflicts=record.port_conflicts,
-                port_overridden=record.port_override is not None,
-                port_confirmed=(
-                    record.port_override is None and record.confirmed_port is not None
-                ),
-                confirmed_port=record.confirmed_port,
-                health_check=record.health_check,
-                health_path=_health_page(record),
-                health=self._health_shown(record),
-            )
-            for record in self._records
-        ]
+        return [self._row_view(record, supervised, now) for record in self._records]
+
+    def row(self, path: Path) -> RowView | None:
+        """The one row `rows()` would report for `path`, without building the
+        rest — what a button handler asks for on every click."""
+        record = self._record(path)
+        if record is None:
+            return None
+        return self._row_view(record, self._supervised(), self._clock())
+
+    def _supervised(self) -> set[Path]:
+        supervisor = self._supervisor
+        return set(supervisor.running()) if supervisor is not None else set()
+
+    def _row_view(
+        self, record: ProjectRecord, supervised: set[Path], now: float
+    ) -> RowView:
+        supervisor = self._supervisor
+        return RowView(
+            path=record.path,
+            name=record.name,
+            effective_port=record.effective_port,
+            status=self._status_of(record.path),
+            starting_for=(
+                now - self._starting_since[record.path]
+                if record.path in self._starting_since
+                else None
+            ),
+            managed=record.path in self._managed,
+            holder_pid=self._holders.get(record.path),
+            # Asked at render time, unlike `managed`. That one has to come
+            # from the poll's own snapshot (LWSM-1167) because it is a fact
+            # about the socket table; this is the supervisor's own
+            # bookkeeping, and the only useful answer is the current one.
+            stopping=supervisor is not None and supervisor.is_stopping(record.path),
+            # Render time too, for the same reason: bookkeeping, not the
+            # socket table.
+            supervised=record.path in supervised,
+            hidden=record.hidden,
+            browser=record.browser,
+            port_from=record.port_from,
+            port_conflicts=record.port_conflicts,
+            port_overridden=record.port_override is not None,
+            port_confirmed=(
+                record.port_override is None and record.confirmed_port is not None
+            ),
+            confirmed_port=record.confirmed_port,
+            health_check=record.health_check,
+            health_path=_health_page(record),
+            health=self._health_shown(record),
+        )
 
     def _health_shown(self, record: ProjectRecord) -> HealthAnswer | None:
         """The stored answer, if it is for this port and page and the row reads
