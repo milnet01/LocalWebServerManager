@@ -50,6 +50,18 @@ def test_a_port_out_of_range_asks_for_one_instead(qtbot, text: str) -> None:
     assert "1 to 65535" in dialog._result.text()
 
 
+@pytest.mark.parametrize("text", ["1,080", "+80"])
+def test_a_port_the_validator_accepts_is_looked_up(qtbot, text: str) -> None:
+    """QIntValidator accepts a group separator and a sign, which int() did
+    not: "1,080" raised ValueError out of the textChanged slot."""
+    asked: list[int] = []
+    dialog = build(qtbot, asked)
+
+    dialog._port.setText(text)
+
+    assert asked[-1] == int(text.replace(",", ""))
+
+
 def test_enter_asks_again(qtbot) -> None:
     """The snapshot moves on every poll, so Enter re-asks rather than
     repeating the answer it already has."""

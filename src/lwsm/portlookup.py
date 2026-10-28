@@ -97,8 +97,11 @@ class PortLookupDialog(QDialog):
 
     def _answer(self) -> None:
         """Show what holds the typed port, or what to type."""
-        if self._port.hasAcceptableInput():
-            text = self._lookup(int(self._port.text()))
+        # The validator accepts the locale's group separator ("1,080"), which
+        # int() refuses, so the number is read back through the same locale.
+        port, ok = self._port.validator().locale().toInt(self._port.text())
+        if ok and self._port.hasAcceptableInput():
+            text = self._lookup(port)
         else:
             text = QCoreApplication.translate(
                 "PortLookupDialog", "Type a port number from 1 to 65535."
