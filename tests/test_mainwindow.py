@@ -7211,6 +7211,22 @@ def test_follow_system_tracks_the_desktop_flipping_to_light(qtbot, built) -> Non
         assert row._theme is THEMES["ledger"]
 
 
+def test_the_desktop_flipping_does_not_rewrite_the_stored_theme(qtbot, built) -> None:
+    """The stored id is `follow-system` before and after, so there is nothing
+    to save. Saving anyway rewrote settings.json on every flip, and a file
+    with one bad field put a "theme could not be saved" banner up each time."""
+    saved: list[str] = []
+    window = themed_window(
+        qtbot, built, saved.append, theme_id=FOLLOW_SYSTEM, dark=True
+    )
+
+    window._read_dark = lambda: False
+    window._on_color_scheme_changed()
+
+    assert window._theme is THEMES["ledger"]
+    assert saved == []
+
+
 def test_the_desktop_signal_is_actually_connected_to_that_slot(qtbot, built) -> None:
     """The test above drives the slot directly, so on its own it would pass
     against a window that never subscribed to anything — the shape LWSM-1136

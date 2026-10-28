@@ -2752,13 +2752,15 @@ class MainWindow(QMainWindow):
         Guarded on the stored id, not on whether the palette would change: a
         user who chose `Midnight` outright asked for dark and keeps it when the
         desktop goes light. `set_theme` is re-entered rather than the palette
-        applied here, so the live swap stays stated in exactly one place —
-        including the save, which rewrites the same `follow-system` it read.
+        applied here, so the live swap stays stated in exactly one place. The
+        save is skipped: the stored `follow-system` has not changed, and a
+        settings file with a bad field would otherwise raise a "theme could not
+        be saved" banner on every desktop flip, for a choice nobody made.
         """
         if self._theme_id == FOLLOW_SYSTEM:
-            self.set_theme(FOLLOW_SYSTEM)
+            self.set_theme(FOLLOW_SYSTEM, save=False)
 
-    def set_theme(self, theme_id: str) -> None:
+    def set_theme(self, theme_id: str, *, save: bool = True) -> None:
         """Swap the palette on the live window, then remember the choice.
 
         Applied in the same three places `__init__` applies it, and for the
@@ -2785,7 +2787,7 @@ class MainWindow(QMainWindow):
             # The menu is not always what asked: a theme restored from
             # settings.json arrives here with no action having been triggered.
             action.setChecked(True)
-        if self._save_theme is None:
+        if self._save_theme is None or not save:
             return
         self._save_setting(
             self._save_theme,
