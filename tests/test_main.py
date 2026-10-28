@@ -1808,6 +1808,35 @@ def test_accepting_the_dialog_applies_and_persists_every_field(
 
 
 @pytest.mark.gui
+def test_the_dialog_opens_on_the_values_in_force(qtbot, tmp_path, monkeypatch) -> None:
+    """Not a re-read of the file: a save refused by one bad field leaves the
+    applied interval and cap only in memory, and the re-read offered the
+    file's instead, so OK on an unrelated change reset them live."""
+    from lwsm.settingsdialog import SettingsDialog
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    seen: list[tuple] = []
+
+    def exec_(self):
+        seen.append(self.values()[1:])
+        return SettingsDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(SettingsDialog, "exec", exec_)
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        controller.set_poll_interval_ms(3000)
+        controller._supervisor.max_log_bytes = 32 * 1024 * 1024
+
+        window._open_settings()
+
+        assert seen == [(3000, 32)]
+    finally:
+        controller.stop()
+
+
+@pytest.mark.gui
 def test_cancelling_the_dialog_changes_nothing(qtbot, tmp_path, monkeypatch) -> None:
     """Reject must not apply, and must not write.
 

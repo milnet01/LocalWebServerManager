@@ -273,15 +273,14 @@ def build_window(
         """
         from lwsm.settingsdialog import SettingsDialog
 
-        current = (
-            Settings()
-            if settings_path is None
-            else load_settings(settings_path).settings
-        )
+        # Seeded from what is running, not from a re-read of the file. A save
+        # refused by one bad field leaves the applied values only in memory,
+        # and a re-read offered the file's (or the defaults) instead: pressing
+        # OK to change the roots alone then reset the live interval and cap.
         dialog = SettingsDialog(
             roots=window.scan_roots(),
-            poll_interval_ms=current.poll_interval_ms,
-            log_max_mib=current.log_max_mib,
+            poll_interval_ms=controller.poll_interval_ms,
+            log_max_mib=supervisor.max_log_bytes // (1024 * 1024),
             parent=window,
         )
         # `deleteLater`, on BOTH paths (LWSM-1276). The dialog is parented to

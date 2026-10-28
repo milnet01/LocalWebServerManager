@@ -1838,6 +1838,11 @@ class ProjectController(QObject):
                 del self._health[path]
         self.projects_changed.emit()
 
+    @property
+    def poll_interval_ms(self) -> int:
+        """The poll cadence in force now, whatever `settings.json` says."""
+        return self._timer.interval()
+
     def set_poll_interval_ms(self, interval_ms: int) -> None:
         """Change the poll cadence, taking effect without a restart (LWSM-1018).
 
