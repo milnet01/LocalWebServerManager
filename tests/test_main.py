@@ -1611,6 +1611,8 @@ def test_a_scan_roots_file_that_cannot_be_read_is_not_written_over(
     pinned is that the save REFUSES and the bytes survive; which of the two it
     refuses with is the caller's business and is stated in the docstring.
     """
+    if hostile == "unreadable" and os.geteuid() == 0:
+        pytest.skip("root ignores the read bit, so 0o000 plants nothing")
     from lwsm.configfile import ConfigFileError
     from lwsm.scanroots import default_scan_roots, save_scan_roots
 
