@@ -1910,8 +1910,9 @@ def _detect(
 # --------------------------------------------------------------------------
 
 
-def _own_package_directory() -> Path | None:
-    """Where this application's own package lives.
+def _own_package_file() -> Path | None:
+    """This application's own `lwsm/__init__.py`, resolved; the scan refuses
+    any candidate among its parents (the checkout root, `src`).
 
     Exact only for a source checkout, and that is the honest limit: installed as
     a wheel `lwsm` resolves inside `site-packages`, which is not under a scan
@@ -1969,7 +1970,7 @@ def scan(
     lookup = _UnitLookup(
         units if units is not None else SystemctlUnits(), deadline, bounded.note
     )
-    own = _own_package_directory()
+    own = _own_package_file()
     projects: list[DetectedProject] = []
     seen: set[Path] = set()
     unlistable: list[Path] = []
@@ -2039,7 +2040,7 @@ def scan(
                     entry_note(f"{quoted}: cannot be examined ({exc.strerror or exc})")
                     continue
 
-                if own is not None and (own == candidate or candidate in own.parents):
+                if own is not None and candidate in own.parents:
                     # Once P01's launcher exists the manager would otherwise
                     # list and offer to launch itself.
                     entry_note(f"{quoted}: is this application's own directory")
