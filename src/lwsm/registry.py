@@ -499,10 +499,7 @@ def _actions_or_reason(value: object, name: str) -> tuple[tuple[str, ...], str |
         return (), f"{name}: actions {quoted(value)} could not be re-serialised"
 
 
-# Every key this build writes. Anything else in a record is carried through
-# untouched — see `ProjectRecord.unknown`. Derived from the writer rather than
-# retyped, so a key added to `_serialised` cannot be treated as unknown by the
-# loader in the same commit that starts emitting it.
+# The three keys of one stored port finding.
 _FINDING_KEYS = frozenset({"port", "rule", "source"})
 
 
@@ -583,6 +580,10 @@ def _provenance_or_reason(
 _BLANK_RECORD_PATH = Path("/")
 
 
+# Every key this build writes. Anything else in a record is carried through
+# untouched — see `ProjectRecord.unknown`. Derived from the writer rather than
+# retyped, so a key added to `_serialised` cannot be treated as unknown by the
+# loader in the same commit that starts emitting it.
 def _known_keys() -> frozenset[str]:
     return frozenset(_serialised(ProjectRecord(path=_BLANK_RECORD_PATH, name="")))
 
@@ -601,7 +602,9 @@ def _unknown_or_reason(
     field here: the row survives and the key is reported. Nothing is
     interpreted — the point is to hand it back unchanged.
     """
-    extras = sorted(key for key in entry if key not in _known_keys())
+    # Once per record, not once per key: each call serialises a blank record.
+    known = _known_keys()
+    extras = sorted(key for key in entry if key not in known)
     if not extras:
         return (), None
     try:
@@ -1991,6 +1994,7 @@ def merge_imported(
     owner = _identity_owners(records, note, flag)
 
     claimed_by_profile: set[Path] = set()
+    never_imported_defaults = _defaults(NEVER_IMPORTED_FIELDS)
     for record in imported:
         resolved, failure = _resolve_or_lexical(record.path)
         if failure:
@@ -2011,9 +2015,8 @@ def merge_imported(
 
         # `NEVER_IMPORTED_FIELDS`: reported where the profile carried a value,
         # because a silent drop reads as a profile that had none.
-        defaults = _defaults(NEVER_IMPORTED_FIELDS)
         for name in sorted(NEVER_IMPORTED_FIELDS):
-            if getattr(record, name) != defaults[name]:
+            if getattr(record, name) != never_imported_defaults[name]:
                 note(
                     f"{quoted(record.name)}: the profile's "
                     f"{_NEVER_IMPORTED_WORDS[name]} not imported"
@@ -2036,7 +2039,11 @@ def merge_imported(
                     "fields were not imported"
                 )
             records.append(
-                replace(_detected_half_cleared(record), unknown=(), **defaults)
+                replace(
+                    _detected_half_cleared(record),
+                    unknown=(),
+                    **never_imported_defaults,
+                )
             )
             flag(NEW, f"{quoted(record.name)}: added from the profile")
             continue
