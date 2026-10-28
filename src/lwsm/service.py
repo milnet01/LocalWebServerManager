@@ -29,7 +29,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from lwsm.configfile import ConfigFileError, write_atomically
+from lwsm.configfile import MAX_REASON_CHARS, ConfigFileError, write_atomically
 from lwsm.scanner import (
     SystemctlUnits,
     _exec_start_argv,
@@ -307,19 +307,23 @@ def drive_unit(verb: str, unit: str, *, run: object = None) -> UnitOutcome:
 
     if getattr(completed, "returncode", 1) == 0:
         return UnitOutcome(ok=True, verb=verb, unit=unit)
-    # systemd's own message, trimmed. `configfile.MAX_REASON_CHARS` exists for
-    # exactly this shape of foreign text reaching a widget; the bound is applied
-    # here so no caller can forget it.
-    from lwsm.configfile import MAX_REASON_CHARS
-
-    detail = (getattr(completed, "stderr", "") or "").strip().replace("\n", " ")
     return UnitOutcome(
         ok=False,
         verb=verb,
         unit=unit,
-        reason=detail[:MAX_REASON_CHARS] or f"systemctl {verb} failed",
+        reason=_stderr_reason(completed, f"systemctl {verb} failed"),
         rejected=True,
     )
+
+
+def _stderr_reason(completed: object, fallback: str) -> str:
+    """systemd's own message, on one line and trimmed, or `fallback`.
+
+    `configfile.MAX_REASON_CHARS` exists for exactly this shape of foreign text
+    reaching a widget; the bound is applied here so no caller can forget it.
+    """
+    detail = (getattr(completed, "stderr", "") or "").strip().replace("\n", " ")
+    return detail[:MAX_REASON_CHARS] or fallback
 
 
 # --------------------------------------------------------------------------
@@ -387,14 +391,11 @@ def reload_user_manager(*, run: object = None) -> UnitOutcome:
         return UnitOutcome(ok=False, verb=verb, unit="", reason=str(exc))
     if getattr(completed, "returncode", 1) == 0:
         return UnitOutcome(ok=True, verb=verb, unit="")
-    from lwsm.configfile import MAX_REASON_CHARS
-
-    detail = (getattr(completed, "stderr", "") or "").strip().replace("\n", " ")
     return UnitOutcome(
         ok=False,
         verb=verb,
         unit="",
-        reason=detail[:MAX_REASON_CHARS] or "systemctl daemon-reload failed",
+        reason=_stderr_reason(completed, "systemctl daemon-reload failed"),
     )
 
 
