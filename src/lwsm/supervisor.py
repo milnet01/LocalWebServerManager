@@ -43,8 +43,8 @@ from pathlib import Path
 import psutil
 
 from lwsm.applog import (
+    _open_private_regular,
     _prepare_state_dir,
-    _require_private_regular_file,
     default_state_dir,
     get_logger,
 )
@@ -107,31 +107,6 @@ POLL_INTERVAL_SECONDS = 0.02
 # `Supervisor.max_log_bytes`, which starts here and follows the user's choice.
 MAX_LOG_BYTES = DEFAULT_LOG_MAX_MIB * 1024 * 1024
 ROTATION_SUFFIX = ".1"
-
-
-def _open_private_regular(path: Path, flags: int) -> int:
-    """Open `path` as a regular file of ours alone, following nothing.
-
-    One function because there were two copies and they had diverged
-    (`coding.md § 1.3`): the log's open was hardened and the rotation backup's
-    was not, which is exactly the shape a second copy fails in.
-
-    `O_NONBLOCK` belongs in the open rather than beside it. `O_NOFOLLOW`
-    refuses a symlink and says nothing about a FIFO, and opening one for
-    writing blocks until a reader appears -- forever, on whichever thread
-    asked, with no error and no log line. `applog.py` and `configfile.py` were
-    both written after measuring that. It is dropped again once the check
-    passes, because a regular file must write blocking or a line can be
-    short-written.
-    """
-    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
-    try:
-        _require_private_regular_file(fd, str(path))
-        os.set_blocking(fd, True)
-    except BaseException:
-        os.close(fd)
-        raise
-    return fd
 
 
 _COPY_CHUNK_BYTES = 1 << 20

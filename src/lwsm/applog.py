@@ -29,6 +29,32 @@ def _require_private_regular_file(fd: int, path: str) -> None:
         raise OSError(errno.EPERM, "log path is owned by another user", path)
 
 
+def _open_private_regular(path: Path, flags: int) -> int:
+    """Open `path` as a regular file of ours alone, following nothing.
+
+    One function because there were two copies and they had diverged
+    (`coding.md § 1.3`): the log's open was hardened and the rotation backup's
+    was not, which is exactly the shape a second copy fails in. The app log's
+    own handler and the supervisor's child logs both open through it.
+
+    `O_NONBLOCK` belongs in the open rather than beside it. `O_NOFOLLOW`
+    refuses a symlink and says nothing about a FIFO, and opening one for
+    writing blocks until a reader appears -- forever, on whichever thread
+    asked, with no error and no log line. This module and `configfile.py` were
+    both written after measuring that. It is dropped again once the check
+    passes, because a regular file must write blocking or a line can be
+    short-written.
+    """
+    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        _require_private_regular_file(fd, str(path))
+        os.set_blocking(fd, True)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 class _NoFollowRotatingFileHandler(RotatingFileHandler):
     """`RotatingFileHandler` that writes only to a private regular file.
 
@@ -53,16 +79,15 @@ class _NoFollowRotatingFileHandler(RotatingFileHandler):
     """
 
     def _open(self) -> io.TextIOWrapper:
-        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK
-        fd = os.open(self.baseFilename, flags, 0o600)
+        fd = _open_private_regular(
+            Path(self.baseFilename), os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        )
         try:
-            _require_private_regular_file(fd, self.baseFilename)
-            # `0o600` above applies only when the open CREATES the file; a log
-            # that already existed kept whatever mode it had. The check just
+            # `0o600` in the open applies only when it CREATES the file; a log
+            # that already existed kept whatever mode it had. The open just
             # proved it is ours, so it is narrowed on every open
             # (known-issue-003, LWSM-1322).
             os.fchmod(fd, 0o600)
-            os.set_blocking(fd, True)
         except BaseException:
             os.close(fd)
             raise
