@@ -1244,7 +1244,7 @@ class ProjectController(QObject):
             return False
         return path in self._gone
 
-    def _managed_paths(self, snapshot: PortSnapshot) -> set[Path]:
+    def _managed_paths(self, holders: dict[Path, int]) -> set[Path]:
         """The projects whose EFFECTIVE PORT is held by our own child's group.
 
         **Not `set(supervisor.running())`, which was the whole defect.** That
@@ -1261,20 +1261,16 @@ class ProjectController(QObject):
         gated on it", because `chdir()` is free. `owns_pid` carries both halves.
 
         A port whose holder the kernel will not name -- another user's, without
-        root -- yields `None` here and is therefore not ours. That is the safe
-        direction and it is the reason `holders` is allowed to be partial.
+        root -- is absent from `holders` and is therefore not ours. That is the
+        safe direction and it is the reason `holders` is allowed to be partial.
+
+        Derived from `_holder_pids`' answer rather than re-reading the
+        snapshot: a managed project is exactly a named holder we own.
         """
-        if self._supervisor is None:
+        supervisor = self._supervisor
+        if supervisor is None:
             return set()
-        managed: set[Path] = set()
-        for record in self._records:
-            port = record.effective_port
-            if port is None:
-                continue
-            holder = snapshot.holder(port)
-            if holder is not None and self._supervisor.owns_pid(record.path, holder):
-                managed.add(record.path)
-        return managed
+        return {path for path, pid in holders.items() if supervisor.owns_pid(path, pid)}
 
     def _holder_pids(self, snapshot: PortSnapshot) -> dict[Path, int]:
         """Who holds each project's effective port, ours or not.
@@ -2131,8 +2127,8 @@ class ProjectController(QObject):
         # Asking the supervisor separately at render time is what LWSM-1167 was
         # -- the answer has to come from the socket table, and this is the only
         # scope that holds one.
-        self._managed = self._managed_paths(snapshot)
         self._holders = self._holder_pids(snapshot)
+        self._managed = self._managed_paths(self._holders)
         self._snapshot = snapshot
         settled = self._settle_overlay()
         self._track_starting()
