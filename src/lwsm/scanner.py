@@ -1963,8 +1963,11 @@ def scan(
         problems += 1
         minor.note(reason)
 
+    # Not the counting `note`: the lookup records its reason once per scan, and
+    # the merge reads that state from `units_unavailable`. Counted, it marked
+    # only the first candidate as not read cleanly.
     lookup = _UnitLookup(
-        units if units is not None else SystemctlUnits(), deadline, note
+        units if units is not None else SystemctlUnits(), deadline, bounded.note
     )
     own = _own_package_directory()
     projects: list[DetectedProject] = []

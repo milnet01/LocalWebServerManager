@@ -746,6 +746,10 @@ def test_a_machine_with_no_systemd_scans_normally(tmp_path: Path) -> None:
 
     assert len(by_name(result)) == 2
     assert sum("systemctl" in reason for reason in result.skipped) == 1
+    # The once-recorded reason belongs to the scan (`units_unavailable`), not to
+    # whichever candidate happened to be first: counted, it marked "one" alone
+    # as not read cleanly, so only that project kept a stale stored port.
+    assert [p.read_cleanly for p in result.projects] == [True, True]
 
 
 # --------------------------------------------------------------------------
