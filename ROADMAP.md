@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1425 -->
+<!-- ants-roadmap-id-high-water: LWSM=1426 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12262,6 +12262,16 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: ux.
   Source: user-2026-10-22.
   Lanes: ui, tests.
+
+- 📋 [LWSM-1426] **Parse a Python launcher once when detecting its framework's default port.**
+  In scanner.py, _scan_source and _python_framework each call
+  _without_docstrings, which runs ast.parse, so a Flask or Django
+  file is parsed twice per scan. Left out of PR #19 because the fix
+  threads the parsed result through three functions on a path that
+  runs only at scan time. Low priority.
+  **Layman:** A small speed-up to scanning: the scanner reads some Python files twice where once would do.
+  Kind: perf.
+  Source: pr-19-review-2026-10-28.
 
 ## 0.5.0 — Logs
 
