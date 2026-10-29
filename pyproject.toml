@@ -30,7 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     # Drives Qt widgets and signals in tests, and supplies qtbot.waitUntil —
     # which docs/standards/testing-overrides.md § T4 requires INSTEAD of sleeping for a
     # duration, the flakiness shape this codebase is most exposed to.
