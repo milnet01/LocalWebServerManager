@@ -9699,3 +9699,112 @@ def test_the_starting_counter_is_announced_once_when_slow_not_every_second(
         row.update_from(starting_view(float(second)))
     assert len(announcements) == 1, "passing the threshold is one announcement"
     assert row.accessibleName().startswith("starting (slow), ")
+
+
+# --- LWSM-1014: change a project's port from the window ----------------------
+
+
+@pytest.mark.parametrize(
+    ("typed", "override", "confirmed", "message"),
+    [
+        ("6100", 6100, None, "a uses port 6100 from its next start"),
+        ("", None, None, "a uses its detected port from its next start"),
+        ("8080", 8080, 5002, "a uses port 8080 from its next start"),
+        (None, 8080, 5002, ""),
+        ("80", 8080, 5002, "A port is a whole number from 1024 to 65535"),
+    ],
+    ids=["a new port", "empty removes it", "unchanged", "cancelled", "refused"],
+)
+def test_the_menu_changes_the_port(
+    qtbot, built, tmp_path, monkeypatch, typed, override, confirmed, message
+) -> None:
+    """Validated at entry against 1024–65535 and saved, so it survives a
+    restart; the confirmed port goes whenever the override changes (LWSM-1038
+    § 4.4), and stays when it does not. A refused or cancelled entry saves
+    nothing."""
+    saves: list = []
+    before = dataclasses.replace(
+        record("a", 3000), port_override=8080, confirmed_port=5002
+    )
+    window, controller = browser_window(qtbot, built, tmp_path, [before], saves)
+    asked: list[tuple[str, str]] = []
+
+    def ask(name: str, current: str) -> str | None:
+        asked.append((name, current))
+        return typed
+
+    monkeypatch.setattr(window, "_ask_port", ask)
+    row_named(window, "a").change_port_action.trigger()
+
+    assert asked == [("a", "8080")], "the entry starts at the current override"
+    assert controller.records()[0] == dataclasses.replace(
+        before, port_override=override, confirmed_port=confirmed
+    )
+    assert message_of(window) == message
+    if typed not in (None, "80"):
+        assert saves, "a stored override is what survives a restart"
+        assert saves[-1][1][0].port_override == override
+    else:
+        assert not saves
+
+
+def test_the_entry_starts_at_the_effective_port_when_none_was_set(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """With no override, the port the app would use is the useful default."""
+    window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    asked: list[str] = []
+    monkeypatch.setattr(
+        window, "_ask_port", lambda _name, current: asked.append(current)
+    )
+
+    row_named(window, "a").change_port_action.trigger()
+
+    assert asked == ["3000"]
+
+
+def test_a_port_conflict_offers_change_port_beside_the_warning(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1013's "offer to reassign", built here: the warning on the row gets
+    a "Change port…" button that opens the same entry as the menu. Named for a
+    screen reader, reachable by Tab straight after Open (`§ O8`), and gone
+    with the warning."""
+    window, controller = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    row = row_named(window, "a")
+    opened: list[Path] = []
+    monkeypatch.setattr(window, "change_port", opened.append)
+
+    controller.action_failed.emit(row._view.path, "a: port 3000 is in use")
+    controller.port_taken.emit(row._view.path)
+
+    button = row._port_button
+    assert button is not None
+    assert button.text() == "Change port…"
+    assert button.accessibleName() == "Change the port of a"
+    assert button.focusPolicy() & Qt.FocusPolicy.TabFocus
+    # The row's last Tab stop, its stops still in one run: created last, it
+    # would otherwise sit at the end of the whole window's chain.
+    window.show()
+    stops = tab_stops(window)
+    mine = [i for i, w in enumerate(stops) if w is row or row.isAncestorOf(w)]
+    assert mine == list(range(mine[0], mine[-1] + 1)), "the row's stops are split"
+    assert stops[mine[-1]] is button
+    assert button.width() >= MIN_TARGET_PX
+
+    button.click()
+    assert opened == [row._view.path]
+
+    row.clear_error()
+    assert row._port_button is None
+
+
+def test_a_failure_that_is_not_a_taken_port_offers_no_port_change(
+    qtbot, built, tmp_path
+) -> None:
+    window, controller = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    row = row_named(window, "a")
+
+    controller.action_failed.emit(row._view.path, "a has no launcher recorded")
+
+    assert row._port_button is None

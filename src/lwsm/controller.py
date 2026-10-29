@@ -355,7 +355,7 @@ def _port_conflict(name: str, refusal: PortAlreadyBound) -> str:
     return (
         f"{name}: port {refusal.port} is in use by "
         f"{_holder_phrase(refusal.holder)} — free it, or change "
-        "this project's port and Rescan"
+        "this project's port"
     )
 
 
@@ -972,6 +972,10 @@ class ProjectController(QObject):
     # and the fingerprint — "not security theatre only if it shows what will
     # actually run".
     confirmation_required = Signal(object, object)  # path, LauncherUntrusted
+    # A start refused because its port is taken, after `action_failed` has
+    # carried the warning. The window offers "Change port…" beside it
+    # (LWSM-1014); a separate signal so that is not read back out of the text.
+    port_taken = Signal(object)  # path
     # A poll recorded a port some project was seen running on (LWSM-1038). The
     # window saves on it, rather than on `projects_changed`, which fires on
     # every status change.
@@ -1426,6 +1430,7 @@ class ProjectController(QObject):
             self.action_failed.emit(
                 path, _port_conflict(display_text(record.name), refusal)
             )
+            self.port_taken.emit(path)
             return
         except SupervisorError as exc:
             self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")

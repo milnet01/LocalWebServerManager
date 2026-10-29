@@ -3853,3 +3853,52 @@ def test_an_imported_project_arrives_with_no_confirmed_port() -> None:
     (added,) = registry.merge_imported([], [profile]).records
 
     assert added.confirmed_port is None
+
+
+# --- LWSM-1014: the port override the window sets ---------------------------
+
+
+@pytest.mark.parametrize(
+    ("typed", "port"),
+    [("1024", 1024), (" 65535 ", 65535), ("", None), ("   ", None)],
+    ids=["floor", "ceiling, padded", "empty", "blank"],
+)
+def test_a_typed_override_is_read_as_a_port_or_none(typed, port) -> None:
+    """Empty means "use the detected port again"; the range is the loader's,
+    so a port saved from the window is never dropped on the next start."""
+    assert registry.override_from_text(typed) == port
+
+
+@pytest.mark.parametrize(
+    "typed", ["1023", "65536", "80", "0", "-1", "5000x", "50 00", "²", "٥٠٠٠", "5e3"]
+)
+def test_a_typed_override_outside_the_range_or_not_a_number_is_refused(typed) -> None:
+    """ADR-0005's 1024 floor, and ASCII digits only — `isdigit` alone takes
+    `²`, which `int()` then refuses with an error nobody catches."""
+    with pytest.raises(ValueError):
+        registry.override_from_text(typed)
+
+
+@pytest.mark.parametrize(
+    ("override", "confirmed"),
+    [(8080, 5002), (9090, None), (None, None)],
+    ids=["unchanged", "changed", "removed"],
+)
+def test_changing_the_override_forgets_the_confirmed_port(override, confirmed) -> None:
+    """LWSM-1038 § 4.4, the import rule applied to the window's writer: a
+    project seen on the old override keeps nothing of it once it changes."""
+    stored = ProjectRecord(
+        path=Path("/srv/a"),
+        name="a",
+        port=3000,
+        port_override=8080,
+        confirmed_port=5002,
+    )
+
+    changed = registry.with_port_override(stored, override)
+
+    assert changed.port_override == override
+    assert changed.confirmed_port == confirmed
+    assert changed == dataclasses.replace(
+        stored, port_override=override, confirmed_port=confirmed
+    ), "nothing but the two port fields"

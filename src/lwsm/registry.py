@@ -280,6 +280,35 @@ USER_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def override_from_text(text: str) -> int | None:
+    """The port the user typed, or None for empty; ValueError if refused.
+
+    ADR-0005's 1024–65535 floor, the range the loader holds a stored override
+    to, so a port saved here is never dropped on the next start (LWSM-1014).
+    ASCII digits only: `str.isdigit` also accepts `²` and Arabic-Indic digits.
+    """
+    text = text.strip()
+    if not text:
+        return None
+    low, high = OVERRIDE_PORT_RANGE
+    if not (text.isascii() and text.isdigit() and low <= int(text) <= high):
+        raise ValueError(text)
+    return int(text)
+
+
+def with_port_override(record: ProjectRecord, port: int | None) -> ProjectRecord:
+    """`record` with its port override set, forgetting its confirmed port if
+    the override changed (LWSM-1038 § 4.4).
+
+    A project that honours `PORT` was seen on the old override, so keeping that
+    observation would hand the old port back as `PORT` once the override is
+    removed. `merge_imported` applies the same rule to an import.
+    """
+    if port == record.port_override:
+        return record
+    return replace(record, port_override=port, confirmed_port=None)
+
+
 @dataclass(frozen=True)
 class LoadResult:
     """What `load_projects` returns. Replaces the `(records, reasons)` tuple.

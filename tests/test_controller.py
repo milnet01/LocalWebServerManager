@@ -1720,6 +1720,43 @@ def test_a_refused_start_says_when_the_holder_cannot_be_named(
     assert says in failures[0], failures[0]
 
 
+def test_a_refused_start_offers_a_port_change_and_no_rescan(qtbot, controllers) -> None:
+    """LWSM-1014: the warning's "change this project's port and Rescan" was the
+    workaround until a port could be changed here. Now the window offers
+    "Change port…" beside it, on a signal rather than on the warning's text."""
+    supervisor = FakeSupervisor(refusal=PortAlreadyBound(5005, holder=None))
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    failures: list[str] = []
+    taken: list[Path] = []
+    controller.action_failed.connect(lambda _path, text: failures.append(text))
+    controller.port_taken.connect(taken.append)
+
+    controller.start_project(Path("/srv/a"))
+
+    assert taken == [Path("/srv/a")]
+    assert "Rescan" not in failures[0], failures[0]
+    assert failures[0].endswith("free it, or change this project's port"), failures[0]
+
+
+def test_a_start_refused_for_another_reason_offers_no_port_change(
+    qtbot, controllers
+) -> None:
+    """The offer belongs to a taken port only: a project with no launcher is
+    not helped by a new port."""
+    controller = supervised(
+        controllers,
+        [ProjectRecord(path=Path("/srv/a"), name="a", port=5005)],
+        FakeProbe(),
+        FakeSupervisor(),
+    )
+    taken: list[Path] = []
+    controller.port_taken.connect(taken.append)
+
+    controller.start_project(Path("/srv/a"))
+
+    assert taken == []
+
+
 def test_stopping_a_project_this_manager_did_not_start_is_refused(
     qtbot, controllers
 ) -> None:

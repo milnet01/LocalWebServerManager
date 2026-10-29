@@ -918,6 +918,10 @@ class ProjectRow(QFrame):
         self.addAction(self.health_action)
         self.health_page_action = QAction(self)
         self.addAction(self.health_page_action)
+        # LWSM-1014: the port the app passes as `PORT`. The conflict warning
+        # offers the same action as a button (`offer_port_change`).
+        self.change_port_action = QAction(self)
+        self.addAction(self.change_port_action)
 
         # Two layouts, not one: the cells and controls across, and the failure
         # message under them (LWSM-1032). A message beside the controls would
@@ -1031,6 +1035,9 @@ class ProjectRow(QFrame):
         # horizontal-sprawl problem turned vertical, on a list read one row at
         # a time.
         self._error: QLabel | None = None
+        # "Change port…" under a port-conflict warning (LWSM-1014). Created and
+        # destroyed with that warning, for the reason the label is above.
+        self._port_button: QPushButton | None = None
         self._outer_layout = outer
 
         self._apply_text_metrics()
@@ -1144,11 +1151,46 @@ class ProjectRow(QFrame):
     def clear_error(self) -> None:
         """Destroy the label rather than blanking it — see `__init__` on why an
         empty one may not be left in the accessibility tree."""
+        if self._port_button is not None:
+            self._outer_layout.removeWidget(self._port_button)
+            self._port_button.deleteLater()
+            self._port_button = None
         if self._error is None:
             return
         self._outer_layout.removeWidget(self._error)
         self._error.deleteLater()
         self._error = None
+
+    def offer_port_change(self) -> None:
+        """Put "Change port…" under the warning `show_error` just showed.
+
+        The warning says the port is taken; this is the way out, next to it
+        rather than in a menu (LWSM-1014). Left-aligned, so it sits under the
+        warning it answers. No `setTabOrder`: Qt already puts a new child last
+        in its parent's run of the focus chain, so Tab reaches it after Open.
+        """
+        if self._port_button is None:
+            self._port_button = QPushButton(self)
+            self._port_button.clicked.connect(self.change_port_action.trigger)
+            self._outer_layout.addWidget(
+                self._port_button, alignment=Qt.AlignmentFlag.AlignLeft
+            )
+            self._label_port_button()
+            self._fit_buttons()
+        self._port_button.show()
+
+    def _label_port_button(self) -> None:
+        if self._port_button is None:
+            return
+        self._port_button.setText(
+            QCoreApplication.translate("ProjectRow", "Change port…")
+        )
+        self._port_button.setAccessibleName(
+            _filled(
+                QCoreApplication.translate("ProjectRow", "Change the port of %1"),
+                self._name_display,
+            )
+        )
 
     def error_rect(self) -> QRect | None:
         """Where the failure is on SCREEN, or None if none is shown.
@@ -1237,6 +1279,7 @@ class ProjectRow(QFrame):
             self.stop_button,
             self.restart_button,
             self.open_button,
+            *([self._port_button] if self._port_button is not None else []),
         ):
             button.setFixedWidth(
                 max(metrics.horizontalAdvance(button.text()) + padding, MIN_TARGET_PX)
@@ -1739,6 +1782,10 @@ class ProjectRow(QFrame):
         self.health_page_action.setText(
             QCoreApplication.translate("ProjectRow", "Change the page it &checks…")
         )
+        self.change_port_action.setText(
+            QCoreApplication.translate("ProjectRow", "Change the &port…")
+        )
+        self._label_port_button()
         cell = port_cell_text(row)
         self._port.setText(cell)
         # One phrase when spoken: a line break read aloud is a pause in the
@@ -2319,6 +2366,7 @@ class MainWindow(QMainWindow):
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
         controller.action_failed.connect(self._report_failure)
+        controller.port_taken.connect(self._offer_port_change)
         controller.action_done.connect(self._report_done)
         controller.confirmation_required.connect(self._ask_to_trust)
         controller.confirmed_ports_changed.connect(self._save_confirmed_ports)
@@ -3276,6 +3324,14 @@ class MainWindow(QMainWindow):
             return
         row.show_error(message)
 
+    def _offer_port_change(self, path: Path) -> None:
+        """Offer "Change port…" under the conflict warning `_report_failure` just
+        put on the row (LWSM-1014). No row, no offer: the warning went to the
+        banner, and a button there would not say which project it changes."""
+        row = self._rows.get(path)
+        if row is not None:
+            row.offer_port_change()
+
     def show_load_error(self, text: str) -> None:
         """The project list could not be read: say so in the list, and below.
 
@@ -3843,6 +3899,78 @@ class MainWindow(QMainWindow):
         )
         self.set_status_message(self._write_records(records, message, "health page"))
 
+    def change_port(self, path: Path) -> None:
+        """Ask for the port to pass as `PORT`, and save it (LWSM-1014).
+
+        `change_health_page`'s shape. Empty removes the override, so the
+        detected port is used again. A port the loader would refuse is refused
+        here, by the same range. The confirmed port goes when the override
+        changes (`registry.with_port_override`).
+        """
+        record = self._record_at(path)
+        if record is None:
+            return
+        current = record.effective_port
+        answer = self._ask_port(record.name, "" if current is None else str(current))
+        if answer is None:
+            return
+        try:
+            port = registry.override_from_text(answer)
+        except ValueError:
+            self.set_status_message(
+                _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow", "A port is a whole number from %1 to %2"
+                    ),
+                    *(str(bound) for bound in registry.OVERRIDE_PORT_RANGE),
+                )
+            )
+            return
+        records = [
+            registry.with_port_override(r, port) if r.path == path else r
+            for r in self._controller.records()
+        ]
+        if port is None:
+            message = _filled(
+                QCoreApplication.translate(
+                    "ProjectRow", "%1 uses its detected port from its next start"
+                ),
+                display_text(record.name),
+            )
+        else:
+            message = _filled(
+                QCoreApplication.translate(
+                    "ProjectRow", "%1 uses port %2 from its next start"
+                ),
+                display_text(record.name),
+                str(port),
+            )
+        self.set_status_message(self._write_records(records, message, "port"))
+
+    def _ask_port(self, name: str, current: str) -> str | None:
+        """The text the user typed, or None if they cancelled.
+
+        A seam, as `_ask_health_page` is: the dialog is modal.
+        """
+        low, high = registry.OVERRIDE_PORT_RANGE
+        text, accepted = QInputDialog.getText(
+            self,
+            QCoreApplication.translate("ProjectRow", "Change port"),
+            _filled(
+                QCoreApplication.translate(
+                    "ProjectRow",
+                    "Port for %1, from %2 to %3. Leave it empty to use the "
+                    "port the project's own files give:",
+                ),
+                display_text(name),
+                str(low),
+                str(high),
+            ),
+            QLineEdit.EchoMode.Normal,
+            current,
+        )
+        return text if accepted else None
+
     def _record_at(self, path: Path) -> ProjectRecord | None:
         return next((r for r in self._controller.records() if r.path == path), None)
 
@@ -4273,6 +4401,9 @@ class MainWindow(QMainWindow):
                 )
                 widget.health_page_action.triggered.connect(
                     lambda _checked=False, p=path: self.change_health_page(p)
+                )
+                widget.change_port_action.triggered.connect(
+                    lambda _checked=False, p=path: self.change_port(p)
                 )
                 # Same binding, same reason. `update_from` blocks this signal
                 # while it sets the box from the poll, so reaching here means a

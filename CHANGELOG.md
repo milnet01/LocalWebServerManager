@@ -23,6 +23,7 @@ signaling per
 
 ### Added
 
+- **You can change the port a project starts on.** Right-click a project and choose "Change the port…", or press "Change port…" under the warning that its port is taken. The app checks the number is between 1024 and 65535, remembers it, and passes it to the project as `PORT` on its next start. Leave it empty to go back to the port the project's own files give. (LWSM-1014)
 - **View → What's using a port... tells you what is listening on any port.** Type a port number to see the program and its process ID, and which of your projects it serves, if any. It also says when nothing is listening, or when the holder cannot be identified. (LWSM-1041)
 
 ### Changed
