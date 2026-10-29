@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1427 -->
+<!-- ants-roadmap-id-high-water: LWSM=1428 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12293,6 +12293,30 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: test.
   Source: in-session-2026-10-29.
   Lanes: tests.
+
+- 📋 [LWSM-1428] **Remember the servers this app started, so a relaunch still calls them ours.**
+  Decision (user, 2026-10-29): the app keeps a record of each start
+  and restart it performs, and uses it on relaunch to decide whether a
+  running server was started by this app. Reported on RetroDB: started
+  from the app, app closed and reopened, the row read `running
+  (foreign)` with Restart disabled, as ADR-0004 currently specifies.
+  Reverses ADR-0004 § Consequences, "Nothing about runtime state is
+  persisted", so ADR-0004 is amended and gated (rule 14) with this
+  item. Spec-first under CLAUDE.md rule 2: it adds an on-disk state
+  file under $XDG_STATE_HOME (coding-overrides O3).
+  For the spec to settle: what identifies a start unspoofably (PID
+  plus create-time, and the session/process group start_new_session
+  gave it, per ADR-0003 and LWSM-1047's "process objects, never bare
+  PIDs"); how Stop and Restart signal a re-adopted group with no Popen
+  handle; when an entry is dropped (the process is gone, a PID reused,
+  the record unreadable — then foreign, never guessed, O5); what the
+  row shows. Relates to LWSM-1035, which records the running set at
+  shutdown for "restore last session"; one record may serve both.
+  **Layman:** After you close and reopen the app, a site it started shows as plain "running" with Restart available, not "running (foreign)".
+  Kind: implement.
+  Source: user-2026-10-29.
+  Lanes: core, ui, tests.
+  Splits-from: LWSM-1035.
 
 ## 0.5.0 — Logs
 
