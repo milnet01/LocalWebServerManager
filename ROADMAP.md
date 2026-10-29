@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1426 -->
+<!-- ants-roadmap-id-high-water: LWSM=1427 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12283,6 +12283,16 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   **Layman:** A small speed-up to scanning: the scanner reads some Python files twice where once would do.
   Kind: perf.
   Source: pr-19-review-2026-10-28.
+
+- 📋 [LWSM-1427] **A registry test repeats its own body.**
+  tests/test_registry.py::test_an_imported_project_arrives_with_no_confirmed_port
+  builds its profile, merges and asserts, then does all three again,
+  word for word. Delete the second copy. Found while working
+  LWSM-1014; not touched there because that test is not its own.
+  **Layman:** One automated check runs the same steps twice; harmless, but untidy.
+  Kind: test.
+  Source: in-session-2026-10-29.
+  Lanes: tests.
 
 ## 0.5.0 — Logs
 
