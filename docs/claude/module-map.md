@@ -356,7 +356,8 @@ built under § Review cadence's build-first default:
 - **`src/lwsm/supervisor.py`** — core, no Qt at all, like
   `ports.py`; stop needs a worker thread and a plain
   `ThreadPoolExecutor` is enough for one. `Supervisor`,
-  `ManagedProcess`, `StopOutcome`, `TrustStore`,
+  `ManagedProcess`, `StopOutcome`, `TrustStore`, `StartedStore`
+  (`started.json`, the servers a relaunch adopts back; LWSM-1428),
   `build_child_env`, `scope_prefix` (each server in its own
   systemd scope, ADR-0003), `validate_launcher`, `launcher_fingerprint`,
   and the refusals `LauncherRefused` / `LauncherUntrusted` /

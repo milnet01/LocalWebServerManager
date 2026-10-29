@@ -44,6 +44,8 @@ from lwsm.supervisor import (
     LauncherUntrusted,
     ManagedProcess,
     PortAlreadyBound,
+    StartedEntry,
+    StartedStore,
     StopOutcome,
     Supervisor,
     TrustStore,
@@ -3308,3 +3310,173 @@ def test_the_npm_trust_refusal_carries_what_npm_will_run(
         (".npmrc", "fund=false"),
         (".npmrc", "script-shell=./x.sh"),
     )
+
+
+# --------------------------------------------------------------------------
+# LWSM-1428: the servers this manager started, across a relaunch
+# --------------------------------------------------------------------------
+
+
+def started_session(tmp_path: Path, record: Path) -> Supervisor:
+    """One app session: its own supervisor, sharing `record` with the next."""
+    return Supervisor(
+        probe=FakeProbe(), log_dir=tmp_path / "logs", started=StartedStore(record)
+    )
+
+
+def stored(record: Path) -> list[dict]:
+    return json.loads(record.read_text("utf-8"))["started"]
+
+
+def start_sleeper(sup: Supervisor, project: Path) -> ManagedProcess:
+    """A launcher that stays up as its group's leader, with a grandchild."""
+    write_launcher(project, "sleep 30 &\ntouch ready\nwait\n")
+    argv = ("./start.sh",)
+    sup.trust.confirm(project, launcher_fingerprint(project, argv))
+    managed = sup.start(project, name="demo", argv=list(argv), port=None)
+    await_ready(project)
+    return managed
+
+
+def test_a_start_is_recorded_and_a_stop_forgets_it(
+    tmp_path: Path, project: Path
+) -> None:
+    """INV-1 and INV-2: the launcher's PID and `create_time` go in on start,
+    and the entry comes out on stop."""
+    record = tmp_path / "state" / "started.json"
+    sup = started_session(tmp_path, record)
+    try:
+        managed = start_sleeper(sup, project)
+
+        (entry,) = stored(record)
+        assert entry["project"] == str(project.resolve())
+        assert entry["pid"] == managed.pid
+        assert entry["create_time"] == psutil.Process(managed.pid).create_time()
+
+        sup.stop(project, grace=0.5)
+        assert stored(record) == []
+    finally:
+        sup.close()
+
+
+def test_a_group_that_ended_on_its_own_is_forgotten(
+    tmp_path: Path, project: Path
+) -> None:
+    """INV-2: `reap_exited` drops the entry with the slot, or the next launch
+    would try to adopt a server that is long gone."""
+    record = tmp_path / "started.json"
+    sup = started_session(tmp_path, record)
+    try:
+        write_launcher(project, "exit 3\n")
+        argv = ("./start.sh",)
+        sup.trust.confirm(project, launcher_fingerprint(project, argv))
+        sup.start(project, name="demo", argv=list(argv), port=None)
+        assert wait_until(lambda: sup.exited(project))
+
+        sup.reap_exited()
+
+        assert stored(record) == []
+    finally:
+        sup.close()
+
+
+def test_adoption_takes_only_the_same_process(tmp_path: Path, project: Path) -> None:
+    """INV-3: PID, `create_time` and group must all still match.
+
+    A changed `create_time` is a reused PID; a process in someone else's group
+    is not the leader we started; a PID with no process is a server gone.
+    """
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    managed = start_sleeper(first, project)
+    first.close()
+    stranger = subprocess.Popen(["sleep", "30"])  # in the test's own group
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    try:
+        created = psutil.Process(stranger.pid).create_time()
+        for path, pid, when in [
+            (Path("/srv/reused"), managed.pid, 1.0),
+            (Path("/srv/stranger"), stranger.pid, created),
+            (Path("/srv/gone"), gone.pid, 1.0),
+        ]:
+            first.started.add(StartedEntry(path, "x", pid, when, None))
+
+        second = started_session(tmp_path, record)
+        try:
+            assert second.adopt() == {project.resolve()}
+            assert second.running() == {project.resolve()}
+            assert [e["project"] for e in stored(record)] == [str(project.resolve())]
+        finally:
+            second.stop(project, grace=0.5)
+            second.close()
+    finally:
+        stranger.kill()
+        stranger.wait()
+        _reap(managed.popen)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "not json",
+        '{"schema_version": 2, "started": []}',
+        '{"schema_version": 1}',
+        '{"schema_version": 1, "started": [{"project": "rel", "name": "a",'
+        ' "pid": 4242, "create_time": 1.0, "port": null}]}',
+        '{"schema_version": 1, "started": [{"project": "/srv/a", "name": "a",'
+        ' "pid": true, "create_time": 1.0, "port": null}]}',
+        '{"schema_version": 1, "started": [{"project": "/srv/a", "name": "a",'
+        ' "pid": 4242, "create_time": "now", "port": null}]}',
+        '{"schema_version": 1, "started": ["junk"]}',
+    ],
+    ids=[
+        "not json",
+        "newer schema",
+        "no list",
+        "relative",
+        "bool pid",
+        "text time",
+        "not an object",
+    ],
+)
+def test_a_bad_record_adopts_nothing(tmp_path: Path, text: str) -> None:
+    """INV-4: a record that cannot be trusted is no reason the app fails to
+    open; those servers read `running (foreign)`, as before LWSM-1428."""
+    record = tmp_path / "started.json"
+    record.write_text(text, "utf-8")
+
+    sup = started_session(tmp_path, record)
+    try:
+        assert sup.adopt() == frozenset()
+        assert not sup.running()
+    finally:
+        sup.close()
+
+
+def test_an_adopted_server_is_owned_and_stops(tmp_path: Path, project: Path) -> None:
+    """INV-5 and INV-6: after a relaunch the group is ours again, so the
+    controller reads it as `running` with Restart, and Stop signals the whole
+    group with no `Popen` to wait on."""
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    managed = start_sleeper(first, project)
+    first.close()
+    grandchild = next(
+        p for p in psutil.Process(managed.pid).children() if p.name() == "sleep"
+    )
+    second = started_session(tmp_path, record)
+    try:
+        second.adopt()
+        assert second.owns_pid(project, grandchild.pid), "the server is not ours"
+
+        outcome = second.stop(project, grace=0.5)
+
+        assert grandchild.pid in outcome.terminated
+        assert wait_until(lambda: not _alive(grandchild.pid))
+        assert outcome.exit_code is None, "an adopted leader cannot be waited on"
+        assert not second.running()
+        assert stored(record) == []
+    finally:
+        second.close()
+        _reap(managed.popen)

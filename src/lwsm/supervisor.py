@@ -201,11 +201,15 @@ class StopOutcome:
 
 @dataclass
 class ManagedProcess:
-    """One child this supervisor spawned, and the handles that identify it."""
+    """One child this supervisor spawned, and the handles that identify it.
+
+    `popen` is None for a server adopted after a relaunch (LWSM-1428): it is
+    no longer this process's child, so there is nothing to wait on.
+    """
 
     project: Path
     name: str
-    popen: subprocess.Popen[bytes]
+    popen: subprocess.Popen[bytes] | None
     handle: psutil.Process
     log_path: Path
     log_fd: int
@@ -214,7 +218,7 @@ class ManagedProcess:
     @property
     def pid(self) -> int:
         """Also the process-group id: `start_new_session=True` guarantees it."""
-        return self.popen.pid
+        return self.handle.pid
 
 
 TRUST_SCHEMA_VERSION = 1
@@ -349,6 +353,131 @@ class TrustStore:
         with self._lock:
             self._confirmed.pop(Path(project).resolve(), None)
             self._save()
+
+
+STARTED_SCHEMA_VERSION = 1
+
+
+def default_started_path() -> Path:
+    """`started.json` in the state directory: a record of what happened, not
+    a setting (`coding-overrides.md` § O3; LWSM-1428 § 4.1)."""
+    return default_state_dir() / "started.json"
+
+
+@dataclass(frozen=True)
+class StartedEntry:
+    """One server this manager started: enough to know it again (LWSM-1428).
+
+    ADR-0004's identity for a managed server — the launcher's PID plus its
+    `create_time`. `name` only rebuilds the log path; no path is read back.
+    """
+
+    project: Path
+    name: str
+    pid: int
+    create_time: float
+    port: int | None
+
+
+class StartedStore:
+    """The servers this manager started, kept across a relaunch (LWSM-1428).
+
+    `TrustStore`'s shape and its rule that every failure errs safe: a file that
+    cannot be read adopts nothing, so those servers read `running (foreign)`,
+    which is what every session showed before this record existed. With no
+    `path` it is memory only, which is what every test's `Supervisor` gets.
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        self._entries: dict[Path, StartedEntry] = {}
+        self._lock = threading.Lock()
+        self._path = path
+        if path is not None:
+            self._load(path)
+
+    def _load(self, path: Path) -> None:
+        try:
+            document = load_json_object(path).data
+        except FileNotFoundError:
+            return
+        except JsonFileRefused as exc:
+            log.warning("started record %s refused: %s", quoted(str(path)), exc)
+            return
+        version = document.get("schema_version")
+        started = document.get("started")
+        if type(version) is not int or version != STARTED_SCHEMA_VERSION:
+            log.warning("started record: schema_version %s; adopting nothing", version)
+            return
+        if not isinstance(started, list):
+            log.warning('started record: no "started" list; adopting nothing')
+            return
+        for raw in started:
+            entry = _started_entry(raw)
+            if entry is None:
+                log.warning("started record: dropped a malformed entry")
+            else:
+                self._entries[entry.project] = entry
+
+    def _save(self) -> None:
+        """Write the whole set. Called with `_lock` held, so writes keep order."""
+        if self._path is None:
+            return
+        payload = {
+            "schema_version": STARTED_SCHEMA_VERSION,
+            "started": [
+                {
+                    "project": str(entry.project),
+                    "name": entry.name,
+                    "pid": entry.pid,
+                    "create_time": entry.create_time,
+                    "port": entry.port,
+                }
+                for _project, entry in sorted(self._entries.items())
+            ],
+        }
+        data = (json.dumps(payload, indent=2) + "\n").encode("utf-8", "surrogateescape")
+        try:
+            write_atomically(self._path, data, prefix=".started-")
+        except (ConfigFileError, OSError) as exc:
+            # The session runs as before; a stale entry left on disk is refused
+            # by `adopt` once its process is gone (LWSM-1428 § 6).
+            log.warning("started record not saved: %s", exc)
+
+    def entries(self) -> list[StartedEntry]:
+        with self._lock:
+            return list(self._entries.values())
+
+    def add(self, entry: StartedEntry) -> None:
+        with self._lock:
+            self._entries[entry.project] = entry
+            self._save()
+
+    def remove(self, *projects: Path) -> None:
+        with self._lock:
+            gone = [p for p in projects if self._entries.pop(p, None) is not None]
+            if gone:
+                self._save()
+
+
+def _started_entry(raw: object) -> StartedEntry | None:
+    """One stored entry, or None if any field is not what `_save` writes.
+
+    `bool` is refused where an int is meant: it is an `int` subclass, and
+    `"pid": true` would otherwise name PID 1.
+    """
+    if not isinstance(raw, dict):
+        return None
+    project, name = raw.get("project"), raw.get("name")
+    pid, created, port = raw.get("pid"), raw.get("create_time"), raw.get("port")
+    if not (isinstance(project, str) and Path(project).is_absolute()):
+        return None
+    if not isinstance(name, str) or type(pid) is not int or pid <= 1:
+        return None
+    if isinstance(created, bool) or not isinstance(created, (int, float)):
+        return None
+    if port is not None and type(port) is not int:
+        return None
+    return StartedEntry(Path(project), name, pid, float(created), port)
 
 
 # --------------------------------------------------------------------------
@@ -972,8 +1101,11 @@ class Supervisor:
         trust: TrustStore | None = None,
         clock: Callable[[], float] | None = None,
         sleep: Callable[[float], None] | None = None,
+        started: StartedStore | None = None,
     ) -> None:
         self._probe = probe
+        # What this manager started, so a relaunch can take it back (LWSM-1428).
+        self.started = started if started is not None else StartedStore()
         self._log_dir = Path(log_dir) if log_dir is not None else None
         # Public and mutable, like `trust` beside it: the settings dialog
         # changes it while servers are running, and `rotate_if_needed` reads it
@@ -1261,6 +1393,7 @@ class Supervisor:
 
             with self._registry.lock:
                 self._registry.processes[resolved_project] = managed
+            self._record(managed)
         finally:
             # The reservation ends when the entry lands in `processes` or when
             # the start fails — never later. A refused start that kept it would
@@ -1331,6 +1464,78 @@ class Supervisor:
             port=port,
         )
 
+    # -- across a relaunch (LWSM-1428) -----------------------------------
+
+    def _record(self, managed: ManagedProcess) -> None:
+        """Write a started child to the record a later session adopts from."""
+        try:
+            created = managed.handle.create_time()
+        except psutil.Error:
+            # Exited already: there is nothing a later session could adopt.
+            return
+        self.started.add(
+            StartedEntry(
+                managed.project, managed.name, managed.pid, created, managed.port
+            )
+        )
+
+    def adopt(self) -> frozenset[Path]:
+        """Take back the servers an earlier session started; run once, at launch.
+
+        An entry is ours only if its PID still names the process it named, by
+        `create_time`, and that process still leads the group it was started
+        in (LWSM-1428 § 4.3). Anything else is dropped and stays foreign, the
+        safe direction. Returns the projects taken back.
+        """
+        taken: set[Path] = set()
+        dropped: list[Path] = []
+        for entry in self.started.entries():
+            managed = self._adoptable(entry)
+            if managed is None:
+                dropped.append(entry.project)
+                continue
+            with self._registry.lock:
+                held = self._registry.processes.setdefault(entry.project, managed)
+            if held is not managed:
+                # Started this session already, so the record is that start's.
+                _close_quietly(managed.log_fd)
+                continue
+            taken.add(entry.project)
+            log.info(
+                "adopted %s, pid %d, from an earlier session", entry.name, entry.pid
+            )
+        self.started.remove(*dropped)
+        return frozenset(taken)
+
+    def _adoptable(self, entry: StartedEntry) -> ManagedProcess | None:
+        try:
+            handle = psutil.Process(entry.pid)
+            if handle.create_time() != entry.create_time:
+                return None
+            if os.getpgid(entry.pid) != entry.pid:
+                return None
+        except (psutil.Error, OSError):
+            return None
+        log_path = self.log_path_for(entry.project, entry.name)
+        try:
+            fd = self._open_log(log_path)
+        except OSError as exc:
+            # `start()` refuses on the same failure, so a log this session
+            # cannot open is a server it could not have started either.
+            log.warning(
+                "not adopting %s: its log cannot be opened: %s", entry.name, exc
+            )
+            return None
+        return ManagedProcess(
+            project=entry.project,
+            name=entry.name,
+            popen=None,
+            handle=handle,
+            log_path=log_path,
+            log_fd=fd,
+            port=entry.port,
+        )
+
     # -- stopping --------------------------------------------------------
 
     def stop(
@@ -1377,6 +1582,7 @@ class Supervisor:
                 self._registry.stopping.add(key)
         if managed is None:
             return StopOutcome()
+        self.started.remove(key)
 
         try:
             try:
@@ -1659,7 +1865,14 @@ class Supervisor:
             self._sleep(POLL_INTERVAL_SECONDS)
 
     def _reap(self, managed: ManagedProcess) -> int | None:
-        """Collect the child's exit status, last, and release its log."""
+        """Collect the child's exit status, last, and release its log.
+
+        An adopted server has no `Popen` and is reaped by its new parent, so
+        there is no status to collect (LWSM-1428 § 4.4).
+        """
+        if managed.popen is None:
+            _close_quietly(managed.log_fd)
+            return None
         try:
             exit_code = managed.popen.wait(timeout=KILL_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
@@ -1745,6 +1958,7 @@ class Supervisor:
                 if self._registry.processes.get(project) is not managed:
                     continue
                 del self._registry.processes[project]
+            self.started.remove(project)
             collected[project] = self._reap(managed)
             log.info(
                 "%s exited on its own (exit %s); releasing its slot",
@@ -1844,7 +2058,8 @@ class Supervisor:
             # Reap the ones that have already exited so the status is collected
             # rather than left to the interpreter's exit-time warning; a still
             # running one is deliberately left alone.
-            managed.popen.poll()
+            if managed.popen is not None:
+                managed.popen.poll()
             _close_quietly(managed.log_fd)
 
 

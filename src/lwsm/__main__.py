@@ -75,7 +75,13 @@ def build_window(
     )
     from lwsm.settings import load as load_settings
     from lwsm.settings import save as save_settings
-    from lwsm.supervisor import Supervisor, TrustStore, default_trust_path
+    from lwsm.supervisor import (
+        StartedStore,
+        Supervisor,
+        TrustStore,
+        default_started_path,
+        default_trust_path,
+    )
     from lwsm.theme import theme_for_id
 
     log = applog.get_logger(__name__)
@@ -362,7 +368,15 @@ def build_window(
     # One probe for both jobs: the poll classifies from it, and the supervisor's
     # pre-flight check asks the same socket table rather than opening a second
     # view of it that could disagree.
-    supervisor = Supervisor(probe=probe, trust=trust)
+    # Servers an earlier session started are taken back before the first poll,
+    # so they read `running` rather than `running (foreign)` (LWSM-1428).
+    try:
+        started = StartedStore(default_started_path())
+    except OSError as exc:
+        log.warning("no started record: %s", exc)
+        started = StartedStore()
+    supervisor = Supervisor(probe=probe, trust=trust, started=started)
+    supervisor.adopt()
     controller = ProjectController(records, probe, supervisor)
     window = MainWindow(
         controller,

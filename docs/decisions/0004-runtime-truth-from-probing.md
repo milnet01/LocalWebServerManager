@@ -195,11 +195,17 @@ indicator, and it is more informative than any state name.
 
 Consequences of the rule:
 
-- **Nothing about runtime state is persisted.** On startup the
-  manager knows only the registry (paths, ports, user overrides)
-  and derives everything else by probing. A relaunch of the
-  manager therefore re-adopts servers correctly by construction,
-  including ones started before it existed.
+- **Nothing about runtime state is persisted, with one exception.**
+  On startup the manager knows the registry (paths, ports, user
+  overrides) and derives everything else by probing. A relaunch of
+  the manager therefore re-adopts servers correctly by construction,
+  including ones started before it existed. **The exception,
+  amended 2026-10-29 (LWSM-1428):** `started.json` records the
+  launcher PID and `create_time` of each server this manager
+  started. A relaunch takes back as its own only an entry whose
+  process still matches both, so a server it started reads
+  `running`, not `running (foreign)`. The record never decides a
+  state on its own: the probe still does.
 - **Foreign servers are shown, labelled, and guarded.** A
   `running (foreign)` project displays as running with a marker
   that it was started outside the app. Stop is enabled but asks
