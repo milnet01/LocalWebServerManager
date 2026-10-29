@@ -12046,7 +12046,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Enter re-asks and announces the answer to a screen reader.
   Lanes: ui, core.
 
-- 📋 [LWSM-1014] **P07: port override, validated and persisted.**
+- 🚧 [LWSM-1014] **P07: port override, validated and persisted.**
   Assign a different port from the UI; validated at
   entry against 1024–65535; survives restart; passed as `PORT` on
   the next launch. Acceptance: criterion 4 demonstrated against a
@@ -12077,6 +12077,17 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   adds a "Change port…" action beside it, opening the port entry it
   builds, and drops the warning's "change this project's port and
   Rescan" advice once that action exists.
+  Progress (2026-10-29): built in 7aa4954, local gate green (2656
+  tests). Row menu "Change the port…" and a "Change port…" button under
+  a taken-port warning open one entry: 1024–65535, empty drops the
+  override. Saved as port_override; the confirmed port is cleared on a
+  change (registry.with_port_override, LWSM-1038 § 4.4). The warning
+  no longer says "and Rescan". LWSM-1038's spec is folded back. No spec
+  for this item: port_override already existed in the file format.
+  OWED before shipped: the acceptance run. Criterion 4 on a sibling
+  that reads PORT, and honest degradation on the one that assigns PORT
+  itself (ADR-0002). Needs the real app and real siblings, so the user
+  runs it or says how.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1037] **P07: suggest a free port.**
