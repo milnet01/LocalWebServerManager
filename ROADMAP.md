@@ -12294,7 +12294,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: in-session-2026-10-29.
   Lanes: tests.
 
-- 📋 [LWSM-1428] **Remember the servers this app started, so a relaunch still calls them ours.**
+- 🚧 [LWSM-1428] **Remember the servers this app started, so a relaunch still calls them ours.**
   Decision (user, 2026-10-29): the app keeps a record of each start
   and restart it performs, and uses it on relaunch to decide whether a
   running server was started by this app. Reported on RetroDB: started
@@ -12312,6 +12312,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   the record unreadable — then foreign, never guessed, O5); what the
   row shows. Relates to LWSM-1035, which records the running set at
   shutdown for "restore last session"; one record may serve both.
+  Progress (2026-10-29): built in a705f81 from
+  docs/specs/LWSM-1428-remember-started-servers.md (not reviewed, by the
+  user's instruction). Local gate green, 2667 tests; seven deliberate
+  breaks each caught. OWED before shipped: the user's check in the real
+  app. A server started before this build has no record, so it stays
+  foreign until it is started once under the new build.
   **Layman:** After you close and reopen the app, a site it started shows as plain "running" with Restart available, not "running (foreign)".
   Kind: implement.
   Source: user-2026-10-29.
