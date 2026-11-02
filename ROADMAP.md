@@ -12163,7 +12163,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: review-fix.
   Source: review-code-2026-10-08 L03-L5.
 
-- 📋 [LWSM-1415] **A written trust file or port drop-in is treated as unwritten when only its crash-safety is in doubt.**
+- ✅ [LWSM-1415] **A written trust file or port drop-in is treated as unwritten when only its crash-safety is in doubt.**
   Found sweeping L07-M1's mechanism (a NotDurable caught as a plain
   failure). `supervisor.py` TrustStore._save catches
   (ConfigFileError, OSError) and says "not saved, so this lasts until
@@ -12173,6 +12173,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   ConfigFileNotDurable first in both; log it and carry on. Not fixed in
   LWSM-1409: outside the main window, and the drop-in path needs its
   own red test against the conftest systemctl stubs.
+  Shipped (2026-11-02). TrustStore._save and service.set_drop_in catch
+  ConfigFileNotDurable first and log it; the drop-in path still reloads
+  and checks systemd read it. Sweep added StartedStore._save, which
+  LWSM-1428 wrote after this item was filed. The other write_atomically
+  callers (registry, settings, scanroots via __main__) already tell the
+  two apart. Red: three new tests failed before the fix.
   **Layman:** A start can be refused, or a trust choice called unsaved, although the file was written.
   Kind: fix.
   Source: close-findings-2026-10-10 LWSM-1409 O9 sweep of L07-M1.

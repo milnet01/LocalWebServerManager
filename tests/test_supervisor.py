@@ -32,7 +32,7 @@ import psutil
 import pytest
 
 from lwsm import supervisor as supervisor_module
-from lwsm.configfile import quoted
+from lwsm.configfile import ConfigFileNotDurable, quoted
 from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.supervisor import (
     ENV_ALLOWLIST,
@@ -3126,6 +3126,51 @@ def test_a_confirmation_that_cannot_be_saved_still_holds_this_session(
     assert store.is_confirmed(project, FINGERPRINT)
     assert not target.exists()
     assert store.reasons
+
+
+def _written_but_not_durable(monkeypatch) -> None:
+    """`write_atomically` that writes, then reports the directory fsync failed."""
+    real = supervisor_module.write_atomically
+
+    def not_durable(path, data, **kwargs):
+        real(path, data, **kwargs)
+        raise ConfigFileNotDurable(f"{path}: written, but not made durable")
+
+    monkeypatch.setattr(supervisor_module, "write_atomically", not_durable)
+
+
+def test_a_trust_file_written_but_not_durable_is_not_called_unsaved(
+    project: Path, tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """LWSM-1415. "Not saved, so this lasts until the app closes" was untrue:
+    the file was written, and a reopened store reads the confirmation back."""
+    path = tmp_path / "trust.json"
+    store = TrustStore(path)
+    _written_but_not_durable(monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        store.confirm(project, FINGERPRINT)
+
+    assert store.reasons == []
+    assert TrustStore(path).is_confirmed(project, FINGERPRINT)
+    assert "not made durable" in caplog.text
+    assert "not saved" not in caplog.text
+
+
+def test_a_started_record_written_but_not_durable_is_not_called_unsaved(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """LWSM-1415's sweep: `StartedStore` has the same write and the same catch."""
+    path = tmp_path / "started.json"
+    store = StartedStore(path)
+    _written_but_not_durable(monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        store.add(StartedEntry(tmp_path / "a", "a", 4242, 1.5, 3000))
+
+    assert "not made durable" in caplog.text
+    assert "not saved" not in caplog.text
+    assert [entry.pid for entry in StartedStore(path).entries()] == [4242]
 
 
 def test_a_store_with_no_path_writes_nothing(project: Path, tmp_path: Path) -> None:

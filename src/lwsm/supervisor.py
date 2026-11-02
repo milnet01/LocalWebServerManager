@@ -50,6 +50,7 @@ from lwsm.applog import (
 )
 from lwsm.configfile import (
     ConfigFileError,
+    ConfigFileNotDurable,
     JsonFileRefused,
     load_json_object,
     quoted,
@@ -323,6 +324,9 @@ class TrustStore:
         data = (json.dumps(payload, indent=2) + "\n").encode("utf-8", "surrogateescape")
         try:
             write_atomically(self._path, data, prefix=".trust-")
+        except ConfigFileNotDurable as exc:
+            # Written, so it lasts; only a crash could lose it (LWSM-1415).
+            log.warning("trust store: %s", exc)
         except (ConfigFileError, OSError) as exc:
             self._refuse(f"not saved, so this lasts until the app closes: {exc}")
 
@@ -439,6 +443,9 @@ class StartedStore:
         data = (json.dumps(payload, indent=2) + "\n").encode("utf-8", "surrogateescape")
         try:
             write_atomically(self._path, data, prefix=".started-")
+        except ConfigFileNotDurable as exc:
+            # Written; only a crash could lose it (LWSM-1415).
+            log.warning("started record: %s", exc)
         except (ConfigFileError, OSError) as exc:
             # The session runs as before; a stale entry left on disk is refused
             # by `adopt` once its process is gone (LWSM-1428 § 6).

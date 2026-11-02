@@ -30,13 +30,21 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from lwsm.configfile import MAX_REASON_CHARS, ConfigFileError, write_atomically
+from lwsm.applog import get_logger
+from lwsm.configfile import (
+    MAX_REASON_CHARS,
+    ConfigFileError,
+    ConfigFileNotDurable,
+    write_atomically,
+)
 from lwsm.scanner import (
     SystemctlUnits,
     _exec_start_argv,
     bound_inside,
     valid_unit_name,
 )
+
+log = get_logger(__name__)
 
 # The only verbs this module will drive. `disable` and `mask` are absent
 # deliberately, not by oversight: the user asked to manage servers WITHOUT
@@ -417,6 +425,9 @@ def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
     data = drop_in_text(port).encode("utf-8")
     try:
         write_atomically(path, data, prefix=".lwsm-")
+    except ConfigFileNotDurable as exc:
+        # Written, so the start goes on; only a crash could lose it (LWSM-1415).
+        log.warning("port drop-in: %s", exc)
     except ConfigFileError as exc:
         return UnitOutcome(ok=False, verb="start", unit=unit, reason=str(exc))
     reloaded = reload_user_manager()

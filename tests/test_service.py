@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from lwsm import service
+from lwsm.configfile import ConfigFileError, ConfigFileNotDurable
 from lwsm.service import (
     UNIT_VERB_TIMEOUT_SECONDS,
     VERBS,
@@ -454,6 +455,44 @@ def test_a_drop_in_systemd_does_not_read_stops_the_start(reloads, monkeypatch) -
 
     assert not outcome.ok
     assert "XDG_CONFIG_HOME" in outcome.reason
+
+
+def test_a_drop_in_written_but_not_durable_still_starts(
+    reloads, monkeypatch, caplog
+) -> None:
+    """LWSM-1415. The file is in place, so refusing the start would be untrue;
+    only its surviving a crash is in doubt, which goes to the log."""
+    real = service.write_atomically
+
+    def not_durable(path, data, **kwargs):
+        real(path, data, **kwargs)
+        raise ConfigFileNotDurable(f"{path}: written, but not made durable")
+
+    monkeypatch.setattr(service, "write_atomically", not_durable)
+
+    with caplog.at_level("WARNING"):
+        outcome = service.set_drop_in("a.service", 4321)
+
+    assert outcome.ok, outcome.reason
+    assert reloads == ["daemon-reload"], "systemd still has to read it"
+    assert "not made durable" in caplog.text
+
+
+def test_a_drop_in_that_could_not_be_written_stops_the_start(
+    reloads, monkeypatch
+) -> None:
+    """The refusal LWSM-1415 keeps: a file that is not there."""
+
+    def refused(path, data, **kwargs):
+        raise ConfigFileError(f"{path}: could not be written")
+
+    monkeypatch.setattr(service, "write_atomically", refused)
+
+    outcome = service.set_drop_in("a.service", 4321)
+
+    assert not outcome.ok
+    assert "could not be written" in outcome.reason
+    assert reloads == []
 
 
 def test_drop_in_seen_reads_systemds_own_list() -> None:

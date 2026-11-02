@@ -35,6 +35,7 @@ signaling per
 
 ### Fixed
 
+- **A start is no longer refused, and a trust choice no longer called unsaved, when the file was written.** The app treated a file as unwritten when it had only failed to confirm the file would survive a crash. That doubt now goes to the log. (LWSM-1415)
 - **A site the app starts can open a window through the older X11 display system.** The display refused it, so a program such as RetroArch crashed when RetroDB launched it. (LWSM-1424)
 - **Start and Restart work for a server that a desktop autostart entry with a hyphen in its name runs.** The app misread systemd's answer and refused, blaming `XDG_CONFIG_HOME`. (LWSM-1429)
 - **Quitting the app no longer stops the servers it started.** Started from the desktop, closing it took every server it had launched with it; each server now runs in its own systemd scope and keeps running for the next session to pick up. (LWSM-1420)
