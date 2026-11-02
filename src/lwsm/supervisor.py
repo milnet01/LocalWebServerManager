@@ -1055,6 +1055,9 @@ def _alive(proc: psutil.Process) -> bool:
     is exactly what makes it safe to keep using as a process-group id. Treating
     a zombie as alive would make the stop sequence wait out its whole grace
     period on a process that is already gone.
+
+    `foreign.py` asks this about processes that are not our children. A zombie
+    there is someone else's to reap, and just as gone.
     """
     try:
         return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
@@ -1707,6 +1710,9 @@ class Supervisor:
 
         Returns the pids killed and the pids still in the group afterwards.
         Appends to `unsignalled` what the kernel would not let us kill.
+
+        `foreign.stop_tree` runs the same escalation over a fixed set of
+        processes; a change to the sequence or its timing belongs in both.
         """
         self._wait_for(members, grace, _on_wait)
 

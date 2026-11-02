@@ -162,6 +162,10 @@ def stop_tree(
     Exactly the confirmed set: nothing is re-enumerated here, because a process
     that joined the tree since the dialog is one the user never saw named.
     One that survives is reported in `left`, not chased.
+
+    The same escalation as `Supervisor._escalate`, which signals a process
+    group and re-enumerates it. That difference is intended; a change to the
+    sequence or its timing belongs in both.
     """
     terminated: list[int] = []
     refused: list[int] = []
@@ -201,7 +205,10 @@ def _wait(
     clock: Callable[[], float],
     sleep: Callable[[float], None],
 ) -> list[psutil.Process]:
-    """Poll until nothing in `procs` is alive or `timeout` passes."""
+    """Poll until nothing in `procs` is alive or `timeout` passes.
+
+    `Supervisor._wait_for`'s loop, without its per-wait callback.
+    """
     deadline = clock() + timeout
     while True:
         alive = [proc for proc in procs if _alive(proc)]
@@ -232,6 +239,7 @@ def looks_like(
     root = os.path.normpath(project)
     candidates = [_ask(proc.exe), _ask(proc.cwd)]
     argv = _ask(proc.cmdline) or []
+    # From 1: `argv[0]` names the program, which `exe` has already answered.
     candidates.extend(arg for arg in argv[1:] if arg.startswith("/"))
     return any(
         candidate is not None and _inside(os.path.normpath(candidate), root)
