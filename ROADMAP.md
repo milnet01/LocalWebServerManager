@@ -12168,8 +12168,8 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Paused (2026-11-02) for the user. Needs a permanent new saved field,
   spec-first, to cover going back to a build older than LWSM-1038 and
   upgrading again. Recommended: drop it, since that path needs a
-  deliberate downgrade and only misreports a port until the next change.
-  Nothing built.
+  deliberate downgrade to a build older than LWSM-1038. How long a wrong
+  port would last is not checked. Nothing built.
   **Layman:** After a downgrade and upgrade, a project could keep showing an old port it no longer uses.
   Kind: review-fix.
   Source: review-code-2026-10-08 L03-L5.
