@@ -339,13 +339,15 @@ def _health_page(record: ProjectRecord) -> str:
 def _holder_phrase(holder: int | None) -> str:
     """Who holds a port, in words: the conflict warning's and the lookup's.
 
-    ADR-0002's pre-flight: "the holder is named — or reported as another
-    user's process when the PID cannot be resolved". The program path and not
+    ADR-0002's pre-flight: the holder is named, or reported as not inspectable.
+    No PID covers another user's process, a listener on a network address only
+    and two listeners on one port, and the refusal cannot tell them apart, so
+    it asserts no owner (`design.md`, LWSM-1423). The program path and not
     the command line: a process chooses its own command line, and this is one
     line of text with no dialog around it to keep the two apart (LWSM-1013).
     """
     if holder is None:
-        return "a process owned by another user, which cannot be inspected"
+        return "a process that cannot be inspected"
     exe = describe_holder(holder).exe
     if exe is None:
         # Exited since the snapshot, or its program is unreadable to us.

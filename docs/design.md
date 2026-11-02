@@ -627,8 +627,8 @@ correctness one, and the poll skips a tick rather than queueing.
 1. **Pre-flight.** `PortProbe` checks the project's effective
    port. If something holds it, the launch is refused with a
    message naming the holder (or saying plainly that the holder
-   belongs to another user and cannot be named — see
-   *Error handling*). The user can pick another port and retry.
+   cannot be inspected — see *Error handling*). The user can pick
+   another port and retry.
 2. **Spawn.** `Supervisor` runs the project's own launcher from
    the project directory, in a new session, with `PORT` set to
    the effective port and `LWSM_MANAGED=1` so the sibling

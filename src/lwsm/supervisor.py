@@ -170,8 +170,9 @@ class PortAlreadyBound(SupervisorError):
     ADR-0003 defines restart as "stop then start *with the same pre-flight
     check*". The controller turns it into the conflict warning (LWSM-1013).
 
-    `holder` is the PID the same snapshot names on the port, or None when the
-    kernel would not name one — another user's process (ADR-0004).
+    `holder` is the PID the same snapshot names on the port, or None when it
+    names none: another user's process (ADR-0004), a listener on a network
+    address only, or two listeners on one port.
     """
 
     def __init__(self, port: int, holder: int | None = None):

@@ -12238,7 +12238,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: refactor.
   Source: review-readability-trial-2026-10-19.
 
-- 📋 [LWSM-1423] **The conflict warning can name "another user" when it does not know.**
+- ✅ [LWSM-1423] **The conflict warning can name "another user" when it does not know.**
   Found building LWSM-1041. PortSnapshot.holders covers only
   addresses localhost reaches, and drops a port two unrelated PIDs
   hold. So the pre-flight's PortAlreadyBound carries holder None for
@@ -12249,6 +12249,13 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   it. The LWSM-1041 lookup already tells the LAN-only case apart
   (port_lookup's answers_localhost branch); the refusal cannot, since
   it carries only the PID. Not reproduced live; read from ports.py.
+  Shipped (2026-11-02). A holder with no PID now reads "a process that
+  cannot be inspected", which holds for all three causes the refusal
+  cannot tell apart. The simpler choice over carrying the cause through
+  the refusal: the wording design.md already asks for. ADR-0002's
+  pre-flight line, design.md's data flow and the unreleased changelog
+  line follow it. The What's using a port lookup keeps its more exact
+  network-address answer. Read from code as filed, not reproduced live.
   **Layman:** When a start is refused, the warning may blame another user's program when the real reason is simply that the app did not look.
   Kind: fix.
   Source: in-session-2026-10-20.

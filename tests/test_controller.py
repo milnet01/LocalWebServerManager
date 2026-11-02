@@ -1696,8 +1696,9 @@ def test_a_refused_start_names_the_process_holding_the_port(qtbot, controllers) 
 @pytest.mark.parametrize(
     ("holder", "says"),
     [
-        # Another user's process: the kernel names no PID (ADR-0004).
-        (None, "another user"),
+        # No PID: another user's, on a network address only, or two listeners.
+        # The refusal cannot tell which, so it claims none (LWSM-1423).
+        (None, "a process that cannot be inspected"),
         # A PID that names nothing by the time it is described — gone, or
         # unreadable. Above any `pid_max` Linux allows, so it never exists.
         (2**23, "could not be read"),
@@ -1718,6 +1719,7 @@ def test_a_refused_start_says_when_the_holder_cannot_be_named(
     assert len(failures) == 1
     assert "5005" in failures[0]
     assert says in failures[0], failures[0]
+    assert "another user" not in failures[0], failures[0]
 
 
 def test_a_refused_start_offers_a_port_change_and_no_rescan(qtbot, controllers) -> None:

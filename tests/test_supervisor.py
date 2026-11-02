@@ -949,8 +949,8 @@ def test_the_pre_flight_refusal_carries_the_port_s_holder(
 ) -> None:
     """LWSM-1013: the refusal names who is in the way, from the same snapshot.
 
-    `None` when the kernel would not name the holder — a port in `listening`
-    with no entry in `holders`, which is another user's process (ADR-0004).
+    `None` when the snapshot names no holder — a port in `listening` with no
+    entry in `holders`.
     """
     sup = Supervisor(probe=FakeProbe({8080}, holders), log_dir=tmp_path / "logs")
     write_launcher(project, "exit 0\n")

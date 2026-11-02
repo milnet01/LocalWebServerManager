@@ -190,8 +190,9 @@ The manager's obligations are the other half of the contract:
 
 - **Pre-flight.** Before spawning, the manager checks that the
   effective port is free. If it is held, the launch is refused
-  and the holder is named — or reported as another user's process
-  when the PID cannot be resolved. The manager never launches a
+  and the holder is named — or reported as a process that cannot be
+  inspected when no PID is known. No PID does not establish whose it
+  is (LWSM-1423). The manager never launches a
   project into a port it already knows is taken.
 - **Post-flight.** After spawn, the manager verifies which port
   the child actually bound, by asking `PortProbe` **which ports
