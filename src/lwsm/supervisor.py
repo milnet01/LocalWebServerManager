@@ -77,6 +77,7 @@ ENV_ALLOWLIST = frozenset(
         "XDG_RUNTIME_DIR",
         "XDG_SESSION_TYPE",
         "DISPLAY",
+        "XAUTHORITY",
         "WAYLAND_DISPLAY",
         "DBUS_SESSION_BUS_ADDRESS",
     }

@@ -12248,7 +12248,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: in-session-2026-10-20.
   Lanes: core.
 
-- 📋 [LWSM-1424] **Pass XAUTHORITY to started servers, so they can open X11 windows.**
+- ✅ [LWSM-1424] **Pass XAUTHORITY to started servers, so they can open X11 windows.**
   supervisor.ENV_ALLOWLIST (ADR-0003) drops XAUTHORITY. On KDE
   Wayland, Xwayland refuses a client with no cookie, so a server
   LWSM starts cannot open an X11 window. Measured by the RetroDB
@@ -12259,6 +12259,14 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   already allowed. Amending ADR-0003's allowlist owes the rule-14
   gate before the code changes.
   User, 2026-10-22: file it; not before LWSM-1014 and LWSM-1037.
+  Shipped (2026-11-02). XAUTHORITY added to supervisor.ENV_ALLOWLIST and
+  to ADR-0003, with its reason. Red: the new test failed with KeyError.
+  Measured here: xset q exits 0 with the variable and 1 without it. The
+  item's "owes the rule-14 gate" is superseded: rule 14 as settled
+  2026-10-31 sets no automatic review on an ADR amendment. Built after
+  LWSM-1037 as the user's 2026-10-22 note asked; LWSM-1014's code is
+  built, its acceptance run still owed. Not run: RetroArch through
+  RetroDB under this build.
   **Layman:** A site the app starts can't open a window through the older display system, so RetroArch crashed when RetroDB launched it.
   Kind: fix.
   Source: retrodb-session-2026-10-20.

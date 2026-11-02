@@ -61,7 +61,8 @@ Specifics:
   by nature — see § Trust below.
 - **The child's environment is an allowlist, not an inheritance.**
   `PATH HOME USER LOGNAME SHELL LANG LC_* TERM TZ XDG_RUNTIME_DIR
-  XDG_SESSION_TYPE DISPLAY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS`,
+  XDG_SESSION_TYPE DISPLAY XAUTHORITY WAYLAND_DISPLAY
+  DBUS_SESSION_BUS_ADDRESS`,
   plus `PORT` (ADR-0002) and `LWSM_MANAGED` (ADR-0006). Passing
   `os.environ` through would hand every scanned project —
   including a hostile one — `SSH_AUTH_SOCK` (a live signing
@@ -76,6 +77,11 @@ Specifics:
   whatever its environment says. And removing them breaks every dev
   server that opens a browser tab on start. The trust confirmation
   below is the protection, not the environment.
+  `XAUTHORITY` joined them for the same reason (LWSM-1424, 2026-11-02).
+  It names the X cookie's file and is not the cookie. Without it
+  Xwayland refuses the client, so `DISPLAY` alone opens no X11 window.
+  Removing it is no boundary either: Xwayland's `-auth` argument shows
+  the same path to any process that lists it.
 
 ### Trust: a discovered launcher is untrusted until confirmed
 

@@ -211,6 +211,20 @@ def test_credentials_are_not_handed_to_a_launched_project() -> None:
     assert "GITHUB_TOKEN" not in env
 
 
+def test_a_launched_project_can_authenticate_to_the_x_display() -> None:
+    """LWSM-1424. Without the cookie's path Xwayland refuses the client, so a
+    server that opens an X11 window fails although `DISPLAY` reached it."""
+    env = build_child_env(
+        port=None,
+        base={
+            "PATH": "/usr/bin",
+            "DISPLAY": ":0",
+            "XAUTHORITY": "/run/user/1000/xauth",
+        },
+    )
+    assert env["XAUTHORITY"] == "/run/user/1000/xauth"
+
+
 def test_the_two_variables_the_contract_adds_are_present() -> None:
     env = build_child_env(port=4321, base={"PATH": "/usr/bin"})
     assert env["PORT"] == "4321"
