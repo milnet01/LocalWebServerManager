@@ -12328,6 +12328,15 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   restarted first. A restart would interrupt the job. Also measured:
   RetroDB's tree and git history do not contain the word XAUTHORITY, so the
   workaround this item describes was not found under that name.
+  Checked 2026-11-02, after RetroDB's job ended. RetroDB's own RetroArch
+  AppImage, run with build_child_env's result and a scratch HOME, on the
+  real desktop. Forced to X11 (WAYLAND_DISPLAY removed): without XAUTHORITY
+  it exited in under a second, "Cannot open video driver"; with it, it opened
+  on X11 and stayed up until stopped at 8 seconds. With WAYLAND_DISPLAY
+  present it stayed up either way, using Wayland. Exit code 1 here, not the
+  reported segfault. Not run: Play in RetroDB's page, which needs its login
+  and a RetroDB restart under this build. RetroDB's launch code holds no
+  Xwayland or cookie workaround that this check found.
   **Layman:** A site the app starts can't open a window through the older display system, so RetroArch crashed when RetroDB launched it.
   Kind: fix.
   Source: retrodb-session-2026-10-20.
