@@ -12337,6 +12337,10 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   reported segfault. Not run: Play in RetroDB's page, which needs its login
   and a RetroDB restart under this build. RetroDB's launch code holds no
   Xwayland or cookie workaround that this check found.
+  2026-11-02, 14:04: RetroDB restarted through the app's own Restart
+  button, with the user's say-so, once it was idle. The new server now holds
+  XAUTHORITY in its environment and answers on port 5000; the app still
+  manages it. Still not run: Play in RetroDB's page, which needs its login.
   **Layman:** A site the app starts can't open a window through the older display system, so RetroArch crashed when RetroDB launched it.
   Kind: fix.
   Source: retrodb-session-2026-10-20.
