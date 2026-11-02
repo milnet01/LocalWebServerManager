@@ -17,7 +17,7 @@ from collections.abc import Iterator
 import psutil
 import pytest
 
-from lwsm.ports import PortProbe, ProbeError
+from lwsm.ports import PortProbe, PortSnapshot, ProbeError, free_port
 
 
 @pytest.fixture
@@ -466,3 +466,54 @@ def test_a_listener_that_left_the_group_is_not_attributed_to_its_parent(
         child.kill()
         os.killpg(parent.pid, signal.SIGKILL)
         parent.wait()
+
+
+# --- LWSM-1037: suggesting a free port ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("listening", "avoid", "start", "expected"),
+    [
+        (set(), set(), 3001, 3001),
+        ({3001, 3002}, set(), 3001, 3003),
+        (set(), {3001}, 3001, 3002),
+        ({3001}, {3002}, 3001, 3003),
+        # 5060 and 5061 are free, but a browser refuses to open them.
+        (set(), set(), 5060, 5062),
+        # Nothing above `start` is free, so the search comes back round.
+        ({1100}, {1101}, 1100, 1024),
+        # A declared port under the floor, or a start past the ceiling.
+        (set(), set(), 81, 1024),
+        (set(), set(), 65536, 65535),
+    ],
+    ids=[
+        "the start itself",
+        "past what is listening",
+        "past what a project claims",
+        "past both",
+        "past what a browser refuses",
+        "wraps round to the floor",
+        "a start under the floor",
+        "a start past the ceiling",
+    ],
+)
+def test_free_port_takes_the_first_port_nothing_claims(
+    listening: set[int], avoid: set[int], start: int, expected: int
+) -> None:
+    high = 1101 if start == 1100 else 65535
+    snapshot = PortSnapshot(frozenset(listening))
+
+    assert free_port(snapshot, avoid, start, 1024, high) == expected
+
+
+def test_free_port_counts_a_listener_on_any_address_as_taken() -> None:
+    """A LAN-only listener still takes the port from a server binding them all."""
+    snapshot = PortSnapshot(frozenset({3001}), {}, local=frozenset())
+
+    assert free_port(snapshot, set(), 3001, 1024, 65535) == 3002
+
+
+def test_free_port_is_none_when_every_port_is_claimed() -> None:
+    snapshot = PortSnapshot(frozenset({2000}))
+
+    assert free_port(snapshot, {2001}, 2000, 2000, 2001) is None

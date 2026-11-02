@@ -4283,3 +4283,70 @@ def test_the_lookup_stops_answering_when_the_table_is_lost(qtbot, controllers) -
     controller._on_probe_error(ProbeError("socket table unavailable"))
 
     assert controller.port_lookup(5005) == "Port status cannot be read right now."
+
+
+# --- LWSM-1037: suggesting a free port ------------------------------------------
+
+
+def test_the_suggestion_skips_a_project_that_is_not_running(qtbot, controllers) -> None:
+    """The socket table cannot see a project that has not started, so its port
+    is taken from the records. Its own port is not offered back."""
+    records = [record("a", 3000), record("b", 3001)]
+    controller = build(controllers, records, FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset({3002})))
+
+    assert controller.suggested_port(records[0].path) == 3003
+
+
+def test_the_suggestion_skips_what_an_override_claims(qtbot, controllers) -> None:
+    """A project's effective port is what it will ask for, not its declared one."""
+    other = replace(record("b", 9000), port_override=3001)
+    mine = record("a", 3000)
+    controller = build(controllers, [mine, other], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset()))
+
+    assert controller.suggested_port(mine.path) == 3002
+
+
+def test_the_suggestion_has_a_starting_point_for_a_project_with_no_port(
+    qtbot, controllers
+) -> None:
+    mine = record("a", None)
+    controller = build(controllers, [mine], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset()))
+
+    assert controller.suggested_port(mine.path) == 8000
+
+
+def test_no_suggestion_when_every_port_is_taken(qtbot, controllers) -> None:
+    mine = record("a", 3000)
+    controller = build(controllers, [mine], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset(range(1024, 65536))))
+
+    assert controller.suggested_port(mine.path) is None
+
+
+def test_no_suggestion_before_the_first_poll(qtbot, controllers) -> None:
+    """§ O5: a port never seen free is not called free."""
+    mine = record("a", 3000)
+    controller = build(controllers, [mine], FakeProbe())
+
+    assert controller.suggested_port(mine.path) is None
+
+
+def test_no_suggestion_when_the_table_is_lost(qtbot, controllers) -> None:
+    mine = record("a", 3000)
+    controller = build(controllers, [mine], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset()))
+    controller._on_probe_error(ProbeError("socket table unavailable"))
+
+    assert controller.suggested_port(mine.path) is None
+
+
+def test_no_suggestion_for_a_project_no_longer_listed(
+    qtbot, controllers, tmp_path
+) -> None:
+    controller = build(controllers, [record("a", 3000)], FakeProbe())
+    controller._on_snapshot(PortSnapshot(frozenset()))
+
+    assert controller.suggested_port(tmp_path / "gone") is None

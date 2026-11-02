@@ -293,6 +293,31 @@ def _filled(template: str, *values: str) -> str:
     )
 
 
+def _suggestion_note(current: int | None, suggested: int | None) -> str:
+    """What the port entry says about its starting number (LWSM-1037).
+
+    Empty with no suggestion. With one it names the current port too, because
+    the field no longer shows it.
+    """
+    if suggested is None:
+        return ""
+    if current is None:
+        return _filled(
+            QCoreApplication.translate(
+                "ProjectRow", "Suggested: %1, free and used by no other project."
+            ),
+            str(suggested),
+        )
+    return _filled(
+        QCoreApplication.translate(
+            "ProjectRow",
+            "Now port %1. Suggested: %2, free and used by no other project.",
+        ),
+        str(current),
+        str(suggested),
+    )
+
+
 _PLACEHOLDER = re.compile(r"%[1-9]")
 # The disclosure fields, same shape and same reason as `_TRUST_FIELD`.
 _DISCLOSE_FIELD = re.compile(r"%[1-6]")
@@ -3905,13 +3930,21 @@ class MainWindow(QMainWindow):
         `change_health_page`'s shape. Empty removes the override, so the
         detected port is used again. A port the loader would refuse is refused
         here, by the same range. The confirmed port goes when the override
-        changes (`registry.with_port_override`).
+        changes (`registry.with_port_override`). The entry starts on a free
+        port where one can be vouched for (LWSM-1037), which the user can
+        overtype or cancel.
         """
         record = self._record_at(path)
         if record is None:
             return
         current = record.effective_port
-        answer = self._ask_port(record.name, "" if current is None else str(current))
+        suggested = self._controller.suggested_port(path)
+        entry = current if suggested is None else suggested
+        answer = self._ask_port(
+            record.name,
+            "" if entry is None else str(entry),
+            _suggestion_note(current, suggested),
+        )
         if answer is None:
             return
         try:
@@ -3947,27 +3980,29 @@ class MainWindow(QMainWindow):
             )
         self.set_status_message(self._write_records(records, message, "port"))
 
-    def _ask_port(self, name: str, current: str) -> str | None:
+    def _ask_port(self, name: str, entry: str, note: str) -> str | None:
         """The text the user typed, or None if they cancelled.
 
-        A seam, as `_ask_health_page` is: the dialog is modal.
+        A seam, as `_ask_health_page` is: the dialog is modal. `entry` starts
+        in the field; `note`, if any, goes above the question.
         """
         low, high = registry.OVERRIDE_PORT_RANGE
+        question = _filled(
+            QCoreApplication.translate(
+                "ProjectRow",
+                "Port for %1, from %2 to %3. Leave it empty to use the "
+                "port the project's own files give:",
+            ),
+            display_text(name),
+            str(low),
+            str(high),
+        )
         text, accepted = QInputDialog.getText(
             self,
             QCoreApplication.translate("ProjectRow", "Change port"),
-            _filled(
-                QCoreApplication.translate(
-                    "ProjectRow",
-                    "Port for %1, from %2 to %3. Leave it empty to use the "
-                    "port the project's own files give:",
-                ),
-                display_text(name),
-                str(low),
-                str(high),
-            ),
+            f"{note}\n{question}" if note else question,
             QLineEdit.EchoMode.Normal,
-            current,
+            entry,
         )
         return text if accepted else None
 

@@ -100,7 +100,8 @@ Added at P02 (LWSM-1005), contract in
 - **`src/lwsm/ports.py`** — core, no Qt at all. `PortProbe`,
   `PortSnapshot`, `ProbeError`, and the `SupportsSnapshot`
   Protocol the controller accepts so test fakes are the contract.
-  One `psutil.net_connections` call per snapshot.
+  One `psutil.net_connections` call per snapshot. `free_port` picks a
+  port to suggest from a snapshot (LWSM-1037).
 - **`src/lwsm/controller.py`** — core, `QtCore` only.
   `ProjectController`, `ProjectStatus`, `RowView`. Since LWSM-1010
   it also drives the buttons: `start_project`, `stop_project`,

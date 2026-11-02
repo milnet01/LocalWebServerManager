@@ -12090,7 +12090,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   runs it or says how.
   Lanes: core, ui, tests.
 
-- 📋 [LWSM-1037] **P07: suggest a free port.**
+- ✅ [LWSM-1037] **P07: suggest a free port.**
   When reassigning,
   propose a port that is actually free — checked against the live
   socket table and against every other project's effective port,
@@ -12103,6 +12103,15 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 3.
+  Shipped (2026-11-02). The port entry starts on a free port and names
+  the current one; the user can overtype or cancel. ports.free_port
+  reads the poll's last snapshot, skipping every project's effective
+  port and the ports a browser refuses (Fetch standard § Port blocking,
+  read from the page). No snapshot means no suggestion (coding-overrides
+  O5). Twelve deliberate breaks: eleven caught, the twelfth showed a
+  redundant `+ 1`, removed. Full gate 2692 passed. Not seen on a real
+  display: the tests read what the dialog is handed. The user sees it
+  during LWSM-1014's port check.
   Lanes: core, ui.
 
 - 📋 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**

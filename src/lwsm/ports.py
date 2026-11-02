@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import ipaddress
 import os
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
+from itertools import chain
 from typing import Protocol
 
 import psutil
@@ -110,6 +111,53 @@ class PortSnapshot:
         asks, so they need not be told apart here.
         """
         return self.holders.get(port)
+
+
+# Ports from 1024 up that a browser refuses to open whatever is listening: the
+# "bad port" table in the Fetch standard, fetch.spec.whatwg.org § Port blocking.
+# Free by every check here, a suggestion on one would still fail at Open.
+BROWSER_BLOCKED_PORTS = frozenset(
+    {
+        1719,
+        1720,
+        1723,
+        2049,
+        3659,
+        4045,
+        4190,
+        5060,
+        5061,
+        6000,
+        6566,
+        6665,
+        6666,
+        6667,
+        6668,
+        6669,
+        6679,
+        6697,
+        10080,
+    }
+)
+
+
+def free_port(
+    snapshot: PortSnapshot, avoid: Collection[int], start: int, low: int, high: int
+) -> int | None:
+    """The first usable port from `start` up, then from `low`, or None (LWSM-1037).
+
+    Usable means in `low`..`high`, not in `avoid`, not one a browser refuses,
+    and with no listener on any address: `is_bound` is the binding question.
+    """
+    first = min(max(start, low), high)
+    for port in chain(range(first, high + 1), range(low, first)):
+        if (
+            port not in avoid
+            and port not in BROWSER_BLOCKED_PORTS
+            and not snapshot.is_bound(port)
+        ):
+            return port
+    return None
 
 
 class SupportsSnapshot(Protocol):

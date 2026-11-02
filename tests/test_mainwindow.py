@@ -9729,8 +9729,8 @@ def test_the_menu_changes_the_port(
     window, controller = browser_window(qtbot, built, tmp_path, [before], saves)
     asked: list[tuple[str, str]] = []
 
-    def ask(name: str, current: str) -> str | None:
-        asked.append((name, current))
+    def ask(name: str, entry: str, _note: str) -> str | None:
+        asked.append((name, entry))
         return typed
 
     monkeypatch.setattr(window, "_ask_port", ask)
@@ -9755,12 +9755,95 @@ def test_the_entry_starts_at_the_effective_port_when_none_was_set(
     window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
     asked: list[str] = []
     monkeypatch.setattr(
-        window, "_ask_port", lambda _name, current: asked.append(current)
+        window, "_ask_port", lambda _name, entry, _note: asked.append(entry)
     )
 
     row_named(window, "a").change_port_action.trigger()
 
     assert asked == ["3000"]
+
+
+def test_the_entry_offers_a_free_port_and_says_so(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1037. The field holds the suggestion, and the note says what it is
+    and what the port is now, since the field no longer shows that."""
+    saves: list = []
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [record("a", 3000), record("b", 3001)], saves
+    )
+    controller._on_snapshot(PortSnapshot(frozenset({3002})))
+    asked: list[tuple[str, str]] = []
+
+    def ask(_name: str, entry: str, note: str) -> str | None:
+        asked.append((entry, note))
+        return entry
+
+    monkeypatch.setattr(window, "_ask_port", ask)
+    row_named(window, "a").change_port_action.trigger()
+
+    assert asked == [
+        ("3003", "Now port 3000. Suggested: 3003, free and used by no other project.")
+    ]
+    assert controller.records()[0].port_override == 3003, "accepted, it is saved"
+
+
+@pytest.mark.parametrize(
+    ("note", "starts_with"),
+    [("Suggested: 8000.", "Suggested: 8000.\nPort for a,"), ("", "Port for a,")],
+    ids=["with a note", "without one"],
+)
+def test_the_real_dialog_is_given_the_entry_and_the_note(
+    qtbot, built, tmp_path, monkeypatch, note, starts_with
+) -> None:
+    """Every other test here replaces `_ask_port`, so this one reads what the
+    modal dialog is actually handed."""
+    window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    calls: list[tuple] = []
+
+    def get_text(*args) -> tuple[str, bool]:
+        calls.append(args)
+        return "8000", True
+
+    monkeypatch.setattr(mainwindow.QInputDialog, "getText", get_text)
+
+    assert window._ask_port("a", "8000", note) == "8000"
+    assert calls[0][2].startswith(starts_with)
+    assert calls[0][4] == "8000"
+
+
+def test_the_suggestion_is_never_imposed(qtbot, built, tmp_path, monkeypatch) -> None:
+    """The user's own number wins, and cancelling changes nothing."""
+    saves: list = []
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [record("a", 3000)], saves
+    )
+    controller._on_snapshot(PortSnapshot(frozenset()))
+
+    monkeypatch.setattr(window, "_ask_port", lambda *_: None)
+    row_named(window, "a").change_port_action.trigger()
+    assert controller.records()[0].port_override is None
+    assert not saves
+
+    monkeypatch.setattr(window, "_ask_port", lambda *_: "4000")
+    row_named(window, "a").change_port_action.trigger()
+    assert controller.records()[0].port_override == 4000
+
+
+def test_the_entry_claims_nothing_when_the_ports_are_unread(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """§ O5: with no socket table there is no suggestion and no note."""
+    window, _ = browser_window(qtbot, built, tmp_path, [record("a", 3000)])
+    asked: list[tuple[str, str]] = []
+
+    def ask(_name: str, entry: str, note: str) -> None:
+        asked.append((entry, note))
+
+    monkeypatch.setattr(window, "_ask_port", ask)
+    row_named(window, "a").change_port_action.trigger()
+
+    assert asked == [("3000", "")]
 
 
 def test_a_port_conflict_offers_change_port_beside_the_warning(

@@ -25,8 +25,8 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 from lwsm import health
 from lwsm.configfile import display_text
 from lwsm.foreign import Tree, TreeOutcome, looks_like, stop_tree
-from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot
-from lwsm.registry import PortFinding, ProjectRecord, port_claims
+from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot, free_port
+from lwsm.registry import OVERRIDE_PORT_RANGE, PortFinding, ProjectRecord, port_claims
 from lwsm.service import (
     ENDED_STATES,
     UnitOutcome,
@@ -74,6 +74,9 @@ STOP_WAIT_MS = 2000
 # timer and pool: a slow server must never hold the one-second status poll.
 HEALTH_INTERVAL_MS = 10_000
 HEALTH_THREADS = 4
+# Where a free-port search begins for a project with no port of its own: the
+# usual range for a local web server, clear of the floor's registered services.
+_SUGGEST_FROM = 8000
 
 # Pools abandoned by stop() because their probe was still running. The list
 # exists because ~QThreadPool calls waitForDone() with NO timeout, so letting
@@ -1336,6 +1339,27 @@ class ProjectController(QObject):
             if holder is not None and self._holders.get(record.path) == holder:
                 return f"{answer}, the server of {display_text(record.name)}."
         return f"{answer}."
+
+    def suggested_port(self, path: Path) -> int | None:
+        """A port to offer this project, or None if none can be vouched for.
+
+        LWSM-1037: free in the poll's last snapshot, and no project's effective
+        port, since the table cannot see a project that has not started. None
+        with no snapshot: a port never seen free is not called free (`§ O5`).
+        The answer can be stale by one poll; the start's pre-flight still checks.
+        """
+        if self._snapshot is None:
+            return None
+        record = next((r for r in self._records if r.path == path), None)
+        if record is None:
+            return None
+        current = record.effective_port
+        return free_port(
+            self._snapshot,
+            {r.effective_port for r in self._records if r.effective_port is not None},
+            _SUGGEST_FROM if current is None else current,
+            *OVERRIDE_PORT_RANGE,
+        )
 
     def _port_claimed_by(self, record: ProjectRecord) -> ProjectRecord | None:
         """The project that registered this record's port first, if any.
