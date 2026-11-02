@@ -34,6 +34,7 @@ signaling per
 
 ### Fixed
 
+- **Start and Restart work for a server that a desktop autostart entry with a hyphen in its name runs.** The app misread systemd's answer and refused, blaming `XDG_CONFIG_HOME`. (LWSM-1429)
 - **Quitting the app no longer stops the servers it started.** Started from the desktop, closing it took every server it had launched with it; each server now runs in its own systemd scope and keeps running for the next session to pick up. (LWSM-1420)
 - **Switching the desktop between light and dark no longer rewrites the settings file.** With the theme set to follow the desktop, each switch saved it again, so a settings file the app could not write raised "The theme could not be saved" on every switch.
 - **Preferences opens on the settings in force.** It used to re-read the settings file, so after a save had failed it showed the file's older values, and pressing OK put the poll interval and log size limit back to them.

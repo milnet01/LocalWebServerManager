@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -462,7 +463,13 @@ def drop_in_seen(unit: str, path: Path, *, run: object = None) -> bool | None:
         return None
     if getattr(completed, "returncode", 1) != 0:
         return None
-    return str(path) in (getattr(completed, "stdout", "") or "").split()
+    try:
+        # Shell-quoted by systemd where a path needs it, and an autostart unit's
+        # `\x2d` does (LWSM-1429), so a plain split never matches that path.
+        listed = shlex.split(getattr(completed, "stdout", "") or "")
+    except ValueError:
+        return None
+    return str(path) in listed
 
 
 def clear_drop_in(unit: str) -> UnitOutcome:

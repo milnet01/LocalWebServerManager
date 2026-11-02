@@ -466,6 +466,51 @@ def test_drop_in_seen_reads_systemds_own_list() -> None:
     assert REAL_SEEN("a.service", path, run=FakeRun(returncode=1)) is None
 
 
+def test_drop_in_seen_reads_a_path_systemd_quoted() -> None:
+    """LWSM-1429. systemd shell-quotes a listed path that needs it, and an
+    autostart unit's name holds `\\x2d` for each hyphen. `listed` is the real
+    output for such a unit, so a plain split never matched the file systemd
+    had read, and Start and Restart were refused.
+
+    Dies on matching the raw text.
+    """
+    path = Path(
+        r"/home/u/.config/systemd/user/app-a\x2db@autostart.service.d/50-lwsm-port.conf"
+    )
+    listed = (
+        r'"/home/u/.config/systemd/user/app-a\\x2db@autostart.service.d'
+        r'/50-lwsm-port.conf"' + "\n"
+    )
+    assert REAL_SEEN("a.service", path, run=FakeRun(stdout=listed)) is True
+
+    other = Path(
+        r"/home/u/.config/systemd/user/app-a\x2dc@autostart.service.d/50-lwsm-port.conf"
+    )
+    assert REAL_SEEN("a.service", other, run=FakeRun(stdout=listed)) is False
+
+
+def test_drop_in_seen_keeps_a_quoted_space_in_one_path() -> None:
+    """LWSM-1429: a space is the other thing quoting protects. The form is
+    systemd's quoting rule applied by hand; no unit here was seen printing it.
+    """
+    path = Path("/home/u v/.config/systemd/user/a.service.d/50-lwsm-port.conf")
+    listed = f'/etc/systemd/user/a.service.d/10.conf "{path}"\n'
+
+    assert REAL_SEEN("a.service", path, run=FakeRun(stdout=listed)) is True
+
+
+def test_drop_in_seen_treats_unbalanced_quoting_as_no_answer() -> None:
+    """LWSM-1429. An answer that cannot be read proves nothing, so it must not
+    become the definite "not read" that refuses a start, or an exception out
+    of the worker.
+
+    Dies on letting `shlex`'s ValueError out, or on answering False.
+    """
+    path = Path("/home/u/.config/systemd/user/a.service.d/50-lwsm-port.conf")
+
+    assert REAL_SEEN("a.service", path, run=FakeRun(stdout=f'"{path}\n')) is None
+
+
 def test_clearing_with_nothing_to_remove_does_not_reload(reloads) -> None:
     assert service.clear_drop_in("a.service").ok
     assert reloads == []

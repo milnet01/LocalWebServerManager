@@ -12324,7 +12324,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Lanes: core, ui, tests.
   Splits-from: LWSM-1035.
 
-- 📋 [LWSM-1429] **Start and Restart refuse any systemd unit whose name holds a backslash.**
+- ✅ [LWSM-1429] **Start and Restart refuse any systemd unit whose name holds a backslash.**
   service.py `drop_in_seen` looks for the drop-in path in `.split()` of
   `systemctl --user show --property=DropInPaths --value`. systemd
   shell-quotes a value holding a backslash: it printed the path inside
@@ -12351,6 +12351,8 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   next logon start, where a sibling whose tray keys on that variable
   starts with no tray icon. A successful verb clears it, so the first
   Restart after the fix does.
+  Done 2026-11-02. `drop_in_seen` uses `shlex.split`; a `ValueError` returns None. Checked end to end on a throwaway unit with `\x2d` in its name: drop-in seen, unit started with PORT and LWSM_MANAGED, drop-in cleared, unit removed. Old and new verdicts compared over every user and system unit's drop-ins: only the reported path moved.
+  Correction to the side effect above: the reporting unit had since been stopped, so no Restart would have cleared its leftover drop-in. It was removed by hand with `clear_drop_in`. A refused start still leaves its drop-in on disk, but after this fix a refusal means systemd did not read the file. The space case is tested from systemd's quoting rule, not from an observed unit.
   **Layman:** A server started by a desktop autostart entry with a hyphen in its name cannot be started or restarted from the app, and the app wrongly blames a settings mismatch.
   Kind: fix.
   Source: user-report-2026-11-02.
