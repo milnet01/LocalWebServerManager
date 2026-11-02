@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1428 -->
+<!-- ants-roadmap-id-high-water: LWSM=1429 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12324,6 +12324,38 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Lanes: core, ui, tests.
   Splits-from: LWSM-1035.
 
+- 📋 [LWSM-1429] **Start and Restart refuse any systemd unit whose name holds a backslash.**
+  service.py `drop_in_seen` looks for the drop-in path in `.split()` of
+  `systemctl --user show --property=DropInPaths --value`. systemd
+  shell-quotes a value holding a backslash: it printed the path inside
+  double quotes with each backslash doubled, so the exact match fails
+  even though systemd read the file. An autostart-generated unit gets
+  `\x2d` for each hyphen in its name, so `app-foo\x2dbar@autostart.service`
+  always hits this. `set_drop_in` then refuses before `drive_unit`, with a
+  reason blaming XDG_CONFIG_HOME, which was the same on both sides.
+
+  Reproduced 2026-11-02 against real systemd: `drop_in_seen` False, the
+  service's `Environment` holding the drop-in's values, and
+  `shlex.split` of the same output finding the path. Plain-named units
+  print unquoted, which is why they work.
+
+  Why the tests missed it: `test_drop_in_seen_reads_systemds_own_list`
+  fakes an unquoted list, and conftest stubs `drop_in_seen` to True.
+
+  Fix: parse with `shlex.split`; a `ValueError` returns None, since an
+  unreadable answer proves nothing. Red test first, using the quoted
+  output above. A space in the path breaks the same way; cover it.
+
+  Side effect to close: the refusal leaves the drop-in in place, and
+  systemd has read it. The file carries LWSM_MANAGED=1 into the unit's
+  next logon start, where a sibling whose tray keys on that variable
+  starts with no tray icon. A successful verb clears it, so the first
+  Restart after the fix does.
+  **Layman:** A server started by a desktop autostart entry with a hyphen in its name cannot be started or restarted from the app, and the app wrongly blames a settings mismatch.
+  Kind: fix.
+  Source: user-report-2026-11-02.
+  Lanes: service.
+
 ## 0.5.0 — Logs
 
 Criterion 5: failures readable without a terminal.
@@ -12715,6 +12747,11 @@ open DS01 debt-sweep items, and the open FP02 review items.
   is option (b) taken on the sibling side. RetroDB asks that ADR-0006
   name "tray icon and auto-opening a browser" as the allowed uses.
   User, 2026-10-22: file it, do it later.
+  2026-11-02: a third sibling now skips its self-opened browser under
+  LWSM_MANAGED=1, by its session's report of 2026-10-30. That session
+  suggests amending ADR-0006 rule 3 to allow it, because the app has its
+  own Open button and opening a page is presentation only. Not decided
+  here.
   Lanes: core, docs.
 
 - ✅ [LWSM-1056] **DS01: `main()` is a shipped entry point with no test.**
