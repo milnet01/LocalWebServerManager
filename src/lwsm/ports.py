@@ -105,10 +105,11 @@ class PortSnapshot:
     def holder(self, port: int) -> int | None:
         """The pid listening on `port`, or None.
 
-        None covers two different facts on purpose -- nothing is listening, and
-        something is listening that the kernel will not name for us. Neither is
-        evidence that the port is ours, which is the only question the caller
-        asks, so they need not be told apart here.
+        None covers several facts on purpose: nothing is listening, another
+        account's listener the kernel will not name, a listener only on an
+        address `localhost` does not reach, an unnamed listener beside a named
+        one, and several pids that are not one server. None of them is evidence
+        that the port is ours, which is the question most callers ask.
         """
         return self.holders.get(port)
 
@@ -189,12 +190,9 @@ class PortProbe:
                 f"could not read the socket table: {type(exc).__name__}: {exc}"
             ) from exc
 
-        # Inside the try as well, and not only the call: the comprehension
-        # touches `conn.status` and `conn.laddr.port` on objects psutil built,
-        # so malformed output raised a bare AttributeError from here — not the
-        # ProbeError § 4.2 promises as this method's one exception type
-        # (LWSM-1111). `run()`'s catch-all masked it; the contract is still the
-        # contract, and it costs one line.
+        # Anything raised while parsing becomes a ProbeError, § 4.2's one
+        # exception type: the loop reads fields of objects psutil built, and
+        # malformed output raised a bare AttributeError from here (LWSM-1111).
         #
         # The laddr guard is belt-and-braces: no listening entry has a falsy
         # laddr on this machine, but the field is typed as possibly empty and an
@@ -224,11 +222,12 @@ class PortProbe:
                     unnamed.add(port)
             # A port normally carries two listening sockets, IPv4 and IPv6,
             # belonging to one process -- one pid, no ambiguity. Two DIFFERENT
-            # pids on one port is possible on two loopback addresses, and there
-            # nothing here can say which one `localhost` reaches. Taking the
-            # first made the answer depend on psutil's undocumented return
-            # order (LWSM-1232); no answer is ADR-0004's safe direction, the
-            # same one already taken for a holder the kernel will not name.
+            # pids are the one server a pre-fork server is, which `_master_of`
+            # names by its root. Otherwise they are possible on two loopback
+            # addresses, and nothing here can say which one `localhost` reaches.
+            # Taking the first made the answer depend on psutil's undocumented
+            # return order (LWSM-1232); no answer is ADR-0004's safe direction,
+            # the same one already taken for a holder the kernel will not name.
             holders: dict[int, int] = {}
             for port, pids in claimants.items():
                 if port in unnamed:

@@ -12146,6 +12146,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   fires once per staleness, and firing per rescan puts a line in every
   merge report for as long as the override stands. Worth checking whether
   it should be reported once per SESSION instead.
+  Paused (2026-11-02) for the user. The 2026-09-02 decision predates
+  LWSM-1014. Now a port changed in the app differs from the detected one
+  on purpose and for good, so firing on every rescan would repeat a line
+  for every such project, every time. Recommended instead: leave the
+  rescan report as it is and show the difference on the project's row.
+  Nothing built.
   **Layman:** The app tells you once that your port setting no longer matches the project, and never mentions it again.
   Kind: enhancement.
   Source: in-session-2026-09-02.
@@ -12159,6 +12165,11 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   port it was found against (LWSM-1385 INV-2); the analogue here adds a
   saved field, so it is spec-first under CLAUDE.md rule 2 and amends
   LWSM-1038 § 4.2. Queued from LWSM-1404, not fixed there.
+  Paused (2026-11-02) for the user. Needs a permanent new saved field,
+  spec-first, to cover going back to a build older than LWSM-1038 and
+  upgrading again. Recommended: drop it, since that path needs a
+  deliberate downgrade and only misreports a port until the next change.
+  Nothing built.
   **Layman:** After a downgrade and upgrade, a project could keep showing an old port it no longer uses.
   Kind: review-fix.
   Source: review-code-2026-10-08 L03-L5.
@@ -12206,7 +12217,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: chore.
   Source: local-release-2026-10-15.
 
-- 📋 [LWSM-1421] **Bring three ports.py comments back in line with the code.**
+- ✅ [LWSM-1421] **Bring three ports.py comments back in line with the code.**
   Found by a cold readability read (draft skill review-readability),
   checked against the code 2026-10-19.
   - The holders-loop comment in `PortProbe.snapshot` says two
@@ -12218,11 +12229,15 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   - `PortSnapshot.holder`'s docstring lists two reasons for `None`;
     there are more: a LAN-only listener, an unnamed second claimant,
     several pids that are not one server.
+  Shipped (2026-11-02). All three in ports.py corrected: the
+  holders-loop comment names _master_of, the parsing comment states its
+  rule, and holder's docstring lists every reason for None. No behaviour
+  changed.
   **Layman:** Some explanations inside the port-checking code describe how it used to work, which could mislead whoever changes it next.
   Kind: doc-fix.
   Source: review-readability-trial-2026-10-19.
 
-- 📋 [LWSM-1422] **Tie foreign.py's stop sequence to the supervisor's copy.**
+- ✅ [LWSM-1422] **Tie foreign.py's stop sequence to the supervisor's copy.**
   Found by a cold readability read (draft skill review-readability),
   checked against the code 2026-10-19.
   - `foreign.stop_tree` and `_wait` repeat the supervisor's
@@ -12234,6 +12249,10 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   - `looks_like` skips `argv[0]` with no stated reason.
   No behaviour is wrong: the supervisor removes duplicate pids when
   it reports them.
+  Shipped (2026-11-02). stop_tree and _escalate, and _wait, now point at
+  each other; _alive says why foreign.py may use it; looks_like says why
+  it skips argv[0]. The loops stay two copies: they differ on purpose
+  and a shared helper would save little. No behaviour changed.
   **Layman:** Two places in the code stop servers in nearly the same way, and nothing tells someone editing one to check the other.
   Kind: refactor.
   Source: review-readability-trial-2026-10-19.
@@ -12304,21 +12323,28 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: user-2026-10-22.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1426] **Parse a Python launcher once when detecting its framework's default port.**
+- 🚫 [LWSM-1426] **Parse a Python launcher once when detecting its framework's default port.**
   In scanner.py, _scan_source and _python_framework each call
   _without_docstrings, which runs ast.parse, so a Flask or Django
   file is parsed twice per scan. Left out of PR #19 because the fix
   threads the parsed result through three functions on a path that
   runs only at scan time. Low priority.
+  Dropped (2026-11-02), measured. A real scan of this machine's sibling
+  tree took 8.286 s, of which every ast.parse together took 0.0164 s
+  (six parses, 0.2%). Removing the repeats saves less than that, and the
+  fix threads a parsed result through three functions. No code changed.
   **Layman:** A small speed-up to scanning: the scanner reads some Python files twice where once would do.
   Kind: perf.
   Source: pr-19-review-2026-10-28.
 
-- 📋 [LWSM-1427] **A registry test repeats its own body.**
+- ✅ [LWSM-1427] **A registry test repeats its own body.**
   tests/test_registry.py::test_an_imported_project_arrives_with_no_confirmed_port
   builds its profile, merges and asserts, then does all three again,
   word for word. Delete the second copy. Found while working
   LWSM-1014; not touched there because that test is not its own.
+  Closed (2026-11-02), no code changed. The named test holds its body
+  once at HEAD, and once in 7aa4954 and its parent, the commits around
+  this item's filing, so the repeat is not in the committed file.
   **Layman:** One automated check runs the same steps twice; harmless, but untidy.
   Kind: test.
   Source: in-session-2026-10-29.
