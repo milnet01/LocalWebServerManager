@@ -28,14 +28,12 @@ build costs less than a review loop (global § 9.3).
 
 When a spec is written and gated is set by `CLAUDE.md` § Review cadence,
 not by global § 9.1's "before the work it governs starts". Build first,
-then correct the spec to match what was built. A spec corrected after the
-build falls under rule 14's exception for a document brought into line with
-verified code; a spec first written after the build is put to rule 14's
-trigger like any other document.
+then correct the spec to match what was built. A spec corrected or first
+written after the build gets no automatic review.
 Spec-first is only for code that creates a durable artifact (an on-disk
-format, a wire protocol, anything another item binds to), and there the
-gate runs before building. Other contract documents keep global § 9.1's
-timing. When the gate runs, it runs as global § 9.1 and `review-contract`
+format, a wire protocol, anything another item binds to), and there a spec
+that meets global rule 14's test is gated before building. Other contract
+documents keep global § 9.1's timing. When the gate runs, it runs as global § 9.1 and `review-contract`
 define it.
 
 Why: measured here, few review findings were defects the build would not
@@ -59,5 +57,5 @@ means force-pushing `main`, which global `commits.md` § 3.3 refuses.
 | Rule | What checks it |
 |------|----------------|
 | DOC1 prose counts | Partial: `tests/test_docs.py::test_no_prose_count_of_a_growing_set` covers the files on its `GOVERNED` list — it misses every other file, any noun outside `COUNTED_NOUNS`, a word between the number and the noun, a count above twelve or in digits, and a count in a table row, on a dated line, or inside quotes or backticks |
-| DOC2 build first | nothing — the commit body's `CLAUDE.md rule 14:` line records the decision, and no check reads it |
+| DOC2 build first | nothing |
 | DOC3 private facts | Partial: `.gitignore` keeps `docs/private/` out of the index — nothing catches a private fact written into a tracked file, `CHANGELOG.md` included |

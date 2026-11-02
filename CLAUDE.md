@@ -64,13 +64,10 @@ Two rules, in force for this project:
    a wire protocol, anything another item binds to. There, coding first means a
    migration rather than an edit.
 
-**Rule 1 is a deliberate local departure from global rule 14's "run before
-implementation"** (user, 2026-08-13; kept local 2026-08-15). It cancels no
-gate. A spec corrected after the build falls under rule 14's own exception
-for a document brought into line with verified code. A spec first written
-after the build is put to rule 14's trigger like any other document; where
-nothing will be built from it, that is the No branch, recorded in one line in
-the commit body. A spec written first under rule 2 is gated before building.
+**Rule 1 cancels no gate.** Global rule 14 gates only a new spec that would be
+expensive to build wrong, before anyone builds from it. A spec corrected or
+first written after the build gets no automatic review and owes no record. A
+spec written first under rule 2 is gated before building if it meets that test.
 
 **When the gate runs, it runs as global rule 14 and `review-contract` define
 it — this project sets no cap and no finding filter of its own** (user,
@@ -89,8 +86,7 @@ bullet and fold it back when the build is done. That is a deliberate local
 departure from `~/.claude/workflow.md` § 7's first row, which re-runs the
 pick-time gate; it is rule 1 applied to drift.
 
-**A rule-14 gate over `CLAUDE.md` must tell its lanes to read the subject
-from disk.** A dispatched lane is briefed with the session-start copy of this
+**A review of `CLAUDE.md` must tell its lanes to read the subject from disk.** A dispatched lane is briefed with the session-start copy of this
 file, not the edited one, so a lane that trusts its context reviews the old
 text (found 2026-09-25, logged in `~/.claude` as CFG-0593).
 

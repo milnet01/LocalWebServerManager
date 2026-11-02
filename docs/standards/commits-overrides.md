@@ -19,10 +19,8 @@ section verbatim (global § 1.4). It records the mechanism-sweep outcome
 § T9) and the result of `./scripts/local-ci.sh`.
 
 A session working under the author's machine-wide configuration, which
-defines them, also writes its lines: a `write-code:` line naming what ran, a
-`write-doc:` line saying what was checked, and a `CLAUDE.md rule 14:` line
-per document that rule's test was asked of — in its scope or one of its
-exclusions — recording the decision, a "no gate" included.
+defines them, also writes its lines: a `write-code:` line naming what ran and
+a `write-doc:` line saying what was checked.
 
 Why: the coding and testing overrides owe these records, and the commit
 body is the only place they survive.
