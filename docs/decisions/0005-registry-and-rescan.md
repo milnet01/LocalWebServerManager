@@ -114,9 +114,10 @@ disagreement is reported.**
   override still wins. The *override differs from detected* flag
   makes that visible **on the rescan where the detected port
   moves**, which is the rescan that creates the staleness — not
-  on every rescan afterwards. So the mitigation is a single
-  announcement, and a user who misses it is not told again. A
-  real class of confusion the design accepts.
+  on every rescan afterwards. A deliberate override differs for
+  good, so repeating the flag would only add noise. The port cell
+  carries the lasting answer instead: it shows the files' port for
+  as long as the two differ (LWSM-1288).
 
   Stated this way from 2026-09-02: this paragraph said "visible
   on every rescan", which the merge has never done and neither

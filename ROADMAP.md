@@ -12114,7 +12114,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   during LWSM-1014's port check.
   Lanes: core, ui.
 
-- 📋 [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**
+- ✅ [LWSM-1288] **A stale port override could be re-announced on every rescan, not just the one that created it.**
   Exposed by LWSM-1214's sibling LWSM-1219, which corrected ADR-0005 to
   say what the flag actually does. The hazard the ADR accepts is real and
   now stated plainly: *override differs* fires on the rescan where the
@@ -12152,11 +12152,20 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   for every such project, every time. Recommended instead: leave the
   rescan report as it is and show the difference on the project's row.
   Nothing built.
+  Decision (user, 2026-11-02), replacing the one of 2026-09-02: show the
+  difference on the project's row, always. The rescan message stays as
+  it is, so LWSM-1131 § 4.3 needs no change.
+  Shipped (2026-11-02). The port cell reads "(files: N)" under an
+  override whenever the files give another port, on the screen and for a
+  screen reader. The rescan's flag is unchanged. ADR-0005 and LWSM-1038
+  § 4.5 say so. A test holds the widest wording under "(sources
+  differ)", so the row keeps inside the magnifier's width. Red: four
+  tests failed before the change. Not seen on a real display.
   **Layman:** The app tells you once that your port setting no longer matches the project, and never mentions it again.
   Kind: enhancement.
   Source: in-session-2026-09-02.
 
-- 📋 [LWSM-1412] **A confirmed port carried through an older build can outrank a port that changed beneath it.**
+- 🚫 [LWSM-1412] **A confirmed port carried through an older build can outrank a port that changed beneath it.**
   A pre-LWSM-1038 build carries `confirmed_port` through `unknown` and can
   change `port` beneath it; after an upgrade the stale value outranks
   `port` in `effective_port`. Not fixable from the file as it stands: a
@@ -12170,6 +12179,8 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   upgrading again. Recommended: drop it, since that path needs a
   deliberate downgrade to a build older than LWSM-1038. How long a wrong
   port would last is not checked. Nothing built.
+  Dropped (user, 2026-11-02): not worth a permanent saved field for a
+  deliberate downgrade to a build older than LWSM-1038. No code changed.
   **Layman:** After a downgrade and upgrade, a project could keep showing an old port it no longer uses.
   Kind: review-fix.
   Source: review-code-2026-10-08 L03-L5.

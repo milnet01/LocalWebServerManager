@@ -30,6 +30,7 @@ signaling per
 
 ### Changed
 
+- **A project whose port you changed shows the port its own files give.** The row reads `port 5999` with `(files: 3000)` beneath it for as long as the two differ, so a setting that has gone stale stays visible. (LWSM-1288)
 - **Clicking a project no longer draws a thick outline around it.** The outline shows only when you move to a project with the keyboard, as it already did for buttons and boxes. (LWSM-1425)
 - **A start refused because the port is taken now says what is taking it.** The row names the program and its process ID, or says the process cannot be inspected, instead of only "port 8080 is already bound". (LWSM-1013)
 

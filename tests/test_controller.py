@@ -4290,6 +4290,20 @@ def test_the_lookup_stops_answering_when_the_table_is_lost(qtbot, controllers) -
 # --- LWSM-1037: suggesting a free port ------------------------------------------
 
 
+def test_the_row_carries_the_detected_port_beside_an_override(
+    qtbot, controllers
+) -> None:
+    """LWSM-1288: the row shows the difference for as long as it lasts, so it
+    reads the record on every view rather than a rescan's one report."""
+    overridden = replace(record("a", 3000), port_override=5999)
+    controller = build(controllers, [overridden], FakeProbe())
+
+    (row,) = controller.rows()
+
+    assert row.effective_port == 5999
+    assert row.detected_port == 3000
+
+
 def test_the_suggestion_skips_a_project_that_is_not_running(qtbot, controllers) -> None:
     """The socket table cannot see a project that has not started, so its port
     is taken from the records. Its own port is not offered back."""

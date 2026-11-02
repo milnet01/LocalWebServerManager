@@ -417,6 +417,9 @@ class RowView:
     port_from: PortFinding | None = None
     port_conflicts: tuple[PortFinding, ...] = ()
     port_overridden: bool = False
+    # The port the project's own files give, which an override hides. The cell
+    # shows it whenever the two differ (LWSM-1288).
+    detected_port: int | None = None
     # Whether the effective port is the one the project was seen running on,
     # and that port whatever wins (LWSM-1038 § 4.5). True exactly when rung 2
     # of the effective port supplies it, so never beside `port_overridden`.
@@ -1153,6 +1156,7 @@ class ProjectController(QObject):
             port_from=record.port_from,
             port_conflicts=record.port_conflicts,
             port_overridden=record.port_override is not None,
+            detected_port=record.port,
             port_confirmed=(
                 record.port_override is None and record.confirmed_port is not None
             ),

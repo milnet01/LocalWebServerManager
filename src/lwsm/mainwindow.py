@@ -514,9 +514,19 @@ def port_cell_spoken(row: RowView) -> str:
 
 def _port_lines(row: RowView) -> str:
     port = row.effective_port
-    if port is None or row.port_overridden:
+    if port is None:
         return port_text(port)
-    if row.port_confirmed:
+    if row.port_overridden:
+        # Always shown, not once at a rescan: a stale override is otherwise
+        # invisible, and one set on purpose is not worth repeating there
+        # (LWSM-1288).
+        detected = row.detected_port
+        if detected is None or detected == port:
+            return port_text(port)
+        word = _filled(
+            QCoreApplication.translate("ProjectRow", "(files: %1)"), str(detected)
+        )
+    elif row.port_confirmed:
         word = QCoreApplication.translate("ProjectRow", "(confirmed)")
     elif row.port_conflicts:
         word = QCoreApplication.translate("ProjectRow", "(sources differ)")

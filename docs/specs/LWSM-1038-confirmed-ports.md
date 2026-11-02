@@ -194,7 +194,8 @@ and its number substituted by `str.replace` as `port_text` does:
 
 | Condition | Cell |
 |---|---|
-| `port_overridden` | `port 5999` (unchanged) |
+| `port_overridden`, the project's files give another port | `port 5999 (files: 3000)` (LWSM-1288) |
+| `port_overridden` otherwise | `port 5999` (unchanged) |
 | `port_confirmed` | `port 5002 (confirmed)` |
 | `effective_port is None` | `no port` (unchanged) |
 | `port_conflicts` non-empty | `port 4000 (sources differ)` (LWSM-1385) |

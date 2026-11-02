@@ -9330,6 +9330,14 @@ CONFLICT = (registry.PortFinding(4000, registry.PortRule.README, "README.md"),)
             {"effective_port": 5999, "port_overridden": True, "confirmed_port": 5002},
             "port 5999",
         ),
+        (
+            {"effective_port": 5999, "port_overridden": True, "detected_port": 3000},
+            "port 5999\n(files: 3000)",
+        ),
+        (
+            {"effective_port": 3000, "port_overridden": True, "detected_port": 3000},
+            "port 3000",
+        ),
         ({"effective_port": 5002, "port_confirmed": True}, "port 5002\n(confirmed)"),
         ({"effective_port": None}, "no port"),
         (
@@ -9348,6 +9356,8 @@ CONFLICT = (registry.PortFinding(4000, registry.PortRule.README, "README.md"),)
     ],
     ids=[
         "overridden",
+        "overridden, files differ",
+        "overridden, files agree",
         "confirmed",
         "no port",
         "sources differ",
@@ -9370,6 +9380,33 @@ def test_the_port_cell_says_how_sure_the_port_is(qtbot, view, expected) -> None:
     assert row._port.text() == expected
     # Two lines on screen (LWSM-1393), one phrase when read aloud.
     assert expected.replace("\n", " ") in row.accessibleName()
+
+
+def test_the_files_port_wording_is_no_wider_than_the_widest_word(qtbot) -> None:
+    """LWSM-1288. The row stays inside the 600 px lens because the cell is only
+    as wide as its longer line, and "(sources differ)" is the widest allowed
+    for (LWSM-1393). The highest port is the longest this wording gets."""
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            status=ProjectStatus.STOPPED,
+            effective_port=1024,
+            port_overridden=True,
+            detected_port=65535,
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+    metrics = row._port.fontMetrics()
+
+    (_port, word) = row._port.text().split("\n")
+    assert word == "(files: 65535)"
+    assert metrics.horizontalAdvance(word) <= metrics.horizontalAdvance(
+        "(sources differ)"
+    )
 
 
 def test_the_window_saves_a_confirmed_port_once(
