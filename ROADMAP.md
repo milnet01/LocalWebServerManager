@@ -12322,6 +12322,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   LWSM-1037 as the user's 2026-10-22 note asked; LWSM-1014's code is
   built, its acceptance run still owed. Not run: RetroArch through
   RetroDB under this build.
+  2026-11-02: the user asked the session to run the RetroArch check once
+  RetroDB's running job ends. Measured: the running RetroDB server, started
+  before this build, has no XAUTHORITY in its environment, so it must be
+  restarted first. A restart would interrupt the job. Also measured:
+  RetroDB's tree and git history do not contain the word XAUTHORITY, so the
+  workaround this item describes was not found under that name.
   **Layman:** A site the app starts can't open a window through the older display system, so RetroArch crashed when RetroDB launched it.
   Kind: fix.
   Source: retrodb-session-2026-10-20.
