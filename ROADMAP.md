@@ -12046,7 +12046,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Enter re-asks and announces the answer to a screen reader.
   Lanes: ui, core.
 
-- 🚧 [LWSM-1014] **P07: port override, validated and persisted.**
+- ✅ [LWSM-1014] **P07: port override, validated and persisted.**
   Assign a different port from the UI; validated at
   entry against 1024–65535; survives restart; passed as `PORT` on
   the next launch. Acceptance: criterion 4 demonstrated against a
@@ -12088,6 +12088,17 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   that reads PORT, and honest degradation on the one that assigns PORT
   itself (ADR-0002). Needs the real app and real siblings, so the user
   runs it or says how.
+  Shipped (2026-11-02). Acceptance run. Criterion 4: the user reports a
+  sibling that reads PORT came up on its new port, and their project file
+  shows that sibling's confirmed port equal to its override. Honest
+  degradation, run by the session on 2026-11-02: the real app on a private
+  X display with private XDG folders, driven by mouse, started the real
+  sibling that assigns PORT, with the port changed to 5006. The menu entry
+  and port box worked; the box suggested a free port. The row read
+  `running (wrong port)`, `port 5006`, `(files: 5005)`, while the server
+  listened on 5005 and 5006 was free. Stop released the port and changed
+  none of the sibling's files. Not run: pressing Open, whose code uses the
+  port seen bound.
   Lanes: core, ui, tests.
 
 - ✅ [LWSM-1037] **P07: suggest a free port.**
@@ -12224,6 +12235,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   blocker. Left out of 0.3.0: the bump replaces ~/.local/bin/uv, which
   other projects' gates check, so ask the user first. A minor jump:
   read uv's 0.13 changelog for lockfile or resolver changes before it.
+  User, 2026-11-02: leave it. The pin stays at 0.12.23.
   **Layman:** One of the build tools has a newer version; updating it changes that tool for every project on this machine, so it needs the user's say-so.
   Kind: chore.
   Source: local-release-2026-10-15.
@@ -12361,7 +12373,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: in-session-2026-10-29.
   Lanes: tests.
 
-- 🚧 [LWSM-1428] **Remember the servers this app started, so a relaunch still calls them ours.**
+- ✅ [LWSM-1428] **Remember the servers this app started, so a relaunch still calls them ours.**
   Decision (user, 2026-10-29): the app keeps a record of each start
   and restart it performs, and uses it on relaunch to decide whether a
   running server was started by this app. Reported on RetroDB: started
@@ -12385,6 +12397,9 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   breaks each caught. OWED before shipped: the user's check in the real
   app. A server started before this build has no record, so it stays
   foreign until it is started once under the new build.
+  Shipped (2026-11-02). The user's check in the real app passed: after
+  closing and reopening the app, RetroDB's row read `running` with Stop
+  and Restart available, and no row read foreign.
   **Layman:** After you close and reopen the app, a site it started shows as plain "running" with Restart available, not "running (foreign)".
   Kind: implement.
   Source: user-2026-10-29.
@@ -12821,6 +12836,8 @@ open DS01 debt-sweep items, and the open FP02 review items.
   suggests amending ADR-0006 rule 3 to allow it, because the app has its
   own Open button and opening a page is presentation only. Not decided
   here.
+  User, 2026-11-02: keeps "do it later"; ADR-0006 rule 3 is not amended
+  now.
   Lanes: core, docs.
 
 - ✅ [LWSM-1056] **DS01: `main()` is a shipped entry point with no test.**
