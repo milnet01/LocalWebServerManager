@@ -1594,11 +1594,16 @@ class Supervisor:
                 self._registry.stopping.add(key)
         if managed is None:
             return StopOutcome()
-        self.started.remove(key)
 
         try:
             try:
                 members = self._group_members(managed)
+                # Only once the stop will go ahead, and inside the `try` whose
+                # `finally` releases `stopping`: removed before the enumeration,
+                # a failure there put the entry back with its record already
+                # gone, and the next launch showed the live server as foreign
+                # (LWSM-1438).
+                self.started.remove(key)
             except Exception:
                 # Nothing has been signalled yet and the entry was popped
                 # above. Put it back, or the child is forgotten and its log

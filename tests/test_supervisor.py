@@ -3205,6 +3205,33 @@ def test_a_stop_that_fails_with_any_error_before_signalling_keeps_the_project(
         supervisor.stop(project, grace=0.5)
 
 
+def test_a_stop_that_fails_before_signalling_keeps_the_started_record(
+    tmp_path: Path, project: Path, monkeypatch
+) -> None:
+    """LWSM-1438: the entry went back into `processes` but its `started.json`
+    record had already been removed, so the next launch would show the live
+    server as foreign. Dies on removing the record before the enumeration."""
+    record = tmp_path / "started.json"
+    sup = started_session(tmp_path, record)
+    start_sleeper(sup, project)
+
+    def unreadable(_managed):
+        raise OSError(errno.EACCES, "Permission denied")
+
+    try:
+        monkeypatch.setattr(sup, "_group_members", unreadable)
+        with pytest.raises(OSError):
+            sup.stop(project, grace=0.5)
+        monkeypatch.undo()
+
+        assert project.resolve() in sup.running()
+        assert [e["project"] for e in stored(record)] == [str(project.resolve())]
+    finally:
+        monkeypatch.undo()
+        sup.stop(project, grace=0.5)
+        sup.close()
+
+
 def test_a_stop_that_fails_after_signalling_still_reaps_the_child(
     supervisor, project, monkeypatch
 ) -> None:
