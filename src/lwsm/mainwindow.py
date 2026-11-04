@@ -3353,10 +3353,14 @@ class MainWindow(QMainWindow):
             "stop": QCoreApplication.translate("ProjectRow", "%1 stopped"),
             "restart": QCoreApplication.translate("ProjectRow", "%1 restarted"),
         }
-        template = wording.get(
-            verb, QCoreApplication.translate("ProjectRow", "%1: %2 finished")
-        )
-        self.set_status_message(_filled(template, display_text(path.name), verb))
+        template = wording.get(verb)
+        if template is None:
+            # Only start, stop and restart arrive today. A new verb gets a
+            # sentence that names no verb rather than its internal spelling,
+            # which no translator can reach, and the log names it.
+            log.warning("no sentence for the finished verb %s", quoted(verb))
+            template = QCoreApplication.translate("ProjectRow", "%1: action finished")
+        self.set_status_message(template.replace("%1", display_text(path.name)))
 
     def _report_failure(self, path: Path, message: str) -> None:
         """A failure goes to the row it is about, and to the message banner

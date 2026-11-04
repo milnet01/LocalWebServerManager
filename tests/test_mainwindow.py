@@ -7669,6 +7669,23 @@ def test_a_project_name_reaches_the_banner_through_display_text(
     assert "\ufffd" in message, message
 
 
+def test_a_verb_with_no_sentence_never_reaches_the_banner(
+    qtbot, built, tmp_path, caplog
+) -> None:
+    """LWSM-1472: the fallback filled "%1: %2 finished" with the internal verb,
+    a word no translator can reach. Only start, stop and restart arrive today,
+    so this drives the fallback directly."""
+    window, _ = browser_window(qtbot, built, tmp_path, [record("web", None)])
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.mainwindow"):
+        window._report_done(Path("/srv/web"), "daemon-reload")
+
+    message = message_of(window)
+    assert "web" in message, message
+    assert "daemon-reload" not in message, message
+    assert "daemon-reload" in caplog.text, "the unknown verb left no log record"
+
+
 def test_a_disabled_restart_promises_nothing(qtbot) -> None:
     """review-code 2026-10-08 L06-L2: on a foreign server we hold no child for,
     Restart is disabled (nothing of ours would start in its place), yet it
