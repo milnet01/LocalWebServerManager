@@ -167,7 +167,7 @@ Added at P02 (LWSM-1005), contract in
   measured against the pinned PySide6, the `ContrastPreference` enum exists
   and no accessor returns one, so the XDG settings portal is the only route.
   Read over `dbus-send`, which `placement.py` already needs — which is why
-  no D-Bus binding is a dependency. **Every failure answers False**, because
+  no D-Bus binding is a dependency. **Every failure but a timeout answers False**, because
   a wrong True forces an assistive palette on someone who never asked and a
   wrong False leaves them where they already were. **A timeout alone answers
   None**: the portal starts on demand, so at login it may still be starting,

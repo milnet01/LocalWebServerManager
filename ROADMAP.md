@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1479 -->
+<!-- ants-roadmap-id-high-water: LWSM=1485 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13352,6 +13352,127 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: test.
   Source: review-code-2026-11-04.
   Lanes: registry, tests.
+
+- ✅ [LWSM-1480] **A browser taken off https alone is dropped from the list though it still opens http links.**
+  Priority: LOW.
+  `browsers._associations` folds `x-scheme-handler/http` and `/https`
+  into one verdict per entry id, first mention winning. A
+  `[Removed Associations]` line naming Firefox for `https` only then
+  removes it outright, though it still handles `http`, the only scheme
+  `open_url` is given. Fix: keep the verdict per handler.
+  Resolved (2026-11-05, c822289): `_associations` keeps a verdict per
+  handler. An entry is skipped only when removed from both schemes, a
+  removed handler no longer counts towards its own MimeType, and an
+  addition for either still lifts the MimeType requirement. Red first:
+  test_removing_one_scheme_keeps_a_browser_that_handles_the_other;
+  guard test_a_browser_removed_from_every_scheme_it_declares_is_not_offered.
+  Three mutants killed.
+  **Layman:** If your desktop was told not to use a browser for secure links only, the app stopped offering that browser at all.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 11, L2).
+  Lanes: browsers.
+
+- ✅ [LWSM-1481] **A first-run folder that could not be saved is reported only in the log.**
+  Priority: MEDIUM.
+  `start_first_run` catches a failed `save_scan_roots` and only logs
+  it, then sets "Looking for projects...", which the scan's summary
+  then replaces. The next start asks for the folder again with no
+  reason given, against `design.md § Error handling` ("Nothing is
+  swallowed"). Preferences already reports the same save in the
+  banner. Fix: say it in the banner, and keep it past the scan.
+  Resolved (2026-11-05, c18326b): the banner says the folder could not
+  be remembered and why. `MainWindow.start_rescan` takes a note kept in
+  front of the message the scan finishes with, since the scan's summary
+  replaced the first fix's banner. Red first:
+  test_a_first_run_folder_that_could_not_be_saved_says_so_in_the_banner.
+  Four mutants killed.
+  **Layman:** If the app could not remember the folder you picked on first start, it asked again next time without saying why.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 11, M3).
+  Lanes: main, mainwindow.
+
+- ✅ [LWSM-1482] **A contrast read that times out at login is kept as "no high contrast" for the whole session.**
+  Priority: MEDIUM.
+  `appearance.high_contrast` answers False on a timeout, and
+  `MainWindow._resolved_theme_id` keeps that answer for the window's
+  life. The settings portal starts on demand: at login it measured
+  1.4 to 2.2 s here (user journal, four logins) against the 3 s bound.
+  On a slower start, Follow system gives a user who asked their desktop
+  for high contrast an ordinary palette until the next launch, against
+  `design-look-and-feel.md` § Look and feel. Fix: a timeout is unknown,
+  and the window asks once more.
+  Resolved (2026-11-05, 4e73b8d): a timeout answers None; every other
+  failure stays False. The window resolves None as no preference for
+  now and schedules one retry after `CONTRAST_RETRY_MS`, keeps that
+  answer, and re-applies Follow system when it is high contrast. Red
+  first: test_a_timeout_is_unknown_rather_than_no_preference; the
+  window's test_a_contrast_read_that_timed_out_is_asked_once_more is
+  proved by mutation. Four mutants killed. Module map corrected.
+  **Layman:** If the desktop was slow to answer at login, a user who needs high contrast could be given an ordinary palette for the whole session.
+  Kind: accessibility.
+  Source: review-code-2026-11-04 (lane 10, M2).
+  Lanes: appearance, mainwindow.
+
+- 📋 [LWSM-1483] **Find out whether the final KWin unload and file delete can beat KWin's read of the placement script.**
+  Priority: MEDIUM (unverified).
+  `run_kwin_script` calls `start`, then `unloadScript`, then deletes
+  the script file in its `finally`. The reviewer recalls, from KWin's
+  source and not from this tree, that `Script::run()` reads the file
+  asynchronously and that `unloadScript` deletes the script later. If
+  the unload or the delete lands before that read, the script never
+  runs while `run_kwin_script` returns True, ADR-0007's worst failure
+  shape. The 5/5 measured successes fit winning the race. Settling it
+  needs runs against the user's live KWin: a harmless script under a
+  test name that only `print()`s to the journal, unloaded at once, many
+  times, counting the prints. The fix candidates (leave the unload and
+  the delete to the next run's leading unload, or delete the file on a
+  timer) change ADR-0007's four-call sequence.
+  Waiting-on: user (may a test run a print-only KWin script on your
+  desktop, many times, to measure this? Recommend yes, after 0.4.0: it
+  moves no window and leaves nothing registered, and the answer decides
+  whether ADR-0007 changes, 2026-11-05).
+  **Layman:** Placing the window under Wayland might sometimes silently do nothing while the app believes it worked.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 10, M3).
+  Lanes: placement.
+
+- 📋 [LWSM-1484] **Three separate three-second D-Bus bounds can stack to nine seconds before the window appears.**
+  Priority: LOW.
+  On the startup path, `placement.kwin_on_bus` (the Centre action's
+  enabled state), `appearance.high_contrast` (Follow system) and
+  `placement.run_kwin_script` (restoring the position under Wayland)
+  each take their own 3 s bound. A wedged session bus, a Wayland
+  session and Follow system together give 9 s with no window, the
+  shape LWSM-1240 fixed inside one function. `place_window` does not
+  re-ask whether KWin is there, so a False from `kwin_on_bus` does not
+  spare the third call. Fix shape: one startup deadline the three
+  share, or skip the position restore when `placement_available`
+  answered False.
+  Waiting-on: user (fix this in 0.4.0, or after? Recommend after: it
+  needs a stuck bus to bite, and a shared deadline crosses three
+  modules, 2026-11-05).
+  **Layman:** On a stuck desktop message bus the app could take about nine seconds to show its window.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 10, L2).
+  Lanes: mainwindow, placement, appearance.
+
+- 📋 [LWSM-1485] **A keyboard-focused button held down hides its focus ring in its own fill.**
+  Priority: LOW.
+  `QPushButton:pressed` fills with `accent`, and `OutlineStyle` paints
+  the focus ring in `Highlight`, which is also `accent`. Rendered
+  offscreen on 2026-11-05: on midnight the ring stays #d4af37 and the
+  pressed fill beside it is about #c4a958; on ledger, #977024 beside
+  about #997a42. Near 1:1, against `design-accessibility.md`'s 3:1 for
+  the ring against the control's fill. Only while the button is held.
+  Waiting-on: user (paint the ring in `base` while the button is held,
+  or give the pressed fill a different colour? Recommend the ring in
+  `base`: the pressed look stays as you chose it and the ring clears
+  the text floor against the fill. Either changes how a held button
+  looks, so it needs a render for you to see, 2026-11-05).
+  **Layman:** While you hold Space on a button, its focus outline blends into the button's pressed colour.
+  Kind: accessibility.
+  Source: review-code-2026-11-04 (lane 10, L3).
+  Lanes: theme.
 
 ## 0.5.0 — Logs
 

@@ -37,6 +37,9 @@ signaling per
 
 ### Fixed
 
+- **A browser your desktop was told not to use for https links alone is still offered, since it still opens http links.** (LWSM-1480)
+- **If the folder chosen on first start cannot be saved, the message banner now says so and why, instead of asking again next time with no reason.** (LWSM-1481)
+- **Follow system no longer drops a high-contrast preference for the whole session when the desktop is slow to answer at login; it asks once more.** (LWSM-1482)
 - **Choosing which page a project's health check reads no longer shows the project's name with stray characters that could break the message across lines.** (LWSM-1470)
 - **If saving the theme or text size fails unexpectedly, the app now says so and records why in its log, instead of saying nothing.** (LWSM-1471)
 - **Stop on a server the app did not start no longer does nothing when the app cannot tell which screen it is on.** (LWSM-1473)
