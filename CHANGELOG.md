@@ -36,6 +36,14 @@ signaling per
 
 ### Fixed
 
+- **A login service the app could not hand a port to no longer picks up the app's setting at the next login.** (LWSM-1449)
+- **A program stuck on a hung disk can no longer freeze the window once a second while the app checks whose server holds a port.** (LWSM-1450)
+- **A server found on its usual port after you changed the port can now be stopped from its row.** (LWSM-1451)
+- **A server that crashes while starting stops showing 'starting' even while the app cannot read the port table.** (LWSM-1452)
+- **Right after Stop or Restart, a service that belongs to another program is no longer shown, health-checked or saved as this project's.** (LWSM-1453)
+- **A Start that fails in an unexpected way now says why instead of doing nothing.** (LWSM-1454)
+- **Stopping a server the app did not start now says why when the system will not let it list that server's processes.** (LWSM-1455)
+- **A health check against a site slow to accept the connection now stops at its time limit.** (LWSM-1456)
 - **A site the app took back after a restart no longer turns "foreign" when its start script finishes while the site keeps running.** (LWSM-1437)
 - **A launcher confirmation written twice in trust.json is no longer trusted; the app asks before starting that project again. A repeated entry in the record of started servers is ignored rather than guessed at.** (LWSM-1436)
 - **A stop that fails before signalling anything no longer makes the app forget it started that server.** (LWSM-1438)

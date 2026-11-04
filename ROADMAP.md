@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1457 -->
+<!-- ants-roadmap-id-high-water: LWSM=1462 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12801,7 +12801,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: review-code-2026-11-04 (lane 01, L7 and open question).
   Lanes: supervisor.
 
-- 📋 [LWSM-1449] **A failed drop-in reload leaves the drop-in on disk, so the unit's next logon start uses this app's port.**
+- ✅ [LWSM-1449] **A failed drop-in reload leaves the drop-in on disk, so the unit's next logon start uses this app's port.**
   Priority: MEDIUM.
   `service.set_drop_in` writes `50-lwsm-port.conf`, then returns a
   failure when the reload fails or systemd did not read the file, and
@@ -12809,12 +12809,17 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   without clearing it. ADR-0003 removes the file whenever nothing is
   starting to read it; here no verb ran at all.
   Fix: unlink the file before `set_drop_in` returns either failure.
+  Resolved (2026-11-04, 65e0ddc): both failures of `set_drop_in` now
+  unlink the file before returning. Folded into ADR-0003, the module map
+  and `_drive`'s docstring. Red first:
+  test_a_set_that_fails_after_writing_leaves_no_drop_in [reload failed],
+  [not read]; removing either unlink reddens its case.
   **Layman:** If the app could not hand a port to a login service, it left its setting behind, and the service picked it up at the next login.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 05, M1).
   Lanes: service.
 
-- 📋 [LWSM-1450] **The holder-unit and 'looks like this project' checks read /proc on the GUI thread every poll.**
+- ✅ [LWSM-1450] **The holder-unit and 'looks like this project' checks read /proc on the GUI thread every poll.**
   Priority: MEDIUM.
   `_classify` runs in `_on_snapshot`, a slot on the window's thread,
   and calls `foreign.looks_like`, which reads `/proc/<pid>/exe`, `cwd`
@@ -12823,12 +12828,18 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   GUI thread (LWSM-1401).
   Fix: work the answers out in `_resolve_holders` on the snapshot
   task, as the holders' units already are; `_classify` reads them.
+  Resolved (2026-11-04, d7c5168): `_resolve_holders` asks `looks_like`
+  on the snapshot task for the effective port's holder and, where
+  ADR-0004 probes it, the declared port's (`_declared_holder`);
+  `_classify` reads the stored answer. Module map folded. Red first:
+  test_looks_like_is_asked_off_the_window_thread (thread assertion).
+  `owns_pid` on the GUI thread is queued as LWSM-1460.
   **Layman:** One stuck program on the computer could freeze the app's window once a second.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 05, M3; lane 04 open question).
   Lanes: controller.
 
-- 📋 [LWSM-1451] **A row re-adopted on its declared port reads running (foreign) but its Stop refuses.**
+- ✅ [LWSM-1451] **A row re-adopted on its declared port reads running (foreign) but its Stop refuses.**
   Priority: MEDIUM.
   ADR-0004's own example: an override the project ignores while it
   sits on its declared port. `_classify` reads `running (foreign)` from
@@ -12837,12 +12848,18 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   refuses, and `_stop_foreign` finds no unit. ADR-0004 says a foreign
   row's Stop is enabled and asks first.
   Fix: for such a row, record the declared port's holder.
+  Resolved (2026-11-04, 79e520d): `_holder_pids` records the declared
+  port's holder for a `running (foreign)` row whose effective port is
+  free; `managed` still reads the effective port. Red first:
+  test_a_row_re_adopted_on_its_declared_port_names_that_holder
+  (holder_pid None). The status gate is a second line no test kills
+  alone.
   **Layman:** A server the app recognised on its usual port, after you changed the port, could not be stopped from its row.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 04, M1).
   Lanes: controller.
 
-- 📋 [LWSM-1452] **While the port table is unreadable, a starting row whose server died keeps reading starting.**
+- ✅ [LWSM-1452] **While the port table is unreadable, a starting row whose server died keeps reading starting.**
   Priority: MEDIUM.
   Only `_on_snapshot` settles the overlay, so during a probe outage a
   `starting` overlay stands even after the upkeep reaped a child that
@@ -12850,12 +12867,17 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   outage (LWSM-1372). The reap is ADR-0004's evidence for `failed`.
   Fix: in `_on_upkeep`, during an outage, clear a `starting` overlay
   whose child was reaped or is gone.
+  Resolved (2026-11-04, fbd78ad): `_on_upkeep` ends a `starting` overlay
+  whose child was reaped or is gone while the table is unreadable. Red
+  first:
+  test_a_start_whose_child_dies_with_the_table_unreadable_stops_starting.
+  The outage gate is a second line no test kills alone.
   **Layman:** If the app lost sight of the ports, a server that crashed while starting still showed as starting, with a rising timer.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 04, M2).
   Lanes: controller.
 
-- 📋 [LWSM-1453] **An adopted unit counts as the project's own before its binding check has run.**
+- ✅ [LWSM-1453] **An adopted unit counts as the project's own before its binding check has run.**
   Priority: LOW.
   Restart and the foreign stop put the unit in `_adopted_units` before
   `_binding_refusal` runs on the worker. Until it returns, a poll
@@ -12864,12 +12886,17 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   fails the rule is neither driven nor remembered.
   Fix: hold it as pending until the verb reports, and classify only
   from units that passed.
+  Resolved (2026-11-04, 925b237): the unit is held in `_pending_units`
+  (still driven by Start and Stop) and joins `_adopted_units` when the
+  verb reports anything but a refused binding. Red first:
+  test_an_adopted_unit_is_not_the_projects_own_before_its_check (read
+  running with the check held open).
   **Layman:** For a moment after Stop or Restart, a stranger's service could be shown, and its port saved, as this project's.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 04, L1).
   Lanes: controller.
 
-- 📋 [LWSM-1454] **Three controller paths let an unexpected exception escape unreported.**
+- ✅ [LWSM-1454] **Three controller paths let an unexpected exception escape unreported.**
   Priority: LOW.
   (a) `_ServiceTask`, `_UnitStateTask`, `_TreeStopTask` and
   `_report_stop` catch only `RuntimeError` around their emit, where the
@@ -12879,30 +12906,45 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   (c) `start_project` catches four named exceptions; anything else
   escapes a Qt slot and the user is told nothing.
   Fix: the missing clause, a contained `running()`, a final catch.
+  Resolved (2026-11-04, db2dfe3): (a) the four emits end in the
+  LWSM-1251 clause; (b) `_do_upkeep` reads `running()` once, contained;
+  (c) `start_project` reports anything else on `action_failed`. Red
+  first: six tests each raised the injected exception out of a direct
+  call.
   **Layman:** A few rare internal errors could make a button do nothing without saying why.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 04, L2, L3, L4).
   Lanes: controller.
 
-- 📋 [LWSM-1455] **A foreign stop that cannot read the process table fails silently.**
+- ✅ [LWSM-1455] **A foreign stop that cannot read the process table fails silently.**
   Priority: LOW.
   `enumerate_tree` and `_own_lineage` catch `psutil.Error` only. A
   plain `PermissionError` from psutil's process walk (under `hidepid`)
   escapes, and the window's `_stop_foreign_tree` catches only
   `TreeRefused`, so the click does nothing.
   Fix: turn `OSError` into `TreeRefused` too.
+  Resolved (2026-11-04, 50d222e): the three catches take `OSError` too.
+  Red first: test_a_plain_os_error_from_the_walk_is_refused_not_raised
+  [children], [create_time],
+  test_a_plain_os_error_reading_our_lineage_is_refused. The lane's
+  `RuntimeError` was not added: nothing shows psutil raising one here.
   **Layman:** On a locked-down system, stopping a server the app did not start could do nothing and say nothing.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 05, L1).
   Lanes: foreign.
 
-- 📋 [LWSM-1456] **A health check whose deadline passes during connect is not cut off afterwards.**
+- ✅ [LWSM-1456] **A health check whose deadline passes during connect is not cut off afterwards.**
   Priority: LOW.
   `health._shut_down` does nothing when the socket does not exist yet.
   If the deadline fires during name lookup or connect, a server that
   then trickles its reply holds the thread past the deadline, which
   LWSM-1034 says bounds the whole call.
   Fix: after connecting, give up when the deadline has passed.
+  Resolved (2026-11-04, d59c30c): the deadline timer sets an event, and
+  `ask` connects first and returns None when the deadline has already
+  passed. Red first:
+  test_a_deadline_passed_while_connecting_still_cuts_the_call_off
+  (answered 200).
   **Layman:** A very slow site could tie up a health check for longer than its time limit.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 05, L3).
@@ -12913,10 +12955,98 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   `TextSelectableByKeyboard` on a `QLabel` gives it click focus, not
   Tab focus, so a PID or path can be copied out by mouse only.
   Fix: give the answer label Tab focus.
+  Queued, not fixed (2026-11-04). Giving the label Tab focus adds a
+  Tab stop that design-accessibility.md § Full keyboard operation says
+  needs a visible focus ring meeting contrast on every theme, which a
+  selectable QLabel does not draw; and the window's screen-reader route
+  relies on the label not being focusable (`_answer`'s comment,
+  test_a_typed_port_shows_the_lookups_answer). So it is a design choice.
+  Waiting-on: user (add a "Copy answer" button beside Close, or make the
+  answer a read-only focusable text box? Recommendation: the Copy button
+  -- it already has a focus ring and keeps the announcement route as it
+  is, 2026-11-04).
   **Layman:** In the 'What's using a port' window, the answer could be copied with the mouse but not reached from the keyboard.
   Kind: accessibility.
   Source: review-code-2026-11-04 (lane 05, L4).
   Lanes: portlookup.
+
+- 📋 [LWSM-1458] **A health check reports a 103 Early Hints as the server's answer.**
+  Priority: LOW.
+  `http.client` skips only `100 Continue`, so `health.ask` returns a
+  `103 Early Hints` (RFC 8297) as the status, and the row shows
+  `HTTP 103` instead of the final answer.
+  Not fixed now: `http.client` gives no supported way to read the next
+  status line, and reporting 1xx as no answer would misreport a
+  working server. Settle it by choosing between reading the final
+  response off the same socket and reporting 1xx as interim.
+  **Layman:** A site that sends an early 'hints' reply could show a meaningless code on its row instead of whether it works.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 05, L2).
+  Lanes: health.
+
+- 📋 [LWSM-1459] **LWSM-1005 INV-16 names three pools that stop() waits for; it waits for four.**
+  Priority: LOW.
+  INV-16 says `stop()` returns within one `STOP_WAIT_MS` for each of
+  its snapshot, service and health pools. LWSM-1401 added the upkeep
+  pool, which `stop()` also waits for, so the bound is per pool across
+  four. The code follows the per-pool rule; the sentence lists three.
+  Pre-existing, found while checking review-code-2026-11-04 lane 04's
+  INFO note on the up-to-8 s total.
+  **Layman:** A design document lists three of the four background jobs the app waits for when it quits.
+  Kind: doc-fix.
+  Source: review-code-2026-11-04 (lane 04, INFO).
+  Lanes: controller, docs.
+
+- 📋 [LWSM-1460] **owns_pid still asks the OS on the GUI thread, against the module map's LWSM-1401 sentence.**
+  Priority: LOW.
+  `_managed_paths` and `_our_ports` call `supervisor.owns_pid` in
+  `_on_snapshot`, which runs psutil's `is_running()` (a
+  `/proc/<pid>/stat` read) and `os.getpgid`. The module map says
+  nothing in a tick asks the OS on the GUI thread. Unlike the
+  `cmdline` read LWSM-1450 moved, neither is known to block, but that
+  is unmeasured. Settle it by measuring whether a `stat` read blocks
+  behind a process stuck in uninterruptible sleep; then either move
+  the answers into `_resolve_holders` or narrow the sentence.
+  **Layman:** The app may still ask the system a small question from its window's thread each second; it needs checking whether that can ever freeze it.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 04, open question).
+  Lanes: controller, supervisor.
+
+- 📋 [LWSM-1461] **drop_in_seen compares path spellings, so a symlinked XDG_CONFIG_HOME may refuse a start.**
+  Priority: LOW.
+  `drop_in_seen` checks `str(path)` against systemd's `DropInPaths`.
+  If `XDG_CONFIG_HOME` goes through a symlink or holds `..`, systemd
+  may list another spelling of the same file and the start is refused
+  when it need not be. The failure is a refusal, not a bypass.
+  Settle it by running a user manager with a symlinked config folder
+  and reading `DropInPaths`; that needs a test manager, not the real
+  one.
+  **Layman:** On an unusual folder setup the app might refuse to start a login service it could have started.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 05, open question).
+  Lanes: service.
+
+- 📋 [LWSM-1462] **Four ADR-0003 and ADR-0004 questions from the 2026-11-04 review need a decision.**
+  Priority: LOW.
+  (a) A foreign server whose children come and go changes its set on
+  every re-read, so ADR-0004's ask-again rule can never stop it.
+  (b) ADR-0003's file anchor binds an editor opened with a FILE inside
+  the project, so Stop would stop the editor; the ADR accepts
+  directories as that risk, not files.
+  (c) A child bound only to a LAN address reads `starting` for ever:
+  ADR-0002's post-flight and ADR-0004's "running means localhost"
+  point different ways.
+  (d) `_unit_binding` keeps each unit's yes/no for the whole session,
+  so a unit file edited later is not checked again.
+  Waiting-on: user ((a) offer "stop the set as it is now" after a
+  second change, (b) accept files as directories are, (c) read it as
+  `running (wrong port)`, (d) keep the cache but drop it on Rescan?
+  Recommendation: all four as stated, (a) and (c) being the ones a
+  user would hit, 2026-11-04).
+  **Layman:** The review raised four edge cases where the design documents do not say what the app should do; each needs a yes or no.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lanes 04 and 05, open questions).
+  Lanes: controller, foreign, service.
 
 ## 0.5.0 — Logs
 
