@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-05
+
+**Theme:** Ports
+
 ### Added
 
 - **Closing and reopening the app no longer turns its own sites "foreign".** The app remembers each site it starts. When reopened, a site it started still shows as `running`, with Stop and Restart available. A site started some other way still shows as `running (foreign)`. (LWSM-1428)
