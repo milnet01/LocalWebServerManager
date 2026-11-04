@@ -11,6 +11,7 @@ import functools
 import gc
 import json
 import logging
+import os
 import re
 import socket
 import subprocess
@@ -8901,6 +8902,66 @@ def test_a_stop_carries_the_holder_the_disclosure_showed(qtbot, built) -> None:
     assert calls == [{"disclosed_holder": shown}]
 
 
+def test_a_holder_whose_pid_was_reused_during_the_disclosure_is_not_stopped(
+    qtbot, built, monkeypatch
+) -> None:
+    """LWSM-1444: the disclosure carried a bare PID and the controller compared
+    PIDs alone, so a holder that exited during the modal wait and had its PID
+    reissued passed the re-check. ADR-0004: identity is the PID plus its
+    `create_time`.
+
+    The holder is this test process, so its start time is real. The reuse is
+    simulated inside the dialog: same number, a later start time.
+    """
+    import psutil
+
+    controller = build_controller(
+        built, [record("a", 5005)], FakeProbe(5005, holder=os.getpid()), managed=[]
+    )
+    real = psutil.Process.create_time
+
+    def reused_while_open(path, holder) -> bool:
+        monkeypatch.setattr(
+            psutil.Process, "create_time", lambda self: real(self) + 1.0
+        )
+        return True
+
+    window = MainWindow(controller, Theme.default(), [], disclose=reused_while_open)
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    stopped: list = []
+    controller._stop_foreign = lambda path, rec: stopped.append(path)
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    window._stop_project(Path("/srv/a"))
+
+    assert stopped == [], "the stop went ahead on a process the user never saw"
+    assert messages and "changed while you were deciding" in messages[0]
+
+
+def test_a_holder_unchanged_through_the_disclosure_is_stopped(qtbot, built) -> None:
+    """LWSM-1444's other side: the same process, start time and all, is the
+    one the user said yes to. Dies on a comparison that always refuses."""
+    controller = build_controller(
+        built, [record("a", 5005)], FakeProbe(5005, holder=os.getpid()), managed=[]
+    )
+    window = MainWindow(
+        controller, Theme.default(), [], disclose=lambda path, holder: True
+    )
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    stopped: list = []
+    controller._stop_foreign = lambda path, rec: stopped.append(path)
+    assert window._shown_holder(Path("/srv/a"))[1] is not None
+
+    window._stop_project(Path("/srv/a"))
+
+    assert stopped == [Path("/srv/a")]
+
+
 def test_the_glyph_column_fits_the_widest_glyph(qtbot, monkeypatch) -> None:
     """The column was sized from "●" alone; a fallback font can draw another
     state's glyph wider, and it would then overlap the word (2026-10-01
@@ -9153,14 +9214,16 @@ def test_a_terminal_server_is_stopped_by_the_set_the_user_saw(
     """ADR-0004: name the set, re-enumerate after the yes, signal that set."""
     shown = _foreign_tree((9999, 1.0), (10000, 2.0))
     same = _foreign_tree((9999, 1.0), (10000, 2.0))
-    window, _, asked, stops = tree_window(
+    window, controller, asked, stops = tree_window(
         qtbot, built, monkeypatch, [shown, same], [True]
     )
+    holder = controller.holder_identity(Path("/srv/theirs"))
 
     window._stop_project(Path("/srv/theirs"))
 
     assert asked == [(shown, False)]
-    assert stops == [(Path("/srv/theirs"), same, {"disclosed_holder": 9999})]
+    assert holder is not None and holder[0] == 9999
+    assert stops == [(Path("/srv/theirs"), same, {"disclosed_holder": holder})]
 
 
 def test_no_to_the_set_stops_nothing(qtbot, built, monkeypatch) -> None:

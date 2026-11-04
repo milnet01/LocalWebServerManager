@@ -3112,7 +3112,7 @@ def test_a_foreign_stop_is_refused_when_the_holder_changed_after_disclosure(
     messages: list[str] = []
     controller.action_failed.connect(lambda _path, text: messages.append(text))
 
-    controller.stop_project(Path("/srv/a"), disclosed_holder=1290)
+    controller.stop_project(Path("/srv/a"), disclosed_holder=(1290, None))
 
     assert drive.calls == []
     assert messages and "changed while you were deciding" in messages[0]
@@ -3136,7 +3136,7 @@ def test_a_foreign_restart_is_refused_when_the_holder_changed_after_disclosure(
     with qtbot.waitSignal(controller.projects_changed, timeout=2000):
         controller.poll_once()
 
-    controller.restart_project(Path("/srv/a"), disclosed_holder=1290)
+    controller.restart_project(Path("/srv/a"), disclosed_holder=(1290, None))
 
     assert controller._overlay is None, "the restart went ahead on a new holder"
 
@@ -3208,7 +3208,7 @@ def test_a_started_unit_loses_its_drop_in_straight_away(
     if verb == "start":
         controller.start_project(Path("/srv/a"))
     else:
-        controller.restart_project(Path("/srv/a"), disclosed_holder=1290)
+        controller.restart_project(Path("/srv/a"), disclosed_holder=(1290, None))
     qtbot.waitUntil(lambda: len(reloads) == 2, timeout=2000)
 
     assert drive.calls == [(verb, "a.service")]
@@ -3347,7 +3347,7 @@ def test_a_confirmed_foreign_set_is_stopped_on_a_worker_and_reported(
     tree = Tree(members=(Member(pid=9999, started=1.0),), handles=())
 
     with qtbot.waitSignal(getattr(controller, signal), timeout=2000) as caught:
-        controller.stop_foreign_tree(Path("/srv/a"), tree, disclosed_holder=9999)
+        controller.stop_foreign_tree(Path("/srv/a"), tree, disclosed_holder=(9999, None))
 
     assert stopped == [tree]
     if text is not None:
@@ -4113,7 +4113,7 @@ def test_a_disclosed_foreign_stop_during_an_outage_says_the_table_is_unreadable(
     messages: list[str] = []
     controller.action_failed.connect(lambda _path, text: messages.append(text))
 
-    controller.stop_project(Path("/srv/a"), disclosed_holder=1290)
+    controller.stop_project(Path("/srv/a"), disclosed_holder=(1290, None))
 
     assert drive.calls == []
     assert messages and "cannot be read" in messages[0]

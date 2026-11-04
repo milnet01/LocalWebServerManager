@@ -108,7 +108,7 @@ from lwsm.registry import (
     RegistryMissing,
     RegistryNotDurable,
 )
-from lwsm.service import describe_holder
+from lwsm.service import HolderIdentity, describe_holder
 from lwsm.settings import MIN_TEXT_SCALE, TEXT_SIZE_STEPS, SettingsNotDurable
 from lwsm.theme import (
     DEFAULT_THEME,
@@ -3701,15 +3701,16 @@ class MainWindow(QMainWindow):
         )
         return bool(self._disclose(path, holder))
 
-    def _shown_holder(self, path: Path) -> int | None:
-        """The holder PID the disclosure is about to describe, read BEFORE it.
+    def _shown_holder(self, path: Path) -> HolderIdentity | None:
+        """The holder the disclosure is about to describe, read BEFORE it.
 
         Handed to the controller with the action, so a holder that changed
         while the dialog was open is refused rather than acted on — ADR-0004:
-        a set that changed during the dialog is asked again (L6-L5).
+        a set that changed during the dialog is asked again (L6-L5). PID and
+        start time, ADR-0004's identity, so a PID reissued during the wait is
+        a change too (LWSM-1444).
         """
-        view = self._controller.row(path)
-        return view.holder_pid if view is not None else None
+        return self._controller.holder_identity(path)
 
     def _stop_project(self, path: Path) -> None:
         shown = self._shown_holder(path)
@@ -3741,6 +3742,7 @@ class MainWindow(QMainWindow):
         ):
             return False
         pid = view.holder_pid
+        disclosed = self._shown_holder(path)
         changed = False
         while True:
             try:
@@ -3759,7 +3761,9 @@ class MainWindow(QMainWindow):
                 )
                 return True
             if current.identity() == shown.identity():
-                self._controller.stop_foreign_tree(path, current, disclosed_holder=pid)
+                self._controller.stop_foreign_tree(
+                    path, current, disclosed_holder=disclosed
+                )
                 return True
             changed = True
 

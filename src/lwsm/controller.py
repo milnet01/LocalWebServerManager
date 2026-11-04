@@ -29,10 +29,12 @@ from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot, free_port
 from lwsm.registry import OVERRIDE_PORT_RANGE, PortFinding, ProjectRecord, port_claims
 from lwsm.service import (
     ENDED_STATES,
+    HolderIdentity,
     UnitOutcome,
     clear_drop_in,
     describe_holder,
     drive_unit,
+    holder_identity,
     set_drop_in,
     unit_belongs_to,
     unit_for_pid,
@@ -1472,14 +1474,17 @@ class ProjectController(QObject):
             return
         self._set_overlay(path, ProjectStatus.STARTING)
 
-    def stop_project(self, path: Path, *, disclosed_holder: int | None = None) -> None:
+    def stop_project(
+        self, path: Path, *, disclosed_holder: HolderIdentity | None = None
+    ) -> None:
         """Signal the group, and show `stopping` immediately.
 
         The stop itself runs on a worker: a five-second grace period on the UI
         thread would freeze the window (ADR-0003).
 
-        `disclosed_holder` is the holder PID the window's disclosure showed; a
-        foreign stop is refused when the port's holder is no longer that one.
+        `disclosed_holder` is the holder the window's disclosure showed, by PID
+        and start time; a foreign stop is refused when the port's holder is no
+        longer that one.
         """
         record = self._record(path)
         if record is None or self._supervisor is None:
@@ -1507,7 +1512,7 @@ class ProjectController(QObject):
         future.add_done_callback(lambda done: self._report_stop(path, done))
 
     def stop_foreign_tree(
-        self, path: Path, tree: Tree, *, disclosed_holder: int | None = None
+        self, path: Path, tree: Tree, *, disclosed_holder: HolderIdentity | None = None
     ) -> None:
         """Signal a set the user confirmed: ADR-0004's foreign stop (LWSM-1301).
 
@@ -1527,7 +1532,7 @@ class ProjectController(QObject):
         self._service_pool.start(_TreeStopTask(path, tree, self._service_signals))
 
     def restart_project(
-        self, path: Path, *, disclosed_holder: int | None = None
+        self, path: Path, *, disclosed_holder: HolderIdentity | None = None
     ) -> None:
         """Stop then start, with the same pre-flight check (ADR-0003).
 
@@ -1567,15 +1572,30 @@ class ProjectController(QObject):
             return
         self._supervisor.trust.revoke(path)
 
-    def _holder_changed(self, path: Path, disclosed: int | None) -> bool:
+    def holder_identity(self, path: Path) -> HolderIdentity | None:
+        """The port's holder as a disclosure is about to show it: PID and start
+        time, or None when nothing holds the port (LWSM-1444)."""
+        pid = self._holders.get(path)
+        return None if pid is None else holder_identity(pid)
+
+    def _holder_changed(self, path: Path, disclosed: HolderIdentity | None) -> bool:
         """Refuse a foreign action whose holder changed after it was disclosed.
 
         The window's disclosure is modal, and polls go on underneath it. If the
         port's holder is now a different process, the user said yes to a server
         that is no longer there, and ADR-0004 asks again rather than acting on
         the new one (L6-L5). `None` means nothing was disclosed.
+
+        A different process is a different PID, or the same PID with another
+        start time: one reissued during the wait (LWSM-1444). A disclosure
+        whose start time could not be read compares the PID alone.
         """
-        if disclosed is None or self._holders.get(path) == disclosed:
+        if disclosed is None:
+            return False
+        pid, started = disclosed
+        if self._holders.get(path) == pid and (
+            started is None or holder_identity(pid) == disclosed
+        ):
             return False
         if self._last_error is not None:
             # `_on_probe_error` emptied `_holders`: the holder is unknown, not

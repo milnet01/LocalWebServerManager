@@ -257,6 +257,26 @@ def describe_holder(
     )
 
 
+# ADR-0004's identity for a process: its PID plus its `create_time`. The time
+# is None where it cannot be read, which leaves the PID alone to compare.
+type HolderIdentity = tuple[int, float | None]
+
+
+def holder_identity(pid: int) -> HolderIdentity:
+    """`pid` and its start time, read now (LWSM-1444).
+
+    A disclosure is modal, and a holder that exits during it can have its PID
+    reissued; the start time is what tells the two processes apart, as
+    `foreign.Tree.identity` already does for a foreign set.
+    """
+    import psutil
+
+    try:
+        return (pid, float(psutil.Process(pid).create_time()))
+    except Exception:
+        return (pid, None)
+
+
 def unit_argv(verb: str, unit: str) -> list[str]:
     """The argv for one verb, built in the order ADR-0003 requires.
 
