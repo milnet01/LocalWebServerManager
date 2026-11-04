@@ -3347,7 +3347,9 @@ def test_a_confirmed_foreign_set_is_stopped_on_a_worker_and_reported(
     tree = Tree(members=(Member(pid=9999, started=1.0),), handles=())
 
     with qtbot.waitSignal(getattr(controller, signal), timeout=2000) as caught:
-        controller.stop_foreign_tree(Path("/srv/a"), tree, disclosed_holder=(9999, None))
+        controller.stop_foreign_tree(
+            Path("/srv/a"), tree, disclosed_holder=(9999, None)
+        )
 
     assert stopped == [tree]
     if text is not None:
