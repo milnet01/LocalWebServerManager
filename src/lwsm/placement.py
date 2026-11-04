@@ -528,6 +528,11 @@ def run_kwin_script(
                 # measurement is that a `loadScript` naming a missing file
                 # exits 0. "It failed, so nothing is registered" is not a
                 # conclusion available here.
+                #
+                # Not attempted after a TIMEOUT, though: that call was given
+                # all of the shared budget, so `issue` refuses this one
+                # (review-code 2026-11-04 L10-L1). The next run's leading
+                # unload clears what it may have left.
                 issue(unload)
                 return False
 

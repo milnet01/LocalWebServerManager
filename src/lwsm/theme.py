@@ -198,9 +198,10 @@ class Theme:
             for status in ProjectStatus
         ]
         # A pressed button confirms the click landed (LWSM-1298). Left to the
-        # platform this is whatever the style decides: strong under Fusion,
-        # invisible on the reporter's Breeze desktop with a dark palette — so
-        # it was held to none of § T8's floors and no test could see it.
+        # platform this is whatever the style decides, and the reporter could
+        # not see it with a dark palette — so it was held to none of § T8's
+        # floors and no test could see it. The app always draws with Fusion,
+        # whatever the desktop's style (traps.md, the Breeze trap).
         #
         # **Background and colour, no border — and the reason is narrower than
         # it first looks.** Measured 2026-09-06: a `border` on an
