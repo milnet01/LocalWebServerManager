@@ -2294,6 +2294,49 @@ def test_the_poll_asks_the_os_nothing_on_the_window_thread(
     assert on_main == [], f"ran on the window's thread: {on_main}"
 
 
+def test_looks_like_is_asked_off_the_window_thread(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """LWSM-1450. `looks_like` reads `/proc/<pid>/exe`, `cwd` and `cmdline`,
+    and a `cmdline` read can block behind a process stuck on a hung mount.
+    `_classify` called it in `_on_snapshot`, on the window's thread.
+
+    `a`'s effective port is held by a process in no unit; `b` sits on its
+    declared port while its override is free, ADR-0004's re-adoption. Both
+    read `running (foreign)`, and both answers were worked out on the pool.
+
+    Dies on asking either holder from the slot."""
+    asked: list[tuple[int, Path, int]] = []
+
+    def noting(pid, project):
+        asked.append((pid, project, threading.get_ident()))
+        return True
+
+    monkeypatch.setattr(controller_module, "looks_like", noting)
+    monkeypatch.setattr(controller_module, "unit_for_pid", lambda pid: None)
+    b = replace(startable("b", 5006), port_override=5999)
+    controller = supervised(
+        controllers,
+        [startable("a", 5005), b],
+        HoldingProbe({5005: 4001, 5006: 4002}),
+        FakeSupervisor(),
+    )
+
+    controller.poll_once()
+    qtbot.waitUntil(lambda: controller._snapshot is not None, timeout=3000)
+
+    assert [row.status for row in controller.rows()] == [
+        ProjectStatus.RUNNING_FOREIGN,
+        ProjectStatus.RUNNING_FOREIGN,
+    ]
+    assert {(pid, project) for pid, project, _ in asked} == {
+        (4001, Path("/srv/a")),
+        (4002, Path("/srv/b")),
+    }
+    main = threading.get_ident()
+    assert all(thread != main for _, _, thread in asked), asked
+
+
 def test_a_slow_snapshot_does_not_stop_the_logs_being_capped(
     qtbot, controllers
 ) -> None:
@@ -3511,6 +3554,7 @@ def test_each_derived_state_has_its_row(
     # What the poll's snapshot task resolves on its own thread (LWSM-1401).
     resolved = controller._resolve_here(snapshot)
     controller._units = resolved.units
+    controller._looks = resolved.looks
     controller._unit_binding.update(resolved.bindings)
 
     status = controller._classify(

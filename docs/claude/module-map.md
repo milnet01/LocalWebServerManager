@@ -124,9 +124,9 @@ Added at P02 (LWSM-1005), contract in
   one-thread pool. That pool sits outside the snapshot's in-flight guard,
   since a log cap that lapses when the socket table is slow is not a cap. Its
   slot starts the snapshot, so a released slot is known before the snapshot
-  that reads it. **`_resolve_holders`** finds each holder's unit and ADR-0003's
-  `systemctl` binding inside the snapshot task; `_classify` only reads the
-  answers. `RowView` carries
+  that reads it. **`_resolve_holders`** finds each holder's unit, ADR-0003's
+  `systemctl` binding and ADR-0004's "looks like" answer (LWSM-1450) inside
+  the snapshot task; `_classify` only reads the answers. `RowView` carries
   **`managed`**, read once per render from `supervisor.running()`, because
   ADR-0004 derives state from the socket table and `status` therefore cannot say
   whose server it is.

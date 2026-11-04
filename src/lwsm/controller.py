@@ -462,13 +462,32 @@ class _Resolved:
 
     `units` maps each holder PID of an effective port to its systemd user unit,
     and `bindings` holds ADR-0003's answer for each (unit, project) pair not
-    already known. Both ask the OS — `/proc` and `systemctl`, up to
-    `ADOPTION_TIMEOUT_SECONDS` — so neither may run in the classification slot
-    (review-code 2026-10-08 L02-M1).
+    already known. `looks` holds ADR-0004's "looks like this project" answer
+    for each (holder, project) pair `_classify` may ask about, which reads
+    `/proc/<pid>/exe`, `cwd` and `cmdline` (LWSM-1450). All ask the OS —
+    `/proc` and `systemctl`, up to `ADOPTION_TIMEOUT_SECONDS` — so none may run
+    in the classification slot (review-code 2026-10-08 L02-M1).
     """
 
     units: Mapping[int, str | None] = field(default_factory=dict)
     bindings: Mapping[tuple[str, Path], bool] = field(default_factory=dict)
+    looks: Mapping[tuple[int, Path], bool] = field(default_factory=dict)
+
+
+def _declared_holder(record: ProjectRecord, snapshot: PortSnapshot) -> int | None:
+    """Who holds the record's declared port, where ADR-0004 asks about it.
+
+    Only when the effective port answers nobody and the declared one differs
+    and answers localhost: a restarted manager re-adopts a project still on
+    its hard-coded port there (ADR-0004; LWSM-1201).
+    """
+    port = record.effective_port
+    declared = record.port
+    if port is None or declared is None or declared == port:
+        return None
+    if snapshot.answers_localhost(port) or not snapshot.answers_localhost(declared):
+        return None
+    return snapshot.holder(declared)
 
 
 def _resolve_holders(
@@ -480,19 +499,39 @@ def _resolve_holders(
     """`_Resolved` for the holders `_classify` will ask about.
 
     The same holders it reads: the one on each record's effective port, when
-    that port answers localhost. An unreadable binding is left out rather than
-    stored, so it is asked again on the next poll. Contained per record, so one
-    holder that raises costs only its own row its unit.
+    that port answers localhost, and else the declared port's. An unreadable
+    binding is left out rather than stored, so it is asked again on the next
+    poll. Contained per record, so one holder that raises costs only its own
+    row its answers; a "looks like" left out reads as False.
     """
     units: dict[int, str | None] = {}
     bindings: dict[tuple[str, Path], bool] = {}
+    looks: dict[tuple[int, Path], bool] = {}
+
+    def ask_looks(holder: int, project: Path) -> None:
+        try:
+            looks[(holder, project)] = looks_like(holder, project)
+        except Exception:
+            log.warning(
+                "could not tell whether %s looks like %s",
+                holder,
+                project,
+                exc_info=True,
+            )
+
     for record in records:
         port = record.effective_port
-        if port is None or not snapshot.answers_localhost(port):
+        if port is None:
+            continue
+        if not snapshot.answers_localhost(port):
+            declared = _declared_holder(record, snapshot)
+            if declared is not None:
+                ask_looks(declared, record.path)
             continue
         holder = snapshot.holder(port)
         if holder is None:
             continue
+        ask_looks(holder, record.path)
         try:
             if holder not in units:
                 units[holder] = unit_for_pid(holder)
@@ -508,7 +547,7 @@ def _resolve_holders(
             continue
         if belongs is not None:
             bindings[key] = belongs
-    return _Resolved(units, bindings)
+    return _Resolved(units, bindings, looks)
 
 
 class _SnapshotSignals(QObject):
@@ -1070,6 +1109,8 @@ class ProjectController(QObject):
         self._gone: frozenset[Path] = frozenset()
         # From the last snapshot: the unit each effective port's holder is in.
         self._units: Mapping[int, str | None] = {}
+        # And whether each holder looks like the project it holds a port of.
+        self._looks: Mapping[tuple[int, Path], bool] = {}
         # Not the task itself: with autoDelete on, the pool frees it as soon as
         # `run()` returns, so a reference held here would outlive the C++ object.
         self._in_flight = False
@@ -2145,6 +2186,7 @@ class ProjectController(QObject):
             # own snapshot arrives resolved on the pool thread (LWSM-1401).
             resolved = self._resolve_here(snapshot)
         self._units = resolved.units
+        self._looks = resolved.looks
         self._unit_binding.update(resolved.bindings)
         # A success ends any suppressed run, so a failure that recurs after a
         # recovery is logged again rather than folded into the old count.
@@ -2396,7 +2438,7 @@ class ProjectController(QObject):
             if not held:
                 # No deadline (ADR-0004 § Slowness is not failure).
                 return ProjectStatus.STARTING
-            if holder is not None and looks_like(holder, path):
+            if holder is not None and self._looks.get((holder, path), False):
                 return ProjectStatus.RUNNING_FOREIGN
             return ProjectStatus.FAILED  # port taken after the pre-flight
         # Our child exited on its own this tick. That is `failed` for one
@@ -2405,17 +2447,11 @@ class ProjectController(QObject):
         # failed (LWSM-1054; ADR-0004: a clean exit is not evidence).
         exited = path in self._reaped
         if not held:
-            declared = record.port
-            if (
-                declared is not None
-                and declared != port
-                and snapshot.answers_localhost(declared)
-            ):
-                # ADR-0004: a restarted manager re-adopts a project still on
-                # its hard-coded port as `running (foreign)` on that port.
-                other = snapshot.holder(declared)
-                if other is not None and looks_like(other, path):
-                    return ProjectStatus.RUNNING_FOREIGN
+            # ADR-0004: a restarted manager re-adopts a project still on its
+            # hard-coded port as `running (foreign)` on that port.
+            other = _declared_holder(record, snapshot)
+            if other is not None and self._looks.get((other, path), False):
+                return ProjectStatus.RUNNING_FOREIGN
             return ProjectStatus.FAILED if exited else ProjectStatus.STOPPED
         if holder is None:
             # Unnamed (ADR-0004).
@@ -2424,7 +2460,7 @@ class ProjectController(QObject):
         # is only a heuristic (ADR-0004's service row).
         if self._is_project_unit(record, self._units.get(holder)):
             return ProjectStatus.RUNNING
-        if looks_like(holder, path):
+        if self._looks.get((holder, path), False):
             return ProjectStatus.RUNNING_FOREIGN
         # Something unrelated is in the way.
         return ProjectStatus.FAILED if exited else ProjectStatus.PORT_BLOCKED
