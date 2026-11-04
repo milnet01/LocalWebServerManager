@@ -43,10 +43,16 @@ def ask(
     else is a defect and propagates, so the caller can log it.
     """
     connection = http.client.HTTPConnection("localhost", port, timeout=timeout)
-    cutoff = threading.Timer(deadline, _shut_down, args=(connection,))
+    fired = threading.Event()
+    cutoff = threading.Timer(deadline, _shut_down, args=(connection, fired))
     cutoff.daemon = True
     cutoff.start()
     try:
+        connection.connect()
+        if fired.is_set():
+            # The deadline passed during name lookup or connect, when there
+            # was no socket yet to shut down (LWSM-1456).
+            return None
         connection.request(
             "GET", path, headers={"User-Agent": _USER_AGENT, "Connection": "close"}
         )
@@ -59,9 +65,11 @@ def ask(
         connection.close()
 
 
-def _shut_down(connection: http.client.HTTPConnection) -> None:
+def _shut_down(connection: http.client.HTTPConnection, fired: threading.Event) -> None:
     """Unblock a read past the deadline. `shutdown`, not `close`: a read
-    blocked in another thread returns at once only on a shutdown."""
+    blocked in another thread returns at once only on a shutdown. `fired`
+    tells `ask` the deadline passed, for a connect that had no socket yet."""
+    fired.set()
     sock = connection.sock
     if sock is None:
         return

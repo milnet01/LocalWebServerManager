@@ -7,6 +7,7 @@ Every server binds port 0 and is asked for what it got
 
 from __future__ import annotations
 
+import http.client
 import http.server
 import socket
 import threading
@@ -167,6 +168,30 @@ def test_a_trickling_server_is_cut_off_at_the_deadline(trickling_server) -> None
     server dribbling its status line held a health thread for as long as it
     liked, and four such servers held all four. The call as a whole now ends
     at `deadline`."""
+    started = time.monotonic()
+    answer = ask(trickling_server, "/", timeout=0.5, deadline=0.5)
+    elapsed = time.monotonic() - started
+
+    assert answer is None
+    assert elapsed < 1.2, f"held for {elapsed:.2f} s"
+
+
+@pytest.mark.integration
+def test_a_deadline_passed_while_connecting_still_cuts_the_call_off(
+    trickling_server, monkeypatch
+) -> None:
+    """LWSM-1456. The deadline's timer shuts the socket down, and found none
+    while name lookup or connect was still running, so it did nothing; the
+    trickling reply then held the thread for as long as it liked.
+
+    Connect is slowed past the deadline. Dies on not checking it afterwards."""
+    real = http.client.HTTPConnection.connect
+
+    def slow(self) -> None:
+        time.sleep(0.6)
+        real(self)
+
+    monkeypatch.setattr(http.client.HTTPConnection, "connect", slow)
     started = time.monotonic()
     answer = ask(trickling_server, "/", timeout=0.5, deadline=0.5)
     elapsed = time.monotonic() - started
