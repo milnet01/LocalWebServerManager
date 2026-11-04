@@ -3670,10 +3670,14 @@ class MainWindow(QMainWindow):
         wide = frame + sum(table.columnWidth(c) for c in range(len(headers)))
         tall = frame + table.horizontalHeader().sizeHint().height()
         tall += sum(table.rowHeight(r) for r in range(len(tree.members)))
-        screen = self.screen().availableGeometry()
-        table.setMinimumSize(
-            min(wide, int(screen.width() * 0.9)), min(tall, int(screen.height() * 0.6))
-        )
+        # `_bounded_to_screen`'s guard: with no screen there is nothing to cap
+        # by, and raising here would end the Stop click in silence (LWSM-1473).
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is not None:
+            room = screen.availableGeometry()
+            wide = min(wide, int(room.width() * 0.9))
+            tall = min(tall, int(room.height() * 0.6))
+        table.setMinimumSize(wide, tall)
         buttons = QDialogButtonBox(dialog)
         stop = buttons.addButton(
             QCoreApplication.translate("ProjectRow", "Stop them"),

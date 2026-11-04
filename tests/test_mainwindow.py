@@ -9514,6 +9514,40 @@ def test_the_set_dialog_shows_separate_columns_and_defaults_to_cancel(
     assert [text.replace("&", "") for text in seen["default"]] == ["Cancel"]
 
 
+def test_the_process_set_dialog_opens_with_no_screen(qtbot, built, monkeypatch) -> None:
+    """LWSM-1473: the dialog capped its table by `self.screen()` with no guard,
+    where `_screen_area` and `_bounded_to_screen` fall back to the primary
+    screen and then to no cap. With no screen it raised inside the Stop click,
+    which Qt swallows, so Stop did nothing at all."""
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    from lwsm.foreign import Member, Tree
+
+    shown: list[QDialog] = []
+
+    def fake_exec(dialog) -> int:
+        shown.append(dialog)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    controller = build_controller(built, [record("theirs", 6006)], FakeProbe(6006))
+    window = MainWindow(controller, Theme.default(), [])
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "screen", lambda: None)
+    monkeypatch.setattr(QApplication, "primaryScreen", staticmethod(lambda: None))
+    tree = Tree(
+        members=(Member(pid=9999, started=0.0, exe="/usr/bin/node", cmdline="node"),),
+        handles=(),
+    )
+
+    try:
+        window._confirm_tree_dialog(Path("/srv/theirs"), tree, False)
+    except AttributeError as exc:
+        pytest.fail(f"the dialog died with no screen: {exc}")
+
+    assert len(shown) == 1, "the confirmation was never shown"
+
+
 def test_a_start_of_our_own_child_can_be_stopped_while_still_starting(qtbot) -> None:
     """LWSM-1372: with the socket table unreadable a start never settles, and
     Stop was disabled for the whole `starting` overlay. Stopping our own child
