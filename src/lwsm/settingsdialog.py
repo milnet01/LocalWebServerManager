@@ -169,7 +169,7 @@ class SettingsDialog(QDialog):
         """Every user-visible string, in one method (`§ O8` clause 1).
 
         Each label carries an `&` mnemonic and a buddy, so the form is
-        keyboard-reachable without a mouse: Alt+S lands in the list, Alt+P and
+        keyboard-reachable without a mouse: Alt+S lands in the list, Alt+H and
         Alt+L in the two spinboxes.
         """
         self.setWindowTitle(QCoreApplication.translate("SettingsDialog", "Preferences"))
