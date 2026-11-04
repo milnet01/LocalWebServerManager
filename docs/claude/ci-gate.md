@@ -18,7 +18,7 @@ grew to cover `scripts/` would let an edit to the gate skip the gate.
 
 **Some markdown takes the FULL gate, and that was missed until
 2026-08-19**: `CLAUDE.md`, `README.md`, every file under
-`docs/standards/` and the two design documents that name theme ids
+`docs/standards/` and `docs/claude/`, and the two design documents that name theme ids
 (`design-look-and-feel.md`, `design-accessibility.md`) are asserted
 against by `tests/test_docs.py`, and
 `CONTRIBUTING.md` by `tests/test_ci_contract.py`, so an edit to one can
