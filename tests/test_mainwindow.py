@@ -33,6 +33,7 @@ from lwsm.__main__ import build_window
 from lwsm.browsers import Browser
 from lwsm.configfile import MAX_DISPLAY_NAME_CHARS, display_text
 from lwsm.controller import (
+    RUNNING_STATES,
     ProjectController,
     ProjectStatus,
     wait_for_abandoned_pools,
@@ -3624,6 +3625,56 @@ def test_open_on_a_foreign_server_discloses_the_holder_first(qtbot, built) -> No
     theirs.open_button.click()
     assert asked == [Path("/srv/theirs")]
     assert len(opened) == 2
+
+
+@pytest.mark.parametrize("change", ["holder", "stopped listening"])
+def test_open_is_refused_when_the_row_changed_during_the_disclosure(
+    qtbot, built, change
+) -> None:
+    """LWSM-1445: after the yes, Open re-read the row and opened whatever held
+    the port then, checking neither the holder nor the status. ADR-0004 names
+    the case: holder A is disclosed, A exits, B binds the port, and the
+    browser opens on B. A row no longer running had nothing to open.
+
+    The poll runs inside the dialog, as it does under a real modal one."""
+    opened: list = []
+    probe = FakeProbe(6006, holder=9999)
+    controller_box: list = []
+
+    def changed_while_open(path, holder) -> bool:
+        controller = controller_box[0]
+        if change == "holder":
+            probe.holder = 7777
+        else:
+            probe.listening.clear()
+        controller.poll_once()
+        qtbot.waitUntil(
+            lambda: (
+                (view := controller.row(Path("/srv/theirs"))) is not None
+                and (
+                    view.holder_pid == 7777
+                    if change == "holder"
+                    else view.status not in RUNNING_STATES
+                )
+            ),
+            timeout=2000,
+        )
+        return True
+
+    window = opening_window(
+        qtbot,
+        built,
+        [record("theirs", 6006)],
+        probe,
+        opened,
+        managed=[],
+        disclose=changed_while_open,
+    )
+    controller_box.append(window._controller)
+
+    window._open_project(Path("/srv/theirs"))
+
+    assert opened == [], "the browser opened on a server the user never saw"
 
 
 def test_declining_the_disclosure_opens_nothing(qtbot, built) -> None:

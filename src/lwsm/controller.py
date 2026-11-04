@@ -1578,6 +1578,11 @@ class ProjectController(QObject):
         pid = self._holders.get(path)
         return None if pid is None else holder_identity(pid)
 
+    def holder_changed(self, path: Path, disclosed: HolderIdentity | None) -> bool:
+        """`_holder_changed` for an action the window takes itself: Open
+        (LWSM-1445). Emits the same refusal when it answers True."""
+        return self._holder_changed(path, disclosed)
+
     def _holder_changed(self, path: Path, disclosed: HolderIdentity | None) -> bool:
         """Refuse a foreign action whose holder changed after it was disclosed.
 

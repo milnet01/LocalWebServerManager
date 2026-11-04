@@ -3779,10 +3779,39 @@ class MainWindow(QMainWindow):
         value cached when the button was created: a rescan or an override can
         move it, and opening a stale port is the confidently-wrong failure
         ADR-0003 records a sibling project having shipped.
+
+        After a disclosure the row must still be the one shown: running, on
+        the same port, with the same holder. The dialog is modal and polls run
+        under it, so otherwise the browser opened on whatever bound the port
+        meanwhile, ADR-0004's localhost-phishing case (LWSM-1445).
         """
+        before = self._controller.row(path)
+        disclosing = (
+            before is not None
+            and not before.managed
+            and before.status in RUNNING_STATES
+        )
+        shown = self._shown_holder(path) if disclosing else None
         if not self._may_act_on(path):
             return
         view = self._controller.row(path)
+        if disclosing and before is not None:
+            if self._controller.holder_changed(path, shown):
+                return  # the controller has said why, as for Stop and Restart
+            if (
+                view is None
+                or view.status not in RUNNING_STATES
+                or view.effective_port != before.effective_port
+                or (shown is None and view.holder_pid is not None)
+            ):
+                self.set_status_message(
+                    QCoreApplication.translate(
+                        "ProjectRow",
+                        "%1 changed while you were deciding — nothing was "
+                        "opened; try again",
+                    ).replace("%1", display_text(path.name))
+                )
+                return
         if view is None or view.effective_port is None:
             self.set_status_message(
                 QCoreApplication.translate(
