@@ -13,6 +13,7 @@ service manager, a real project directory or a real port (`testing-overrides.md 
 from __future__ import annotations
 
 import dataclasses
+import errno
 import hashlib
 import json
 import os
@@ -3219,6 +3220,50 @@ def test_an_unreadable_shell_hop_costs_the_port_not_the_project(
 
     assert [project.name for project in result.projects] == ["proj"]
     assert result.projects[0].port is None
+
+
+@pytest.mark.parametrize(
+    ("refused", "launcher", "body"),
+    [
+        # Checked before the named-file rule that matches this project.
+        ("package.json", "serve.py", "PORT = 8080\n"),
+        # Port sources, read after the launcher matched.
+        (".env.local", "start.sh", "#!/bin/sh\nPORT=8080\n"),
+        ("README.md", "start.sh", "#!/bin/sh\nPORT=8080\n"),
+    ],
+)
+def test_a_side_file_whose_check_raises_costs_that_file_not_the_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    refused: str,
+    launcher: str,
+    body: str,
+) -> None:
+    """LWSM-1464: the "is it there?" check before a launcher or port-source
+    read sat outside the `try` that turns an `OSError` into a reason, and
+    `is_symlink` re-raises EACCES and ENAMETOOLONG on 3.13. The error reached
+    `scan()`'s per-candidate handler, which dropped the whole project, where
+    § 4.3 says an `OSError` rejects that file and the scan continues.
+
+    Simulated, because a real trigger is a race or a path near PATH_MAX: the
+    check raises EACCES for one file name only.
+    """
+    make_project(tmp_path, "proj", {launcher: body}, launcher)
+    original = Path.is_symlink
+
+    def is_symlink(path: Path) -> bool:
+        if path.name == refused:
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_symlink", is_symlink)
+
+    result = scanner.scan([tmp_path], units=FakeUnits())
+
+    assert [project.name for project in result.projects] == ["proj"]
+    assert result.projects[0].port is not None
+    assert result.projects[0].port.port == 8080
+    assert any(refused in reason for reason in result.skipped), result.skipped
 
 
 def test_a_directory_argument_does_not_hide_the_script_before_it(

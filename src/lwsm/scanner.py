@@ -1517,9 +1517,12 @@ def _read_alternate(
     manager — a denial of service bought with one file.
     """
     path = candidate / filename
-    if not path.is_symlink() and not path.exists():
-        return None
     try:
+        # Inside the `try`: on 3.13 both checks re-raise EACCES and
+        # ENAMETOOLONG, and outside it that error cost the whole project
+        # rather than this file (LWSM-1464).
+        if not path.is_symlink() and not path.exists():
+            return None
         return _read_lines(path, deadline)
     except OSError as exc:
         note(f"{quoted}: {filename} cannot be read ({exc.strerror or exc})")
@@ -1619,9 +1622,10 @@ def _match_node_package(
     project's row. `registry.py::load_projects` already names the first three.
     """
     path = candidate / "package.json"
-    if not path.is_symlink() and not path.exists():
-        return None
     try:
+        # Inside the `try` for `_read_alternate`'s reason (LWSM-1464).
+        if not path.is_symlink() and not path.exists():
+            return None
         raw = _read_bytes(path)
     except OSError as exc:
         note(f"{quoted}: package.json cannot be read ({exc.strerror or exc})")
