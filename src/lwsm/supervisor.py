@@ -1538,13 +1538,22 @@ class Supervisor:
         return frozenset(taken)
 
     def _adoptable(self, entry: StartedEntry) -> ManagedProcess | None:
+        # Each refusal says which check failed (LWSM-1443). A `create_time`
+        # mismatch is a reused PID, or a clock stepped between sessions
+        # (LWSM-1448); without the line the two read like no record at all.
         try:
             handle = psutil.Process(entry.pid)
             if handle.create_time() != entry.create_time:
-                return None
-            if os.getpgid(entry.pid) != entry.pid:
-                return None
+                why = "pid %d has another create_time, so it is not the one started"
+            elif os.getpgid(entry.pid) != entry.pid:
+                why = "pid %d no longer leads its own process group"
+            else:
+                why = ""
         except (psutil.Error, OSError):
+            log.info("not adopting %s: pid %d no longer runs", entry.name, entry.pid)
+            return None
+        if why:
+            log.info("not adopting %s: " + why, entry.name, entry.pid)
             return None
         log_path = self.log_path_for(entry.project, entry.name)
         try:

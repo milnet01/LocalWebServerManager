@@ -3668,6 +3668,35 @@ def test_an_adopted_server_is_owned_and_stops(tmp_path: Path, project: Path) -> 
         _reap(managed.popen)
 
 
+def test_a_refused_adoption_says_which_check_failed(tmp_path: Path, caplog) -> None:
+    """LWSM-1443: a refusal logged nothing, so one caused by a clock step
+    between sessions could not be told from no record at all."""
+    stranger = subprocess.Popen(["sleep", "30"])  # in the test's own group
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    record = tmp_path / "started.json"
+    try:
+        created = psutil.Process(stranger.pid).create_time()
+        sup = started_session(tmp_path, record)
+        for path, pid, when in [
+            (Path("/srv/clock"), stranger.pid, created + 5.0),
+            (Path("/srv/group"), stranger.pid, created),
+            (Path("/srv/gone"), gone.pid, 1.0),
+        ]:
+            sup.started.add(StartedEntry(path, path.name, pid, when, None))
+        with caplog.at_level("INFO", logger="lwsm.supervisor"):
+            assert sup.adopt() == frozenset()
+        sup.close()
+    finally:
+        stranger.kill()
+        stranger.wait()
+
+    text = caplog.text
+    assert "not adopting clock" in text and "create_time" in text
+    assert "not adopting group" in text and "process group" in text
+    assert "not adopting gone" in text and "no longer runs" in text
+
+
 @pytest.mark.parametrize("reservation", ["starting", "stopping"])
 def test_adoption_leaves_a_project_with_a_start_or_stop_in_flight_alone(
     tmp_path: Path, project: Path, reservation: str
