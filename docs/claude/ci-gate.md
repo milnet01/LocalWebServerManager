@@ -11,7 +11,7 @@ invents one. Your tree is not touched, and the extra checkout costs
 about five seconds.
 
 The hook decides docs-only **by the paths in the push, never by the
-commit subject**, and `scripts/`, `.github/`, `src/` and `tests/` are
+commit subject** (both sides of a rename, LWSM-1486), and `scripts/`, `.github/`, `src/` and `tests/` are
 never exempt — a change to the checker must run the check.
 `tests/test_ci_contract.py` asserts that, because an exemption that
 grew to cover `scripts/` would let an edit to the gate skip the gate.

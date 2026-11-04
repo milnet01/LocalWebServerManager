@@ -392,10 +392,17 @@ def test_the_hook_never_exempts_a_markdown_file_the_suite_asserts_against() -> N
 
 
 def _hook_verdict(
-    tmp_path: Path, changed: str, gate_extra: str = "", remote_sha: str | None = None
+    tmp_path: Path,
+    changed: str,
+    gate_extra: str = "",
+    remote_sha: str | None = None,
+    renamed_from: str | None = None,
 ) -> str:
     """Run the REAL hook in a throwaway clone whose gate is a stub, pushing one
     commit that touches `changed`, and return everything the run printed.
+
+    With `renamed_from`, the seed commit holds that file and the pushed commit
+    renames it to `changed`, unaltered, so git's rename detection pairs them.
 
     Executing the hook rather than scanning it, for the reason
     `_hook_says_docs_only` gives above: a scrape can say a variable appears
@@ -447,13 +454,20 @@ def _hook_verdict(
 
     git("init", "-q", "-b", "main")
     (repo / "seed.txt").write_text("seed\n")
+    if renamed_from:
+        source = repo / renamed_from
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("a module long enough to be paired as a rename\n" * 8)
     git("add", "-A")
     git("commit", "-qm", "seed")
     base = git("rev-parse", "HEAD")
 
     target = repo / changed
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("changed\n")
+    if renamed_from:
+        git("mv", renamed_from, changed)
+    else:
+        target.write_text("changed\n")
     git("add", "-A")
     git("commit", "-qm", "change")
     head = git("rev-parse", "HEAD")
@@ -891,6 +905,22 @@ def test_a_remote_commit_never_fetched_here_still_runs_the_gate(
     out = _hook_verdict(tmp_path, "src/x.py", remote_sha="de" * 20)
     assert "GATE-RAN" in out, out
     assert "not fetched here" in out, out
+
+
+@pytest.mark.parametrize("source", ["src/lwsm/x.py", "tests/test_x.py"])
+def test_moving_code_into_docs_still_runs_the_full_gate(
+    tmp_path: Path, source: str
+) -> None:
+    """LWSM-1486: `git diff --name-only` names only a rename's NEW path, so a
+    push moving a module or a test under `docs/` listed `docs/...` alone and
+    took `--docs`, while the suite lost a file. `src/` and `tests/` are never
+    exempt, and the old side of a rename is as much a change as the new one.
+
+    Dies on dropping `--no-renames` from the hook's diff.
+    """
+    out = _hook_verdict(tmp_path, "docs/notes.md", renamed_from=source)
+    assert "GATE-RAN" in out, out
+    assert "ARGS=[]" in out, out
 
 
 def test_the_drift_check_takes_the_first_version_line_as_the_recipe_does(

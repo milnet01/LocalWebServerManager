@@ -147,7 +147,9 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
 
     base=$(push_base "$local_sha" "$remote_sha" "$REMOTE") || continue
 
-    changed+=$(git diff --name-only "$base" "$local_sha")$'\n'
+    # --no-renames: a rename otherwise lists only its NEW path, so moving
+    # src/x.py to docs/x.md read as a docs-only push (LWSM-1486).
+    changed+=$(git diff --no-renames --name-only "$base" "$local_sha")$'\n'
     tips+=("$local_sha")
 done <<<"$REFS"
 
