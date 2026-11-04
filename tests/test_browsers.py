@@ -875,6 +875,46 @@ def test_a_removal_applies_only_to_the_type_it_names(tmp_path: Path) -> None:
     assert [b.entry_id for b in result.browsers] == ["firefox.desktop"]
 
 
+def test_removing_one_scheme_keeps_a_browser_that_handles_the_other(
+    tmp_path: Path,
+) -> None:
+    """A removal is per type, and the two link schemes are two types.
+
+    Firefox taken off `https` alone still handles `http`, which is the only
+    scheme `open_url` is ever given. Merging the two types under one verdict
+    per entry dropped it from the list (review-code 2026-11-04 L11-L2).
+    """
+    apps = tmp_path / "applications"
+    write(apps, "firefox.desktop", FIREFOX)
+    lists = write(
+        tmp_path / "config",
+        "mimeapps.list",
+        "[Removed Associations]\nx-scheme-handler/https=firefox.desktop;\n",
+    )
+
+    result = browsers.installed((apps,), mimeapps=(lists,))
+
+    assert [b.entry_id for b in result.browsers] == ["firefox.desktop"]
+
+
+def test_a_browser_removed_from_every_scheme_it_declares_is_not_offered(
+    tmp_path: Path,
+) -> None:
+    """The other side of the per-type verdict: an entry that declares only
+    `https`, removed from `https`, handles no link scheme left."""
+    apps = tmp_path / "applications"
+    write(apps, "secure.desktop", entry(MimeType="x-scheme-handler/https;"))
+    lists = write(
+        tmp_path / "config",
+        "mimeapps.list",
+        "[Removed Associations]\nx-scheme-handler/https=secure.desktop;\n",
+    )
+
+    result = browsers.installed((apps,), mimeapps=(lists,))
+
+    assert result.browsers == ()
+
+
 def test_an_unreadable_mimeapps_list_costs_only_itself(tmp_path: Path) -> None:
     """Somebody else's file, so the containment rule is the module's own.
 

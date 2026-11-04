@@ -196,19 +196,25 @@ def _groups(text: str) -> dict[str, dict[str, str]]:
     return groups
 
 
-def _associations(paths: tuple[Path, ...]) -> tuple[dict[str, bool], list[str]]:
-    """Which entry ids the desktop adds to, or removes from, the http handlers.
+def _associations(
+    paths: tuple[Path, ...],
+) -> tuple[dict[str, dict[str, bool]], list[str]]:
+    """Which entry ids the desktop adds to, or removes from, each http handler.
 
-    Returns `{entry_id: added}` and the reasons for any file that could not be
-    read. **First mention of an id wins**, across files and within one: the
-    spec resolves per entry id rather than per file, so a user config that adds
-    an entry beats a system list that removes it. `Added` is read before
-    `Removed` in the same file, which the spec leaves undefined.
+    Returns `{entry_id: {handler: added}}` and the reasons for any file that
+    could not be read. **First mention of an id wins**, across files and
+    within one: the spec resolves per entry id rather than per file, so a user
+    config that adds an entry beats a system list that removes it. `Added` is
+    read before `Removed` in the same file, which the spec leaves undefined.
+
+    **Per handler, not per entry** (review-code 2026-11-04 L11-L2): the spec
+    resolves each MIME type on its own, so a browser removed from `https`
+    alone still handles `http`. One verdict per entry dropped it outright.
 
     Every file here belongs to somebody else, so each is read inside its own
     `try` for the module docstring's reason.
     """
-    state: dict[str, bool] = {}
+    state: dict[str, dict[str, bool]] = {}
     reasons: list[str] = []
     for path in paths:
         try:
@@ -229,7 +235,9 @@ def _associations(paths: tuple[Path, ...]) -> tuple[dict[str, bool], list[str]]:
             for handler in HTTP_HANDLERS:
                 for entry_id in keys.get(handler, "").split(";"):
                     if entry_id.strip():
-                        state.setdefault(entry_id.strip(), added)
+                        state.setdefault(entry_id.strip(), {}).setdefault(
+                            handler, added
+                        )
     return state, reasons
 
 
@@ -368,7 +376,11 @@ def _entry_fields(text: str) -> dict[str, str]:
 
 
 def _browser_from(
-    path: Path, entry_id: str, *, mime_required: bool = True
+    path: Path,
+    entry_id: str,
+    *,
+    mime_required: bool = True,
+    removed: frozenset[str] = frozenset(),
 ) -> Browser | None:
     """One desktop entry, or `None` if it is not a browser we can launch.
 
@@ -377,6 +389,9 @@ def _browser_from(
     why such an entry cannot be found by the `MimeType` test. Every other
     refusal below but `NoDisplay` still applies to it — an added entry that is
     `Hidden`, or whose binary is gone, is no more launchable than any other.
+
+    `removed` names the handlers the desktop took this entry off, which no
+    longer count towards its own `MimeType`.
     """
     fields = _entry_fields(read_bounded(path).decode("utf-8-sig"))
 
@@ -401,7 +416,7 @@ def _browser_from(
     # A list of EXACT types. A substring test offered
     # `x-scheme-handler/httprelay` as a browser (LWSM-1279).
     declared = {part.strip() for part in fields.get("MimeType", "").split(";")}
-    if mime_required and declared.isdisjoint(HTTP_HANDLERS):
+    if mime_required and (declared - removed).isdisjoint(HTTP_HANDLERS):
         return None
 
     # `TryExec` is the spec's own "is this actually installed" key. Honouring it
@@ -589,15 +604,17 @@ def installed(
             if entry_id in seen:
                 continue
             seen.add(entry_id)
-            association = associations.get(entry_id)
-            if association is False:
-                # Explicitly removed by the desktop. Skipped before the read,
-                # because a removed entry is not offered from any directory and
-                # its file is one this module then has no reason to open.
+            verdicts = associations.get(entry_id, {})
+            added = any(verdicts.values())
+            removed = frozenset(h for h, v in verdicts.items() if not v)
+            if not added and removed.issuperset(HTTP_HANDLERS):
+                # Removed from both schemes by the desktop. Skipped before the
+                # read, because such an entry is not offered from any directory
+                # and its file is one this module then has no reason to open.
                 continue
             try:
                 browser = _browser_from(
-                    path, entry_id, mime_required=association is not True
+                    path, entry_id, mime_required=not added, removed=removed
                 )
             except (ConfigFileError, OSError, UnicodeDecodeError, ValueError) as exc:
                 # Per entry, deliberately. See the module docstring: one hostile
