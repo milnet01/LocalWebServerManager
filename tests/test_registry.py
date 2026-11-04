@@ -1111,12 +1111,20 @@ def test_a_failed_write_leaves_the_old_file_intact(
     "At any point" would be false: § 4.3 step 4's directory fsync runs *after*
     the replace, so a failure there leaves the new file correctly in place with
     nothing to roll back. That case is reported, not reversed.
+
+    Only the list's OWN replace fails. Failing every replace stopped the save
+    at its backup instead, and the match then rested on the backup's message,
+    which `quoted()` clips under a long temporary path (LWSM-1479).
     """
     path = tmp_path / "projects.json"
     save_projects(path, [every_field_record()], load=RegistryMissing("first run"))
     before = path.read_bytes()
+    real_replace = os.replace
 
     def explode(source: object, target: object) -> None:
+        if Path(str(target)) != path:
+            real_replace(source, target)
+            return
         raise OSError(errno.ENOSPC, "No space left on device")
 
     monkeypatch.setattr(registry.os, "replace", explode)
