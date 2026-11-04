@@ -319,7 +319,7 @@ class SupportsSupervision(Protocol):
 class SupportsTrust(Protocol):
     def confirm(self, project: Path, fingerprint: str) -> None: ...
 
-    def revoke(self, project: Path) -> None: ...
+    def revoke(self, project: Path) -> str | None: ...
 
 
 @dataclass(frozen=True)
@@ -1649,12 +1649,17 @@ class ProjectController(QObject):
         self._supervisor.trust.confirm(path, fingerprint)
         self.start_project(path)
 
-    def forget_trust(self, path: Path) -> None:
+    def forget_trust(self, path: Path) -> str | None:
         """The user withdrew their "yes, run it", so the next Start asks again
-        (LWSM-1319). Idempotent, like `TrustStore.revoke`."""
+        (LWSM-1319). Idempotent, like `TrustStore.revoke`.
+
+        Returns `revoke`'s reason when the withdrawal was not saved, so the
+        window does not promise a lasting change (LWSM-1474). With no
+        supervisor there is no trust store in reach, and `trust.json` is left
+        as it was, so that is a reason too."""
         if self._supervisor is None:
-            return
-        self._supervisor.trust.revoke(path)
+            return "no trust store is open, so nothing was withdrawn"
+        return self._supervisor.trust.revoke(path)
 
     def holder_identity(self, path: Path) -> HolderIdentity | None:
         """The port's holder as a disclosure is about to show it: PID and start

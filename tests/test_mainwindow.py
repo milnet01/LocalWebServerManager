@@ -9286,6 +9286,24 @@ def test_the_row_menu_withdraws_trust_from_its_launcher(qtbot, built) -> None:
     window.shutdown()
 
 
+def test_a_withdrawal_that_was_not_saved_is_not_called_lasting(qtbot, built) -> None:
+    """LWSM-1474: the banner said the project "will ask before it starts again"
+    while `trust.json` still held the confirmation, so after a restart Start
+    ran the launcher with no prompt."""
+    window, controller = window_for(
+        qtbot, built, [record("web", 3000)], FakeProbe(), managed=()
+    )
+    controller._supervisor.trust.revoke = lambda _project: "not saved: disk full"
+
+    window.forget_trust(Path("/srv/web"))
+
+    message = message_of(window)
+    assert message != "web will ask before it starts again", message
+    assert "only until the app closes" in message, message
+    assert "disk full" in message, message
+    window.shutdown()
+
+
 # --- LWSM-1301: stopping a server started elsewhere, by its process set ---------
 
 

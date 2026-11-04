@@ -3049,6 +3049,29 @@ def test_a_revocation_survives_a_restart(project: Path, tmp_path: Path) -> None:
     assert not TrustStore(path).is_confirmed(project, FINGERPRINT)
 
 
+def test_a_revocation_that_was_not_saved_says_so(project: Path, tmp_path: Path) -> None:
+    """LWSM-1474: a failed save only logged "not saved", so the window promised
+    the next start would ask while `trust.json` still held the confirmation —
+    and after a restart Start ran the launcher with no prompt. `revoke` now
+    returns the failure for the window to show; a saved one returns None."""
+    folder = tmp_path / "config"
+    path = folder / "trust.json"
+    store = TrustStore(path)
+    store.confirm(project, FINGERPRINT)
+    assert store.revoke(project) is None
+    store.confirm(project, FINGERPRINT)
+    folder.chmod(0o500)
+    try:
+        reason = store.revoke(project)
+    finally:
+        folder.chmod(0o700)
+
+    assert reason is not None and "Permission denied" in reason, reason
+    assert TrustStore(path).is_confirmed(project, FINGERPRINT), (
+        "precondition: the file still holds the confirmation"
+    )
+
+
 def test_the_trust_file_is_private(project: Path, tmp_path: Path) -> None:
     """It says which launchers may run unasked, so no one else may read it."""
     path = tmp_path / "trust.json"

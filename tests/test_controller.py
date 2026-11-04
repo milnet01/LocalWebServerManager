@@ -3431,6 +3431,22 @@ def test_forgetting_trust_revokes_it(qtbot, controllers) -> None:
     assert supervisor.trust.revoked == [Path("/srv/a")]
 
 
+def test_forgetting_trust_passes_on_a_withdrawal_that_was_not_saved(
+    qtbot, controllers
+) -> None:
+    """LWSM-1474: the window words its banner from this answer."""
+    supervisor = FakeSupervisor()
+    supervisor.trust.revoke = lambda _project: "not saved: disk full"
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+
+    assert controller.forget_trust(Path("/srv/a")) == "not saved: disk full"
+
+    # With no supervisor no store is in reach and `trust.json` is untouched,
+    # so the answer is a reason too, never a silent success.
+    alone = build(controllers, [startable()], FakeProbe())
+    assert alone.forget_trust(Path("/srv/a"))
+
+
 @pytest.mark.parametrize(
     ("done", "signal", "text"),
     [

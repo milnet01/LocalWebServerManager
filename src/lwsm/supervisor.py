@@ -323,10 +323,14 @@ class TrustStore:
             else:
                 self._confirmed[project] = fingerprint
 
-    def _save(self) -> None:
-        """Write the whole set. Called with `_lock` held, so writes keep order."""
+    def _save(self) -> str | None:
+        """Write the whole set. Called with `_lock` held, so writes keep order.
+
+        Returns the failure when nothing was written, so `revoke` can say so;
+        None when the file was written, or when this store keeps no file.
+        """
         if self._path is None:
-            return
+            return None
         payload = {
             "schema_version": TRUST_SCHEMA_VERSION,
             "confirmed": {
@@ -342,6 +346,8 @@ class TrustStore:
             log.warning("trust store: %s", exc)
         except (ConfigFileError, OSError) as exc:
             self._refuse(f"not saved, so this lasts until the app closes: {exc}")
+            return str(exc)
+        return None
 
     def confirm(self, project: Path, fingerprint: str) -> None:
         with self._lock:
@@ -352,7 +358,7 @@ class TrustStore:
         with self._lock:
             return self._confirmed.get(Path(project).resolve()) == fingerprint
 
-    def revoke(self, project: Path) -> None:
+    def revoke(self, project: Path) -> str | None:
         """Forget that this project's launcher was confirmed.
 
         Called from the row's "Ask before starting again" (LWSM-1319), through
@@ -367,10 +373,14 @@ class TrustStore:
 
         Idempotent: revoking a project that was never confirmed is not an
         error, so a UI need not ask first.
+
+        Returns why the withdrawal was not saved, or None. Unsaved, it holds
+        until the app closes and the old confirmation in the file comes back
+        at the next launch, so the window must not promise more (LWSM-1474).
         """
         with self._lock:
             self._confirmed.pop(Path(project).resolve(), None)
-            self._save()
+            return self._save()
 
 
 STARTED_SCHEMA_VERSION = 1

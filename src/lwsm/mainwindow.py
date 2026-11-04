@@ -4111,18 +4111,35 @@ class MainWindow(QMainWindow):
 
         The next Start shows the confirmation again, with the resolved path and
         the exact command, as it did the first time.
+
+        Only a saved withdrawal is called lasting. An unsaved one holds until
+        the app closes, and the next launch reads the old confirmation back and
+        starts without asking, so the banner says it was not saved (LWSM-1474).
         """
-        self._controller.forget_trust(path)
-        name = next(
-            (r.name for r in self._controller.records() if r.path == path), path.name
-        )
-        self.set_status_message(
-            _filled(
-                QCoreApplication.translate(
-                    "ProjectRow", "%1 will ask before it starts again"
-                ),
-                display_text(name),
+        problem = self._controller.forget_trust(path)
+        name = display_text(
+            next(
+                (r.name for r in self._controller.records() if r.path == path),
+                path.name,
             )
+        )
+        if problem is not None:
+            self.set_status_message(
+                _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow",
+                        "%1 will ask before it starts again only until the "
+                        "app closes: the change could not be saved (%2)",
+                    ),
+                    name,
+                    problem,
+                )
+            )
+            return
+        self.set_status_message(
+            QCoreApplication.translate(
+                "ProjectRow", "%1 will ask before it starts again"
+            ).replace("%1", name)
         )
 
     def set_project_browser(self, path: Path, entry_id: str | None) -> None:
