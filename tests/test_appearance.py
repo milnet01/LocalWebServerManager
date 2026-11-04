@@ -102,11 +102,10 @@ def test_a_desktop_without_dbus_send_is_asked_nothing_at_all() -> None:
 @pytest.mark.parametrize(
     "boom",
     [
-        subprocess.TimeoutExpired(cmd="dbus-send", timeout=3.0),
         OSError("no session bus"),
         ValueError("bad argument"),
     ],
-    ids=["timeout", "oserror", "valueerror"],
+    ids=["oserror", "valueerror"],
 )
 def test_a_failed_call_reports_no_preference_rather_than_raising(boom) -> None:
     """This runs while the window is being built. A traceback out of a startup
@@ -117,6 +116,18 @@ def test_a_failed_call_reports_no_preference_rather_than_raising(boom) -> None:
         raise boom
 
     assert appearance.high_contrast(run=run, which=present) is False
+
+
+def test_a_timeout_is_unknown_rather_than_no_preference() -> None:
+    """The portal is started on demand, so a read at login can time out while
+    it starts (review-code 2026-11-04 L10-M2). That says nothing about the
+    preference, so it is answered as unknown, for the window to ask again,
+    and still never raised."""
+
+    def run(argv, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="dbus-send", timeout=3.0)
+
+    assert appearance.high_contrast(run=run, which=present) is None
 
 
 def test_a_portal_that_declines_is_not_read_as_high_contrast() -> None:

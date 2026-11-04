@@ -48,16 +48,22 @@ _UINT32 = re.compile(r"uint32\s+(\d+)")
 def high_contrast(
     run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
     which: Callable[[str], str | None] | None = None,
-) -> bool:
+) -> bool | None:
     """True only when the desktop actually asks for higher contrast.
 
-    Every failure — no `dbus-send`, no portal answering, a timeout, a reply
-    that does not parse — returns False, and the asymmetry is deliberate. A
+    Every failure — no `dbus-send`, no portal answering, a reply that does
+    not parse — returns False, and the asymmetry is deliberate. A
     wrong True forces an assistive palette on someone who never asked for one
     and cannot see why. A wrong False leaves them exactly where they are
     today, with all eight palettes still in the picker one click away. So the
     unknown case is reported as the absence of a preference, which is also
     what the portal's own 0 means, rather than as a preference we invented.
+
+    **A timeout alone returns None: unknown, not answered.** The portal is
+    started on demand, and at login that start measured 1.4 to 2.2 s on the
+    author's desktop against the 3 s bound, so a timeout is a portal still
+    starting rather than a desktop with no preference. The caller asks again
+    rather than keep False for the session (review-code 2026-11-04 L10-M2).
 
     `run` and `which` are resolved in the body, not in the signature: a default
     bound to a module function is captured when this function is *defined*, so
@@ -88,6 +94,9 @@ def high_contrast(
             capture_output=True,
             timeout=DBUS_TIMEOUT_S,
         )
+    except subprocess.TimeoutExpired:
+        log.debug("the contrast read timed out; the portal may still be starting")
+        return None
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         log.debug("could not read the contrast preference: %s", exc)
         return False

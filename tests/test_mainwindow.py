@@ -7386,6 +7386,41 @@ def test_the_contrast_preference_is_read_once_and_kept(qtbot, built) -> None:
     assert len(reads) == 1
 
 
+def test_a_contrast_read_that_timed_out_is_asked_once_more(
+    qtbot, built, monkeypatch
+) -> None:
+    """A timeout is not "no preference" (review-code 2026-11-04 L10-M2).
+
+    The settings portal is started on demand, and at login that start has
+    measured 1.4 to 2.2 s here against a 3 s bound. Kept as False for the
+    window's life, one slow start denied the high-contrast palette to the
+    user who asked their desktop for it, for the whole session. The window
+    asks once more shortly after, and only once: a resolution while that
+    retry is pending must not put another three-second read on the GUI
+    thread.
+    """
+    monkeypatch.setattr(mainwindow, "CONTRAST_RETRY_MS", 10, raising=False)
+    answers = iter([None, True])
+    reads: list[int] = []
+
+    def read() -> bool | None:
+        reads.append(1)
+        return next(answers)
+
+    window = themed_window(qtbot, built, theme_id=FOLLOW_SYSTEM, dark=True)
+    window._high_contrast = None
+    window._read_high_contrast = read
+
+    window.set_theme(FOLLOW_SYSTEM, save=False)
+    assert window._theme is THEMES["midnight"]
+    window._on_color_scheme_changed()
+    assert len(reads) == 1
+
+    qtbot.waitUntil(lambda: window._theme is THEMES["highcontrast-dark"], timeout=2000)
+    window._on_color_scheme_changed()
+    assert len(reads) == 2
+
+
 # --- LWSM-1253: the browser picker's width floor and its tooltip --------------
 
 

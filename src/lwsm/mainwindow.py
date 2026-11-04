@@ -161,6 +161,12 @@ SCREEN_FRACTION = 0.9
 # would be used rather than one that has been.
 PLACEMENT_FALLBACK_MS = 50
 
+# How long after a contrast read that TIMED OUT the window asks once more
+# (review-code 2026-11-04 L10-M2). The first read has already waited its 3 s
+# bound by then, and the portal's on-demand start measured 1.4 to 2.2 s at
+# login on the author's desktop, so it has normally started.
+CONTRAST_RETRY_MS = 2000
+
 # The characters that jump to a row, and the modifiers that must NOT be held
 # (LWSM-1282). Matched against `QKeyEvent.text()` rather than a key code, so a
 # layout where digits are shifted still reaches the feature. Shift is absent
@@ -2030,7 +2036,7 @@ class MainWindow(QMainWindow):
         open_settings: Callable[[], None] | None = None,
         save_theme: Callable[[str], None] | None = None,
         theme_id: str | None = None,
-        read_high_contrast: Callable[[], bool] | None = None,
+        read_high_contrast: Callable[[], bool | None] | None = None,
         read_dark: Callable[[], bool | None] | None = None,
         text_scale: int = MIN_TEXT_SCALE,
         save_text_scale: Callable[[int], None] | None = None,
@@ -2152,6 +2158,8 @@ class MainWindow(QMainWindow):
         # Read on the first follow-system resolution and kept — see
         # `_resolved_theme_id` for why it is not re-read.
         self._high_contrast: bool | None = None
+        # True while the one retry after a timed-out read is scheduled.
+        self._contrast_retry_pending = False
         # Resolved HERE rather than by the caller, and that is the whole reason
         # the id is passed alongside the palette. `build_window` holds the id
         # but cannot resolve it: Qt's colour scheme is only readable once a
@@ -2843,7 +2851,7 @@ class MainWindow(QMainWindow):
         if theme_id != FOLLOW_SYSTEM:
             return theme_id
         dark = self._read_dark()
-        if self._high_contrast is None:
+        if self._high_contrast is None and not self._contrast_retry_pending:
             # Read once and kept for the window's life. Light/dark is free and
             # live; this one costs a subprocess with a three-second bound, so
             # re-reading it on every resolution would put that bound on the GUI
@@ -2851,8 +2859,35 @@ class MainWindow(QMainWindow):
             # high contrast on mid-session gets it at the next launch, and can
             # pick the palette directly now — which is the trade LWSM-1240
             # says to make rather than block the window.
-            self._high_contrast = self._read_high_contrast()
-        return resolve_theme_id(theme_id, dark=dark, high_contrast=self._high_contrast)
+            #
+            # A TIMEOUT is not kept (review-code 2026-11-04 L10-M2): it is
+            # the portal still starting at login, and keeping False would
+            # deny the assistive palette for the session to the user who
+            # asked their desktop for it. One retry, scheduled; until it
+            # runs, resolutions read as no preference and ask nothing.
+            answer = self._read_high_contrast()
+            if answer is None:
+                self._contrast_retry_pending = True
+                QTimer.singleShot(CONTRAST_RETRY_MS, self, self._retry_high_contrast)
+            else:
+                self._high_contrast = answer
+        return resolve_theme_id(
+            theme_id, dark=dark, high_contrast=bool(self._high_contrast)
+        )
+
+    def _retry_high_contrast(self) -> None:
+        """The one retry after a timed-out contrast read; its answer is kept.
+
+        A second timeout is kept as False: the portal has had well over its
+        measured start time, and asking on would put the bound on the GUI
+        thread again and again.
+        """
+        self._contrast_retry_pending = False
+        if self._stopped:
+            return
+        self._high_contrast = bool(self._read_high_contrast())
+        if self._high_contrast and self._theme_id == FOLLOW_SYSTEM:
+            self.set_theme(FOLLOW_SYSTEM, save=False)
 
     def _on_color_scheme_changed(self) -> None:
         """Re-resolve when the desktop flips light/dark, and only then.
