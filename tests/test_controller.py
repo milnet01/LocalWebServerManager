@@ -2568,6 +2568,50 @@ def test_an_adopted_unit_outside_the_project_is_not_driven(
     )
 
 
+def test_an_adopted_unit_is_not_the_projects_own_before_its_check(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """LWSM-1453. Restart put the holder's unit in `_adopted_units` before
+    ADR-0003's binding check ran on the worker. A poll inside that window
+    counted the stranger's unit as the project's own: `running (managed)`,
+    health checks, its port confirmed. ADR-0003: a unit that fails the rule
+    is neither driven nor remembered.
+
+    The check is held open; a poll then classifies. Dies on remembering the
+    unit before the check answers."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "app-ide@autostart.service", belongs=False)
+    checking = threading.Event()
+    release = threading.Event()
+    real = controller_module._ServiceTask._binding_refusal
+
+    def held(self, project):
+        checking.set()
+        release.wait(timeout=5)
+        return real(self, project)
+
+    monkeypatch.setattr(controller_module._ServiceTask, "_binding_refusal", held)
+    probe = HoldingProbe({4321: 1290})
+    controller = supervised(
+        controllers, [startable("a", 4321)], probe, FakeSupervisor()
+    )
+    path = Path("/srv/a")
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller._statuses[path] is ProjectStatus.RUNNING_FOREIGN
+
+    try:
+        controller.restart_project(path)
+        assert checking.wait(timeout=2), "precondition: the check is in flight"
+        controller._on_snapshot(probe.snapshot())
+        assert controller._statuses[path] is ProjectStatus.RUNNING_FOREIGN
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: path not in controller._pending_units, timeout=2000)
+    assert drive.calls == []
+    assert path not in controller._adopted_units
+
+
 def test_a_foreign_holder_is_named_on_the_row(qtbot, controllers) -> None:
     """`managed` says whether the holder is ours; this says who it is at all.
 

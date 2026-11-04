@@ -1086,6 +1086,12 @@ class ProjectController(QObject):
         # the server already stopped falls back to the project's own launcher,
         # which is the honest limit of adopting from a live process.
         self._adopted_units: dict[Path, str] = {}
+        # A unit read off the holder whose verb, and so ADR-0003's binding
+        # check, is still on the worker. Driven and stopped like an adopted
+        # one, but not the project's own to the classifier until the check
+        # passes (LWSM-1453): a stranger's unit is neither driven nor
+        # remembered.
+        self._pending_units: dict[Path, str] = {}
         # ADR-0003's binding answer per (unit, project), for the classifier.
         self._unit_binding: dict[tuple[str, Path], bool] = {}
         self._statuses: dict[Path, ProjectStatus] = {
@@ -1483,7 +1489,7 @@ class ProjectController(QObject):
         # A record the scanner bound to a unit is service-managed even before
         # this session has seen it running (LWSM-1028): its `argv` is empty by
         # design, so without this it would read as having no launcher.
-        unit = self._adopted_units.get(path) or record.unit
+        unit = self._adopted_unit(path) or record.unit
         if unit is not None:
             # ADR-0003's amendment: a project systemd already owns is started
             # through systemd. Spawning its launcher here would put a second
@@ -1607,7 +1613,7 @@ class ProjectController(QObject):
             # service-managed restart its own row, and systemd sequences the
             # two itself — which is the thing the managed path has to hand-roll
             # because a spawn before the port is released would be refused.
-            self._adopted_units[path] = unit
+            self._pending_units[path] = unit
             self._set_overlay(path, ProjectStatus.STARTING)
             self._run_service_verb(path, "restart", unit, adopted=True)
             return
@@ -1691,11 +1697,19 @@ class ProjectController(QObject):
         pid = self._holders.get(path)
         if pid is not None:
             return unit_for_pid(pid)
-        adopted = self._adopted_units.get(path)
+        adopted = self._adopted_unit(path)
         if adopted is not None:
             return adopted
         record = self._record(path)
         return None if record is None else record.unit
+
+    def _adopted_unit(self, path: Path) -> str | None:
+        """The unit adopted for `path`, or one whose check is still out.
+
+        For driving it: a Start or Stop issued meanwhile goes to the same
+        unit. The classifier reads `_adopted_units` alone (LWSM-1453).
+        """
+        return self._adopted_units.get(path) or self._pending_units.get(path)
 
     def _stop_foreign(self, path: Path, record: ProjectRecord) -> None:
         """Stop a server this manager did not start.
@@ -1717,10 +1731,11 @@ class ProjectController(QObject):
                 "and is not a systemd user service, so it cannot be stopped from here",
             )
             return
-        # Remembered before the verb runs, not after: once the unit stops,
-        # nothing holds its port and the PID that named it is gone, so a Start
-        # afterwards would have nothing left to resolve.
-        self._adopted_units[path] = unit
+        # Held before the verb runs, not after: once the unit stops, nothing
+        # holds its port and the PID that named it is gone, so a Start
+        # afterwards would have nothing left to resolve. Pending until the
+        # binding check passes (LWSM-1453).
+        self._pending_units[path] = unit
         self._set_overlay(path, ProjectStatus.STOPPING)
         self._run_service_verb(path, "stop", unit, adopted=True)
 
@@ -1758,6 +1773,15 @@ class ProjectController(QObject):
             return
         try:
             self._restarting.discard(path)
+            pending = self._pending_units.pop(path, None)
+            if (
+                pending is not None
+                and isinstance(outcome, UnitOutcome)
+                and not (outcome.unbound and outcome.unit == pending)
+            ):
+                # The check passed, or the verb failed after it: the unit is
+                # the project's own from here (LWSM-1453).
+                self._adopted_units[path] = pending
             if isinstance(outcome, UnitOutcome) and not outcome.ok:
                 if outcome.unbound and self._adopted_units.get(path) == outcome.unit:
                     # Forgotten, or the next Start drives the refused unit.
