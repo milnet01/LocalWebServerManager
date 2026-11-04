@@ -363,3 +363,22 @@ def test_the_unvalidated_entry_is_never_in_the_launcher_s_folder(
     data = tmp_path / "data"
     leftovers = [p.name for p in data.iterdir() if p.name.startswith(".")]
     assert leftovers == [], f"the installer left {leftovers} behind"
+
+
+def test_the_installer_rebuilds_no_shared_mime_cache(tmp_path: Path) -> None:
+    """LWSM-1487: `update-desktop-database` only rebuilds `mimeinfo.cache` in
+    the folder every per-user app shares, and this entry declares no
+    `MimeType=`, so it gained this app nothing and could create a cache that
+    then governs every other app's entries.
+
+    Dies on running it again.
+    """
+    called = tmp_path / "called"
+    done = run_installer(
+        tmp_path,
+        validator="passes",
+        shims_extra={"update-desktop-database": f'touch "{called}"'},
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert not called.exists(), "the installer rebuilt the shared MIME cache"

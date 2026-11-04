@@ -176,15 +176,18 @@ trap - EXIT
 #
 # Written as `if` blocks rather than `A && B || C`: shellcheck 0.9 (which is
 # what the CI runner's apt ships) reports SC2015 on that form and 0.11 does
-# not, so the two lines below were green locally and red on GitHub for every
-# push on 2026-08-18. The tool versions are pinned now (scripts/ci-tools.env),
+# not, so the two refreshes here then were green locally and red on GitHub for
+# every push on 2026-08-18. The tool versions are pinned now (scripts/ci-tools.env),
 # but the explicit form is clearer anyway and cannot re-open the argument.
-if command -v update-desktop-database >/dev/null 2>&1; then
-    # Best-effort, but said aloud (LWSM-1284): "Installed:" below was printed
-    # whether or not the launcher's caches knew about the entry.
-    update-desktop-database "$apps_dir" ||
-        echo "note: update-desktop-database failed; the launcher may be slow to list the entry" >&2
-fi
+#
+# `update-desktop-database` is not run either (LWSM-1487). All it rebuilds is
+# `mimeinfo.cache`, in the applications folder every per-user app shares, and
+# this entry declares no `MimeType=`, so it gains nothing — while creating that
+# cache is the same "a cache makes a shared directory authoritative" hazard as
+# above. The launcher's listing is KDE's sycoca, refreshed below.
+#
+# Best-effort, but said aloud (LWSM-1284): "Installed:" below was printed
+# whether or not the launcher's caches knew about the entry.
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 ||
         echo "note: kbuildsycoca6 failed; KDE may not list the entry until next login" >&2
