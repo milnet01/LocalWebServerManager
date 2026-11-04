@@ -190,6 +190,23 @@ def test_every_question_answered_and_nothing_found_reads_as_free(tmp_path) -> No
     ], verdicts
 
 
+@pytest.mark.parametrize("gh", ["broken", "absent"])
+def test_a_repository_with_no_remote_can_still_read_as_free(tmp_path, gh) -> None:
+    """LWSM-1490: with no `origin` there is no remote tag AND no release to
+    collide with — releases.md § 4 calls that a legitimate state. The function
+    said so for the tag but still asked `gh`, which cannot reach a repository
+    that has no remote, so the verdict was a SKIP there forever.
+    """
+    repo = tmp_path / "work"
+    _run("git", "init", "-q", "work", cwd=tmp_path)
+
+    verdicts = _tag_status(repo, "v9.9.9", gh, tmp_path)
+
+    assert verdicts == [
+        "OK v9.9.9 is free — no local tag, no remote tag, no release"
+    ], verdicts
+
+
 def test_a_tag_that_exists_blocks(tmp_path) -> None:
     """The check's actual job, so a refusal to answer cannot stand in for it."""
     repo = _repo_with_remote(tmp_path, reachable=True)

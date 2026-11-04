@@ -237,9 +237,12 @@ tag_status() {
     fi
 
     # No origin at all is an ANSWER, not a failed query — there is no remote tag
-    # to collide with. releases.md § 4 treats a remote-less repository as a
-    # legitimate state whose local tag is the end of the release.
-    if git remote get-url origin >/dev/null 2>&1; then
+    # and no published release to collide with. releases.md § 4 treats a
+    # remote-less repository as a legitimate state whose local tag is the end of
+    # the release, so neither git nor gh is asked about a remote (LWSM-1490).
+    local has_origin=0
+    git remote get-url origin >/dev/null 2>&1 && has_origin=1
+    if ((has_origin)); then
         if remote_tag=$(git ls-remote --tags origin "$tag" 2>/dev/null); then
             if [[ -n $remote_tag ]]; then
                 block "tag $tag is already on the remote — people may have fetched it"
@@ -251,7 +254,9 @@ tag_status() {
         fi
     fi
 
-    if ! command -v gh >/dev/null 2>&1; then
+    if ((!has_origin)); then
+        :
+    elif ! command -v gh >/dev/null 2>&1; then
         skip "release existence (gh is not installed)"
         clear=0
     elif gh release view "$tag" >/dev/null 2>&1; then
