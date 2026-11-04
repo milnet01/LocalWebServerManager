@@ -12529,42 +12529,6 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: review-code-2026-11-04 (lane 09, settings.py duplicate_keys).
   Lanes: settings.
 
-- 📋 [LWSM-1434] **An automatic save overwrites a hand edit made to projects.json while the app runs.**
-  Priority: MEDIUM.
-  Waiting-on: user (LWSM-1007 § 6 accepts last-writer-wins between two
-  app instances and § 9 leaves an mtime precondition out of scope, but neither names a
-  hand edit during a session, and LWSM-1038's confirmed-port save now
-  writes with no user action. Should a save refuse, or back up the
-  current bytes first, when the file on disk differs from what this
-  session last read or wrote? Recommendation: yes; keep the last-written
-  bytes (or mtime and size) on the LoadResult and compare before
-  write_atomically, then amend LWSM-1007 § 6 and § 9 to match, 2026-11-04).
-  Not fixed now: it changes behaviour the spec states.
-  After the first save `raw` is empty, so the backup does not hold a
-  later hand edit either.
-  **Layman:** If you edit the project list in a text editor while the app is open, the app's next automatic save can silently undo your edit.
-  Kind: review-fix.
-  Source: review-code-2026-11-04 (lane 02, M2).
-  Lanes: registry.
-
-- 📋 [LWSM-1435] **ADR-0005 and LWSM-1007 describe the registry as it was before LWSM-1038, LWSM-1131 and LWSM-1385.**
-  Priority: LOW.
-  ADR-0005: "Effective port = port override if set, else declared
-  port" omits LWSM-1038's confirmed_port rung; "port is the only
-  detected field with an unknown value" omits `unit` under
-  units_unavailable (LWSM-1131 § 4.1).
-  LWSM-1007: § 4.1's DETECTED_FIELDS / USER_FIELDS lack port_from,
-  port_conflicts, confirmed_port, health_check and health_path; § 4.2's
-  default table points to no item for browser, port_from or
-  port_conflicts; § 4.3 says load_projects converts OSError in its own
-  handler, which now happens in configfile.load_json_object.
-  Pre-existing; not caused by the 2026-11-04 fixes. The ADR route is
-  review-contract after the edit, per the lane.
-  **Layman:** Two design documents for the project list no longer match what the code does.
-  Kind: doc-fix.
-  Source: review-code-2026-11-04 (lane 02, document-wrong LOWs).
-  Lanes: docs.
-
 - ✅ [LWSM-1436] **The trust store and the started record discard repeated JSON keys, as settings.json did.**
   Priority: LOW.
   supervisor.py `TrustStore._load` and `StartedStore._load` read
@@ -12743,64 +12707,6 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: review-code-2026-11-04 (lane 08, M1).
   Lanes: mainwindow.
 
-- 📋 [LWSM-1446] **A failed systemd scope check is remembered for the whole session, so later servers die on Quit.**
-  Priority: MEDIUM.
-  `Supervisor._spawn` caches `scope_prefix(env)` once. `scope_prefix`
-  returns `()` on any `OSError`, a 2 s timeout or a non-zero exit, and
-  that `()` is cached like a success, so every later server in the
-  session launches without a scope and Plasma's `KillMode=control-group`
-  kills it on Quit. Only an INFO line says so; the cause is discarded.
-  Not fixed now: ADR-0003 specifies the current behaviour ("`scope_prefix`
-  asks once per supervisor ... Where that fails, servers launch
-  plainly"). Re-asking costs a fast failing `systemd-run` per start with
-  no user manager, and up to 2 s on the UI thread per start while one
-  hangs.
-  Waiting-on: user (amend ADR-0003 so only a successful check is
-  remembered and a failed one is asked again at the next start, with its
-  cause logged at WARNING? Recommended: yes, a frozen start beats
-  servers silently dying on Quit, 2026-11-04).
-  **Layman:** If the check that keeps servers alive after you quit the app fails once (for example just after login), every server started later in that session stops when you quit.
-  Kind: review-fix.
-  Source: review-code-2026-11-04 (lane 01, M2; synthesis theme 3).
-  Lanes: supervisor.
-
-- 📋 [LWSM-1447] **Quit waits without a limit for every stop in flight before the next launch can claim the app.**
-  Priority: LOW.
-  `Supervisor.close` calls `self._stoppers.shutdown(wait=True)`: about 9 s
-  per stop, four at a time. It runs after `app.exec()` returns, so the
-  window is already gone, but before the single-instance socket is
-  released.
-  Not fixed now: the review's remedy (a bounded wait, as the
-  controller's pools have) does not bound anything. Python joins
-  `ThreadPoolExecutor` workers at interpreter exit regardless, and
-  returning early lets `close()` close log descriptors a running stop
-  still owns (the LWSM-1138 double-close). Options: release the socket
-  first, or let a stop finish on a thread that owns its own descriptor.
-  Needs a design choice and a measured quit with stops in flight.
-  **Layman:** Quitting while several servers are stopping can keep the app's process alive for many seconds after its window has gone, and a relaunch in that time does nothing.
-  Kind: review-fix.
-  Source: review-code-2026-11-04 (lane 01, L6).
-  Lanes: supervisor, main.
-
-- 📋 [LWSM-1448] **Adoption compares a wall-clock create_time exactly, so a clock step between sessions refuses our own server.**
-  Priority: LOW.
-  psutil 7.2.2 on Linux computes `create_time()` as the process's start
-  ticks plus `/proc/stat`'s `btime`, re-read on every call. `btime` is
-  whole seconds of wall clock minus uptime, so a clock step, and perhaps
-  NTP slewing across a rounding boundary, changes the value for the same
-  process. `_adoptable` compares it with `!=` against `started.json`.
-  The failure is safe: the row reads `running (foreign)`. Within one
-  session `is_running()` is unaffected, because psutil's identity uses
-  the monotonic start time (`create_time(monotonic=True)`).
-  What settles it: step the clock on a test machine between two
-  sessions and watch whether adoption is refused. A fix changes the
-  `started.json` format (store the monotonic start and the boot id), so
-  it is spec-first under CLAUDE.md's review cadence rule 2.
-  **Layman:** If the computer's clock was corrected between two runs of the app, the app may fail to recognise servers it started.
-  Kind: investigate.
-  Source: review-code-2026-11-04 (lane 01, L7 and open question).
-  Lanes: supervisor.
-
 - ✅ [LWSM-1449] **A failed drop-in reload leaves the drop-in on disk, so the unit's next logon start uses this app's port.**
   Priority: MEDIUM.
   `service.set_drop_in` writes `50-lwsm-port.conf`, then returns a
@@ -12949,104 +12855,6 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 05, L3).
   Lanes: health.
-
-- 📋 [LWSM-1457] **The port lookup's answer cannot be reached with Tab to copy it.**
-  Priority: LOW.
-  `TextSelectableByKeyboard` on a `QLabel` gives it click focus, not
-  Tab focus, so a PID or path can be copied out by mouse only.
-  Fix: give the answer label Tab focus.
-  Queued, not fixed (2026-11-04). Giving the label Tab focus adds a
-  Tab stop that design-accessibility.md § Full keyboard operation says
-  needs a visible focus ring meeting contrast on every theme, which a
-  selectable QLabel does not draw; and the window's screen-reader route
-  relies on the label not being focusable (`_answer`'s comment,
-  test_a_typed_port_shows_the_lookups_answer). So it is a design choice.
-  Waiting-on: user (add a "Copy answer" button beside Close, or make the
-  answer a read-only focusable text box? Recommendation: the Copy button
-  -- it already has a focus ring and keeps the announcement route as it
-  is, 2026-11-04).
-  **Layman:** In the 'What's using a port' window, the answer could be copied with the mouse but not reached from the keyboard.
-  Kind: accessibility.
-  Source: review-code-2026-11-04 (lane 05, L4).
-  Lanes: portlookup.
-
-- 📋 [LWSM-1458] **A health check reports a 103 Early Hints as the server's answer.**
-  Priority: LOW.
-  `http.client` skips only `100 Continue`, so `health.ask` returns a
-  `103 Early Hints` (RFC 8297) as the status, and the row shows
-  `HTTP 103` instead of the final answer.
-  Not fixed now: `http.client` gives no supported way to read the next
-  status line, and reporting 1xx as no answer would misreport a
-  working server. Settle it by choosing between reading the final
-  response off the same socket and reporting 1xx as interim.
-  **Layman:** A site that sends an early 'hints' reply could show a meaningless code on its row instead of whether it works.
-  Kind: review-fix.
-  Source: review-code-2026-11-04 (lane 05, L2).
-  Lanes: health.
-
-- 📋 [LWSM-1459] **LWSM-1005 INV-16 names three pools that stop() waits for; it waits for four.**
-  Priority: LOW.
-  INV-16 says `stop()` returns within one `STOP_WAIT_MS` for each of
-  its snapshot, service and health pools. LWSM-1401 added the upkeep
-  pool, which `stop()` also waits for, so the bound is per pool across
-  four. The code follows the per-pool rule; the sentence lists three.
-  Pre-existing, found while checking review-code-2026-11-04 lane 04's
-  INFO note on the up-to-8 s total.
-  **Layman:** A design document lists three of the four background jobs the app waits for when it quits.
-  Kind: doc-fix.
-  Source: review-code-2026-11-04 (lane 04, INFO).
-  Lanes: controller, docs.
-
-- 📋 [LWSM-1460] **owns_pid still asks the OS on the GUI thread, against the module map's LWSM-1401 sentence.**
-  Priority: LOW.
-  `_managed_paths` and `_our_ports` call `supervisor.owns_pid` in
-  `_on_snapshot`, which runs psutil's `is_running()` (a
-  `/proc/<pid>/stat` read) and `os.getpgid`. The module map says
-  nothing in a tick asks the OS on the GUI thread. Unlike the
-  `cmdline` read LWSM-1450 moved, neither is known to block, but that
-  is unmeasured. Settle it by measuring whether a `stat` read blocks
-  behind a process stuck in uninterruptible sleep; then either move
-  the answers into `_resolve_holders` or narrow the sentence.
-  **Layman:** The app may still ask the system a small question from its window's thread each second; it needs checking whether that can ever freeze it.
-  Kind: investigate.
-  Source: review-code-2026-11-04 (lane 04, open question).
-  Lanes: controller, supervisor.
-
-- 📋 [LWSM-1461] **drop_in_seen compares path spellings, so a symlinked XDG_CONFIG_HOME may refuse a start.**
-  Priority: LOW.
-  `drop_in_seen` checks `str(path)` against systemd's `DropInPaths`.
-  If `XDG_CONFIG_HOME` goes through a symlink or holds `..`, systemd
-  may list another spelling of the same file and the start is refused
-  when it need not be. The failure is a refusal, not a bypass.
-  Settle it by running a user manager with a symlinked config folder
-  and reading `DropInPaths`; that needs a test manager, not the real
-  one.
-  **Layman:** On an unusual folder setup the app might refuse to start a login service it could have started.
-  Kind: investigate.
-  Source: review-code-2026-11-04 (lane 05, open question).
-  Lanes: service.
-
-- 📋 [LWSM-1462] **Four ADR-0003 and ADR-0004 questions from the 2026-11-04 review need a decision.**
-  Priority: LOW.
-  (a) A foreign server whose children come and go changes its set on
-  every re-read, so ADR-0004's ask-again rule can never stop it.
-  (b) ADR-0003's file anchor binds an editor opened with a FILE inside
-  the project, so Stop would stop the editor; the ADR accepts
-  directories as that risk, not files.
-  (c) A child bound only to a LAN address reads `starting` for ever:
-  ADR-0002's post-flight and ADR-0004's "running means localhost"
-  point different ways.
-  (d) `_unit_binding` keeps each unit's yes/no for the whole session,
-  so a unit file edited later is not checked again.
-  Waiting-on: user ((a) offer "stop the set as it is now" after a
-  second change, (b) accept files as directories are, (c) read it as
-  `running (wrong port)`, (d) keep the cache but drop it on Rescan?
-  Recommendation: all four as stated, (a) and (c) being the ones a
-  user would hit, 2026-11-04).
-  **Layman:** The review raised four edge cases where the design documents do not say what the app should do; each needs a yes or no.
-  Kind: investigate.
-  Source: review-code-2026-11-04 (lanes 04 and 05, open questions).
-  Lanes: controller, foreign, service.
 
 - ✅ [LWSM-1463] **A crafted line costs the scanner time that grows with the square of its length.**
   Priority: MEDIUM.
@@ -13278,74 +13086,6 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: review-code-2026-11-04 (lane 08, L4).
   Lanes: mainwindow, controller, supervisor.
 
-- 📋 [LWSM-1475] **The / and number-key shortcuts fire from anywhere in the window and cannot be turned off.**
-  Priority: LOW (calibrated from MEDIUM: design-accessibility.md claims
-  WCAG AA for contrast only).
-  WCAG 2.1.4 Character Key Shortcuts: `MainWindow.keyPressEvent` acts on
-  `/` and 1-9, Shift allowed, from the strip, the banner and the rows,
-  and nothing turns them off or remaps them. The keys are LWSM-1040's
-  shipped feature and README's "Drive it from the keyboard", so changing
-  them changes documented behaviour.
-  Waiting-on: user (keep the keys as they are, or add a Preferences
-  switch that turns off `/` and the number keys? Recommend the switch,
-  on by default, after 0.4.0: it meets 2.1.4 without taking the keys
-  away from the keyboard users who rely on them, 2026-11-04).
-  **Layman:** Saying "one" or "slash" to speech-input software can move the focus and scroll the list without the user meaning to.
-  Kind: accessibility.
-  Source: review-code-2026-11-04 (lane 07, M1).
-  Lanes: mainwindow.
-
-- 📋 [LWSM-1476] **The state glyph stays on the left in a right-to-left layout.**
-  Priority: LOW.
-  `ProjectRow` paints the glyph at the left margin and widens the left
-  margin whatever `layoutDirection()` is. In a right-to-left layout the
-  box layout mirrors and the state word moves right, separating two of
-  the three state signals. Latent: no translation is installed and no
-  document promises right-to-left support (LWSM-1304). Not fixed now
-  because the fix needs a right-to-left render to check, and nothing
-  ships that would show it. Fix: mirror the glyph and margin with
-  `isRightToLeft()`.
-  **Layman:** In a right-to-left language the row's coloured state mark would sit apart from the state word it belongs to.
-  Kind: review-fix.
-  Source: review-code-2026-11-04 (lane 06, L3).
-  Lanes: mainwindow.
-
-- 📋 [LWSM-1477] **Find out whether a row's state change is announced twice.**
-  Priority: LOW.
-  `ProjectRow.update_from` sends `NameChanged` itself after
-  `setAccessibleName`, on the comment's claim that Qt sends none
-  (LWSM-1076). If the pinned PySide6's `setAccessibleName` already sends
-  one, every state change is announced twice, against "announces itself
-  once". PySide6 has no `QAccessible` update handler, so offscreen tests
-  cannot count the events. What settles it: a test copy on a private
-  Xvfb display with AT-SPI on, counting name-change events per state
-  change from an Atspi listener (traps.md, the bus trap).
-  **Layman:** A screen reader may hear a project's new state twice instead of once.
-  Kind: investigate.
-  Source: review-code-2026-11-04 (lane 06, open question).
-  Lanes: mainwindow.
-
-- 📋 [LWSM-1478] **User-facing sentences are built in core modules and in __main__, out of the translator's reach.**
-  Priority: 4.
-  Seven review lanes (02, 04, 05, 07, 09, 10, 11) found English
-  sentences built outside the translator's reach: controller
-  `action_failed` and port-lookup sentences, `settings` and `registry`
-  reasons, `foreign.TreeRefused`, `service` reasons, theme high-contrast
-  labels, and `__main__` print() notices (argparse text and log lines
-  are deliberately untranslated, ROADMAP note 2026-08-06). Calibrated
-  MEDIUM to LOW: no QTranslator is installed (LWSM-1304's "Latent
-  today"). Sites: the lane files of the 2026-11-04 review, kept outside
-  the repo. Likely shape: core modules return a reason code plus
-  arguments, and the window translates.
-  Waiting-on: user (fix this before 0.4.0, or move it to 1.0.0 where a
-  translation could first ship? Recommend moving it to 1.0.0: no user
-  sees an untranslated string today, and the change touches seven
-  modules, 2026-11-04).
-  **Layman:** Some messages the app shows are written in parts of the code that a future translation would never see, so they would stay in English.
-  Kind: review-fix.
-  Source: review-code-2026-11-04.
-  Lanes: controller, settings, registry, service, foreign, theme, main.
-
 - ✅ [LWSM-1479] **A registry test fails when pytest's temporary directory has a long path.**
   Priority: 5.
   `tests/test_registry.py::test_a_failed_write_leaves_the_old_file_intact`
@@ -13424,67 +13164,6 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: accessibility.
   Source: review-code-2026-11-04 (lane 10, M2).
   Lanes: appearance, mainwindow.
-
-- 📋 [LWSM-1483] **Find out whether the final KWin unload and file delete can beat KWin's read of the placement script.**
-  Priority: MEDIUM (unverified).
-  `run_kwin_script` calls `start`, then `unloadScript`, then deletes
-  the script file in its `finally`. The reviewer recalls, from KWin's
-  source and not from this tree, that `Script::run()` reads the file
-  asynchronously and that `unloadScript` deletes the script later. If
-  the unload or the delete lands before that read, the script never
-  runs while `run_kwin_script` returns True, ADR-0007's worst failure
-  shape. The 5/5 measured successes fit winning the race. Settling it
-  needs runs against the user's live KWin: a harmless script under a
-  test name that only `print()`s to the journal, unloaded at once, many
-  times, counting the prints. The fix candidates (leave the unload and
-  the delete to the next run's leading unload, or delete the file on a
-  timer) change ADR-0007's four-call sequence.
-  Waiting-on: user (may a test run a print-only KWin script on your
-  desktop, many times, to measure this? Recommend yes, after 0.4.0: it
-  moves no window and leaves nothing registered, and the answer decides
-  whether ADR-0007 changes, 2026-11-05).
-  **Layman:** Placing the window under Wayland might sometimes silently do nothing while the app believes it worked.
-  Kind: investigate.
-  Source: review-code-2026-11-04 (lane 10, M3).
-  Lanes: placement.
-
-- 📋 [LWSM-1484] **Three separate three-second D-Bus bounds can stack to nine seconds before the window appears.**
-  Priority: LOW.
-  On the startup path, `placement.kwin_on_bus` (the Centre action's
-  enabled state), `appearance.high_contrast` (Follow system) and
-  `placement.run_kwin_script` (restoring the position under Wayland)
-  each take their own 3 s bound. A wedged session bus, a Wayland
-  session and Follow system together give 9 s with no window, the
-  shape LWSM-1240 fixed inside one function. `place_window` does not
-  re-ask whether KWin is there, so a False from `kwin_on_bus` does not
-  spare the third call. Fix shape: one startup deadline the three
-  share, or skip the position restore when `placement_available`
-  answered False.
-  Waiting-on: user (fix this in 0.4.0, or after? Recommend after: it
-  needs a stuck bus to bite, and a shared deadline crosses three
-  modules, 2026-11-05).
-  **Layman:** On a stuck desktop message bus the app could take about nine seconds to show its window.
-  Kind: review-fix.
-  Source: review-code-2026-11-04 (lane 10, L2).
-  Lanes: mainwindow, placement, appearance.
-
-- 📋 [LWSM-1485] **A keyboard-focused button held down hides its focus ring in its own fill.**
-  Priority: LOW.
-  `QPushButton:pressed` fills with `accent`, and `OutlineStyle` paints
-  the focus ring in `Highlight`, which is also `accent`. Rendered
-  offscreen on 2026-11-05: on midnight the ring stays #d4af37 and the
-  pressed fill beside it is about #c4a958; on ledger, #977024 beside
-  about #997a42. Near 1:1, against `design-accessibility.md`'s 3:1 for
-  the ring against the control's fill. Only while the button is held.
-  Waiting-on: user (paint the ring in `base` while the button is held,
-  or give the pressed fill a different colour? Recommend the ring in
-  `base`: the pressed look stays as you chose it and the ring clears
-  the text floor against the fill. Either changes how a held button
-  looks, so it needs a render for you to see, 2026-11-05).
-  **Layman:** While you hold Space on a button, its focus outline blends into the button's pressed colour.
-  Kind: accessibility.
-  Source: review-code-2026-11-04 (lane 10, L3).
-  Lanes: theme.
 
 - ✅ [LWSM-1486] **A push that renames a source or test file into docs/ skips the test suite.**
   Priority: MEDIUM.
@@ -13631,6 +13310,306 @@ Criterion 5: failures readable without a terminal.
   Source: in-session-2026-08-03.
   Priority: 2.
   Lanes: ui, tests.
+
+- 📋 [LWSM-1434] **An automatic save overwrites a hand edit made to projects.json while the app runs.**
+  Priority: MEDIUM.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (LWSM-1007 § 6 accepts last-writer-wins between two
+  app instances and § 9 leaves an mtime precondition out of scope, but neither names a
+  hand edit during a session, and LWSM-1038's confirmed-port save now
+  writes with no user action. Should a save refuse, or back up the
+  current bytes first, when the file on disk differs from what this
+  session last read or wrote? Recommendation: yes; keep the last-written
+  bytes (or mtime and size) on the LoadResult and compare before
+  write_atomically, then amend LWSM-1007 § 6 and § 9 to match, 2026-11-04).
+  Not fixed now: it changes behaviour the spec states.
+  After the first save `raw` is empty, so the backup does not hold a
+  later hand edit either.
+  **Layman:** If you edit the project list in a text editor while the app is open, the app's next automatic save can silently undo your edit.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 02, M2).
+  Lanes: registry.
+
+- 📋 [LWSM-1435] **ADR-0005 and LWSM-1007 describe the registry as it was before LWSM-1038, LWSM-1131 and LWSM-1385.**
+  Priority: LOW.
+  ADR-0005: "Effective port = port override if set, else declared
+  port" omits LWSM-1038's confirmed_port rung; "port is the only
+  detected field with an unknown value" omits `unit` under
+  units_unavailable (LWSM-1131 § 4.1).
+  LWSM-1007: § 4.1's DETECTED_FIELDS / USER_FIELDS lack port_from,
+  port_conflicts, confirmed_port, health_check and health_path; § 4.2's
+  default table points to no item for browser, port_from or
+  port_conflicts; § 4.3 says load_projects converts OSError in its own
+  handler, which now happens in configfile.load_json_object.
+  Pre-existing; not caused by the 2026-11-04 fixes. The ADR route is
+  review-contract after the edit, per the lane.
+  **Layman:** Two design documents for the project list no longer match what the code does.
+  Kind: doc-fix.
+  Source: review-code-2026-11-04 (lane 02, document-wrong LOWs).
+  Lanes: docs.
+
+- 📋 [LWSM-1446] **A failed systemd scope check is remembered for the whole session, so later servers die on Quit.**
+  Priority: MEDIUM.
+  `Supervisor._spawn` caches `scope_prefix(env)` once. `scope_prefix`
+  returns `()` on any `OSError`, a 2 s timeout or a non-zero exit, and
+  that `()` is cached like a success, so every later server in the
+  session launches without a scope and Plasma's `KillMode=control-group`
+  kills it on Quit. Only an INFO line says so; the cause is discarded.
+  Not fixed now: ADR-0003 specifies the current behaviour ("`scope_prefix`
+  asks once per supervisor ... Where that fails, servers launch
+  plainly"). Re-asking costs a fast failing `systemd-run` per start with
+  no user manager, and up to 2 s on the UI thread per start while one
+  hangs.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (amend ADR-0003 so only a successful check is
+  remembered and a failed one is asked again at the next start, with its
+  cause logged at WARNING? Recommended: yes, a frozen start beats
+  servers silently dying on Quit, 2026-11-04).
+  **Layman:** If the check that keeps servers alive after you quit the app fails once (for example just after login), every server started later in that session stops when you quit.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, M2; synthesis theme 3).
+  Lanes: supervisor.
+
+- 📋 [LWSM-1447] **Quit waits without a limit for every stop in flight before the next launch can claim the app.**
+  Priority: LOW.
+  `Supervisor.close` calls `self._stoppers.shutdown(wait=True)`: about 9 s
+  per stop, four at a time. It runs after `app.exec()` returns, so the
+  window is already gone, but before the single-instance socket is
+  released.
+  Not fixed now: the review's remedy (a bounded wait, as the
+  controller's pools have) does not bound anything. Python joins
+  `ThreadPoolExecutor` workers at interpreter exit regardless, and
+  returning early lets `close()` close log descriptors a running stop
+  still owns (the LWSM-1138 double-close). Options: release the socket
+  first, or let a stop finish on a thread that owns its own descriptor.
+  Needs a design choice and a measured quit with stops in flight.
+  **Layman:** Quitting while several servers are stopping can keep the app's process alive for many seconds after its window has gone, and a relaunch in that time does nothing.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, L6).
+  Lanes: supervisor, main.
+
+- 📋 [LWSM-1448] **Adoption compares a wall-clock create_time exactly, so a clock step between sessions refuses our own server.**
+  Priority: LOW.
+  psutil 7.2.2 on Linux computes `create_time()` as the process's start
+  ticks plus `/proc/stat`'s `btime`, re-read on every call. `btime` is
+  whole seconds of wall clock minus uptime, so a clock step, and perhaps
+  NTP slewing across a rounding boundary, changes the value for the same
+  process. `_adoptable` compares it with `!=` against `started.json`.
+  The failure is safe: the row reads `running (foreign)`. Within one
+  session `is_running()` is unaffected, because psutil's identity uses
+  the monotonic start time (`create_time(monotonic=True)`).
+  What settles it: step the clock on a test machine between two
+  sessions and watch whether adoption is refused. A fix changes the
+  `started.json` format (store the monotonic start and the boot id), so
+  it is spec-first under CLAUDE.md's review cadence rule 2.
+  **Layman:** If the computer's clock was corrected between two runs of the app, the app may fail to recognise servers it started.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 01, L7 and open question).
+  Lanes: supervisor.
+
+- 📋 [LWSM-1457] **The port lookup's answer cannot be reached with Tab to copy it.**
+  Priority: LOW.
+  `TextSelectableByKeyboard` on a `QLabel` gives it click focus, not
+  Tab focus, so a PID or path can be copied out by mouse only.
+  Fix: give the answer label Tab focus.
+  Queued, not fixed (2026-11-04). Giving the label Tab focus adds a
+  Tab stop that design-accessibility.md § Full keyboard operation says
+  needs a visible focus ring meeting contrast on every theme, which a
+  selectable QLabel does not draw; and the window's screen-reader route
+  relies on the label not being focusable (`_answer`'s comment,
+  test_a_typed_port_shows_the_lookups_answer). So it is a design choice.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (add a "Copy answer" button beside Close, or make the
+  answer a read-only focusable text box? Recommendation: the Copy button
+  -- it already has a focus ring and keeps the announcement route as it
+  is, 2026-11-04).
+  **Layman:** In the 'What's using a port' window, the answer could be copied with the mouse but not reached from the keyboard.
+  Kind: accessibility.
+  Source: review-code-2026-11-04 (lane 05, L4).
+  Lanes: portlookup.
+
+- 📋 [LWSM-1458] **A health check reports a 103 Early Hints as the server's answer.**
+  Priority: LOW.
+  `http.client` skips only `100 Continue`, so `health.ask` returns a
+  `103 Early Hints` (RFC 8297) as the status, and the row shows
+  `HTTP 103` instead of the final answer.
+  Not fixed now: `http.client` gives no supported way to read the next
+  status line, and reporting 1xx as no answer would misreport a
+  working server. Settle it by choosing between reading the final
+  response off the same socket and reporting 1xx as interim.
+  **Layman:** A site that sends an early 'hints' reply could show a meaningless code on its row instead of whether it works.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 05, L2).
+  Lanes: health.
+
+- 📋 [LWSM-1459] **LWSM-1005 INV-16 names three pools that stop() waits for; it waits for four.**
+  Priority: LOW.
+  INV-16 says `stop()` returns within one `STOP_WAIT_MS` for each of
+  its snapshot, service and health pools. LWSM-1401 added the upkeep
+  pool, which `stop()` also waits for, so the bound is per pool across
+  four. The code follows the per-pool rule; the sentence lists three.
+  Pre-existing, found while checking review-code-2026-11-04 lane 04's
+  INFO note on the up-to-8 s total.
+  **Layman:** A design document lists three of the four background jobs the app waits for when it quits.
+  Kind: doc-fix.
+  Source: review-code-2026-11-04 (lane 04, INFO).
+  Lanes: controller, docs.
+
+- 📋 [LWSM-1460] **owns_pid still asks the OS on the GUI thread, against the module map's LWSM-1401 sentence.**
+  Priority: LOW.
+  `_managed_paths` and `_our_ports` call `supervisor.owns_pid` in
+  `_on_snapshot`, which runs psutil's `is_running()` (a
+  `/proc/<pid>/stat` read) and `os.getpgid`. The module map says
+  nothing in a tick asks the OS on the GUI thread. Unlike the
+  `cmdline` read LWSM-1450 moved, neither is known to block, but that
+  is unmeasured. Settle it by measuring whether a `stat` read blocks
+  behind a process stuck in uninterruptible sleep; then either move
+  the answers into `_resolve_holders` or narrow the sentence.
+  **Layman:** The app may still ask the system a small question from its window's thread each second; it needs checking whether that can ever freeze it.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 04, open question).
+  Lanes: controller, supervisor.
+
+- 📋 [LWSM-1461] **drop_in_seen compares path spellings, so a symlinked XDG_CONFIG_HOME may refuse a start.**
+  Priority: LOW.
+  `drop_in_seen` checks `str(path)` against systemd's `DropInPaths`.
+  If `XDG_CONFIG_HOME` goes through a symlink or holds `..`, systemd
+  may list another spelling of the same file and the start is refused
+  when it need not be. The failure is a refusal, not a bypass.
+  Settle it by running a user manager with a symlinked config folder
+  and reading `DropInPaths`; that needs a test manager, not the real
+  one.
+  **Layman:** On an unusual folder setup the app might refuse to start a login service it could have started.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 05, open question).
+  Lanes: service.
+
+- 📋 [LWSM-1462] **Four ADR-0003 and ADR-0004 questions from the 2026-11-04 review need a decision.**
+  Priority: LOW.
+  (a) A foreign server whose children come and go changes its set on
+  every re-read, so ADR-0004's ask-again rule can never stop it.
+  (b) ADR-0003's file anchor binds an editor opened with a FILE inside
+  the project, so Stop would stop the editor; the ADR accepts
+  directories as that risk, not files.
+  (c) A child bound only to a LAN address reads `starting` for ever:
+  ADR-0002's post-flight and ADR-0004's "running means localhost"
+  point different ways.
+  (d) `_unit_binding` keeps each unit's yes/no for the whole session,
+  so a unit file edited later is not checked again.
+  Decided: the user took the recommendation, 2026-11-05. The question was: ((a) offer "stop the set as it is now" after a
+  second change, (b) accept files as directories are, (c) read it as
+  `running (wrong port)`, (d) keep the cache but drop it on Rescan?
+  Recommendation: all four as stated, (a) and (c) being the ones a
+  user would hit, 2026-11-04).
+  **Layman:** The review raised four edge cases where the design documents do not say what the app should do; each needs a yes or no.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lanes 04 and 05, open questions).
+  Lanes: controller, foreign, service.
+
+- 📋 [LWSM-1475] **The / and number-key shortcuts fire from anywhere in the window and cannot be turned off.**
+  Priority: LOW (calibrated from MEDIUM: design-accessibility.md claims
+  WCAG AA for contrast only).
+  WCAG 2.1.4 Character Key Shortcuts: `MainWindow.keyPressEvent` acts on
+  `/` and 1-9, Shift allowed, from the strip, the banner and the rows,
+  and nothing turns them off or remaps them. The keys are LWSM-1040's
+  shipped feature and README's "Drive it from the keyboard", so changing
+  them changes documented behaviour.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (keep the keys as they are, or add a Preferences
+  switch that turns off `/` and the number keys? Recommend the switch,
+  on by default, after 0.4.0: it meets 2.1.4 without taking the keys
+  away from the keyboard users who rely on them, 2026-11-04).
+  **Layman:** Saying "one" or "slash" to speech-input software can move the focus and scroll the list without the user meaning to.
+  Kind: accessibility.
+  Source: review-code-2026-11-04 (lane 07, M1).
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1476] **The state glyph stays on the left in a right-to-left layout.**
+  Priority: LOW.
+  `ProjectRow` paints the glyph at the left margin and widens the left
+  margin whatever `layoutDirection()` is. In a right-to-left layout the
+  box layout mirrors and the state word moves right, separating two of
+  the three state signals. Latent: no translation is installed and no
+  document promises right-to-left support (LWSM-1304). Not fixed now
+  because the fix needs a right-to-left render to check, and nothing
+  ships that would show it. Fix: mirror the glyph and margin with
+  `isRightToLeft()`.
+  **Layman:** In a right-to-left language the row's coloured state mark would sit apart from the state word it belongs to.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 06, L3).
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1477] **Find out whether a row's state change is announced twice.**
+  Priority: LOW.
+  `ProjectRow.update_from` sends `NameChanged` itself after
+  `setAccessibleName`, on the comment's claim that Qt sends none
+  (LWSM-1076). If the pinned PySide6's `setAccessibleName` already sends
+  one, every state change is announced twice, against "announces itself
+  once". PySide6 has no `QAccessible` update handler, so offscreen tests
+  cannot count the events. What settles it: a test copy on a private
+  Xvfb display with AT-SPI on, counting name-change events per state
+  change from an Atspi listener (traps.md, the bus trap).
+  **Layman:** A screen reader may hear a project's new state twice instead of once.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 06, open question).
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1483] **Find out whether the final KWin unload and file delete can beat KWin's read of the placement script.**
+  Priority: MEDIUM (unverified).
+  `run_kwin_script` calls `start`, then `unloadScript`, then deletes
+  the script file in its `finally`. The reviewer recalls, from KWin's
+  source and not from this tree, that `Script::run()` reads the file
+  asynchronously and that `unloadScript` deletes the script later. If
+  the unload or the delete lands before that read, the script never
+  runs while `run_kwin_script` returns True, ADR-0007's worst failure
+  shape. The 5/5 measured successes fit winning the race. Settling it
+  needs runs against the user's live KWin: a harmless script under a
+  test name that only `print()`s to the journal, unloaded at once, many
+  times, counting the prints. The fix candidates (leave the unload and
+  the delete to the next run's leading unload, or delete the file on a
+  timer) change ADR-0007's four-call sequence.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (may a test run a print-only KWin script on your
+  desktop, many times, to measure this? Recommend yes, after 0.4.0: it
+  moves no window and leaves nothing registered, and the answer decides
+  whether ADR-0007 changes, 2026-11-05).
+  **Layman:** Placing the window under Wayland might sometimes silently do nothing while the app believes it worked.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 10, M3).
+  Lanes: placement.
+
+- 📋 [LWSM-1484] **Three separate three-second D-Bus bounds can stack to nine seconds before the window appears.**
+  Priority: LOW.
+  On the startup path, `placement.kwin_on_bus` (the Centre action's
+  enabled state), `appearance.high_contrast` (Follow system) and
+  `placement.run_kwin_script` (restoring the position under Wayland)
+  each take their own 3 s bound. A wedged session bus, a Wayland
+  session and Follow system together give 9 s with no window, the
+  shape LWSM-1240 fixed inside one function. `place_window` does not
+  re-ask whether KWin is there, so a False from `kwin_on_bus` does not
+  spare the third call. Fix shape: one startup deadline the three
+  share, or skip the position restore when `placement_available`
+  answered False.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (fix this in 0.4.0, or after? Recommend after: it
+  needs a stuck bus to bite, and a shared deadline crosses three
+  modules, 2026-11-05).
+  **Layman:** On a stuck desktop message bus the app could take about nine seconds to show its window.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 10, L2).
+  Lanes: mainwindow, placement, appearance.
+
+- 📋 [LWSM-1485] **A keyboard-focused button held down hides its focus ring in its own fill.**
+  Priority: LOW.
+  `QPushButton:pressed` fills with `accent`, and `OutlineStyle` paints
+  the focus ring in `Highlight`, which is also `accent`. Rendered
+  offscreen on 2026-11-05: on midnight the ring stays #d4af37 and the
+  pressed fill beside it is about #c4a958; on ledger, #977024 beside
+  about #997a42. Near 1:1, against `design-accessibility.md`'s 3:1 for
+  the ring against the control's fill. Only while the button is held.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (paint the ring in `base` while the button is held,
+  or give the pressed fill a different colour? Recommend the ring in
+  `base`: the pressed look stays as you chose it and the ring clears
+  the text floor against the fill. Either changes how a held button
+  looks, so it needs a render for you to see, 2026-11-05).
+  **Layman:** While you hold Space on a button, its focus outline blends into the button's pressed colour.
+  Kind: accessibility.
+  Source: review-code-2026-11-04 (lane 10, L3).
+  Lanes: theme.
 
 ## 1.0.0 — A download for other people
 
@@ -13819,6 +13798,27 @@ author's own use, which is why it sits after the app works.
   Kind: package.
   Source: in-session-2026-10-08 (LWSM-1394 PySide6 bump).
   Lanes: packaging.
+
+- 📋 [LWSM-1478] **User-facing sentences are built in core modules and in __main__, out of the translator's reach.**
+  Priority: 4.
+  Seven review lanes (02, 04, 05, 07, 09, 10, 11) found English
+  sentences built outside the translator's reach: controller
+  `action_failed` and port-lookup sentences, `settings` and `registry`
+  reasons, `foreign.TreeRefused`, `service` reasons, theme high-contrast
+  labels, and `__main__` print() notices (argparse text and log lines
+  are deliberately untranslated, ROADMAP note 2026-08-06). Calibrated
+  MEDIUM to LOW: no QTranslator is installed (LWSM-1304's "Latent
+  today"). Sites: the lane files of the 2026-11-04 review, kept outside
+  the repo. Likely shape: core modules return a reason code plus
+  arguments, and the window translates.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (fix this before 0.4.0, or move it to 1.0.0 where a
+  translation could first ship? Recommend moving it to 1.0.0: no user
+  sees an untranslated string today, and the change touches seven
+  modules, 2026-11-04).
+  **Layman:** Some messages the app shows are written in parts of the code that a future translation would never see, so they would stay in English.
+  Kind: review-fix.
+  Source: review-code-2026-11-04.
+  Lanes: controller, settings, registry, service, foreign, theme, main.
 
 ## After 1.0.0
 
