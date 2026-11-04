@@ -37,6 +37,10 @@ signaling per
 
 ### Fixed
 
+- **One unusual unrecognised entry on a project no longer makes the app forget the other unrecognised entries on that project, or at the top of the project list.** (LWSM-1468)
+- **Installing the launcher entry no longer puts an unchecked copy where your application menu can see it, even briefly.** (LWSM-1488)
+- **Installing the launcher entry no longer rewrites a file shared by your other applications' menu entries.** (LWSM-1487)
+- **Installing the launcher entry now warns when another program's icon index may make the app's icon show blank.** (LWSM-1489)
 - **A browser your desktop was told not to use for https links alone is still offered, since it still opens http links.** (LWSM-1480)
 - **If the folder chosen on first start cannot be saved, the message banner now says so and why, instead of asking again next time with no reason.** (LWSM-1481)
 - **Follow system no longer drops a high-contrast preference for the whole session when the desktop is slow to answer at login; it asks once more.** (LWSM-1482)

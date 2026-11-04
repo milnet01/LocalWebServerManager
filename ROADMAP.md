@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1485 -->
+<!-- ants-roadmap-id-high-water: LWSM=1491 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13141,7 +13141,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: review-code-2026-11-04 (lane 09, L1).
   Lanes: settings.
 
-- 📋 [LWSM-1468] **One unrecognised registry key that cannot be kept drops every other unrecognised key on that project.**
+- ✅ [LWSM-1468] **One unrecognised registry key that cannot be kept drops every other unrecognised key on that project.**
   Priority: LOW.
   `registry._unknown_or_reason` encodes a record's unknown keys in one
   expression, so one value `canonical_json` refuses (`1e999`) loses all
@@ -13149,6 +13149,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   loses only itself". LWSM-1467 fixed the same shape in `settings.load`.
   Found by that fix's sweep; registry is outside group 4's subject, so
   not fixed there. Fix: encode per key, and name only the lost keys.
+  Resolved (2026-11-05, c32aca8): unknown keys are encoded one at a
+  time through the new `configfile.encode_each`, for each record and for
+  the document's top-level keys (the same shape, same file), and the
+  reason names only the lost keys. `settings.load` uses the helper too,
+  so the loop has one copy. Red first:
+  test_an_unknown_key_that_cannot_be_kept_loses_only_itself.
   **Layman:** A single odd entry on one project in the project list made the app forget other entries on that project it did not recognise.
   Kind: review-fix.
   Source: close-findings-2026-11-04 (group 4 sweep, next to LWSM-1467).
@@ -13340,7 +13346,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: review-code-2026-11-04.
   Lanes: controller, settings, registry, service, foreign, theme, main.
 
-- 📋 [LWSM-1479] **A registry test fails when pytest's temporary directory has a long path.**
+- ✅ [LWSM-1479] **A registry test fails when pytest's temporary directory has a long path.**
   Priority: 5.
   `tests/test_registry.py::test_a_failed_write_leaves_the_old_file_intact`
   fails under a long `--basetemp`: `quoted()` clips the error message
@@ -13348,6 +13354,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   passes, so the gate is unaffected. Seen 2026-11-04 by the group 1
   close-findings run. Fix: match on text before the clipped path, or
   build the message's path short.
+  Resolved (2026-11-05, 9fa3971): the clip was not the whole cause.
+  The test failed every `os.replace`, so the save stopped at its backup
+  and the match rested on the backup's message. It now fails only the
+  replace onto projects.json, the boundary its docstring names. Red
+  reproduced with a 150-character --basetemp; green under it and the
+  default. No code changed.
   **Layman:** One test gives a false failure when run from a folder with a very long name, because the error message it checks gets shortened.
   Kind: test.
   Source: review-code-2026-11-04.
@@ -13473,6 +13485,106 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: accessibility.
   Source: review-code-2026-11-04 (lane 10, L3).
   Lanes: theme.
+
+- ✅ [LWSM-1486] **A push that renames a source or test file into docs/ skips the test suite.**
+  Priority: MEDIUM.
+  `.githooks/pre-push` lists changed paths with `git diff --name-only`,
+  which under rename detection prints only a rename's NEW path. A push
+  moving `src/lwsm/x.py` to `docs/x.md` lists only the docs path, so
+  `docs_only` sends it to `--docs` while a module is deleted, against
+  `ci-gate.md`: `src/` and `tests/` are never exempt. Confirmed on
+  1106a01. Fix: `--no-renames`, so both sides appear.
+  Resolved (2026-11-05, 8936579): the hook diffs with
+  `--no-renames`, so both sides of a rename are judged. Red first:
+  test_moving_code_into_docs_still_runs_the_full_gate (src and tests
+  cases took --docs). ci-gate.md says both sides count.
+  **Layman:** The safety check before publishing could run only the light documentation checks when a code file was moved into the docs folder.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 12, M2).
+  Lanes: githooks.
+
+- ✅ [LWSM-1487] **The desktop-entry installer refreshes a shared MIME cache it gains nothing from.**
+  Priority: MEDIUM.
+  `scripts/install-desktop-entry.sh` runs `update-desktop-database` on
+  the shared `~/.local/share/applications`. It only rebuilds
+  `mimeinfo.cache`, and this entry has no `MimeType=`, so the step adds
+  nothing for this app and can create a cache that governs every other
+  app's entries: the class the file warns about for `icon-theme.cache`.
+  Its comment's reason (launcher listing) is KDE's sycoca, which
+  `kbuildsycoca6` already refreshes. Fix: drop the step.
+  Resolved (2026-11-05, e74380b): the step is removed and the
+  reason recorded beside the icon-cache comment; kbuildsycoca6 still
+  runs. Red first: test_the_installer_rebuilds_no_shared_mime_cache.
+  **Layman:** Installing the app's menu entry also rewrote a file shared by other apps, for no benefit to this one.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 12, M1).
+  Lanes: packaging.
+
+- ✅ [LWSM-1488] **The installer's unvalidated desktop entry sits in the folder launchers read.**
+  Priority: MEDIUM.
+  The installer writes its temporary `.<id>.XXXXXX.desktop` inside
+  `applications/` and validates it there, so a launcher rescan during
+  validation can list it, and a killed run leaves it there for good
+  (only the EXIT trap removes it). LWSM-1267's promise is that nothing
+  unvalidated reaches the launcher. Fix: write and validate in a
+  sibling temporary folder under the same data directory, then `mv`.
+  Resolved (2026-11-05, bf9288a): the entry is staged in a private
+  `$data_home/.lwsm-install.XXXXXX/` folder, validated there and renamed
+  into applications/; the trap removes the folder. Red first:
+  test_the_unvalidated_entry_is_never_in_the_launcher_s_folder (the
+  validator saw the temporary file in applications/).
+  **Layman:** While installing its menu entry, the app briefly put an unchecked copy where the menu could see it, and a crash could leave it there.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 12, M3).
+  Lanes: packaging.
+
+- ✅ [LWSM-1489] **The installer reports success when a shared icon cache may hide the new icon.**
+  Priority: LOW.
+  The installer deliberately never builds `icon-theme.cache` in the
+  shared `hicolor/`, but if another app already did, this icon can be
+  missing from it and show blank while the script prints `Installed:`.
+  Fix: when the cache exists, print a note that it may hide the icon.
+  Never regenerate it (see the file's trap comment).
+  Resolved (2026-11-05, 07c2fe2): when the cache exists the
+  installer prints a note naming it; it never touches the cache. Red
+  first: test_an_existing_icon_cache_is_named_..., with the absent case
+  as the control.
+  **Layman:** If another program had built an icon index, the app's icon could show blank after install with no word about why.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 12, L5).
+  Lanes: packaging.
+
+- ✅ [LWSM-1490] **The release pre-flight never says a version is free in a repository with no remote.**
+  Priority: LOW.
+  `scripts/local-release.sh` `tag_status` treats no `origin` as an
+  answer for the remote tag, but still asks `gh` about releases, which
+  cannot reach a repository with no remote, so the release check
+  always SKIPs and the verdict never reaches READY there. Fix: skip the
+  `gh` queries when there is no origin, as the remote-tag branch does.
+  Resolved (2026-11-05, 6445abe): with no origin, `gh` is not
+  asked, so the check can read as free. Red first:
+  test_a_repository_with_no_remote_can_still_read_as_free (gh broken and
+  absent both SKIPped); the unreachable-gh test stays green.
+  **Layman:** The release check could never give a clean bill on a project that was not published anywhere.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 12, L1).
+  Lanes: release.
+
+- ✅ [LWSM-1491] **The gate's entry-point check passes silently under PYTHONOPTIMIZE.**
+  Priority: LOW.
+  `scripts/local-ci.sh` clears the developer's Python variables but
+  not `PYTHONOPTIMIZE`, under which the entry-point step's `assert eps`
+  is stripped and a missing console script passes. Fix: clear it, and
+  raise `SystemExit` instead of asserting.
+  Resolved (2026-11-05, 7281c79): the gate clears PYTHONOPTIMIZE
+  and the entry-point step raises SystemExit instead of asserting. Not
+  taken: clearing UV_* wholesale, which would also drop a developer's
+  deliberate UV_CACHE_DIR; uv.lock and --locked already pin what is
+  installed.
+  **Layman:** One check before publishing could be switched off by a setting in the developer's shell.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 12, L2).
+  Lanes: ci.
 
 ## 0.5.0 — Logs
 
