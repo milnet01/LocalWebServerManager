@@ -3331,6 +3331,40 @@ def test_a_stop_that_fails_after_signalling_still_reaps_the_child(
         supervisor.stop(project, grace=0.5)
 
 
+def test_a_stop_that_fails_after_signalling_blocks_a_start_beside_survivors(
+    supervisor, project, monkeypatch
+) -> None:
+    """LWSM-1441: when the re-enumeration after SIGTERM raised, the entry was
+    already popped and nothing went into `stragglers`, so `start()` passed its
+    pre-flight and spawned beside a group still running. Dies on dropping the
+    straggler record from the failure path."""
+    write_launcher(project, "trap '' TERM\nsleep 30 &\ntouch ready\nwait\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+    real = supervisor._group_members
+    calls: list[int] = []
+
+    def fails_after_the_first_signal(target):
+        calls.append(1)
+        if len(calls) > 1:
+            raise OSError(errno.EACCES, "Permission denied")
+        return real(target)
+
+    try:
+        monkeypatch.setattr(supervisor, "_group_members", fails_after_the_first_signal)
+        with pytest.raises(OSError):
+            supervisor.stop(project, grace=0.2)
+        monkeypatch.undo()
+
+        with pytest.raises(AlreadyRunning, match="survived the last stop"):
+            supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    finally:
+        monkeypatch.undo()
+        _reap(managed.popen)
+        supervisor.stop(project, grace=0.5)
+
+
 def test_a_child_whose_handle_cannot_be_built_is_not_left_running(
     supervisor, project, monkeypatch
 ) -> None:

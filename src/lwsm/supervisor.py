@@ -1669,6 +1669,15 @@ class Supervisor:
             # (`stop()` says why), so nothing else will ever reap this child or
             # close its log: do both on the way out (review-code 2026-10-08
             # L01-L4).
+            #
+            # And keep whatever we signalled that is still alive as a
+            # straggler, while `stopping` still holds the key: with the entry
+            # popped and its record gone, `start()` otherwise passed its
+            # pre-flight and spawned beside a group still running (LWSM-1441).
+            left = [proc for proc in members if _alive(proc)]
+            if left:
+                with self._registry.lock:
+                    self._registry.stragglers[key] = left
             self._reap(managed)
             raise
 
