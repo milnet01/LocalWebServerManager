@@ -2582,6 +2582,37 @@ def test_a_foreign_holder_is_named_on_the_row(qtbot, controllers) -> None:
     assert controller.rows()[0].holder_pid == 4242
 
 
+def test_a_row_re_adopted_on_its_declared_port_names_that_holder(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """LWSM-1451, ADR-0004's own example: an override of 5999 the project
+    ignores while it sits on its declared 5005. The row read `running
+    (foreign)` from the declared port's holder, but only the effective port's
+    was recorded, so `holder_pid` was None: the window's tree stop refused and
+    `_stop_foreign` found no unit. ADR-0004 says a foreign row's Stop is
+    enabled and asks first.
+
+    Dies on recording the effective port's holder alone."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "hand-started.service")
+    record = replace(startable("a", 5005), port_override=5999)
+    controller = supervised(
+        controllers, [record], HoldingProbe({5005: 4242}), FakeSupervisor()
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    row = controller.rows()[0]
+    assert row.status is ProjectStatus.RUNNING_FOREIGN
+    assert row.holder_pid == 4242
+    assert not row.managed
+
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.stop_project(record.path)
+    qtbot.waitUntil(lambda: drive.calls != [], timeout=2000)
+    assert drive.calls == [("stop", "hand-started.service")]
+
+
 def test_stopping_a_logon_started_server_drives_its_unit(
     qtbot, controllers, monkeypatch
 ) -> None:

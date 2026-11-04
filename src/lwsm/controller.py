@@ -384,7 +384,8 @@ class RowView:
     # gated on it (LWSM-1141).
     managed: bool = False
     # The PID holding this project's effective port, when the kernel will name
-    # it. `managed` says whether that holder is OURS; this says who it is at
+    # it, or its declared port for a row re-adopted there (LWSM-1451).
+    # `managed` says whether that holder is OURS; this says who it is at
     # all, which is what a foreign Stop needs to resolve a unit from and what
     # ADR-0004's disclosure is built out of (LWSM-1012). None when nothing holds
     # the port, or when the holder belongs to another user and cannot be named.
@@ -1341,8 +1342,16 @@ class ProjectController(QObject):
             return set()
         return {path for path, pid in holders.items() if supervisor.owns_pid(path, pid)}
 
-    def _holder_pids(self, snapshot: PortSnapshot) -> dict[Path, int]:
+    def _holder_pids(
+        self, snapshot: PortSnapshot, statuses: Mapping[Path, ProjectStatus]
+    ) -> dict[Path, int]:
         """Who holds each project's effective port, ours or not.
+
+        Or its declared port, for a row `_classify` re-adopted there as
+        `running (foreign)`: ADR-0004 enables that row's Stop, and without its
+        holder the tree stop and the unit lookup had no PID (LWSM-1451). Never
+        for another status, so `_managed_paths` still reads the effective port
+        alone.
 
         Separate from `_managed_paths` because it answers a different question:
         that one asks whether the holder is OUR child, and returns nothing at
@@ -1358,6 +1367,10 @@ class ProjectController(QObject):
             if port is None:
                 continue
             holder = snapshot.holder(port)
+            if holder is None and (
+                statuses.get(record.path) is ProjectStatus.RUNNING_FOREIGN
+            ):
+                holder = _declared_holder(record, snapshot)
             if holder is not None:
                 holders[record.path] = holder
         return holders
@@ -2242,7 +2255,7 @@ class ProjectController(QObject):
         # Asking the supervisor separately at render time is what LWSM-1167 was
         # -- the answer has to come from the socket table, and this is the only
         # scope that holds one.
-        self._holders = self._holder_pids(snapshot)
+        self._holders = self._holder_pids(snapshot, statuses)
         self._managed = self._managed_paths(self._holders)
         self._snapshot = snapshot
         settled = self._settle_overlay()
