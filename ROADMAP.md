@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1491 -->
+<!-- ants-roadmap-id-high-water: LWSM=1494 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13610,6 +13610,66 @@ Criterion 5: failures readable without a terminal.
   Kind: accessibility.
   Source: review-code-2026-11-04 (lane 10, L3).
   Lanes: theme.
+
+- 📋 [LWSM-1492] **Move trust.json and started.json out of supervisor.py and share their read and write code.**
+  Priority: LOW.
+  Found by the 0.4.0 refactoring pass (2026-11-05).
+  TrustStore and StartedStore repeat the same load, duplicate-key,
+  schema_version and whole-file save steps (StartedStore's docstring
+  says it has TrustStore's shape). Failure handling differs and must
+  stay different: TrustStore keeps a reason for the window,
+  StartedStore only logs. Fix: one shared read and one shared write
+  helper, and move TrustStore, StartedStore, StartedEntry,
+  _started_entry and the two default_*_path functions into a new core
+  module (add it to CORE_MODULES in tests/test_layering.py and the
+  module map). Size: medium. Deferred from 0.4.0: trust and adoption
+  code, nothing wrong today.
+  **Layman:** Tidy-up: two saved files are handled by near-identical code inside the module that runs servers; give them their own home.
+  Kind: refactor.
+  Source: refactor-pass-0.4.0-2026-11-05.
+  Lanes: supervisor.
+
+- 📋 [LWSM-1493] **Five small structure tidy-ups found by the 0.4.0 refactoring pass.**
+  Priority: LOW.
+  Found 2026-11-05; none is a defect.
+  (1) controller suggested_port scans self._records by hand; use
+  self._record(path).
+  (2) controller holder_changed only forwards to _holder_changed; keep
+  one name (two test docstrings in test_controller.py name the private
+  one).
+  (3) mainwindow repeats display_text(next((r.name for r in ... if
+  r.path == path), path.name)) in five handlers; add _name_at(path)
+  beside _record_at.
+  (4) foreign._wait and Supervisor._wait_for are the same polling
+  loop; share one (the two escalation sequences differ on purpose,
+  leave them).
+  (5) service.holder_identity and HolderIdentity are process-identity
+  helpers in the systemd-unit module; move them next to
+  foreign Tree.identity, or into the module from the trust/started
+  split.
+  **Layman:** Small code tidy-ups with no change to what the app does.
+  Kind: refactor.
+  Source: refactor-pass-0.4.0-2026-11-05.
+  Lanes: controller, mainwindow, foreign, service.
+
+- 📋 [LWSM-1494] **An adopted server's entry outlives its process group until the next upkeep tick, and ownership is judged by group id alone meanwhile.**
+  Priority: LOW.
+  Found by the 0.4.0 security pass (2026-11-05). Supervisor.owns_pid
+  skips the is_running() start-time check for an adopted entry
+  (popen is None, LWSM-1437); the kernel guard it relies on holds only
+  while a group member lives. Between the group's exit and the next
+  reap_exited the entry is judged by group id alone, and
+  _group_members uses the same test. SECURITY.md scope: a signal
+  reaching a process the app did not start. Likelihood negligible
+  (the PID counter must wrap within one poll).
+  Fix direction: drop the entry once its group has no members, before
+  any ownership answer; or keep each member's start time as foreign
+  stops do. Add the missing test: whole group gone, PID reused.
+  Not fixed in 0.4.0: the user chose to release now (2026-11-05).
+  **Layman:** In a very unlikely timing case, the app could briefly treat an unrelated program as one of its own servers.
+  Kind: security.
+  Source: security-pass-0.4.0-2026-11-05.
+  Lanes: supervisor.
 
 ## 1.0.0 — A download for other people
 
