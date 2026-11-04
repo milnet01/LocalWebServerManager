@@ -193,6 +193,14 @@ if command -v kbuildsycoca6 >/dev/null 2>&1; then
         echo "note: kbuildsycoca6 failed; KDE may not list the entry until next login" >&2
 fi
 
+# This installer never builds an icon cache (above), but another app may have.
+# Such a cache may not list this icon, which then shows blank: say so rather
+# than report a plain success, and still never regenerate it (LWSM-1489).
+if [[ -e $data_home/icons/hicolor/icon-theme.cache ]]; then
+    echo "note: $data_home/icons/hicolor/icon-theme.cache exists (another app built it);" >&2
+    echo "      if the icon shows blank, that cache may not list it." >&2
+fi
+
 echo "Installed:"
 echo "  $apps_dir/$app_id.desktop"
 echo "  $icon_dir/$app_id.svg"

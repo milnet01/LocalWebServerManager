@@ -382,3 +382,27 @@ def test_the_installer_rebuilds_no_shared_mime_cache(tmp_path: Path) -> None:
 
     assert done.returncode == 0, done.stderr
     assert not called.exists(), "the installer rebuilt the shared MIME cache"
+
+
+@pytest.mark.parametrize("cache_present", [True, False])
+def test_an_existing_icon_cache_is_named_as_a_reason_the_icon_may_not_show(
+    tmp_path: Path, cache_present: bool
+) -> None:
+    """LWSM-1489: the installer never builds `icon-theme.cache`, but another
+    app may have, and a cache that does not list this icon hides it. Said
+    aloud rather than reported as a plain success; never regenerated.
+
+    The absent case is the control: the note must not fire on every install.
+    """
+    hicolor = tmp_path / "data" / "icons" / "hicolor"
+    hicolor.mkdir(parents=True)
+    cache = hicolor / "icon-theme.cache"
+    if cache_present:
+        cache.write_bytes(b"cache")
+
+    done = run_installer(tmp_path, validator="passes")
+
+    assert done.returncode == 0, done.stderr
+    assert ("icon-theme.cache" in done.stderr) is cache_present, done.stderr
+    if cache_present:
+        assert cache.read_bytes() == b"cache", "the shared icon cache was rewritten"
