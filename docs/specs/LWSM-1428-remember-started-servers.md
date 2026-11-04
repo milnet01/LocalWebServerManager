@@ -104,8 +104,11 @@ An adopted launcher is not this process's child, so it cannot be waited on.
 - `_reap` skips the wait and returns exit code `None`. It still closes the log
   descriptor.
 - `close()` skips the poll.
+- `owns_pid` skips its `is_running()` gate on the leader, which an
+  adopted leader fails as soon as its new parent reaps it, and relies on
+  the group id alone (LWSM-1437; the argument below).
 
-Everything else — `owns_pid`, `_group_members`, `stop`, `exited`,
+Everything else — `_group_members`, `stop`, `exited`,
 `group_alive`, `reap_exited`, `rotate_if_needed` — reads the handle, the group
 or the log descriptor, and is unchanged.
 
@@ -142,9 +145,10 @@ nothing.
   *Breaks when:* a bad file stops the app opening, or a malformed entry is taken.
 
 - **INV-5** — An adopted project is ours to the controller.
-  *Test:* `tests/test_supervisor.py::test_an_adopted_server_is_owned_and_stops`.
-  *Breaks when:* an adopted project still reads `running (foreign)`, or Restart is
-  not offered on it.
+  *Test:* `tests/test_supervisor.py::test_an_adopted_server_is_owned_and_stops`,
+  `::test_an_adopted_server_stays_ours_after_its_launcher_exits`.
+  *Breaks when:* an adopted project still reads `running (foreign)`, including
+  after its launcher exits, or Restart is not offered on it.
 
 - **INV-6** — An adopted group is stopped through the group, and its entry released.
   *Test:* `tests/test_supervisor.py::test_an_adopted_server_is_owned_and_stops`.

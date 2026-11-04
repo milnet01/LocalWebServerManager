@@ -1806,11 +1806,19 @@ class Supervisor:
         # (review-code 2026-10-01). `_alive` here called that server a
         # stranger's. The dead launcher's OWN pid holds nothing, so it alone
         # still needs `_alive`.
-        try:
-            if not managed.handle.is_running():
+        #
+        # Not for an ADOPTED leader (`popen is None`, LWSM-1437): its new
+        # parent reaps it the moment it exits, so `is_running()` turns False
+        # while the server it left still runs in the group. There the guard is
+        # the kernel's: a PID in use as a process-group id is not reissued
+        # while any member lives (LWSM-1428 § 4.4), and `reap_exited` drops the
+        # entry once the group is gone.
+        if managed.popen is not None:
+            try:
+                if not managed.handle.is_running():
+                    return False
+            except psutil.Error:
                 return False
-        except psutil.Error:
-            return False
         if pid == managed.pid and not _alive(managed.handle):
             return False
         try:

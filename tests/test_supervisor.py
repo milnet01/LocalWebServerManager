@@ -3539,3 +3539,46 @@ def test_an_adopted_server_is_owned_and_stops(tmp_path: Path, project: Path) -> 
     finally:
         second.close()
         _reap(managed.popen)
+
+
+def test_an_adopted_server_stays_ours_after_its_launcher_exits(
+    tmp_path: Path, project: Path
+) -> None:
+    """LWSM-1437, INV-5: an adopted leader is reaped by its new parent the
+    moment it exits, so `is_running()` turns False while the server it left
+    still runs in the group. `owns_pid` called that server a stranger's while
+    `group_alive` and `stop()` still held it.
+
+    The test process is the first session's parent, so `popen.wait()` here is
+    the new parent reaping the leader. Dies on restoring the `is_running()`
+    gate for an adopted entry.
+    """
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    write_launcher(
+        project,
+        "sleep 30 &\ntouch ready\nwhile [ ! -e go ]; do sleep 0.02; done\n",
+    )
+    argv = ("./start.sh",)
+    first.trust.confirm(project, launcher_fingerprint(project, argv))
+    managed = first.start(project, name="demo", argv=list(argv), port=None)
+    await_ready(project)
+    first.close()
+    server = next(
+        p for p in psutil.Process(managed.pid).children() if p.name() == "sleep"
+    )
+    second = started_session(tmp_path, record)
+    try:
+        assert second.adopt() == {project.resolve()}
+        (project / "go").touch()
+        managed.popen.wait(timeout=5)
+
+        assert second.group_alive(project), "the fixture's server did not survive"
+        assert second.owns_pid(project, server.pid), "the server is not ours"
+        assert not second.owns_pid(project, managed.pid), "the leader is gone"
+
+        outcome = second.stop(project, grace=0.5)
+        assert server.pid in outcome.terminated
+    finally:
+        second.close()
+        _reap(managed.popen)
