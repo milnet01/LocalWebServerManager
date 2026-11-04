@@ -166,6 +166,36 @@ def test_a_tree_that_cannot_be_listed_is_refused() -> None:
         enumerate_tree(10, process=lookup(holder))
 
 
+@pytest.mark.parametrize("where", ["children", "create_time"])
+def test_a_plain_os_error_from_the_walk_is_refused_not_raised(where) -> None:
+    """LWSM-1455. psutil's process walk reads `/proc/*/stat` and, under
+    `hidepid`, lets a plain `PermissionError` through rather than an
+    `AccessDenied`. The window catches `TreeRefused` alone, so the click
+    did nothing and said nothing.
+
+    Dies on catching `psutil.Error` alone."""
+    child = FakeProcess(20)
+    holder = FakeProcess(10, children=[child])
+    target = holder if where == "children" else child
+    target._raise_on[where] = PermissionError(13, "Permission denied")
+
+    with pytest.raises(TreeRefused, match="cannot be inspected"):
+        enumerate_tree(10, process=lookup(holder))
+
+
+def test_a_plain_os_error_reading_our_lineage_is_refused(monkeypatch) -> None:
+    """LWSM-1455, `_own_lineage`'s half."""
+
+    class Hidden:
+        def parents(self) -> list[psutil.Process]:
+            raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(foreign.psutil, "Process", Hidden)
+
+    with pytest.raises(TreeRefused, match="this manager's own processes"):
+        foreign._own_lineage()
+
+
 def test_a_member_whose_start_time_is_hidden_refuses_the_whole_set() -> None:
     """Without a start time the member cannot be told from a later process
     reusing its PID, so a partial set is not offered."""

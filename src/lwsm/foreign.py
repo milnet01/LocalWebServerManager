@@ -88,7 +88,7 @@ def _own_lineage() -> frozenset[int]:
     pids = {os.getpid()}
     try:
         pids.update(parent.pid for parent in psutil.Process().parents())
-    except psutil.Error as exc:
+    except (psutil.Error, OSError) as exc:
         raise TreeRefused(
             f"this manager's own processes cannot be inspected ({exc})"
         ) from None
@@ -112,7 +112,7 @@ def enumerate_tree(
         descendants = holder.children(recursive=True)
     except psutil.NoSuchProcess:
         raise TreeRefused("the server has already stopped") from None
-    except psutil.Error as exc:
+    except (psutil.Error, OSError) as exc:
         raise TreeRefused(f"its processes cannot be inspected ({exc})") from None
     own = _own_lineage()
     members: list[Member] = []
@@ -124,7 +124,7 @@ def enumerate_tree(
             started = proc.create_time()
         except psutil.NoSuchProcess:
             continue  # exited while we looked: nothing to name or stop
-        except psutil.Error as exc:
+        except (psutil.Error, OSError) as exc:
             raise TreeRefused(
                 f"process {proc.pid} cannot be inspected ({exc})"
             ) from None
