@@ -836,3 +836,21 @@ def test_an_unkept_key_name_is_quoted_in_its_reason(tmp_path: Path) -> None:
 
     assert reasons
     assert all("\n" not in reason for reason in reasons)
+
+
+def test_an_unknown_key_that_cannot_be_kept_loses_only_itself(tmp_path: Path) -> None:
+    """LWSM-1467: the extras were encoded in one expression, so one value
+    the writer refuses (`1e999` decodes to infinity) dropped every other
+    unrecognised key with it, though the comment above said it lost only
+    itself."""
+    path = tmp_path / "settings.json"
+    path.write_text(
+        '{"schema_version": 1, "a_kept": [1, 2], "b_lost": 1e999, "c_kept": "x"}',
+        encoding="utf-8",
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.unknown == (("a_kept", "[1,2]"), ("c_kept", '"x"'))
+    assert any("b_lost" in reason for reason in result.reasons), result.reasons
+    assert not any("a_kept" in reason for reason in result.reasons), result.reasons

@@ -418,15 +418,20 @@ def load(path: Path) -> LoadResult:
     # Read the way every field here is read: one that will not re-serialise
     # loses only itself, with a reason. Nothing is interpreted.
     known = _payload(Settings()).keys()
-    extras = sorted(key for key in document if key not in known)
-    try:
-        unknown = tuple((key, canonical_json(document[key])) for key in extras)
-    except (TypeError, ValueError, RecursionError):
-        unknown = ()
+    # One key at a time: encoded together, one refused value lost them all
+    # (LWSM-1467).
+    kept: list[tuple[str, str]] = []
+    lost: list[str] = []
+    for key in sorted(key for key in document if key not in known):
+        try:
+            kept.append((key, canonical_json(document[key])))
+        except (TypeError, ValueError, RecursionError):
+            lost.append(key)
+    if lost:
         reasons.append(
-            f"unrecognised keys could not be kept ({quoted(', '.join(extras))})"
+            f"unrecognised keys could not be kept ({quoted(', '.join(lost))})"
         )
-    settings = replace(settings, unknown=unknown)
+    settings = replace(settings, unknown=tuple(kept))
 
     return LoadResult(settings, reasons[:MAX_REASONS], notes=notes)
 
