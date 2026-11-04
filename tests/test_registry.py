@@ -2497,6 +2497,28 @@ def test_a_symlinked_export_target_is_refused_not_followed(tmp_path: Path) -> No
     assert real.read_text(encoding="utf-8") == "{}"
 
 
+@pytest.mark.parametrize("target", ["registry", "backup"])
+def test_an_export_over_the_registry_or_its_backup_is_refused(
+    tmp_path: Path, target: str
+) -> None:
+    """review-code 2026-11-04 L02-L2. A profile written over `projects.json`
+    skipped `save_projects`' backup and gate and dropped its top-level
+    `unknown` keys; written over the `.bak`, it replaced the one copy a
+    damaged registry is restored from."""
+    path = tmp_path / "projects.json"
+    records = [every_field_record()]
+    save_projects(path, records, load=RegistryMissing("first run"))
+    loaded = load_projects(path)
+    save_projects(path, loaded.records, load=loaded)
+    chosen = path if target == "registry" else registry.backup_path(path)
+    before = chosen.read_bytes()
+
+    with pytest.raises(RegistryError, match="not exporting over"):
+        registry.export_profile(chosen, loaded.records, load=loaded)
+
+    assert chosen.read_bytes() == before
+
+
 def test_an_export_refusal_reason_is_clipped_and_escaped(tmp_path: Path) -> None:
     """LWSM-1007 INV-8 on the second writer. The refusals interpolate a path
     and a loader message, both of which can carry a hand-edited newline."""

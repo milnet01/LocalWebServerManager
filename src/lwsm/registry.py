@@ -1884,6 +1884,19 @@ def export_profile(
             f"{quoted(str(path))}: not exporting a profile from a registry that "
             f"could not be loaded ({quoted(str(load))})"
         )
+    if isinstance(load, LoadResult) and load.path is not None:
+        # Over the registry this would skip `save_projects`' backup and gate
+        # and drop `unknown`; over the `.bak` it would replace the one copy a
+        # damaged registry is restored from (review-code 2026-11-04 L02-L2).
+        target = _resolve_or_lexical(path)[0]
+        if target in {
+            _resolve_or_lexical(load.path)[0],
+            _resolve_or_lexical(backup_path(load.path))[0],
+        }:
+            raise RegistryError(
+                f"{quoted(str(path))}: not exporting over the project list or "
+                "its backup; choose another file"
+            )
     # Only fields an import would apply: `NEVER_IMPORTED_FIELDS` and `unknown`
     # never are, on either branch, so a refusal of one erases nothing anywhere
     # and the reason below would be false (review-code 2026-10-08 L03-M2).

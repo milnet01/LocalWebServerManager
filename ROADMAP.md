@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1431 -->
+<!-- ants-roadmap-id-high-water: LWSM=1432 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12483,6 +12483,18 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   **Layman:** If restoring the project list from its backup failed halfway, the app could later replace that backup with an empty list.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 02, M1).
+  Lanes: registry.
+
+- 🚧 [LWSM-1432] **Export profile does not refuse projects.json or its backup as the target file.**
+  Priority: LOW.
+  Exporting over projects.json skipped `save_projects`' backup and
+  write gate and dropped top-level `unknown` keys; over the `.bak` it
+  replaced the copy a damaged registry is restored from. Fix:
+  `export_profile` refuses a target that resolves to the load's own
+  path or its backup.
+  **Layman:** Saving a profile on top of the app's own project list, or its backup, was allowed and could lose data.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 02, L2).
   Lanes: registry.
 
 ## 0.5.0 — Logs
