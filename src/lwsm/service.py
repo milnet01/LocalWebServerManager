@@ -435,8 +435,9 @@ def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
     A failure is reported and the caller does not start: a unit started
     without its drop-in runs on its own default port, which is ADR-0002's
     silent no-op. Always written and reloaded, even with the same bytes: those
-    may be in place from a Start whose reload failed, in which case systemd
-    never loaded them (review-code 2026-10-08 L05-M1).
+    may be in place unloaded, from a Start whose reload failed and whose file
+    could not then be removed (review-code 2026-10-08 L05-M1). A failed set
+    removes the file it wrote, since nothing will start to read it (LWSM-1449).
     """
     try:
         path = drop_in_path(unit)
@@ -451,11 +452,15 @@ def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
     except ConfigFileError as exc:
         return UnitOutcome(ok=False, verb="start", unit=unit, reason=str(exc))
     reloaded = reload_user_manager()
-    if reloaded.ok and drop_in_seen(unit, path) is False:
+    if not reloaded.ok:
+        _discard(path)
+        return reloaded
+    if drop_in_seen(unit, path) is False:
         # The folder is THIS app's `XDG_CONFIG_HOME`; systemd reads its user
         # manager's, and the two differ when the variable is set only in a
         # shell profile (L05-L3). An unreadable answer proves nothing, so
         # only a definite "not read" refuses.
+        _discard(path)
         return UnitOutcome(
             ok=False,
             verb="start",
@@ -467,6 +472,20 @@ def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
             ),
         )
     return reloaded
+
+
+def _discard(path: Path) -> None:
+    """Remove a drop-in no start will read (LWSM-1449).
+
+    A failed set starts nothing, so a file left behind would be read at the
+    unit's next logon start instead (ADR-0003). No reload: systemd has not
+    loaded it, either because the reload failed or because it reads another
+    folder. A removal that fails is logged, as `clear_drop_in`'s caller does.
+    """
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        log.warning("could not remove the unread port drop-in %s: %s", path, exc)
 
 
 def drop_in_seen(unit: str, path: Path, *, run: object = None) -> bool | None:

@@ -457,6 +457,33 @@ def test_a_drop_in_systemd_does_not_read_stops_the_start(reloads, monkeypatch) -
     assert "XDG_CONFIG_HOME" in outcome.reason
 
 
+@pytest.mark.parametrize("failure", ["reload failed", "not read"])
+def test_a_set_that_fails_after_writing_leaves_no_drop_in(
+    reloads, monkeypatch, failure
+) -> None:
+    """LWSM-1449. The file was written, then the reload failed or systemd did
+    not read it, so no verb runs. Left in place, the unit's next logon start
+    would read this app's `PORT` and `LWSM_MANAGED` -- ADR-0003 removes the
+    file whenever nothing is starting to read it.
+
+    Dies on returning either failure without unlinking."""
+    if failure == "reload failed":
+        monkeypatch.setattr(
+            service,
+            "reload_user_manager",
+            lambda **_: service.UnitOutcome(
+                ok=False, verb="daemon-reload", unit="", reason="bus gone"
+            ),
+        )
+    else:
+        monkeypatch.setattr(service, "drop_in_seen", lambda unit, path: False)
+
+    outcome = service.set_drop_in("a.service", 4321)
+
+    assert not outcome.ok
+    assert not service.drop_in_path("a.service").exists()
+
+
 def test_a_drop_in_written_but_not_durable_still_starts(
     reloads, monkeypatch, caplog
 ) -> None:

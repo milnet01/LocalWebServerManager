@@ -828,7 +828,8 @@ class _ServiceTask(QRunnable):
         rejected clears it too, since nothing is starting (user, 2026-10-10,
         L05-M3); any other failure keeps it, because a `systemctl start` that
         timed out here may still be starting the unit (user, 2026-10-07). A
-        drop-in that cannot be written stops the start.
+        drop-in that cannot be written, or that systemd did not load, stops the
+        start, and `set_drop_in` removes what it wrote (LWSM-1449).
 
         A unit found from the port's holder rather than bound by the scanner is
         checked first (`bind_to`), on this worker because it asks `systemctl`.

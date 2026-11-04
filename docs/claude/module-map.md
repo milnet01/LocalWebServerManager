@@ -459,8 +459,9 @@ Added later, both core with no Qt at all:
   is a systemd **user** unit is driven with `systemctl --user`, never by
   spawning its launcher, and nothing here signals a process. It also writes
   this app's drop-in (`50-lwsm-port.conf`) before a start and removes it after
-  each successful or rejected verb: the one file this app writes outside its
-  own config (LWSM-1028, LWSM-1387, L05-M3).
+  each successful or rejected verb, or when the start is refused before any
+  verb runs: the one file this app writes outside its own config (LWSM-1028,
+  LWSM-1387, L05-M3, LWSM-1449).
 - **`src/lwsm/foreign.py`** — ADR-0004's foreign stop, for a server in no
   systemd unit (LWSM-1301): the holder and its descendants, identified by
   PID and start time, and signalled as exactly that set through
