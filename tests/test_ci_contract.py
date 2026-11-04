@@ -1007,8 +1007,19 @@ def test_the_gate_pins_the_environment_the_runner_has() -> None:
     assert "export LC_ALL=C.UTF-8 TZ=UTC" in text
     unset = re.search(r"^unset PYTEST_ADDOPTS .*$", text, re.MULTILINE)
     assert unset, "local-ci.sh does not clear PYTEST_ADDOPTS"
-    for name in ("PYTHONPATH", "VIRTUAL_ENV"):
+    # PYTHONOPTIMIZE strips `assert`, so a gate step written as one would pass
+    # whatever it checked (LWSM-1491).
+    for name in ("PYTHONPATH", "VIRTUAL_ENV", "PYTHONOPTIMIZE"):
         assert name in unset.group(0).split()
+
+
+def test_the_entry_point_step_does_not_rest_on_assert() -> None:
+    """LWSM-1491: `assert eps` vanishes under `python -O`, and a missing console
+    script then passed the step. An explicit exit cannot be optimised away."""
+    step = LOCAL_CI.read_text().split('step "Entry points resolve"', 1)[1]
+    step = step.split("step ", 1)[0]
+    assert "assert " not in step, step
+    assert "SystemExit" in step, step
 
 
 def test_the_test_order_is_seeded_from_the_commit() -> None:

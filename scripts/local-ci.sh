@@ -74,8 +74,9 @@ unset PORT LWSM_MANAGED
 # The rest of the developer's shell that reaches pytest or uv and is absent on
 # the runner (LWSM-1413): PYTEST_ADDOPTS can deselect tests or turn the random
 # order off, PYTHONPATH can shadow the package under test, and VIRTUAL_ENV
-# points uv at a different environment.
-unset PYTEST_ADDOPTS PYTHONPATH PYTHONHOME PYTHONSTARTUP VIRTUAL_ENV
+# points uv at a different environment. PYTHONOPTIMIZE strips `assert`, which
+# would let a check written as one pass whatever it found (LWSM-1491).
+unset PYTEST_ADDOPTS PYTHONPATH PYTHONHOME PYTHONSTARTUP VIRTUAL_ENV PYTHONOPTIMIZE
 # Locale and time zone, which the runner leaves at C.UTF-8 and UTC and a
 # desktop sets to its own. Pinned for both sides here, like QT_QPA_PLATFORM.
 export LC_ALL=C.UTF-8 TZ=UTC
@@ -252,7 +253,8 @@ uv run python -c "
 import importlib.metadata as m
 eps = [e for e in m.entry_points(group='console_scripts')
        if e.dist and e.dist.name == 'localwebservermanager']
-assert eps, 'no console_scripts entry point found for localwebservermanager'
+if not eps:
+    raise SystemExit('no console_scripts entry point found for localwebservermanager')
 for e in eps:
     e.load()
     print(f'  {e.name} -> {e.value} OK')
