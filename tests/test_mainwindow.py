@@ -7628,13 +7628,27 @@ def test_a_control_acting_on_a_foreign_server_says_so(qtbot, button_name) -> Non
         lambda w, p: w.set_project_hidden(p, True),
         lambda w, p: w.set_project_health_check(p, True),
         lambda w, p: w.set_project_browser(p, "firefox.desktop"),
+        # LWSM-1470: "%1 checks %2" took the record's name raw.
+        lambda w, p: (
+            setattr(w, "_ask_health_page", lambda *_a: "/up"),
+            w.change_health_page(p),
+        ),
         lambda w, p: w._ask_to_trust(p, types.SimpleNamespace(resolved=None, argv=())),
         lambda w, p: (
             setattr(w, "_confirm", lambda *_a: False),
             w._ask_to_trust(p, types.SimpleNamespace(resolved=p / "start.sh", argv=())),
         ),
     ],
-    ids=["done", "no port", "hidden", "health", "browser", "no launcher", "declined"],
+    ids=[
+        "done",
+        "no port",
+        "hidden",
+        "health",
+        "browser",
+        "health page",
+        "no launcher",
+        "declined",
+    ],
 )
 def test_a_project_name_reaches_the_banner_through_display_text(
     qtbot, built, tmp_path, act

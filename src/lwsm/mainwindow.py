@@ -3962,7 +3962,7 @@ class MainWindow(QMainWindow):
         ]
         message = _filled(
             QCoreApplication.translate("ProjectRow", "%1 checks %2"),
-            record.name,
+            display_text(record.name),
             display_text(page or "/"),
         )
         self.set_status_message(self._write_records(records, message, "health page"))
