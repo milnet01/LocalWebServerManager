@@ -30,12 +30,16 @@ signaling per
 
 ### Changed
 
+- **A folder in the scan-roots file must now be a full path or start with ~. A line like projects, which meant a different folder depending on where the app was started, is skipped, and Preferences will not save one.** (LWSM-1465)
 - **A project whose port you changed shows the port its own files give.** The row reads `port 5999` with `(files: 3000)` beneath it for as long as the two differ, so a setting that has gone stale stays visible. (LWSM-1288)
 - **Clicking a project no longer draws a thick outline around it.** The outline shows only when you move to a project with the keyboard, as it already did for buttons and boxes. (LWSM-1425)
 - **A start refused because the port is taken now says what is taking it.** The row names the program and its process ID, or says the process cannot be inspected, instead of only "port 8080 is already bound". (LWSM-1013)
 
 ### Fixed
 
+- **A booby-trapped file in a project folder can no longer use up the scan's time limit and leave the project list half-finished.** (LWSM-1463)
+- **A project no longer vanishes from the scan when the app cannot check one of its side files, such as .env.local or README.md.** (LWSM-1464)
+- **Scanning another project's Python no longer prints warnings about that project's code to the terminal.** (LWSM-1466)
 - **A login service the app could not hand a port to no longer picks up the app's setting at the next login.** (LWSM-1449)
 - **A program stuck on a hung disk can no longer freeze the window once a second while the app checks whose server holds a port.** (LWSM-1450)
 - **A server found on its usual port after you changed the port can now be stopped from its row.** (LWSM-1451)

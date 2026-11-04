@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1462 -->
+<!-- ants-roadmap-id-high-water: LWSM=1468 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13047,6 +13047,112 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: investigate.
   Source: review-code-2026-11-04 (lanes 04 and 05, open questions).
   Lanes: controller, foreign, service.
+
+- ✅ [LWSM-1463] **A crafted line costs the scanner time that grows with the square of its length.**
+  Priority: MEDIUM.
+  Two per-line paths are quadratic. `rule_2` checks every digit against
+  every `[...]` span with `any()`: `PORT = [1][1]...` measured 0.07 s a
+  line (2026-11-04). `_declaration_position` walks back to the start of
+  the token for every `PORT=` match, and one token can be the line:
+  `a b.PORT=1.PORT=1...` measured 0.12 s a line. A 256 KB file is 64
+  such lines. `_scan_source` checks no deadline while it runs.
+  Fix: mark excluded positions once per line; remember the last token
+  start within one `rule_1` call; check the deadline per line.
+  Resolved (2026-11-04, 9f1ce56): rule_2 marks excluded positions once
+  per line; rule_1 passes the previous walk to `_declaration_position`
+  so a line costs one walk; `_scan_source` checks the deadline per line.
+  About 2 ms a line after. Red first:
+  test_a_crafted_line_costs_the_rules_linear_time (8.2 s and 13.2 s
+  against 1 s, at ten times the cap) and
+  test_matching_the_lines_read_is_inside_the_budget. Old and new rules
+  agreed on 600,000 generated lines. LWSM-1006's rule_2 block and
+  INV-15 folded back.
+  **Layman:** One booby-trapped file in a project folder could make every scan run out of time.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 03, M1).
+  Lanes: scanner.
+
+- ✅ [LWSM-1464] **A launcher-file check that raises drops the whole project from the scan.**
+  Priority: LOW.
+  `_read_alternate` calls `is_symlink()` and `exists()` outside its
+  `try`. On 3.13 both re-raise EACCES and ENAMETOOLONG, which reaches
+  `scan()`'s per-candidate handler and drops the project, where
+  LWSM-1006 § 4.3 says an `OSError` rejects that file and continues.
+  Fix: move the pre-check inside the `try`.
+  Resolved (2026-11-04, 4a94f80): the checks sit inside the `try` in
+  `_read_alternate` and in `_match_node_package`, which had the same
+  shape. Red first:
+  test_a_side_file_whose_check_raises_costs_that_file_not_the_project
+  (package.json, .env.local, README.md; project dropped).
+  **Layman:** A file the app cannot check could make a whole project vanish from the list.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 03, L1).
+  Lanes: scanner.
+
+- ✅ [LWSM-1465] **A relative scan root is read against whatever folder the app started in.**
+  Priority: LOW.
+  `default_scan_roots` keeps a line like `projects`, and `scan()` then
+  lists it relative to the process's current directory. `save_scan_roots`
+  accepts a relative root starting with `#`, which the reader then drops
+  as a comment. No spec says a relative root is legal; both choosers
+  return absolute paths. Fix: refuse a root that is not absolute on save,
+  and skip one on load (after `~` expansion), as a `~user` naming nobody
+  is skipped.
+  Resolved (2026-11-04, e244443): no spec allows a relative root, so
+  decided here. The reader skips a line not absolute after `~`
+  expansion; the writer refuses one. design.md and README.md say a full
+  path. Red first:
+  test_a_relative_scan_root_is_skipped_not_walked_from_the_working_directory
+  and the `projects` and `#notes` cases of
+  test_a_root_the_file_cannot_represent_is_refused_not_silently_lost.
+  **Layman:** A folder written without its full path in the scan list could point somewhere different each time.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 03, open question).
+  Lanes: scanroots.
+
+- ✅ [LWSM-1466] **Parsing a sibling's Python writes a SyntaxWarning, and under the test suite skips docstring removal.**
+  Priority: LOW.
+  `_without_docstrings` runs `ast.parse` on someone else's source. A
+  string holding `\d` emits `SyntaxWarning` to stderr once per file
+  (measured 2026-11-04). Under `filterwarnings = error` the warning is a
+  `SyntaxError`, so the docstrings stay and a docstring's port example
+  can win. Fix: ignore warnings during that parse.
+  Resolved (2026-11-04, 8e36de1): the parse runs under
+  `catch_warnings` with SyntaxWarning ignored. Red first:
+  test_a_warning_from_parsing_a_sibling_neither_escapes_nor_changes_the_port
+  (the warning reached the caller).
+  **Layman:** Reading another project's code printed warnings, and the tests saw a slightly different scanner than users do.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 03, open question).
+  Lanes: scanner.
+
+- ✅ [LWSM-1467] **One unrecognised settings key that cannot be kept drops every other unrecognised key.**
+  Priority: LOW.
+  `settings.load` encodes every unknown key in one expression, so one
+  that `canonical_json` refuses (`1e999`) loses them all, while the
+  comment above says one loses only itself. The reason it appends blocks
+  `save_field`, so nothing is lost on disk today. Fix: encode per key.
+  Resolved (2026-11-04, 1628898): each key is encoded on its own, and
+  the reason names only the keys lost. Red first:
+  test_an_unknown_key_that_cannot_be_kept_loses_only_itself (unknown was
+  empty). The registry's twin is LWSM-1468.
+  **Layman:** A single odd entry in the settings file made the app forget other entries it did not recognise.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 09, L1).
+  Lanes: settings.
+
+- 📋 [LWSM-1468] **One unrecognised registry key that cannot be kept drops every other unrecognised key on that project.**
+  Priority: LOW.
+  `registry._unknown_or_reason` encodes a record's unknown keys in one
+  expression, so one value `canonical_json` refuses (`1e999`) loses all
+  of them, while its docstring says "Anything that will not re-serialise
+  loses only itself". LWSM-1467 fixed the same shape in `settings.load`.
+  Found by that fix's sweep; registry is outside group 4's subject, so
+  not fixed there. Fix: encode per key, and name only the lost keys.
+  **Layman:** A single odd entry on one project in the project list made the app forget other entries on that project it did not recognise.
+  Kind: review-fix.
+  Source: close-findings-2026-11-04 (group 4 sweep, next to LWSM-1467).
+  Lanes: registry.
 
 ## 0.5.0 — Logs
 
