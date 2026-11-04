@@ -184,7 +184,11 @@ def test_the_written_entry_still_validates(tmp_path: Path) -> None:
 
 
 def run_installer(
-    tmp_path: Path, *, validator: str, target: Path | None = None
+    tmp_path: Path,
+    *,
+    validator: str,
+    target: Path | None = None,
+    shims_extra: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the installer with a `desktop-file-validate` that answers as told.
 
@@ -193,7 +197,8 @@ def run_installer(
     write, validate and publish, not what the validator thinks.
 
     `target` overrides the executable the installer is pointed at; the caller
-    creates it, whatever kind of file it is.
+    creates it, whatever kind of file it is. `shims_extra` adds further
+    commands to PATH, name to shell body, and may replace the validator.
     """
     if target is None:
         target = tmp_path / "lwsm"
@@ -205,6 +210,10 @@ def run_installer(
     stub = shims / "desktop-file-validate"
     stub.write_text(f"#!/bin/sh\nexit {0 if validator == 'passes' else 1}\n")
     stub.chmod(0o755)
+    for name, body in (shims_extra or {}).items():
+        shim = shims / name
+        shim.write_text(f"#!/bin/sh\n{body}\n")
+        shim.chmod(0o755)
 
     return subprocess.run(
         [str(SCRIPT), str(target)],
@@ -322,3 +331,35 @@ def test_a_path_holding_a_newline_is_refused(tmp_path: Path) -> None:
     assert "newline" in done.stderr, done.stderr
     entry = tmp_path / "data" / "applications" / f"{APP_ID}.desktop"
     assert not entry.exists(), "an entry split across lines was published"
+
+
+# --- review-code 2026-11-04, lane 12: what the installer leaves for others ----
+
+
+def test_the_unvalidated_entry_is_never_in_the_launcher_s_folder(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1488: the temporary entry was written and validated INSIDE
+    `applications/`, under a `.desktop` name, so a launcher rescan during
+    validation could list it and a killed run left it there for good.
+
+    The validator records what that folder holds at the moment it runs.
+    Dies on moving the temporary file back into `applications/`.
+    """
+    seen = tmp_path / "seen"
+    apps = tmp_path / "data" / "applications"
+    done = run_installer(
+        tmp_path,
+        validator="passes",
+        shims_extra={"desktop-file-validate": f'ls -A "{apps}" > "{seen}"; exit 0'},
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert seen.exists(), "the validator never ran"
+    assert seen.read_text() == "", (
+        f"the launcher's folder held {seen.read_text()!r} during validation"
+    )
+    assert (apps / f"{APP_ID}.desktop").exists(), done.stderr
+    data = tmp_path / "data"
+    leftovers = [p.name for p in data.iterdir() if p.name.startswith(".")]
+    assert leftovers == [], f"the installer left {leftovers} behind"

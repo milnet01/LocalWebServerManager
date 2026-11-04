@@ -110,8 +110,14 @@ tryexec_escaped=$(printf '%s' "$exec_path" | sed -e 's/\\/\\\\/g')
 # The name must still END in `.desktop`: desktop-file-validate refuses any other
 # extension outright, so a plain mktemp template fails the check it exists to
 # run. Measured 2026-09-07.
-entry_tmp=$(mktemp "$apps_dir/.$app_id.XXXXXX.desktop")
-trap 'rm -f "$entry_tmp"' EXIT
+#
+# In a private folder BESIDE applications/, never inside it (LWSM-1488): a
+# `.desktop` file there is one a launcher rescan can list mid-validation, and a
+# killed run would leave it there. The sibling is on the same filesystem, so
+# the publish below is still a rename.
+stage_dir=$(mktemp -d "$data_home/.lwsm-install.XXXXXX")
+entry_tmp="$stage_dir/$app_id.desktop"
+trap 'rm -rf "$stage_dir"' EXIT
 
 LWSM_EXEC_LINE="Exec=\"$exec_quoted\"" \
 LWSM_TRYEXEC_LINE="TryExec=$tryexec_escaped" \
@@ -127,20 +133,21 @@ chmod 0644 "$entry_tmp"
 #
 # And validate it BEFORE it is published (LWSM-1267). Checking the live file
 # means a malformed entry has already appeared in the launcher, and `set -e`
-# then exits leaving it there for the user to find. The temporary file sits in
-# the destination directory so the publish below is a rename within one
-# filesystem — atomic, so nothing sees a half-written entry either. Same
-# discipline as configfile.write_atomically on the Python side.
+# then exits leaving it there for the user to find. The temporary file sits on
+# the destination's filesystem so the publish below is a rename — atomic, so
+# nothing sees a half-written entry either. Same discipline as
+# configfile.write_atomically on the Python side.
 if command -v desktop-file-validate >/dev/null 2>&1; then
     desktop-file-validate "$entry_tmp"
 else
     echo "note: desktop-file-validate not installed; entry written unchecked." >&2
 fi
 
-# Publish. `mv` within one directory is a rename, so the entry appears whole or
+# Publish. `mv` within one filesystem is a rename, so the entry appears whole or
 # not at all, and replacing an existing one is not a window in which the
 # launcher can read a truncated file.
 mv "$entry_tmp" "$apps_dir/$app_id.desktop"
+rmdir "$stage_dir"
 trap - EXIT
 
 # Cache refreshes. Each is best-effort: a missing tool means the desktop
