@@ -556,9 +556,15 @@ def scope_prefix(
     launch, which is what this did before and still right where no unit
     exists to kill the server.
     """
-    finder = which if which is not None else shutil.which
-    executable = finder("systemd-run")  # type: ignore[operator]
-    if not executable:
+    # Looked up on the CHILD's PATH, which holds only absolute entries, and
+    # refused unless absolute: `Popen(cwd=project)` resolves a relative answer
+    # inside each project, which is the hole `build_child_env` closes for
+    # `argv[0]` (LWSM-1440).
+    if which is not None:
+        executable = which("systemd-run")  # type: ignore[operator]
+    else:
+        executable = shutil.which("systemd-run", path=env.get("PATH", os.defpath))
+    if not executable or not os.path.isabs(executable):
         return ()
     prefix = (executable, "--user", "--scope", "--quiet", "--collect", "--")
     runner = run if run is not None else subprocess.run

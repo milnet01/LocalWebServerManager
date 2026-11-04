@@ -1796,6 +1796,36 @@ def test_a_scope_is_used_when_the_user_manager_can_run_one() -> None:
     assert seen == [[*prefix, "true"]]
 
 
+def test_systemd_run_is_found_on_the_child_path(tmp_path: Path) -> None:
+    """LWSM-1440: looked up on the app's own PATH, a relative entry there named
+    a `systemd-run` that `Popen(cwd=project)` then ran from inside each
+    project. The child PATH holds only absolute entries."""
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    fake = tools / "systemd-run"
+    fake.write_text("#!/bin/sh\nexit 0\n", "utf-8")
+    fake.chmod(0o700)
+    seen: list[str] = []
+
+    def run(argv, **_kwargs):
+        seen.append(argv[0])
+        return subprocess.CompletedProcess(argv, 0)
+
+    scope_prefix({"PATH": str(tools)}, run=run)
+
+    assert seen == [str(fake)]
+
+
+def test_a_relative_systemd_run_means_a_plain_launch() -> None:
+    """LWSM-1440: a relative answer is resolved against the project directory
+    by `Popen`, so it is refused rather than run."""
+
+    def run(argv, **_kwargs):
+        raise AssertionError("a relative systemd-run was run")
+
+    assert scope_prefix({}, run=run, which=lambda name: "systemd-run") == ()
+
+
 def test_no_systemd_run_means_a_plain_launch() -> None:
     def run(argv, **_kwargs):
         raise AssertionError("nothing to run without systemd-run")
