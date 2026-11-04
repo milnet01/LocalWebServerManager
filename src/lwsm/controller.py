@@ -2146,8 +2146,29 @@ class ProjectController(QObject):
             # died (L6-H1).
             self._reaped.update(upkeep.reaped)
             self._gone = upkeep.gone
+            self._settle_start_unobserved()
         if snapshot_next:
             self._start_snapshot()
+
+    def _settle_start_unobserved(self) -> None:
+        """End a `starting` overlay whose child died, while no poll can read
+        the port table (LWSM-1452).
+
+        `_settle_overlay` runs from a snapshot only, so during an outage the
+        overlay stood, its timer rising, after the child it waits for had
+        exited. The reap or the gone group is ADR-0004's evidence for
+        `failed`, and it needs no socket table: the start side of
+        `_apply_stop_outcome`'s LWSM-1372 rule. With the table readable the
+        next snapshot settles it as before.
+        """
+        if self._last_error is None or self._overlay is None:
+            return
+        path, pending = self._overlay
+        if pending is not ProjectStatus.STARTING:
+            return
+        if path in self._reaped or self._child_gone(path):
+            self._clear_overlay(path)
+            self.projects_changed.emit()
 
     def _check_watched_unit(self) -> None:
         """Ask systemd about a unit whose start is still showing `starting`.

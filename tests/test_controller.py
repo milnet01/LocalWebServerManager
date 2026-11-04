@@ -3630,6 +3630,45 @@ def test_a_stop_with_the_table_unreadable_ends_on_unknown_not_stopping(
     assert controller.rows()[0].status is ProjectStatus.UNKNOWN
 
 
+def test_a_start_whose_child_dies_with_the_table_unreadable_stops_starting(
+    qtbot, controllers
+) -> None:
+    """LWSM-1452, the start side of LWSM-1372. Only a snapshot settled the
+    overlay, so with the port table unreadable a child that died on its own
+    left the row reading `starting`, its timer rising, although the upkeep's
+    reap is ADR-0004's evidence that it failed.
+
+    Dies on settling the start only from `_on_snapshot`."""
+
+    class ReapingSupervisor(FakeSupervisor):
+        def __init__(self) -> None:
+            super().__init__()
+            self.died: set[Path] = set()
+
+        def reap_exited(self):
+            reaped = {path: None for path in self.died if path in self._running}
+            for path in reaped:
+                del self._running[path]
+            return reaped
+
+    supervisor = ReapingSupervisor()
+    probe = FailingProbe()
+    controller = supervised(controllers, [startable()], probe, supervisor)
+    controller.poll_once()
+    qtbot.waitUntil(lambda: controller._last_error is not None, timeout=2000)
+    controller.start_project(Path("/srv/a"))
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+
+    supervisor.died.add(Path("/srv/a"))
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    qtbot.waitUntil(lambda: probe.calls == 2, timeout=2000)
+
+    assert controller._overlay is None
+    assert controller.rows()[0].status is not ProjectStatus.STARTING
+    assert controller.rows()[0].starting_for is None
+
+
 def test_a_wrapper_that_exits_before_its_server_binds_is_still_starting(
     qtbot, controllers
 ) -> None:
