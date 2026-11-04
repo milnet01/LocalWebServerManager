@@ -3246,6 +3246,33 @@ def test_an_unknown_top_level_key_survives_a_save(tmp_path: Path) -> None:
     assert json.loads(path.read_text(encoding="utf-8"))["later_key"] == {"a": [1, 2]}
 
 
+def test_an_unknown_key_that_cannot_be_kept_loses_only_itself(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1468: a record's unknown keys, and the document's, were encoded in
+    one expression, so one value `canonical_json` refuses (`1e999` decodes to
+    infinity) lost every other unknown key beside it. Each is kept or lost on
+    its own, and the reason names only the lost one.
+    """
+    path = tmp_path / "projects.json"
+    path.write_text(
+        '{"schema_version": 1, "keep_top": [1], "lose_top": 1e999,'
+        ' "projects": [{"path": "/srv/project-a", "name": "project-a",'
+        ' "port": 5005, "keep_me": 1, "lose_me": 1e999}]}',
+        encoding="utf-8",
+    )
+
+    result = load_projects(path)
+
+    assert result.unknown == (("keep_top", "[1]"),)
+    assert result.records[0].unknown == (("keep_me", "1"),)
+    lost = [r for r in result.reasons if "could not be kept" in r]
+    assert len(lost) == 2, result.reasons
+    assert all("keep_" not in r for r in lost), lost
+    assert any("lose_top" in r for r in lost), lost
+    assert any("lose_me" in r for r in lost), lost
+
+
 def test_the_writer_refuses_more_records_than_the_reader_loads(tmp_path: Path) -> None:
     """L5-L1: written past `MAX_RECORDS`, the next load refuses the extra rows
     and the session goes read-only — "written and then found unreadable"."""

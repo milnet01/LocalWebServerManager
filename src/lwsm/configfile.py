@@ -29,6 +29,7 @@ import re
 import stat
 import tempfile
 import time
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -171,6 +172,25 @@ def canonical_json(value: object) -> str:
     text = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     json.dumps(value, ensure_ascii=False).encode("utf-8")
     return text
+
+
+def encode_each(
+    document: Mapping[str, object], keys: Iterable[str]
+) -> tuple[tuple[tuple[str, str], ...], list[str]]:
+    """Each of `keys` as a `(key, canonical_json(value))` pair, or lost alone.
+
+    One key at a time, never in one expression: encoded together, one value
+    `canonical_json` refuses lost every key beside it (LWSM-1467, LWSM-1468).
+    Returns the kept pairs and the names of the keys that could not be kept.
+    """
+    kept: list[tuple[str, str]] = []
+    lost: list[str] = []
+    for key in keys:
+        try:
+            kept.append((key, canonical_json(document[key])))
+        except (TypeError, ValueError, RecursionError):
+            lost.append(key)
+    return tuple(kept), lost
 
 
 def is_writable_text(text: str) -> bool:

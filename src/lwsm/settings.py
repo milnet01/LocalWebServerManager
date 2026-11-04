@@ -36,7 +36,7 @@ from lwsm.configfile import (
     ConfigFileError,
     ConfigFileNotDurable,
     JsonFileRefused,
-    canonical_json,
+    encode_each,
     load_json_object,
     quoted,
     write_atomically,
@@ -420,18 +420,14 @@ def load(path: Path) -> LoadResult:
     known = _payload(Settings()).keys()
     # One key at a time: encoded together, one refused value lost them all
     # (LWSM-1467).
-    kept: list[tuple[str, str]] = []
-    lost: list[str] = []
-    for key in sorted(key for key in document if key not in known):
-        try:
-            kept.append((key, canonical_json(document[key])))
-        except (TypeError, ValueError, RecursionError):
-            lost.append(key)
+    kept, lost = encode_each(
+        document, sorted(key for key in document if key not in known)
+    )
     if lost:
         reasons.append(
             f"unrecognised keys could not be kept ({quoted(', '.join(lost))})"
         )
-    settings = replace(settings, unknown=tuple(kept))
+    settings = replace(settings, unknown=kept)
 
     return LoadResult(settings, reasons[:MAX_REASONS], notes=notes)
 

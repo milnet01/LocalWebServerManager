@@ -32,6 +32,7 @@ from lwsm.configfile import (
     ConfigFileNotDurable,
     JsonFileRefused,
     canonical_json,
+    encode_each,
     is_writable_text,
     load_json_object,
     quoted,
@@ -633,16 +634,12 @@ def _unknown_or_reason(
     """
     # Once per record, not once per key: each call serialises a blank record.
     known = _known_keys()
-    extras = sorted(key for key in entry if key not in known)
-    if not extras:
-        return (), None
-    try:
-        return tuple((key, canonical_json(entry[key])) for key in extras), None
-    except (TypeError, ValueError, RecursionError):
-        # `_actions_or_reason`'s guard, and for its reason (LWSM-1217).
-        return (), (
-            f"{name}: unrecognised keys could not be kept ({quoted(', '.join(extras))})"
-        )
+    kept, lost = encode_each(entry, sorted(key for key in entry if key not in known))
+    if not lost:
+        return kept, None
+    return kept, (
+        f"{name}: unrecognised keys could not be kept ({quoted(', '.join(lost))})"
+    )
 
 
 def _added_or_reason(value: object, name: str) -> tuple[str | None, str | None]:
@@ -752,18 +749,13 @@ def load_projects(path: Path) -> LoadResult:
         MAX_REASONS, "and {count} more problems in this file, not shown"
     )
     reasons = bounded.reasons
-    top_level_extras = sorted(
-        key for key in data if key not in ("schema_version", "projects")
+    top_level_unknown, top_level_lost = encode_each(
+        data, sorted(key for key in data if key not in ("schema_version", "projects"))
     )
-    try:
-        top_level_unknown = tuple(
-            (key, canonical_json(data[key])) for key in top_level_extras
-        )
-    except (TypeError, ValueError, RecursionError):
-        top_level_unknown = ()
+    if top_level_lost:
         reasons.append(
             "unrecognised top-level keys could not be kept "
-            f"({quoted(', '.join(top_level_extras))})"
+            f"({quoted(', '.join(top_level_lost))})"
         )
     rows_refused = 0
     user_fields_refused: set[str] = set()
