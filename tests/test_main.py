@@ -2339,6 +2339,40 @@ def test_a_first_run_folder_written_but_not_made_durable_is_logged_as_remembered
 
 
 @pytest.mark.gui
+def test_a_first_run_folder_that_could_not_be_saved_says_so_in_the_banner(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """A failed save of the chosen folder reaches the user, not only the log.
+
+    Otherwise the next start asks for the folder again with no reason given
+    (`design.md § Error handling`: nothing is swallowed; review-code
+    2026-11-04 L11-M3). Preferences already says so for the same save.
+    """
+    from lwsm.configfile import ConfigFileError
+
+    projects = tmp_path / "work"
+    projects.mkdir()
+
+    def refused(*_args, **_kwargs) -> None:
+        raise ConfigFileError("the folder is read-only")
+
+    window, controller = first_run_window(qtbot, tmp_path, monkeypatch)
+    monkeypatch.setattr(scanroots, "save_scan_roots", refused)
+    try:
+        entry.start_first_run(window, choose_directory=lambda _window: str(projects))
+        message = message_of(window)
+        qtbot.waitUntil(lambda: not window._rescan_in_flight, timeout=10000)
+        after_scan = message_of(window)
+    finally:
+        controller.stop()
+        window.shutdown()
+
+    assert "could not be remembered" in message, message
+    assert "the folder is read-only" in message, message
+    assert "could not be remembered" in after_scan, after_scan
+
+
+@pytest.mark.gui
 def test_a_first_run_with_no_folder_chosen_scans_nothing(
     qtbot, tmp_path, monkeypatch
 ) -> None:

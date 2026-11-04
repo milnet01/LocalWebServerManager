@@ -2054,6 +2054,8 @@ class MainWindow(QMainWindow):
         self._projects_file = projects_file
         self._load = load
         self._rescan_in_flight = False
+        # What `start_rescan`'s caller asked to keep in front of the result.
+        self._rescan_note = ""
         self._show_hidden = False
         # `ProjectController._stopped`, on the window's own worker. Set by
         # `shutdown()` and checked in the rescan slots, because a merge that
@@ -3563,9 +3565,21 @@ class MainWindow(QMainWindow):
             and isinstance(self._load, RegistryMissing)
         )
 
-    def start_rescan(self) -> None:
-        """Rescan now, as the button does. `__main__` starts the first run with it."""
+    def start_rescan(self, note: str = "") -> None:
+        """Rescan now, as the button does. `__main__` starts the first run with it.
+
+        `note` is kept in front of the banner message the scan finishes with,
+        so something the caller learned first — a folder that could not be
+        remembered — is not replaced by the scan's summary (review-code
+        2026-11-04 L11-M3).
+        """
+        already_running = self._rescan_in_flight
         self._start_rescan()
+        # Kept only for a scan this call started, so a refused start carries
+        # no note into the next one. The result arrives through a queued
+        # signal, so it cannot land before this line.
+        if self._rescan_in_flight and not already_running:
+            self._rescan_note = note
 
     def _disclose_dialog(self, project: Path, holder: object) -> bool:
         """ADR-0004's disclosure, on screen.
@@ -4248,7 +4262,8 @@ class MainWindow(QMainWindow):
     def _finish_rescan(self, message: str) -> None:
         self._rescan_in_flight = False
         self._set_rescan_enabled(True)
-        self.set_status_message(message)
+        note, self._rescan_note = self._rescan_note, ""
+        self.set_status_message(" ".join(part for part in (note, message) if part))
 
     def _on_rescan_failed(self, detail: str) -> None:
         if self._stopped:

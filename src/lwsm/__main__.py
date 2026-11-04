@@ -461,6 +461,8 @@ def start_first_run(
 
     if not window.is_first_run():
         return
+    looking = QCoreApplication.translate("Startup", "Looking for projects...")
+    note = ""
     if not any(_is_dir(root) for root in window.scan_roots()):
         choose = (
             _choose_first_scan_root if choose_directory is None else choose_directory
@@ -485,15 +487,20 @@ def start_first_run(
                 exc,
             )
         except (ConfigFileError, OSError, RuntimeError) as exc:
-            # Scanned anyway: the choice holds for this session, and the log
-            # says why the next start will ask again.
+            # Scanned anyway: the choice holds for this session. The banner
+            # says why the next start will ask again, as Preferences does for
+            # the same save (`design.md § Error handling`; review-code
+            # 2026-11-04 L11-M3).
             applog.get_logger(__name__).warning(
                 "the chosen folder could not be remembered: %s", exc
             )
-    window.set_status_message(
-        QCoreApplication.translate("Startup", "Looking for projects...")
-    )
-    window.start_rescan()
+            note = QCoreApplication.translate(
+                "Startup",
+                "The chosen folder could not be remembered, so the next start "
+                "will ask for it again: %1",
+            ).replace("%1", str(exc))
+    window.set_status_message(" ".join(part for part in (note, looking) if part))
+    window.start_rescan(note)
 
 
 def _is_dir(root: Path) -> bool:
