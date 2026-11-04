@@ -37,6 +37,9 @@ signaling per
 
 ### Fixed
 
+- **Choosing which page a project's health check reads no longer shows the project's name with stray characters that could break the message across lines.** (LWSM-1470)
+- **If saving the theme or text size fails unexpectedly, the app now says so and records why in its log, instead of saying nothing.** (LWSM-1471)
+- **Stop on a server the app did not start no longer does nothing when the app cannot tell which screen it is on.** (LWSM-1473)
 - **A booby-trapped file in a project folder can no longer use up the scan's time limit and leave the project list half-finished.** (LWSM-1463)
 - **A project no longer vanishes from the scan when the app cannot check one of its side files, such as .env.local or README.md.** (LWSM-1464)
 - **Scanning another project's Python no longer prints warnings about that project's code to the terminal.** (LWSM-1466)
@@ -65,6 +68,7 @@ signaling per
 
 ### Security
 
+- **Ask before starting again now says when your choice could not be saved. It used to promise the next start would ask, even though after a restart the project would start without asking.** (LWSM-1474)
 - **A project name holding a hidden direction character can no longer make the text after it read backwards. The character is shown as a replacement mark instead.** (LWSM-1469)
 - **Open in browser no longer opens a different server if the one on the port changed while you were reading the warning about it. Nothing opens, and the app asks you to try again.** (LWSM-1445)
 - **Stop and Restart on a server the app did not start are refused if a different program took over the same process number while you were reading the warning.** (LWSM-1444)

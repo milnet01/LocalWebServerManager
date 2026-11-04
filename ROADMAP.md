@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1468 -->
+<!-- ants-roadmap-id-high-water: LWSM=1477 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13153,6 +13153,171 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: review-fix.
   Source: close-findings-2026-11-04 (group 4 sweep, next to LWSM-1467).
   Lanes: registry.
+
+- ✅ [LWSM-1469] **A scanned name can carry a direction override that reverses the text drawn after it.**
+  Priority: MEDIUM.
+  `configfile.display_text` keeps every format character, including the
+  bidi embedding, override and isolate controls (U+202A-U+202E,
+  U+2066-U+2069). A name ending in U+202E reverses what follows it: the
+  first-run check box (`firstrun.describe`, "<name> - <launcher>, port N"),
+  the row's foreign and unconfirmed tooltips, `hidden_name` and the port
+  detail. SECURITY.md lists text from a scanned project that changes what
+  a dialog appears to say as in scope. The lanes' remedy, wrapping each
+  name in U+2068...U+2069, is defeated by a PDI inside the name (measured
+  with QTextLayout: FSI x PDI RLO PDI still reverses). Fix: replace the
+  nine explicit controls in `display_text`, keeping ZWJ, variation
+  selectors and the marks LRM/RLM/ALM.
+  Resolved (2026-11-04, adb94af): display_text replaces the nine
+  explicit direction controls with U+FFFD, so every screen that shows a
+  name is covered at once. Joiners, variation selectors and the three
+  direction marks stay. Red first:
+  test_display_text_replaces_every_explicit_direction_control (9 cases),
+  test_a_scanned_direction_override_cannot_reverse_the_line (first run,
+  real scanner) and
+  test_a_direction_override_in_a_name_cannot_reverse_the_warning
+  (QTextLayout order of the row tooltip). A name already in projects.json
+  keeps its bytes, since `name` is a user field the merge never rewrites;
+  every screen reads it through display_text.
+  **Layman:** A project folder with a hidden direction character in its name could make the app's messages read backwards or say something else.
+  Kind: security.
+  Source: review-code-2026-11-04 (lane 06 L1, lane 09 M1).
+  Lanes: configfile, mainwindow, firstrun.
+
+- ✅ [LWSM-1470] **Choosing a health page puts the project's raw name in the banner.**
+  Priority: LOW.
+  `change_health_page` fills "%1 checks %2" with `record.name` raw, while
+  every sibling passes it through `display_text`. `projects.json` is
+  hand-editable, so a newline or control character in a name reaches the
+  banner. The lane's other two sites are already clean: a browser's name
+  is cleaned in `browsers.py`, and import and rescan details are
+  `quoted()`.
+  Resolved (2026-11-04, 958ef97): the name goes through display_text.
+  Red first: the "health page" case of
+  test_a_project_name_reaches_the_banner_through_display_text showed the
+  raw newline.
+  **Layman:** A project name with odd characters could split the message shown after choosing which page to check.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 08, L2).
+  Lanes: mainwindow.
+
+- ✅ [LWSM-1471] **A theme or text size whose save raises an unexpected error leaves no trace.**
+  Priority: LOW.
+  `_save_setting` catches `SettingsNotDurable`, `ConfigFileError` and
+  `OSError` only. Anything else leaves a menu slot, where Qt prints it to
+  stderr and drops it: the change shows on screen, nothing is saved, and
+  no banner or log record says so (`design.md`: nothing is swallowed).
+  L07-L7 (2026-10-08) narrowed the catch so a bug did not read as a full
+  disk. Fix: a last catch that logs the traceback and says the cause was
+  an internal error.
+  Resolved (2026-11-04, 65df175): a last `except Exception` logs the
+  traceback and the banner names an internal error, not the saver's
+  words. The L07-L7 test that locked "anything else propagates" became
+  test_a_saver_s_programming_error_is_logged_and_named_as_internal,
+  driven through the menu; red first (no traceback in the log).
+  **Layman:** If saving the theme or text size failed in an unexpected way, the app said nothing and the choice was lost at the next start.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 07, L1).
+  Lanes: mainwindow.
+
+- ✅ [LWSM-1472] **An action verb the window has no sentence for would reach the banner untranslated.**
+  Priority: LOW.
+  `_report_done`'s fallback fills "%1: %2 finished" with the raw
+  internal verb. Today only start, stop and restart reach it
+  (`_run_service_verb`'s callers; `clear_drop_in`'s `daemon-reload`
+  outcome is never emitted), so it is latent. Fix: a fallback with no
+  verb in it, and a log line naming the unknown verb.
+  Resolved (2026-11-04, fbef683): the fallback reads "%1: action
+  finished" and the log names the verb. Red first:
+  test_a_verb_with_no_sentence_never_reaches_the_banner (banner read
+  "web: daemon-reload finished"). No changelog entry: no user sees it
+  today.
+  **Layman:** A future kind of action would have been reported with an internal word no translator can reach.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 07, L2).
+  Lanes: mainwindow.
+
+- ✅ [LWSM-1473] **Stopping a server started elsewhere fails silently when the window has no screen.**
+  Priority: LOW.
+  `_confirm_tree_dialog` calls `self.screen().availableGeometry()` with
+  no guard, while `_screen_area` and `_bounded_to_screen` fall back to the
+  primary screen and then to no cap. With no screen it raises inside a
+  click slot, which Qt swallows, so Stop does nothing. Fix: the same
+  guard.
+  Resolved (2026-11-04, 6c5dfbb): the primary-screen fallback, and no
+  cap with no screen. Red first:
+  test_the_process_set_dialog_opens_with_no_screen (AttributeError on
+  availableGeometry).
+  **Layman:** With no display attached, Stop on a server the app did not start would do nothing at all.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 08, L3).
+  Lanes: mainwindow.
+
+- ✅ [LWSM-1474] **Withdrawing trust says the next start will ask even when the withdrawal was not saved.**
+  Priority: LOW.
+  `MainWindow.forget_trust` shows "%1 will ask before it starts again"
+  whatever happened. `TrustStore.revoke` drops the confirmation in
+  memory and, when `_save` fails, only logs "not saved, so this lasts
+  until the app closes". The old confirmation in `trust.json` then comes
+  back at the next launch, and Start runs the launcher with no prompt.
+  Fix: `revoke` and `forget_trust` return the failure, and the banner
+  says it.
+  Resolved (2026-11-04, ae0bd40): TrustStore.revoke and
+  ProjectController.forget_trust return the failure, None when saved;
+  the banner then says the change lasts only until the app closes, and
+  why. Red first: test_a_revocation_that_was_not_saved_says_so (a
+  read-only folder), test_forgetting_trust_passes_on_a_withdrawal_that_was_not_saved
+  and test_a_withdrawal_that_was_not_saved_is_not_called_lasting.
+  **Layman:** If the app could not save that you withdrew trust from a project, it still said it would ask next time, but after a restart it would start without asking.
+  Kind: security.
+  Source: review-code-2026-11-04 (lane 08, L4).
+  Lanes: mainwindow, controller, supervisor.
+
+- 📋 [LWSM-1475] **The / and number-key shortcuts fire from anywhere in the window and cannot be turned off.**
+  Priority: LOW (calibrated from MEDIUM: design-accessibility.md claims
+  WCAG AA for contrast only).
+  WCAG 2.1.4 Character Key Shortcuts: `MainWindow.keyPressEvent` acts on
+  `/` and 1-9, Shift allowed, from the strip, the banner and the rows,
+  and nothing turns them off or remaps them. The keys are LWSM-1040's
+  shipped feature and README's "Drive it from the keyboard", so changing
+  them changes documented behaviour.
+  Waiting-on: user (keep the keys as they are, or add a Preferences
+  switch that turns off `/` and the number keys? Recommend the switch,
+  on by default, after 0.4.0: it meets 2.1.4 without taking the keys
+  away from the keyboard users who rely on them, 2026-11-04).
+  **Layman:** Saying "one" or "slash" to speech-input software can move the focus and scroll the list without the user meaning to.
+  Kind: accessibility.
+  Source: review-code-2026-11-04 (lane 07, M1).
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1476] **The state glyph stays on the left in a right-to-left layout.**
+  Priority: LOW.
+  `ProjectRow` paints the glyph at the left margin and widens the left
+  margin whatever `layoutDirection()` is. In a right-to-left layout the
+  box layout mirrors and the state word moves right, separating two of
+  the three state signals. Latent: no translation is installed and no
+  document promises right-to-left support (LWSM-1304). Not fixed now
+  because the fix needs a right-to-left render to check, and nothing
+  ships that would show it. Fix: mirror the glyph and margin with
+  `isRightToLeft()`.
+  **Layman:** In a right-to-left language the row's coloured state mark would sit apart from the state word it belongs to.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 06, L3).
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1477] **Find out whether a row's state change is announced twice.**
+  Priority: LOW.
+  `ProjectRow.update_from` sends `NameChanged` itself after
+  `setAccessibleName`, on the comment's claim that Qt sends none
+  (LWSM-1076). If the pinned PySide6's `setAccessibleName` already sends
+  one, every state change is announced twice, against "announces itself
+  once". PySide6 has no `QAccessible` update handler, so offscreen tests
+  cannot count the events. What settles it: a test copy on a private
+  Xvfb display with AT-SPI on, counting name-change events per state
+  change from an Atspi listener (traps.md, the bus trap).
+  **Layman:** A screen reader may hear a project's new state twice instead of once.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 06, open question).
+  Lanes: mainwindow.
 
 ## 0.5.0 — Logs
 
