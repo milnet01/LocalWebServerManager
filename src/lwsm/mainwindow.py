@@ -472,6 +472,10 @@ def port_text(effective_port: int | None) -> str:
     # here, inside a signal handler, which is the LWSM-1082 crash class
     # arriving by a new route. `replace` cannot raise whatever comes back — a
     # bad translation loses the number instead of taking the window down.
+    #
+    # `str`, not `QLocale().toString` as the counts use (known-issue-056): a
+    # port is an identifier the user types into a URL, which takes ASCII digits
+    # and no group separator, and `toString(8000)` gives "8,000".
     return QCoreApplication.translate("ProjectRow", "port %1").replace(
         "%1", str(effective_port)
     )
@@ -1439,8 +1443,10 @@ class ProjectRow(QFrame):
         that also means "start".
 
         Start is offered before Stop because they are mutually exclusive:
-        `_apply_button_state` enables Start only when not running and not in
-        transition, and Stop only when running. The order is what happens when
+        `_apply_button_state` enables Start only when not running, not in
+        transition and not failed with our child alive, and Stop (`can_stop`)
+        only when running, failed with our child alive, or our own child is
+        starting, the case handled above. The order is what happens when
         neither is enabled, not a precedence between two live actions.
 
         Only when the row ITSELF has focus. A button outside a dialog and a
@@ -3268,9 +3274,12 @@ class MainWindow(QMainWindow):
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
         if event.type() == QEvent.Type.LanguageChange:
-            # Qt sends LanguageChange to top-level widgets and does NOT
-            # propagate it to children, so the rows are retranslated from here
-            # — the same shape as a generated `retranslateUi`.
+            # Qt does pass LanguageChange on to children, but only AFTER this
+            # handler has run (measured 2026-11-04 against the pinned PySide6).
+            # So the rows are retranslated from here, the shape of a generated
+            # `retranslateUi`, and the column alignment below then measures
+            # every row's new text. `ProjectRow.changeEvent` handles only
+            # FontChange, so no row is retranslated twice.
             #
             # The banner message is deliberately not re-derived: `build_window`
             # may have replaced the notice summary with a RegistryError, and
