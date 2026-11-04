@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1477 -->
+<!-- ants-roadmap-id-high-water: LWSM=1479 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13318,6 +13318,40 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: investigate.
   Source: review-code-2026-11-04 (lane 06, open question).
   Lanes: mainwindow.
+
+- 📋 [LWSM-1478] **User-facing sentences are built in core modules and in __main__, out of the translator's reach.**
+  Priority: 4.
+  Seven review lanes (02, 04, 05, 07, 09, 10, 11) found English
+  sentences built outside the translator's reach: controller
+  `action_failed` and port-lookup sentences, `settings` and `registry`
+  reasons, `foreign.TreeRefused`, `service` reasons, theme high-contrast
+  labels, and `__main__` print() notices (argparse text and log lines
+  are deliberately untranslated, ROADMAP note 2026-08-06). Calibrated
+  MEDIUM to LOW: no QTranslator is installed (LWSM-1304's "Latent
+  today"). Sites: the lane files of the 2026-11-04 review, kept outside
+  the repo. Likely shape: core modules return a reason code plus
+  arguments, and the window translates.
+  Waiting-on: user (fix this before 0.4.0, or move it to 1.0.0 where a
+  translation could first ship? Recommend moving it to 1.0.0: no user
+  sees an untranslated string today, and the change touches seven
+  modules, 2026-11-04).
+  **Layman:** Some messages the app shows are written in parts of the code that a future translation would never see, so they would stay in English.
+  Kind: review-fix.
+  Source: review-code-2026-11-04.
+  Lanes: controller, settings, registry, service, foreign, theme, main.
+
+- 📋 [LWSM-1479] **A registry test fails when pytest's temporary directory has a long path.**
+  Priority: 5.
+  `tests/test_registry.py::test_a_failed_write_leaves_the_old_file_intact`
+  fails under a long `--basetemp`: `quoted()` clips the error message
+  before the text the test matches on. The default short basetemp
+  passes, so the gate is unaffected. Seen 2026-11-04 by the group 1
+  close-findings run. Fix: match on text before the clipped path, or
+  build the message's path short.
+  **Layman:** One test gives a false failure when run from a folder with a very long name, because the error message it checks gets shortened.
+  Kind: test.
+  Source: review-code-2026-11-04.
+  Lanes: registry, tests.
 
 ## 0.5.0 — Logs
 
