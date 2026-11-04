@@ -247,7 +247,8 @@ class TrustStore:
     only, which is what every test's `Supervisor` gets.
 
     **Every failure here errs towards asking again.** An unreadable file, a
-    malformed entry or a newer schema trusts nothing it cannot read, and a save
+    repeated key, a malformed entry or a newer schema trusts nothing it cannot
+    read, and a save
     that fails keeps the confirmation for this session only. Each says why in
     `reasons` and the log. Nothing is gated on a refused read, unlike
     `projects.json`: rewriting over a refused file loses confirmations, and a
@@ -276,7 +277,7 @@ class TrustStore:
         # `Infinity`: this one took them while the other two config files
         # refused them. Refusing trusts nothing, the safe direction.
         try:
-            document = load_json_object(path).data
+            loaded = load_json_object(path)
         except FileNotFoundError:
             return  # first run: nothing confirmed yet, and nothing wrong
         except JsonFileRefused as exc:
@@ -289,6 +290,17 @@ class TrustStore:
             else:
                 self._refuse(f"{where}: not valid JSON ({type(cause).__name__})")
             return
+        if loaded.duplicate_keys:
+            # Which of two values the user meant is unknowable, and last-wins
+            # let a hand edit choose the launcher that runs unasked. Nothing
+            # in the file is trusted, like any file this store cannot read
+            # (LWSM-1436).
+            self._refuse(
+                f"{quoted(str(path))}: repeats the key "
+                f"{quoted(loaded.duplicate_keys[0])}; trusting nothing in it"
+            )
+            return
+        document = loaded.data
         version = document.get("schema_version")
         if type(version) is not int or version != TRUST_SCHEMA_VERSION:
             self._refuse(
@@ -403,12 +415,23 @@ class StartedStore:
 
     def _load(self, path: Path) -> None:
         try:
-            document = load_json_object(path).data
+            loaded = load_json_object(path)
         except FileNotFoundError:
             return
         except JsonFileRefused as exc:
             log.warning("started record %s refused: %s", quoted(str(path)), exc)
             return
+        if loaded.duplicate_keys:
+            # Which of two PIDs, or two projects, is the server's is
+            # unknowable, so nothing is adopted: those servers read
+            # `running (foreign)`, the safe direction (LWSM-1436).
+            log.warning(
+                "started record %s repeats the key %s; adopting nothing",
+                quoted(str(path)),
+                quoted(loaded.duplicate_keys[0]),
+            )
+            return
+        document = loaded.data
         version = document.get("schema_version")
         started = document.get("started")
         if type(version) is not int or version != STARTED_SCHEMA_VERSION:

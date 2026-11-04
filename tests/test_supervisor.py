@@ -3091,6 +3091,29 @@ def test_a_trust_file_holding_nan_is_refused_like_the_other_two(
     assert store.reasons == [f"{quoted(str(path))}: not valid JSON (ValueError)"]
 
 
+def test_a_trust_file_that_repeats_a_key_trusts_nothing_and_says_why(
+    project: Path, tmp_path: Path
+) -> None:
+    """LWSM-1436: the reader kept the last of two fingerprints for one project
+    and said nothing, so a hand edit decided which launcher ran unasked.
+    Neither is trusted, the store's rule for anything it cannot read."""
+    path = tmp_path / "trust.json"
+    key = json.dumps(str(project.resolve()))
+    path.write_text(
+        f'{{"schema_version": 1, "confirmed": {{{key}: "{"0" * 64}", '
+        f'{key}: "{FINGERPRINT}"}}}}',
+        encoding="utf-8",
+    )
+
+    store = TrustStore(path)
+
+    assert not store.is_confirmed(project, FINGERPRINT)
+    assert store.reasons == [
+        f"{quoted(str(path))}: repeats the key {quoted(str(project.resolve()))}; "
+        "trusting nothing in it"
+    ]
+
+
 def test_a_trust_file_that_is_not_an_object_says_so(
     project: Path, tmp_path: Path
 ) -> None:
@@ -3663,6 +3686,33 @@ def test_an_adopted_server_is_owned_and_stops(tmp_path: Path, project: Path) -> 
         assert outcome.exit_code is None, "an adopted leader cannot be waited on"
         assert not second.running()
         assert stored(record) == []
+    finally:
+        second.close()
+        _reap(managed.popen)
+
+
+def test_a_record_that_repeats_a_key_adopts_nothing(
+    tmp_path: Path, project: Path
+) -> None:
+    """LWSM-1436: the reader kept the last of two values and said nothing, so
+    a hand edit decided which process was adopted as ours. The last value here
+    names a live server that would pass every adoption check."""
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    managed = start_sleeper(first, project)
+    first.close()
+    (entry,) = stored(record)
+    record.write_text(
+        '{"schema_version": 1, "started": [{'
+        f'"project": {json.dumps(entry["project"])}, "name": "demo", '
+        f'"pid": 4242, "pid": {entry["pid"]}, '
+        f'"create_time": {entry["create_time"]!r}, "port": null}}]}}',
+        "utf-8",
+    )
+    second = started_session(tmp_path, record)
+    try:
+        assert second.adopt() == frozenset()
+        assert not second.running()
     finally:
         second.close()
         _reap(managed.popen)
