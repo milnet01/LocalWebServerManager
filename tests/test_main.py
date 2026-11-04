@@ -738,6 +738,23 @@ def test_a_tilde_naming_nobody_is_skipped_not_fatal(tmp_path) -> None:
     assert scanroots.default_scan_roots(config) == (Path("/srv/real"),)
 
 
+def test_a_relative_scan_root_is_skipped_not_walked_from_the_working_directory(
+    tmp_path,
+) -> None:
+    """LWSM-1465: `projects` on its own line was kept, and the scan then
+    listed it relative to whatever directory the app was started from, so
+    the same file scanned different folders from a terminal and from the
+    menu. It is skipped the way a `~user` naming nobody is; `~/code` still
+    expands to an absolute path and is kept.
+    """
+    config = tmp_path / "scan-roots"
+    config.write_text("projects\n~/code\n/srv/real\n", encoding="utf-8")
+    assert scanroots.default_scan_roots(config) == (
+        Path.home() / "code",
+        Path("/srv/real"),
+    )
+
+
 def test_a_config_with_nothing_in_it_falls_back_rather_than_scanning_nowhere(
     tmp_path,
 ) -> None:
@@ -1649,6 +1666,10 @@ def test_a_scan_roots_file_that_cannot_be_read_is_not_written_over(
         # cannot be written at all (L04-L4).
         "/srv/nul\x00byte",
         "/srv/bad\udcff",
+        # LWSM-1465: a relative root is walked from the process's working
+        # directory, and one starting with `#` is read back as a comment.
+        "projects",
+        "#notes",
     ],
 )
 def test_a_root_the_file_cannot_represent_is_refused_not_silently_lost(

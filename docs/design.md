@@ -811,8 +811,9 @@ deliberately not JSON:
   being asked again — which is why a newer schema is refused rather
   than migrated.
 - `~/.config/localwebservermanager/scan-roots` — where to look
-  for projects. One directory per line, `#` comments, `~`
-  expanded, order preserved because it is the walk order. **No
+  for projects. One absolute directory per line, `#` comments,
+  `~` expanded, order preserved because it is the walk order. A
+  relative line is skipped and never saved (LWSM-1465). **No
   `schema_version`, and that is the point**: it exists to be
   hand-edited before there is a window to edit it in, and it is
   the setting that decides whether the app finds anything at all.

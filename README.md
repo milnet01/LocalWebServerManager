@@ -127,7 +127,8 @@ password.
 
 1. **Tell it where your projects are.** Create the file
    `~/.config/localwebservermanager/scan-roots` with one folder
-   per line (or set them later in **Settings > Preferences**):
+   per line, as a full path or starting with `~` (or set them later
+   in **Settings > Preferences**):
 
    ```
    # one directory per line; blank lines and #comments are ignored

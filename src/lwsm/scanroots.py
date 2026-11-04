@@ -5,8 +5,9 @@ Core module — no Qt at all, like `configfile.py` (`docs/standards/coding-overr
 while its module-map entry named none of it, and whose reader and writer each
 spelled out which lines are directories. That rule is `_is_root_line` now.
 
-One directory per line; blank lines and lines whose first non-space character
-is `#` are comments. The file sits beside `projects.json`.
+One absolute directory per line, `~` expanded; blank lines and lines whose
+first non-space character is `#` are comments. The file sits beside
+`projects.json`.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ SCAN_ROOTS_FILENAME = "scan-roots"
 
 
 SCAN_ROOTS_HEADER = (
-    "# Directories to scan for projects, one per line.\n"
+    "# Directories to scan for projects, one full path per line.\n"
     "# Blank lines and lines starting with # are ignored.\n"
 )
 """What a file this app wrote says about itself, when the user wrote nothing."""
@@ -106,6 +107,11 @@ def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
             raise ConfigFileError(
                 f"{root!r}: a scan root cannot hold a NUL or text that is not UTF-8"
             )
+        # A relative root is walked from the process's working directory, and
+        # one starting with `#` reads back as a comment (LWSM-1465). Both
+        # choosers hand over absolute paths, so only another caller reaches it.
+        if not root.is_absolute():
+            raise ConfigFileError(f"{root!r}: a scan root must be an absolute path")
 
     path = scan_roots_path(config)
     body = "".join(f"{root}\n" for root in roots)
@@ -114,16 +120,21 @@ def save_scan_roots(roots: Sequence[Path], config: Path | None = None) -> None:
 
 
 def _expanded(line: str) -> Path | None:
-    """`~` expanded, or None for a `~user` naming nobody.
+    """`~` expanded, or None for a `~user` naming nobody or a relative path.
 
     `expanduser` raises `RuntimeError` there, and this runs before any window
     exists, so a typo in the file stopped the app opening (review-code
     2026-10-08 L04-M1). The line is skipped; the others still count.
+
+    A relative line is skipped the same way (LWSM-1465). Kept, it was walked
+    from the process's working directory, so one file scanned different
+    folders depending on where the app was started.
     """
     try:
-        return Path(line).expanduser()
+        root = Path(line).expanduser()
     except RuntimeError:
         return None
+    return root if root.is_absolute() else None
 
 
 def _leading_comment_block(path: Path) -> str:
@@ -214,7 +225,8 @@ def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
 
     Format is one directory per line. Blank lines and lines whose first
     non-space character is `#` are ignored, so the file can explain itself.
-    `~` is expanded. Order is kept, because it is the order the scan walks.
+    `~` is expanded, and a line that is still not an absolute path is
+    skipped. Order is kept, because it is the order the scan walks.
 
     A file that cannot be read is treated as absent rather than fatal: this
     runs before the window exists, and a config the user cannot fix without a
