@@ -1856,6 +1856,12 @@ class Supervisor:
         # and this runs on every upkeep tick for a wrapper-style launcher.
         members: list[psutil.Process] = []
         seen_leader = False
+        #
+        # The cheap answer is about a bare PID, so it is asked again once a
+        # handle exists, and `is_running()` then confirms the PID still names
+        # that handle's process. Asked only in the other order, a PID reused
+        # between the two calls got a handle to a process outside the group,
+        # which was then signalled (LWSM-1439).
         for pid in psutil.pids():
             try:
                 if os.getpgid(pid) != pgid:
@@ -1863,8 +1869,10 @@ class Supervisor:
                 if pid == managed.pid:
                     seen_leader = True
                     members.append(managed.handle)
-                else:
-                    members.append(psutil.Process(pid))
+                    continue
+                proc = psutil.Process(pid)
+                if os.getpgid(pid) == pgid and proc.is_running():
+                    members.append(proc)
             except (OSError, psutil.Error):
                 continue
         if not seen_leader:

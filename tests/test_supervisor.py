@@ -3205,6 +3205,42 @@ def test_a_stop_that_fails_with_any_error_before_signalling_keeps_the_project(
         supervisor.stop(project, grace=0.5)
 
 
+def test_a_pid_that_left_the_group_before_its_handle_was_built_is_not_signalled(
+    supervisor, project, monkeypatch
+) -> None:
+    """LWSM-1439: the group walk asked `getpgid` of a bare PID and built the
+    handle afterwards, so a PID reused between the two was signalled as a
+    member. Simulated by a first answer that is stale: the PID was in our
+    group when asked and is a stranger by the time the handle exists.
+
+    Dies on dropping the second `getpgid` taken through the handle."""
+    write_launcher(project, "sleep 30 &\ntouch ready\nwait\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    await_ready(project)
+    stranger = subprocess.Popen(["sleep", "30"])  # in the test's own group
+    real = os.getpgid
+    stale = [stranger.pid]
+
+    def first_answer_stale(pid: int) -> int:
+        if pid in stale:
+            stale.remove(pid)
+            return managed.pid
+        return real(pid)
+
+    try:
+        monkeypatch.setattr(supervisor_module.os, "getpgid", first_answer_stale)
+        outcome = supervisor.stop(project, grace=0.5)
+        monkeypatch.undo()
+
+        assert stranger.pid not in outcome.terminated
+        assert stranger.poll() is None, "a process outside the group was signalled"
+    finally:
+        monkeypatch.undo()
+        stranger.kill()
+        stranger.wait()
+
+
 def test_a_stop_that_fails_before_signalling_keeps_the_started_record(
     tmp_path: Path, project: Path, monkeypatch
 ) -> None:
