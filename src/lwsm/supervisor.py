@@ -1513,9 +1513,21 @@ class Supervisor:
                 dropped.append(entry.project)
                 continue
             with self._registry.lock:
-                held = self._registry.processes.setdefault(entry.project, managed)
+                # A start or stop in flight owns the key as `processes` does:
+                # a start would overwrite this entry at its insert and leak the
+                # descriptor opened here (LWSM-1442).
+                reserved = (
+                    entry.project in self._registry.starting
+                    or entry.project in self._registry.stopping
+                )
+                held = (
+                    None
+                    if reserved
+                    else self._registry.processes.setdefault(entry.project, managed)
+                )
             if held is not managed:
-                # Started this session already, so the record is that start's.
+                # Started, starting or stopping this session already, so the
+                # record is that start's.
                 _close_quietly(managed.log_fd)
                 continue
             taken.add(entry.project)

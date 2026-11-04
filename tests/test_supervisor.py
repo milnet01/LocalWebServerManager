@@ -3668,6 +3668,29 @@ def test_an_adopted_server_is_owned_and_stops(tmp_path: Path, project: Path) -> 
         _reap(managed.popen)
 
 
+@pytest.mark.parametrize("reservation", ["starting", "stopping"])
+def test_adoption_leaves_a_project_with_a_start_or_stop_in_flight_alone(
+    tmp_path: Path, project: Path, reservation: str
+) -> None:
+    """LWSM-1442: `adopt()` checked only `processes`, so a start in flight
+    for the same project later overwrote the adopted entry and leaked its log
+    descriptor. Dies on dropping the reservation check."""
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    managed = start_sleeper(first, project)
+    first.close()
+    second = started_session(tmp_path, record)
+    try:
+        getattr(second._registry, reservation).add(project.resolve())
+
+        assert second.adopt() == frozenset()
+        assert not second.running()
+    finally:
+        getattr(second._registry, reservation).discard(project.resolve())
+        second.close()
+        _reap(managed.popen)
+
+
 def test_an_adopted_server_stays_ours_after_its_launcher_exits(
     tmp_path: Path, project: Path
 ) -> None:
