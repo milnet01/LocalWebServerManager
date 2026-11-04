@@ -1200,6 +1200,29 @@ def save_projects(
         raise RegistryError(str(exc)) from exc
 
 
+def load_after_save(
+    path: Path,
+    records: Sequence[ProjectRecord],
+    load: LoadResult | RegistryError | None,
+) -> LoadResult:
+    """The load the NEXT save of `path` must be given, once `records` are on it.
+
+    Built here rather than by the caller, because which fields carry over is a
+    fact about this module's file. A window that built its own dropped
+    `unknown`, so a key a newer build wrote at the top of the file survived the
+    first save of a session and was erased by the second (review-code
+    2026-11-04 L02-H1). `raw` is left empty on purpose: the backup is taken
+    once per run, from the file as the app started with it (`_back_up`).
+    """
+    return LoadResult(
+        records=list(records),
+        reasons=[],
+        rows_refused=0,
+        path=path,
+        unknown=load.unknown if isinstance(load, LoadResult) else (),
+    )
+
+
 def backup_path(path: Path) -> Path:
     """`projects.json.bak` beside `path` (LWSM-1039)."""
     return path.with_name(path.name + ".bak")

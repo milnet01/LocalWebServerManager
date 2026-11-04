@@ -2181,6 +2181,55 @@ def test_a_refused_write_is_retried_by_the_next_rescan(qtbot, built, tmp_path) -
     window.shutdown()
 
 
+def test_a_top_level_key_survives_the_second_save_of_a_session(
+    qtbot, built, tmp_path
+) -> None:
+    """review-code 2026-11-04 L02-H1: the load rebuilt after a save left out
+    `unknown`, so the FIRST save kept a key a newer build wrote at the top of
+    the file and the SECOND erased it with nothing said. LWSM-1038's automatic
+    confirmed-port save makes a second save the ordinary case.
+
+    Two real saves through the real writer, because the defect is in what one
+    save hands the next: a fake writer that records its arguments would also
+    see it, but only a file read back shows that the key is gone.
+    """
+    path = tmp_path / "projects.json"
+    registry.save_projects(
+        path,
+        [record("a", 3000)],
+        load=LoadResult([], [], 0, unknown=(("later_key", '{"kept":[1,2]}'),)),
+    )
+    loaded = registry.load_projects(path)
+    assert loaded.unknown, "precondition: the load kept the key"
+    controller = build_controller(built, list(loaded.records), FakeProbe())
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        projects_file=registry.ProjectsFile(path),
+        load=loaded,
+    )
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    project = controller.records()[0].path
+
+    window.set_project_hidden(project, True)
+    assert json.loads(path.read_text(encoding="utf-8"))["later_key"] == {
+        "kept": [1, 2]
+    }, "precondition: the first save kept it"
+    window.set_project_hidden(project, False)
+
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["projects"][0].get("hidden", False) is False, (
+        "precondition: the second save reached the disk"
+    )
+    assert document.get("later_key") == {"kept": [1, 2]}, (
+        "the second save erased a key this build does not know"
+    )
+    window.shutdown()
+
+
 def test_a_rescan_that_raises_re_enables_the_button(qtbot, built, tmp_path) -> None:
     """PySide6 swallows an exception escaping `QRunnable.run()` and emits no
     signal, so without the catch-all the in-flight flag stays set and Rescan

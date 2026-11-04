@@ -4363,12 +4363,10 @@ class MainWindow(QMainWindow):
                 # The next write, of any kind, compares against what is now on
                 # disk. Without this, a first run stays `RegistryMissing` for
                 # the life of the session and every later write is
-                # unconditional.
-                self._load = LoadResult(
-                    records=list(records),
-                    reasons=[],
-                    rows_refused=0,
-                    path=self._projects_file.path,
+                # unconditional. Built by the registry, which knows which
+                # fields must carry to the next save (L02-H1).
+                self._load = registry.load_after_save(
+                    self._projects_file.path, records, self._load
                 )
 
         self._controller.set_records(records)

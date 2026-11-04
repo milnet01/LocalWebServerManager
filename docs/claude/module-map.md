@@ -318,7 +318,9 @@ Added at P02 (LWSM-1005), contract in
   became **`_apply_merge`**, shared by both, because the write gate, the
   `RegistryError` handling and the `self._load` refresh after a successful write
   are the same three rules either way — and a second copy is a second place to
-  forget the refresh.
+  forget the refresh. **The refresh is built by `registry.load_after_save`**,
+  not by hand: a hand-built one dropped `unknown`, so the second save of a
+  session erased top-level keys a newer build wrote (LWSM-1430).
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](../specs/LWSM-1006-scanner-detection.md):

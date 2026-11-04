@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1429 -->
+<!-- ants-roadmap-id-high-water: LWSM=1430 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12458,6 +12458,19 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: fix.
   Source: user-report-2026-11-02.
   Lanes: service.
+
+- 🚧 [LWSM-1430] **The second save of a session erases top-level keys a newer build wrote in projects.json.**
+  Priority: HIGH.
+  After a save, `MainWindow._write_records` rebuilt `self._load` by hand
+  and left out `unknown`, so the next `save_projects` passed `()` and
+  every top-level key this build has no name for was erased. LWSM-1038's
+  automatic confirmed-port save makes a second save the ordinary case.
+  Fix: `registry.load_after_save` builds the refreshed load, so the
+  module that owns the file decides which fields carry over.
+  **Layman:** If a newer version of the app added something to the project list, this version kept it the first time it saved and threw it away the second time.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 02, H1).
+  Lanes: registry, mainwindow.
 
 ## 0.5.0 — Logs
 
