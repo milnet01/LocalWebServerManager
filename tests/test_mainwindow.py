@@ -9131,23 +9131,34 @@ def test_a_setting_written_but_not_made_durable_is_called_saved(
 
 
 @pytest.mark.parametrize("which", ["text size", "theme"])
-def test_a_saver_s_programming_error_is_not_reported_as_a_save_failure(
-    qtbot, built, which
+def test_a_saver_s_programming_error_is_logged_and_named_as_internal(
+    qtbot, built, caplog, which
 ) -> None:
     """review-code 2026-10-08 L07-L7: `except Exception` turned a bug in the
-    saver into "could not be saved", hiding it. Caught by name, as the
-    geometry saver does; anything else propagates."""
+    saver into "could not be saved", hiding it. Narrowing the catch let the bug
+    escape a menu slot instead, where Qt prints and drops it: the choice showed
+    on screen, nothing was saved, and neither the banner nor the log said so
+    (review-code 2026-11-04 L07-L1, LWSM-1471). Driven through the menu, the
+    route where Qt swallows it. The traceback reaches the log, and the banner
+    names an internal error rather than the saver's own words."""
 
     def broken(_value) -> None:
         raise TypeError("a bug, not a full disk")
 
     window, _ = scaled_window(qtbot, built, save_text_scale=broken, save_theme=broken)
 
-    with pytest.raises(TypeError):
+    with caplog.at_level(logging.WARNING, logger="lwsm.mainwindow"):
         if which == "text size":
-            window.set_text_scale(200)
+            window._text_size_actions[200].trigger()
         else:
-            window.set_theme("emerald")
+            window._theme_actions["emerald"].trigger()
+
+    assert any(r.exc_info and r.exc_info[0] is TypeError for r in caplog.records), (
+        "the saver's bug left no traceback in the log"
+    )
+    message = message_of(window)
+    assert "internal error" in message, message
+    assert "a bug, not a full disk" not in message, message
 
 
 # --- LWSM-1385: a port's source and any disagreement, on the row -------------

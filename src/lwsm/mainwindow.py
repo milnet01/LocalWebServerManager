@@ -2696,10 +2696,17 @@ class MainWindow(QMainWindow):
         One copy for the text size and the theme. `design.md § Observability`:
         every config write reaches the log, failures included (L2-L4).
 
-        Caught by name, as the geometry saver does: `except Exception` reported
-        a bug in the saver as a full disk (review-code 2026-10-08 L07-L7). And
-        `SettingsNotDurable` first, because the file WAS written and only its
-        survival of a crash is in doubt (known-issue-047; L07-M1's mechanism).
+        The expected failures are caught by name: `except Exception` alone
+        reported a bug in the saver as a full disk (review-code 2026-10-08
+        L07-L7). And `SettingsNotDurable` first, because the file WAS written
+        and only its survival of a crash is in doubt (known-issue-047; L07-M1's
+        mechanism).
+
+        Anything else is a bug, and it still gets the last clause: this runs in
+        a menu slot, where an escaping exception is printed and dropped by Qt,
+        so the choice stayed on screen unsaved with no banner and no log record
+        (review-code 2026-11-04 L07-L1). The traceback goes to the log, and the
+        banner says the cause was internal rather than quoting it.
         """
         try:
             save(value)
@@ -2709,6 +2716,16 @@ class MainWindow(QMainWindow):
         except (ConfigFileError, OSError) as exc:
             log.warning("the %s could not be saved: %s", what, exc)
             self.set_status_message(failed.replace("%1", str(exc)))
+        except Exception:
+            log.exception("the %s could not be saved: an internal error", what)
+            self.set_status_message(
+                failed.replace(
+                    "%1",
+                    QCoreApplication.translate(
+                        "ProjectRow", "an internal error, recorded in the log"
+                    ),
+                )
+            )
 
     def _retranslate_menus(self) -> None:
         """`QCoreApplication.translate` under the file's one context, never
