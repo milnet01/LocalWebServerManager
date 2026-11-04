@@ -440,6 +440,39 @@ def test_the_port_matcher_does_not_backtrack(label: str, line: str) -> None:
     assert time.perf_counter() - started < 1.0
 
 
+_TEN_LINES = 10 * scanner.MAX_SOURCE_LINE_CHARS
+
+
+@pytest.mark.parametrize(
+    ("rule", "line"),
+    [
+        # Every digit sits in a subscript, so every one was checked against
+        # every subscript span (LWSM-1463).
+        (rule_2, ("PORT = " + "[1]" * 20000)[:_TEN_LINES]),
+        # One token holding every `PORT=`, each rejected, so each walked back
+        # to the token's start. `a b` keeps rule 2 from accepting the line.
+        (rule_1, ("a b.PORT=1." + "PORT=1." * 10000)[:_TEN_LINES]),
+    ],
+    ids=["subscripts", "one long token"],
+)
+def test_a_crafted_line_costs_the_rules_linear_time(
+    rule: Callable[[str], int | None], line: str
+) -> None:
+    """LWSM-1463: two shapes whose cost grew with the square of the line.
+
+    Measured 2026-11-04 at the 4096-character cap: 70 ms and 120 ms a line
+    before the fix, so a 256 KB file of them took 4.4 s and 7.7 s of the 20 s
+    scan budget; about 2 ms after. The fixture is ten times the cap so the two
+    differ by orders of magnitude rather than by a hair: a quadratic matcher
+    takes about a hundred times as long here, and a linear one about ten.
+    INV-15's one-second ceiling then holds with room either side.
+    """
+    assert rule(line) is None, "the line must be rejected, or the rules stop early"
+    started = time.perf_counter()
+    rule(line)
+    assert time.perf_counter() - started < 1.0
+
+
 # --------------------------------------------------------------------------
 # § 4.4 step 3 — reading a port out of a unit's properties
 # --------------------------------------------------------------------------
@@ -2386,6 +2419,30 @@ def test_a_budget_expiring_inside_a_read_still_reports_a_timeout(
     )
 
     assert result.timed_out is True
+    assert result.projects == ()
+
+
+def test_matching_the_lines_read_is_inside_the_budget(tmp_path: Path) -> None:
+    """LWSM-1463: the budget was checked while a file was READ, and not
+    while the port rules ran over what was read, so a file that read quickly
+    and matched slowly ran unbudgeted.
+
+    The clock moves once per check. Reading 300 lines takes about 300 of the
+    500 checks the budget allows, so the scan times out only if the rules ask
+    the budget per line too.
+    """
+    make_project(
+        tmp_path,
+        "proj",
+        {"start.sh": "#!/bin/sh\n" + "# filler\n" * 300},
+        "start.sh",
+    )
+
+    result = scanner.scan(
+        [tmp_path], units=FakeUnits(), now=Clock(step=0.001), budget_seconds=0.5
+    )
+
+    assert result.timed_out is True, "the rules ran without asking the budget"
     assert result.projects == ()
 
 

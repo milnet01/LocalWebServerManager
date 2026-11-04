@@ -467,7 +467,7 @@ _COMMAND_WORDS = frozenset({"export", "env", "then", "do", "else", "elif", "="})
 _DECLARATORS = frozenset({"const", "let", "var", "local", "declare", "readonly"})
 
 
-def _declaration_position(line: str, end: int) -> bool:
+def _declaration_position(line: str, end: int, known: list[int] | None = None) -> bool:
     """Whether the text before `end` leaves a declaration about to start.
 
     `_ASSIGNMENT` is defined with the hop rules below and is the same shell
@@ -486,6 +486,13 @@ def _declaration_position(line: str, end: int) -> bool:
     start of the line ends it — so the work is the length of that token, not
     of the line. Verified against the prefix form over 4,030 shapes before the
     swap: a rewrite for speed that changes an answer is not a rewrite.
+
+    **One token can be the whole line**, and then every match inside it walks
+    back over every match before it: `a b.PORT=1.PORT=1…` cost 120 ms a line
+    (LWSM-1463). `known` is the caller's record of the previous walk, as
+    `[where it began, where it stopped]`. A walk reaching the point where the
+    previous one began would retrace it, so it takes that one's answer and
+    stops. Matches arrive left to right, so one line costs one walk in total.
     """
     index = end
     while index > 0 and line[index - 1].isspace():
@@ -494,7 +501,12 @@ def _declaration_position(line: str, end: int) -> bool:
     while (
         stop > 0 and not line[stop - 1].isspace() and line[stop - 1] not in _SEPARATORS
     ):
+        if known is not None and stop == known[0]:
+            stop = known[1]
+            break
         stop -= 1
+    if known is not None:
+        known[:] = [index, stop]
     if stop == index:
         # Nothing between the separator (or the line start) and `end`, which
         # is the empty-`words` case: a declaration may start here.
@@ -533,6 +545,7 @@ def rule_1(line: str) -> int | None:
     The separator is load-bearing since LWSM-1190 — `and PORT=8080` is a
     sentence, and rule 1 no longer reads an assignment out of one.
     """
+    known = [-1, -1]  # no walk yet; `_declaration_position` keeps it
     for match in RULE_1.finditer(line):
         form = match.lastindex  # exactly one alternation group can have matched
         if form is None:  # unreachable: every alternative of RULE_1 is a group
@@ -544,7 +557,7 @@ def rule_1(line: str) -> int | None:
         # command position. `--port` and `localhost:` are neither, and stay
         # readable anywhere — including inside a quoted script value, which is
         # the only place a `package.json` port is ever written.
-        if form in (1, 2) and not _declaration_position(line, match.start()):
+        if form in (1, 2) and not _declaration_position(line, match.start(), known):
             continue
         return value
     return None
@@ -626,9 +639,14 @@ def rule_2(line: str) -> int | None:
         fallbacks = list(_FALLBACK.finditer(right))
         if fallbacks:
             right = right[fallbacks[-1].end() :]
-        excluded = _not_a_port_spans(right)
+        # A mark per character rather than a test against every span: a line
+        # of `[1][1]…` has as many spans as digits, and checking each digit
+        # against each span cost 70 ms a line (LWSM-1463).
+        excluded = bytearray(len(right))
+        for low, high in _not_a_port_spans(right):
+            excluded[low:high] = b"\x01" * (high - low)
         for digits in re.finditer(r"(?<![0-9-])\d{1,5}(?![0-9])", right):
-            if any(low <= digits.start() < high for low, high in excluded):
+            if excluded[digits.start()]:
                 continue
             # The range check lives HERE, not at the call site: an out-of-range
             # value must let the search carry on to the next separator, the next
@@ -684,6 +702,7 @@ def _scan_source(
     name: str,
     lines: Sequence[str],
     *,
+    deadline: Deadline | None,
     rules: tuple[tuple[Callable[[str], int | None], PortRule], ...] = _BOTH_RULES,
     strip: bool = True,
 ) -> PortFinding | None:
@@ -694,10 +713,17 @@ def _scan_source(
     declaration near the top is the one a human reads as authoritative — on a
     launcher holding `SERVER_PORT = 3000` above `exec node serve.js --port
     8080`, line-major returns 3000 and rule-major returns 8080.
+
+    `deadline` is checked before each line, as `_read_lines` checks it before
+    each read: a file read within the budget was then matched outside it
+    (LWSM-1463). It is required so a new caller has to choose; `None` is for
+    a value that is not a file — one unit property, one `scripts` entry.
     """
     if strip and name.endswith(".py"):
         lines = _without_docstrings(lines)
     for line in lines:
+        if deadline is not None and deadline.expired():
+            raise _BudgetExpired
         text = strip_comment(line) if strip else line
         for rule, produced_by in rules:
             value = rule(text)
@@ -1050,7 +1076,9 @@ def _walk_imports(
                 note(f"{_quoted(specifier)} cannot be read ({exc.strerror or exc})")
                 continue
             hops += 1
-            found = _scan_source(target.relative_to(candidate).as_posix(), hop_lines)
+            found = _scan_source(
+                target.relative_to(candidate).as_posix(), hop_lines, deadline=deadline
+            )
             if found is not None:
                 # INV-11: `source` names the file actually read, never the
                 # launcher that pointed at it.
@@ -1463,12 +1491,14 @@ def _systemd_port(props: dict[str, str], unit: str) -> PortFinding | None:
     source = f"the {unit} unit"
     environment = props["Environment"]
     if environment:
-        found = _scan_source(source, environment.split(), strip=False)
+        found = _scan_source(source, environment.split(), deadline=None, strip=False)
         if found is not None:
             return found
     argv_field = _exec_start_argv(props["ExecStart"])
     if argv_field:
-        return _scan_source(source, [argv_field], rules=_RULE_1_ONLY, strip=False)
+        return _scan_source(
+            source, [argv_field], deadline=None, rules=_RULE_1_ONLY, strip=False
+        )
     return None
 
 
@@ -1532,7 +1562,7 @@ def _shell_port(
     With `SERVER_PORT = 3000` in the launcher and `--port 8080` in the hop file,
     rule-major returns 8080 and this returns 3000.
     """
-    found = _scan_source(launcher.name, lines)
+    found = _scan_source(launcher.name, lines, deadline=deadline)
     if found is not None:
         return found
 
@@ -1543,7 +1573,9 @@ def _shell_port(
     if target is None:
         return None
 
-    found = _scan_source(target.relative_to(candidate).as_posix(), hop_lines)
+    found = _scan_source(
+        target.relative_to(candidate).as_posix(), hop_lines, deadline=deadline
+    )
     if found is not None:
         return found
     # LWSM-1184 — the wrapper is not the program. Measured live 2026-08-24:
@@ -1655,7 +1687,9 @@ def _node_package_port(script: str, dependencies: set[str]) -> PortFinding | Non
     substring — `vitest`, a test runner and among the commonest devDependencies
     there is, contains `vite` and is not a server at all.
     """
-    found = _scan_source("package.json", [script[:MAX_SOURCE_LINE_CHARS]])
+    found = _scan_source(
+        "package.json", [script[:MAX_SOURCE_LINE_CHARS]], deadline=None
+    )
     if found is not None:
         return found
     # The script value is stripped and clipped exactly as the port rules above
@@ -1701,7 +1735,7 @@ def _match_named_file(
         lines = _read_alternate(candidate, filename, quoted, deadline, note)
         if lines is None:
             continue
-        port = _scan_source(filename, lines)
+        port = _scan_source(filename, lines, deadline=deadline)
         if port is None:
             port = _import_hop_port(
                 candidate, candidate / filename, lines, deadline, note

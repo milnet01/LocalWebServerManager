@@ -1112,9 +1112,13 @@ def rule_2(line: str) -> int | None:
         fallbacks = list(_FALLBACK.finditer(right))
         if fallbacks:
             right = right[fallbacks[-1].end() :]
-        excluded = _not_a_port_spans(right)
+        # A mark per character, not a test against every span: `[1][1]…`
+        # has as many spans as digits (LWSM-1463).
+        excluded = bytearray(len(right))
+        for low, high in _not_a_port_spans(right):
+            excluded[low:high] = b"\x01" * (high - low)
         for digits in re.finditer(r"(?<![0-9-])\d{1,5}(?![0-9])", right):
-            if any(low <= digits.start() < high for low, high in excluded):
+            if excluded[digits.start()]:
                 continue
             # The range check lives HERE, not at the call site: an out-of-range
             # value must let the search carry on to the next separator, the next
@@ -1566,6 +1570,16 @@ is the property the derivation exists for.
   **The bound is 4096 rather than 40,000** because INV-3 caps every line at
   `MAX_SOURCE_LINE_CHARS`, so no longer line can reach the matcher through
   `scan()`; an earlier draft asserted 40,000, which INV-3 makes unreachable.
+  **Linear holds for rule 1 too, and a line under a second was not enough.**
+  `[1][1]…` (rule 2) and `a b.PORT=1.PORT=1…` (rule 1) were quadratic and
+  still took only 70 ms and 120 ms at the cap — but a 256 KB file is 64 lines,
+  which spent 4.4 s and 7.7 s of the 20 s budget (measured 2026-11-04,
+  LWSM-1463). *Test:*
+  `tests/test_scanner.py::test_a_crafted_line_costs_the_rules_linear_time`
+  runs both at ten times the cap under the same one-second ceiling. That
+  length is unreachable through `scan()`, and is chosen for that reason: it
+  separates quadratic from linear by orders of magnitude, where the cap
+  separates them by a few times.
 
 - **INV-16** — A candidate containing this application's own package is never
   listed as a project.
@@ -1875,7 +1889,7 @@ orders of magnitude rather than by a hair — which is what keeps it off
 | INV-2 | `tests/test_scanner.py::test_a_symlinked_candidate_is_not_scanned` |
 | INV-3 | `tests/test_scanner.py::test_an_oversized_file_is_refused`, `::test_an_over_long_line_is_clipped_and_its_tail_not_scanned` |
 | INV-4 | `tests/test_scanner.py::test_a_fifo_launcher_does_not_block`, `::test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours` |
-| INV-5 | `tests/test_scanner.py::test_the_budget_stops_a_scan_mid_candidate` |
+| INV-5 | `tests/test_scanner.py::test_the_budget_stops_a_scan_mid_candidate`, `::test_matching_the_lines_read_is_inside_the_budget` |
 | INV-6 | `tests/test_scanner.py::test_launcher_precedence`, `::test_a_candidate_with_no_launcher_is_not_listed` |
 | INV-7 | `tests/test_scanner.py::test_a_name_match_alone_does_not_bind_a_unit`, `::test_a_not_found_unit_is_not_confused_with_a_masked_one` |
 | INV-8 | `tests/test_scanner.py::test_a_hostile_unit_name_is_rejected`, `::test_the_unit_name_validator_bounds_length`, `::test_the_show_argv_separates_options_from_the_name` |
@@ -1885,7 +1899,7 @@ orders of magnitude rather than by a hair — which is what keeps it off
 | INV-12 | `tests/test_scanner.py::test_a_detected_project_has_no_user_owned_field` |
 | INV-13 | `tests/test_scanner.py::test_a_scan_leaves_the_tree_untouched` |
 | INV-14 | `tests/test_layering.py::test_core_never_imports_qtwidgets`, `::test_the_core_module_list_matches_the_criterion` |
-| INV-15 | `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack` |
+| INV-15 | `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack`, `::test_a_crafted_line_costs_the_rules_linear_time` |
 | INV-16 | `tests/test_scanner.py::test_the_app_does_not_detect_itself` |
 | INV-17 | `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit`, `::test_a_systemd_project_reads_exec_start_after_environment`, `::test_exec_start_is_a_record_and_only_its_argv_field_is_scanned` |
 | INV-18 | `tests/test_scanner.py::test_the_reason_list_is_capped_and_says_so`, `::test_a_newline_in_a_directory_name_cannot_forge_a_log_record`, `::test_the_source_of_a_port_finding_is_sanitised_like_a_reason`, `::test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours` |
