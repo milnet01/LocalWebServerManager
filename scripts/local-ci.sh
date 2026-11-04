@@ -211,8 +211,8 @@ uv run ruff format --check .
 # against never takes this mode, because the hook sends it to the full gate.
 # A step added below that reads prose must move above this line.
 if [[ $DOCS -eq 1 ]]; then
-    # uv is the one tool checked above, and its drift is as fatal here as in
-    # the full run's summary below, for that summary's reason.
+    # uv and python are the tools checked above, and their drift is as fatal
+    # here as in the full run's summary below, for that summary's reason.
     if ((${#DRIFTED[@]})); then
         printf '%sTOOL DRIFT: %s%s\n' "$YELLOW" "${DRIFTED[*]}" "$RESET"
         if [[ ${LWSM_REQUIRE_ALL_TOOLS:-0} == 1 ]]; then exit 1; fi
