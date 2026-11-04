@@ -7552,6 +7552,41 @@ def running_row(*, managed: bool):
     )
 
 
+def test_a_direction_override_in_a_name_cannot_reverse_the_warning(qtbot) -> None:
+    """LWSM-1469: a folder name ending in U+202E reversed every word drawn after
+    it, so the foreign-server warning a screen shows read backwards. Laid out
+    with `QTextLayout`, the renderer Qt draws with, rather than inferred from
+    the string."""
+    from PySide6.QtGui import QTextLayout
+
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="evil‮",
+            effective_port=5005,
+            status=ProjectStatus.RUNNING,
+            managed=False,
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+    text = row.stop_button.accessibleDescription()
+    tail = "did not start it"
+    assert tail in text, "precondition: the warning names whose server it is"
+
+    layout = QTextLayout(text, row.font())
+    layout.beginLayout()
+    line = layout.createLine()
+    line.setLineWidth(100_000)
+    layout.endLayout()
+    start = text.index(tail)
+    xs = [line.cursorToX(start + k)[0] for k in range(len(tail) + 1)]
+
+    assert xs == sorted(xs), f"the warning is drawn reversed: {text!r}"
+
+
 @pytest.mark.parametrize(
     "button_name", ["open_button", "stop_button", "restart_button"]
 )

@@ -91,8 +91,12 @@ class BoundedReasons:
 MAX_DISPLAY_NAME_CHARS = 120
 
 # C0, DEL and C1, lone surrogates, and U+2028/U+2029 — the two Unicode line
-# separators, which forge a second line exactly as a newline does.
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff\u2028\u2029]")
+# separators, which forge a second line exactly as a newline does. Then the
+# nine explicit direction controls, U+202A-U+202E and U+2066-U+2069, which
+# reorder the text drawn AFTER the name (LWSM-1469).
+_CONTROL = re.compile(
+    r"[\x00-\x1f\x7f-\x9f\ud800-\udfff\u2028\u2029\u202a-\u202e\u2066-\u2069]"
+)
 
 
 def display_text(text: str) -> str:
@@ -104,7 +108,14 @@ def display_text(text: str) -> str:
     closed — so every C0 and C1 control character becomes U+FFFD, and the
     result is clipped, with an ellipsis so a cut name reads as cut. U+FFFD
     rather than a space or a deletion, so the user can see something was there.
-    Format characters stay: emoji sequences and right-to-left names need them.
+    Format characters stay — emoji sequences and right-to-left names need
+    them — except the embeddings, overrides and isolates, which become U+FFFD
+    too (LWSM-1469). A name ending in U+202E reversed everything drawn after
+    it: the launcher and port in the first-run check box, the warning in a
+    row's tooltip. Wrapping each inserted name in an isolate pair instead was
+    measured and refused: a U+2069 inside the name closes the wrapper early.
+    The direction MARKS (U+200E, U+200F, U+061C) stay, because a mark opens no
+    run that could reach past the name, and a right-to-left name may need one.
 
     **Lives here rather than in `scanner.py`, where it was written.** LWSM-1249
     needed the identical treatment for a `.desktop` file's `Name`, which is

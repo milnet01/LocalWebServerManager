@@ -3147,6 +3147,27 @@ def test_display_text_breaks_no_line_and_shows_where_it_cut() -> None:
     assert display_text("sh‍ort") == "sh‍ort"  # ZWJ is kept
 
 
+@pytest.mark.parametrize("code", [*range(0x202A, 0x202F), *range(0x2066, 0x206A)])
+def test_display_text_replaces_every_explicit_direction_control(code: int) -> None:
+    """LWSM-1469: an override, embedding or isolate in a scanned name reorders
+    the text drawn after it — a name ending in U+202E reverses the rest of the
+    first-run check box. All nine go, the isolates too: a PDI inside a name
+    closes any isolate a caller wraps the name in (measured 2026-11-04)."""
+    from lwsm.configfile import display_text
+
+    assert display_text(f"evil{chr(code)}") == "evil�"
+
+
+def test_display_text_keeps_what_emoji_and_right_to_left_names_need() -> None:
+    """The contract's other half: joiners, variation selectors and the three
+    direction MARKS stay. A mark is a zero-width letter and opens no run that
+    could swallow the text after it."""
+    from lwsm.configfile import display_text
+
+    kept = "\U0001f469‍\U0001f4bb ❤️ שם‏ ‎؜"
+    assert display_text(kept) == kept
+
+
 @pytest.mark.parametrize(
     ("extra", "field"),
     [

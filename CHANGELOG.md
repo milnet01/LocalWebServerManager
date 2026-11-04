@@ -65,6 +65,7 @@ signaling per
 
 ### Security
 
+- **A project name holding a hidden direction character can no longer make the text after it read backwards. The character is shown as a replacement mark instead.** (LWSM-1469)
 - **Open in browser no longer opens a different server if the one on the port changed while you were reading the warning about it. Nothing opens, and the app asks you to try again.** (LWSM-1445)
 - **Stop and Restart on a server the app did not start are refused if a different program took over the same process number while you were reading the warning.** (LWSM-1444)
 

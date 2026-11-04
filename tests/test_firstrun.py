@@ -55,6 +55,23 @@ def test_each_line_names_the_project_what_starts_it_and_its_port(qtbot) -> None:
     assert describe(project("web", port=None)) == "web — ./run.sh, port not found"
 
 
+def test_a_scanned_direction_override_cannot_reverse_the_line(tmp_path) -> None:
+    """LWSM-1469: a folder named `evil<U+202E>` drew "- ./start.sh, port 3000"
+    reversed in the check box the user approves projects in. Through the real
+    scanner, which names the project from the folder."""
+    folder = tmp_path / "evil‮"
+    folder.mkdir()
+    (folder / "start.sh").write_text("#!/bin/sh\nPORT=3000 exec true\n")
+    (folder / "start.sh").chmod(0o755)
+    [found] = scanner.scan([tmp_path], units=FakeUnits()).projects
+
+    line = describe(
+        ProjectRecord(path=found.path, name=found.name, port=3000, argv=found.argv)
+    )
+
+    assert not any("‪" <= c <= "‮" or "⁦" <= c <= "⁩" for c in line)
+
+
 def test_an_ampersand_in_a_name_is_shown_not_taken_as_a_shortcut(qtbot) -> None:
     dialog = build(qtbot, [project("R&D")])
 
