@@ -89,7 +89,8 @@ if all of these hold:
 1. The process exists and its `create_time()` equals the stored one.
 2. `os.getpgid(pid) == pid`: it is still the leader of the group it was
    started in.
-3. The project is not already in the registry.
+3. The project is not already in the registry, nor held by a start or stop
+   in flight (LWSM-1442).
 
 A taken entry becomes a `ManagedProcess` with `popen=None`, the handle from
 step 1, and a log descriptor opened on `log_path_for(project, name)`. Every

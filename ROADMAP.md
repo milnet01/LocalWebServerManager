@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1436 -->
+<!-- ants-roadmap-id-high-water: LWSM=1448 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12565,7 +12565,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: review-code-2026-11-04 (lane 02, document-wrong LOWs).
   Lanes: docs.
 
-- 📋 [LWSM-1436] **The trust store and the started record discard repeated JSON keys, as settings.json did.**
+- ✅ [LWSM-1436] **The trust store and the started record discard repeated JSON keys, as settings.json did.**
   Priority: LOW.
   supervisor.py `TrustStore._load` and `StartedStore._load` read
   `load_json_object(path).data` and drop `duplicate_keys`, the same
@@ -12573,9 +12573,232 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   repeat needs a hand edit. Not fixed with LWSM-1433: each store's
   answer differs (refusing trusts nothing; the started record decides
   which running servers are adopted as this manager's after a relaunch), so the right response is a decision per store.
+  Resolved (2026-11-04, 0497f39), decided per store by each store's own
+  err-safe rule, so no user call: trust.json with a repeated key is
+  refused whole with a reason (one more question, never a launcher run
+  unasked); started.json with one adopts nothing, logged (those servers
+  read `running (foreign)`). Red first:
+  test_a_trust_file_that_repeats_a_key_trusts_nothing_and_says_why,
+  test_a_record_that_repeats_a_key_adopts_nothing.
   **Layman:** Two of the app's smaller files can quietly lose a value written twice, the same way the settings file could.
   Kind: review-fix.
   Source: review-code-2026-11-04 (found next door while closing LWSM-1433).
+  Lanes: supervisor.
+
+- ✅ [LWSM-1437] **An adopted server reads as a stranger's once its launcher exits, while its group still runs.**
+  Priority: MEDIUM.
+  `Supervisor.owns_pid` gates on `handle.is_running()`. That is the
+  PID-reuse guard for a child this process spawned, whose exited
+  launcher stays an unreaped zombie. An adopted leader (`popen is None`)
+  is reaped by its new parent the moment it exits, so `owns_pid`
+  returned False while `group_alive` and `reap_exited` still held the
+  group. LWSM-1428 INV-5 says an adopted project is ours; § 4.4 argues
+  the group id stays reserved while any member lives.
+  Fix: for an adopted entry, skip the `is_running()` gate and rely on
+  the group id, per § 4.4.
+  Resolved (2026-11-04, 5d93997): `owns_pid` skips the `is_running()`
+  gate when `popen is None`; the group id decides, per LWSM-1428 § 4.4,
+  which now says so. Red first:
+  test_an_adopted_server_stays_ours_after_its_launcher_exits ("the
+  server is not ours").
+  **Layman:** After the app restarts and takes a server back, the server could later be shown as someone else's if its start script finished first.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, M1).
+  Lanes: supervisor.
+
+- ✅ [LWSM-1438] **A stop that cannot enumerate the group forgets the server's started record.**
+  Priority: LOW.
+  `stop()` removed the `started.json` entry before `_group_members`
+  ran, and outside the `try` whose `finally` releases `stopping`. When
+  the enumeration fails the entry is put back in `processes`, but the
+  record stays gone, so the next launch shows the live server as
+  foreign.
+  Fix: remove the record only after the enumeration succeeds, inside
+  the `try`.
+  Resolved (2026-11-04, 33b140b): the record is removed after
+  `_group_members` succeeds, inside the `try`. Red first:
+  test_a_stop_that_fails_before_signalling_keeps_the_started_record.
+  **Layman:** If stopping a server failed before anything was signalled, the app could forget it had started that server, so after a relaunch it would look like someone else's.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, L1).
+  Lanes: supervisor.
+
+- ✅ [LWSM-1439] **The group walk checks membership on a bare PID before it holds a handle.**
+  Priority: LOW.
+  `_group_members` asked `os.getpgid(pid)` and only then built
+  `psutil.Process(pid)`. A PID reused between the two gets a handle
+  bound to the new process, which is then signalled. Inverts the
+  project's rule: confirm the PID is yours before signalling.
+  Fix: after the cheap filter, build the handle, ask `getpgid` again,
+  then confirm with `is_running()` on that handle.
+  Resolved (2026-11-04, 718fb74): handle first, then `getpgid` again,
+  then `is_running()`. Red first:
+  test_a_pid_that_left_the_group_before_its_handle_was_built_is_not_signalled.
+  The `is_running()` half is not test-driven.
+  **Layman:** In a tiny timing window, stopping a server could signal an unrelated process that had just taken over a finished process's number.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, L2).
+  Lanes: supervisor.
+
+- ✅ [LWSM-1440] **systemd-run is found on the app's own PATH, so a relative entry can name a file inside a project.**
+  Priority: LOW.
+  `scope_prefix` called `shutil.which("systemd-run")` on the app's
+  PATH, not the filtered child PATH. A relative entry there returns a
+  relative path, which `Popen(cwd=project)` resolves inside each
+  project, unseen by the trust gate.
+  Fix: search the child env's PATH and accept only an absolute result.
+  Resolved (2026-11-04, 61eddf6): `shutil.which` on the child env's
+  PATH; a relative answer gives no prefix. Red first:
+  test_systemd_run_is_found_on_the_child_path,
+  test_a_relative_systemd_run_means_a_plain_launch.
+  **Layman:** The helper that keeps servers alive after the app quits could, on an unusual setup, be picked up from a project's own folder instead of the system.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, L3).
+  Lanes: supervisor.
+
+- ✅ [LWSM-1441] **A stop that fails after SIGTERM records no stragglers, so Start can spawn beside a live group.**
+  Priority: LOW.
+  When `_escalate` raises after the SIGTERM went out, the entry is
+  already popped and its record removed, and nothing goes into
+  `stragglers`, so `start()` passes its pre-flight.
+  Fix: on that failure, record the members still alive as stragglers.
+  Resolved (2026-11-04, 7d1e98d): the failure path records the signalled
+  members still alive as stragglers. Red first:
+  test_a_stop_that_fails_after_signalling_blocks_a_start_beside_survivors
+  (a second child spawned).
+  **Layman:** If stopping a server went wrong halfway, the app could let you start it again while the old copy was still running.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, L4).
+  Lanes: supervisor.
+
+- ✅ [LWSM-1442] **adopt() ignores a start or stop already in flight for the same project.**
+  Priority: LOW.
+  `adopt()` used `processes.setdefault` and ignored `starting` and
+  `stopping`, so a start in flight overwrote the adopted entry at its
+  registry insert, leaking the adopted log descriptor. Today `adopt`
+  runs once, before any start.
+  Fix: skip an entry whose key is reserved, as the already-held case.
+  Resolved (2026-11-04, f90065d): a key in `starting` or `stopping` is
+  treated as held; LWSM-1428 § 4.3 step 3 says so. Red first:
+  test_adoption_leaves_a_project_with_a_start_or_stop_in_flight_alone.
+  **Layman:** A start racing the app's own take-back of a server could lose track of one of them.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, L5).
+  Lanes: supervisor.
+
+- ✅ [LWSM-1443] **A refused adoption does not say why.**
+  Priority: LOW.
+  `_adoptable` returned None on a `create_time` mismatch, a group
+  change or a missing process with nothing logged, so a refusal (for
+  example after a clock step) could not be told from no record.
+  Fix: one INFO line per refusal naming the check. Whether the
+  comparison itself should change is a separate item.
+  Resolved (2026-11-04, bd96a8d): one INFO line per refusal naming the
+  check. Red first (diagnostic):
+  test_a_refused_adoption_says_which_check_failed. The comparison
+  itself: LWSM-1448.
+  **Layman:** When the app declines to take back a server after a restart, its log now says which check failed.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, L7).
+  Lanes: supervisor.
+
+- ✅ [LWSM-1444] **The disclosed holder is compared by PID alone, not PID plus start time.**
+  Priority: LOW.
+  `MainWindow._shown_holder` handed the controller a bare PID and
+  `ProjectController._holder_changed` compared PIDs only. ADR-0004
+  makes a process's identity the PID plus its `create_time`, as
+  `Tree.identity` already does. A PID reused during the modal wait
+  passed.
+  Fix: carry `(pid, start time)` and compare both.
+  Resolved (2026-11-04, 895ad35): `service.holder_identity` gives (pid,
+  create_time); the window captures it through
+  `ProjectController.holder_identity`; `_holder_changed` refuses a new
+  PID or the same PID with another start time, and compares the PID
+  alone where no start time was readable. Red first:
+  test_a_holder_whose_pid_was_reused_during_the_disclosure_is_not_stopped;
+  both comparison mutants killed.
+  **Layman:** If a different program took over the same process number while you were reading a warning, Stop or Restart could act on it.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 08, mainwindow.py _shown_holder).
+  Lanes: mainwindow, controller.
+
+- ✅ [LWSM-1445] **Open acts on whatever holds the port after the disclosure, not on the holder it showed.**
+  Priority: MEDIUM.
+  `_open_project` re-read the row after `_may_act_on` and checked
+  neither the holder nor the status, so a holder that changed during
+  the modal disclosure was opened, and a row that became `port blocked`
+  still opened. ADR-0004 names this localhost-phishing case and says a
+  changed holder is asked about again.
+  Fix: capture the shown holder first; after a disclosure, refuse
+  unless the row is still running on the same port and holder.
+  Resolved (2026-11-04, b24dfd1): Open captures the holder before a
+  disclosure, then refuses unless the holder is unchanged (controller's
+  refusal) and the row is still running on the same port (banner line).
+  Red first:
+  test_open_is_refused_when_the_row_changed_during_the_disclosure
+  [holder], [stopped listening]. The status and port checks are a second
+  line no test kills alone.
+  **Layman:** If the server on a port changed while you were reading the warning, Open could take you to the new one instead of asking again.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 08, M1).
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1446] **A failed systemd scope check is remembered for the whole session, so later servers die on Quit.**
+  Priority: MEDIUM.
+  `Supervisor._spawn` caches `scope_prefix(env)` once. `scope_prefix`
+  returns `()` on any `OSError`, a 2 s timeout or a non-zero exit, and
+  that `()` is cached like a success, so every later server in the
+  session launches without a scope and Plasma's `KillMode=control-group`
+  kills it on Quit. Only an INFO line says so; the cause is discarded.
+  Not fixed now: ADR-0003 specifies the current behaviour ("`scope_prefix`
+  asks once per supervisor ... Where that fails, servers launch
+  plainly"). Re-asking costs a fast failing `systemd-run` per start with
+  no user manager, and up to 2 s on the UI thread per start while one
+  hangs.
+  Waiting-on: user (amend ADR-0003 so only a successful check is
+  remembered and a failed one is asked again at the next start, with its
+  cause logged at WARNING? Recommended: yes, a frozen start beats
+  servers silently dying on Quit, 2026-11-04).
+  **Layman:** If the check that keeps servers alive after you quit the app fails once (for example just after login), every server started later in that session stops when you quit.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, M2; synthesis theme 3).
+  Lanes: supervisor.
+
+- 📋 [LWSM-1447] **Quit waits without a limit for every stop in flight before the next launch can claim the app.**
+  Priority: LOW.
+  `Supervisor.close` calls `self._stoppers.shutdown(wait=True)`: about 9 s
+  per stop, four at a time. It runs after `app.exec()` returns, so the
+  window is already gone, but before the single-instance socket is
+  released.
+  Not fixed now: the review's remedy (a bounded wait, as the
+  controller's pools have) does not bound anything. Python joins
+  `ThreadPoolExecutor` workers at interpreter exit regardless, and
+  returning early lets `close()` close log descriptors a running stop
+  still owns (the LWSM-1138 double-close). Options: release the socket
+  first, or let a stop finish on a thread that owns its own descriptor.
+  Needs a design choice and a measured quit with stops in flight.
+  **Layman:** Quitting while several servers are stopping can keep the app's process alive for many seconds after its window has gone, and a relaunch in that time does nothing.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 01, L6).
+  Lanes: supervisor, main.
+
+- 📋 [LWSM-1448] **Adoption compares a wall-clock create_time exactly, so a clock step between sessions refuses our own server.**
+  Priority: LOW.
+  psutil 7.2.2 on Linux computes `create_time()` as the process's start
+  ticks plus `/proc/stat`'s `btime`, re-read on every call. `btime` is
+  whole seconds of wall clock minus uptime, so a clock step, and perhaps
+  NTP slewing across a rounding boundary, changes the value for the same
+  process. `_adoptable` compares it with `!=` against `started.json`.
+  The failure is safe: the row reads `running (foreign)`. Within one
+  session `is_running()` is unaffected, because psutil's identity uses
+  the monotonic start time (`create_time(monotonic=True)`).
+  What settles it: step the clock on a test machine between two
+  sessions and watch whether adoption is refused. A fix changes the
+  `started.json` format (store the monotonic start and the boot id), so
+  it is spec-first under CLAUDE.md's review cadence rule 2.
+  **Layman:** If the computer's clock was corrected between two runs of the app, the app may fail to recognise servers it started.
+  Kind: investigate.
+  Source: review-code-2026-11-04 (lane 01, L7 and open question).
   Lanes: supervisor.
 
 ## 0.5.0 — Logs

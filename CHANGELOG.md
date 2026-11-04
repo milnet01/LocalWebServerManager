@@ -36,6 +36,10 @@ signaling per
 
 ### Fixed
 
+- **A site the app took back after a restart no longer turns "foreign" when its start script finishes while the site keeps running.** (LWSM-1437)
+- **A launcher confirmation written twice in trust.json is no longer trusted; the app asks before starting that project again. A repeated entry in the record of started servers is ignored rather than guessed at.** (LWSM-1436)
+- **A stop that fails before signalling anything no longer makes the app forget it started that server.** (LWSM-1438)
+- **A stop that fails halfway now blocks a second start while the old copy is still running.** (LWSM-1441)
 - **Saving the project list twice in one session no longer deletes settings a newer version of the app added to it.** (LWSM-1430)
 - **A restore from backup that fails partway now leaves the damaged project list where it was, so the backup is offered again at the next start instead of being overwritten later.** (LWSM-1431)
 - **Export profile refuses to save over the app's own project list or its backup. Choose another file.** (LWSM-1432)
@@ -46,6 +50,11 @@ signaling per
 - **Quitting the app no longer stops the servers it started.** Started from the desktop, closing it took every server it had launched with it; each server now runs in its own systemd scope and keeps running for the next session to pick up. (LWSM-1420)
 - **Switching the desktop between light and dark no longer rewrites the settings file.** With the theme set to follow the desktop, each switch saved it again, so a settings file the app could not write raised "The theme could not be saved" on every switch.
 - **Preferences opens on the settings in force.** It used to re-read the settings file, so after a save had failed it showed the file's older values, and pressing OK put the poll interval and log size limit back to them.
+
+### Security
+
+- **Open in browser no longer opens a different server if the one on the port changed while you were reading the warning about it. Nothing opens, and the app asks you to try again.** (LWSM-1445)
+- **Stop and Restart on a server the app did not start are refused if a different program took over the same process number while you were reading the warning.** (LWSM-1444)
 
 ## [0.3.0] - 2026-10-15
 
