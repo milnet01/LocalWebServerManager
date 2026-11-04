@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1430 -->
+<!-- ants-roadmap-id-high-water: LWSM=1431 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12471,6 +12471,19 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 02, H1).
   Lanes: registry, mainwindow.
+
+- 🚧 [LWSM-1431] **A restore whose write fails leaves no projects.json, and two launches later the good backup is overwritten.**
+  Priority: MEDIUM.
+  `restore_backup` renamed the damaged file aside, then wrote the
+  backup's bytes. When that write failed (disk full, EACCES) there was
+  no projects.json: the next launch read it as a first run, saved a
+  fresh list, and the launch after backed that up over the good
+  `.bak`. Fix: put the damaged file back when the write fails, so the
+  next launch finds the same damage and offers the same backup.
+  **Layman:** If restoring the project list from its backup failed halfway, the app could later replace that backup with an empty list.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 02, M1).
+  Lanes: registry.
 
 ## 0.5.0 — Logs
 

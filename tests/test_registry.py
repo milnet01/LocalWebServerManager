@@ -3422,6 +3422,40 @@ def test_a_restore_that_cannot_check_the_aside_name_raises_registry_error(
         registry.restore_backup(path)
 
 
+def test_a_restore_whose_write_fails_puts_the_damaged_file_back(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """review-code 2026-11-04 L02-M1. The damaged file was renamed aside and
+    the restored bytes then failed to write, leaving no `projects.json`. The
+    next launch read that as a first run, its first save wrote a new file,
+    and the launch after replaced the good `.bak` with it.
+
+    Put back, the next launch finds the same damage and offers the same
+    backup again.
+    """
+    from lwsm.configfile import ConfigFileError
+
+    path, _raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    backup = registry.backup_path(path).read_bytes()
+    path.write_text("{ this is not json", encoding="utf-8")
+
+    def disk_full(target, data, **kwargs):
+        raise ConfigFileError(f"{target}: No space left on device")
+
+    monkeypatch.setattr(registry, "write_atomically", disk_full)
+
+    with pytest.raises(RegistryError, match="could not be restored"):
+        registry.restore_backup(path)
+
+    assert path.exists(), (
+        "the damaged file was left set aside, so the next launch is a first run"
+    )
+    assert path.read_text(encoding="utf-8") == "{ this is not json"
+    assert not list(tmp_path.glob("projects.json.damaged-*"))
+    assert registry.backup_path(path).read_bytes() == backup
+
+
 def test_an_unknown_top_level_key_never_overwrites_one_the_writer_owns(
     tmp_path: Path,
 ) -> None:

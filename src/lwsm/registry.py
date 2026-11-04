@@ -1267,8 +1267,11 @@ def restore_backup(path: Path) -> LoadResult:
     `projects.json.damaged-<time>`, numbered where that name is taken so an
     earlier one is never overwritten. The backup's bytes are then written to
     `path` and loaded from there, so the result licenses saves to `path` like
-    any other load. Raises `RegistryError` when any step fails; the damaged
-    file stays where it was unless the rename itself succeeded.
+    any other load. Raises `RegistryError` when any step fails, with the
+    damaged file back where it was: set aside with nothing written in its
+    place, the next launch read the missing file as a first run, its save
+    wrote a fresh list, and the launch after that replaced the good backup
+    with it (review-code 2026-11-04 L02-M1).
     """
     try:
         saved = read_bounded(backup_path(path))
@@ -1278,6 +1281,7 @@ def restore_backup(path: Path) -> LoadResult:
         ) from exc
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     not_durable = False
+    set_aside: Path | None = None
     try:
         # Inside the handler: `exists()` raises on Python 3.13 where a name
         # cannot be checked, and this function promises `RegistryError`
@@ -1289,14 +1293,26 @@ def restore_backup(path: Path) -> LoadResult:
             aside = path.with_name(f"{path.name}.damaged-{stamp}-{count}")
         if path.exists():
             path.rename(aside)
+            set_aside = aside
         write_atomically(path, saved, prefix=".projects-")
     except ConfigFileNotDurable:
         # Written, so the restore goes on, and said (L03-L1).
         not_durable = True
     except (ConfigFileError, OSError) as exc:
+        kept = ""
+        if set_aside is not None:
+            try:
+                # Never over a file the failed write may still have left.
+                if not path.exists():
+                    set_aside.rename(path)
+            except OSError as back_exc:
+                kept = (
+                    f"; the damaged file is kept as {quoted(str(set_aside))} "
+                    f"({quoted(str(back_exc))})"
+                )
         raise RegistryError(
             f"{quoted(str(path))}: the backup could not be restored "
-            f"({quoted(str(exc))})"
+            f"({quoted(str(exc))}){kept}"
         ) from exc
     loaded = load_projects(path)
     if not_durable:
