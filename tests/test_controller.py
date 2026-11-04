@@ -4526,3 +4526,104 @@ def test_no_suggestion_for_a_project_no_longer_listed(
     controller._on_snapshot(PortSnapshot(frozenset()))
 
     assert controller.suggested_port(tmp_path / "gone") is None
+
+
+# --- LWSM-1454: three paths an unexpected exception escaped unreported -------
+
+
+class _BrokenSignal:
+    def emit(self, *args: object) -> None:
+        raise ValueError("emit failed some other way")
+
+
+class _BrokenSignals:
+    done = _BrokenSignal()
+    state = _BrokenSignal()
+    stopped = _BrokenSignal()
+
+
+@pytest.mark.parametrize("task", ["service", "unit state", "tree stop"])
+def test_a_worker_whose_emit_fails_otherwise_still_reports_it(
+    monkeypatch, caplog, task
+) -> None:
+    """LWSM-1454 (a). The snapshot, upkeep and health tasks end in a clause
+    for anything the emit raises besides `RuntimeError` (LWSM-1251); these
+    three did not, so the failure escaped `run()`, which PySide6 swallows.
+
+    Called directly, so an escape raises here. Dies on removing the clause."""
+    path = Path("/srv/a")
+    monkeypatch.setattr(controller_module, "drive_unit", RecordingDrive())
+    monkeypatch.setattr(controller_module, "unit_state", lambda unit: "active")
+    monkeypatch.setattr(
+        controller_module, "stop_tree", lambda tree: controller_module.TreeOutcome()
+    )
+    signals = _BrokenSignals()
+    runnable = {
+        "service": lambda: controller_module._ServiceTask(
+            path, "stop", "a.service", signals
+        ),
+        "unit state": lambda: controller_module._UnitStateTask(
+            path, "a.service", signals
+        ),
+        "tree stop": lambda: controller_module._TreeStopTask(path, None, signals),
+    }[task]()
+
+    with caplog.at_level("WARNING"):
+        runnable.run()
+
+    assert "without reporting" in caplog.text
+
+
+def test_a_stop_report_whose_emit_fails_otherwise_still_reports_it(
+    controllers, caplog
+) -> None:
+    """LWSM-1454 (a), the fourth site: `_report_stop` runs as a future's
+    done-callback, where `concurrent.futures` drops whatever escapes."""
+    controller = supervised(controllers, [startable()], FakeProbe(), FakeSupervisor())
+    controller._action_signals = _BrokenSignals()
+    done: Future = Future()
+    done.set_result(StopOutcome(exit_code=0))
+
+    with caplog.at_level("WARNING"):
+        controller._report_stop(Path("/srv/a"), done)
+
+    assert "without reporting" in caplog.text
+
+
+def test_an_upkeep_whose_running_raises_keeps_the_reap() -> None:
+    """LWSM-1454 (b). `running()` sat outside every `try` in `_do_upkeep`, so
+    a raise after `reap()` released slots replaced the result and lost the
+    reap -- after which `exited()` answers False and a `starting` overlay
+    never settles (the L6-H1 shape).
+
+    Dies on leaving any `running()` call uncontained."""
+
+    class Raising(FakeSupervisor):
+        def reap_exited(self):
+            return {Path("/srv/a"): None}
+
+        def rotate_if_needed(self, project):
+            return False
+
+        def running(self):
+            raise RuntimeError("the registry lock is broken")
+
+    upkeep = controller_module._do_upkeep(Raising(), ())
+
+    assert upkeep.reaped == frozenset({Path("/srv/a")})
+
+
+def test_a_start_that_raises_something_unexpected_is_reported(
+    qtbot, controllers
+) -> None:
+    """LWSM-1454 (c). `start_project` caught four named exceptions. Anything
+    else escaped a slot Qt invoked, which PySide6 swallows, so the user was
+    told nothing. Called directly, so an escape raises here."""
+    supervisor = FakeSupervisor(refusal=ValueError("an argv the code never met"))
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000) as caught:
+        controller.start_project(Path("/srv/a"))
+
+    assert "an argv the code never met" in caught.args[1]
+    assert controller._overlay is None

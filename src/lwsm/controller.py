@@ -694,16 +694,24 @@ def _do_upkeep(
         except Exception:
             log.warning("could not release exited projects", exc_info=True)
 
+    try:
+        # Read once and contained: a raise after the reap released slots
+        # would otherwise replace the whole result and lose it (LWSM-1454).
+        running = tuple(supervisor.running())
+    except Exception:
+        log.warning("could not list the running projects", exc_info=True)
+        return _Upkeep(frozenset(reaped))
+
     rotate = getattr(supervisor, "rotate_if_needed", None)
     if rotate is not None:
-        for path in supervisor.running():
+        for path in running:
             try:
                 rotate(path)
             except Exception:
                 log.warning("could not rotate the log for %s", path, exc_info=True)
     rotate_at = getattr(supervisor, "rotate_log_at", None)
     if rotate_at is not None:
-        managed = supervisor.running()
+        managed = set(running)
         for path, name in adopted_logs:
             if path in managed:
                 continue
@@ -717,7 +725,7 @@ def _do_upkeep(
     # `group_alive` lets the launcher's exit decide, as before.
     gone: set[Path] = set()
     group_alive = getattr(supervisor, "group_alive", None)
-    for path in supervisor.running():
+    for path in running:
         try:
             if not supervisor.exited(path):
                 continue
@@ -932,6 +940,9 @@ class _ServiceTask(QRunnable):
             # stop() can outlive its signaller, and the docstring promises the
             # body is wrapped whole (L6-L1).
             log.debug("service verb ended with no live signaller", exc_info=True)
+        except BaseException:
+            # `_SnapshotTask.run`'s last clause, for its reason (LWSM-1454).
+            log.warning("a service verb ended without reporting", exc_info=True)
 
 
 class _UnitStateTask(QRunnable):
@@ -957,6 +968,9 @@ class _UnitStateTask(QRunnable):
             self._signals.state.emit(self._path, state)
         except RuntimeError:
             log.debug("unit state ended with no live signaller", exc_info=True)
+        except BaseException:
+            # Otherwise `_unit_check_in_flight` stays set unexplained (LWSM-1454).
+            log.warning("a unit state check ended without reporting", exc_info=True)
 
 
 class _TreeStopTask(QRunnable):
@@ -984,6 +998,8 @@ class _TreeStopTask(QRunnable):
             self._signals.done.emit(self._path, outcome)
         except RuntimeError:
             log.debug("a foreign stop ended with no live signaller", exc_info=True)
+        except BaseException:
+            log.warning("a foreign stop ended without reporting", exc_info=True)
 
 
 def _tree_outcome(done: TreeOutcome) -> UnitOutcome:
@@ -1533,6 +1549,13 @@ class ProjectController(QObject):
             # because it is about this machine rather than about the project.
             self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
             return
+        except Exception as exc:
+            # Anything else would escape a slot Qt invoked, a click or a
+            # restart's `_on_stopped`, which PySide6 swallows: the user would
+            # be told nothing (LWSM-1454).
+            log.warning("starting %s raised", path, exc_info=True)
+            self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
+            return
         self._set_overlay(path, ProjectStatus.STARTING)
 
     def stop_project(
@@ -1833,6 +1856,9 @@ class ProjectController(QObject):
             # is nobody left to tell. `_SnapshotTask.run`'s outer clause, on a
             # second worker.
             log.debug("a stop finished with no live signaller", exc_info=True)
+        except BaseException:
+            # `concurrent.futures` would log and drop it (LWSM-1454).
+            log.warning("a stop finished without reporting", exc_info=True)
 
     def _on_stopped(self, path: Path, outcome: object) -> None:
         """Handle the outcome, then re-render whatever the answer was.
