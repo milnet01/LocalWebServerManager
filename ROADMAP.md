@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1432 -->
+<!-- ants-roadmap-id-high-water: LWSM=1433 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12496,6 +12496,19 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 02, L2).
   Lanes: registry.
+
+- 🚧 [LWSM-1433] **settings.json drops a repeated key's first value unannounced, and the next save deletes it.**
+  Priority: MEDIUM.
+  `settings.load` read `load_json_object(path).data` and threw away
+  `duplicate_keys`, which `registry` reports. The drift LWSM-1357's
+  shared reader was built to end. With no reason, `save_field`'s
+  any-reason gate passed and the next window close wrote the file
+  without the first value. Fix: one reason per repeated key, which
+  also makes the gate refuse until the file is corrected.
+  **Layman:** If settings.json named the same setting twice, the app quietly used the second and then erased the first when it next saved.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 09, settings.py duplicate_keys).
+  Lanes: settings.
 
 ## 0.5.0 — Logs
 

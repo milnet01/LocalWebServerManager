@@ -278,6 +278,32 @@ def test_an_editor_added_bom_does_not_refuse_the_file(tmp_path: Path) -> None:
     )
 
 
+def test_a_repeated_key_is_a_reason_so_the_next_save_cannot_delete_it(
+    tmp_path: Path,
+) -> None:
+    """review-code 2026-11-04 L09: the shared reader reports repeated keys
+    and this loader threw the report away, where `registry` says each one
+    (LWSM-1357 built the reader to end exactly that drift). A hand-edited
+    `"theme"` twice loaded the second with nothing said, `save_field`'s
+    any-reason gate passed, and the next window close deleted the first.
+
+    A REASON, not a note: notes never stop a write, and stopping the write is
+    the point.
+    """
+    path = tmp_path / "settings.json"
+    path.write_text(
+        '{"schema_version": 1, "theme": "emerald", "theme": "amber"}',
+        encoding="utf-8",
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.theme == "amber", "precondition: last one wins"
+    assert any("theme" in reason for reason in result.reasons), (
+        f"a repeated key was dropped without a reason: {result.reasons!r}"
+    )
+
+
 def test_a_deeply_nested_document_is_a_reason_and_not_a_crash(tmp_path: Path) -> None:
     """`RecursionError` is not a `ValueError`, so it escaped by itself.
 

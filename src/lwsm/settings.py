@@ -312,7 +312,7 @@ def load(path: Path) -> LoadResult:
         # at a time: a BOM tolerated (LWSM-1182, since a refused document
         # blocks every later save), and nesting deep enough to raise
         # `RecursionError`, which killed the app on every launch (LWSM-1164).
-        document = load_json_object(path).data
+        loaded = load_json_object(path)
     except FileNotFoundError:
         # First run. Not a refusal, so it earns no reason — a clean machine
         # must not report a problem it does not have.
@@ -321,6 +321,12 @@ def load(path: Path) -> LoadResult:
         return LoadResult(
             Settings(), [_refusal_reason(path, exc)], document_refused=True
         )
+    document = loaded.data
+    # A REASON, as `registry` reports it, and not a note: a reason stops
+    # `save_field`, and a write after last-wins deletes the value the user
+    # typed first (review-code 2026-11-04 L09).
+    for key in loaded.duplicate_keys:
+        reasons.append(f"duplicate key {quoted(key)}; the last value was used")
 
     version = document.get("schema_version")
     # `type(v) is int` and not `isinstance`, for `_theme_or_reason`'s reason:
