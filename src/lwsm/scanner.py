@@ -25,6 +25,7 @@ import re
 import stat
 import subprocess
 import time
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -681,7 +682,14 @@ def _without_docstrings(lines: Sequence[str]) -> Sequence[str]:
     is kept for interpreters that report a NUL byte that way.
     """
     try:
-        tree = ast.parse("\n".join(lines))
+        # The source is someone else's, and its `"\d"` is not ours to warn
+        # about: the warning reached stderr once per file, and under an
+        # `error` filter it raised, which kept every docstring (LWSM-1466).
+        # `catch_warnings` swaps process-wide state; nothing else in this
+        # app changes the filters, and only `SyntaxWarning` is silenced.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse("\n".join(lines))
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return lines
     blank: set[int] = set()

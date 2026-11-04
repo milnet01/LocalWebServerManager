@@ -21,6 +21,7 @@ import re
 import signal
 import stat
 import time
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 
@@ -1791,6 +1792,30 @@ def test_a_python_docstring_is_prose_and_names_no_port(
 
     assert found is not None
     assert (found.port, found.source) == (4322, source)
+
+
+def test_a_warning_from_parsing_a_sibling_neither_escapes_nor_changes_the_port(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1466: `ast.parse` on someone else's source warns about `"\\d"`.
+    The warning reached stderr once per file read, and under an `error`
+    filter, which this suite runs with, it became a `SyntaxError`: the
+    docstrings stayed in and the usage example's 5000 won.
+    """
+    make_project(
+        tmp_path, "proj", {"serve.py": _USAGE_DOCSTRING + 'PATTERN = "\\d+"\n'}
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        found = by_name(scan_root(tmp_path))["proj"].port
+
+    assert [str(w.message) for w in caught] == []
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        found_strict = by_name(scan_root(tmp_path))["proj"].port
+    assert found is not None and found.port == 4322
+    assert found_strict is not None and found_strict.port == 4322
 
 
 def test_a_string_that_is_not_a_docstring_is_still_read(tmp_path: Path) -> None:
