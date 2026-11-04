@@ -36,6 +36,10 @@ signaling per
 
 ### Fixed
 
+- **Saving the project list twice in one session no longer deletes settings a newer version of the app added to it.** (LWSM-1430)
+- **A restore from backup that fails partway now leaves the damaged project list where it was, so the backup is offered again at the next start instead of being overwritten later.** (LWSM-1431)
+- **Export profile refuses to save over the app's own project list or its backup. Choose another file.** (LWSM-1432)
+- **A setting written twice in settings.json is now reported, and the file is not saved over until it is fixed, so the first value is no longer silently deleted.** (LWSM-1433)
 - **A start is no longer refused, and a trust choice no longer called unsaved, when the file was written.** The app treated a file as unwritten when it had only failed to confirm the file would survive a crash. That doubt now goes to the log. (LWSM-1415)
 - **A site the app starts can open a window through the older X11 display system.** The display refused it, so a program such as RetroArch crashed when RetroDB launched it. (LWSM-1424)
 - **Start and Restart work for a server that a desktop autostart entry with a hyphen in its name runs.** The app misread systemd's answer and refused, blaming `XDG_CONFIG_HOME`. (LWSM-1429)

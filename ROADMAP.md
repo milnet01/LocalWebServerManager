@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1433 -->
+<!-- ants-roadmap-id-high-water: LWSM=1436 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12459,7 +12459,7 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: user-report-2026-11-02.
   Lanes: service.
 
-- 🚧 [LWSM-1430] **The second save of a session erases top-level keys a newer build wrote in projects.json.**
+- ✅ [LWSM-1430] **The second save of a session erases top-level keys a newer build wrote in projects.json.**
   Priority: HIGH.
   After a save, `MainWindow._write_records` rebuilt `self._load` by hand
   and left out `unknown`, so the next `save_projects` passed `()` and
@@ -12467,12 +12467,17 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   automatic confirmed-port save makes a second save the ordinary case.
   Fix: `registry.load_after_save` builds the refreshed load, so the
   module that owns the file decides which fields carry over.
+  Resolved (2026-11-04, 146e2b5): `registry.load_after_save` builds the
+  window's post-save load and carries `unknown`; `raw` stays empty so the
+  backup is still once per run. Red first:
+  test_a_top_level_key_survives_the_second_save_of_a_session, two real
+  saves read back from disk. Mutant (drop the carry) goes red.
   **Layman:** If a newer version of the app added something to the project list, this version kept it the first time it saved and threw it away the second time.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 02, H1).
   Lanes: registry, mainwindow.
 
-- 🚧 [LWSM-1431] **A restore whose write fails leaves no projects.json, and two launches later the good backup is overwritten.**
+- ✅ [LWSM-1431] **A restore whose write fails leaves no projects.json, and two launches later the good backup is overwritten.**
   Priority: MEDIUM.
   `restore_backup` renamed the damaged file aside, then wrote the
   backup's bytes. When that write failed (disk full, EACCES) there was
@@ -12480,24 +12485,33 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   fresh list, and the launch after backed that up over the good
   `.bak`. Fix: put the damaged file back when the write fails, so the
   next launch finds the same damage and offers the same backup.
+  Resolved (2026-11-04, e745b56): on a failed write `restore_backup`
+  renames the damaged file back, never over a file the write left, and
+  names where it is kept if that rename fails. Red first:
+  test_a_restore_whose_write_fails_puts_the_damaged_file_back. The
+  put-back-failed branch has no test: it needs a second injected fault.
   **Layman:** If restoring the project list from its backup failed halfway, the app could later replace that backup with an empty list.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 02, M1).
   Lanes: registry.
 
-- 🚧 [LWSM-1432] **Export profile does not refuse projects.json or its backup as the target file.**
+- ✅ [LWSM-1432] **Export profile does not refuse projects.json or its backup as the target file.**
   Priority: LOW.
   Exporting over projects.json skipped `save_projects`' backup and
   write gate and dropped top-level `unknown` keys; over the `.bak` it
   replaced the copy a damaged registry is restored from. Fix:
   `export_profile` refuses a target that resolves to the load's own
   path or its backup.
+  Resolved (2026-11-04, 4335467): `export_profile` refuses a target
+  resolving to the load's path or its backup. Red first, both cases:
+  test_an_export_over_the_registry_or_its_backup_is_refused; removing
+  either member of the refused set turns its case red.
   **Layman:** Saving a profile on top of the app's own project list, or its backup, was allowed and could lose data.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 02, L2).
   Lanes: registry.
 
-- 🚧 [LWSM-1433] **settings.json drops a repeated key's first value unannounced, and the next save deletes it.**
+- ✅ [LWSM-1433] **settings.json drops a repeated key's first value unannounced, and the next save deletes it.**
   Priority: MEDIUM.
   `settings.load` read `load_json_object(path).data` and threw away
   `duplicate_keys`, which `registry` reports. The drift LWSM-1357's
@@ -12505,10 +12519,64 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   any-reason gate passed and the next window close wrote the file
   without the first value. Fix: one reason per repeated key, which
   also makes the gate refuse until the file is corrected.
+  Resolved (2026-11-04, 5ad7a3e): one reason per repeated key, so
+  `save_field` refuses until the file is fixed. Red first:
+  test_a_repeated_key_is_a_reason_so_the_next_save_cannot_delete_it.
+  Mutant (a note instead of a reason) goes red. The trust store and the
+  started record have the same drift: LWSM-1436.
   **Layman:** If settings.json named the same setting twice, the app quietly used the second and then erased the first when it next saved.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 09, settings.py duplicate_keys).
   Lanes: settings.
+
+- 📋 [LWSM-1434] **An automatic save overwrites a hand edit made to projects.json while the app runs.**
+  Priority: MEDIUM.
+  Waiting-on: user (LWSM-1007 § 6 accepts last-writer-wins between two
+  app instances and § 9 leaves an mtime precondition out of scope, but neither names a
+  hand edit during a session, and LWSM-1038's confirmed-port save now
+  writes with no user action. Should a save refuse, or back up the
+  current bytes first, when the file on disk differs from what this
+  session last read or wrote? Recommendation: yes; keep the last-written
+  bytes (or mtime and size) on the LoadResult and compare before
+  write_atomically, then amend LWSM-1007 § 6 and § 9 to match, 2026-11-04).
+  Not fixed now: it changes behaviour the spec states.
+  After the first save `raw` is empty, so the backup does not hold a
+  later hand edit either.
+  **Layman:** If you edit the project list in a text editor while the app is open, the app's next automatic save can silently undo your edit.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (lane 02, M2).
+  Lanes: registry.
+
+- 📋 [LWSM-1435] **ADR-0005 and LWSM-1007 describe the registry as it was before LWSM-1038, LWSM-1131 and LWSM-1385.**
+  Priority: LOW.
+  ADR-0005: "Effective port = port override if set, else declared
+  port" omits LWSM-1038's confirmed_port rung; "port is the only
+  detected field with an unknown value" omits `unit` under
+  units_unavailable (LWSM-1131 § 4.1).
+  LWSM-1007: § 4.1's DETECTED_FIELDS / USER_FIELDS lack port_from,
+  port_conflicts, confirmed_port, health_check and health_path; § 4.2's
+  default table points to no item for browser, port_from or
+  port_conflicts; § 4.3 says load_projects converts OSError in its own
+  handler, which now happens in configfile.load_json_object.
+  Pre-existing; not caused by the 2026-11-04 fixes. The ADR route is
+  review-contract after the edit, per the lane.
+  **Layman:** Two design documents for the project list no longer match what the code does.
+  Kind: doc-fix.
+  Source: review-code-2026-11-04 (lane 02, document-wrong LOWs).
+  Lanes: docs.
+
+- 📋 [LWSM-1436] **The trust store and the started record discard repeated JSON keys, as settings.json did.**
+  Priority: LOW.
+  supervisor.py `TrustStore._load` and `StartedStore._load` read
+  `load_json_object(path).data` and drop `duplicate_keys`, the same
+  drift LWSM-1433 fixed in settings.py. Both files are app-written, so a
+  repeat needs a hand edit. Not fixed with LWSM-1433: each store's
+  answer differs (refusing trusts nothing; the started record decides
+  which running servers are adopted as this manager's after a relaunch), so the right response is a decision per store.
+  **Layman:** Two of the app's smaller files can quietly lose a value written twice, the same way the settings file could.
+  Kind: review-fix.
+  Source: review-code-2026-11-04 (found next door while closing LWSM-1433).
+  Lanes: supervisor.
 
 ## 0.5.0 — Logs
 
