@@ -3626,6 +3626,25 @@ def start_sleeper(sup: Supervisor, project: Path) -> ManagedProcess:
     return managed
 
 
+def await_older_than_a_tick(proc: psutil.Process) -> None:
+    """Block until `proc` started more than a start-time tick ago.
+
+    An adopted group is vouched for only by a member that started at least
+    `START_TIME_RESOLUTION_SECONDS` before the last check (`_vouched`,
+    LWSM-1494), so a server adopted within a tick of its start reads as gone.
+    A relaunch never comes that fast; a fast CI runner did, and failed these
+    tests on GitHub while they passed here.
+    """
+    margin = 2 * supervisor_module.START_TIME_RESOLUTION_SECONDS
+    assert wait_until(
+        lambda: (
+            supervisor_module._boot_clock()
+            - supervisor_module._started_since_boot(proc)
+            > margin
+        )
+    ), "the process never aged past one start-time tick"
+
+
 def test_a_start_is_recorded_and_a_stop_forgets_it(
     tmp_path: Path, project: Path
 ) -> None:
@@ -3815,6 +3834,7 @@ def test_an_adopted_server_is_owned_and_stops(tmp_path: Path, project: Path) -> 
     grandchild = next(
         p for p in psutil.Process(managed.pid).children() if p.name() == "sleep"
     )
+    await_older_than_a_tick(grandchild)
     second = started_session(tmp_path, record)
     try:
         second.adopt()
@@ -3995,9 +4015,13 @@ def test_an_adopted_server_stays_ours_after_its_launcher_exits(
     managed = first.start(project, name="demo", argv=list(argv), port=None)
     await_ready(project)
     first.close()
+    # By argument, not name: the wait loop's own `sleep 0.02` is a child too.
     server = next(
-        p for p in psutil.Process(managed.pid).children() if p.name() == "sleep"
+        p
+        for p in psutil.Process(managed.pid).children()
+        if p.cmdline() == ["sleep", "30"]
     )
+    await_older_than_a_tick(server)
     second = started_session(tmp_path, record)
     try:
         assert second.adopt() == {project.resolve()}

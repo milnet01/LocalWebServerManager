@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1506 -->
+<!-- ants-roadmap-id-high-water: LWSM=1507 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -14171,6 +14171,24 @@ LWSM-1036.
   Kind: accessibility.
   Source: in-session-2026-11-05.
   Lanes: ui.
+
+- 🚧 [LWSM-1507] **Two adoption tests failed on GitHub when they adopted a server within one start-time tick of its start.**
+  test_an_adopted_server_is_owned_and_stops and
+  test_an_adopted_server_stays_ours_after_its_launcher_exits failed 7 of
+  15 GitHub runs on 2026-11-05 and never here. `_vouched` (LWSM-1494)
+  accepts a group only through a member that started at least
+  START_TIME_RESOLUTION_SECONDS before the last check, so a server
+  adopted within a tick of its start reads as gone: the safe direction,
+  and correct. A relaunch is never that fast; GitHub's runner was.
+  Reproduced by making every process read 0.3s younger: exactly these two
+  failed, with GitHub's messages. Fix in the tests: wait until the server
+  is older than two ticks before adopting, and pick the server by its
+  `sleep 30` command line rather than the first `sleep` child, which
+  could be the wait loop's `sleep 0.02`. No product code changed.
+  **Layman:** GitHub's checks kept failing on two tests because its machines run them faster than ours; the tests now wait a hundredth of a second so the app's safety check can recognise the server.
+  Kind: test.
+  Source: user-request-2026-11-05.
+  Lanes: tests, ci.
 
 ## 1.0.0 — A download for other people
 
