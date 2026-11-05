@@ -72,6 +72,9 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
   jump to a project, and Enter starts or stops the one you are on.
   If you use speech input, Preferences can turn off `/` and the
   number keys, so a spoken word does not move you.
+- **View > What's using a port?** tells you what is listening
+  on a port you type in, and names the project when it is one of
+  yours.
 - **A log per project**, written to a private file and capped in
   size so a chatty server cannot fill your disk.
 
@@ -79,9 +82,9 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
 
 - No **live output panel** inside the app. The logs are on disk
   and you read them with your own tools.
-- No **system tray icon**, no **start on login**, no
-  **"what is using this port?"** help, and no **downloadable
-  package** — those are planned for later versions.
+- No **system tray icon**, no **start on login**, and no
+  **downloadable package** — those are planned for later
+  versions.
 
 Every one of those has a stable ID and stated acceptance criteria
 in [ROADMAP.md](ROADMAP.md), so what is real and what is merely
