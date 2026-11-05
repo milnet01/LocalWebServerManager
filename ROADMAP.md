@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1495 -->
+<!-- ants-roadmap-id-high-water: LWSM=1497 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13476,7 +13476,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 01, L7 and open question).
   Lanes: supervisor.
 
-- 📋 [LWSM-1457] **The port lookup's answer cannot be reached with Tab to copy it.**
+- ✅ [LWSM-1457] **The port lookup's answer cannot be reached with Tab to copy it.**
   Priority: LOW.
   `TextSelectableByKeyboard` on a `QLabel` gives it click focus, not
   Tab focus, so a PID or path can be copied out by mouse only.
@@ -13491,6 +13491,15 @@ LWSM-1036.
   answer a read-only focusable text box? Recommendation: the Copy button
   -- it already has a focus ring and keeps the announcement route as it
   is, 2026-11-04).
+  Resolved (2026-11-05, 2911ea5): a "Copy answer" button beside Close
+  copies the answer to the clipboard; Tab from the port box reaches it,
+  it is enabled only when there is an answer, and Enter still belongs to
+  the port box. The label stays unfocusable, so the screen-reader route
+  is unchanged. The tab order is set after the layout, because
+  reparenting the button box rebuilt its focus chain with Close first.
+  Red first: test_tab_reaches_a_button_that_copies_the_answer (Tab
+  reached Close, clipboard empty); target-floor and disabled-on-hint
+  assertions added.
   **Layman:** In the 'What's using a port' window, the answer could be copied with the mouse but not reached from the keyboard.
   Kind: accessibility.
   Source: review-code-2026-11-04 (lane 05, L4).
@@ -13602,7 +13611,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lanes 04 and 05, open questions).
   Lanes: controller, foreign, service.
 
-- 📋 [LWSM-1475] **The / and number-key shortcuts fire from anywhere in the window and cannot be turned off.**
+- ✅ [LWSM-1475] **The / and number-key shortcuts fire from anywhere in the window and cannot be turned off.**
   Priority: LOW (calibrated from MEDIUM: design-accessibility.md claims
   WCAG AA for contrast only).
   WCAG 2.1.4 Character Key Shortcuts: `MainWindow.keyPressEvent` acts on
@@ -13614,12 +13623,22 @@ LWSM-1036.
   switch that turns off `/` and the number keys? Recommend the switch,
   on by default, after 0.4.0: it meets 2.1.4 without taking the keys
   away from the keyboard users who rely on them, 2026-11-04).
+  Resolved (2026-11-05, e7353e1): Preferences has a "Single-key
+  shortcuts" check box, on by default; off, `/` and 1-9 do nothing.
+  Escape and Enter are not character keys and stay. Stored as
+  `single_key_shortcuts` in settings.json, read like `maximized`; a file
+  with no key reads as on. README's "Drive it from the keyboard",
+  design.md's settings.json list and the module map updated. No spec:
+  one additive key in schema v1. Red first on the missing interface and
+  the schema test; mutation_probe 9 of 9 killed (both key guards,
+  constructor, setter, and the apply, save, seed, start and load
+  wiring).
   **Layman:** Saying "one" or "slash" to speech-input software can move the focus and scroll the list without the user meaning to.
   Kind: accessibility.
   Source: review-code-2026-11-04 (lane 07, M1).
   Lanes: mainwindow.
 
-- 📋 [LWSM-1476] **The state glyph stays on the left in a right-to-left layout.**
+- ✅ [LWSM-1476] **The state glyph stays on the left in a right-to-left layout.**
   Priority: LOW.
   `ProjectRow` paints the glyph at the left margin and widens the left
   margin whatever `layoutDirection()` is. In a right-to-left layout the
@@ -13629,12 +13648,20 @@ LWSM-1036.
   because the fix needs a right-to-left render to check, and nothing
   ships that would show it. Fix: mirror the glyph and margin with
   `isRightToLeft()`.
+  Resolved (2026-11-05, 48e4898): the glyph column's margin and paint
+  position follow `isRightToLeft()`, and a LayoutDirectionChange
+  re-applies them. Qt mirrors the cells but not the layout's contents
+  margins (measured 2026-11-05). Red first:
+  test_the_glyph_sits_beside_the_state_word_in_either_direction[rtl],
+  which renders the row and locates the glyph by pixels (glyph at x 12,
+  word ending at 476); [ltr] guards. mutation_probe 3 of 3 killed. No
+  CHANGELOG entry: latent, no translation is installed.
   **Layman:** In a right-to-left language the row's coloured state mark would sit apart from the state word it belongs to.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 06, L3).
   Lanes: mainwindow.
 
-- 📋 [LWSM-1477] **Find out whether a row's state change is announced twice.**
+- ✅ [LWSM-1477] **Find out whether a row's state change is announced twice.**
   Priority: LOW.
   `ProjectRow.update_from` sends `NameChanged` itself after
   `setAccessibleName`, on the comment's claim that Qt sends none
@@ -13644,6 +13671,16 @@ LWSM-1036.
   cannot count the events. What settles it: a test copy on a private
   Xvfb display with AT-SPI on, counting name-change events per state
   change from an Atspi listener (traps.md, the bus trap).
+  Confirmed and fixed (2026-11-05, 2c8d89e). Measured on a private Xvfb
+  with a private session bus, a11y bus and registry, counting
+  accessible-name events from an Atspi listener: on PySide6 6.12
+  `setAccessibleName` sends one event per changed name and none for an
+  equal one, so the hand-raised NameChanged made every state change
+  announce twice. Removed it. The counting fixture now models the bus
+  (changed-name setAccessibleName calls plus hand-raised NameChanged);
+  it had counted only the hand-raised call, which is how the double
+  stayed green. LWSM-1005 spec clause and INV-22 amended. Red first:
+  test_a_state_change_is_announced "raised 2 announcements, expected 1".
   **Layman:** A screen reader may hear a project's new state twice instead of once.
   Kind: investigate.
   Source: review-code-2026-11-04 (lane 06, open question).
@@ -13800,6 +13837,29 @@ LWSM-1036.
   Kind: fix.
   Source: in-session-2026-11-05 (LWSM-1434 build).
   Lanes: registry, mainwindow.
+
+- 📋 [LWSM-1496] **README still lists "what is using this port?" help as not there yet.**
+  Priority: LOW.
+  README's "What is not there yet" names "what is using this port?" help
+  as planned, but the port lookup shipped (LWSM-1041) and is under View.
+  Seen while editing the neighbouring bullet for LWSM-1475; not fixed
+  there because it is outside that item.
+  **Layman:** The README says a feature is missing that the app already has.
+  Kind: doc-fix.
+  Source: lwsm-1475-work-2026-11-05.
+  Lanes: docs.
+
+- 📋 [LWSM-1497] **design.md's SettingsDialog entry lists settings it does not edit.**
+  Priority: LOW.
+  design.md's component list says SettingsDialog edits a slow-start
+  threshold, theme and text size. There is no slow-start threshold
+  (ADR-0004), and theme and text size are Settings-menu entries, not the
+  dialog. It also omits the log cap and, since LWSM-1475, the single-key
+  shortcuts switch. Seen 2026-11-05 while working LWSM-1475.
+  **Layman:** A design document describes the Preferences window wrongly.
+  Kind: doc-fix.
+  Source: lwsm-1475-work-2026-11-05.
+  Lanes: docs.
 
 ## 1.0.0 — A download for other people
 
