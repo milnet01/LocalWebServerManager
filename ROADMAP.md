@@ -13783,7 +13783,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 10, L3).
   Lanes: theme.
 
-- 📋 [LWSM-1492] **Move trust.json and started.json out of supervisor.py and share their read and write code.**
+- ✅ [LWSM-1492] **Move trust.json and started.json out of supervisor.py and share their read and write code.**
   Priority: LOW.
   Found by the 0.4.0 refactoring pass (2026-11-05).
   TrustStore and StartedStore repeat the same load, duplicate-key,
@@ -13796,12 +13796,21 @@ LWSM-1036.
   module (add it to CORE_MODULES in tests/test_layering.py and the
   module map). Size: medium. Deferred from 0.4.0: trust and adoption
   code, nothing wrong today.
+  Shipped 2026-11-05 (249865d). New core module stores.py holds
+  TrustStore, StartedStore, StartedEntry, _started_entry and both
+  default_*_path functions, with one _read_document and one
+  _write_document. TrustStore still keeps reasons; StartedStore still
+  only logs. since_boot/boot_id round-trip unchanged; vouched_at is on
+  ManagedProcess and untouched. No on-disk format change. In
+  CORE_MODULES and the module map. Store tests stay in
+  test_supervisor.py beside the adoption tests; one new test pins the
+  started record's log-only refusal.
   **Layman:** Tidy-up: two saved files are handled by near-identical code inside the module that runs servers; give them their own home.
   Kind: refactor.
   Source: refactor-pass-0.4.0-2026-11-05.
   Lanes: supervisor.
 
-- 📋 [LWSM-1493] **Five small structure tidy-ups found by the 0.4.0 refactoring pass.**
+- ✅ [LWSM-1493] **Five small structure tidy-ups found by the 0.4.0 refactoring pass.**
   Priority: LOW.
   Found 2026-11-05; none is a defect.
   (1) controller suggested_port scans self._records by hand; use
@@ -13819,6 +13828,10 @@ LWSM-1036.
   helpers in the systemd-unit module; move them next to
   foreign Tree.identity, or into the module from the trust/started
   split.
+  Shipped 2026-11-05 (58d564a). All five still applied and were done.
+  (3) had four copies today, not five. (4) the shared loop is
+  supervisor._wait_until_gone. (5) holder_identity moved to foreign.py
+  beside Tree.identity. Existing tests green before and after.
   **Layman:** Small code tidy-ups with no change to what the app does.
   Kind: refactor.
   Source: refactor-pass-0.4.0-2026-11-05.
@@ -13855,7 +13868,7 @@ LWSM-1036.
   Source: security-pass-0.4.0-2026-11-05.
   Lanes: supervisor.
 
-- 📋 [LWSM-1495] **Three cases LWSM-1434's hand-edit protection does not cover.**
+- ✅ [LWSM-1495] **Three cases LWSM-1434's hand-edit protection does not cover.**
   Priority: LOW.
   Found building LWSM-1434 (2026-11-05), not fixed there:
   (1) No projects.json at startup: a file that appears on disk before
@@ -13869,6 +13882,15 @@ LWSM-1036.
   Likely shape: (1) treat "absent at load" as a fingerprint so a file
   that appears counts as an edit; (3) let the durability path keep the
   set-aside notice. (2) may be accepted as is; say so if so.
+  Shipped 2026-11-05 (20dafb0). (1) A first-run load (RegistryMissing)
+  now counts as "absent": a projects.json that appears before the first
+  save is copied to projects.json.edited-<time> first. (3)
+  RegistryNotDurable carries set_aside, so the silent confirmed-port
+  save names the kept file even when the save was not durable. (2)
+  Accepted, not closed: a text editor takes no lock and POSIX rename has
+  no compare-and-swap, so a re-check would only move the window; it is
+  one write long. Recorded in LWSM-1007 § 6. Proof: three new tests red
+  before the fix, green after.
   **Layman:** In three rare cases, a change you make to the project list by hand can still be lost or go unannounced.
   Kind: fix.
   Source: in-session-2026-11-05 (LWSM-1434 build).
