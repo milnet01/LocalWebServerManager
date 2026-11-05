@@ -483,7 +483,10 @@ Added later, both core with no Qt at all:
   PID and start time, and signalled as exactly that set through
   `psutil.Process` handles. No Qt. The window shows the set, re-enumerates
   it after the user's yes, and asks again if it changed. After a second
-  change a yes stops the set as shown (LWSM-1498).
+  change a yes stops the set as shown (LWSM-1498). It also holds `holder_identity`,
+  the same PID-and-start-time identity for the one holder a disclosure
+  names (LWSM-1444, moved here from `service.py` by LWSM-1493). Its stop
+  polls through `supervisor._wait_until_gone`, the managed stop's loop.
 
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are

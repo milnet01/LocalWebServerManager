@@ -1149,6 +1149,31 @@ def _alive(proc: psutil.Process) -> bool:
         return False
 
 
+def _wait_until_gone(
+    procs: list[psutil.Process],
+    timeout: float,
+    clock: Callable[[], float],
+    sleep: Callable[[float], None],
+    on_wait: Callable[[], None] | None = None,
+) -> list[psutil.Process]:
+    """Poll until nothing in `procs` is alive or `timeout` elapses; return
+    the survivors. `on_wait`, where given, runs before each look.
+
+    The one polling loop for the managed stop and `foreign.py`'s stop.
+    Polling rather than `psutil.wait_procs`, which *reaps* a process that is
+    our own child — and reaping the managed child before the sequence ends
+    is the thing ADR-0003 forbids.
+    """
+    deadline = clock() + timeout
+    while True:
+        if on_wait is not None:
+            on_wait()
+        survivors = [proc for proc in procs if _alive(proc)]
+        if not survivors or clock() >= deadline:
+            return survivors
+        sleep(POLL_INTERVAL_SECONDS)
+
+
 # psutil reads a start time in clock ticks (1/100 s on Linux), rounded down,
 # so a process started up to one tick after a moment can read as started at it.
 START_TIME_RESOLUTION_SECONDS = 0.01
@@ -2091,20 +2116,9 @@ class Supervisor:
         timeout: float,
         _on_wait: Callable[[], None] | None,
     ) -> list[psutil.Process]:
-        """Poll until nothing in `procs` is alive or `timeout` elapses.
-
-        Polling rather than `psutil.wait_procs`, which *reaps* a process that is
-        our own child — and reaping the managed child before the sequence ends
-        is the thing ADR-0003 forbids.
-        """
-        deadline = self._clock() + timeout
-        while True:
-            if _on_wait is not None:
-                _on_wait()
-            survivors = [proc for proc in procs if _alive(proc)]
-            if not survivors or self._clock() >= deadline:
-                return survivors
-            self._sleep(POLL_INTERVAL_SECONDS)
+        """`_wait_until_gone` on this supervisor's clock, read at each call so
+        a test's replacement reaches it."""
+        return _wait_until_gone(procs, timeout, self._clock, self._sleep, _on_wait)
 
     def _reap(self, managed: ManagedProcess) -> int | None:
         """Collect the child's exit status, last, and release its log.

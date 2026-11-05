@@ -3215,7 +3215,7 @@ def test_a_foreign_stop_is_refused_when_the_holder_changed_after_disclosure(
     1290 must not stop whatever holds the port now (2026-10-01 review, L6-L5;
     ADR-0004: a set that changed during the dialog is asked again).
 
-    Dies on removing the `_holder_changed` check from `stop_project`.
+    Dies on removing the `holder_changed` check from `stop_project`.
     """
     drive = RecordingDrive()
     adopted(monkeypatch, drive, "other.service")
@@ -3241,7 +3241,7 @@ def test_a_foreign_restart_is_refused_when_the_holder_changed_after_disclosure(
 ) -> None:
     """Restart's foreign branch, for the same reason.
 
-    Dies on removing the `_holder_changed` check from `restart_project`.
+    Dies on removing the `holder_changed` check from `restart_project`.
     """
     drive = RecordingDrive()
     adopted(monkeypatch, drive, "other.service")

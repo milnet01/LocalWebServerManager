@@ -97,7 +97,7 @@ from lwsm.controller import (
     RowView,
     abandon_pool,
 )
-from lwsm.foreign import Tree, TreeRefused, enumerate_tree
+from lwsm.foreign import HolderIdentity, Tree, TreeRefused, enumerate_tree
 from lwsm.placement import Rect, centre_in
 from lwsm.registry import (
     LoadResult,
@@ -108,7 +108,7 @@ from lwsm.registry import (
     RegistryMissing,
     RegistryNotDurable,
 )
-from lwsm.service import HolderIdentity, describe_holder
+from lwsm.service import describe_holder
 from lwsm.settings import MIN_TEXT_SCALE, TEXT_SIZE_STEPS, SettingsNotDurable
 from lwsm.theme import (
     DEFAULT_THEME,
@@ -4044,9 +4044,7 @@ class MainWindow(QMainWindow):
             replace(record, hidden=hidden) if record.path == path else record
             for record in self._controller.records()
         ]
-        name = display_text(
-            next((r.name for r in records if r.path == path), path.name)
-        )
+        name = self._name_at(path)
         self.set_status_message(
             self._write_records(
                 records,
@@ -4068,9 +4066,7 @@ class MainWindow(QMainWindow):
             replace(record, health_check=on) if record.path == path else record
             for record in self._controller.records()
         ]
-        name = display_text(
-            next((r.name for r in records if r.path == path), path.name)
-        )
+        name = self._name_at(path)
         message = (
             QCoreApplication.translate(
                 "ProjectRow", "%1: the site is now checked every 10 seconds"
@@ -4197,6 +4193,12 @@ class MainWindow(QMainWindow):
     def _record_at(self, path: Path) -> ProjectRecord | None:
         return next((r for r in self._controller.records() if r.path == path), None)
 
+    def _name_at(self, path: Path) -> str:
+        """The project's name as a message shows it, or the folder's name
+        when no record holds `path`."""
+        record = self._record_at(path)
+        return display_text(path.name if record is None else record.name)
+
     def _ask_health_page(self, name: str, current: str) -> str | None:
         """The text the user typed, or None if they cancelled.
 
@@ -4242,12 +4244,7 @@ class MainWindow(QMainWindow):
         starts without asking, so the banner says it was not saved (LWSM-1474).
         """
         problem = self._controller.forget_trust(path)
-        name = display_text(
-            next(
-                (r.name for r in self._controller.records() if r.path == path),
-                path.name,
-            )
-        )
+        name = self._name_at(path)
         if problem is not None:
             self.set_status_message(
                 _filled(
@@ -4283,9 +4280,7 @@ class MainWindow(QMainWindow):
             replace(record, browser=entry_id) if record.path == path else record
             for record in self._controller.records()
         ]
-        name = display_text(
-            next((r.name for r in records if r.path == path), path.name)
-        )
+        name = self._name_at(path)
         chosen = browsers.by_id(self._browsers, entry_id)
         message = (
             _filled(

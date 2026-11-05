@@ -31,8 +31,7 @@ import psutil
 from lwsm.supervisor import (
     GRACE_SECONDS,
     KILL_TIMEOUT_SECONDS,
-    POLL_INTERVAL_SECONDS,
-    _alive,
+    _wait_until_gone,
 )
 
 
@@ -63,6 +62,24 @@ class Tree:
 
     def identity(self) -> frozenset[tuple[int, float]]:
         return frozenset((member.pid, member.started) for member in self.members)
+
+
+# ADR-0004's identity for a process: its PID plus its `create_time`. The time
+# is None where it cannot be read, which leaves the PID alone to compare.
+type HolderIdentity = tuple[int, float | None]
+
+
+def holder_identity(pid: int) -> HolderIdentity:
+    """`pid` and its start time, read now (LWSM-1444).
+
+    A disclosure is modal, and a holder that exits during it can have its PID
+    reissued; the start time is what tells the two processes apart, as
+    `Tree.identity` does for a foreign set.
+    """
+    try:
+        return (pid, float(psutil.Process(pid).create_time()))
+    except Exception:
+        return (pid, None)
 
 
 @dataclass(frozen=True)
@@ -177,7 +194,7 @@ def stop_tree(
             pass  # exited, or its PID now names someone else: either way, skip
         except psutil.Error:
             refused.append(proc.pid)
-    survivors = _wait(list(tree.handles), grace, clock, sleep)
+    survivors = _wait_until_gone(list(tree.handles), grace, clock, sleep)
     killed: list[int] = []
     for proc in survivors:
         try:
@@ -190,31 +207,15 @@ def stop_tree(
                 refused.append(proc.pid)
     # Read afresh even when nothing was killed: a survivor whose kill() raised
     # NoSuchProcess exited in between, and is not left.
-    left = _wait(survivors, KILL_TIMEOUT_SECONDS if killed else 0.0, clock, sleep)
+    left = _wait_until_gone(
+        survivors, KILL_TIMEOUT_SECONDS if killed else 0.0, clock, sleep
+    )
     return TreeOutcome(
         terminated=tuple(terminated),
         killed=tuple(killed),
         refused=tuple(refused),
         left=tuple(proc.pid for proc in left),
     )
-
-
-def _wait(
-    procs: list[psutil.Process],
-    timeout: float,
-    clock: Callable[[], float],
-    sleep: Callable[[float], None],
-) -> list[psutil.Process]:
-    """Poll until nothing in `procs` is alive or `timeout` passes.
-
-    `Supervisor._wait_for`'s loop, without its per-wait callback.
-    """
-    deadline = clock() + timeout
-    while True:
-        alive = [proc for proc in procs if _alive(proc)]
-        if not alive or clock() >= deadline:
-            return alive
-        sleep(POLL_INTERVAL_SECONDS)
 
 
 def looks_like(

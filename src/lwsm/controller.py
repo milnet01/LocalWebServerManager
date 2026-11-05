@@ -24,17 +24,22 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
 from lwsm import health
 from lwsm.configfile import display_text
-from lwsm.foreign import Tree, TreeOutcome, looks_like, stop_tree
+from lwsm.foreign import (
+    HolderIdentity,
+    Tree,
+    TreeOutcome,
+    holder_identity,
+    looks_like,
+    stop_tree,
+)
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot, free_port
 from lwsm.registry import OVERRIDE_PORT_RANGE, PortFinding, ProjectRecord, port_claims
 from lwsm.service import (
     ENDED_STATES,
-    HolderIdentity,
     UnitOutcome,
     clear_drop_in,
     describe_holder,
     drive_unit,
-    holder_identity,
     set_drop_in,
     unit_belongs_to,
     unit_for_pid,
@@ -1435,7 +1440,7 @@ class ProjectController(QObject):
         """
         if self._snapshot is None:
             return None
-        record = next((r for r in self._records if r.path == path), None)
+        record = self._record(path)
         if record is None:
             return None
         current = record.effective_port
@@ -1583,7 +1588,7 @@ class ProjectController(QObject):
             return
         if path not in self._supervisor.running():
             self._restarting.discard(path)
-            if self._holder_changed(path, disclosed_holder):
+            if self.holder_changed(path, disclosed_holder):
                 return
             # A `running (foreign)` project — this manager did not spawn it, so
             # there is no handle to signal through, and ADR-0003 forbids
@@ -1610,7 +1615,7 @@ class ProjectController(QObject):
                 f"cannot stop {display_text(path.name)}: it is no longer listed",
             )
             return
-        if self._holder_changed(path, disclosed_holder):
+        if self.holder_changed(path, disclosed_holder):
             return
         self._set_overlay(path, ProjectStatus.STOPPING)
         self._service_pool.start(_TreeStopTask(path, tree, self._service_signals))
@@ -1628,7 +1633,7 @@ class ProjectController(QObject):
             self._restarting.add(path)
             self.stop_project(path)
             return
-        if self._holder_changed(path, disclosed_holder):
+        if self.holder_changed(path, disclosed_holder):
             return
         unit = self._holder_unit(path)
         if unit is not None:
@@ -1668,12 +1673,10 @@ class ProjectController(QObject):
         return None if pid is None else holder_identity(pid)
 
     def holder_changed(self, path: Path, disclosed: HolderIdentity | None) -> bool:
-        """`_holder_changed` for an action the window takes itself: Open
-        (LWSM-1445). Emits the same refusal when it answers True."""
-        return self._holder_changed(path, disclosed)
-
-    def _holder_changed(self, path: Path, disclosed: HolderIdentity | None) -> bool:
         """Refuse a foreign action whose holder changed after it was disclosed.
+
+        Public because the window calls it for an action it takes itself:
+        Open (LWSM-1445).
 
         The window's disclosure is modal, and polls go on underneath it. If the
         port's holder is now a different process, the user said yes to a server
