@@ -128,14 +128,19 @@ Added at P02 (LWSM-1005), contract in
   escape is **`abandon_pool`**, public since LWSM-1139 because the window's
   rescan pool needs the identical two lines and a second copy that forgot the
   `setParent(None)` would look right and hang on exit. **Nothing in a tick
-  asks the OS on the GUI thread** (LWSM-1401). The reap, the log rotation
+  asks the OS on the GUI thread** (LWSM-1401), **except `supervisor.owns_pid`**:
+  `_managed_paths`, `_our_ports`, `_owns` and `_bound_off_localhost` call it
+  there. It reads `/proc` and process groups; a comparable walk took about a
+  millisecond (measured 2026-11-05). It stays there by decision (LWSM-1460):
+  nothing has been seen to block, and moving it adds a third thread reading
+  the supervisor. The reap, the log rotation
   (LWSM-1136) and the process-group walk run as **`_do_upkeep`** on their own
   one-thread pool. That pool sits outside the snapshot's in-flight guard,
   since a log cap that lapses when the socket table is slow is not a cap. Its
   slot starts the snapshot, so a released slot is known before the snapshot
   that reads it. **`_resolve_holders`** finds each holder's unit, ADR-0003's
   `systemctl` binding and ADR-0004's "looks like" answer (LWSM-1450) inside
-  the snapshot task; `_classify` only reads the answers. `RowView` carries
+  the snapshot task; `_classify` reads those answers and asks only `owns_pid`. `RowView` carries
   **`managed`**, read once per render from `supervisor.running()`, because
   ADR-0004 derives state from the socket table and `status` therefore cannot say
   whose server it is.
