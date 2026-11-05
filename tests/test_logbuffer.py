@@ -106,6 +106,44 @@ def test_terminal_escapes_and_control_characters_are_removed() -> None:
     assert lines == ["ready in 40 ms", "plain bell", "100%", "tab\tkept"]
 
 
+@pytest.mark.parametrize(
+    "control",
+    ["\x85", "\x9b", " ", " ", "‮", "⁧"],
+    ids=["nel", "csi-c1", "line-separator", "paragraph-separator", "rlo", "rli"],
+)
+def test_c1_separators_and_direction_controls_show_as_replacement(
+    control: str,
+) -> None:
+    """LWSM-1515: the panel's own status reads "Last error: %1", so a server
+    line ending in U+202E reversed the app's sentence after it. The set is
+    `configfile`'s (LWSM-1469), shown as U+FFFD so the user sees something
+    was there; tab survives, as above."""
+    ring = LogBuffer()
+    assert ring.feed(f"a\t{control}b\n") == ["a\t�b"]
+
+
+def test_a_line_redrawn_without_ever_ending_holds_a_bounded_fragment() -> None:
+    """LWSM-1515: a progress line redrawn with CR and never LF grew the held
+    fragment without limit, and every read re-copied and re-split it. Only
+    the text after the last CR is shown, so only that, capped, is kept."""
+    ring = LogBuffer()
+    for step in range(2000):
+        ring.feed(f"{step:>40}%\r" * 50)
+    assert len(ring._partial) <= 4 * MAX_LINE_CHARS
+    assert ring.feed("done\n") == ["done"]
+
+
+def test_a_carriage_return_ending_a_read_still_redraws_the_line() -> None:
+    """The other half of the bound: trimming at the last CR must keep one
+    that ends a read, or the text before it joins the redraw after it, and
+    a CRLF split across two reads must keep its line."""
+    ring = LogBuffer()
+    assert ring.feed("50%\r") == []
+    assert ring.feed("100%\n") == ["100%"]
+    assert ring.feed("ready\r") == []
+    assert ring.feed("\n") == ["ready"]
+
+
 def test_a_line_longer_than_the_cap_is_cut_with_an_ellipsis() -> None:
     """design.md § Detection rules: the LogPanel elides at the canonical
     per-line limit, so one number governs every untrusted string."""
@@ -367,6 +405,49 @@ def test_the_feed_keeps_the_tail_after_the_server_has_gone(qtbot, tmp_path) -> N
     finally:
         feed.stop()
     assert feed.buffer.lines()[0] == "Traceback (most recent call last):"
+
+
+@pytest.mark.gui
+def test_a_reader_waits_while_the_window_has_not_caught_up(qtbot) -> None:
+    """LWSM-1515: after the first read nothing bounded how many chunks queued
+    for the GUI thread, so a server in a tight loop could outpace the window.
+    A reader past the limit waits until the window has taken what it sent."""
+    feed = LogFeed(LogSource(), max_in_flight=10)
+    sent = threading.Event()
+
+    def reader() -> None:
+        feed._send(b"one\n" * 2)
+        feed._send(b"two\n")
+        sent.set()
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        assert not sent.wait(0.3), "the reader ran ahead of the window"
+        qtbot.waitUntil(sent.is_set, timeout=3000)
+        qtbot.waitUntil(lambda: feed.buffer.lines()[-1:] == ["two"], timeout=3000)
+    finally:
+        feed.stop()
+        thread.join(5)
+
+
+@pytest.mark.gui
+def test_stopping_the_feed_releases_a_waiting_reader(qtbot) -> None:
+    """The other half: stop() joins the reader on the GUI thread, which then
+    cannot take queued text, so a reader waiting for room must be released."""
+    feed = LogFeed(LogSource(), max_in_flight=1)
+    feed._send(b"x\n")
+    sent = threading.Event()
+    thread = threading.Thread(
+        target=lambda: (feed._send(b"y\n"), sent.set()), daemon=True
+    )
+    thread.start()
+    assert not sent.wait(0.3)
+
+    feed.stop()
+
+    assert sent.wait(3), "a waiting reader was left blocked after stop"
+    thread.join(5)
 
 
 @pytest.mark.gui

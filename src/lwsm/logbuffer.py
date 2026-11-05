@@ -33,6 +33,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from lwsm.applog import _open_private_regular, get_logger
+from lwsm.configfile import DISPLAY_CONTROL_CLASS
 from lwsm.scanner import MAX_SOURCE_LINE_CHARS, valid_unit_name
 from lwsm.settings import DEFAULT_ERROR_MARKERS
 
@@ -65,6 +66,24 @@ _ESCAPES = re.compile(
     r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]?"
 )
 _CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+# What is left of `configfile`'s display set once those are gone, tab aside:
+# C1, the line separators and the direction controls. Shown as U+FFFD, as a
+# name is: a line ending in U+202E reversed the panel's own "Last error: %1"
+# after it (LWSM-1515).
+_SHOWN_CONTROLS = re.compile(rf"(?!\t){DISPLAY_CONTROL_CLASS}")
+
+# The most of an unfinished line the ring holds. Only the text after its last
+# carriage return is ever shown, and that is cut at MAX_LINE_CHARS; the rest
+# is room for escapes, which go before the cut. Without a bound, a progress
+# line redrawn with CR and never LF grew without limit, and every read
+# re-copied it on the GUI thread (LWSM-1515).
+MAX_PARTIAL_CHARS = 4 * MAX_LINE_CHARS
+
+# Bytes a follower may have sent that the GUI thread has not yet taken. Past
+# it the reader waits, so a server in a tight loop cannot outpace the window
+# (LWSM-1515). Eight reads: the rates were not measured, and this only has to
+# be a bound, not a tuned one.
+MAX_BYTES_IN_FLIGHT = 8 * _READ_CHUNK
 
 # The reasons a follower gives up, as facts rather than sentences: the panel
 # composes the words, so they stay translatable (the controller's
@@ -83,6 +102,7 @@ def _clean(line: str) -> str:
     """
     line = line.rstrip("\r").rsplit("\r", 1)[-1]
     line = _CONTROLS.sub("", _ESCAPES.sub("", line))
+    line = _SHOWN_CONTROLS.sub("�", line)
     if len(line) > MAX_LINE_CHARS:
         line = line[: MAX_LINE_CHARS - 1] + "…"
     return line
@@ -138,7 +158,7 @@ class LogBuffer:
     def feed(self, text: str) -> list[str]:
         """Add `text`; return the lines it completed, cleaned, in order."""
         pieces = (self._partial + text).split("\n")
-        self._partial = pieces.pop()
+        self._partial = _bounded_partial(pieces.pop())
         added = [_clean(piece) for piece in pieces]
         self._lines.extend(added)
         return added
@@ -159,6 +179,17 @@ class LogBuffer:
 
     def lines(self) -> list[str]:
         return list(self._lines)
+
+
+def _bounded_partial(partial: str) -> str:
+    """The part of an unfinished line `_clean` could still show, capped.
+
+    The text after the last carriage return, except one at the very end,
+    which may be the first half of a CRLF split across two reads.
+    """
+    body = partial.rstrip("\r")
+    kept = body.rsplit("\r", 1)[-1] + partial[len(body) :]
+    return kept[:MAX_PARTIAL_CHARS]
 
 
 @dataclass(frozen=True)
@@ -428,10 +459,18 @@ class LogFeed(QObject):
         *,
         interval: float = POLL_SECONDS,
         popen: Popen | None = None,
+        max_in_flight: int = MAX_BYTES_IN_FLIGHT,
     ) -> None:
         super().__init__(parent)
         self.source = source
         self.buffer = LogBuffer()
+        # Bytes sent by the reader and not yet taken on this thread, and the
+        # flag that releases a reader waiting on them once the feed stops:
+        # stop() joins the reader here, where queued text cannot be taken.
+        self._max_in_flight = max_in_flight
+        self._in_flight = 0
+        self._room = threading.Condition()
+        self._closing = False
         self._interval = interval
         self._popen = popen
         self._follower: FileFollower | JournalFollower | None = None
@@ -445,14 +484,16 @@ class LogFeed(QObject):
         self._quiet.timeout.connect(self._flush)
 
     def start(self) -> None:
+        with self._room:
+            self._closing = False
         source = self.source
         if source.unit is not None:
             self._follower = JournalFollower(
-                source.unit, self._text.emit, self._error.emit, popen=self._popen
+                source.unit, self._send, self._error.emit, popen=self._popen
             )
         elif source.file is not None:
             self._follower = FileFollower(
-                source.file, self._text.emit, self._error.emit, interval=self._interval
+                source.file, self._send, self._error.emit, interval=self._interval
             )
         else:
             return
@@ -461,6 +502,9 @@ class LogFeed(QObject):
     def stop(self) -> None:
         follower, self._follower = self._follower, None
         self._quiet.stop()
+        with self._room:
+            self._closing = True
+            self._room.notify_all()
         if follower is not None:
             follower.stop()
 
@@ -469,7 +513,28 @@ class LogFeed(QObject):
         if released:
             self.lines_added.emit(released)
 
+    def _send(self, data: bytes) -> None:
+        """The reader's sink: wait while the window is behind, then queue.
+
+        Runs on the reader's thread. A chunk is sent whenever nothing is in
+        flight, so one larger than the limit still goes.
+        """
+        with self._room:
+            while (
+                self._in_flight
+                and self._in_flight + len(data) > self._max_in_flight
+                and not self._closing
+            ):
+                self._room.wait()
+            if self._closing:
+                return
+            self._in_flight += len(data)
+        self._text.emit(data)
+
     def _on_text(self, data: bytes) -> None:
+        with self._room:
+            self._in_flight = max(0, self._in_flight - len(data))
+            self._room.notify_all()
         added = self.buffer.feed_bytes(data)
         if added:
             self.lines_added.emit(added)

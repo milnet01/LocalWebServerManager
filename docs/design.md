@@ -143,8 +143,10 @@ Two rules the diagram encodes:
   rich text, so a hostile server printing
   `<img src="file:///home/…/.ssh/id_rsa">` gets Qt to load a local
   resource, and deeply nested tags wedge the UI thread in layout.
-  Control characters are stripped and over-long lines elided at
-  the per-line cap defined in § Detection rules.
+  Terminal escapes and C0 controls other than tab are stripped;
+  C1 controls, the line separators and the direction controls show
+  as U+FFFD (LWSM-1515). Over-long lines are elided at the per-line
+  cap defined in § Detection rules.
   **It sits in the main window, under the list, not in a window of
   its own** (LWSM-1015): under Wayland the app cannot place a window
   it opens, so a separate one lands wherever the compositor puts it

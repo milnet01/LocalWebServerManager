@@ -14464,7 +14464,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-05.
   Lanes: health.
 
-- 📋 [LWSM-1515] **The log buffer's cleaner lets C1 and bidi controls through, and its input has no bound.**
+- ✅ [LWSM-1515] **The log buffer's cleaner lets C1 and bidi controls through, and its input has no bound.**
   Priority: 3.
   Three findings in logbuffer.py. Cited lines read at f57689c.
   1. logbuffer.py:67 `_CONTROLS` covers C0 (but tab and newline) and
@@ -14489,6 +14489,13 @@ LWSM-1036.
   in flight; above a threshold the follower waits or skips to the tail.
   Hazard: item 1 changes what the panel shows; tests pinning `_clean`
   move with it. Related logs LOWs are queued in 1.0.0.
+  Shipped 2026-11-05. (1) _clean shows configfile's display set (now
+  DISPLAY_CONTROL_CLASS, shared) as U+FFFD, tab aside; C0 noise is still
+  dropped. (2) The held fragment keeps only the text after its last CR
+  (one ending a read is kept) and is capped at MAX_PARTIAL_CHARS.
+  (3) LogFeed._send makes the reader wait past MAX_BYTES_IN_FLIGHT
+  (8 reads, a bound rather than a measured rate); stop() releases it.
+  design.md § the log panel says what is stripped and what is replaced.
   **Layman:** Server output can flip the direction of the app's own status text, and a server that never ends a line can slow the window and eat memory.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-12.

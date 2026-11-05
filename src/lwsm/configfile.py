@@ -94,10 +94,12 @@ MAX_DISPLAY_NAME_CHARS = 120
 # C0, DEL and C1, lone surrogates, and U+2028/U+2029 — the two Unicode line
 # separators, which forge a second line exactly as a newline does. Then the
 # nine explicit direction controls, U+202A-U+202E and U+2066-U+2069, which
-# reorder the text drawn AFTER the name (LWSM-1469).
-_CONTROL = re.compile(
+# reorder the text drawn AFTER the name (LWSM-1469). A character class, so the
+# log panel's cleaner reuses it rather than keeping a weaker copy (LWSM-1515).
+DISPLAY_CONTROL_CLASS = (
     r"[\x00-\x1f\x7f-\x9f\ud800-\udfff\u2028\u2029\u202a-\u202e\u2066-\u2069]"
 )
+_CONTROL = re.compile(DISPLAY_CONTROL_CLASS)
 
 
 def display_text(text: str) -> str:
