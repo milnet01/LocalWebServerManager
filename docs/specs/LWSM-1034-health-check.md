@@ -238,16 +238,20 @@ the page going through `configfile.display_text`.
 
 - **INV-1** — `health.ask` returns the status code a real local server sends,
   does not follow a redirect, and returns `None` for a refused connection, a
-  timeout and a reply that is not HTTP.
+  timeout and a reply that is not HTTP. An interim reply (1xx other than 101)
+  is skipped for the status that follows it; a server sending more than
+  `MAX_INTERIM_REPLIES` of them gets `None` (LWSM-1458).
   *Test:* `tests/test_health.py`, against an `http.server` thread on port 0
   answering 200, 500 and 302 to a different port, a closed port, a socket that
   accepts and never replies (with a 0.2 s timeout), one that replies
-  `hello\r\n`, and one that sends a valid status line a byte at a time,
-  cut off at its `deadline`.
+  `hello\r\n`, one that sends a valid status line a byte at a time,
+  cut off at its `deadline`, one that sends 103 and 100 before a 503, and
+  one that sends only 103s.
   *Breaks when:* `urllib.request.urlopen` is used, which follows the 302 and
   raises on the 500; or an `except` names only `ConnectionRefusedError`, so a
   timeout escapes; or the deadline timer is never started, so a trickling
-  server holds the call.
+  server holds the call; or the status `getresponse` returns is reported
+  as it is, so a 103 Early Hints reads as the answer.
 
 - **INV-2** — The request goes to `localhost:<port>` whatever `path` holds.
   *Test:* `tests/test_health.py`, `ask(port, "@example.invalid/")` against the
@@ -418,7 +422,7 @@ on port 0 on a thread, per `testing-overrides.md` § T3.
 
 | Rule | What catches a breach |
 |------|----------------------|
-| INV-1, INV-2 | `tests/test_health.py::test_the_status_code_is_what_the_server_sent`, `::test_a_redirect_is_reported_and_not_followed`, `::test_a_closed_port_is_no_answer`, `::test_a_server_that_never_replies_is_no_answer`, `::test_a_reply_that_is_not_http_is_no_answer`, `::test_the_page_cannot_move_the_request_off_localhost` |
+| INV-1, INV-2 | `tests/test_health.py::test_the_status_code_is_what_the_server_sent`, `::test_a_redirect_is_reported_and_not_followed`, `::test_a_closed_port_is_no_answer`, `::test_a_server_that_never_replies_is_no_answer`, `::test_a_reply_that_is_not_http_is_no_answer`, `::test_an_early_hints_reply_is_skipped_for_the_final_answer`, `::test_a_server_sending_only_interim_replies_is_no_answer`, `::test_the_page_cannot_move_the_request_off_localhost` |
 | INV-3, INV-4 | `tests/test_registry.py::test_a_bad_health_field_loses_only_itself`, `::test_a_file_without_the_health_keys_loads_with_checking_off`, `::test_write_then_load_round_trips`, `::test_a_rescan_never_writes_a_user_field`, `::test_an_import_never_takes_a_start_command_or_start_at_login` |
 | INV-5 to INV-8 | `tests/test_controller.py::test_only_a_running_project_with_its_check_on_is_asked`, `::test_only_the_derived_running_state_is_asked`, `::test_a_running_project_under_a_stopping_overlay_is_still_asked`, `::test_a_project_still_waiting_is_not_asked_again`, `::test_an_answer_for_an_old_port_or_page_is_not_shown`, `::test_an_answer_is_dropped_once_a_poll_says_the_project_stopped`, `::test_an_answer_is_hidden_under_an_overlay_and_shown_after_it`, `::test_no_answer_is_delivered_after_stop`, `::test_stop_is_bounded_when_a_health_check_never_returns`, `::test_the_process_exits_promptly_when_a_health_check_hangs`, `::test_a_defect_inside_ask_leaves_the_project_checkable` |
 | INV-9 to INV-12 | `tests/test_mainwindow.py::test_the_answer_is_the_port_cells_last_line`, `::test_the_widest_port_wording_with_an_answer_still_fits_one_lens_view`, `::test_the_menu_turns_the_health_check_on_and_off`, `::test_the_menu_changes_the_page_it_checks`, `::test_a_hostile_page_reaches_the_detail_as_plain_text` |

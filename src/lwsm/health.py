@@ -18,6 +18,9 @@ HEALTH_TIMEOUT_SECONDS = 2.0
 # For the whole call. Without it four trickling servers held all four health
 # threads for as long as they liked (review-code 2026-10-08 L02-L5).
 HEALTH_DEADLINE_SECONDS = 5.0
+# Interim replies skipped before the call gives up with no answer. Each read
+# is still under the per-socket timeout, and the whole call under the deadline.
+MAX_INTERIM_REPLIES = 10
 
 _USER_AGENT = f"LocalWebServerManager/{__version__} health check"
 
@@ -38,7 +41,8 @@ def ask(
     refused anything not shaped like a path (`registry.health_path_ok`).
 
     None covers a refused or reset connection, a timeout (all `OSError`), a
-    reply that is not HTTP (`HTTPException`) and a call still unanswered at
+    reply that is not HTTP (`HTTPException`), a server sending more than
+    `MAX_INTERIM_REPLIES` interim replies, and a call still unanswered at
     `deadline`, whose socket is shut down so the blocked read returns. Anything
     else is a defect and propagates, so the caller can log it.
     """
@@ -57,12 +61,45 @@ def ask(
             "GET", path, headers={"User-Agent": _USER_AGENT, "Connection": "close"}
         )
         # The status line is the answer; the body is never read.
-        return connection.getresponse().status
+        return _final_status(connection.getresponse())
     except (OSError, http.client.HTTPException):
         return None
     finally:
         cutoff.cancel()
         connection.close()
+
+
+def _final_status(response: http.client.HTTPResponse) -> int | None:
+    """The first status that is not interim, read off the same stream.
+
+    `http.client` skips only `100 Continue`, so a `103 Early Hints`
+    (RFC 8297) would be reported as the answer (LWSM-1458). A 1xx has no
+    body, so the next status line follows its headers at once; a new
+    `HTTPResponse` over the same buffered reader parses it, since a second
+    `makefile` would lose what the first has already buffered. 101 is left
+    as the answer: it ends HTTP on the connection, so nothing follows it.
+
+    Each interim reply hands its reader on (`fp = None`): a reply that is
+    closed or collected closes its reader, and the next reply reads from it.
+    """
+    for _ in range(MAX_INTERIM_REPLIES):
+        status = response.status
+        if not 100 <= status < 200 or status == 101:
+            return status
+        stream, response.fp = response.fp, None
+        response = http.client.HTTPResponse(_SameStream(stream), method="GET")
+        response.begin()
+    return None
+
+
+class _SameStream:
+    """Hands `HTTPResponse` the reader it already has instead of a new one."""
+
+    def __init__(self, stream: object) -> None:
+        self._stream = stream
+
+    def makefile(self, _mode: str) -> object:
+        return self._stream
 
 
 def _shut_down(connection: http.client.HTTPConnection, fired: threading.Event) -> None:

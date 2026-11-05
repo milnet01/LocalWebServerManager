@@ -16,7 +16,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from lwsm.health import ask
+from lwsm.health import MAX_INTERIM_REPLIES, ask
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -205,6 +205,30 @@ def test_a_reply_that_is_not_http_is_no_answer(raw_server) -> None:
     """INV-1 of LWSM-1034: `BadStatusLine` is an `HTTPException`, and caught."""
     port, replies = raw_server
     replies.append(b"hello\r\n")
+    assert ask(port, "/", timeout=2) is None
+
+
+@pytest.mark.integration
+def test_an_early_hints_reply_is_skipped_for_the_final_answer(raw_server) -> None:
+    """INV-1 of LWSM-1034 (LWSM-1458): a `103 Early Hints` is interim, as a
+    `100 Continue` is, so the answer is the status line that follows it.
+    503 rather than 200, so a check that ignored the reply cannot pass."""
+    port, replies = raw_server
+    replies.append(
+        b"HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\n\r\n"
+        b"HTTP/1.1 100 Continue\r\n\r\n"
+        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n"
+    )
+    assert ask(port, "/", timeout=2) == 503
+
+
+@pytest.mark.integration
+def test_a_server_sending_only_interim_replies_is_no_answer(raw_server) -> None:
+    """LWSM-1458: interim replies are skipped up to `MAX_INTERIM_REPLIES`,
+    so a server that sends nothing else is no answer rather than its 1xx."""
+    port, replies = raw_server
+    hint = b"HTTP/1.1 103 Early Hints\r\n\r\n"
+    replies.append(hint * (MAX_INTERIM_REPLIES + 1) + b"HTTP/1.1 200 OK\r\n\r\n")
     assert ask(port, "/", timeout=2) is None
 
 
