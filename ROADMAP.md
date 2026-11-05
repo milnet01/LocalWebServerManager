@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1508 -->
+<!-- ants-roadmap-id-high-water: LWSM=1540 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12225,6 +12225,12 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   means adding `--with` pins in ci-tools.env and checking them locally, and
   the local half changes the machine-wide yamllint other projects' gates use,
   so it needs the user's decision first. Nearest item: LWSM-1414.
+  review-code 2026-11-05 lane-13 re-found this: ci.yml:139 `uv tool
+  install "yamllint==${YAMLLINT_VERSION}"` is installed with no hash and
+  unpinned transitive dependencies, while ci-tools.env:32-35 gives the
+  reason shellcheck and actionlint carry a SHA-256. Remedy offered:
+  --with-requirements from a hashed requirements file. Same decision as
+  above.
   **Layman:** One checking tool's own helpers are not held to fixed versions, so an update to them could break the checks without warning.
   Kind: chore.
   Source: review-code-2026-10-08 lane-10 L10-L9.
@@ -14251,10 +14257,380 @@ LWSM-1036.
   Rare: it needs a rotation inside a few seconds of overlap. Not measured.
   Options: leave it; or have the quitting copy log to stderr once it has
   released the socket, which drops its last stop lines from the file.
+  review-code 2026-11-05: lane-12 re-found the app.log rotation overlap
+  (applog.py:303-308); settled here, not reopened. Lane-11 found a
+  second consequence of the same overlap: __main__.py:879-888 freezes
+  started.json and releases the socket before close_supervisor waits, so
+  a relaunch's supervisor.adopt() (__main__.py:390) can adopt a server
+  the old copy is still stopping, and when its SIGKILL lands the new
+  window would likely show that project failed. The lane did not open
+  adopt(); unverified. Remedy offered: write a stopping mark into the
+  record before freezing, so adopt skips those entries. Related to the
+  LWSM-1447 ruling, not settled by it.
   **Layman:** After quitting while servers are still stopping, a quick relaunch and the old copy can both write the app's log for a few seconds.
   Kind: investigate.
   Source: lwsm-1447-build-2026-11-05.
   Lanes: main, applog.
+
+- 📋 [LWSM-1509] **Two crafted-project holes: an unreadable launcher's confirmation outlives its contents, and two scanner patterns run quadratic with no deadline.**
+  Priority: 3.
+  Both are SECURITY.md in-scope cases from a crafted project directory.
+  Verified: every cited line read at f57689c.
+  1. supervisor.py:614 `content = _launcher_bytes(target) if target is
+  not None else None` (lane-01). A launcher that exists but cannot be
+  read (an execute-only binary, mode 0111, the user's own, under 1 MiB)
+  passes validate_launcher, and launcher_fingerprint then hashes the
+  argv alone. start() refuses an unreadable launcher only for npm
+  (supervisor.py:1195, LWSM-1364), so one confirmation survives every
+  later rewrite of the file: SECURITY.md's 'a confirmation [that]
+  survives a change to ... its contents'. Remedy: in start(), after
+  validate_launcher, raise LauncherRefused when
+  `_launcher_bytes(launcher)` is None.
+  2. scanner.py:827-829 (`_HOP_KEYWORD`: `\s*!?\s*`, two space
+  quantifiers side by side) and scanner.py:917-919 (`_PY_IMPORT_LINE`:
+  `\.*[\w.]*`, both match dots) (lane-03). A near-match backtracks
+  quadratically. Orchestrator measurement, one 4096-char line: 0.074 s
+  (`;` plus spaces), 0.099 s (`from` plus dots); 64 such lines in a
+  256 KB file is about 4.7-6.4 s of the 20 s scan budget. No deadline
+  check covers a line that does not match: `_hop_target`
+  (scanner.py:1114-1116) checks per token, `_walk_imports`
+  (scanner.py:1011-1012) per specifier. Same shape as LWSM-1463 /
+  INV-15. Remedy: make each pair possessive (`\s*+`, `\.*+`; Python
+  3.11+) or non-overlapping; check `deadline.expired()` per line in
+  both loops; extend INV-15's linear-time test to both patterns.
+  Hazard: item 1 refuses a launcher that runs today; its reason must
+  say 'unreadable', as the npm branch's does.
+  **Layman:** A specially made project folder could get a changed start script run without a new question, or make the scan crawl.
+  Kind: security.
+  Source: review-code-2026-11-05 lane-01, lane-03.
+  Lanes: supervisor, scanner.
+
+- 📋 [LWSM-1510] **local-release.sh --dry-bump can silently discard a ROADMAP.md render made during its network checks.**
+  Priority: 3.
+  scripts/local-release.sh:212-213 (`tree_state`, step 0c), :531
+  (`trap 'git checkout -- "${BUMPED_PATHS[@]}" ...' EXIT`) and :562
+  (`git checkout -- "${BUMPED_PATHS[@]}"`). Verified at f57689c.
+  --dry-bump checks the tree is clean once, then runs network steps
+  0d-0h (git ls-remote, gh, gh api) that take seconds, and only then
+  writes and `git checkout --` the recipe paths. ROADMAP.md is one of
+  them, any roadmap_log write re-renders it, and several sessions share
+  this repository. A render landing in that window is discarded by the
+  checkout: the LWSM-1067 loss that release.md says this guard exists
+  to prevent.
+  Remedy: run the dry bump in a detached git worktree, as the pre-push
+  hook does, so the user's tree is never written. At minimum, hash each
+  path before writing and refuse to revert a file whose content is no
+  longer the bumped text.
+  Hazard: until fixed, do not run --dry-bump while another session may
+  write the roadmap.
+  **Layman:** A release rehearsal can quietly throw away a roadmap update another session saved while it was running.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-13.
+  Lanes: tooling.
+
+- 📋 [LWSM-1511] **A lone surrogate in error_markers passes the settings load, then makes every settings save fail.**
+  Priority: 3.
+  settings.py:362 `if type(value) is not list or any(type(item) is not
+  str for item in value):`. Verified at f57689c.
+  A hand-edited `"error_markers": ["\ud800"]` passes this check and
+  error_marker_problem, whose `_MARKER_CONTROLS` (settings.py:144) is
+  C0 and DEL only. load returns no reason; then every save raises at
+  settings.py:607-613 (UnicodeEncodeError on encode, surfaced as
+  SettingsError 'cannot be serialised', naming no field). The write
+  gate in __main__.save_field reads only `reasons`, so every write
+  fails until a hand fix: theme, text size, Preferences, and the
+  geometry save on every close. No data is lost (it raises before
+  write_atomically).
+  load's own rule (settings.py:509-510): a value that will not
+  re-serialise 'loses only itself, with a reason'.
+  configfile.is_writable_text (configfile.py:196) exists and is not
+  called here.
+  Remedy: in `_markers_or_reason`, refuse the field with a reason when
+  any item fails is_writable_text.
+  **Layman:** One odd character hand-typed into the settings file stops the app saving any setting, even the window size.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-09.
+  Lanes: settings.
+
+- 📋 [LWSM-1512] **A systemd project's port can come from a .env or README in its directory, against INV-17.**
+  Priority: 3.
+  scanner.py:2120-2125 `_settle_port(candidate, quoted, launcher.port,
+  deadline, named_note)` runs for every launcher kind, SYSTEMD
+  included. Verified at f57689c. `_settle_port` reads .env.local, .env,
+  the compose files and README.md (scanner.py:1873-1879, lane claim),
+  so a unit that declares no port takes one from a file in the project
+  directory. INV-17: a systemd project's port comes from the unit 'and
+  not from any file in the project directory'. INV-17's test cannot see
+  it: its decoy is a serve.mjs, which `_settle_port` never reads.
+  Decided by the user, 2026-11-05: INV-17 binds; this is a code fix.
+  Remedy: skip `_settle_port` for LauncherKind.SYSTEMD (the unit's
+  port, or none). Add a .env decoy holding PORT= to INV-17's test, red
+  before the fix.
+  **Layman:** For a project run by systemd, the app can take its port from a stray file in the folder instead of from systemd.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-03.
+  Lanes: scanner.
+
+- 📋 [LWSM-1513] **Stop can leave a row stuck on stopping, or stop nothing on an adopted server after a clock step.**
+  Priority: 3.
+  Two findings where Stop's end state is wrong. Cited lines read at
+  f57689c.
+  1. controller.py:289-291 (STOPPING settles only on STOPPED or
+  PORT_BLOCKED) and controller.py:2463 (`if self._statuses[path] in
+  _OVERLAY_SETTLES_ON[pending]`) (lane-04). After a foreign tree stop
+  or a systemd stop succeeds, something can re-take the port (a
+  terminal `while true` loop whose shell is the server's parent, so
+  outside the stopped tree), and the row reads stopping for the rest of
+  the session. The managed path has a terminal clear
+  (controller.py:1945-1956); `_on_service_done` clears only when
+  `_last_error` is set (controller.py:1873-1878). ADR-0004 discards an
+  overlay when a poll 'shows it can never get there'. Remedy: record
+  the stopped PID; in `_settle_overlay`, clear STOPPING once a later
+  poll shows a different holder in a RUNNING_STATES state. Open: which
+  buttons stay live under the stuck overlay.
+  2. supervisor.py:1739 `members.append(managed.handle)` and
+  supervisor.py:1780 `started = _started_since_boot(proc)` (lane-01).
+  psutil caches create_time() on the long-lived leader handle (lane
+  claim, psutil __init__.py:784) while `_started_since_boot` subtracts
+  a fresh boot_time() (supervisor.py:870; its docstring already says a
+  clock step 'is not covered'); vouched_at is on CLOCK_BOOTTIME. A
+  backward step larger than the server's uptime fails the vouch; a
+  one-process group (python3 serve.py) yields no members, so stop()
+  signals nothing, drops the record and reports success, with only a
+  'port still bound' warning. Remedy: treat a leader that passes
+  `_alive` as vouching (its PID is the group id), or store since_boot
+  once at adoption and compare to that.
+  **Layman:** After Stop, a row can say 'stopping' for ever, or a server the app adopted can be left running while the app reports it stopped.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-04, lane-01.
+  Lanes: controller, supervisor.
+
+- 📋 [LWSM-1514] **The health check's deadline stops working once a reply says Connection: close.**
+  Priority: 3.
+  health.py:111-113 `sock = connection.sock` / `if sock is None:
+  return`. Verified at f57689c.
+  When getresponse() returns a reply that will close (HTTP/1.0, or
+  Connection: close), HTTPConnection closes itself and sets
+  `connection.sock = None` (http/client.py:1485-1487, lane-verified).
+  An interim reply such as `HTTP/1.1 103` with Connection: close sends
+  `_final_status` (health.py:91-92) into more begin() reads on the same
+  stream, and `_shut_down` then finds no socket and does nothing. Only
+  the 2 s per-read timeout applies, and a server sending one byte at a
+  time resets it; up to 10 replies x 100 header lines can follow.
+  LWSM-1034 § 4.1 promises `deadline` bounds the whole call; this
+  re-opens L02-L5 (four such servers hold every health thread).
+  Remedy: capture the raw socket before getresponse(), where the timer
+  can reach it, and have `_shut_down` shut down that captured socket.
+  **Layman:** A misbehaving server can keep the app's health checker busy far past its time limit.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-05.
+  Lanes: health.
+
+- 📋 [LWSM-1515] **The log buffer's cleaner lets C1 and bidi controls through, and its input has no bound.**
+  Priority: 3.
+  Three findings in logbuffer.py. Cited lines read at f57689c.
+  1. logbuffer.py:67 `_CONTROLS` covers C0 (but tab and newline) and
+  DEL only. It misses C1 (U+0080-U+009F), U+2028/U+2029 and the bidi
+  controls (U+202A-E, U+2066-9). configfile.py:98-100 (LWSM-1469)
+  holds the full set and says a weaker second copy is what coding.md
+  § 1.3 forbids. A server line ending in U+202E reaches the status
+  label through 'Last error: %1' (logpanel.py:237-239) and reverses the
+  app's own sentence after it: SECURITY.md's 'text ... changes what a
+  dialog appears to say'. Remedy: reuse configfile's set in `_clean`,
+  replacing with U+FFFD.
+  2. logbuffer.py:140-141 `pieces = (self._partial +
+  text).split("\n")`: `_partial` has no bound. A server redrawing a
+  progress line with CR and never LF grows it without limit, and every
+  64 KB read re-copies and re-splits it on the GUI thread (quadratic).
+  Remedy: keep only the text after the last CR, and clip `_partial` to
+  MAX_LINE_CHARS plus room for escapes.
+  3. logbuffer.py:316-321 `self._on_text(chunk)` in a loop: after the
+  2 MB initial read nothing bounds how many 64 KB chunks wait for the
+  GUI thread, and a server in a tight error loop can outpace its
+  decode, clean and append. Rates not measured. Remedy: count the bytes
+  in flight; above a threshold the follower waits or skips to the tail.
+  Hazard: item 1 changes what the panel shows; tests pinning `_clean`
+  move with it. Related logs LOWs are queued in 1.0.0.
+  **Layman:** Server output can flip the direction of the app's own status text, and a server that never ends a line can slow the window and eat memory.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-12.
+  Lanes: logbuffer.
+
+- 📋 [LWSM-1516] **Switching log panel rows can show the old feed's output, and scrolled-back reading drifts once the view is full.**
+  Priority: 3.
+  Two findings in logpanel.py. Cited lines read at f57689c.
+  1. logpanel.py:267-271: `_stop_feed` calls feed.stop() and
+  feed.deleteLater() and never disconnects `lines_added` or `failed`.
+  The follower posts queued text and error events before stop() joins
+  it (JournalFollower._run, logbuffer.py:379-383, does not check
+  `_stopping` inside its read loop; lane claim), and the delete event
+  lands after them. open_for (logpanel.py:161-174) stops feed A,
+  clears the view and starts feed B in one call, so A's queued output
+  appears under 'Output of B', and a queued A failure announces 'The
+  log file cannot be read' for B. The first open queues up to 32
+  chunks of 64 KB, so switching rows quickly reaches it. Remedy:
+  disconnect both signals in `_stop_feed`, or a `_stopped` flag set in
+  LogFeed.stop() that makes `_on_text`, `_on_error` and `_flush` do
+  nothing.
+  2. logpanel.py:204-210 `held = bar.value()` ... `bar.setValue(held)`.
+  Once the view holds MAX_LINES blocks every append trims from the top;
+  the scroll value is a line index, so restoring it moves the reader's
+  text up by the lines trimmed. Breaks the module docstring and
+  design.md § Components ('unless the user has scrolled up').
+  Unsettled: Qt's scroll value under maximumBlockCount trimming is the
+  lane's memory; prove it with a full panel (write-test, red first).
+  Remedy: subtract the trimmed blocks (count before + lines appended -
+  count after) from `held`.
+  **Layman:** The output panel can show one server's lines under another's name, and text you scrolled back to read can slide away.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-12.
+  Lanes: logpanel.
+
+- 📋 [LWSM-1517] **Import resolves every project path on the GUI thread, so a dead network mount freezes the window.**
+  Priority: 3.
+  registry.py:1834 `resolved, failure = _resolve_or_lexical(record.path)`
+  (also registry.py:2171), reached from mainwindow.py:3197 `merged =
+  registry.merge_imported(self._controller.records(), loaded.records)`.
+  Verified at f57689c.
+  merge_imported runs in the Import slot on the GUI thread and calls
+  Path.resolve() (lstat on every component) for every stored and every
+  profile record. A stored project on a hard-mounted network share
+  whose server is down blocks in lstat, and the window hangs. merge()
+  makes the same calls on a pool thread. The hang is inferred from
+  realpath's syscalls, not measured.
+  Remedy: run merge_imported on the rescan pool, as merge() does.
+  Not LWSM-1460, which is owns_pid alone.
+  **Layman:** Importing a profile can freeze the app if one of your projects sits on a network drive that has gone away.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-02.
+  Lanes: registry, mainwindow.
+
+- 📋 [LWSM-1518] **A project row deletes the focused button under the keyboard, wipes its error on any change, and can leave the browser list falsely focused.**
+  Priority: 3.
+  Three findings in ProjectRow. Cited lines read at f57689c.
+  1. mainwindow.py:1272-1275 `self._port_button.deleteLater()` and
+  mainwindow.py:1318-1321 `self.output_button.deleteLater()`. A keyboard
+  user presses Change port..., the dialog closes and focus returns to
+  the button; the new port changes the RowView, so update_from calls
+  clear_error() (mainwindow.py:1911), which deletes the focused button.
+  View output goes the same way when the row leaves failed.
+  _apply_button_state (mainwindow.py:1733-1747) handles this class for
+  disabled buttons (known-issue-050). design-accessibility.md: 'The app
+  never steals focus from what the user is reading.' Remedy: before
+  removing either button, move focus to the row when it hasFocus().
+  2. mainwindow.py:1910-1911 `if not rerendering: self.clear_error()`.
+  The comment above (mainwindow.py:1900-1904) says reaching this line
+  means the state changed; it runs on any RowView change, including the
+  per-second starting_for counter (LWSM-1402), health, managed, browser,
+  health_check and holder_pid. A failure on a starting row is wiped
+  within a second; picking a browser erases an unread failure. Remedy:
+  clear only when the status (or a state tuple) differs.
+  3. mainwindow.py:1976-1982: setCurrentIndex inside
+  QSignalBlocker(self.browser_box). BrowserPicker clears the closed
+  list's current item only from currentIndexChanged (mainwindow.py:957),
+  and Qt moves that item before the signal; per the lane the blocker
+  stops the signal but not the move, so a row with a non-Auto browser
+  brings back LWSM-1504's false 'focused'. Unsettled: check on AT-SPI
+  with such a row first. Remedy: call
+  self.browser_box._forget_list_position() after the blocked call.
+  Related [R] queued in 1.0.0: one helper for the two buttons'
+  create/label/fit/destroy (mainwindow.py:1300-1347); fix 1 may land as
+  that helper.
+  **Layman:** Keyboard focus can vanish after changing a port, error messages disappear before you read them, and a screen reader can be told the wrong thing is focused.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-06.
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1519] **Open on a running (wrong port) row opens the requested port, not the bound one; README's Open claim is wrong.**
+  Priority: 3.
+  mainwindow.py:1767 `self.open_button.setEnabled(running)` enables
+  Open in every RUNNING_STATES state, RUNNING_WRONG_PORT included,
+  which ADR-0004 defines as 'bound, but not where asked'. _open_project
+  opens `project_url(view.effective_port)` (mainwindow.py:4092), and
+  rows() copies record.effective_port into the view (controller.py:1212,
+  orchestrator check): the port that is not bound, so the browser loads
+  a dead address. project_url's docstring (mainwindow.py:732-735)
+  claims 'The port is the one observed BOUND'. Verified at f57689c.
+  Remedy: pass the observed port for a wrong-port row, or disable Open
+  there with a reason; make the docstring true either way.
+  Doc fix in this item (user ruling, 2026-11-05): README.md says Open
+  'is offered only for servers this app started itself'. The code
+  matches design.md § Components (enabled in all three running states,
+  running (foreign) included), so correct README.md. CHANGELOG's
+  LWSM-1141 entry is history and stays.
+  **Layman:** For a server listening on an unexpected port, Open sends the browser to the wrong address; the README also describes Open wrongly.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-06, lane-11.
+  Lanes: mainwindow, docs.
+
+- 📋 [LWSM-1520] **A used-up startup D-Bus budget is read as KWin absent, so Centre and position restore stay off all session.**
+  Priority: 3.
+  placement.py:255-257 `if timeout <= 0: log.warning(...); return
+  False`, fed by mainwindow.py:2629-2631 `budget =
+  placement.DBUS_TIMEOUT_S - self._startup_bus_spent`. Verified at
+  f57689c.
+  Under Follow system, a contrast read that times out
+  (appearance.py:97-99) spends the whole 3 s budget, the expected case
+  at login while the portal starts. kwin_on_bus then gets <= 0 s and
+  answers False. _can_place is assigned once (mainwindow.py:2630), so on
+  a working KWin Wayland session Centre stays disabled and the
+  remembered position is never restored; _retry_high_contrast
+  (mainwindow.py:3021-3033) re-reads contrast but never asks about KWin
+  again. ADR-0007 disables Centre only when dbus-send is missing or the
+  session is not KWin Wayland.
+  Remedy: a distinct 'not asked' answer for a spent budget, and ask
+  again on the retry or the first Centre trigger. Related LOWs queued
+  in 1.0.0: appearance's restated timeout and three dbus-send callers
+  reading a timeout three ways.
+  **Layman:** If the desktop is slow to answer at login, the app can wrongly decide it cannot place its window, and stays that way until restarted.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-10.
+  Lanes: placement, mainwindow.
+
+- 📋 [LWSM-1521] **A second launch does not bring the window forward on KWin Wayland; pass an xdg-activation token.**
+  Priority: 3.
+  __main__.py:747-753: setWindowState(state & ~WindowMinimized |
+  WindowActive), raise_(), activateWindow(). Verified at f57689c.
+  LWSM-1065's contract: opening the app a second time brings the
+  existing window to the front. On Wayland a client cannot un-minimise
+  itself, and activateWindow() without an activation token is normally
+  turned into a taskbar attention hint by KWin's focus-stealing
+  prevention (lane claim, not run). The second copy still prints
+  '...already running; showing its window.' (__main__.py:789); the
+  docstring says 'not yet checked on KWin'.
+  Decided by the user, 2026-11-05: fix it with an activation token
+  (xdg-activation), not best effort.
+  Remedy: the second copy sends its XDG_ACTIVATION_TOKEN over the
+  single-instance socket and the primary activates with it. How the
+  primary hands a received token to Qt is to be settled. With no token
+  (a terminal launch), the message must not claim the window was shown.
+  Verify on a real KWin Wayland session; the tests cannot reach one.
+  Related LOW queued in 1.0.0: a launch arriving during build_window's
+  nested dialog is answered and dropped (__main__.py:784-787, 837-838).
+  **Layman:** Opening the app again while it runs should bring its window to the front; on this desktop it probably only flashes the taskbar.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-11.
+  Lanes: main.
+
+- 📋 [LWSM-1522] **CONTRIBUTING.md promises every push a secret scan that only runs where the maintainer's hook is installed.**
+  Priority: 3.
+  CONTRIBUTING.md:94-95 'Every push is scanned for secrets first,
+  whatever it touches.' against .githooks/pre-push:44-49: the scan is
+  the machine-wide hook's --secrets-only mode, and where that hook is
+  absent (a contributor's clone) the pre-push hook prints 'NO SECRET
+  SCAN on this machine' to stderr and goes on. Verified at f57689c.
+  The document is the wrong side: say the scan runs only where the
+  maintainer's machine-wide hook is installed.
+  Same subject, merged from lane-13's LOW: the hook's own header
+  (.githooks/pre-push:20-21) says 'neither escape hatch below skips
+  that scan', and four lines later 'git push --no-verify ... skips the
+  scan too'. The second line and CLAUDE.md § Before pushing are
+  right; change the first to 'LWSM_SKIP_PREPUSH does not skip that
+  scan'. Verified at f57689c.
+  **Layman:** The contributor guide says every push is checked for leaked passwords, but on a contributor's own machine it is not.
+  Kind: doc-fix.
+  Source: review-code-2026-11-05 lane-13.
+  Lanes: tooling.
 
 ## 1.0.0 — A download for other people
 
@@ -14460,10 +14836,569 @@ author's own use, which is why it sits after the app works.
   translation could first ship? Recommend moving it to 1.0.0: no user
   sees an untranslated string today, and the change touches seven
   modules, 2026-11-04).
+  review-code 2026-11-05 re-found this class and calibrated each MEDIUM
+  to LOW against this item. New sites, not in the body above:
+  supervisor.py:1536-1552 and :1851-1854 Stop warnings, emitted via
+  controller.py:1944 (lane-01; also the LauncherRefused and
+  AlreadyRunning texts at :1150, :1157, :1166, :1196, :1210 if the UI
+  shows them); scanner.py:2140 and every ScanResult.skipped reason, plus
+  MINOR_TAIL (scanner.py:83), shown in the first-run 'Not added' list
+  via mainwindow.py:4625 (lane-03). firstrun.worth_showing matches
+  reasons by their English text (firstrun.py:65-67), so the fix must
+  replace that filter too. Re-found in modules already listed:
+  controller f-strings at :1490, :1508-1510, :1533, :1745-1753, :1803,
+  :1865, :2329, :2353, :2500 and _holder_phrase/_port_conflict :360-373
+  (lane-04); port-lookup answers controller.py:1416-1434 via
+  portlookup.py:123, :128 (lane-05); TreeRefused foreign.py:110-158 via
+  mainwindow.py:4029 and service reasons service.py:304, :311, :449-452
+  via controller.py:1866 (lane-05); core reasons in the banner via
+  mainwindow.py:3156-3158, :3189, :3194, :3205, :2875, e.g.
+  registry.py:2017 (lane-07); theme.py:481, :503 labels via
+  mainwindow.py:2725, whose exemption comment (theme.py:61-62) cites
+  another project's rule (lane-10); __main__.py:126-130, :361, :364
+  banner notice and prefixes (lane-11). Window-side slips are LWSM-1531.
   **Layman:** Some messages the app shows are written in parts of the code that a future translation would never see, so they would stay in English.
   Kind: review-fix.
   Source: review-code-2026-11-04.
-  Lanes: controller, settings, registry, service, foreign, theme, main.
+  Lanes: controller, settings, registry, service, foreign, theme, main, supervisor, scanner, firstrun.
+
+- 📋 [LWSM-1523] **Outside text still reaches the row, a dialog and app.log without the shared cleaner at three more sites.**
+  Priority: 4.
+  Theme 1 of review-code 2026-11-05. The MEDIUM site (logbuffer
+  _CONTROLS) is LWSM-1515. LOW sites:
+  1. controller.py:1553, :1558, :1565 (`{exc}`), :1865-1866
+  (`{outcome.reason}`), :1938 (`{outcome}`), :1944 (`outcome.warning`)
+  reach action_failed without display_text (lane-04; lane claim).
+  ProjectRow.show_error (mainwindow.py:1247-1266) sets PlainText and
+  cleans nothing itself (orchestrator check), so a scanned path in
+  exception or systemctl text can carry a newline or bidi control into
+  the row. Remedy: display_text the interpolated reason, or sanitise
+  once in _report_failure.
+  2. mainwindow.py:3809 `"%5": getattr(holder, "cmdline", "") or "?"`
+  puts a foreign command line, up to ARG_MAX, into the disclosure box
+  unclipped (lane-08; read). A hostile holder can push 'Continue?' and
+  the buttons off screen (No stays default; not measured). Remedy: clip
+  with a visible ellipsis, or use setDetailedText.
+  3. browsers.py:503, :629 (and :228) log raw directory names and
+  desktop-entry ids (lane-11; :503 read). applog's formatter does no
+  escaping, so a newline in a file name forges an app.log record
+  (LWSM-1078 shape). Remedy: log quoted(...), as the reasons beside
+  them already are.
+  4. Lane-01 open question, partly settled: npm_shown's scripts and
+  .npmrc lines reach the trust dialog through _no_layout_forgery
+  (mainwindow.py:3696-3698, read). Whether that covers bidi controls
+  and long space runs is unverified; check it with this item.
+  **Layman:** A few places still show or log text from outside the app without cleaning it first, so odd file names could garble a message.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-04, lane-08, lane-11, lane-01.
+  Lanes: controller, mainwindow, browsers.
+
+- 📋 [LWSM-1524] **Supervisor and stores edge cases: an unexpected boot-time error, an unbounded reap wait, and a repeated project kept last-wins.**
+  Priority: 4.
+  1. supervisor.py:1309-1314: _record catches only psutil.Error (read).
+  psutil.boot_time() raises RuntimeError when /proc/stat has no btime
+  line, after the entry was inserted (:1230), so start() raises while
+  the server runs registered: a failed Start for a live server. Remedy:
+  catch (psutil.Error, OSError, RuntimeError), or record first.
+  2. supervisor.py:1293 `popen.wait()` on the failure path has no limit
+  (read). A child in uninterruptible sleep after SIGKILL hangs start()
+  on its thread. Remedy: wait(timeout=KILL_TIMEOUT_SECONDS), then the
+  late-reap thread _reap uses.
+  3. stores.py:298-303 keeps two entries for one project last-wins; the
+  comment at :285-286 states LWSM-1436's rule (adopt nothing when which
+  PID is the server's cannot be known), applied only to repeated JSON
+  keys. Hand edit only. Remedy: refuse both entries, or the file, when
+  a project repeats. Lane claim.
+  4. INFO: both stores refuse a newer schema_version and overwrite it
+  on the next save. TrustStore's docstring says so (stores.py:123-126);
+  StartedStore's does not, and there the cost is newer adoptions read
+  as foreign. Remedy: say so in StartedStore's docstring. Lane claim.
+  **Layman:** Rare failure paths in the code that starts and remembers servers can report the wrong outcome or hang.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-01.
+  Lanes: supervisor, stores.
+
+- 📋 [LWSM-1525] **Registry write, restore and merge edge cases: stray set-aside copies, a restore that breaks its promise, and merges past the record cap.**
+  Priority: 4.
+  Lane claims, not re-read at f57689c.
+  1. registry.py:1206-1230: _set_aside_if_edited copies before
+  write_atomically's refusals; a symlink swap or full disk then refuses
+  the save after the .edited-<time> copy exists, the RegistryError
+  branch does not name it (NotDurable does, :1224), and each retry adds
+  a copy nothing evicts. Remedy: configfile.refuse_existing_target
+  first; carry set_aside on plain RegistryError.
+  2. registry.py:1407 `loaded = load_projects(path)`: a .bak that reads
+  but does not load escapes after the damaged file was renamed aside,
+  against the docstring (:1365-1366). Nothing lost; the message omits
+  where it went. Remedy: load inside the rollback, or parse first.
+  3. registry.py:1384-1385 `if path.exists(): path.rename(aside)`:
+  restore replaces a symlinked projects.json with a regular file,
+  bypassing refuse_existing_target (LWSM-1007 INV-4). Remedy: lstat
+  first and refuse a symlink with a reason.
+  4. registry.py:1813, :2213: neither merge checks MAX_RECORDS; past
+  1000 _encoded refuses (:1098) while the window still calls
+  set_records (mainwindow.py:4789), so every later save that session
+  fails. Remedy: refuse or truncate at the cap with a note.
+  5. registry.py:2088-2095: an imported profile's `added`
+  (0001-01-01) plus an existing port wins port_claims' tie-break
+  (:1922). Visible and reversible. Remedy: stamp a new record's added
+  with now(), or keep the stored one when earlier.
+  6. registry.py:1801 `added=now()` trusts the wall clock; ADR-0005
+  defines it so. Weigh with ADR-0005.
+  7. Open: a newer build widening a user field's domain makes this one
+  drop it and the next save (maybe silent) erase it; LWSM-1007 § 4.2
+  justifies that only for `kind`. And restore_backup calls a file
+  'damaged' when it may only be newer.
+  **Layman:** Rare cases when saving, restoring or importing the project list can leave extra files, lose track of a damaged file, or block later saves.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-02.
+  Lanes: registry.
+
+- 📋 [LWSM-1526] **The scanner reports a clean read after discarding an over-long line's tail.**
+  Priority: 4.
+  Lane claims, not re-read at f57689c.
+  1. scanner.py:407-412 `if not complete and len(chunk) >=
+  MAX_SOURCE_LINE_CHARS: discarding = True` drops the tail with no
+  note, so read_cleanly stays True against its comment (:149-153).
+  A minified serve.js with its port past char 4096 reads as a clean
+  'declares no port', which the merge may act on. The same for the
+  script clip at :1703. Remedy: note() once per file when a tail is
+  discarded.
+  2. Open question: _UnitLookup.properties turns rule 0 off for the
+  whole scan on one unit failure (:1392-1394) and _match_systemd
+  returns None (:1453), so a unit-backed project can be detected as a
+  spawnable SHELL launcher. Spec-conformant, and units_unavailable
+  covers stored records. Check whether a first-run save, with no stored
+  unit, is protected.
+  **Layman:** A port written far along a very long line in a project file is missed, and the scan does not say it skipped anything.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-03.
+  Lanes: scanner.
+
+- 📋 [LWSM-1527] **Controller edge cases: Stop has no catch-all, the log source ignores a foreign holder, and stop() leaves signals attached.**
+  Priority: 4.
+  1. controller.py:1602-1604 sets the stopping overlay, then calls
+  stop_async with nothing catching (read). After executor shutdown
+  submit raises RuntimeError, PySide6 drops it, the row reads stopping
+  for the session and a restart's _restarting entry (:1636) is never
+  discarded. start_project has the LWSM-1454 catch-all (:1560-1566).
+  Remedy: wrap both calls; on exception clear the overlay, discard from
+  _restarting, emit action_failed.
+  2. controller.py:1703-1709 _log_unit and :1766-1772 _holder_unit have
+  drifted: a project with a bound unit now run from a terminal gets
+  LogSource(unit=...) (:1696) before the foreign check (:1700), so the
+  panel follows a stopped unit's journal instead of saying output is
+  unavailable (docstring :1684-1686). Remedy: apply _holder_unit's
+  named-holder rule in _log_unit. Lane claim.
+  3. controller.py:2101-2175: stop() never detaches _action_signals;
+  _report_stop emits from the supervisor's executor, so LWSM-1233's
+  use-after-free applies if the controller dies mid-stop. Today
+  __main__.py:879-888 closes the supervisor first. Remedy:
+  setParent(None) in stop(), or document the order. Lane claim.
+  4. Open: can TrustStore.confirm -> _save() (stores.py:191) raise,
+  given confirm_and_start (:1657) catches nothing? A systemd start
+  whose unit binds another port reads starting with no end (ADR-0004
+  defines wrong port only for our child): defect or intended?
+  **Layman:** Rare failures around Stop can leave a row stuck, and the output panel can follow the wrong source.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-04.
+  Lanes: controller.
+
+- 📋 [LWSM-1528] **Probe edge cases: a symlink-blind looks_like, four systemctl runners, a timed-out reload read as failed, and broad excepts.**
+  Priority: 4.
+  1. foreign.py:246, :252 looks_like compares normpath'd paths without
+  following symlinks, while scanner.bound_inside and unit_belongs_to
+  resolve. A holder naming the project through a symlink reads port
+  blocked, not running (foreign), and LWSM-1038 step 2 learns no port.
+  Remedy: resolve both sides.
+  2. service.py:399-400: one of four systemctl runners (drive_unit,
+  reload_user_manager, drop_in_seen, unit_state) gives the user
+  Python's 'Command [...] timed out after 15.0 seconds' (via set_drop_in
+  to controller.py:904); drive_unit words it for a person (:311).
+  Remedy: one shared _run_systemctl.
+  3. service.py:435-437 discards on `not reloaded.ok`, and its docstring
+  (:461-462) says 'systemd has not loaded it', false for a timed-out
+  reload; clear_drop_in (:532-533) has the mirror case. A stale PORT
+  can stay loaded for a manual start. Remedy: on a timeout, reload once
+  more after discarding.
+  4. ports.py:158 `first = min(max(start, low), high)` returns high when
+  low > high, against its docstring (read). Only caller passes a
+  constant (controller.py:1454). Remedy: return None when low > high.
+  5. [tool: ruff BLE001] service.py:240, :246, foreign.py:81 `except
+  Exception: return None` turn a TypeError into blank fields, unlogged.
+  Remedy: catch psutil.Error and OSError. Tool gap: pyproject's ruff
+  select omits BLE; the 2026-11-04 sweep reported the same service.py
+  lines.
+  6. Open: _service_pool runs two threads (controller.py:1173), so a
+  stop's clear_drop_in could remove a following start's drop-in
+  (ADR-0002's silent no-op) unless the stopping overlay gates Start;
+  read the window's button gating. localhost lookup in connect() is
+  outside the deadline (health.py:55-59); harmless unless NSS hangs.
+  Items 1-3, 5 are lane claims.
+  **Layman:** Small faults in how the app checks ports and drives systemd can mislabel a server or leave an old port setting loaded.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-05.
+  Lanes: foreign, service, ports.
+
+- 📋 [LWSM-1529] **Main window edge cases: unlogged config writes, Export and Import without a catch-all, a stray temp-file sweep, and a holder guard copied three ways.**
+  Priority: 4.
+  Lane claims, not re-read at f57689c.
+  1. mainwindow.py:2868-2869: a successful theme or text-size write,
+  and a successful export (:3161), leave no app.log record, against
+  design.md § Observability and _save_setting's docstring. Remedy:
+  log.info after each successful save.
+  2. mainwindow.py:3133-3160, :3186-3200: Export and Import catch only
+  RegistryNotDurable/RegistryError; with no sys.excepthook anything
+  else is printed and dropped. _save_setting (:2876-2885) got the
+  catch-all (L07-L1, 2026-11-04). Remedy: the same final except
+  Exception: log.exception plus an internal-error banner.
+  3. Export's write_atomically sweeps .profile-*.tmp older than the
+  cutoff in the user's chosen folder (configfile.py:381-409), which can
+  unlink another program's file. Remedy: skip the sweep for exports, or
+  a prefix such as .lwsm-profile-.
+  4. mainwindow.py:2815-2820: a refused text-size change with the size
+  between steps leaves the refused entry ticked. Rare. Remedy: uncheck
+  the group's checked action when current is None.
+  5. mainwindow.py:3976-3981, 4040-4043 vs 4071-4076: Open refuses when
+  the disclosure showed no holder but one is named now; Stop and Restart
+  pass shown=None, and holder_changed returns False for None
+  (controller.py:1733-1734), so they act on whatever holds the port.
+  Reachability unconfirmed. Remedy: put the condition in
+  holder_changed.
+  6. Open: show_error('') (:1247) would make the empty QLabel the
+  comment at :1141-1147 forbids; is empty ever passed? Import is offered
+  with a damaged registry (:2590) and applies in memory unsaved:
+  intended? `/` has no modifier check (:3392) while digits exclude
+  Ctrl/Alt/Meta (:3419). The _load_error label (:3615-3625) is not
+  re-derived on a language change. position_is_readable() decides
+  Wayland from env vars, not QGuiApplication.platformName().
+  **Layman:** Several menu actions do not log their success or report unexpected errors, and Stop can act on a process the user was not shown.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-06, lane-07, lane-08.
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1530] **Settings edge cases: reasons cut with no tail, an overstated error docstring, and two downgrade questions.**
+  Priority: 4.
+  1. settings.py:523 `reasons[:MAX_REASONS]` cuts with no tail (read);
+  configfile.BoundedReasons (configfile.py:55-85, LWSM-1361) exists so
+  'a cap with no tail' never reads as complete. 25 duplicate keys show
+  20 reasons and no sign of 5 more (:412-413). Remedy:
+  BoundedReasons(MAX_REASONS, 'and {count} more problems, not shown').
+  Also [R]: a drifted fifth copy.
+  2. settings.py:153: SettingsError's docstring says the file could not
+  be written, but its subclass SettingsNotDurable (:156-160) means it
+  was. No live caller wrong today. Remedy: reword.
+  3. settingsdialog.py:381-384: the else branch also catches 'empty',
+  unreachable today because clean_error_markers drops blank lines.
+  Coupling noted only.
+  4. Open: under LWSM-1271's any-reason gate a downgrade (a newer
+  build's text-size step or relaxed bound) blocks every settings write,
+  geometry included, until a hand edit: intended? A non-int
+  schema_version ('2', 2.0) is read forward and stamped 1 on save:
+  does it count as newer?
+  Dismissed from lane-09: open question 1 (repr raising RecursionError
+  on a nested value) was refuted by the orchestrator's probe (repr never
+  failed on a value json.loads accepted).
+  **Layman:** When the settings file has many problems, the app shows some and hides that there are more.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-09.
+  Lanes: settings, settingsdialog.
+
+- 📋 [LWSM-1531] **Two window-side strings cannot be translated well: a glued '(+N more)' fragment and ASCII digits in the settings dialog.**
+  Priority: 4.
+  Window-side, so outside LWSM-1478's core-module scope; latent like
+  it (no QTranslator installed). Lane claims.
+  1. mainwindow.py:3473-3476 glues ' (+%1 more)' after the first
+  reason with no plural form, so a translator can neither reorder nor
+  inflect it. Remedy: one '%1 (+%2 more)' template filled by _filled,
+  with translate's n argument.
+  2. settingsdialog.py:376, :380 `.replace("%1",
+  str(MAX_ERROR_MARKERS))` inserts ASCII digits where firstrun.py:198
+  uses QLocale().toString (L09-L1). Remedy: QLocale().toString(...).
+  **Layman:** Two small bits of on-screen text are put together in a way a future translation could not get right.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-07, lane-09.
+  Lanes: mainwindow, settingsdialog.
+
+- 📋 [LWSM-1532] **Placement and theme: appearance restates the D-Bus timeout, three dbus-send callers read a timeout three ways, and a check box's click area may be short.**
+  Priority: 4.
+  Pairs with LWSM-1520. Lane claims.
+  1. appearance.py:30-33 says placement's bound is restated rather than
+  imported; LWSM-1484 tied them anyway, but high_contrast() takes no
+  timeout (appearance.py:95), so one budget holds only because both
+  constants are 3.0. Remedy: a timeout parameter fed from what is left
+  of the budget; drop the restated constant or correct its comment.
+  2. appearance.py:83-102 (timeout -> None), placement.py:259-276
+  kwin_on_bus (-> False), placement.py:475-509 issue (-> None). Remedy:
+  one helper with a three-state answer (answered, declined, not
+  answered).
+  3. Unverified (lane could not render): theme.py:649-661 grows a check
+  box by 2*inset and shifts content by inset, but the click rect
+  (SE_CheckBoxClickRect) stays Fusion's, so the last inset pixels of the
+  label likely do not toggle. Remedy: override subElementRect for the
+  click, indicator and contents rects; measure a click at the label's
+  right edge.
+  4. Open: kwin_script places the first non-transient window with our
+  PID; is every other top-level window transient? Does
+  xdg-desktop-portal-kde provide `contrast` on the target Plasma?
+  placement.py:574's Scripting.start fallback starts every loaded but
+  unstarted KWin script, not only ours.
+  **Layman:** Small inconsistencies in how the app asks the desktop questions, and the right edge of a tick box label may not respond to clicks.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-10.
+  Lanes: placement, appearance, theme.
+
+- 📋 [LWSM-1533] **Entry and browsers: an unguarded flock, an activation dropped during startup, and uninstalled browsers still listed.**
+  Priority: 4.
+  1. __main__.py:649 fcntl.flock is unguarded; only open() is caught
+  (read), against the docstring (:638-639). ENOLCK on NFS ends main()
+  with a traceback before logging. Remedy: try/except OSError and fall
+  through to the unlocked path.
+  2. __main__.py:784-787, 837-838: the socket is claimed before
+  build_window, which can run the restore dialog's nested loop (:553);
+  a second launch then is answered with `shown` empty and dropped, and
+  the second copy still says it is showing the window. Remedy: remember
+  a pending activation and act on it at shown.append(window). Same code
+  path as LWSM-1521. Lane claim.
+  3. browsers.py:427-433 checks TryExec but not Exec's program; an
+  uninstalled browser with no TryExec stays listed and the 'not
+  installed' message is never reached. Remedy: shutil.which(argv[0]) is
+  None -> None after parse_exec. Lane claim.
+  4. Open: does a launched browser inherit VIRTUAL_ENV or a .venv/bin
+  PATH from uv run?
+  **Layman:** Rare startup failures, a second launch ignored while the app is still opening, and a removed browser still offered.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-11.
+  Lanes: main, browsers.
+
+- 📋 [LWSM-1534] **Log follower edge cases: stray escape text, a silent crash on a bad unit name, lost refusal reasons, and journalctl outliving the app.**
+  Priority: 4.
+  Related MEDIUMs: LWSM-1515, LWSM-1516.
+  1. logbuffer.py:65 `\x1b[@-_]?` covers only Fe escapes: ESC ( B
+  leaves '(B', ESC 7/8/c leave a character, DCS/APC/PM/SOS payloads
+  stay (read). Remedy: add the nF and Fp/Fs forms and strip string
+  sequences.
+  2. logbuffer.py:191-192 journal_argv raises ValueError on a bad unit
+  inside a slot (LogPanel.open_for, logpanel.py:174) that PySide6
+  swallows: feed set, view cleared, show() never runs, nothing logged.
+  Reachable from a hand-edited projects.json: the registry takes unit
+  through _string_or_reason only (registry.py:915) and log_source does
+  not validate (orchestrator check). Remedy: catch in start(), emit
+  failed.
+  3. logbuffer.py:287 os.strerror(exc.errno or EIO) turns applog's 'log
+  path has another hard link' into 'Too many links', unlogged. Remedy:
+  log.warning it; pass a reason fact the panel words.
+  4. logbuffer.py:230 _guarded reports UNREADABLE for a JournalFollower
+  crash, shown as 'The log file cannot be read' (logpanel.py:296-298).
+  Remedy: its own reason.
+  5. logbuffer.py:315: decoder state and _partial cross a truncate or
+  reopen (:295); flush() (:146-158) never decodes final=True, so a
+  trailing partial character is dropped. Remedy: reset both.
+  6. logbuffer.py:314 `if size < offset` misses a truncate then regrow
+  past the old offset within one 0.25 s tick. Rare.
+  7. logbuffer.py:368 start_new_session=True: if the app dies without
+  shutdown(), journalctl --follow outlives it until the unit next
+  writes (closed-pipe behaviour on systemd 261 unsettled). Remedy:
+  PR_SET_PDEATHSIG in the child.
+  Items 3-7 are lane claims.
+  **Layman:** Smaller faults in the output panel: leftover symbols, a panel that silently fails to open, and vague error wording.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-12.
+  Lanes: logbuffer, logpanel.
+
+- 📋 [LWSM-1535] **Tooling edge cases: the pre-push hook trusts commit-date order, the release check treats ADR as a prefix, and the desktop-entry installer has three path faults.**
+  Priority: 4.
+  1. .githooks/pre-push:130 `git rev-list ... | tail -n 1` relies on
+  commit-date order (read); with clock skew the last line is not a
+  root, its paths drop out of `changed`, and a src/ change can be gated
+  --docs. Not reproduced. Remedy: --topo-order --reverse | head -n1,
+  or union diff-tree over every commit.
+  2. scripts/local-release.sh:342-343 takes prefixes from every
+  bracketed token, so ADR becomes one and a changelog bullet citing
+  ADR-0003 would BLOCK (L7-M5 class; latent). :367 `grep -m1 -F
+  "[$id]"` assumes the first match is the item line. Remedy: prefixes
+  from item lines only.
+  3. scripts/local-ci.sh:17, :38 say --fast skips 'the slowest stage'
+  (read); it deselects integration tests inside Tests. Fix the help.
+  4. docs/claude/ci-gate.md:123-125 'an order-dependent failure shows
+  before the push' overclaims: worker spread varies, and a pull_request
+  run's merge commit has another SHA and seed (local-ci.sh:269-270).
+  5. scripts/install-desktop-entry.sh:45 `command -v lwsm` can return a
+  relative path, written into Exec= against :21-23. Make it absolute.
+  6. install-desktop-entry.sh:149 mv replaces the per-user .desktop that
+  KDE Menu Editor saves edits to, with no backup or warning. Copy aside
+  or warn when it differs.
+  7. install-desktop-entry.sh:35: a relative XDG_DATA_HOME, read after
+  the cd, installs into the checkout. Treat non-absolute as unset.
+  8. Open: LWSM_TEST_WORKERS is not cleared by the gate or hook
+  (accepted override or LWSM-1413 gap?); take-screenshots.sh may put
+  the author's checkout path in published screenshots if rows show
+  paths; does --secrets-only need git's URL ($2)? setup-uv's
+  UV_CACHE_DIR and cache-key outputs (ci.yml:159-160) unverified.
+  Items 2, 4-7 are lane claims.
+  **Layman:** The push check could under-test a change, and the menu-entry installer can write a bad path or overwrite your menu edits.
+  Kind: review-fix.
+  Source: review-code-2026-11-05 lane-13.
+  Lanes: tooling.
+
+- 📋 [LWSM-1536] **Four contract documents state things the code no longer does.**
+  Priority: 4.
+  Spec amendments: amend in place (write-doc), code side unchanged.
+  1. ADR-0003's allowlist omits the absolute-only PATH filter and the
+  os.defpath fallback that the code cites as LWSM-1321 and LWSM-1440
+  (lane-01 open question).
+  2. LWSM-1007 § 13 says registry.py imports errno, stat and tempfile
+  'today'; they live in configfile.py (registry.py:13-25) (lane-02).
+  3. docs/specs/LWSM-1006-scanner-detection.md § 4.4: 'Only rule 1 has
+  a one-hop file' (confirmed present); the code follows imports for
+  rules 3 and 4 (scanner.py:1751-1754, LWSM-1155) and INV-10 says so.
+  Its § 4.1 DetectedProject block omits read_cleanly (scanner.py:154)
+  (lane-03).
+  4. docs/specs/LWSM-1038-confirmed-ports.md § 6 says a rescan drops a
+  confirmation; the code keeps it (_with_current_confirmation,
+  mainwindow.py:4676-4688) (lane-08).
+  Items 1, 2, 4 are lane claims.
+  **Layman:** Some design documents describe older behaviour and need correcting to match the app.
+  Kind: doc-fix.
+  Source: review-code-2026-11-05 lane-01, lane-02, lane-03, lane-08.
+  Lanes: docs.
+
+- 📋 [LWSM-1537] **Core refactoring: a trust module, a registry split, names that lie, private names used as public, and stale docstrings.**
+  Priority: 5.
+  The [R] answers of review-code 2026-11-05. Lane claims except where
+  marked read.
+  1. supervisor.py:328-790: the trust gate (validate_launcher, the
+  fingerprint, the npm material) is a second job in the spawning
+  module; move it to trust.py, as LWSM-1492 did for stores.py.
+  2. registry.py holds four jobs (format and loader; durable writer with
+  backup, restore, set-aside; rescan merge; profile import/export).
+  Candidate split: registry_merge.py, registry_profile.py. Undiverged
+  copies: the counts/BoundedReasons/flag prologue (:1691-1698 vs
+  :2153-2161); _string_or_reason vs _text_or_reason (:433-454).
+  3. Names that lie: supervisor._contained (:385; docstring says
+  escaping is not filtered) -> _written_under; supervisor._launcher_bytes
+  (:748; also reads package.json, .npmrc) -> _bounded_regular_bytes;
+  registry.LoadResult (:1294-1318) is now a write licence; scanner
+  _import_hop_port/_accept_hop's `launcher` parameter receives the hop
+  target (:1606), so :880's message names the wrong file -> importer;
+  scanner._read_alternate (:1520) also reads .env, compose, README.
+  4. Private names used as public: supervisor._alive, _wait_until_gone
+  (:798, :827) used by foreign.py; applog._open_private_regular
+  (applog.py:32, imported by logbuffer.py:35 and supervisor) and
+  applog._prepare_state_dir. (firstrun importing mainwindow._filled was
+  judged taste by lane-09.)
+  5. Stale docstrings and comments: registry.py:1-9 cites LWSM-1005
+  § 4.1 though LWSM-1007, 1131, 1385, 1038 govern; registry.py:1609-1613
+  'only per-field knowledge' misses units_seen (:1638-1644); scanner
+  unlistable_roots (:169) misses partly listed roots (:2045);
+  _scan_source(strip=) also turns off docstring blanking (:730);
+  service.py:16 names Supervisor._raise_if_pid_reused, which is
+  psutil.Process's (read); LogFeed's docstring (logbuffer.py:411) says
+  one quiet tick, the code waits two (:444); journal_argv's (:181) says
+  -u/-f, the code uses --unit=/--follow.
+  6. Undiverged duplicates: scanner's hop except OSError (:1047-1065,
+  :1147-1156) and is_symlink/exists prologue (:1532, :1635); service's
+  drivable-unit test (:269, :361, :561) -> _drivable(unit).
+  **Layman:** Tidy-up: some core code does two jobs, has misleading names or comments, and should be reorganised so the next person is not misled.
+  Kind: refactor.
+  Source: review-code-2026-11-05 lane-01, lane-02, lane-03, lane-05, lane-12.
+  Lanes: supervisor, registry, scanner, service, applog, logbuffer.
+
+- 📋 [LWSM-1538] **Controller, log panel, theme and entry refactoring: shared helpers for hand-copied shutdowns and catch-alls, and names that lie.**
+  Priority: 5.
+  Lane claims.
+  Controller (lane-04):
+  1. Four hand copies of wait, warn, abandon_pool, recreate
+  (controller.py:2123-2175); a fifth pool missing one line hangs on
+  exit. Remedy: one _join_or_abandon(name, signals, threads).
+  2. action_failed (:1035) also carries a recovery notice (:2353), a
+  whole-table outage (:2500) and stop warnings (:1944). Rename, or split
+  out a notice signal.
+  3. _ServiceSignals.done, _on_service_done and UnitOutcome(unit='')
+  also carry the non-systemd foreign tree stop (:1001-1022).
+  4. Six QRunnable.run catch-alls in two shapes (:614-658, :774-785,
+  :810-823; :936-953, :969-981, :999-1010). Remedy: _emit_or_log.
+  Log panel (lane-12):
+  5. logpanel.py:292-302 _on_failed repeats _named and calls
+  QAccessible.updateAccessibility directly instead of _announce, so the
+  test seam never hears failure announcements.
+  Theme (lane-10):
+  6. theme.py ('Semantic colour tokens') also holds OutlineStyle
+  (:577-739) and the Follow-system resolver (:757-787); move
+  OutlineStyle, focus_ring_width and install_outline_style to their own
+  UI module.
+  Entry (lane-11):
+  7. build_window (__main__.py:29-442) runs a nested dialog, a disk
+  write, adoption (:390), polling (:441) and the Preferences flow
+  (:268-367), beyond 'Does not run an event loop'.
+  8. Five values defaulted from Settings() and reassigned together
+  (:152-173) when `stored` carries them all.
+  9. The connect/waitForConnected/disconnect probe is written three
+  times (:694-720) -> _someone_answers(path).
+  10. browsers._entry_fields (:179-196) re-implements
+  _groups(text).get('Desktop Entry', {}) (:354-375).
+  **Layman:** Tidy-up: several pieces of code are copied by hand in a few places and some names describe less than the code does.
+  Kind: refactor.
+  Source: review-code-2026-11-05 lane-04, lane-10, lane-11, lane-12.
+  Lanes: controller, logpanel, theme, main, browsers.
+
+- 📋 [LWSM-1539] **Main window refactoring: one button-lifecycle helper, one placeholder filler, and comments, counts and names that no longer match.**
+  Priority: 5.
+  Lane claims.
+  1. _offer_output/offer_port_change/clear_error and the two _label_*
+  methods are one create/label/fit/destroy lifecycle written twice
+  (mainwindow.py:1300-1347); the focus defect in LWSM-1518 sits in
+  both. One helper owning focus-safe destroy.
+  2. A fourth one-pass placeholder substituter (mainwindow.py:2024-2033)
+  beside _filled (:296), _TRUST_FIELD (:266), _DISCLOSE_FIELD (:341).
+  Use _filled.
+  3. The glyph comment sits on BROWSER_COLUMN_CHARS (:198-209); move it
+  to STATE_GLYPHS (:228).
+  4. update_from (:1882-2040) retranslates six menu actions on every
+  render; the pure text functions (:407-856) live in a widget module and
+  need a display to test. Design advice.
+  5. Stale comments: :3552 says status bar (the banner since
+  LWSM-1345); :2672-2674 says the bar has File and Settings (View
+  exists) and that Preferences does not work (it does since LWSM-1018).
+  6. _set_rescan_enabled (:3234) also gates Import; rename, e.g.
+  _set_registry_writers_enabled.
+  7. self._outer is set twice (:2414, :2530); app = _application() runs
+  three times in __init__ (:2356, :2389, :2405).
+  8. _restore_geometry no longer exists but is named at
+  mainwindow.py:5254, :5264, :5439, settings.py:182 and
+  docs/claude/module-map.md:233; it split into _restore_size_and_state
+  and _restore_position.
+  9. _write_records' writer counts (:4718-4723, :4396-4399) are false;
+  it also serves health check, health page, port, confirmed port and
+  browser. Drop the counts.
+  10. place_window's docstring (placement.py, near 660-665) says
+  SCREEN_FRACTION; since LWSM-1283 the remembered size is bounded to the
+  whole available area (mainwindow.py:5424-5430).
+  **Layman:** Tidy-up in the main window code: duplicated pieces to merge and outdated comments to correct.
+  Kind: refactor.
+  Source: review-code-2026-11-05 lane-06, lane-07, lane-08.
+  Lanes: mainwindow, settings, placement, docs.
+
+- 📋 [LWSM-1540] **Release and CI script refactoring: a shared shell library, one changelog-heading matcher, one bump.json reader, and a counted drift message.**
+  Priority: 5.
+  Lane claims.
+  1. The colour, step, fail and ERR-trap block is copied between
+  scripts/local-ci.sh:91-105 and scripts/local-release.sh:83-93; not
+  diverged. Remedy: a sourced scripts/lib.sh.
+  2. local-release.sh matches a changelog version heading three times
+  (:311, :313, :346) and the copies already differ: the grep needs a
+  full YYYY-MM-DD, both awk copies accept any digit. Harmless today
+  (the grep runs first). Remedy: one awk function.
+  3. local-release.sh parses .claude/bump.json in seven heredocs (:118,
+  :154, :177, :283, :525, :533, :546), each restating the recipe's
+  shape.
+  4. check-version-drift.sh:74 prints 'consistent across 4 files' as a
+  literal; a fifth expect makes it false. Remedy: count the expect
+  calls.
+  **Layman:** Tidy-up in the build scripts: the same code is copied several times and one message hard-codes a number.
+  Kind: refactor.
+  Source: review-code-2026-11-05 lane-13.
+  Lanes: tooling.
 
 ## After 1.0.0
 
@@ -14924,6 +15859,15 @@ open DS01 debt-sweep items, and the open FP02 review items.
   purpose. Unlike `start_at_login` (LWSM-1027), no roadmap item builds
   the feature, so the field has no owner. Decide: build it, or drop it
   from the schema.
+  review-code 2026-11-05 lane-08 (calibrated MEDIUM to LOW): the trust
+  dialog clips each argv argument at MAX_REASON_CHARS through quoted()
+  (mainwindow.py:3695; configfile.py:156-158), so two argvs differing
+  past about 120 characters look the same, against ADR-0003's 'the exact
+  argv'. Every scanner-built argv is short (scanner.py:1555, :1680,
+  :1757; orchestrator check), so only a launcher_override could reach
+  it, and nothing reads that field today. If this item builds the
+  feature, fix the clip first: quote each argument with repr() or
+  shlex.quote without the clip, keeping _no_layout_forgery.
   **Layman:** A saved setting for choosing a project's start command exists, but nothing uses it yet and nothing is planned to.
   Kind: investigate.
   Source: in-session-2026-09-25, closing LWSM-1272 finding 6.
