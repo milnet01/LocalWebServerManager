@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -126,6 +127,22 @@ MAX_WINDOW_COORD = 32767
 MIN_WINDOW_PX = 1
 MAX_WINDOW_PX = 32767
 
+# The lines the log panel treats as errors (LWSM-1036): its "Jump to last
+# error" and "Errors only". Plain substrings, matched as typed and case and
+# all, never patterns: they are user input, a regex from a hand-edited file is
+# one catastrophic-backtracking pattern away from a frozen window, and a user
+# adding their runtime's word should not need to know regex. The non-zero exit
+# line is not here: "non-zero" is a number test, so it is a built-in rule
+# beside these (`logbuffer.ErrorMatcher`).
+DEFAULT_ERROR_MARKERS = ("Traceback", "ERROR", "CRITICAL", "Exception")
+# Bounds on a hand-editable list, so the panel's search over its 2000 lines
+# stays quick: a marker longer than a line of interest is a paste accident.
+MAX_ERROR_MARKERS = 50
+MAX_ERROR_MARKER_CHARS = 200
+# Every C0 control and DEL. A newline can never match one line, and an empty
+# marker matches every line, so neither is a marker.
+_MARKER_CONTROLS = re.compile(r"[\x00-\x1f\x7f]")
+
 # The same bound `registry.MAX_REASONS` exists for, at the size this file is.
 # A settings file has a fixed, small set of fields, so anything past a handful
 # of complaints is a hostile file rather than a typo.
@@ -175,6 +192,9 @@ class Settings:
     # feature; the switch is for a speech-input user, for whom a spoken "one"
     # or "slash" moves the focus (WCAG 2.1.4). A file with no key had the keys.
     single_key_shortcuts: bool = True
+    # The log panel's error markers (LWSM-1036). A file with no key gets the
+    # usual set; an empty list leaves only the built-in exit-line rule.
+    error_markers: tuple[str, ...] = DEFAULT_ERROR_MARKERS
     # Keys this build does not write, as sorted (key, canonical JSON) pairs,
     # handed back unchanged on save (LWSM-1289). `registry.ProjectRecord.unknown`
     # has the same job for the same reason: a preference added inside schema v1
@@ -295,6 +315,66 @@ def _bool_or_reason(field: str, value: object) -> tuple[bool | None, str | None]
     if type(value) is not bool:
         return None, f"{field}: {quoted(value)} is not true or false; using the default"
     return value, None
+
+
+def error_marker_problem(markers: tuple[str, ...] | list[str]) -> str | None:
+    """What makes `markers` unusable, as a fact, or None when they are fine.
+
+    One of "too-many", "empty", "control" or "too-long", so the dialog can
+    put it into words of its own (translatable) and `load` into a reason.
+    """
+    if len(markers) > MAX_ERROR_MARKERS:
+        return "too-many"
+    for marker in markers:
+        if not marker:
+            return "empty"
+        if _MARKER_CONTROLS.search(marker):
+            return "control"
+        if len(marker) > MAX_ERROR_MARKER_CHARS:
+            return "too-long"
+    return None
+
+
+def clean_error_markers(lines: Iterable[str]) -> tuple[str, ...]:
+    """Lines typed in Preferences, as markers: trimmed, blanks and repeats out.
+
+    Trimmed because the editor shows no trailing space, so a stored one would
+    be a marker the user cannot see they typed. Not bounded here:
+    `error_marker_problem` says what is still wrong, and the dialog says so.
+    """
+    cleaned: list[str] = []
+    for line in lines:
+        marker = line.strip()
+        if marker and marker not in cleaned:
+            cleaned.append(marker)
+    return tuple(cleaned)
+
+
+def _markers_or_reason(value: object) -> tuple[tuple[str, ...] | None, str | None]:
+    """A list of usable markers, or the reason the whole field was ignored.
+
+    The whole field and not one entry, the way every field here is read: a
+    reason stops the next save (LWSM-1271), so the user's list is left on
+    disk for them to fix rather than rewritten without the entry.
+    """
+    if value is None:
+        return None, None
+    if type(value) is not list or any(type(item) is not str for item in value):
+        return None, (
+            f"error_markers: {quoted(value)} is not a list of strings; "
+            "using the default"
+        )
+    markers = tuple(value)
+    problem = error_marker_problem(markers)
+    if problem is not None:
+        why = {
+            "too-many": f"has more than {MAX_ERROR_MARKERS} entries",
+            "empty": "has an empty entry, which would match every line",
+            "control": "has an entry with a control character",
+            "too-long": f"has an entry longer than {MAX_ERROR_MARKER_CHARS} characters",
+        }[problem]
+        return None, f"error_markers {why}; using the default"
+    return markers, None
 
 
 def load(path: Path) -> LoadResult:
@@ -420,6 +500,12 @@ def load(path: Path) -> LoadResult:
         if flag is not None:
             settings = replace(settings, **{field: flag})
 
+    markers, reason = _markers_or_reason(document.get("error_markers"))
+    if reason is not None:
+        reasons.append(reason)
+    if markers is not None:
+        settings = replace(settings, error_markers=markers)
+
     # Read the way every field here is read: one that will not re-serialise
     # loses only itself, with a reason. Nothing is interpreted.
     known = _payload(Settings()).keys()
@@ -476,6 +562,7 @@ def _payload(settings: Settings) -> dict[str, object]:
         "height": settings.height,
         "maximized": settings.maximized,
         "single_key_shortcuts": settings.single_key_shortcuts,
+        "error_markers": list(settings.error_markers),
     }
 
 

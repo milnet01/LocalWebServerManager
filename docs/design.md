@@ -156,6 +156,20 @@ Two rules the diagram encodes:
   `journalctl --user --unit=<unit> --follow`: the unit is glued to
   its option because `-u -- <unit>` makes journalctl read the unit as
   a match and refuse it.
+  **It finds the error for the user** (LWSM-1036). **Jump to last
+  error** selects the last error line, centres it, moves focus into
+  the output so a magnifier follows, and announces the line; **Errors
+  only** hides every other line, including new ones as they arrive.
+  A line is an error when it contains one of the configured markers
+  or reports a non-zero exit (`exit code 1`, `exited with code 3`,
+  systemd's `code=exited, status=1/FAILURE`). **Markers are literal
+  substrings, case-sensitive, never patterns**: they are user input,
+  and a regex from a hand-edited file can freeze the UI thread by
+  catastrophic backtracking. The exit rule is built in, because
+  "non-zero" is a number test no substring can express; it matches
+  an *exit* status only, since an access log prints `status 500` on
+  every line. The two controls sit on their own row under the
+  heading, and Tab reaches them between Close and the output.
 - **TrayIcon** — a status icon with a per-project start/stop menu,
   the same Open-in-browser action, and the app's only genuine
   Quit. Main responsibility: control and status while the window
@@ -163,8 +177,10 @@ Two rules the diagram encodes:
   running (user decision, 2026-08-03), and they survive Quit too
   (ADR-0003).
 - **SettingsDialog** — the Preferences dialog. It edits app-wide
-  settings: scan roots, poll interval, the log size cap and the
-  single-key shortcuts switch. Theme and text size are entries on
+  settings: scan roots, poll interval, the log size cap, the
+  single-key shortcuts switch and the log panel's error markers, one
+  per line (Tab leaves the box rather than typing a tab). Ok refuses
+  a marker list `settings.json` would refuse, and says why beside it. Theme and text size are entries on
   the Settings menu, not in the dialog. Main responsibility:
   capturing configuration edits and returning them; `__main__`
   applies them and writes `settings.json` and `scan-roots`.
@@ -821,8 +837,12 @@ deliberately not JSON:
 - `~/.config/localwebservermanager/settings.json` — poll
   interval, log cap, theme choice, text-size percentage, and the
   window geometry keys `width` / `height` / `x` / `y` /
-  `maximized` (ADR-0007), and `single_key_shortcuts`, whether `/`
-  and the number keys act (LWSM-1475). It carries its own
+  `maximized` (ADR-0007), `single_key_shortcuts`, whether `/`
+  and the number keys act (LWSM-1475), and `error_markers`, the
+  strings that make an output line an error (LWSM-1036; default
+  `Traceback`, `ERROR`, `CRITICAL`, `Exception`; an empty list leaves
+  only the exit rule). A file without the key gets the default.
+  It carries its own
   `schema_version` on the same terms.
 - `~/.config/localwebservermanager/trust.json` — which launchers
   the user confirmed at ADR-0003's trust gate: the resolved project

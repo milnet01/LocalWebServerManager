@@ -453,6 +453,9 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
         # LWSM-1475. On by default: the keys are a shipped feature, and the
         # switch exists for the speech-input user who needs them off.
         "single_key_shortcuts": True,
+        # LWSM-1036. A list of plain strings, so a user whose runtime shouts
+        # differently can add its word by hand.
+        "error_markers": ["Traceback", "ERROR", "CRITICAL", "Exception"],
     }
 
 
@@ -757,6 +760,76 @@ def test_a_shortcuts_switch_that_is_not_a_boolean_is_refused(
         assert any("single_key_shortcuts" in reason for reason in result.reasons)
     else:
         assert result.reasons == []
+
+
+# --- LWSM-1036: the lines that count as errors in the log panel --------------
+
+
+def test_a_file_with_no_error_markers_gets_the_usual_set(tmp_path: Path) -> None:
+    """Every file written before LWSM-1036 has no key; its user gets the
+    defaults, with nothing to complain about."""
+    path = write(
+        tmp_path / "settings.json", {"schema_version": settings.SCHEMA_VERSION}
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.error_markers == settings.DEFAULT_ERROR_MARKERS
+    assert result.reasons == []
+
+
+@pytest.mark.parametrize(
+    "stored", [(), ("npm ERR!",), ("panic:", "FATAL", "a.b(")], ids=repr
+)
+def test_error_markers_survive_the_round_trip(
+    tmp_path: Path, stored: tuple[str, ...]
+) -> None:
+    """An empty list is a choice too: only the built-in exit-line rule."""
+    path = tmp_path / "settings.json"
+
+    settings.save(path, replace(Settings(), error_markers=stored))
+    result = settings.load(path)
+
+    assert result.settings.error_markers == stored
+    assert result.reasons == []
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "ERROR",
+        {"ERROR": True},
+        ["ERROR", 7],
+        ["ERROR", ""],
+        ["ERROR", "two\nlines"],
+        ["x" * (settings.MAX_ERROR_MARKER_CHARS + 1)],
+        [f"m{n}" for n in range(settings.MAX_ERROR_MARKERS + 1)],
+    ],
+    ids=["a-string", "an-object", "a-number", "empty", "newline", "long", "many"],
+)
+def test_unusable_error_markers_fall_back_to_the_defaults_and_say_why(
+    tmp_path: Path, stored: object
+) -> None:
+    """Whole field, like every other here: one bad entry is a reason, which
+    stops the next save from rewriting what the user typed (LWSM-1271). An
+    empty marker would match every line, and a newline none."""
+    path = write(
+        tmp_path / "settings.json",
+        {"schema_version": settings.SCHEMA_VERSION, "error_markers": stored},
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.error_markers == settings.DEFAULT_ERROR_MARKERS
+    assert any("error_markers" in reason for reason in result.reasons)
+
+
+def test_markers_typed_in_the_dialog_are_trimmed_and_deduplicated() -> None:
+    """The editor shows no trailing space, so a stored one would be a marker
+    the user cannot see they typed."""
+    assert settings.clean_error_markers(
+        ["  ERROR ", "", "ERROR", "\tpanic:", "   "]
+    ) == ("ERROR", "panic:")
 
 
 # --- LWSM-1237: the clip ate the cause, not the hostile input -----------------

@@ -34,6 +34,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -43,6 +44,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -51,10 +53,15 @@ from PySide6.QtWidgets import (
 
 from lwsm.mainwindow import MIN_TARGET_PX
 from lwsm.settings import (
+    DEFAULT_ERROR_MARKERS,
+    MAX_ERROR_MARKER_CHARS,
+    MAX_ERROR_MARKERS,
     MAX_LOG_MAX_MIB,
     MAX_POLL_INTERVAL_MS,
     MIN_LOG_MAX_MIB,
     MIN_POLL_INTERVAL_MS,
+    clean_error_markers,
+    error_marker_problem,
 )
 
 # Every user-visible string here goes through the one context "SettingsDialog",
@@ -66,9 +73,13 @@ from lwsm.settings import (
 # time — the keyboard is a first-class way to drive this (`§ O8`).
 POLL_STEP_MS = 250
 
+# How many lines tall the error-markers box is, in lines rather than pixels
+# (`§ O7`): enough to see the default set without scrolling.
+MARKER_LINES = 5
+
 
 class SettingsDialog(QDialog):
-    """Scan roots, poll interval, log cap and the single-key shortcuts."""
+    """Scan roots, poll interval, log cap, single-key shortcuts, error markers."""
 
     def __init__(
         self,
@@ -77,6 +88,7 @@ class SettingsDialog(QDialog):
         poll_interval_ms: int,
         log_max_mib: int,
         single_key_shortcuts: bool = True,
+        error_markers: Sequence[str] = DEFAULT_ERROR_MARKERS,
         choose_directory: Callable[[], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -121,6 +133,21 @@ class SettingsDialog(QDialog):
         self._shortcuts = QCheckBox()
         self._shortcuts.setChecked(single_key_shortcuts)
 
+        # LWSM-1036: the lines the log panel counts as errors, one per line.
+        # Tab moves on rather than typing a tab, or the box is a keyboard trap.
+        self._markers = QPlainTextEdit()
+        self._markers.setTabChangesFocus(True)
+        self._markers.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._markers.setPlainText("\n".join(error_markers))
+        self._markers.setMinimumHeight(
+            MARKER_LINES * self._markers.fontMetrics().lineSpacing()
+        )
+        # Says what Ok refused, beside the box it is about; hidden until then.
+        self._markers_problem = QLabel()
+        self._markers_problem.setTextFormat(Qt.TextFormat.PlainText)
+        self._markers_problem.setWordWrap(True)
+        self._markers_problem.hide()
+
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -138,6 +165,7 @@ class SettingsDialog(QDialog):
             self._poll,
             self._log,
             self._shortcuts,
+            self._markers,
             self._buttons.button(QDialogButtonBox.StandardButton.Ok),
             self._buttons.button(QDialogButtonBox.StandardButton.Cancel),
         ):
@@ -152,6 +180,9 @@ class SettingsDialog(QDialog):
         self._poll_label.setBuddy(self._poll)
         self._log_label = QLabel()
         self._log_label.setBuddy(self._log)
+        self._markers_label = QLabel()
+        self._markers_label.setBuddy(self._markers)
+        self._markers_label.setWordWrap(True)
 
         buttons = QHBoxLayout()
         buttons.addWidget(self._add)
@@ -167,6 +198,10 @@ class SettingsDialog(QDialog):
         form.addRow(self._poll_label, self._poll)
         form.addRow(self._log_label, self._log)
         form.addRow(self._shortcuts)
+        markers_column = QVBoxLayout()
+        markers_column.addWidget(self._markers)
+        markers_column.addWidget(self._markers_problem)
+        form.addRow(self._markers_label, markers_column)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -181,7 +216,7 @@ class SettingsDialog(QDialog):
 
         Each label carries an `&` mnemonic and a buddy, so the form is
         keyboard-reachable without a mouse: Alt+S lands in the list, Alt+H and
-        Alt+L in the two spinboxes.
+        Alt+L in the two spinboxes, Alt+E in the error markers.
         """
         self.setWindowTitle(QCoreApplication.translate("SettingsDialog", "Preferences"))
         self._roots_label.setText(
@@ -206,6 +241,21 @@ class SettingsDialog(QDialog):
         self._log.setSuffix(QCoreApplication.translate("SettingsDialog", " MiB"))
         self._roots.setAccessibleName(
             QCoreApplication.translate("SettingsDialog", "Folders to scan for projects")
+        )
+        self._markers_label.setText(
+            QCoreApplication.translate(
+                "SettingsDialog", "Lines in the output that count as &errors:"
+            )
+        )
+        self._markers.setAccessibleName(
+            QCoreApplication.translate("SettingsDialog", "Error markers")
+        )
+        self._markers.setAccessibleDescription(
+            QCoreApplication.translate(
+                "SettingsDialog",
+                "One per line. A line of output containing one, exactly as "
+                "typed, counts as an error; so does a non-zero exit.",
+            )
         )
 
     def changeEvent(self, event: QEvent) -> None:
@@ -260,6 +310,41 @@ class SettingsDialog(QDialog):
         )
         return roots, self._poll.value(), self._log.value()
 
+    def accept(self) -> None:
+        """Close on Ok, unless the markers are ones `settings.load` refuses.
+
+        Saved anyway, they would be thrown out at the next start and the user
+        would get the defaults back with no idea why; here the problem is
+        shown beside the box, said aloud, and focus goes back into it.
+        """
+        problem = error_marker_problem(self.error_markers())
+        if problem is None:
+            self._markers_problem.hide()
+            super().accept()
+            return
+        if problem == "too-many":
+            text = QCoreApplication.translate(
+                "SettingsDialog", "Keep it to %1 lines or fewer."
+            ).replace("%1", str(MAX_ERROR_MARKERS))
+        elif problem == "too-long":
+            text = QCoreApplication.translate(
+                "SettingsDialog", "Keep each line to %1 characters or fewer."
+            ).replace("%1", str(MAX_ERROR_MARKER_CHARS))
+        else:
+            text = QCoreApplication.translate(
+                "SettingsDialog", "A line has a tab or other control character in it."
+            )
+        self._markers_problem.setText(text)
+        self._markers_problem.show()
+        self._markers.setFocus(Qt.FocusReason.OtherFocusReason)
+        QAccessible.updateAccessibility(
+            QAccessibleAnnouncementEvent(self._markers, text)
+        )
+
+    def error_markers(self) -> tuple[str, ...]:
+        """The markers as typed, trimmed, without blanks or repeats (LWSM-1036)."""
+        return clean_error_markers(self._markers.toPlainText().split("\n"))
+
     def single_key_shortcuts(self) -> bool:
         """Whether `/` and the number keys stay on (LWSM-1475).
 
@@ -291,6 +376,7 @@ def keyboard_focus_order(dialog: SettingsDialog) -> tuple[Qt.FocusPolicy, ...]:
             dialog._poll,
             dialog._log,
             dialog._shortcuts,
+            dialog._markers,
             dialog._buttons.button(QDialogButtonBox.StandardButton.Ok),
             dialog._buttons.button(QDialogButtonBox.StandardButton.Cancel),
         )

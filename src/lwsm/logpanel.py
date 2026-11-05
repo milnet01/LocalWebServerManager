@@ -20,6 +20,12 @@ a server's output is untrusted.
 words (`§ O8` clause 3): scrolling back to read is never interrupted, and
 reaching the bottom again — by scrolling, or Ctrl+End — resumes following.
 
+**It finds the error for the user** (LWSM-1036): *Jump to last error* selects
+the last line `ErrorMatcher` (core) calls an error, scrolls to it, moves focus
+there so the lens follows, and says the line aloud; *Errors only* hides the
+rest. Scrolling a wall of output under a magnifier is slow and easy to lose
+your place in.
+
 Every user-visible string goes through the one context "LogPanel", repeated
 as a literal because `pyside6-lupdate` skips a call whose context is not one
 (LWSM-1304).
@@ -28,8 +34,14 @@ as a literal because `pyside6-lupdate` skips a call whose context is not one
 from __future__ import annotations
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QKeyEvent
+from PySide6.QtGui import (
+    QAccessible,
+    QAccessibleAnnouncementEvent,
+    QKeyEvent,
+    QTextCursor,
+)
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -43,6 +55,7 @@ from lwsm.logbuffer import (
     JOURNAL_ENDED,
     MAX_LINES,
     NO_JOURNAL,
+    ErrorMatcher,
     LogFeed,
     LogSource,
 )
@@ -62,6 +75,11 @@ def _named(template: str, name: str) -> str:
     return template.replace("%1", name)
 
 
+def _announce(widget: QWidget, text: str) -> None:
+    """Say `text` to a screen reader now, whatever has focus. A seam for tests."""
+    QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(widget, text))
+
+
 class LogPanel(QFrame):
     """A heading, a status line and the output, with a Close button.
 
@@ -79,6 +97,10 @@ class LogPanel(QFrame):
         self._source = LogSource()
         self._failure = ""
         self._following = True
+        self._matcher = ErrorMatcher()
+        # What the last jump found, shown in the status line until the user
+        # goes back to following or opens another project.
+        self._notice = ""
 
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -93,6 +115,20 @@ class LogPanel(QFrame):
         self.close_button.setMinimumSize(min_target, min_target)
         self.close_button.clicked.connect(self.close_panel)
         header.addWidget(self.close_button)
+
+        # Under the heading rather than beside it: the heading wraps a long
+        # project name, and three buttons beside it would not fit one lens.
+        tools = QHBoxLayout()
+        layout.addLayout(tools)
+        self.jump_button = QPushButton(self)
+        self.jump_button.setMinimumSize(min_target, min_target)
+        self.jump_button.clicked.connect(self.jump_to_last_error)
+        tools.addWidget(self.jump_button)
+        self.errors_only = QCheckBox(self)
+        self.errors_only.setMinimumSize(min_target, min_target)
+        self.errors_only.toggled.connect(self._redraw)
+        tools.addWidget(self.errors_only)
+        tools.addStretch(1)
 
         self.status = QLabel(self)
         self.status.setTextFormat(Qt.TextFormat.PlainText)
@@ -126,6 +162,7 @@ class LogPanel(QFrame):
         self._name = name
         self._source = source
         self._failure = ""
+        self._notice = ""
         self._following = True
         self.view.clear()
         self._retranslate()
@@ -147,8 +184,21 @@ class LogPanel(QFrame):
             )
             self._show_status()
 
+    def set_error_markers(self, markers: tuple[str, ...]) -> None:
+        """The lines that count as errors, from Preferences (LWSM-1036)."""
+        self._matcher = ErrorMatcher(markers)
+        if self.errors_only.isChecked():
+            self._redraw()
+
+    def error_markers(self) -> tuple[str, ...]:
+        return self._matcher.markers
+
     def append_lines(self, lines: list[str]) -> None:
         """Add lines at the end; keep the reader's place unless at the bottom."""
+        if self.errors_only.isChecked():
+            lines = [line for line in lines if self._matcher.matches(line)]
+            if not lines:
+                return
         bar = self.view.verticalScrollBar()
         following = self._following
         held = bar.value()
@@ -158,6 +208,52 @@ class LogPanel(QFrame):
             bar.setValue(bar.maximum())
         else:
             bar.setValue(held)
+
+    def jump_to_last_error(self) -> None:
+        """Select the last error line, show it, focus it and say it.
+
+        Focus goes to the output because a magnifier follows focus, so the
+        lens lands on the line; the announcement is the line itself, so a
+        screen reader user hears what went wrong without reading for it.
+        A jump that scrolls away from the bottom pauses following, as a
+        reader's own scroll does, so new output cannot pull the line away.
+        """
+        block = self.view.document().lastBlock()
+        while block.isValid() and not self._matcher.matches(block.text()):
+            block = block.previous()
+        if not block.isValid():
+            self._notice = QCoreApplication.translate(
+                "LogPanel", "No error lines in this output."
+            )
+            self._show_status()
+            _announce(self.view, self._notice)
+            return
+        cursor = QTextCursor(block)
+        cursor.movePosition(
+            QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
+        )
+        self.view.setTextCursor(cursor)
+        self.view.centerCursor()
+        self._notice = _named(
+            QCoreApplication.translate("LogPanel", "Last error: %1"), block.text()
+        )
+        self._show_status()
+        self.view.setFocus(Qt.FocusReason.OtherFocusReason)
+        _announce(self.view, self._notice)
+
+    def _redraw(self) -> None:
+        """Show the whole ring again, or only its error lines."""
+        lines = (
+            self.feed.buffer.lines()
+            if self.feed is not None
+            else self.view.toPlainText().splitlines()
+        )
+        self._notice = ""
+        self._following = True
+        self.view.clear()
+        self._apply_placeholder()
+        self.append_lines(lines)
+        self._show_status()
 
     def close_panel(self) -> None:
         self._stop_feed()
@@ -181,6 +277,8 @@ class LogPanel(QFrame):
         following = value >= bar.maximum() - _BOTTOM_SLACK
         if following != self._following:
             self._following = following
+            if following:
+                self._notice = ""
             self._show_status()
 
     def _on_failed(self, reason: str, detail: str) -> None:
@@ -226,6 +324,13 @@ class LogPanel(QFrame):
                 "Paused while you read earlier output. Press Ctrl+End to "
                 "follow new output again.",
             )
+        if self._notice and not self._failure:
+            text = f"{self._notice} {text}"
+        if self.errors_only.isChecked():
+            only = QCoreApplication.translate(
+                "LogPanel", "Showing only the lines that look like errors."
+            )
+            text = f"{text} {only}"
         self.status.setText(text)
         # Read out when the output takes focus, so the state is heard as well
         # as seen (`§ O8` clause 3).
@@ -247,10 +352,32 @@ class LogPanel(QFrame):
                 QCoreApplication.translate("LogPanel", "Close the output of %1"), name
             )
         )
-        self.view.setPlaceholderText(
-            QCoreApplication.translate("LogPanel", "No output yet.")
+        self.jump_button.setText(
+            QCoreApplication.translate("LogPanel", "Jump to last &error")
         )
+        self.jump_button.setAccessibleName(
+            _named(
+                QCoreApplication.translate(
+                    "LogPanel", "Jump to the last error in the output of %1"
+                ),
+                name,
+            )
+        )
+        self.errors_only.setText(QCoreApplication.translate("LogPanel", "Errors &only"))
+        self.errors_only.setAccessibleDescription(
+            QCoreApplication.translate(
+                "LogPanel", "Hide every line that does not look like an error."
+            )
+        )
+        self._apply_placeholder()
         self._show_status()
+
+    def _apply_placeholder(self) -> None:
+        self.view.setPlaceholderText(
+            QCoreApplication.translate("LogPanel", "No error lines yet.")
+            if self.errors_only.isChecked()
+            else QCoreApplication.translate("LogPanel", "No output yet.")
+        )
 
     def _apply_text_metrics(self) -> None:
         lines = self.view.fontMetrics().lineSpacing()

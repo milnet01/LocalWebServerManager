@@ -18,6 +18,7 @@ import pytest
 
 from lwsm.mainwindow import MIN_TARGET_PX
 from lwsm.settings import (
+    DEFAULT_ERROR_MARKERS,
     MAX_LOG_MAX_MIB,
     MAX_POLL_INTERVAL_MS,
     MIN_LOG_MAX_MIB,
@@ -29,13 +30,14 @@ pytestmark = pytest.mark.gui
 
 
 def build(
-    qtbot, roots=(), poll=1000, log=5, chooser=None, shortcuts=True
+    qtbot, roots=(), poll=1000, log=5, chooser=None, shortcuts=True, markers=None
 ) -> SettingsDialog:
     dialog = SettingsDialog(
         roots=[Path(root) for root in roots],
         poll_interval_ms=poll,
         log_max_mib=log,
         single_key_shortcuts=shortcuts,
+        error_markers=markers if markers is not None else DEFAULT_ERROR_MARKERS,
         choose_directory=chooser if chooser is not None else (lambda: None),
     )
     qtbot.addWidget(dialog)
@@ -84,6 +86,7 @@ def test_every_control_in_the_dialog_clears_the_target_floor(
         "poll interval": dialog._poll,
         "log cap": dialog._log,
         "single-key shortcuts": dialog._shortcuts,
+        "error markers": dialog._markers,
         "Ok": dialog._buttons.button(QDialogButtonBox.StandardButton.Ok),
         "Cancel": dialog._buttons.button(QDialogButtonBox.StandardButton.Cancel),
     }
@@ -125,6 +128,59 @@ def test_the_shortcuts_switch_comes_back_as_it_went_in_and_as_toggled(
 
     assert dialog.single_key_shortcuts() is (not shortcuts)
     assert "&" in dialog._shortcuts.text(), "the keyboard needs a mnemonic"
+
+
+def test_the_error_markers_come_back_one_per_line_trimmed(qtbot) -> None:
+    """LWSM-1036. In as the stored tuple, out as what the user left typed,
+    without the blank lines and stray spaces an editor makes easy."""
+    dialog = build(qtbot, markers=("ERROR", "panic:"))
+    assert dialog._markers.toPlainText() == "ERROR\npanic:"
+    assert dialog.error_markers() == ("ERROR", "panic:")
+
+    dialog._markers.setPlainText("ERROR\n\n  npm ERR!  \nERROR\n")
+
+    assert dialog.error_markers() == ("ERROR", "npm ERR!")
+
+
+def test_tab_leaves_the_error_markers_box_instead_of_typing_a_tab(qtbot) -> None:
+    """A text box that eats Tab is a keyboard trap (`§ O8` clause 2)."""
+    from PySide6.QtCore import Qt
+
+    dialog = build(qtbot)
+    with qtbot.waitExposed(dialog):
+        dialog.show()
+    with qtbot.waitActive(dialog):
+        dialog.activateWindow()
+    dialog._markers.setFocus()
+
+    qtbot.keyClick(dialog._markers, Qt.Key.Key_Tab)
+
+    assert "\t" not in dialog._markers.toPlainText()
+    assert not dialog._markers.hasFocus()
+    assert "&" in dialog._markers_label.text(), "the keyboard needs a mnemonic"
+    assert dialog._markers_label.buddy() is dialog._markers
+
+
+def test_markers_the_settings_file_would_refuse_keep_the_dialog_open(qtbot) -> None:
+    """Saving a list `settings.load` refuses would lose it at the next start,
+    so Ok says what is wrong and stays, rather than accepting it."""
+    from lwsm.settings import MAX_ERROR_MARKER_CHARS
+
+    dialog = build(qtbot)
+    with qtbot.waitExposed(dialog):
+        dialog.show()
+    dialog._markers.setPlainText("x" * (MAX_ERROR_MARKER_CHARS + 1))
+
+    dialog.accept()
+
+    assert dialog.result() != SettingsDialog.DialogCode.Accepted
+    assert dialog.isVisible()
+    assert str(MAX_ERROR_MARKER_CHARS) in dialog._markers_problem.text()
+    assert dialog._markers_problem.isVisible()
+
+    dialog._markers.setPlainText("ERROR")
+    dialog.accept()
+    assert dialog.result() == SettingsDialog.DialogCode.Accepted
 
 
 def test_the_order_of_the_roots_is_the_order_they_are_scanned_in(qtbot) -> None:

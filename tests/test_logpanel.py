@@ -249,7 +249,9 @@ def test_tab_reaches_the_panel_after_the_list_it_sits_under(
         widget = widget.nextInFocusChain()
 
     assert chain.index(panel.close_button) > chain.index(last_row.open_button)
-    assert chain.index(panel.view) == chain.index(panel.close_button) + 1
+    # LWSM-1036 put the error controls between Close and the output, as they
+    # sit on screen; their own test pins the order.
+    assert chain.index(panel.jump_button) == chain.index(panel.close_button) + 1
 
 
 def test_the_panel_controls_are_named_and_big_enough_to_hit(
@@ -302,3 +304,167 @@ def test_a_source_with_no_file_and_no_unit_says_there_is_nothing(qtbot) -> None:
     panel.open_for("web", LogSource())
     assert "no output" in panel.status.text().lower()
     panel.close_panel()
+
+
+# --- LWSM-1036: find the error in the log -------------------------------------
+
+NOISE = [f"GET /page/{n} 200" for n in range(200)]
+
+
+@pytest.fixture
+def heard(monkeypatch) -> list[str]:
+    """What the panel announced to a screen reader, in order."""
+    from lwsm import logpanel
+
+    said: list[str] = []
+    monkeypatch.setattr(logpanel, "_announce", lambda widget, text: said.append(text))
+    return said
+
+
+def open_panel(qtbot, windows, tmp_path):
+    window, _, _ = log_window(qtbot, windows, tmp_path, {5005: OUR_PID})
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    window.show_output(Path("/srv/web"))
+    return window, window._log_panel
+
+
+def test_jump_to_last_error_selects_it_shows_it_and_says_it(
+    qtbot, windows, tmp_path, heard
+) -> None:
+    """The point of the item: the app finds the line, so a magnifier user
+    does not scroll for it. The LAST error, with an earlier one present, so a
+    jump to the first would fail; and noise after it, so the bottom is not it."""
+    _, panel = open_panel(qtbot, windows, tmp_path)
+    panel.append_lines(
+        ["ERROR first failure", *NOISE, "Traceback (most recent call last):", *NOISE]
+    )
+    bar = panel.view.verticalScrollBar()
+    assert bar.value() == bar.maximum()
+
+    panel.jump_button.setFocus()
+    qtbot.keyClick(panel.jump_button, Qt.Key.Key_Space)
+
+    cursor = panel.view.textCursor()
+    assert cursor.block().text() == "Traceback (most recent call last):"
+    assert cursor.selectedText() == "Traceback (most recent call last):"
+    assert bar.value() < bar.maximum(), "the line was not scrolled into view"
+    # Centred, so the lines after it (the rest of a traceback) are in view
+    # too, not one line at the very edge of the lens.
+    middle = panel.view.viewport().height() / 2
+    assert abs(panel.view.cursorRect().center().y() - middle) < middle / 2
+    assert panel.view.hasFocus(), "the lens follows focus; it was left behind"
+    assert heard[-1] == "Last error: Traceback (most recent call last):"
+    assert "Last error" in panel.status.text()
+    assert panel.view.accessibleDescription() == panel.status.text()
+
+    # Reading it must not be interrupted by more output.
+    panel.append_lines(["more"])
+    assert panel.view.textCursor().block().text().startswith("Traceback")
+    assert bar.value() < bar.maximum()
+
+
+def test_jump_with_no_error_says_so_and_moves_nothing(
+    qtbot, windows, tmp_path, heard
+) -> None:
+    _, panel = open_panel(qtbot, windows, tmp_path)
+    panel.append_lines(NOISE)
+    bar = panel.view.verticalScrollBar()
+
+    panel.jump_button.click()
+
+    assert bar.value() == bar.maximum()
+    assert heard[-1] == "No error lines in this output."
+    assert "No error lines" in panel.status.text()
+
+
+def test_errors_only_shows_error_lines_and_off_brings_the_rest_back(
+    qtbot, windows, tmp_path
+) -> None:
+    """Both directions, and output arriving while filtered: a filter applied
+    only to what was already shown would let new noise straight through."""
+    _, panel = open_panel(qtbot, windows, tmp_path)
+    feed = panel.feed
+    assert feed is not None
+    every = ["boot", "ERROR one", "ok", "exited with code 2"]
+    feed.buffer.feed("\n".join(every) + "\n")
+    panel.append_lines(every)
+
+    qtbot.keyClick(panel.errors_only, Qt.Key.Key_Space)
+    assert panel.errors_only.isChecked()
+    assert panel.view.toPlainText().splitlines() == ["ERROR one", "exited with code 2"]
+    assert "only" in panel.status.text().lower()
+
+    feed.buffer.feed("noise\nCRITICAL two\n")
+    panel.append_lines(["noise", "CRITICAL two"])
+    assert panel.view.toPlainText().splitlines()[-1] == "CRITICAL two"
+    assert "noise" not in panel.view.toPlainText()
+
+    panel.errors_only.click()
+    assert panel.view.toPlainText().splitlines() == [*every, "noise", "CRITICAL two"]
+
+
+def test_the_window_hands_the_panel_the_markers_in_force(
+    qtbot, windows, tmp_path, heard
+) -> None:
+    """Preferences changes the set while the panel is open; the next jump
+    uses the new set, and a filtered view is redrawn by it."""
+    window, panel = open_panel(qtbot, windows, tmp_path)
+    panel.append_lines(["panic: nil map", *NOISE])
+
+    panel.jump_button.click()
+    assert heard[-1] == "No error lines in this output."
+
+    window.set_error_markers(("panic:",))
+    assert window.error_markers() == ("panic:",)
+    panel.jump_button.click()
+    assert heard[-1] == "Last error: panic: nil map"
+
+
+def test_the_error_controls_are_named_reachable_and_big_enough(
+    qtbot, windows, tmp_path
+) -> None:
+    """`§ O8`: a name, a mnemonic for the keyboard, the target floor, and a
+    place in the tab order between Close and the output."""
+    window, panel = open_panel(qtbot, windows, tmp_path)
+
+    assert panel.jump_button.text() == "Jump to last &error"
+    assert panel.errors_only.text() == "Errors &only"
+    assert (
+        panel.jump_button.accessibleName()
+        == "Jump to the last error in the output of web"
+    )
+    for control in (panel.jump_button, panel.errors_only):
+        assert control.height() >= MIN_TARGET_PX
+        assert control.focusPolicy() & Qt.FocusPolicy.TabFocus
+
+    chain = []
+    widget = window._filter.nextInFocusChain()
+    while widget is not window._filter:
+        if widget.focusPolicy() & Qt.FocusPolicy.TabFocus and widget.isVisible():
+            chain.append(widget)
+        widget = widget.nextInFocusChain()
+    at = chain.index(panel.close_button)
+    assert chain[at : at + 4] == [
+        panel.close_button,
+        panel.jump_button,
+        panel.errors_only,
+        panel.view,
+    ]
+
+
+def test_opening_another_project_clears_the_last_jump(
+    qtbot, windows, tmp_path, heard
+) -> None:
+    """A notice about web's error must not sit over api's output."""
+    window, _, _ = log_window(
+        qtbot, windows, tmp_path, {5005: OUR_PID}, extra=[record("api", 6006)]
+    )
+    window.show_output(Path("/srv/web"))
+    panel = window._log_panel
+    panel.append_lines(["ERROR web broke"])
+    panel.jump_button.click()
+    assert "Last error" in panel.status.text()
+
+    window.show_output(Path("/srv/api"))
+    assert "Last error" not in panel.status.text()

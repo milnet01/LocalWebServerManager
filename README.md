@@ -84,6 +84,13 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
   right under it, so you can see why without opening a terminal.
   Escape takes you back to the project. A project run by its own
   system service shows that service's journal instead.
+- **Find the error without scrolling.** In the output panel,
+  **Jump to last error** (Alt+E) moves straight to the last line
+  that looks like an error, highlights it and reads it out.
+  **Errors only** (Alt+O) hides every other line. A line counts as
+  an error when it contains `Traceback`, `ERROR`, `CRITICAL` or
+  `Exception`, or reports a non-zero exit. Preferences lets you
+  change those words to the ones your servers print.
 
 **What is not there yet**
 

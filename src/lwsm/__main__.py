@@ -288,6 +288,7 @@ def build_window(
             poll_interval_ms=controller.poll_interval_ms,
             log_max_mib=supervisor.max_log_bytes // (1024 * 1024),
             single_key_shortcuts=window.single_key_shortcuts(),
+            error_markers=window.error_markers(),
             parent=window,
         )
         # `deleteLater`, on BOTH paths (LWSM-1276). The dialog is parented to
@@ -305,6 +306,7 @@ def build_window(
                 return
             roots, poll_ms, log_mib = dialog.values()
             shortcuts = dialog.single_key_shortcuts()
+            markers = dialog.error_markers()
         finally:
             dialog.deleteLater()
 
@@ -316,6 +318,7 @@ def build_window(
         controller.set_poll_interval_ms(poll_ms)
         supervisor.max_log_bytes = log_mib * 1024 * 1024
         window.set_single_key_shortcuts(shortcuts)
+        window.set_error_markers(markers)
         # `or scan_root_fallback()`, because an empty list is not "scan
         # nowhere" anywhere else: `default_scan_roots` resolves an empty file
         # to the fallback, so applying `()` literally here made this session
@@ -343,6 +346,7 @@ def build_window(
                 poll_interval_ms=poll_ms,
                 log_max_mib=log_mib,
                 single_key_shortcuts=shortcuts,
+                error_markers=markers,
             ),
             lambda: save_scan_roots(roots),
         ):
@@ -421,6 +425,7 @@ def build_window(
         maximized=stored.maximized,
         save_geometry=save_geometry,
         single_key_shortcuts=stored.single_key_shortcuts,
+        error_markers=stored.error_markers,
     )
     # The stored choices, applied once at startup. `Supervisor` and
     # `ProjectController` default to the same values `settings.py` does, so a

@@ -34,6 +34,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from lwsm.applog import _open_private_regular, get_logger
 from lwsm.scanner import MAX_SOURCE_LINE_CHARS, valid_unit_name
+from lwsm.settings import DEFAULT_ERROR_MARKERS
 
 log = get_logger(__name__)
 
@@ -85,6 +86,41 @@ def _clean(line: str) -> str:
     if len(line) > MAX_LINE_CHARS:
         line = line[: MAX_LINE_CHARS - 1] + "…"
     return line
+
+
+# A non-zero exit, in the words runtimes and systemd use for one: "exit code
+# 1", "exited with code 3", "exit status: 2", and systemd's "code=exited,
+# status=1/FAILURE". Fixed by us, never user input, and linear: no group is
+# repeated and the digit runs are bounded. `status` alone is not enough — an
+# HTTP access log prints "status 500" on every line.
+_EXIT_LINE = re.compile(
+    r"\bexit(?:ed)?(?: with)?(?: exit)? (?:code|status):? ?(-?\d{1,9})\b"
+    r"|\bcode=exited, status=(\d{1,9})\b",
+    re.IGNORECASE,
+)
+
+
+class ErrorMatcher:
+    """Which output lines look like errors (LWSM-1036).
+
+    A line is an error when it contains one of `markers` exactly as written —
+    a substring, case and all, never a pattern, because markers are user
+    input (`settings.DEFAULT_ERROR_MARKERS` says why) — or when it reports a
+    non-zero exit, which no substring can express.
+    """
+
+    def __init__(self, markers: tuple[str, ...] = DEFAULT_ERROR_MARKERS) -> None:
+        self.markers = markers
+
+    def matches(self, line: str) -> bool:
+        if any(marker in line for marker in self.markers):
+            return True
+        return any(
+            int(code) != 0
+            for found in _EXIT_LINE.finditer(line)
+            for code in found.groups()
+            if code is not None
+        )
 
 
 class LogBuffer:

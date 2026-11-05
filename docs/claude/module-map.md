@@ -433,7 +433,11 @@ Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
   failure deleted the 15-second `starting` deadline on measured evidence, so a
   setting for it would re-introduce the defect that ADR reversed. LWSM-1475
   added a fourth: a check box that turns `/` and the number keys off, applied
-  through `MainWindow.set_single_key_shortcuts`.
+  through `MainWindow.set_single_key_shortcuts`. LWSM-1036 added a fifth,
+  the log panel's error markers, applied through
+  `MainWindow.set_error_markers`; `accept` refuses a list
+  `settings.error_marker_problem` names a problem in, so nothing saved is
+  thrown out at the next start.
   **The dialog owns no I/O** — it is handed values and returns values, and
   `build_window` is the only scope where both config files and both live
   objects are in reach, which is what the `open_settings` seam was left for
@@ -512,6 +516,10 @@ Added for LWSM-1015, the live log panel. **No spec** — build-first, per
   value and the unit becomes a journal match, which journalctl refuses
   (measured, systemd 261). A fragment with no newline is flushed after two
   quiet ticks, so a server's last words show even when it died mid-line.
+  `ErrorMatcher` (LWSM-1036) decides which lines are errors: a configured
+  marker as a literal substring, or a non-zero exit line matched by one
+  fixed, linear pattern. The default markers live in `settings.py`, which
+  owns every default and imports no Qt.
 - **`src/lwsm/logpanel.py`** — UI layer. `LogPanel`: a heading, a status
   line, a read-only `QPlainTextEdit` and Close. **It owns no reading**; the
   window hands it a `LogSource` from `ProjectController.log_source`, which
@@ -523,6 +531,10 @@ Added for LWSM-1015, the live log panel. **No spec** — build-first, per
   grows the window to fit once per opening, moves focus into the output, and
   re-places the panel in the tab order after the last row: rows join Qt's
   focus chain when parented, which is after the panel was built.
+  **Jump to last error and Errors only** (LWSM-1036) search the view's own
+  blocks, so a filtered view is searched as shown; turning the filter off
+  redraws from the feed's ring. `_announce` is the seam the tests replace
+  to hear what a screen reader is told.
 
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are

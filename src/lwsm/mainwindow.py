@@ -111,7 +111,12 @@ from lwsm.registry import (
     RegistryNotDurable,
 )
 from lwsm.service import describe_holder
-from lwsm.settings import MIN_TEXT_SCALE, TEXT_SIZE_STEPS, SettingsNotDurable
+from lwsm.settings import (
+    DEFAULT_ERROR_MARKERS,
+    MIN_TEXT_SCALE,
+    TEXT_SIZE_STEPS,
+    SettingsNotDurable,
+)
 from lwsm.theme import (
     DEFAULT_THEME,
     FOLLOW_SYSTEM,
@@ -2119,6 +2124,7 @@ class MainWindow(QMainWindow):
         save_geometry: Callable[[Rect | None, bool, bool], None] | None = None,
         place: PlaceWindow | None = None,
         single_key_shortcuts: bool = True,
+        error_markers: tuple[str, ...] = DEFAULT_ERROR_MARKERS,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -2476,6 +2482,7 @@ class MainWindow(QMainWindow):
         # order too. `logpanel.py` says why it is not a window of its own.
         self._log_panel = LogPanel(central, min_target=MIN_TARGET_PX)
         self._log_panel.closed.connect(self._on_log_closed)
+        self._log_panel.set_error_markers(error_markers)
         outer.addWidget(self._log_panel, 1)
         # Which project the panel shows, so a poll can keep its notice true
         # and Escape can go back to that row.
@@ -3390,6 +3397,14 @@ class MainWindow(QMainWindow):
     def set_single_key_shortcuts(self, on: bool) -> None:
         """Turn `/` and the number keys on or off; Preferences calls this."""
         self._single_key_shortcuts = on
+
+    def error_markers(self) -> tuple[str, ...]:
+        """The lines the log panel counts as errors (LWSM-1036)."""
+        return self._log_panel.error_markers()
+
+    def set_error_markers(self, markers: tuple[str, ...]) -> None:
+        """Preferences calls this; an open panel uses the new set at once."""
+        self._log_panel.set_error_markers(markers)
 
     @staticmethod
     def _window_title() -> str:
@@ -4460,7 +4475,9 @@ class MainWindow(QMainWindow):
         panel = self._log_panel
         if last is not None:
             QWidget.setTabOrder(last, panel.close_button)
-        QWidget.setTabOrder(panel.close_button, panel.view)
+        QWidget.setTabOrder(panel.close_button, panel.jump_button)
+        QWidget.setTabOrder(panel.jump_button, panel.errors_only)
+        QWidget.setTabOrder(panel.errors_only, panel.view)
 
     def _on_log_closed(self) -> None:
         path, self._log_path = self._log_path, None

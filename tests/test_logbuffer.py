@@ -18,6 +18,7 @@ import pytest
 from lwsm.logbuffer import (
     MAX_LINE_CHARS,
     MAX_LINES,
+    ErrorMatcher,
     FileFollower,
     JournalFollower,
     LogBuffer,
@@ -375,3 +376,70 @@ def test_a_source_with_neither_file_nor_unit_starts_nothing(qtbot) -> None:
     feed.start()
     feed.stop()
     assert feed.buffer.lines() == []
+
+
+# --- LWSM-1036: which lines look like errors ----------------------------------
+
+
+def test_the_usual_markers_find_the_usual_error_lines() -> None:
+    """The four markers the roadmap names, as the runtimes print them."""
+    matcher = ErrorMatcher()
+    for line in (
+        "Traceback (most recent call last):",
+        "2026-11-05 10:00:01 ERROR app: database is locked",
+        "CRITICAL: worker died",
+        "java.lang.IllegalStateException: closed",
+    ):
+        assert matcher.matches(line), line
+    for line in ("GET / 200", "Listening on port 5005", "0 errors, 0 warnings"):
+        assert not matcher.matches(line), line
+
+
+def test_a_marker_is_matched_as_written_never_as_a_pattern() -> None:
+    """User input: `.` is a full stop, `(` is a bracket, and the case is the
+    case typed. A regex reading would let `a.b` match `axb`, and a hostile
+    pattern hang the panel."""
+    matcher = ErrorMatcher(("a.b", "(x+x+)+y", "Fatal"))
+    assert matcher.matches("saw a.b here")
+    assert not matcher.matches("saw axb here")
+    assert matcher.matches("literal (x+x+)+y")
+    assert not matcher.matches("x" * 4000)
+    assert not matcher.matches("fatal: lower case is not the marker")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Process finished with exit code 1",
+        "server exited with code 3",
+        "subprocess returned non-zero exit status 2.",
+        "web.service: Main process exited, code=exited, status=1/FAILURE",
+        "EXIT STATUS: 127",
+    ],
+)
+def test_a_non_zero_exit_line_counts_even_with_no_markers(line: str) -> None:
+    """Built in rather than a marker: "non-zero" is a number test, which a
+    literal substring cannot express."""
+    assert ErrorMatcher(()).matches(line)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Process finished with exit code 0",
+        "web.service: Main process exited, code=exited, status=0/SUCCESS",
+        "GET /health status 500",
+        "exit codes are documented in README",
+    ],
+)
+def test_a_clean_exit_or_an_http_status_is_not_an_error(line: str) -> None:
+    """An HTTP status is a number after `status`, and the commonest line a web
+    server prints; only an EXIT status counts."""
+    assert not ErrorMatcher(()).matches(line)
+
+
+def test_the_default_markers_are_the_settings_defaults() -> None:
+    """One owner for the default set: `settings.py`, which may not import Qt."""
+    from lwsm.settings import DEFAULT_ERROR_MARKERS
+
+    assert ErrorMatcher().markers == DEFAULT_ERROR_MARKERS

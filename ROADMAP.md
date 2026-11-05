@@ -13333,7 +13333,7 @@ LWSM-1036.
   Found, filed: LWSM-1504.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1036] **P08: find the error in the log.**
+- ✅ [LWSM-1036] **P08: find the error in the log.**
   A **jump to
   last error** action and an **errors-only** filter over the log
   panel, matching the usual markers (`Traceback`, `ERROR`,
@@ -13348,6 +13348,36 @@ LWSM-1036.
   Kind: implement.
   Source: in-session-2026-08-03.
   Priority: 2.
+  Shipped 2026-11-05. Core: logbuffer.ErrorMatcher (QtCore module,
+  no widgets): a line is an error when it holds a configured marker as a
+  literal, case-sensitive substring, or reports a non-zero exit through
+  one fixed linear pattern (exit code/status N, exited with code N,
+  systemd code=exited, status=N). Markers are never regex: user input
+  from a hand-edited file, and a backtracking pattern would freeze the UI
+  thread. An exit status only, since access logs print "status 500".
+  Settings: error_markers in settings.json via settings.py, the owner of
+  every default, read like single_key_shortcuts (LWSM-1475): absent key =
+  Traceback, ERROR, CRITICAL, Exception; a non-list, non-string, empty,
+  control-character, over-200-char or over-50-entry list is refused whole
+  with a reason. Preferences edits it one per line; Ok refuses a list the
+  loader would refuse and says why beside the box.
+  Decisions design.md did not settle, folded back into design.md (review
+  later if wanted): (1) case-sensitive literals, so "0 errors" is not an
+  error; (2) the exit rule is built in and cannot be switched off;
+  (3) the two controls are a button "Jump to last error" (Alt+E) and a
+  check box "Errors only" (Alt+O), on their own row under the heading,
+  tab order Close, Jump, Errors only, output; (4) a jump selects and
+  centres the line, moves focus into the output so the lens follows,
+  announces "Last error: <line>", and shows the same in the status line
+  until following resumes; no error says "No error lines in this
+  output."; (5) the filter applies to new lines too and redraws from the
+  ring when turned off; (6) Tab leaves the markers box (no keyboard trap).
+  Checked live on a private AT-SPI bus: object:announcement from "Output
+  of web" carrying "Last error: Traceback (most recent call last):", and
+  focus events to the output. Tests: test_logbuffer, test_settings,
+  test_settingsdialog, test_logpanel, test_main; mutation probes killed
+  18 of 18 after two test fixes (focus and centring survived first; a
+  cursor-hold that changed nothing was removed).
   Lanes: ui, tests.
 
 - ✅ [LWSM-1434] **An automatic save overwrites a hand edit made to projects.json while the app runs.**
