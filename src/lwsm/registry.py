@@ -11,6 +11,7 @@ before use rather than trusted.
 from __future__ import annotations
 
 import enum
+import hashlib
 import json
 import os
 import re
@@ -348,6 +349,17 @@ class LoadResult:
     # after a load rebuilt in memory does not (LWSM-1039). `repr=False`: a
     # registry is not something to print into a log line by accident.
     raw: bytes = dataclass_field(default=b"", repr=False)
+    # The SHA-256 of the bytes this session last read from `path` or wrote to
+    # it. `save_projects` compares the file against it, so a hand edit made
+    # while the app runs is set aside rather than overwritten (LWSM-1434).
+    # A digest, not the bytes: `raw` is emptied after the first save, and the
+    # check has to outlive it. None for a result built by hand, which binds
+    # nothing.
+    on_disk: str | None = None
+
+
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def default_projects_path() -> Path:
@@ -976,6 +988,7 @@ def load_projects(path: Path) -> LoadResult:
         path=path,
         unknown=top_level_unknown,
         raw=loaded.raw,
+        on_disk=_digest(loaded.raw),
     )
 
 
@@ -1158,12 +1171,16 @@ def save_projects(
     records: Sequence[ProjectRecord],
     *,
     load: LoadResult | RegistryError,
-) -> None:
+) -> Path | None:
     """Write atomically, or raise `RegistryError` naming why it refused.
 
     `load` is the load these records came from, and it is a parameter rather
     than something recomputed here: whether the session may write is a fact
     about that load, and re-reading the file would answer about a different one.
+
+    Returns where a hand edit was kept, or None. A file whose bytes are no
+    longer the ones `load` read or last wrote was changed outside the app, so
+    it is copied aside before the write replaces it (LWSM-1434).
 
     The order is the one that survives a failure at any step. Records are
     written **in the order given** and nothing may sort them — LWSM-1131 depends
@@ -1175,6 +1192,11 @@ def save_projects(
     data = _encoded(path, records, load.unknown if isinstance(load, LoadResult) else ())
     if isinstance(load, LoadResult) and load.raw:
         _back_up(path, load.raw)
+    set_aside = (
+        _set_aside_if_edited(path, load.on_disk)
+        if isinstance(load, LoadResult) and load.on_disk is not None
+        else None
+    )
 
     try:
         # The directory, the hostile-target refusal and the durable write, in
@@ -1184,12 +1206,74 @@ def save_projects(
         write_atomically(path, data, prefix=".projects-")
     except ConfigFileNotDurable as exc:
         # Written, and the caller must be able to say so (known-issue-047).
-        raise RegistryNotDurable(str(exc)) from exc
+        # The exception replaces the return value, so it carries the set-aside
+        # file in its text: otherwise the one save that moved a hand edit
+        # would be the one that did not say where.
+        kept = "" if set_aside is None else f"; {set_aside_notice(set_aside)}"
+        raise RegistryNotDurable(f"{exc}{kept}") from exc
     except ConfigFileError as exc:
         # Converted rather than propagated: this function's contract, § 6 and
         # four tests all promise `RegistryError`, and `ConfigFileError` is its
         # base, so an `except RegistryError` would not catch it.
         raise RegistryError(str(exc)) from exc
+    return set_aside
+
+
+def set_aside_notice(set_aside: Path) -> str:
+    """What a save that moved a hand edit tells the user (LWSM-1434)."""
+    return (
+        "the list was changed outside the app since it was read; "
+        f"that version is kept as {quoted(str(set_aside))}"
+    )
+
+
+def _unused_name(path: Path, label: str) -> Path:
+    """`<path>.<label>-<time>` beside `path`, numbered where that name is
+    taken, so an earlier file is never overwritten. May raise OSError: on
+    Python 3.13 `exists()` raises where a name cannot be checked."""
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    candidate = path.with_name(f"{path.name}.{label}-{stamp}")
+    count = 1
+    while candidate.exists():
+        count += 1
+        candidate = path.with_name(f"{path.name}.{label}-{stamp}-{count}")
+    return candidate
+
+
+def _set_aside_if_edited(path: Path, expected: str) -> Path | None:
+    """Copy `path` aside when its bytes are not the `expected` digest.
+
+    A copy, not a rename: renamed away, a failed write after it would leave
+    no file at `path`, and the next launch would read that as a first run
+    (the restore's L02-M1). A missing file is a deletion, and the write puts
+    the list back with nothing to keep. A file that cannot be read stops the
+    save, since whether it holds an edit cannot be known.
+    """
+    try:
+        current = read_bounded(path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise RegistryError(
+            f"{quoted(str(path))}: not writing; could not check whether it was "
+            f"changed outside the app ({quoted(str(exc))})"
+        ) from exc
+    if _digest(current) == expected:
+        return None
+    try:
+        aside = _unused_name(path, "edited")
+        try:
+            write_atomically(aside, current, prefix=".projects-edited-")
+        except ConfigFileNotDurable as exc:
+            # Written, so the save goes on, and said, as `_back_up` does.
+            log.warning("the set-aside hand edit may not be durable: %s", exc)
+    except (ConfigFileError, OSError) as exc:
+        raise RegistryError(
+            f"{quoted(str(path))}: not writing; it was changed outside the app "
+            f"and that version could not be kept ({quoted(str(exc))})"
+        ) from exc
+    log.warning("%s: %s", quoted(str(path)), set_aside_notice(aside))
+    return aside
 
 
 def load_after_save(
@@ -1205,13 +1289,17 @@ def load_after_save(
     first save of a session and was erased by the second (review-code
     2026-11-04 L02-H1). `raw` is left empty on purpose: the backup is taken
     once per run, from the file as the app started with it (`_back_up`).
+    `on_disk` is the digest of what that save wrote, re-encoded here from the
+    same records and keys, so the next save can tell a hand edit (LWSM-1434).
     """
+    unknown = load.unknown if isinstance(load, LoadResult) else ()
     return LoadResult(
         records=list(records),
         reasons=[],
         rows_refused=0,
         path=path,
-        unknown=load.unknown if isinstance(load, LoadResult) else (),
+        unknown=unknown,
+        on_disk=_digest(_encoded(path, records, unknown)),
     )
 
 
@@ -1271,18 +1359,13 @@ def restore_backup(path: Path) -> LoadResult:
         raise RegistryError(
             f"{quoted(str(path))}: its backup could not be read ({quoted(str(exc))})"
         ) from exc
-    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     not_durable = False
     set_aside: Path | None = None
     try:
         # Inside the handler: `exists()` raises on Python 3.13 where a name
         # cannot be checked, and this function promises `RegistryError`
         # (review-code 2026-10-08 L03-L2).
-        aside = path.with_name(f"{path.name}.damaged-{stamp}")
-        count = 1
-        while aside.exists():
-            count += 1
-            aside = path.with_name(f"{path.name}.damaged-{stamp}-{count}")
+        aside = _unused_name(path, "damaged")
         if path.exists():
             path.rename(aside)
             set_aside = aside
@@ -1332,7 +1415,7 @@ class ProjectsFile:
 
     path: Path
     # Late-bound, so a `monkeypatch` of `save_projects` reaches it (LWSM-1280).
-    save: Callable[..., None] = dataclass_field(
+    save: Callable[..., Path | None] = dataclass_field(
         default=lambda *args, **kwargs: save_projects(*args, **kwargs)
     )
 

@@ -3394,6 +3394,102 @@ def test_a_backup_that_cannot_be_written_stops_the_save(tmp_path: Path) -> None:
     assert path.read_bytes() == raw
 
 
+# --- LWSM-1434: a hand edit made while the app runs is never lost -------------
+
+_HAND_EDIT = b'{"schema_version": 1, "projects": [{"path": "/srv/b", "name": "b"}]}\n'
+
+
+def _set_aside(path: Path) -> list[Path]:
+    return sorted(path.parent.glob(path.name + ".edited-*"))
+
+
+def test_a_hand_edit_after_the_load_is_set_aside_before_a_save(
+    tmp_path: Path,
+) -> None:
+    """The file changed on disk after the app read it, so the save keeps
+    those bytes beside it before writing, and says where."""
+    path, raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    path.write_bytes(_HAND_EDIT)
+
+    aside = save_projects(path, [], load=loaded)
+
+    assert _set_aside(path) == [aside], "the save named no set-aside file"
+    assert aside.read_bytes() == _HAND_EDIT
+    assert registry.backup_path(path).read_bytes() == raw, (
+        "the startup backup must still be the startup file"
+    )
+    assert load_projects(path).records == [], "the save itself was not written"
+
+
+def test_a_hand_edit_after_an_earlier_save_is_set_aside_too(tmp_path: Path) -> None:
+    """The window's load after a save carries no startup bytes, so the check
+    must ride on something else: what that save wrote."""
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    save_projects(path, loaded.records, load=loaded)
+    after_save = registry.load_after_save(path, loaded.records, loaded)
+    path.write_bytes(_HAND_EDIT)
+
+    aside = save_projects(path, [], load=after_save)
+
+    assert aside is not None and aside.read_bytes() == _HAND_EDIT
+
+
+def test_a_save_over_the_apps_own_last_write_sets_nothing_aside(
+    tmp_path: Path,
+) -> None:
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    first = save_projects(path, loaded.records, load=loaded)
+    after_save = registry.load_after_save(path, loaded.records, loaded)
+
+    second = save_projects(path, [], load=after_save)
+
+    assert (first, second) == (None, None)
+    assert _set_aside(path) == []
+
+
+def test_a_second_hand_edit_in_the_same_second_gets_its_own_name(
+    tmp_path: Path,
+) -> None:
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    path.write_bytes(_HAND_EDIT)
+    first = save_projects(path, [], load=loaded)
+    after_save = registry.load_after_save(path, [], loaded)
+    path.write_bytes(_HAND_EDIT + b"\n")
+
+    second = save_projects(path, [], load=after_save)
+
+    assert first is not None and second is not None and first != second
+    assert first.read_bytes() == _HAND_EDIT
+    assert second.read_bytes() == _HAND_EDIT + b"\n"
+
+
+def test_a_file_deleted_by_hand_is_written_again_with_nothing_set_aside(
+    tmp_path: Path,
+) -> None:
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    path.unlink()
+
+    assert save_projects(path, [], load=loaded) is None
+    assert path.exists() and _set_aside(path) == []
+
+
+def test_a_refused_save_sets_nothing_aside(tmp_path: Path) -> None:
+    """The gate runs first: a save that will not write moves nothing."""
+    path = write(tmp_path, {"schema_version": 1, "projects": [one_good(), 7]})
+    loaded = load_projects(path)
+    path.write_bytes(_HAND_EDIT)
+
+    with pytest.raises(RegistryError):
+        save_projects(path, [], load=loaded)
+    assert _set_aside(path) == []
+    assert path.read_bytes() == _HAND_EDIT
+
+
 def test_restoring_sets_the_damaged_file_aside_and_loads_the_backup(
     tmp_path: Path,
 ) -> None:

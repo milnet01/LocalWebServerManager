@@ -4161,8 +4161,13 @@ class MainWindow(QMainWindow):
         Silent: the row's *confirmed* is the feedback, and a banner once per
         project per run would be noise. A failed save is logged by
         `_write_records`, and the value holds in memory for this session.
+        The one exception is a save that moved a hand edit aside: the user did
+        nothing to cause it, so it is the save most in need of saying where the
+        edit went (LWSM-1434).
         """
-        self._write_records(self._controller.records(), "", "confirmed port")
+        self._write_records(
+            self._controller.records(), "", "confirmed port", announce_set_aside=True
+        )
 
     def forget_trust(self, path: Path) -> None:
         """Withdraw the user's "yes, run it" for one project (LWSM-1319).
@@ -4450,7 +4455,12 @@ class MainWindow(QMainWindow):
         return self._write_records(merged.records, message, source)
 
     def _write_records(
-        self, records: list[ProjectRecord], message: str, source: str
+        self,
+        records: list[ProjectRecord],
+        message: str,
+        source: str,
+        *,
+        announce_set_aside: bool = False,
     ) -> str:
         """Save a new project list and show it, whatever produced it.
 
@@ -4460,6 +4470,10 @@ class MainWindow(QMainWindow):
         `RegistryError` report, and the `self._load` refresh on success.
         LWSM-1166 was that refresh being read from the wrong place, and a
         second copy of this would be a second place to make that mistake.
+
+        A save that kept a hand edit aside adds where to the message
+        (LWSM-1434). A caller that shows nothing passes `announce_set_aside`,
+        and that notice alone is then shown here.
         """
         # The SAVE is what needs a rescan context, not the in-memory update
         # (LWSM-1282). This returned here, before `set_records` below, so on a
@@ -4469,8 +4483,9 @@ class MainWindow(QMainWindow):
         # is indistinguishable from one that found nothing to do.
         if self._projects_file is not None and self._should_write(records):
             saved = True
+            set_aside: Path | None = None
             try:
-                self._projects_file.save(
+                set_aside = self._projects_file.save(
                     self._projects_file.path, records, load=self._load
                 )
             except RegistryNotDurable as exc:
@@ -4493,6 +4508,18 @@ class MainWindow(QMainWindow):
                     message,
                     str(exc),
                 )
+            if set_aside is not None:
+                notice = _filled(
+                    QCoreApplication.translate(
+                        "ProjectRow",
+                        "The project list was changed outside the app since it "
+                        "was read; that version is kept as %1",
+                    ),
+                    str(set_aside),
+                )
+                message = f"{message} — {notice}" if message else notice
+                if announce_set_aside:
+                    self.set_status_message(notice)
             if saved:
                 # The next write, of any kind, compares against what is now on
                 # disk. Without this, a first run stays `RegistryMissing` for

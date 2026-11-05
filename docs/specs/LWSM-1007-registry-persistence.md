@@ -418,6 +418,7 @@ class LoadResult:
     user_fields_refused: frozenset[str] = frozenset()  # read by `export_profile`
     path: Path | None = None  # the file read; binds the write gate to it (LWSM-1322)
     unknown: tuple[tuple[str, str], ...] = ()  # top-level keys kept for the writer
+    on_disk: str | None = None  # SHA-256 of the bytes last read or written (§ 6)
 
 
 class RegistryNotDurable(RegistryError):
@@ -437,8 +438,9 @@ def save_projects(
     records: Sequence[ProjectRecord],
     *,
     load: LoadResult | RegistryError,  # the load these records came from
-) -> None:
-    """Write atomically, or raise `RegistryError` naming why it refused."""
+) -> Path | None:
+    """Write atomically, or raise `RegistryError` naming why it refused.
+    Returns where a file changed outside the app was set aside (§ 6)."""
 ```
 
 **`load_projects` returns a dataclass, not a widened tuple.** `rows_refused`
@@ -752,9 +754,20 @@ that stops a hand-edited newline reaching the message banner or the log.
 - **The serialised registry exceeds `MAX_FILE_BYTES`.** Refused with a reason
   before anything is written, rather than written and then found unreadable on
   the next start.
-- **Two app instances write concurrently.** Last writer wins; `os.replace` makes
-  each write atomic, so no reader ever sees a half-file, but one instance's
-  edits can be lost. Not defended against — § 9.
+- **The file changed on disk since this session read or last wrote it** — a
+  hand edit while the app runs, or a second instance's save. `LoadResult.on_disk`
+  holds the SHA-256 of those bytes, and `load_after_save` carries the digest of
+  each save forward. Before writing, `save_projects` compares the file with it;
+  on a difference it copies the file to `projects.json.edited-<time>` beside it,
+  numbered where that name is taken, then writes and returns that path. The
+  window names the file in the banner, the silent confirmed-port save included
+  (LWSM-1434). A copy that cannot be made, or a file that cannot be read for the
+  comparison, refuses the save. A file deleted by hand is written again with
+  nothing set aside.
+- **Two app instances write concurrently.** `os.replace` makes each write
+  atomic, so no reader ever sees a half-file. The other instance's last save is
+  set aside as above rather than lost, but each instance still writes its own
+  list over the file — § 9.
 
 ## 7. Tests
 
@@ -840,9 +853,10 @@ by asserting harder.
 - **Keeping a backup of the registry** — LWSM-1039. § 6 deliberately leaves the
   restore offer to it.
 - **The first-run confirmation flow** — LWSM-1008.
-- **Concurrent-writer safety** (a lock file, or an mtime precondition) —
-  untracked, because two instances of a single-user desktop app is not a shape
-  anyone has asked for. Recorded in § 6 so the omission is visible.
+- **Merging a change made outside the app.** § 6 sets the outside version aside
+  and says where (LWSM-1434); it does not merge it into the running list or
+  reload it. **A lock file** is not built either, because two instances of a
+  single-user desktop app is not a shape anyone has asked for.
 - **Acting on `hidden`, `launcher_override`, `notes`, `start_at_login` or
   `actions`.** All five round-trip through the file and **nothing reads them**,
   in this item or in LWSM-1131. Stated because the file is hand-editable, so
@@ -892,12 +906,12 @@ by asserting harder.
 | § 4.2 a dropped field's original text is lost | **nothing** — an accepted cost, stated in § 4.2 and § 8, not a rule |
 | § 4.2 port provenance not persisted | superseded — [LWSM-1385](LWSM-1385-port-provenance.md) § 10 owns the checks |
 | § 4.3 steps 4 and 6 (directory `fsync`, and its failure reported not reversed) | **nothing** — a durability claim a unit test cannot falsify without power loss; the call site is reviewed, not tested |
-| § 6 concurrent writers | **nothing** — out of scope by § 9; last writer wins and no reader sees a half-file |
+| § 6 a file changed on disk is set aside before a save | `test_registry.py`: `test_a_hand_edit_after_the_load_is_set_aside_before_a_save`, `test_a_hand_edit_after_an_earlier_save_is_set_aside_too`, `test_a_save_over_the_apps_own_last_write_sets_nothing_aside`; `test_mainwindow.py`: `test_an_automatic_save_over_a_hand_edit_is_announced` (LWSM-1434) |
 | § 9 five fields persisted but inert | **nothing** — deliberate; INV-3's round-trip proves they survive, and nothing reads them |
 
 **The `nothing` rows are limits or deliberate omissions rather than
 defects**: the directory `fsync` and its failure path, which no unit test
-can falsify without power loss; concurrent writers, excluded by § 9; the
+can falsify without power loss; the
 five persisted-but-inert fields and the unpersisted port provenance, both
 § 9 deferrals with their cost stated; and the dropped field's lost text,
 accepted in § 8. **None carries a roadmap id, because none is a gap to
@@ -963,6 +977,7 @@ log is split rather than restated.
 |------|------|-------|----------------------|---------|
 | 1 | 2026-08-12 | 3 (general-purpose, strong model), identical brief, four-question form | Q1 ×4 · Q2 ×4 · Q3 ×5 · Q4 ×1 | **14 verified, 0 dismissed, 14 fixed.** First cold read of this document on its own bytes; no review inherited from the umbrella. **Two findings would have stopped the application, and neither was reachable from the umbrella's three loops.** (1) **`kind: LauncherKind` closes an import cycle.** `scanner.py` already imports `DECLARED_PORT_RANGE` from `lwsm.registry`, so typing `kind` with the scanner's enum makes `registry` import `scanner` — measured here, **both** entry orders raise `ImportError` and nothing in the package imports at all. Fixed by moving `LauncherKind` down into `registry.py`, keeping the direction that already exists; the rejected string-validation alternative is in § 8, and § 10 checks it with an AST assertion in `test_layering.py` rather than a subprocess, which would have earned the `integration` marker and been skipped by `--fast`. (2) **First run was permanently read-only.** `_read_bounded` opens with `os.open` and `load_projects` converts *any* `OSError` to `RegistryError`, so "no file at all" and "`RegistryError` raised" were the same state listed as two rows of one table with opposite answers — a clean machine could never create `projects.json`, falsifying both § 1 acceptance criteria. **All three lanes found this independently**, and it was present verbatim in the umbrella's § 4.5, where three loops did not reach it. Fixed with a `RegistryMissing(RegistryError)` subclass and a four-state table. **Three contracts were named and never given a shape:** `load_projects`' new return (now a `LoadResult` dataclass — `rows_refused` cannot be derived from `reasons`, which is INV-6's whole discriminating case), `save_projects` itself (no signature anywhere, while LWSM-1131 § 9 binds to it), and the wrong-type behaviour of eight of eleven optional keys (now one blanket rule as a fourth table column). **Three type claims were false:** `actions` was `tuple[str, ...]` where `design.md § Custom project actions` makes an action a label plus one of three kinds with a payload — INV-3's round-trip would have passed over a shape the design forbids, so the array is now persisted opaquely with its schema deferred to the item that builds the surface; `path` was promised "written back exactly as the user wrote it" when `load_projects` discards `raw_path` and `Path` normalises on construction (measured: `/srv/a/` → `/srv/a`, `/srv///a` → `/srv/a`); and the stored `port` is a bare `int` where `DetectedProject.port` is a `PortFinding` carrying `rule` and `source`, so provenance is now explicitly not persisted rather than silently dropped. **Two of my own fixes-in-waiting were self-contradictory:** `added` could not be both "never rewritten once set" and "written with a `Z` suffix" while the reader must accept any RFC 3339 spelling (now: `Z` governs only what the app stamps, stored text is verbatim), and § 4.3 step 5's "on any failure" covered step 4, contradicting INV-2 by unlinking a file that no longer exists and reporting failure for a write that succeeded. **INV-7 was one edit from reinstating a known defect** — it enumerated three constants and said "widened from the existing test", which would have had an implementer delete that test's `registry.MAX_REASONS == 100` assertion; `MAX_REASONS` is the one constant whose own docstring records that it shipped with exactly the defect known-issue-005 describes. **INV-8's test could not have failed:** it mirrored a source grep over the whole of `registry.__file__`, and `save_projects` lives in that module, so the new test was already covered by the old one — replaced with a runtime assertion on the emitted reason. **Two open questions resolved clean and are not in the tally** (`scanner.MAX_REASON_CHARS` / `MAX_DISPLAY_NAME_CHARS` exist as named; § 7's `--fast` and marker claims hold). **4c found one of its own:** six `path:line` citations did not resolve and `drafting-rules.md` forbids line numbers outright, so all are now symbol references. **Collateral, swept once after every fix:** LWSM-1131 § 4.3's "mirrors `load_projects` — `(records, reasons)`", its § 4.4 read-only gate (which said any `RegistryError` blocks the write — false for first run, the path that item actually runs on), and its § 13 `datetime` attribution. **Honest cost: the document went 642 → 888 lines.** Five Q3 findings add where nothing stood, and two fixes carry measured evidence, but that is the growth 4a-min warns produces the next loop's findings — loop 2 should be read hardest against the new text in § 4.1, § 4.2 and § 4.3. Loop 2 dispatched. |
 | 2 | 2026-08-13 | 3 (general-purpose, strong model), brief byte-identical to loop 1, no prior-loop findings disclosed | Q1 ×1 · Q2 ×3 · Q3 ×4 · Q4 ×1 | **9 verified, 0 dismissed, 9 fixed. Nothing from loop 1 resurfaced, so all fourteen of those fixes held.** **The finding about this loop is that every one of its nine landed in text loop 1 ADDED** — which is exactly what loop 1's own row predicted, and it is the measured shape `4a-min` describes rather than a fresh reading of the draft. **Two would have produced a test that fails against correct code.** INV-8 asked for a refusal message "within `MAX_REASON_CHARS`", which is unachievable: `_quoted` clips the *value* to 120 and appends an ellipsis, so one quoted value is already 121 characters before any template — and the loader's existing test states the right bound with the reasoning in a comment (`<= len(str(path)) + 3 * MAX_REASON_CHARS`). All three lanes found it. And INV-6's first-run fixture would have passed against a writer that never creates its parent directory, because `tmp_path` always exists. **That second one exposed a genuine hole rather than a test defect:** § 6 required the config directory "created `0700` before the first write" while § 1 says nothing in this item calls the writer, so the `mkdir` was assigned to nobody — now § 4.3 step 0, inside `save_projects`. **Three counts and types contradicted their own section.** The § 10 row parametrised the wrong-type rule "over all eight", the table's *row* count, where there are **eleven** optional keys — three rows pair two — which would have left `port_override`, `launcher_override` and `start_at_login` untested by the very case the row exists to force. INV-7 named four constants then called them "the three this item adds"; it adds two. And `added`'s type cell still read "RFC 3339 **UTC**" four lines above prose requiring a `+01:00` value to be preserved, so a loader following the table would drop the tie-break stamp LWSM-1131 depends on. **`actions` was fixed in loop 1 and still under-specified:** "opaque" gave no Python type, and both available readings are wrong — a `list` fails INV-3's `==` round-trip, and a `tuple[dict, ...]` makes the `frozen=True` `ProjectRecord` raise `TypeError` on `hash()`. Now one canonical-JSON string per element, with the normalised key order named as the cost. **Loop 1's `added` parse rule was unfalsifiable in the other direction** — "well-formed" was never defined, and `datetime.fromisoformat` is far broader than RFC 3339. Pinned by measurement, and **the refuting run corrected my own first wording**: I wrote "must carry a date, a time and a `tzinfo`", but `'2026-08-12'` parses to midnight and *has* a time, so the `tzinfo` clause alone does all the work and the longer rule merely read safer. One finding was mine: the `lstat`-then-`replace` race was unstated, and is now accepted explicitly with the reason a retry loop is wrong. **Two open questions resolved clean, not in the tally** (`scanner.MAX_DISPLAY_NAME_CHARS` exists; known-issue-034 names exactly the two constants INV-7 pins). **Phase 5's collateral rule applies and gates the next dispatch:** with nine of nine landing on last loop's additions, 4b was re-run over the whole seed-pair list instead — it found two more staleness items of my own (the `actions` § 10 row still claiming a byte-unchanged round-trip, and § 6 still implying a caller creates the directory), both fixed here. 888 → 946 lines. |
+| impl-1434 | 2026-11-05 | **none — no reviewer was dispatched** | — | **Amendment row, not a review.** LWSM-1434 (user decision 2026-11-05): a save now sets aside a file changed on disk since this session read or wrote it, and returns where. § 4.3's signatures, § 6, § 9 and § 10 amended to match the code. No gate is owed for an amendment (global rule 14). |
 
 ## 13. Resource cost
 

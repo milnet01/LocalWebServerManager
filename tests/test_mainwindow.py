@@ -2232,6 +2232,83 @@ def test_a_top_level_key_survives_the_second_save_of_a_session(
     window.shutdown()
 
 
+def _window_over_a_real_file(qtbot, built, tmp_path):
+    """A window loaded from a real `projects.json`, saving through the real
+    writer, for the LWSM-1434 tests: the defect is what reaches the disk."""
+    path = tmp_path / "projects.json"
+    registry.save_projects(path, [record("a", 3000)], load=RegistryMissing("first"))
+    loaded = registry.load_projects(path)
+    controller = build_controller(built, list(loaded.records), FakeProbe())
+    window = MainWindow(
+        controller,
+        Theme.default(),
+        [],
+        projects_file=registry.ProjectsFile(path),
+        load=loaded,
+    )
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    return window, controller, path
+
+
+_HAND_EDITED = b'{"schema_version": 1, "projects": [{"path": "/srv/b", "name": "b"}]}\n'
+
+
+def test_a_save_over_a_hand_edit_says_where_the_edit_was_kept(
+    qtbot, built, tmp_path
+) -> None:
+    """LWSM-1434: the file was edited by hand while the app ran. The save
+    keeps that version beside it and the banner names the file."""
+    window, controller, path = _window_over_a_real_file(qtbot, built, tmp_path)
+    path.write_bytes(_HAND_EDITED)
+
+    window.set_project_hidden(controller.records()[0].path, True)
+
+    kept = sorted(tmp_path.glob("projects.json.edited-*"))
+    assert len(kept) == 1 and kept[0].read_bytes() == _HAND_EDITED
+    shown = message_of(window)
+    assert "is hidden" in shown, "the save's own message must stay"
+    assert "changed outside the app" in shown and kept[0].name in shown
+    window.shutdown()
+
+
+def test_an_automatic_save_over_a_hand_edit_is_announced(
+    qtbot, built, tmp_path
+) -> None:
+    """The confirmed-port save is silent by design (LWSM-1038), but one that
+    moved a hand edit aside must say so: the user did nothing to cause it."""
+    window, controller, path = _window_over_a_real_file(qtbot, built, tmp_path)
+    window.set_project_hidden(controller.records()[0].path, True)
+    window.set_status_message("")
+    path.write_bytes(_HAND_EDITED)
+    edited = [dataclasses.replace(controller.records()[0], confirmed_port=3000)]
+    controller.set_records(edited)
+
+    controller.confirmed_ports_changed.emit()
+
+    kept = sorted(tmp_path.glob("projects.json.edited-*"))
+    assert len(kept) == 1 and kept[0].read_bytes() == _HAND_EDITED
+    assert "changed outside the app" in message_of(window)
+    window.shutdown()
+
+
+def test_a_silent_save_with_nothing_set_aside_shows_nothing(
+    qtbot, built, tmp_path
+) -> None:
+    """Guard: the announcement must not turn every confirmed-port save, or
+    a failed one, into a banner (LWSM-1038 § 4.3 keeps them silent)."""
+    window, controller, _path = _window_over_a_real_file(qtbot, built, tmp_path)
+    controller.set_records(
+        [dataclasses.replace(controller.records()[0], confirmed_port=3000)]
+    )
+
+    controller.confirmed_ports_changed.emit()
+
+    assert message_of(window) == ""
+    window.shutdown()
+
+
 def test_a_rescan_that_raises_re_enables_the_button(qtbot, built, tmp_path) -> None:
     """PySide6 swallows an exception escaping `QRunnable.run()` and emits no
     signal, so without the catch-all the in-flight flag stays set and Rescan

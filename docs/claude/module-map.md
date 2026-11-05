@@ -92,6 +92,12 @@ Added at P02 (LWSM-1005), contract in
   **`export_profile`'s gate is not `save_projects`' gate**: there the risk is
   destroying a recoverable registry, here it is saving a profile that looks
   known-good and silently lost the rows the load refused.
+  **A save never overwrites a change made outside the app** (LWSM-1434):
+  `LoadResult.on_disk` is the digest of the bytes last read or written, and
+  `save_projects` copies a file that no longer matches to
+  `projects.json.edited-<time>` and returns that path for the window to show.
+  `load_after_save` re-encodes the saved records to carry the digest forward,
+  because `raw` is emptied after the first save.
 - **`src/lwsm/health.py`** — core, no Qt at all (LWSM-1034). `ask`, the
   one place the app makes a request: an HTTP `GET` to `localhost:<port>`
   through `http.client`, which follows no redirect, returning the status code

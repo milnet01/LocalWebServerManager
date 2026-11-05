@@ -23,6 +23,7 @@ signaling per
 
 ### Fixed
 
+- **Editing the project list by hand while the app runs no longer loses the edit.** When `projects.json` changed on disk after the app read it, the app's next save wrote over the change, even the automatic one that records a confirmed port. The save now first keeps that version as `projects.json.edited-<time>` beside it, and the message banner names the file. (LWSM-1434)
 - **Servers started after a failed systemd check no longer all stop when you quit.** The check that keeps a server running after the app closes used to be tried once per session. If it failed once, for example just after login, every server started later stopped on Quit. It is now tried again at each start until it works, and the log says why it failed. (LWSM-1446)
 - **Correcting the computer's clock no longer makes the app forget the sites it started.** A clock change between two runs of the app made a site it started show as `running (foreign)`. The app now recognises its sites by when they started since the computer was switched on. (LWSM-1448)
 

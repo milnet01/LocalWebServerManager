@@ -798,6 +798,9 @@ deliberately not JSON:
   whether to restore it; yes renames the unreadable file to
   `projects.json.damaged-<time>` and restores the backup in its
   place, and no leaves both untouched.
+- `projects.json.edited-<time>` beside it — the registry as it was
+  changed outside the app while the app ran, kept by the save that
+  then replaced it; the message banner names it (LWSM-1434).
 - `~/.config/localwebservermanager/settings.json` — poll
   interval, log cap, theme choice, text-size percentage, and the
   window geometry keys `width` / `height` / `x` / `y` /
