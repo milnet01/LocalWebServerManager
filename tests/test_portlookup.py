@@ -8,7 +8,8 @@ shows.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QDialogButtonBox
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QDialogButtonBox, QPushButton
 
 from lwsm.mainwindow import MIN_TARGET_PX
 from lwsm.portlookup import PortLookupDialog
@@ -48,6 +49,8 @@ def test_a_port_out_of_range_asks_for_one_instead(qtbot, text: str) -> None:
 
     assert asked == []
     assert "1 to 65535" in dialog._result.text()
+    # The hint is not an answer, so there is nothing to copy (LWSM-1457).
+    assert not dialog._copy.isEnabled()
 
 
 @pytest.mark.parametrize("text", ["1,080", "+80"])
@@ -82,3 +85,29 @@ def test_the_controls_clear_the_target_floor(qtbot) -> None:
     assert dialog._port.minimumHeight() >= MIN_TARGET_PX
     assert close.minimumHeight() >= MIN_TARGET_PX
     assert close.minimumWidth() >= MIN_TARGET_PX
+    assert dialog._copy.minimumHeight() >= MIN_TARGET_PX
+    assert dialog._copy.minimumWidth() >= MIN_TARGET_PX
+
+
+def test_tab_reaches_a_button_that_copies_the_answer(qtbot) -> None:
+    """LWSM-1457: the answer label takes click focus only, so a keyboard
+    user could not copy a PID or a path. A Copy button beside Close is the
+    keyboard's route; the label stays unfocusable, so the screen-reader route
+    through the box's description is unchanged."""
+    dialog = build(qtbot, [])
+    dialog.show()
+    with qtbot.waitActive(dialog):
+        dialog.activateWindow()
+    dialog._port.setFocus()
+    dialog._port.setText("5005")
+    QApplication.clipboard().clear()
+
+    qtbot.keyClick(dialog._port, Qt.Key.Key_Tab)
+    copy = QApplication.focusWidget()
+    assert isinstance(copy, QPushButton), "Tab from the port box reached no button"
+    qtbot.keyClick(copy, Qt.Key.Key_Space)
+
+    assert QApplication.clipboard().text() == "answer for 5005"
+    # Enter still belongs to the port box.
+    assert not copy.autoDefault()
+    assert dialog._result.focusPolicy() == Qt.FocusPolicy.ClickFocus

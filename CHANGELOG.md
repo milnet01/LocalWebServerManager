@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Added
+
+- **The "What's using a port?" window has a Copy answer button.** The answer could be copied with the mouse but not reached from the keyboard. Press Tab from the port box to reach the new button beside Close, and it copies the whole answer. A screen reader still hears the answer as before. (LWSM-1457)
+
 ### Fixed
 
 - **A login service is no longer refused a start when your config folder is reached through a link.** Before starting a login service, the app checks that systemd read its port setting. It compared the two file paths as text, so the same file reached through a symbolic link could look unread and the start was refused. It now compares the files themselves. (LWSM-1461)

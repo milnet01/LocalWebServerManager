@@ -18,6 +18,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QIntValidator
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -76,6 +77,16 @@ class PortLookupDialog(QDialog):
         # Enter belongs to the port box, so Close must not be the default.
         close.setAutoDefault(False)
         self._buttons.rejected.connect(self.reject)
+        # LWSM-1457. The label takes click focus only, so the keyboard's way to
+        # copy the answer is this button. The label stays unfocusable, so a
+        # screen reader still hears the answer through the box's description.
+        self._copy = self._buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
+        self._copy.setMinimumHeight(MIN_TARGET_PX)
+        self._copy.setMinimumWidth(MIN_TARGET_PX)
+        self._copy.setAutoDefault(False)
+        self._copy.clicked.connect(
+            lambda: QApplication.clipboard().setText(self._result.text())
+        )
 
         form = QFormLayout()
         form.addRow(self._port_label, self._port)
@@ -83,6 +94,10 @@ class PortLookupDialog(QDialog):
         layout.addLayout(form)
         layout.addWidget(self._result)
         layout.addWidget(self._buttons)
+        # Every Qt button layout puts an action button left of Close, but the
+        # focus chain follows creation order, and reparenting the box rebuilds
+        # it, so this comes after the layout. Tab must follow what is seen.
+        QWidget.setTabOrder(self._copy, close)
 
         self._retranslate()
         self._answer()
@@ -94,19 +109,25 @@ class PortLookupDialog(QDialog):
         self._port_label.setText(
             QCoreApplication.translate("PortLookupDialog", "&Port:")
         )
+        self._copy.setText(
+            QCoreApplication.translate("PortLookupDialog", "Copy &answer")
+        )
 
     def _answer(self) -> None:
         """Show what holds the typed port, or what to type."""
         # The validator accepts the locale's group separator ("1,080"), which
         # int() refuses, so the number is read back through the same locale.
         port, ok = self._port.validator().locale().toInt(self._port.text())
-        if ok and self._port.hasAcceptableInput():
+        answered = ok and self._port.hasAcceptableInput()
+        if answered:
             text = self._lookup(port)
         else:
             text = QCoreApplication.translate(
                 "PortLookupDialog", "Type a port number from 1 to 65535."
             )
         self._result.setText(text)
+        # The hint under an empty box is not an answer worth copying.
+        self._copy.setEnabled(answered)
         # The label is not focusable, so its text reaches a screen reader as
         # the box's description.
         self._port.setAccessibleDescription(text)
