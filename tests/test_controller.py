@@ -2684,6 +2684,63 @@ def test_stopping_a_logon_started_server_drives_its_unit(
     assert supervisor.stopped == [], "a foreign server has no handle to signal"
 
 
+@pytest.mark.parametrize("route", ["unit", "tree"])
+@pytest.mark.parametrize(
+    ("holder_after", "settles"),
+    [(7777, True), (1290, False)],
+    ids=["another-holder-took-the-port", "the-stopped-holder-still-holds-it"],
+)
+def test_a_port_retaken_after_a_service_stop_does_not_stay_stopping(
+    qtbot, controllers, monkeypatch, holder_after: int, settles: bool, route: str
+) -> None:
+    """LWSM-1513: once a systemd stop has succeeded, something outside the
+    stopped unit can bind the port again (a terminal `while true` loop). No
+    poll then reads `stopped`, so the row said `stopping` for the session.
+
+    ADR-0004 discards an overlay once a poll shows it can never get there: a
+    DIFFERENT holder after the stop finished is that poll. The same holder is
+    not, since a poll taken before the stop finished still names it. Both
+    routes: the holder's unit, and a confirmed foreign tree (LWSM-1301)."""
+    from lwsm.foreign import Member, Tree, TreeOutcome
+
+    monkeypatch.setattr(
+        controller_module, "stop_tree", lambda tree: TreeOutcome(terminated=(1290,))
+    )
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "ants-stats.service")
+    probe = HoldingProbe({4321: 1290})
+    controller = supervised(
+        controllers, [startable("a", 4321)], probe, FakeSupervisor()
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    with qtbot.waitSignal(controller.action_done, timeout=2000):
+        if route == "unit":
+            controller.stop_project(Path("/srv/a"))
+        else:
+            tree = Tree(members=(Member(pid=1290, started=1.0),), handles=())
+            controller.stop_foreign_tree(
+                Path("/srv/a"), tree, disclosed_holder=(1290, None)
+            )
+    assert controller.rows()[0].status is ProjectStatus.STOPPING
+
+    probe.holders = {4321: holder_after}
+    controller.poll_once()
+    qtbot.waitUntil(
+        lambda: (
+            controller.rows()[0].holder_pid == holder_after
+            and not controller._in_flight
+        ),
+        timeout=2000,
+    )
+
+    status = controller.rows()[0].status
+    if settles:
+        assert status in controller_module.RUNNING_STATES, status
+    else:
+        assert status is ProjectStatus.STOPPING
+
+
 def test_a_foreign_holder_with_no_unit_is_refused_rather_than_signalled(
     qtbot, controllers, monkeypatch
 ) -> None:

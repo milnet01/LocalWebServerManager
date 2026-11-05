@@ -127,8 +127,11 @@ An adopted launcher is not this process's child, so it cannot be waited on.
 - `_group_members` keeps an adopted group only while it can vouch for it.
   `vouched_at` is the last moment the group was seen occupied: when the
   leader passed adoption's checks, or was seen alive since. A walk that
-  finds a member started before `vouched_at`, less one start-time tick,
-  moves `vouched_at` to the walk. A walk that finds none returns no members.
+  finds the leader alive, or a member started before `vouched_at` less one
+  start-time tick, moves `vouched_at` to the walk. A walk that finds neither
+  returns no members. The leader is not compared by start time: psutil
+  caches it on the long-lived handle, so a clock step made it read as newer
+  (LWSM-1513).
 
 Everything else — `stop`, `exited`, `group_alive`, `reap_exited`,
 `rotate_if_needed` — reads the handle, the group or the log descriptor, and

@@ -1780,7 +1780,16 @@ class Supervisor:
         emptied and every process in it is ours. With none, the group is
         treated as ended. That can disown a server whose every older process
         exited within one tick, leaving only a newer one: the safe direction.
+
+        A live leader vouches by itself, as in `_leader_alive`: its PID is the
+        group id. And its start time cannot be compared: psutil caches it on
+        this long-lived handle, while `_started_since_boot` takes away a fresh
+        boot time, so a backward clock step made the leader read as newer and
+        a one-process group was stopped by signalling nothing (LWSM-1513).
         """
+        if any(proc is managed.handle for proc in alive):
+            managed.vouched_at = checked_at
+            return True
         vouched = managed.vouched_at
         if vouched is not None:
             for proc in alive:

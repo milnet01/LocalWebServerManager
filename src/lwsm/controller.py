@@ -1110,6 +1110,12 @@ class ProjectController(QObject):
         # the server already stopped falls back to the project's own launcher,
         # which is the honest limit of adopting from a live process.
         self._adopted_units: dict[Path, str] = {}
+        # A service or foreign-tree stop: the port's holder when Stop was
+        # clicked, and whether the stop has since reported success. Together
+        # they let `_settle_overlay` see a port re-taken by someone else
+        # (LWSM-1513). Reset by `_set_overlay`.
+        self._stop_holders: dict[Path, int] = {}
+        self._stops_done: set[Path] = set()
         # A unit read off the holder whose verb, and so ADR-0003's binding
         # check, is still on the worker. Driven and stopped like an adopted
         # one, but not the project's own to the classifier until the check
@@ -1621,6 +1627,7 @@ class ProjectController(QObject):
         if self.holder_changed(path, disclosed_holder):
             return
         self._set_overlay(path, ProjectStatus.STOPPING)
+        self._remember_stopped_holder(path)
         self._service_pool.start(_TreeStopTask(path, tree, self._service_signals))
 
     def restart_project(
@@ -1810,7 +1817,13 @@ class ProjectController(QObject):
         # binding check passes (LWSM-1453).
         self._pending_units[path] = unit
         self._set_overlay(path, ProjectStatus.STOPPING)
+        self._remember_stopped_holder(path)
         self._run_service_verb(path, "stop", unit, adopted=True)
+
+    def _remember_stopped_holder(self, path: Path) -> None:
+        holder = self._holders.get(path)
+        if holder is not None:
+            self._stop_holders[path] = holder
 
     def _run_service_verb(
         self, path: Path, verb: str, unit: str, *, adopted: bool = False
@@ -1870,6 +1883,8 @@ class ProjectController(QObject):
                 # success and a failure on screen together, since the user would
                 # believe whichever arrived last.
                 self.action_done.emit(path, outcome.verb)
+                if outcome.verb == "stop":
+                    self._stops_done.add(path)
                 if outcome.verb == "stop" and self._last_error is not None:
                     # `_apply_stop_outcome`'s LWSM-1372 rule, for a systemd or
                     # foreign stop: no poll can observe `stopped`, so the
@@ -1975,6 +1990,8 @@ class ProjectController(QObject):
         # A reap before this is about the previous child, not the one this
         # action is about to spawn.
         self._reaped.discard(path)
+        self._stop_holders.pop(path, None)
+        self._stops_done.discard(path)
         self._overlay = (path, status)
         self._track_starting()
         self.projects_changed.emit()
@@ -2461,6 +2478,21 @@ class ProjectController(QObject):
             self._overlay = None
             return True
         if self._statuses[path] in _OVERLAY_SETTLES_ON[pending]:
+            self._overlay = None
+            return True
+        stopped_holder = self._stop_holders.get(path)
+        holder = self._holders.get(path)
+        if (
+            pending is ProjectStatus.STOPPING
+            and path in self._stops_done
+            and self._statuses[path] in RUNNING_STATES
+            and None not in (stopped_holder, holder)
+            and holder != stopped_holder
+        ):
+            # A service or foreign stop succeeded and a different process now
+            # holds the port (LWSM-1513): `stopped` can never be observed, so
+            # the overlay would stand for the session. The same holder is not
+            # this evidence: a poll taken before the stop finished names it.
             self._overlay = None
             return True
         return False

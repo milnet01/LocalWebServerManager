@@ -3794,6 +3794,44 @@ def test_a_clock_step_between_sessions_still_adopts(
         _reap(managed.popen)
 
 
+def test_a_clock_step_after_adoption_still_stops_a_one_process_server(
+    tmp_path: Path, project: Path, monkeypatch
+) -> None:
+    """LWSM-1513: psutil caches `create_time` on the adopted leader's handle,
+    while `_started_since_boot` takes away a fresh boot time. A backward step
+    longer than the server's uptime then made the leader read as newer than
+    the last vouch, so a one-process group had no member to vouch for it, and
+    Stop signalled nothing and reported success.
+
+    The leader passing `_alive` vouches by itself: psutil's identity check is
+    on the boot clock, and while it lives its PID, the group id, is not free.
+    """
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    write_launcher(project, "touch ready\nexec sleep 30\n")
+    argv = ("./start.sh",)
+    first.trust.confirm(project, launcher_fingerprint(project, argv))
+    managed = first.start(project, name="demo", argv=list(argv), port=None)
+    await_ready(project)
+    first.close()
+    second = started_session(tmp_path, record)
+    try:
+        assert second.adopt() == {project.resolve()}
+        real_boot_time = psutil._pslinux.boot_time
+        monkeypatch.setattr(
+            psutil._pslinux, "boot_time", lambda: real_boot_time() - 120
+        )
+
+        second.stop(project, grace=0.5)
+
+        assert wait_until(lambda: managed.popen.poll() is not None), (
+            "Stop reported success and left the adopted server running"
+        )
+    finally:
+        second.close()
+        _reap(managed.popen)
+
+
 def test_an_entry_from_another_boot_is_not_adopted(
     tmp_path: Path, project: Path, monkeypatch, caplog
 ) -> None:

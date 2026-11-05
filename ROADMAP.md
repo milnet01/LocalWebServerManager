@@ -14396,7 +14396,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-03.
   Lanes: scanner.
 
-- 📋 [LWSM-1513] **Stop can leave a row stuck on stopping, or stop nothing on an adopted server after a clock step.**
+- ✅ [LWSM-1513] **Stop can leave a row stuck on stopping, or stop nothing on an adopted server after a clock step.**
   Priority: 3.
   Two findings where Stop's end state is wrong. Cited lines read at
   f57689c.
@@ -14425,6 +14425,14 @@ LWSM-1036.
   'port still bound' warning. Remedy: treat a leader that passes
   `_alive` as vouching (its PID is the group id), or store since_boot
   once at adoption and compare to that.
+  Shipped 2026-11-05. (1) Controller: a service or foreign-tree stop
+  records the port's holder; once the stop reports success, a poll
+  showing a different holder in a running state clears the stopping
+  overlay. The same holder does not, since a poll taken before the stop
+  finished names it. The open question (which buttons stay live) is
+  moot: the overlay no longer sticks. (2) Supervisor: _vouched lets a
+  live leader vouch for its group, so a clock step can no longer turn a
+  stop into signalling nothing. Spec LWSM-1428 § 4.4 folded back.
   **Layman:** After Stop, a row can say 'stopping' for ever, or a server the app adopted can be left running while the app reports it stopped.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-04, lane-01.
