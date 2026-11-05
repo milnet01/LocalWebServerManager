@@ -37,7 +37,9 @@ that answer.**
 Running means a listener that `localhost` reaches, because Open
 builds `http://localhost:<port>/`. The pre-flight before a start
 asks the wider question, whether anything is bound at all
-(LWSM-1232).
+(LWSM-1232). Our own child bound only on an address `localhost`
+does not reach has bound, so it reads `running (wrong port)`, not
+`starting` (LWSM-1500).
 
 Each poll takes **one** socket-table snapshot and classifies
 every project against it. Classification combines what the
@@ -67,7 +69,7 @@ forks its server and exits is `starting` until the server binds.
 | Own child | Effective port held by | Child holds any port | State |
 |---|---|---|---|
 | live | that child's group | — | `running (managed)` |
-| live | anyone else, or nobody | yes, a different port | `running (wrong port)` — bound, but not where asked (ADR-0002) |
+| live | anyone else, or nobody | yes, a different port, or any port only on an address `localhost` does not reach | `running (wrong port)` — bound, but not where asked (ADR-0002) or not where Open looks (LWSM-1500) |
 | live | nobody | no | `starting` — no deadline; see § Slowness is not failure |
 | live | a process that looks like this project | no | `running (foreign)` — the user also started it by hand |
 | live | any other process | no | `failed` (port taken after pre-flight) |

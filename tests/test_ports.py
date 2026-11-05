@@ -347,6 +347,25 @@ def test_a_listener_on_a_lan_address_is_bound_but_does_not_answer_localhost(
     assert snapshot.holder(5005) is None, "not reachable, so not ours"
 
 
+def test_a_listener_off_localhost_is_named_apart_from_the_holders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LWSM-1500: the controller tells our own child has bound only off
+    localhost from `elsewhere`. A loopback listener is not in it, and an
+    unnamed one adds no pid."""
+    monkeypatch.setattr(
+        psutil,
+        "net_connections",
+        lambda **_: [
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5005, "192.168.1.5"), pid=111),
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5006, "127.0.0.1"), pid=222),
+            FakeConn(psutil.CONN_LISTEN, FakeAddr(5007, "10.0.0.2"), pid=None),
+        ],
+    )
+
+    assert PortProbe().snapshot().elsewhere == {5005: frozenset({111})}
+
+
 @pytest.mark.parametrize("ip", ["127.0.1.9", "127.0.0.2"])
 def test_the_rest_of_127_8_does_not_answer_localhost(
     monkeypatch: pytest.MonkeyPatch, ip: str

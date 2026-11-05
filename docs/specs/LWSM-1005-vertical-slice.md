@@ -1325,7 +1325,8 @@ importing `lwsm.__main__` in a test does not require a display.
 - **A server binds only IPv6, or only a non-loopback address.** IPv6
   loopback is seen. A listener on a LAN address only is NOT `running`: the
   status asks `answers_localhost`, because Open builds
-  `http://localhost:<port>/` (LWSM-1232).
+  `http://localhost:<port>/` (LWSM-1232). Our own child bound that way
+  reads `running (wrong port)`, not `starting` for ever (LWSM-1500).
 
 ## 7. Tests
 
@@ -1512,6 +1513,7 @@ only known.
 | 3 | 2026-08-06 | 1 | 0 | 3 | 5 | 5 | 13 verified, 0 unverified, 13 fixed. Almost all fix collateral from loops 1–2, which is why one lane rather than two. The lane named the check this run owed itself: loop 2 prescribed `_SnapshotTask(QObject, QRunnable)` **without executing it**. Executed here — both that shape *and* a plain `QRunnable` with a composed signaller work under 6.11.1, so the lane's premise (Shiboken forbids it) was wrong while its advice was right; the composed signaller is adopted as the documented idiom. Also caught: the accessible name would have included the `●` glyph and announced "black circle"; INV-15 named a test that could not observe it, since `main` blocks in `app.exec()` — `build_window` is the seam that fixes it. Added INV-16 (shutdown waits for the outstanding task). `nothing` rows 6 → 8, two of them unowned. 833 → 921 lines. **Converged by cap.** No verified finding is left unfixed. |
 | impl | 2026-10-22 | 0 | — | — | — | — | Fold-back, not a review; no reviewer dispatched. LWSM-1425 (user, 2026-10-22): the row's focus ring is drawn only on keyboard focus. INV-17 and the paintEvent passage record the built and tested code. |
 | impl | 2026-11-05 | 0 | — | — | — | — | Amendment, not a review; no reviewer dispatched. LWSM-1459: INV-16 named three pools `stop()` waits on; LWSM-1401 added the upkeep pool, which `stop()` also waits on within one `STOP_WAIT_MS`. The list now names four. No behaviour changed. |
+| impl | 2026-11-05 | 0 | — | — | — | — | Amendment, not a review; no reviewer dispatched. LWSM-1500 (user decision on LWSM-1462 c, 2026-11-05): § 6's LAN-only failure mode now says our own child bound that way reads `running (wrong port)`. |
 
 ## 13. Resource cost
 

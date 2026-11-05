@@ -3658,6 +3658,51 @@ def test_each_derived_state_has_its_row(
     assert status is ProjectStatus[expected], case
 
 
+@pytest.mark.parametrize("port", [5005, 5999], ids=["its own port", "another port"])
+def test_our_child_bound_only_off_localhost_is_on_the_wrong_port(
+    controllers, port
+) -> None:
+    """LWSM-1500 (LWSM-1462 c). Our child listening only on a LAN address read
+    `starting` for ever: the status asks what `localhost` reaches (LWSM-1232),
+    so nothing saw it bind. It has bound, just not where Open looks, which is
+    ADR-0004's `running (wrong port)`."""
+    supervisor = FakeSupervisor()
+    path = Path("/srv/a")
+    supervisor._running[path] = object()
+    supervisor.child_pids[path] = OURS
+    controller = supervised(
+        controllers, [startable("a", 5005)], FakeProbe(), supervisor
+    )
+    lan_only = PortSnapshot(
+        frozenset({port}), {}, frozenset(), elsewhere={port: frozenset({OURS})}
+    )
+
+    controller._on_snapshot(lan_only)
+
+    assert controller.rows()[0].status is ProjectStatus.RUNNING_WRONG_PORT
+
+
+def test_a_stranger_bound_only_off_localhost_leaves_our_child_starting(
+    controllers,
+) -> None:
+    """The other side of LWSM-1500: a LAN-only listener that is not our child
+    says nothing about it, so a slow start still reads `starting`."""
+    supervisor = FakeSupervisor()
+    path = Path("/srv/a")
+    supervisor._running[path] = object()
+    supervisor.child_pids[path] = OURS
+    controller = supervised(
+        controllers, [startable("a", 5005)], FakeProbe(), supervisor
+    )
+    lan_only = PortSnapshot(
+        frozenset({5005}), {}, frozenset(), elsewhere={5005: frozenset({STRANGER})}
+    )
+
+    controller._on_snapshot(lan_only)
+
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+
+
 def test_a_project_with_no_port_is_unknown(controllers) -> None:
     controller = supervised(
         controllers, [startable("a", None)], FakeProbe(), FakeSupervisor()

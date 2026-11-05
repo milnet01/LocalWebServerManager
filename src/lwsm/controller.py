@@ -2528,9 +2528,11 @@ class ProjectController(QObject):
         holder = snapshot.holder(port) if held else None
         if holder is not None and self._owns(path, holder):
             return ProjectStatus.RUNNING
-        if our_ports:
+        if our_ports or self._bound_off_localhost(path, snapshot):
             # Our group holds a port, and not this one: bound, but not where
-            # asked (ADR-0002), whoever has the effective port.
+            # asked (ADR-0002), whoever has the effective port. Or it holds one
+            # only on an address `localhost` does not reach, which Open cannot
+            # use either; without this it read `starting` for ever (LWSM-1500).
             return ProjectStatus.RUNNING_WRONG_PORT
         if spawning:
             if not held:
@@ -2605,4 +2607,19 @@ class ProjectController(QObject):
             port
             for port, pid in snapshot.holders.items()
             if snapshot.answers_localhost(port) and self._supervisor.owns_pid(path, pid)
+        )
+
+    def _bound_off_localhost(self, path: Path, snapshot: PortSnapshot) -> bool:
+        """Whether our child's group listens on an address `localhost` misses.
+
+        Kept apart from `_our_ports`, whose answer also teaches the confirmed
+        port (LWSM-1038): a port Open cannot reach must not be learned as one.
+        """
+        supervisor = self._supervisor
+        if supervisor is None or path not in supervisor.running():
+            return False
+        return any(
+            supervisor.owns_pid(path, pid)
+            for pids in snapshot.elsewhere.values()
+            for pid in pids
         )

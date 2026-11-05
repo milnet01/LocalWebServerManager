@@ -82,6 +82,11 @@ class PortSnapshot:
     # fake that predates LWSM-1232 -- and answers from `listening`, so a fake
     # stays exactly as expressive as it was.
     local: frozenset[int] | None = None
+    # Who listens on each port on an address `localhost` does NOT reach, every
+    # pid named. Not a holder of the port: `holder` stays the localhost
+    # question. Read only to tell our own child it has bound, if not where
+    # Open looks (LWSM-1500), and defaulted for `holders`' reason.
+    elsewhere: Mapping[int, frozenset[int]] = field(default_factory=dict)
 
     def is_bound(self, port: int) -> bool:
         """Is anything listening on `port`, on any address?
@@ -208,12 +213,16 @@ class PortProbe:
             # names no socket of another account's. That listener is a second
             # claimant we cannot see, so the port has no holder (LWSM-1366).
             unnamed: set[int] = set()
+            # Pids on addresses `localhost` does not reach (LWSM-1500).
+            elsewhere: dict[int, set[int]] = {}
             for conn in connections:
                 if conn.status != psutil.CONN_LISTEN or not conn.laddr:
                     continue
                 port = conn.laddr.port
                 listening.add(port)
                 if not _answers_localhost(conn.laddr.ip):
+                    if conn.pid is not None:
+                        elsewhere.setdefault(port, set()).add(conn.pid)
                     continue
                 local.add(port)
                 if conn.pid is not None:
@@ -235,7 +244,12 @@ class PortProbe:
                 holder = next(iter(pids)) if len(pids) == 1 else _master_of(pids)
                 if holder is not None:
                     holders[port] = holder
-            return PortSnapshot(frozenset(listening), holders, frozenset(local))
+            return PortSnapshot(
+                frozenset(listening),
+                holders,
+                frozenset(local),
+                {port: frozenset(pids) for port, pids in elsewhere.items()},
+            )
         except Exception as exc:
             raise ProbeError(
                 f"could not read the socket table: {type(exc).__name__}: {exc}"

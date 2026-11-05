@@ -653,7 +653,8 @@ correctness one, and the poll skips a tick rather than queueing.
    ~45 seconds (ADR-0004 § Slowness is not failure). Binding the
    requested port makes it `running (managed)`; binding a
    *different* port makes it `running (wrong port)` — the project
-   ignored `PORT`, and the UI says so rather than pretending.
+   ignored `PORT`, and the UI says so rather than pretending. So does
+   binding only an address `localhost` does not reach (LWSM-1500).
    **Exiting without ever binding makes it `failed`**, with the
    tail of its log as the explanation — a launcher that exits 0
    having bound nothing is failed, because silence is not success.
