@@ -13355,7 +13355,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 02, document-wrong LOWs).
   Lanes: docs.
 
-- 📋 [LWSM-1446] **A failed systemd scope check is remembered for the whole session, so later servers die on Quit.**
+- ✅ [LWSM-1446] **A failed systemd scope check is remembered for the whole session, so later servers die on Quit.**
   Priority: MEDIUM.
   `Supervisor._spawn` caches `scope_prefix(env)` once. `scope_prefix`
   returns `()` on any `OSError`, a 2 s timeout or a non-zero exit, and
@@ -13371,6 +13371,14 @@ LWSM-1036.
   remembered and a failed one is asked again at the next start, with its
   cause logged at WARNING? Recommended: yes, a frozen start beats
   servers silently dying on Quit, 2026-11-04).
+  Resolved (2026-11-05, 2e29bed): `_spawn` keeps `scope_prefix`'s answer
+  only when it is a prefix; a failed check is asked again at the next
+  start. `scope_prefix` logs a failed check's cause (exception, or exit
+  status) at WARNING; a missing systemd-run is logged at INFO and also
+  re-asked, since `which` costs nothing. ADR-0003 amended. Red first:
+  test_a_failed_scope_check_is_asked_again_at_the_next_start and the
+  cannot_run_a_scope cases' WARNING assertion; guard
+  test_a_successful_scope_check_is_remembered.
   **Layman:** If the check that keeps servers alive after you quit the app fails once (for example just after login), every server started later in that session stops when you quit.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 01, M2; synthesis theme 3).
@@ -13389,12 +13397,25 @@ LWSM-1036.
   still owns (the LWSM-1138 double-close). Options: release the socket
   first, or let a stop finish on a thread that owns its own descriptor.
   Needs a design choice and a measured quit with stops in flight.
+  Waiting-on: user (both options mean a relaunch can run while the
+  quitting copy still finishes its stops, so the two overlap; is that
+  acceptable? Found 2026-11-05: a stop still queued behind four others
+  removes its entry from started.json only when it runs, and that write
+  is the old copy's whole view of the file, so it can wipe a server the
+  new copy has just started. Recommended: yes, with option A: release
+  the single-instance socket before waiting for stops, and have the
+  quitting copy finish its queued stops without writing started.json
+  (the new copy may then show such a server as running until it exits
+  and is reaped). A relaunch that works beats one that silently does
+  nothing for up to ~9 s per four stops. Option B, bounding close()
+  with stops owning their descriptors, needs the same overlap and more
+  code, 2026-11-05).
   **Layman:** Quitting while several servers are stopping can keep the app's process alive for many seconds after its window has gone, and a relaunch in that time does nothing.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 01, L6).
   Lanes: supervisor, main.
 
-- 📋 [LWSM-1448] **Adoption compares a wall-clock create_time exactly, so a clock step between sessions refuses our own server.**
+- ✅ [LWSM-1448] **Adoption compares a wall-clock create_time exactly, so a clock step between sessions refuses our own server.**
   Priority: LOW.
   psutil 7.2.2 on Linux computes `create_time()` as the process's start
   ticks plus `/proc/stat`'s `btime`, re-read on every call. `btime` is
@@ -13408,6 +13429,19 @@ LWSM-1036.
   sessions and watch whether adoption is refused. A fix changes the
   `started.json` format (store the monotonic start and the boot id), so
   it is spec-first under CLAUDE.md's review cadence rule 2.
+  Resolved (2026-11-05, da57572). Investigation: psutil 7.2.2's
+  `boot_time` reads `/proc/stat` btime on every call and its docstring
+  says it moves with manual clock changes and NTP; `create_time` adds it.
+  The clock was not stepped on this machine (shared and live); the step
+  is simulated where psutil reads the boot time. Fix, spec-first: spec
+  LWSM-1428 § 4.1 and § 4.3 amended, INV-8. Entries also store
+  `since_boot` (to the tick) and `boot_id`; adoption compares those and
+  refuses another boot's entry. Additive, so `schema_version` stays 1
+  and a 0.4.0 file falls back to `create_time`. Red first:
+  test_a_clock_step_between_sessions_still_adopts,
+  test_an_entry_from_another_boot_is_not_adopted. Not touched: the
+  LWSM-1444 disclosure re-check still compares wall-clock create_time
+  within one modal wait.
   **Layman:** If the computer's clock was corrected between two runs of the app, the app may fail to recognise servers it started.
   Kind: investigate.
   Source: review-code-2026-11-04 (lane 01, L7 and open question).
@@ -13660,7 +13694,7 @@ LWSM-1036.
   Source: refactor-pass-0.4.0-2026-11-05.
   Lanes: controller, mainwindow, foreign, service.
 
-- 📋 [LWSM-1494] **An adopted server's entry outlives its process group until the next upkeep tick, and ownership is judged by group id alone meanwhile.**
+- ✅ [LWSM-1494] **An adopted server's entry outlives its process group until the next upkeep tick, and ownership is judged by group id alone meanwhile.**
   Priority: LOW.
   Found by the 0.4.0 security pass (2026-11-05). Supervisor.owns_pid
   skips the is_running() start-time check for an adopted entry
@@ -13674,6 +13708,18 @@ LWSM-1036.
   any ownership answer; or keep each member's start time as foreign
   stops do. Add the missing test: whole group gone, PID reused.
   Not fixed in 0.4.0: the user chose to release now (2026-11-05).
+  Resolved (2026-11-05, 51f125f): the "keep each member's start time"
+  direction. An adopted entry carries `vouched_at`, the last moment its
+  group was seen occupied (adoption, or the leader seen alive since).
+  `_group_members` keeps an adopted group only if a member started
+  before then still lives, and moves the stamp on; otherwise it returns
+  no members, so `reap_exited` drops the entry and `stop` signals
+  nothing. `owns_pid` walks the group once an adopted leader is gone.
+  Accepted cost: a server whose every older process exited within one
+  tick, leaving only newer ones, is disowned (the safe direction). Spec
+  LWSM-1428 § 4.4 amended, INV-7. Red first:
+  test_an_adopted_group_id_reissued_after_the_group_ended_is_not_ours;
+  guard test_an_adopted_server_stays_ours_after_its_launcher_exits.
   **Layman:** In a very unlikely timing case, the app could briefly treat an unrelated program as one of its own servers.
   Kind: security.
   Source: security-pass-0.4.0-2026-11-05.

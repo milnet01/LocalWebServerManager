@@ -24,6 +24,11 @@ signaling per
 ### Fixed
 
 - **Servers started after a failed systemd check no longer all stop when you quit.** The check that keeps a server running after the app closes used to be tried once per session. If it failed once, for example just after login, every server started later stopped on Quit. It is now tried again at each start until it works, and the log says why it failed. (LWSM-1446)
+- **Correcting the computer's clock no longer makes the app forget the sites it started.** A clock change between two runs of the app made a site it started show as `running (foreign)`. The app now recognises its sites by when they started since the computer was switched on. (LWSM-1448)
+
+### Security
+
+- **The app no longer risks treating an unrelated program as one of its sites in a rare timing case.** After a site taken back from an earlier run had fully stopped, its process number could in principle be reused before the app noticed. The app now checks that the site's processes have run without a break before treating them as its own. (LWSM-1494)
 
 ## [0.4.0] - 2026-11-05
 
