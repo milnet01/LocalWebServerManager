@@ -633,23 +633,23 @@ model is what makes `docs/design-accessibility.md § Accessibility`'s "no separa
 accessibility-only string to drift" literally true, and it is why no row
 can announce `port None`.
 
-**A changed row raises an accessibility event; `setAccessibleName` alone does
-not.** Qt does not notify AT-SPI when an accessible name changes, so
-`docs/design-accessibility.md § Accessibility`'s promise that "a state change announces
-itself once" was unimplemented — the name was correct and no screen reader was
-ever told it had changed. `update_from` now raises a
-`QAccessibleEvent(self, QAccessible.Event.NameChanged)` after updating.
+**A changed row is announced by `setAccessibleName` itself, and only by it.**
+Qt sends `NameChanged` when the name changes and nothing when it is set to an
+equal one: measured on a private Xvfb and AT-SPI bus on 2026-11-05 (LWSM-1477),
+PySide6 6.12, five changes giving five events and five equal names none.
+LWSM-1076 believed Qt sent none and raised a second `NameChanged` by hand, so
+every state change was announced twice; that event is gone. Re-run the bus
+measurement after a Qt bump to refute it.
 
-The two halves are one fix, not two: adding the announcement *without* the
-equality check above turns a once-a-second no-op into a once-a-second
-re-announcement of every unchanged row — the failure INV-13 exists to prevent,
-arriving by another route. Verified by removing the check: the
-never-re-announced test goes red.
+The equality check above still matters: `update_from` returns early for an
+unchanged `RowView`, and Qt's equal-name silence covers a view change that
+alters no word a screen reader reads, such as `managed` (LWSM-1141).
 
 `QAccessible.installUpdateHandler`, the seam Qt provides for observing these,
-is **not exposed in PySide6** (checked against the pinned 6.11.1) and AT-SPI is
-not reachable headless, so the tests count the call itself. That is a weaker
-surface than this document prefers, and it is the strongest one available.
+is **not exposed in PySide6** and AT-SPI is not reachable headless, so the
+tests count changed-name `setAccessibleName` calls plus any hand-raised
+`NameChanged`, modelling the bus measurement above. That is a weaker surface
+than this document prefers, and it is the strongest one available.
 
 **Every user-visible string in this file goes through
 `QCoreApplication.translate`** under one context, per `~/.claude/standards/languages/qt.md` § Idioms
@@ -1161,9 +1161,9 @@ importing `lwsm.__main__` in a test does not require a display.
   `::test_an_unchanged_row_is_never_re_announced`, the second driving
   `update_from` directly so the controller's own signal suppression cannot be
   what makes it pass.
-  *Breaks when:* either half ships without the other. With no event, the name
-  is right and nobody is told. With no equality check, every unchanged row is
-  re-announced once a second.
+  *Breaks when:* the name is set without changing (nobody is told), or a
+  second `NameChanged` is raised beside the one `setAccessibleName` sends
+  (every change is heard twice, LWSM-1477).
 
 - **INV-23** — Two rows in different states render their state word in
   different colours, and a row that *changed* into a state renders like one

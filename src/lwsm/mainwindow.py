@@ -38,7 +38,6 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QAccessible,
     QAccessibleAnnouncementEvent,
-    QAccessibleEvent,
     QAction,
     QActionGroup,
     QCloseEvent,
@@ -1920,24 +1919,13 @@ class ProjectRow(QFrame):
             lambda match: parts[match.group(1)],
             QCoreApplication.translate("ProjectRow", "%1, %3, named %2"),
         )
-        name_changed = announced != self.accessibleName()
+        # `setAccessibleName` itself tells AT-SPI, once per changed name and not
+        # at all for an equal one: measured on the bus 2026-11-05 (LWSM-1477),
+        # PySide6 6.12. A `NameChanged` raised here as well, on LWSM-1076's
+        # belief that Qt sent none, made every state change announce twice.
+        # The equal-name silence is also what keeps a view change no screen
+        # reader can hear, such as `managed` (LWSM-1141), from re-announcing.
         self.setAccessibleName(announced)
-        # Qt does NOT notify AT-SPI when an accessible name changes, so
-        # `setAccessibleName` alone left `design.md § Accessibility`'s "a state
-        # change announces itself once" unimplemented — a screen reader was
-        # never told (LWSM-1076).
-        #
-        # Gated on the NAME, not only on the RowView equality check above. That
-        # check was sufficient while every field rendered as text; `managed`
-        # (LWSM-1141) renders as button enablement and nothing else, so a
-        # project leaving the supervisor's set now changes the view without
-        # changing a word of what a screen reader would read out — and an
-        # announcement of an unchanged name is the once-a-second re-announcement
-        # that check exists to prevent, arriving by a third route.
-        if name_changed:
-            QAccessible.updateAccessibility(
-                QAccessibleEvent(self, QAccessible.Event.NameChanged)
-            )
 
 
 def _application() -> QApplication | None:

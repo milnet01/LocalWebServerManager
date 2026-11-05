@@ -615,12 +615,20 @@ def test_the_row_exposes_its_cells_and_its_buttons(qtbot, built) -> None:
 
 @pytest.fixture
 def announcements(monkeypatch):
-    """Count the accessibility notifications the window raises.
+    """Count the name-change notifications a screen reader would receive.
 
     `QAccessible.installUpdateHandler` — the observing seam Qt provides — is not
-    exposed in PySide6 (checked against the pinned 6.11.1), and AT-SPI is not
-    reachable headless, so this stands in for it by counting the one call the
-    window makes.
+    exposed in PySide6, and AT-SPI is not reachable headless, so this models
+    what the bus receives from the two sources that reach it:
+
+    - **`setAccessibleName` with a different name.** Qt sends `NameChanged`
+      itself, and sends nothing for an equal name. Measured on the bus
+      2026-11-05 (LWSM-1477), PySide6 6.12 on a private Xvfb and AT-SPI bus:
+      five changes gave five events, five equal names gave none. Until then
+      this fixture counted only the manual event below, which is how a state
+      change announced twice stayed green.
+    - **A `NameChanged` the window raises by hand**, through
+      `QAccessible.updateAccessibility`.
     """
     from PySide6.QtGui import QAccessible
 
@@ -631,16 +639,25 @@ def announcements(monkeypatch):
 
         @staticmethod
         def updateAccessibility(event) -> None:
-            raised.append(event.object())
+            if event.type() == QAccessible.Event.NameChanged:
+                raised.append(event.object())
+
+    original = mainwindow.ProjectRow.setAccessibleName
+
+    def counting_set_name(self, name: str) -> None:
+        if name != self.accessibleName():
+            raised.append(self)
+        original(self, name)
 
     monkeypatch.setattr(mainwindow, "QAccessible", CountingAccessible)
+    monkeypatch.setattr(mainwindow.ProjectRow, "setAccessibleName", counting_set_name)
     return raised
 
 
 def test_a_state_change_is_announced(qtbot, built, announcements) -> None:
     """`design-accessibility.md § Accessibility` promises "a state change
-    announces itself once". Qt does not notify AT-SPI when an accessible name
-    changes, so setAccessibleName alone left that promise unimplemented."""
+    announces itself once" — once, so not also by a hand-raised event on top
+    of the one `setAccessibleName` already sends (LWSM-1477)."""
     probe = FakeProbe(5005)
     window, controller = window_for(qtbot, built, [record("a", 5005)], probe)
     announcements.clear()
