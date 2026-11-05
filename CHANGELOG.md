@@ -47,6 +47,8 @@ signaling per
 
 ### Security
 
+- **A start script the app can run but not read is now refused, with a reason.** Approving it used to cover whatever the file said afterwards, because the app could not see a change to it. (LWSM-1509)
+- **Two kinds of booby-trapped line in a project's start script can no longer slow the scan to a crawl.** (LWSM-1509)
 - **The app no longer risks treating an unrelated program as one of its sites in a rare timing case.** After a site taken back from an earlier run had fully stopped, its process number could in principle be reused before the app noticed. The app now checks that the site's processes have run without a break before treating them as its own. (LWSM-1494)
 
 ## [0.4.0] - 2026-11-05

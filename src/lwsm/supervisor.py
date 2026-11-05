@@ -1179,6 +1179,14 @@ class Supervisor:
             launcher = _launcher_path(resolved_project, argv)
             if launcher is not None:
                 launcher = validate_launcher(resolved_project, launcher)
+                # Unreadable is refused, as for npm below: a file we may run
+                # but not read fingerprinted as its argv alone, so one
+                # confirmation outlived every later rewrite (LWSM-1509).
+                if _launcher_bytes(launcher) is None:
+                    raise LauncherRefused(
+                        f"{launcher} is unreadable, so a change to it could "
+                        "not re-arm the trust gate"
+                    )
             elif _is_npm_run(argv):
                 # The untrusted content of this shape is `package.json`, so it
                 # meets the same refusals a launcher file does: rewritable by

@@ -14272,7 +14272,7 @@ LWSM-1036.
   Source: lwsm-1447-build-2026-11-05.
   Lanes: main, applog.
 
-- 📋 [LWSM-1509] **Two crafted-project holes: an unreadable launcher's confirmation outlives its contents, and two scanner patterns run quadratic with no deadline.**
+- ✅ [LWSM-1509] **Two crafted-project holes: an unreadable launcher's confirmation outlives its contents, and two scanner patterns run quadratic with no deadline.**
   Priority: 3.
   Both are SECURITY.md in-scope cases from a crafted project directory.
   Verified: every cited line read at f57689c.
@@ -14300,6 +14300,13 @@ LWSM-1036.
   both loops; extend INV-15's linear-time test to both patterns.
   Hazard: item 1 refuses a launcher that runs today; its reason must
   say 'unreadable', as the npm branch's does.
+  Shipped 2026-11-05. Item 1: start() refuses a launcher _launcher_bytes
+  cannot read, reason says 'unreadable'. Item 2: both pattern pairs made
+  possessive; INV-15 extended (spec text and test table). Not built: the
+  per-line deadline checks. After the fix a 256 KB file of crafted lines
+  costs 12.6 ms (hop) and 0.15 ms (import) against the 20 s budget, and
+  _read_lines already checks the deadline per line. Verdict diff, old vs
+  new pattern, over 788,947 git-tracked sibling lines: 0 moved.
   **Layman:** A specially made project folder could get a changed start script run without a new question, or make the scan crawl.
   Kind: security.
   Source: review-code-2026-11-05 lane-01, lane-03.

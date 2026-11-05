@@ -825,8 +825,11 @@ def _python_framework(root: Path, lines: Sequence[str]) -> PortFinding | None:
 # `_hop_target` below states as a rule; what makes this reach a file is that the
 # token beside it, `app.py`, is a literal.
 _HOP_KEYWORD = re.compile(
-    r"\b(?:exec|python3|python|node)\b" r'|(?:^|[;&|(])\s*!?\s*"?\$\{?[A-Za-z_]'
+    r"\b(?:exec|python3|python|node)\b" r'|(?:^|[;&|(])\s*+!?\s*+"?\$\{?[A-Za-z_]'
 )
+# Possessive `\s*+` on both sides of `!?`: plain `\s*` twice over the same
+# spaces tried every split of the run before failing, quadratic in a line of
+# `;` and spaces (LWSM-1509). What matches is unchanged.
 
 # `NAME=value` is a shell assignment and can never name a file to run. `exec env
 # FOO=1 python3 launcher.py` already survived it by having a later token win;
@@ -915,8 +918,11 @@ _JS_IMPORT_LINE = re.compile(
 )
 _JS_RELATIVE = re.compile(r"""['"](\.{1,2}/[^'"]*)['"]""")
 _PY_IMPORT_LINE = re.compile(
-    r"^\s*(?:from\s+(?P<from>\.*[\w.]*)\s+import\b|import\s+(?P<plain>[\w.]+))"
+    r"^\s*(?:from\s+(?P<from>\.*+[\w.]*+)\s+import\b|import\s+(?P<plain>[\w.]+))"
 )
+# Possessive, because `\.*` and `[\w.]*` both take dots and plain quantifiers
+# tried every split of a run of them, quadratic in `from ....` (LWSM-1509).
+# The group still covers the same text, so what matches is unchanged.
 # Named rather than "anything not `.py`" (LWSM-1273): a shell hop target took
 # the JavaScript branch, and `export FOO="./bin"` read as an import of `./bin`.
 _JS_SUFFIXES = frozenset({".js", ".mjs", ".cjs"})

@@ -2298,6 +2298,22 @@ def test_npm_run_refuses_a_script_it_cannot_read(supervisor, project: Path) -> N
         supervisor.start(project, name="demo", argv=argv, port=None)
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-0100 file")
+def test_start_refuses_a_launcher_it_cannot_read(supervisor, project: Path) -> None:
+    """LWSM-1509. A launcher we may run but not read fingerprinted as its argv
+    alone, so one confirmation covered whatever the file said afterwards. The
+    npm branch already refused this (LWSM-1364); a named file did not.
+    """
+    script = project / "serve.py"
+    script.write_text("print('hello')\n", encoding="utf-8")
+    script.chmod(0o100)
+    argv = ["python3", "serve.py"]
+    supervisor.trust.confirm(project, launcher_fingerprint(project, tuple(argv)))
+
+    with pytest.raises(LauncherRefused, match="unreadable"):
+        supervisor.start(project, name="demo", argv=argv, port=None)
+
+
 def test_a_lone_surrogate_in_an_npm_script_is_refused_not_raised(
     supervisor, project: Path
 ) -> None:

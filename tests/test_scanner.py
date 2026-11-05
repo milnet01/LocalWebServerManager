@@ -475,6 +475,32 @@ def test_a_crafted_line_costs_the_rules_linear_time(
     assert time.perf_counter() - started < 1.0
 
 
+@pytest.mark.parametrize(
+    ("pattern", "line"),
+    [
+        # `;` then spaces and no `$`: the `\s*` either side of `!?` split the
+        # run every possible way before giving up.
+        (scanner._HOP_KEYWORD.search, (";" + " " * _TEN_LINES)[:_TEN_LINES]),
+        # `from` then dots and no `import`: `\.*` and `[\w.]*` both take dots.
+        (scanner._PY_IMPORT_LINE.match, ("from " + "." * _TEN_LINES)[:_TEN_LINES]),
+    ],
+    ids=["hop keyword", "python import"],
+)
+def test_a_crafted_line_costs_the_hop_patterns_linear_time(
+    pattern: Callable[[str], re.Match[str] | None], line: str
+) -> None:
+    """LWSM-1509: INV-15's bound, for the two patterns the hop walks run on
+    every line. Measured at the 4096-character cap before the fix: 74 ms and
+    99 ms a line, so 64 such lines took 4.7 s and 6.4 s of the 20 s scan
+    budget. Ten times the cap, as above, so quadratic and linear differ by
+    orders of magnitude.
+    """
+    assert pattern(line) is None, "the line must not match, or the search stops early"
+    started = time.perf_counter()
+    pattern(line)
+    assert time.perf_counter() - started < 1.0
+
+
 # --------------------------------------------------------------------------
 # § 4.4 step 3 — reading a port out of a unit's properties
 # --------------------------------------------------------------------------

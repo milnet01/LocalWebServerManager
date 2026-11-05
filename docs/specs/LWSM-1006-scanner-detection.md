@@ -1552,7 +1552,9 @@ is the property the derivation exists for.
   *Test:* `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack`,
   calling `rule_2` **directly** on two synthetic strings at the line cap:
   `"a" * 4088 + "port = 1"` (4096 characters) and 102 colon-separated fields,
-  with a 1-second ceiling.
+  with a 1-second ceiling. The hop walks' `_HOP_KEYWORD` and `_PY_IMPORT_LINE`
+  meet the same bound (LWSM-1509):
+  `::test_a_crafted_line_costs_the_hop_patterns_linear_time`.
   *Breaks when:* the two-step is replaced by a single pattern with a nested
   quantifier. Measured 2026-08-08: CPython 3.13.14 still backtracks
   catastrophically — `(a+)+$` against 24 `a`s took **1.10 s**, doubling per
@@ -1899,7 +1901,7 @@ orders of magnitude rather than by a hair — which is what keeps it off
 | INV-12 | `tests/test_scanner.py::test_a_detected_project_has_no_user_owned_field` |
 | INV-13 | `tests/test_scanner.py::test_a_scan_leaves_the_tree_untouched` |
 | INV-14 | `tests/test_layering.py::test_core_never_imports_qtwidgets`, `::test_the_core_module_list_matches_the_criterion` |
-| INV-15 | `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack`, `::test_a_crafted_line_costs_the_rules_linear_time` |
+| INV-15 | `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack`, `::test_a_crafted_line_costs_the_rules_linear_time`, `::test_a_crafted_line_costs_the_hop_patterns_linear_time` |
 | INV-16 | `tests/test_scanner.py::test_the_app_does_not_detect_itself` |
 | INV-17 | `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit`, `::test_a_systemd_project_reads_exec_start_after_environment`, `::test_exec_start_is_a_record_and_only_its_argv_field_is_scanned` |
 | INV-18 | `tests/test_scanner.py::test_the_reason_list_is_capped_and_says_so`, `::test_a_newline_in_a_directory_name_cannot_forge_a_log_record`, `::test_the_source_of_a_port_finding_is_sanitised_like_a_reason`, `::test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours` |
