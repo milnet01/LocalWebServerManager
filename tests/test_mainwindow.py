@@ -7234,6 +7234,52 @@ def test_the_picker_offers_the_default_and_every_installed_browser(
     assert box.currentIndex() == 0, "no stored choice must read as the default"
 
 
+def _picker_items_reporting_focus(box) -> list[str]:
+    """The picker's list items whose accessible state says FOCUSED."""
+    from PySide6.QtGui import QAccessible
+
+    picker = QAccessible.queryAccessibleInterface(box)
+    focused = []
+    for i in range(picker.childCount()):
+        child = picker.child(i)
+        for j in range(child.childCount()):
+            item = child.child(j)
+            if item.state().focused:
+                focused.append(item.text(QAccessible.Text.Name))
+    return focused
+
+
+def test_a_closed_picker_reports_no_item_as_focused(qtbot, built, tmp_path) -> None:
+    """LWSM-1504. Qt marks the popup list's CURRENT item focused whether or
+    not the list has focus, so every row's closed picker told the
+    accessibility bus that "Auto" had the focus (measured on a private AT-SPI
+    bus, 2026-11-05). After a choice too, since a choice moves the current
+    item; and an opened popup still marks the chosen item, so keyboard
+    navigation in it starts there."""
+    window, _ = browser_window(
+        qtbot, built, tmp_path, [record("a", 3000), record("b", 3001)]
+    )
+    boxes = [row_named(window, name).browser_box for name in ("a", "b")]
+    assert all(_picker_items_reporting_focus(box) == [] for box in boxes)
+
+    box = boxes[0]
+    box.setCurrentIndex(2)
+    assert _picker_items_reporting_focus(box) == []
+
+    box.showPopup()
+    try:
+        assert box.view().currentIndex().row() == 2, "the open list lost its place"
+        # A refresh moving the choice while the list is open moves its
+        # highlight; clearing it there would strand the keyboard.
+        box.setCurrentIndex(1)
+        assert box.view().currentIndex().row() == 1
+        box.setCurrentIndex(2)
+    finally:
+        box.hidePopup()
+    assert _picker_items_reporting_focus(box) == []
+    assert box.currentText() == "Brave"
+
+
 def test_the_picker_shows_the_stored_choice(qtbot, built, tmp_path) -> None:
     window, _ = browser_window(
         qtbot, built, tmp_path, [with_browser("a", 3000, "brave.desktop")]

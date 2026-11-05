@@ -934,6 +934,43 @@ class _RescanTask(QRunnable):
             log.warning("the rescan ended without reporting", exc_info=True)
 
 
+class BrowserPicker(QComboBox):
+    """The row's browser choice, minus a false "focused" on its closed list.
+
+    Qt's accessible list item reports FOCUSED when it is its view's current
+    item, whether or not that view has the focus — and a combo box keeps its
+    hidden popup list's current item on the chosen entry. So every row's
+    closed picker told the accessibility bus that "Auto" had the focus, beside
+    the widget that really did (LWSM-1504, measured on a private AT-SPI bus;
+    a bare `QComboBox` does the same). The closed list's current item is
+    cleared instead. Nothing reads it while the list is closed: the box shows
+    its own current text, and `showPopup` puts the list's current item back
+    on the chosen entry, so keyboard navigation in the open list starts there.
+    Qt's own `showPopup` does not: with the item cleared, the open list
+    started at "Auto" whatever was chosen (measured, and pinned by a test).
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # Qt moves the list's current item BEFORE it emits this (measured), so
+        # a direct connection clears what the change just set.
+        self.currentIndexChanged.connect(self._forget_list_position)
+
+    def showPopup(self) -> None:
+        chosen = self.model().index(self.currentIndex(), self.modelColumn())
+        self.view().setCurrentIndex(chosen)
+        super().showPopup()
+
+    def hidePopup(self) -> None:
+        super().hidePopup()
+        self._forget_list_position()
+
+    def _forget_list_position(self) -> None:
+        view = self.view()
+        if not view.isVisible():
+            view.selectionModel().clearCurrentIndex()
+
+
 class ProjectRow(QFrame):
     """One project. Created once; `update_from` mutates it in place.
 
@@ -1070,7 +1107,7 @@ class ProjectRow(QFrame):
         # been uninstalled both land on it, so an uninstalled browser degrades
         # to "the default" rather than to a phantom entry that cannot launch.
         # Its text is set in `update_from`, so a language change reaches it.
-        self.browser_box = QComboBox(self)
+        self.browser_box = BrowserPicker(self)
         self.browser_box.addItem("", "")
         for browser in self._browsers:
             self.browser_box.addItem(browser.name, browser.entry_id)

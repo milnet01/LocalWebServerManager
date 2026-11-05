@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1504 -->
+<!-- ants-roadmap-id-high-water: LWSM=1505 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -14088,7 +14088,7 @@ LWSM-1036.
   Source: in-session-2026-11-05 (LWSM-1477).
   Lanes: docs.
 
-- 📋 [LWSM-1504] **Find out why the browser picker's first list item reports focused on the accessibility bus while focus is elsewhere.**
+- ✅ [LWSM-1504] **Find out why the browser picker's first list item reports focused on the accessibility bus while focus is elsewhere.**
   Seen 2026-11-05 while checking LWSM-1015 on a private AT-SPI bus
   (docs/claude/traps.md's recipe): the row's combo box child list item
   'Auto' carried the FOCUSED state in every walk, including while the
@@ -14097,7 +14097,42 @@ LWSM-1036.
   combo popup list always reporting its current item as focused, and
   whether Orca announces it. Not caused by LWSM-1015 (seen before the
   panel opened).
+  Resolved 2026-11-05: found and fixed. Cause is Qt's, not ours: the
+  accessible list item reports FOCUSED when it is its view's current
+  item, whether or not the view has focus, and a combo box keeps its
+  hidden popup list's current item on the chosen entry. A bare
+  QComboBox does the same offscreen. On the private AT-SPI bus every
+  row's closed picker reported list item "Auto" as focused, selected,
+  showing and visible under a list that was not showing, while Qt's
+  focus was the filter box or the output; no focus event was ever
+  emitted for it, so Orca's event-driven focus tracking was likely not
+  misled (unverified; Orca not run). Fix: mainwindow.BrowserPicker, a
+  QComboBox that clears the closed list's current item (on every index
+  change, connected directly because Qt moves the item before it emits,
+  and on hidePopup) and puts it back on the chosen entry in showPopup,
+  which Qt's own showPopup does not once cleared: the open list started
+  at "Auto" whatever was chosen until that was added (the test caught
+  it). Re-walked on the private bus: no "Auto" reports focused. Test:
+  test_a_closed_picker_reports_no_item_as_focused (red first);
+  mutation probes 4 of 4 killed. Two related cases filed as LWSM-1505.
   **Layman:** A screen reader may be told the browser choice has focus when it does not; check whether Orca is misled.
+  Kind: investigate.
+  Source: in-session-2026-11-05.
+  Lanes: ui.
+
+- 📋 [LWSM-1505] **Check two more places Qt may report a false focused state on the accessibility bus.**
+  Found 2026-11-05 while fixing LWSM-1504, not fixed there (§ O9 outcome 2).
+  LWSM-1504's cause is Qt's: a list item reports FOCUSED when it is its
+  view's current item, whether or not the view has focus. (1) Preferences'
+  scan-roots QListWidget follows the same rule, so its current folder may
+  report focused while Ok has the focus; not measured on the bus. (2) On
+  the private bus, the log panel's text view "Output of web" has a filler
+  child (its viewport) that also reports FOCUSED while the view has it;
+  measured. Neither emitted a focus event in the walk, which is what Orca
+  follows; whether Orca or another tool reads the static state is
+  unverified. Check each on the private bus, and fix the first the
+  BrowserPicker way if it reports focused.
+  **Layman:** A screen reader might be told the wrong thing has focus in Preferences or the output panel; check whether it matters.
   Kind: investigate.
   Source: in-session-2026-11-05.
   Lanes: ui.

@@ -335,6 +335,11 @@ Added at P02 (LWSM-1005), contract in
   forget the refresh. **The refresh is built by `registry.load_after_save`**,
   not by hand: a hand-built one dropped `unknown`, so the second save of a
   session erased top-level keys a newer build wrote (LWSM-1430).
+  **`BrowserPicker`** is the row's browser combo box (LWSM-1504). Qt marks
+  a list's current item FOCUSED whether or not the list has focus, so every
+  closed picker told the accessibility bus that "Auto" had the focus. It
+  clears the closed popup list's current item, and `showPopup` puts it back
+  on the chosen entry, which Qt's own `showPopup` does not once it is cleared.
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](../specs/LWSM-1006-scanner-detection.md):
