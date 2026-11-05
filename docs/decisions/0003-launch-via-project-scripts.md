@@ -336,7 +336,13 @@ value and ignoring the wrong one are two different properties.
 - **A unit adopted from the port's holder binds by the same rule,
   plus one anchor** (LWSM-1012): an absolute path in its `ExecStart`
   command line naming a file inside the project. A directory does
-  not count: an autostarted editor opening the project would pass. Adoption reads the
+  not count: an autostarted editor opening the project would pass.
+  A file does count, so an autostarted editor opened on a file inside
+  the project binds as its unit. That is accepted, as the
+  `WorkingDirectory` rule already accepts an editor started in the
+  project: a Stop or Restart through the unit first shows ADR-0004's
+  disclosure, which names the unit (LWSM-1499, user decision
+  2026-11-05). Adoption reads the
   unit off the holder's cgroup, and that unit may be a container the
   holder merely runs in, such as an autostarted IDE hosting a
   terminal. XDG-autostart units have a `FragmentPath` generated under
