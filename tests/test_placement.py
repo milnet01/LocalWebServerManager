@@ -999,6 +999,65 @@ def test_a_load_that_times_out_still_unloads(tmp_path: Path) -> None:
     assert calls == ["unloadScript", "loadScript", "unloadScript"]
 
 
+def _kwin_with_script_objects(run_status: int = 0):
+    """A KWin whose `loadScript` answers an id, recording each call's object
+    path and verb, and whether the script file still existed at that call."""
+    seen: list[tuple[str, str, bool]] = []
+    loaded: list[Path] = []
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        verb = argv[5].rsplit(".", 1)[-1]
+        if verb == "loadScript":
+            loaded.append(Path(argv[6][len("string:") :]))
+        seen.append((argv[4], verb, bool(loaded) and loaded[0].exists()))
+        if verb == "loadScript":
+            return subprocess.CompletedProcess(argv, 0, b"   int32 7\n", b"")
+        status = run_status if verb == "run" else 0
+        return subprocess.CompletedProcess(argv, status, b"", b"no such object")
+
+    return run, seen
+
+
+def test_the_script_is_run_through_its_own_object_before_cleanup(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1483: `Scripting.start` returns before KWin reads the file, so the
+    unload and delete straight after it can beat the read — measured against
+    live KWin on 2026-11-05, 8 of 2300 print-only probes never ran. The
+    script's own `run` replies only once it has run: 0 of 2000 lost.
+
+    Dies on calling `start` when the load answered an id."""
+    run, seen = _kwin_with_script_objects()
+
+    assert run_kwin_script("// js", tmp_path, run=run)
+
+    assert [(path, verb) for path, verb, _ in seen] == [
+        ("/Scripting", "unloadScript"),
+        ("/Scripting", "loadScript"),
+        ("/Scripting/Script7", "run"),
+        ("/Scripting", "unloadScript"),
+    ]
+    assert seen[2][2], "the file was gone before KWin was asked to run it"
+    assert not list(tmp_path.glob("place-*.js"))
+
+
+def test_a_kwin_with_no_script_object_falls_back_to_start(tmp_path: Path) -> None:
+    """A KWin that registers its scripts elsewhere answers the `run` with an
+    error. `start` still places the window, with the race above, which beats
+    not placing it."""
+    run, seen = _kwin_with_script_objects(run_status=1)
+
+    assert run_kwin_script("// js", tmp_path, run=run)
+
+    assert [verb for _, verb, _ in seen] == [
+        "unloadScript",
+        "loadScript",
+        "run",
+        "start",
+        "unloadScript",
+    ]
+
+
 def test_a_load_kwin_refuses_is_a_false(tmp_path: Path) -> None:
     """Measured on KWin 2026-10-01: `loadScript` under a name still loaded
     replies `int32 -1` and `dbus-send` exits 0. Reading only the status made

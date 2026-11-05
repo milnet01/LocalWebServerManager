@@ -72,8 +72,9 @@ centre, so there is one code path and one set of failure modes.
   geometry to `screen.availableGeometry()`. Direct and reliable.
 - **Wayland:** run a one-shot KWin script over D-Bus
   (`org.kde.KWin` `/Scripting`: `unloadScript` of any stale
-  registration, then `loadScript` → `start` → `unloadScript`; KWin
-  refuses a load under a name still loaded) that finds this process's own window by PID,
+  registration, then `loadScript` → the script's own
+  `/Scripting/Script<id>` `run` → `unloadScript`, then the file is
+  deleted; KWin refuses a load under a name still loaded) that finds this process's own window by PID,
   skips transients so it never places a dialog instead of the
   main window, and sets `frameGeometry`. The target is either the
   remembered `x`/`y` or the centre of
@@ -85,6 +86,19 @@ centre, so there is one code path and one set of failure modes.
   worked only because `undefined` coerces to 0 and
   `PlacementArea` happens to be 0. `KWin.PlacementArea` is 0 and
   `KWin.MaximizeArea` is 2, read off a probe script.
+- **The script's own `run`, not `Scripting.start`, before cleanup.**
+  `start` replies before KWin reads the file, so the unload and
+  delete straight after it can beat the read, and the placement
+  reports as asked while nothing ran. Measured against live KWin on
+  2026-11-05 with a print-only script (LWSM-1483): deleting the file
+  between `loadScript` and `start` gave 0 prints of 300, so the read
+  happens after `start` replies. The `start` order lost 9 runs of
+  6300, while `run` on `/Scripting/Script<id>` lost 0 of 6000. That
+  `run` replies only after the script has run is inferred from those
+  counts, not read in KWin's source. A KWin whose
+  `loadScript` answers no id, or that has no such object, gets
+  `start`. Refute by re-running the probe and counting a `run`-order
+  miss.
 - **Only the Wayland branch asks, and that asymmetry is measured.**
   X11 hands Qt a panel-aware `availableGeometry` — 3840x2114 on
   this desktop, the 46 px its panel reserves — so the caller's own

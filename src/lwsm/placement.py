@@ -27,6 +27,7 @@ that app writes its script into the shared temp directory, and it looks for
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -56,6 +57,11 @@ DBUS_TIMEOUT_S = 3.0
 # crashed run is cleared rather than accumulating. KWin refuses a load under a
 # name still loaded, so the leading unload is what makes that true (L2-M2).
 KWIN_SCRIPT_NAME = "lwsm_place"
+
+# `loadScript`'s reply carries the id KWin registered the script under, which
+# names its own D-Bus object, `/Scripting/Script<id>` (introspected on Plasma 6,
+# 2026-11-05). `-1` is a refusal and never reaches this.
+_SCRIPT_ID = re.compile(rb"int32\s+(\d+)")
 
 
 @dataclass(frozen=True)
@@ -401,9 +407,9 @@ def run_kwin_script(
     state_dir: Path,
     run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
 ) -> bool:
-    """Load, start and unload a one-shot KWin script. True if it was asked.
+    """Load, run and unload a one-shot KWin script. True if it was asked.
 
-    True means the three D-Bus calls were made and each was accepted, **never
+    True means the load and the run were made and accepted, **never
     that the window moved** — KWin reports nothing back about what the script
     did, and this module has no way to observe the result. The caller reads the
     window's own geometry if it wants to know, which is what ADR-0007's
@@ -510,42 +516,66 @@ def run_kwin_script(
         # an unload of a name never registered is harmless.
         issue(unload)
 
-        for call in (
+        def give_up() -> bool:
+            """Unload anyway, then report the placement as not asked.
+
+            The name is a CONSTANT, so a registration left behind here outlives
+            the file the `finally` is about to delete (LWSM-1243); the next
+            run's leading unload would clear it, but there is no reason to
+            leave it. Nearly free: `unloadScript` for a name that was never
+            registered exits 0, re-measured against real KWin on 2026-09-06.
+
+            Attempted even when the LOAD is what failed, and that is
+            deliberate: a nonzero status says the CALL did not land and says
+            nothing about what KWin registered — this module's own measurement
+            is that a `loadScript` naming a missing file exits 0. "It failed,
+            so nothing is registered" is not a conclusion available here.
+
+            Not attempted after a TIMEOUT, though: that call was given all of
+            the shared budget, so `issue` refuses this one (review-code
+            2026-11-04 L10-L1). The next run's leading unload clears what it
+            may have left.
+            """
+            issue(unload)
+            return False
+
+        loaded = issue(
             [
                 *base,
                 "org.kde.kwin.Scripting.loadScript",
                 f"string:{name}",
                 f"string:{KWIN_SCRIPT_NAME}",
-            ],
-            [*base, "org.kde.kwin.Scripting.start"],
-        ):
-            reply = issue(call)
-            if reply is None or b"int32 -1" in reply:
-                if reply is not None:
-                    log.warning("KWin refused to load the placement script")
-                # Unload anyway. The name is a CONSTANT, so a registration left
-                # behind here outlives the file the `finally` is about to
-                # delete (LWSM-1243); the next run's leading unload would clear
-                # it, but there is no reason to leave it. Nearly free: `unloadScript`
-                # for a name that was never registered exits 0, re-measured
-                # against real KWin on 2026-09-06.
-                #
-                # Attempted even when the LOAD is what failed, and that is
-                # deliberate: a nonzero status says the CALL did not land and
-                # says nothing about what KWin registered — this module's own
-                # measurement is that a `loadScript` naming a missing file
-                # exits 0. "It failed, so nothing is registered" is not a
-                # conclusion available here.
-                #
-                # Not attempted after a TIMEOUT, though: that call was given
-                # all of the shared budget, so `issue` refuses this one
-                # (review-code 2026-11-04 L10-L1). The next run's leading
-                # unload clears what it may have left.
-                issue(unload)
-                return False
+            ]
+        )
+        if loaded is None:
+            return give_up()
+        if b"int32 -1" in loaded:
+            log.warning("KWin refused to load the placement script")
+            return give_up()
 
-        # Checked like the other two, but NOT fatal (LWSM-1277). Reaching this
-        # line means `loadScript` and `start` were both accepted, so the
+        # The script's OWN `run`, not `Scripting.start` (LWSM-1483). `start`
+        # returns before KWin reads the file, so the unload and the delete
+        # below could beat the read: measured against live KWin on 2026-11-05,
+        # 8 of 2300 print-only probes in that order never ran. `run` on
+        # `/Scripting/Script<id>` replies once the script has run, and lost 0
+        # of 2000. A KWin that answers no id, or has no such object, gets
+        # `start`, race and all: a placement that nearly always lands beats
+        # none.
+        ran = None
+        script_id = _SCRIPT_ID.search(loaded)
+        if script_id is not None:
+            ran = issue(
+                [
+                    *base[:4],
+                    f"/Scripting/Script{int(script_id.group(1))}",
+                    "org.kde.kwin.Script.run",
+                ]
+            )
+        if ran is None and issue([*base, "org.kde.kwin.Scripting.start"]) is None:
+            return give_up()
+
+        # Checked like the other calls, but NOT fatal (LWSM-1277). Reaching this
+        # line means the load and the run were both accepted, so the
         # placement has been asked for and the window has almost certainly
         # already moved — reporting failure here tells the caller a placement
         # that DID happen did not, and `place_window`'s caller then shows the
@@ -555,9 +585,9 @@ def run_kwin_script(
         # grounds that a failure reaching ONLY this call cannot happen off KWin
         # — where the bus answers `ServiceUnknown` to all three. That is true
         # and it is the argument for the change rather than against it: the
-        # all-three case returns False at the loop above and never gets here,
+        # all-three case returns False above and never gets here,
         # so the only way to reach a failed unload is a KWin that took the
-        # first two calls. That is not a failed placement.
+        # load and the run. That is not a failed placement.
         #
         # `issue` has already logged the reason. What is lost is the cleanup,
         # not the placement: a registration left behind is cleared by the next
