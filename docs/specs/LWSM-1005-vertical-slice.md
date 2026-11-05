@@ -1026,8 +1026,8 @@ importing `lwsm.__main__` in a test does not require a display.
 - **INV-16** — After `ProjectController.stop()` returns, **no snapshot is
   ever delivered to the controller again**, `stop()` has not waited on work
   that is not its own, and it has returned within one `STOP_WAIT_MS` for each
-  pool it waits on: its snapshot pool, then the service and health pools
-  (LWSM-1034 INV-7).
+  pool it waits on: its snapshot pool, then the service, health and upkeep
+  pools (LWSM-1034 INV-7, LWSM-1401).
   *Wording note (LWSM-1073):* this read "no task is outstanding" until the
   P02 close, and that sentence was **true while the invariant's stated
   purpose was being violated** — the task had indeed finished, and its queued
@@ -1511,6 +1511,7 @@ only known.
 | 2 | 2026-08-06 | 2 | 1 | 8 | 12 | 12 | 25 verified (18 fix collateral from loop 1, 7 draft defects), 0 unverified, 25 fixed. Dimensions: dim 15×7, dim 5×6, dim 7×5, dim 4×4, dim 10×3, dim 2×2, dim 1×1, dim 6×1, dim 12×1. Two invariants could not fail for the breach they named: INV-4's fresh-controller fixture passes under a sticky implementation, and INV-11 named `psutil` and `MainWindow`, neither of which its fixture has. `QRunnable` cannot carry a `Signal` — `issubclass(QRunnable, QObject)` is `False`, verified — so the worker became `_SnapshotTask(QObject, QRunnable)`. Both lanes agreed the XDG citation was wrong and both named the wrong replacement (`§ O6`); verification found `§ O3`. `nothing` rows 4 → 6 once promises that only looked covered were separated. 684 → 833 lines. |
 | 3 | 2026-08-06 | 1 | 0 | 3 | 5 | 5 | 13 verified, 0 unverified, 13 fixed. Almost all fix collateral from loops 1–2, which is why one lane rather than two. The lane named the check this run owed itself: loop 2 prescribed `_SnapshotTask(QObject, QRunnable)` **without executing it**. Executed here — both that shape *and* a plain `QRunnable` with a composed signaller work under 6.11.1, so the lane's premise (Shiboken forbids it) was wrong while its advice was right; the composed signaller is adopted as the documented idiom. Also caught: the accessible name would have included the `●` glyph and announced "black circle"; INV-15 named a test that could not observe it, since `main` blocks in `app.exec()` — `build_window` is the seam that fixes it. Added INV-16 (shutdown waits for the outstanding task). `nothing` rows 6 → 8, two of them unowned. 833 → 921 lines. **Converged by cap.** No verified finding is left unfixed. |
 | impl | 2026-10-22 | 0 | — | — | — | — | Fold-back, not a review; no reviewer dispatched. LWSM-1425 (user, 2026-10-22): the row's focus ring is drawn only on keyboard focus. INV-17 and the paintEvent passage record the built and tested code. |
+| impl | 2026-11-05 | 0 | — | — | — | — | Amendment, not a review; no reviewer dispatched. LWSM-1459: INV-16 named three pools `stop()` waits on; LWSM-1401 added the upkeep pool, which `stop()` also waits on within one `STOP_WAIT_MS`. The list now names four. No behaviour changed. |
 
 ## 13. Resource cost
 
