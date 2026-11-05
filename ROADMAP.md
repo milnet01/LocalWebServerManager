@@ -13355,7 +13355,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 02, M2).
   Lanes: registry.
 
-- 📋 [LWSM-1435] **ADR-0005 and LWSM-1007 describe the registry as it was before LWSM-1038, LWSM-1131 and LWSM-1385.**
+- ✅ [LWSM-1435] **ADR-0005 and LWSM-1007 describe the registry as it was before LWSM-1038, LWSM-1131 and LWSM-1385.**
   Priority: LOW.
   ADR-0005: "Effective port = port override if set, else declared
   port" omits LWSM-1038's confirmed_port rung; "port is the only
@@ -13368,6 +13368,17 @@ LWSM-1036.
   handler, which now happens in configfile.load_json_object.
   Pre-existing; not caused by the 2026-11-04 fixes. The ADR route is
   review-contract after the edit, per the lane.
+  Resolved (2026-11-05, 9c33fb1): ADR-0005's effective port gains the
+  confirmed-port rung; its unknown-field rule names `unit` under
+  units_unavailable beside `port`; its record halves list the later
+  fields and point at DETECTED_FIELDS / USER_FIELDS. LWSM-1007 § 4.1's
+  sets match the code; § 4.2 points to LWSM-1385 for port_from and
+  port_conflicts and states browser's type and default (LWSM-1187 has
+  no spec); § 4.3 says load_json_object now converts the OSError.
+  _detected_half_applied's docstring carried the same stale claim and
+  is corrected. Doc-only, so no red test; local-ci --docs and the full
+  gate passed. No review-contract run: global rule 14 owes none for an
+  ADR or spec amendment, and the user can still ask for one.
   **Layman:** Two design documents for the project list no longer match what the code does.
   Kind: doc-fix.
   Source: review-code-2026-11-04 (lane 02, document-wrong LOWs).
