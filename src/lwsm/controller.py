@@ -1971,6 +1971,15 @@ class ProjectController(QObject):
         """
         return list(self._records)
 
+    def forget_unit_bindings(self) -> None:
+        """Drop ADR-0003's kept answers, so the next poll asks `systemctl` again.
+
+        Kept between polls so a tick does not ask every second, and dropped on
+        Rescan, where the user asks the app to look again: a unit file edited
+        since is then checked afresh (LWSM-1501).
+        """
+        self._unit_binding.clear()
+
     def set_records(self, records: list[ProjectRecord]) -> None:
         """Replace the project list, keeping every status still true.
 

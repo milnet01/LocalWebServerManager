@@ -4314,6 +4314,7 @@ class MainWindow(QMainWindow):
             return
         self._rescan_in_flight = True
         self._set_rescan_enabled(False)
+        self._controller.forget_unit_bindings()
         self._rescan_pool.start(
             _RescanTask(self._rescan, self._controller.records(), self._rescan_signals)
         )

@@ -84,6 +84,9 @@ poll has read yet, shows `unknown` because nothing was observed.
 
 The project's own unit is the one the scanner bound, one adopted
 this session, or one passing ADR-0003's rule for adopted units.
+That rule's answer is kept per unit and project until the next
+Rescan, so a poll does not ask `systemctl` every second, and a unit
+file edited since is checked again after one (LWSM-1501).
 Membership of any unit is not enough: terminals run as user
 services on this machine (measured 2026-10-02), so a server started
 in one sits in the terminal's unit.

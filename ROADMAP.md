@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1497 -->
+<!-- ants-roadmap-id-high-water: LWSM=1501 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13606,6 +13606,8 @@ LWSM-1036.
   `running (wrong port)`, (d) keep the cache but drop it on Rescan?
   Recommendation: all four as stated, (a) and (c) being the ones a
   user would hit, 2026-11-04).
+  Split 2026-11-05: (a) LWSM-1498, (b) LWSM-1499, (c) LWSM-1500, (d)
+  LWSM-1501.
   **Layman:** The review raised four edge cases where the design documents do not say what the app should do; each needs a yes or no.
   Kind: investigate.
   Source: review-code-2026-11-04 (lanes 04 and 05, open questions).
@@ -13868,6 +13870,46 @@ LWSM-1036.
   Kind: doc-fix.
   Source: lwsm-1475-work-2026-11-05.
   Lanes: docs.
+
+- 🚧 [LWSM-1498] **Offer to stop a foreign set as it is now once it has changed twice during the dialog.**
+  LWSM-1462 (a). A foreign server whose children come and go changes
+  its set on every re-read, so ADR-0004's ask-again rule never let
+  Stop happen. After a second change the dialog says the set keeps
+  changing, and a yes stops the set it shows.
+  Lanes: mainwindow, foreign.
+  **Layman:** Stopping a server started outside the app no longer asks forever when its processes keep changing.
+  Kind: review-fix.
+  Source: LWSM-1462 split 2026-11-05.
+
+- 🚧 [LWSM-1499] **Record in ADR-0003 that an editor opened on a file inside the project binds as the project's unit.**
+  LWSM-1462 (b). ADR-0003's command-line anchor accepts an absolute
+  FILE inside the project, so an autostarted editor opened on one
+  binds as the project's unit. The user accepted that, as the
+  WorkingDirectory rule already accepts an editor started in the
+  project (2026-11-05). Doc only: the code already does this.
+  Lanes: service.
+  **Layman:** The design notes now say plainly which rare case the app accepts rather than guards against.
+  Kind: review-fix.
+  Source: LWSM-1462 split 2026-11-05.
+
+- 🚧 [LWSM-1500] **Read a child bound only to a LAN address as running (wrong port), not starting.**
+  LWSM-1462 (c). Our child bound only to an address localhost does
+  not reach read `starting` for ever: the snapshot named no holder
+  off localhost, so nothing saw it bind. ADR-0004 now reads it as
+  `running (wrong port)`.
+  Lanes: ports, controller.
+  **Layman:** A server the app started that listens only on the network address, not on localhost, now says it is on the wrong address instead of 'starting' for ever.
+  Kind: review-fix.
+  Source: LWSM-1462 split 2026-11-05.
+
+- 🚧 [LWSM-1501] **Drop the remembered unit bindings on Rescan.**
+  LWSM-1462 (d). `_unit_binding` kept each unit's ADR-0003 answer for
+  the whole session, so a unit file edited later was never checked
+  again. The cache stays, and Rescan now empties it.
+  Lanes: controller, mainwindow.
+  **Layman:** Pressing Rescan now re-checks which systemd service belongs to which project, so an edited service file is noticed.
+  Kind: review-fix.
+  Source: LWSM-1462 split 2026-11-05.
 
 ## 1.0.0 — A download for other people
 

@@ -28,6 +28,7 @@ signaling per
 
 ### Fixed
 
+- **Rescan now notices a login service file you edited.** The app checks once whether a systemd service belongs to a project, and kept that answer until it closed. A service file edited after that check was never checked again. Rescan now clears the answers, so the next check reads the file as it is. (LWSM-1501)
 - **A screen reader now hears a project's new state once, not twice.** The app told the screen reader about each state change, and Qt already did, so every change was announced twice. The app's extra notice is gone. (LWSM-1477)
 - **A login service is no longer refused a start when your config folder is reached through a link.** Before starting a login service, the app checks that systemd read its port setting. It compared the two file paths as text, so the same file reached through a symbolic link could look unread and the start was refused. It now compares the files themselves. (LWSM-1461)
 - **A site that sends an early "hints" reply now shows its real answer.** A server may send a `103 Early Hints` reply before its real one. The health check reported that first reply, so the row showed `HTTP 103` whether the site worked or not. It now skips such early replies and shows the answer that follows. (LWSM-1458)

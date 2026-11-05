@@ -1936,6 +1936,46 @@ def test_a_rescan_with_a_saved_list_does_not_ask(qtbot, built, tmp_path) -> None
     window.shutdown()
 
 
+def test_a_rescan_asks_again_whose_unit_holds_a_port(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1501 (LWSM-1462 d). ADR-0003's answer for a unit holding a port is
+    kept, so a poll does not ask `systemctl` every second. It was kept for the
+    whole session, so a unit file edited later was never checked again. Rescan
+    is where the user asks the app to look again, and it drops the answers."""
+    project = tmp_path / "roots" / "web"
+    monkeypatch.setattr(
+        controller_module, "unit_for_pid", lambda pid: "app-x@autostart.service"
+    )
+    asked: list[Path] = []
+
+    def belongs(unit: str, path: Path) -> bool:
+        asked.append(path)
+        return True
+
+    monkeypatch.setattr(controller_module, "unit_belongs_to", belongs)
+    window, controller = rescan_window(
+        qtbot,
+        built,
+        [ProjectRecord(path=project, name="web", port=3000, port_override=None)],
+        tmp_path,
+        FakeScanResult(
+            projects=(FakeDetected(project, "web", port=FakePortFinding(3000)),)
+        ),
+        load=LoadResult(records=[], reasons=[], rows_refused=0),
+    )
+    held = PortSnapshot(frozenset({3000}), {3000: 9999})
+    controller._on_snapshot(held)
+    controller._on_snapshot(held)
+    assert asked == [project], "precondition: the answer is kept between polls"
+
+    run_rescan(qtbot, window)
+    controller._on_snapshot(held)
+
+    assert asked == [project, project]
+    window.shutdown()
+
+
 def test_what_a_rescan_skipped_reaches_the_app_log(
     qtbot, built, tmp_path, caplog
 ) -> None:
