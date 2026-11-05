@@ -69,6 +69,30 @@ build-constraint-dependencies = ["setuptools==84.2.1"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# typos runs in no gate; check-code reads this. Each entry is a deliberate
+# spelling, named narrowly so a real slip of the same letters still shows.
+[tool.typos.default]
+extend-ignore-re = [
+  '\b[0-9a-f]{7,40}\b',     # git short hashes ("3998ba6", "abd97c4")
+  '(--|`)versoin',            # the misspelt flag tests/test_main.py feeds in
+  'caf(\\xe9|\x{FFFD})',     # invalid-UTF-8 test data in tests/test_logbuffer.py
+  'POSIX BRE',                # basic regular expression
+]
+
+[tool.typos.default.extend-words]
+unparseable = "unparseable"
+unparented = "unparented"
+certifi = "certifi"     # the Python CA-bundle package
+raison = "raison"       # French: a translation test's placeholder
+mis = "mis"             # the prefix in "mis-detection", "mis-parse"
+criticals = "criticals" # CRITICAL findings, as a noun
+
+[tool.typos.default.extend-identifiers]
+THM = "THM"  # a mermaid node id in docs/design.md
+# Possessives in test names, which cannot hold an apostrophe.
+test_the_port_types_are_the_registrys = "test_the_port_types_are_the_registrys"
+test_a_crashed_copys_socket_is_recovered = "test_a_crashed_copys_socket_is_recovered"
+
 [tool.ruff]
 target-version = "py313"
 line-length = 88
