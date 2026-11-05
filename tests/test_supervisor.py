@@ -17,6 +17,7 @@ import contextlib
 import errno
 import json
 import os
+import shutil
 import signal
 import socket
 import stat
@@ -1842,12 +1843,16 @@ def test_no_systemd_run_means_a_plain_launch() -> None:
     ],
     ids=["refused", "hung", "unrunnable"],
 )
-def test_a_user_manager_that_cannot_run_a_scope_means_a_plain_launch(outcome) -> None:
+def test_a_user_manager_that_cannot_run_a_scope_means_a_plain_launch(
+    outcome, caplog
+) -> None:
     """Every start would fail if the prefix were kept here.
 
     With no user manager to reach, `systemd-run --scope` fails before it execs
     anything, so a server wrapped in it never runs at all — worse than the
-    cgroup kill this exists to avoid.
+    cgroup kill this exists to avoid. The cause is logged at WARNING
+    (LWSM-1446): a server launched without a scope dies on Quit, so the
+    reason must reach the log the user reads, not be discarded.
     """
 
     def run(argv, **_kwargs):
@@ -1855,21 +1860,15 @@ def test_a_user_manager_that_cannot_run_a_scope_means_a_plain_launch(outcome) ->
             raise outcome
         return outcome
 
-    assert scope_prefix({}, run=run, which=lambda name: SYSTEMD_RUN) == ()
+    with caplog.at_level("WARNING", logger=supervisor_module.log.name):
+        assert scope_prefix({}, run=run, which=lambda name: SYSTEMD_RUN) == ()
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "systemd scope" in warnings[0].getMessage()
 
 
-def test_the_scope_check_runs_once_per_supervisor(
-    project: Path, tmp_path: Path, monkeypatch
-) -> None:
-    """Asked on the first start and remembered, not paid on every start."""
-    calls: list[int] = []
-
-    def counting(env):
-        calls.append(1)
-        return ()
-
-    monkeypatch.setattr(supervisor_module, "scope_prefix", counting)
-    sup = Supervisor(probe=FakeProbe(), log_dir=tmp_path / "logs")
+def _start_two(sup: Supervisor, project: Path, tmp_path: Path) -> None:
     second = tmp_path / "second-project"
     second.mkdir()
     try:
@@ -1883,7 +1882,45 @@ def test_the_scope_check_runs_once_per_supervisor(
             sup.stop(path, grace=0.5)
         sup.close()
 
+
+def test_a_successful_scope_check_is_remembered(
+    project: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Asked on the first start and, once it worked, not paid again."""
+    calls: list[int] = []
+    # `env --` execs the rest of argv in place, as `systemd-run --scope` does.
+    prefix = (shutil.which("env") or "/usr/bin/env", "--")
+
+    def counting(env):
+        calls.append(1)
+        return prefix
+
+    monkeypatch.setattr(supervisor_module, "scope_prefix", counting)
+    _start_two(
+        Supervisor(probe=FakeProbe(), log_dir=tmp_path / "logs"), project, tmp_path
+    )
+
     assert calls == [1]
+
+
+def test_a_failed_scope_check_is_asked_again_at_the_next_start(
+    project: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """LWSM-1446: a failure (say, just after login, before the user manager
+    answers) was remembered for the session, so every later server launched
+    without a scope and died on Quit. Only a success is remembered."""
+    calls: list[int] = []
+
+    def counting(env):
+        calls.append(1)
+        return ()
+
+    monkeypatch.setattr(supervisor_module, "scope_prefix", counting)
+    _start_two(
+        Supervisor(probe=FakeProbe(), log_dir=tmp_path / "logs"), project, tmp_path
+    )
+
+    assert calls == [1, 1]
 
 
 # --------------------------------------------------------------------------

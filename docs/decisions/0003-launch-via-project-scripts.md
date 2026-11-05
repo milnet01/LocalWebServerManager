@@ -163,9 +163,15 @@ actually run: the resolved path and argv, never a friendly summary.
   does not leave the cgroup. So each server is spawned through
   `systemd-run --user --scope --quiet --collect --`, which moves
   it into its own scope and execs it in place: the PID, process
-  group and psutil handle stay the server's. `scope_prefix` asks
-  once per supervisor, by running `true` that way. Where that
-  fails, servers launch plainly, as before.
+  group and psutil handle stay the server's. `scope_prefix`
+  checks by running `true` that way. Where that fails, the server
+  launches plainly, as before, and the cause is logged at
+  WARNING. Only a successful check is remembered for the
+  supervisor's life; a failed one is asked again at the next
+  start (amended 2026-11-05, LWSM-1446). A check that failed once,
+  just after login say, would otherwise leave every later server
+  unscoped, to die on Quit. A retry costs a failing
+  `systemd-run` per start, up to its 2 s timeout while one hangs.
 
 ### Service-managed projects are the exception
 

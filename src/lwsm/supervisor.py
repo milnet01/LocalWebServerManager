@@ -583,11 +583,13 @@ def scope_prefix(
     and then execs it in place, so the PID `Popen` holds, the process group
     and the psutil handle are all still the server's.
 
-    Asked once, by running `true` the same way, rather than assumed from
+    Checked by running `true` the same way, rather than assumed from
     `systemd-run` existing: with no user manager to talk to it fails before
     the exec, and every start would then fail with it. `()` means a plain
     launch, which is what this did before and still right where no unit
-    exists to kill the server.
+    exists to kill the server. A failed check logs its cause at WARNING
+    (LWSM-1446): a server launched plainly under Plasma dies on Quit, and
+    the log is the only place the user can learn why.
     """
     # Looked up on the CHILD's PATH, which holds only absolute entries, and
     # refused unless absolute: `Popen(cwd=project)` resolves a relative answer
@@ -598,6 +600,7 @@ def scope_prefix(
     else:
         executable = shutil.which("systemd-run", path=env.get("PATH", os.defpath))
     if not executable or not os.path.isabs(executable):
+        log.info("no absolute systemd-run on PATH; launching without a scope")
         return ()
     prefix = (executable, "--user", "--scope", "--quiet", "--collect", "--")
     runner = run if run is not None else subprocess.run
@@ -611,9 +614,17 @@ def scope_prefix(
             timeout=SCOPE_PROBE_TIMEOUT_SECONDS,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("launching without a systemd scope: the check failed: %s", exc)
         return ()
-    return prefix if getattr(completed, "returncode", 1) == 0 else ()
+    status = getattr(completed, "returncode", 1)
+    if status != 0:
+        log.warning(
+            "launching without a systemd scope: the check exited with status %s",
+            status,
+        )
+        return ()
+    return prefix
 
 
 # --------------------------------------------------------------------------
@@ -1167,7 +1178,8 @@ class Supervisor:
         self._clock = clock or time.monotonic
         self._sleep = sleep or time.sleep
         self._registry = _Registry()
-        # `scope_prefix`'s answer, asked once on the first start.
+        # `scope_prefix`'s answer once it succeeds. A failure is not kept: it
+        # is asked again at the next start (LWSM-1446, ADR-0003).
         self._scope: tuple[str, ...] | None = None
         self._stoppers = ThreadPoolExecutor(
             max_workers=4, thread_name_prefix="lwsm-stop"
@@ -1467,14 +1479,17 @@ class Supervisor:
         fd: int,
     ) -> ManagedProcess:
         env = build_child_env(port)
-        if self._scope is None:
-            self._scope = scope_prefix(env)
-            log.info(
-                "launching servers %s",
-                "in their own systemd scopes" if self._scope else "without a scope",
-            )
+        scope = self._scope
+        if scope is None:
+            # Only a success is remembered: a check that failed once (the user
+            # manager not answering yet, say) would otherwise leave every later
+            # server in the session unscoped (LWSM-1446).
+            scope = scope_prefix(env)
+            if scope:
+                self._scope = scope
+                log.info("launching servers in their own systemd scopes")
         popen = subprocess.Popen(  # noqa: S603 - the trust gate above is the check
-            [*self._scope, *argv],
+            [*scope, *argv],
             cwd=str(project),
             env=env,
             # A file, not a pipe (ADR-0003): a child holding a pipe dies of

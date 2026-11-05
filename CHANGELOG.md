@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Fixed
+
+- **Servers started after a failed systemd check no longer all stop when you quit.** The check that keeps a server running after the app closes used to be tried once per session. If it failed once, for example just after login, every server started later stopped on Quit. It is now tried again at each start until it works, and the log says why it failed. (LWSM-1446)
+
 ## [0.4.0] - 2026-11-05
 
 **Theme:** Ports
