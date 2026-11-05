@@ -13269,6 +13269,14 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
 
 Criterion 5: failures readable without a terminal.
 
+Order (set 2026-11-05, after 0.4.0 shipped): first the fixes carried
+over from 0.4.0, in groups — supervisor (LWSM-1446, 1494, 1448,
+1447), registry (1434, 1435), probes and ports (1458, 1461, 1460,
+1459), window and accessibility (1457, 1475, 1476, 1477, 1485),
+the four ADR answers (1462), the desktop checks (1483, 1484), then
+the tidy-ups (1492, 1493). Then the log features, LWSM-1015 and
+LWSM-1036.
+
 - 📋 [LWSM-1015] **P08: live log panel.**
   Tails the per-project
   log file into a bounded ring (2000 lines), follows unless the
