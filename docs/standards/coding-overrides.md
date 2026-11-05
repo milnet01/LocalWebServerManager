@@ -16,7 +16,7 @@ The package is split four ways, and a core module imports `QtCore` at most:
 
 | Layer | Modules | Rule |
 |---|---|---|
-| UI | `mainwindow.py`, `settingsdialog.py`, `theme.py` | may import `QtWidgets` |
+| UI | `mainwindow.py`, `settingsdialog.py`, `portlookup.py`, `firstrun.py`, `logpanel.py`, `theme.py` | may import `QtWidgets` |
 | Entry point | `__main__.py` | may import `QtWidgets`; builds the `QApplication`, inside `main()` after `argparse` |
 | Package marker | `__init__.py` | imports nothing |
 | Core | every other module | `QtCore` only, never `QtWidgets` |

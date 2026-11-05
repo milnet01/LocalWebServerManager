@@ -22,6 +22,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QCoreApplication,
     QEvent,
+    QKeyCombination,
     QLocale,
     QObject,
     QPoint,
@@ -98,6 +99,7 @@ from lwsm.controller import (
     abandon_pool,
 )
 from lwsm.foreign import HolderIdentity, Tree, TreeRefused, enumerate_tree
+from lwsm.logpanel import LogPanel
 from lwsm.placement import Rect, centre_in
 from lwsm.registry import (
     LoadResult,
@@ -952,8 +954,25 @@ class ProjectRow(QFrame):
         # on the Menu key, so the row is menu-reachable from the keyboard with
         # nothing here saying so — and there is no `menu.exec()` of ours for a
         # test to have to avoid, which is what an untestable wiring looks like.
+        # The log panel (LWSM-1015), first in the menu because reading why a
+        # server failed is the commonest reason to open it. Ctrl+L while focus
+        # is anywhere in this row: the row has no width left for a fifth
+        # button (one lens view, 600 px, and the row measured 599), and a
+        # failed row offers it as a button anyway (`_offer_output`).
+        self.show_output_action = QAction(self)
+        # A key combination, never the string "Ctrl+L": parsing a string
+        # translates the modifier names under Qt's own "QShortcut" context.
+        self.show_output_action.setShortcut(
+            QKeySequence(
+                QKeyCombination(Qt.KeyboardModifier.ControlModifier, Qt.Key.Key_L)
+            )
+        )
+        self.show_output_action.setShortcutContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
         self.hide_action = QAction(self)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+        self.addAction(self.show_output_action)
         self.addAction(self.hide_action)
         # Withdraws a "yes, run it" (LWSM-1319). Always offered: forgetting is
         # the safe direction, and knowing whether there is anything to forget
@@ -1088,6 +1107,9 @@ class ProjectRow(QFrame):
         # "Change port…" under a port-conflict warning (LWSM-1014). Created and
         # destroyed with that warning, for the reason the label is above.
         self._port_button: QPushButton | None = None
+        # "View output" under a failed row (LWSM-1015), created and destroyed
+        # with the failure for the label's reason above.
+        self.output_button: QPushButton | None = None
         self._outer_layout = outer
 
         self._apply_text_metrics()
@@ -1233,6 +1255,42 @@ class ProjectRow(QFrame):
             self._fit_buttons()
         self._port_button.show()
 
+    def _offer_output(self, failed: bool) -> None:
+        """A "View output" button under the row while it reads `failed`.
+
+        Criterion 5: a server that dies on startup is diagnosable without a
+        terminal, and the way to read why sits next to the word saying it
+        failed, visible at rest — not only in the context menu, which a
+        magnifier user has no reason to look in. Kept apart from
+        `clear_error`, which a poll runs on every state change: this follows
+        the state itself.
+        """
+        if failed and self.output_button is None:
+            self.output_button = QPushButton(self)
+            self.output_button.clicked.connect(self.show_output_action.trigger)
+            self._outer_layout.addWidget(
+                self.output_button, alignment=Qt.AlignmentFlag.AlignLeft
+            )
+            self._label_output_button()
+            self._fit_buttons()
+        elif not failed and self.output_button is not None:
+            self._outer_layout.removeWidget(self.output_button)
+            self.output_button.deleteLater()
+            self.output_button = None
+
+    def _label_output_button(self) -> None:
+        if self.output_button is None:
+            return
+        self.output_button.setText(
+            QCoreApplication.translate("ProjectRow", "View output")
+        )
+        self.output_button.setAccessibleName(
+            _filled(
+                QCoreApplication.translate("ProjectRow", "View the output of %1"),
+                self._name_display,
+            )
+        )
+
     def _label_port_button(self) -> None:
         if self._port_button is None:
             return
@@ -1334,6 +1392,7 @@ class ProjectRow(QFrame):
             self.restart_button,
             self.open_button,
             *([self._port_button] if self._port_button is not None else []),
+            *([self.output_button] if self.output_button is not None else []),
         ):
             button.setFixedWidth(
                 max(metrics.horizontalAdvance(button.text()) + padding, MIN_TARGET_PX)
@@ -1851,6 +1910,11 @@ class ProjectRow(QFrame):
             QCoreApplication.translate("ProjectRow", "Change the &port…")
         )
         self._label_port_button()
+        self.show_output_action.setText(
+            QCoreApplication.translate("ProjectRow", "View &output")
+        )
+        self._offer_output(row.status is ProjectStatus.FAILED)
+        self._label_output_button()
         cell = port_cell_text(row)
         self._port.setText(cell)
         # One phrase when spoken: a line break read aloud is a pause in the
@@ -2407,6 +2471,15 @@ class MainWindow(QMainWindow):
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setWidget(self._rows_host)
         outer.addWidget(self._scroll, 1)
+        # The log panel (LWSM-1015), under the list and hidden until a row
+        # asks for it: after the list in visual order, so after it in tab
+        # order too. `logpanel.py` says why it is not a window of its own.
+        self._log_panel = LogPanel(central, min_target=MIN_TARGET_PX)
+        self._log_panel.closed.connect(self._on_log_closed)
+        outer.addWidget(self._log_panel, 1)
+        # Which project the panel shows, so a poll can keep its notice true
+        # and Escape can go back to that row.
+        self._log_path: Path | None = None
         self.setCentralWidget(central)
         # Kept, so the geometry code need not ask Qt for a layout it types as
         # possibly absent (LWSM-1066).
@@ -4322,6 +4395,7 @@ class MainWindow(QMainWindow):
         """
         self._stopped = True
         self._rescan_in_flight = False
+        self._log_panel.shutdown()
         pool, self._rescan_pool = self._rescan_pool, None
         if pool is None or pool.waitForDone(RESCAN_STOP_WAIT_MS):
             return
@@ -4336,6 +4410,71 @@ class MainWindow(QMainWindow):
             abandon_pool(pool, self._rescan_signals)
         else:
             abandon_pool(pool)
+
+    def show_output(self, path: Path) -> None:
+        """Open the log panel on `path`'s output and move focus into it.
+
+        The focus move is the user's own request, so it is not the stolen
+        focus `design-accessibility.md` forbids: a magnifier follows focus,
+        and this is how the lens gets from the row to the output.
+
+        The window grows to make room, once per opening and within the
+        screen, rather than squeezing the list: a list crushed to one row
+        would hide the row the output belongs to.
+        """
+        source = self._controller.log_source(path)
+        if source is None:
+            return
+        was_hidden = self._log_panel.isHidden()
+        self._log_path = path
+        self._log_panel.open_for(display_text(self._name_at(path)), source)
+        if was_hidden and not (self.isMaximized() or self.isFullScreen()):
+            grown = self._bounded_to_screen(
+                QSize(
+                    self.width(),
+                    self.height()
+                    + self._log_panel.sizeHint().height()
+                    + self._outer.spacing(),
+                )
+            )
+            self.resize(grown)
+        self._place_log_panel_in_tab_order()
+        self._log_panel.view.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _place_log_panel_in_tab_order(self) -> None:
+        """Put the panel's controls after the last row's, as they are on screen.
+
+        Qt appends a widget to the focus chain when it is parented, and rows
+        are parented after the panel is built, so without this Tab reached
+        the panel BEFORE the list it sits under — `design-accessibility.md`
+        requires tab order to follow visual order.
+        """
+        last: QWidget | None = None
+        start = self._filter
+        widget = start.nextInFocusChain()
+        # The chain is a ring; None is PySide's typing, not a case Qt makes.
+        while widget is not None and widget is not start:
+            if self._rows_host.isAncestorOf(widget):
+                last = widget
+            widget = widget.nextInFocusChain()
+        panel = self._log_panel
+        if last is not None:
+            QWidget.setTabOrder(last, panel.close_button)
+        QWidget.setTabOrder(panel.close_button, panel.view)
+
+    def _on_log_closed(self) -> None:
+        path, self._log_path = self._log_path, None
+        row = None if path is None else self._rows.get(path)
+        if row is not None and row.isVisible():
+            row.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _refresh_log_notice(self) -> None:
+        """Keep the panel's "not available here" true as the row's state moves."""
+        if self._log_path is None or self._log_panel.isHidden():
+            return
+        source = self._controller.log_source(self._log_path)
+        if source is not None:
+            self._log_panel.set_output_unavailable(source.output_unavailable)
 
     def _start_rescan(self) -> None:
         """One at a time: two overlapping merges could both write."""
@@ -4631,9 +4770,11 @@ class MainWindow(QMainWindow):
 
     def _sync_rows(self) -> None:
         views = self._controller.rows()
+        added = False
         for view in views:
             existing = self._rows.get(view.path)
             if existing is None:
+                added = True
                 widget = ProjectRow(view, self._theme, self, self._browsers)
                 # Bound with a default argument rather than a closure over
                 # `view`: the loop variable is rebound on every iteration, so a
@@ -4673,6 +4814,9 @@ class MainWindow(QMainWindow):
                 widget.change_port_action.triggered.connect(
                     lambda _checked=False, p=path: self.change_port(p)
                 )
+                widget.show_output_action.triggered.connect(
+                    lambda _checked=False, p=path: self.show_output(p)
+                )
                 # Same binding, same reason. `update_from` blocks this signal
                 # while it sets the box from the poll, so reaching here means a
                 # person changed it.
@@ -4704,7 +4848,13 @@ class MainWindow(QMainWindow):
             # delete ordering all the same (LWSM-1106).
             widget.setParent(None)
             widget.deleteLater()
+            if path == self._log_path:
+                self._log_panel.close_panel()
 
+        self._refresh_log_notice()
+        if added and not self._log_panel.isHidden():
+            # A rescan's new row joined the chain after the open panel.
+            self._place_log_panel_in_tab_order()
         # Before the geometry: a row arriving under an active filter must not
         # show up in a list the user has already narrowed.
         self._apply_filter()

@@ -14,7 +14,7 @@ environment is an allowlist).
 
 **What this module does NOT do.** It does not show the confirmation dialog
 (LWSM-1010 owns the UI), does not drive systemd units (LWSM-1028), does not
-tail the log into a `LogBuffer` (LWSM-1011), and does not write a
+tail the log into a `LogBuffer` (`logbuffer.py`, LWSM-1015), and does not write a
 confirmation into the registry — `stores.TrustStore` keeps its own small
 file, `trust.json`, beside `settings.json` (LWSM-1046). Each of those is a named
 item, not an oversight.

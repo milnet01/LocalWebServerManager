@@ -145,6 +145,17 @@ Two rules the diagram encodes:
   resource, and deeply nested tags wedge the UI thread in layout.
   Control characters are stripped and over-long lines elided at
   the per-line cap defined in § Detection rules.
+  **It sits in the main window, under the list, not in a window of
+  its own** (LWSM-1015): under Wayland the app cannot place a window
+  it opens, so a separate one lands wherever the compositor puts it
+  and a magnifier user has to hunt for it. It shows one project at a
+  time, opened from that row's **View output** action (its context
+  menu, or Ctrl+L) or from the **View output** button a `failed` row
+  carries; opening moves focus into the output and Escape returns it
+  to the row. A project run by its own systemd unit reads
+  `journalctl --user --unit=<unit> --follow`: the unit is glued to
+  its option because `-u -- <unit>` makes journalctl read the unit as
+  a match and refuse it.
 - **TrayIcon** — a status icon with a per-project start/stop menu,
   the same Open-in-browser action, and the app's only genuine
   Quit. Main responsibility: control and status while the window
@@ -194,7 +205,10 @@ Two rules the diagram encodes:
 - **LogBuffer** — a bounded in-memory ring of recent output lines
   per project. Main responsibility: keeping the last N lines
   available for the panel and for post-mortem after a crash,
-  without unbounded growth.
+  without unbounded growth. Only the project the panel shows has
+  one live (LWSM-1015): the log file and the journal both outlive
+  the server, so the post-mortem is read back from them when the
+  panel opens rather than held in memory for every project.
 
 ## Detection rules
 

@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1503 -->
+<!-- ants-roadmap-id-high-water: LWSM=1504 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13277,7 +13277,7 @@ the four ADR answers (1462), the desktop checks (1483, 1484), then
 the tidy-ups (1492, 1493). Then the log features, LWSM-1015 and
 LWSM-1036.
 
-- 📋 [LWSM-1015] **P08: live log panel.**
+- ✅ [LWSM-1015] **P08: live log panel.**
   Tails the per-project
   log file into a bounded ring (2000 lines), follows unless the
   user has scrolled up, and retains the tail after exit so a
@@ -13300,6 +13300,37 @@ LWSM-1036.
   no log file of ours. Its panel reads `journalctl --user -u <unit> -f`
   (ADR-0003's verb table, logs row), with the unit name passed after `--`
   like every other systemctl argv.
+  Shipped 2026-11-05. Core: src/lwsm/logbuffer.py (QtCore only) holds the
+  2000-line ring (escapes stripped, 4096-char cap), a FileFollower (our log,
+  opened through _open_private_regular, survives rotate_if_needed's in-place
+  truncate, reads only the tail of a big file), a JournalFollower and LogFeed,
+  which hands lines to the GUI thread through a queued signal.
+  ProjectController.log_source picks the file for a child of ours, the
+  journal for a project run by its own unit (holder's unit when ADR-0003's
+  check passed, an adopted unit, or record.unit), and flags running (foreign)
+  as output unavailable. UI: src/lwsm/logpanel.py, a QPlainTextEdit with a
+  status line ("Following new output." / "Paused..." / foreign notice).
+  Decisions design.md did not settle, folded back into design.md
+  Components (review later if wanted): (1) the panel sits in the main
+  window under the list, not a separate window, because under Wayland the
+  app cannot place a window it opens and a magnifier user would have to
+  hunt for it; (2) it opens from the row's View output action (context
+  menu, Ctrl+L while focus is in the row) and from a View output button a
+  failed row carries; there is no always-visible per-row button because
+  the row measured 599 of its 600 px lens budget; (3) opening moves focus
+  into the output and grows the window once within the screen; Escape
+  closes it and returns focus to the row; (4) one LogBuffer is live at a
+  time (the shown project), since the file and the journal outlive the
+  server. Divergence from this bullet: the unit is passed as
+  --unit=<unit>, not after `--`: measured on systemd 261, `-u -- <unit>`
+  makes -u take `--` and journalctl refuses the unit as a match. The glued
+  form cannot be read as an option, and valid_unit_name refuses a leading
+  dash. Checked live: real journal of a user unit read, reader in its own
+  session and gone after stop; private AT-SPI bus: text view named "Output
+  of web", described by its status, FOCUSED after opening. Tests:
+  tests/test_logbuffer.py, tests/test_logpanel.py, six in test_controller.py;
+  mutation probes killed 4/4 (controller) and 13/13 (panel and window).
+  Found, filed: LWSM-1504.
   Lanes: ui, tests.
 
 - 📋 [LWSM-1036] **P08: find the error in the log.**
@@ -14026,6 +14057,20 @@ LWSM-1036.
   Kind: doc-fix.
   Source: in-session-2026-11-05 (LWSM-1477).
   Lanes: docs.
+
+- 📋 [LWSM-1504] **Find out why the browser picker's first list item reports focused on the accessibility bus while focus is elsewhere.**
+  Seen 2026-11-05 while checking LWSM-1015 on a private AT-SPI bus
+  (docs/claude/traps.md's recipe): the row's combo box child list item
+  'Auto' carried the FOCUSED state in every walk, including while the
+  log panel's text view also reported FOCUSED and QApplication's focus
+  widget was that view. Not measured further: whether this is Qt's
+  combo popup list always reporting its current item as focused, and
+  whether Orca announces it. Not caused by LWSM-1015 (seen before the
+  panel opened).
+  **Layman:** A screen reader may be told the browser choice has focus when it does not; check whether Orca is misled.
+  Kind: investigate.
+  Source: in-session-2026-11-05.
+  Lanes: ui.
 
 ## 1.0.0 — A download for other people
 

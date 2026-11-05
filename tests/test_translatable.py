@@ -25,6 +25,7 @@ SOURCES = [
     REPO / "src" / "lwsm" / "settingsdialog.py",
     REPO / "src" / "lwsm" / "portlookup.py",
     REPO / "src" / "lwsm" / "firstrun.py",
+    REPO / "src" / "lwsm" / "logpanel.py",
 ]
 
 
@@ -80,6 +81,7 @@ def test_each_module_uses_exactly_one_context(extracted) -> None:
         "SettingsDialog",
         "FirstRunDialog",
         "PortLookupDialog",
+        "LogPanel",
     }, sorted(extracted)
 
 

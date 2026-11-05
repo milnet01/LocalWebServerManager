@@ -77,11 +77,16 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
   yours.
 - **A log per project**, written to a private file and capped in
   size so a chatty server cannot fill your disk.
+- **Read a server's output in the app.** Press Ctrl+L on a
+  project, or choose **View output** from its menu, and its output
+  opens under the list, following new lines unless you scroll back
+  to read. A project that failed shows a **View output** button
+  right under it, so you can see why without opening a terminal.
+  Escape takes you back to the project. A project run by its own
+  system service shows that service's journal instead.
 
 **What is not there yet**
 
-- No **live output panel** inside the app. The logs are on disk
-  and you read them with your own tools.
 - No **system tray icon**, no **start on login**, and no
   **downloadable package** — those are planned for later
   versions.

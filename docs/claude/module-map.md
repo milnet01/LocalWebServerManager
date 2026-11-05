@@ -494,6 +494,36 @@ Added later, both core with no Qt at all:
   names (LWSM-1444, moved here from `service.py` by LWSM-1493). Its stop
   polls through `supervisor._wait_until_gone`, the managed stop's loop.
 
+Added for LWSM-1015, the live log panel. **No spec** — build-first, per
+§ Review cadence; `docs/design.md` § Components carries the fold-back:
+
+- **`src/lwsm/logbuffer.py`** — core, `QtCore` only. `LogBuffer` (the ring
+  of the last 2000 lines, cleaned of terminal escapes and cut at the 4096
+  per-line cap), `LogSource`, `journal_argv`, the two followers and `LogFeed`.
+  **Each follower is a plain daemon thread handing BYTES to a callback**;
+  `LogFeed` turns them into a signal connected QUEUED, so the ring is touched
+  on the GUI thread alone and needs no lock (`§ O2`). Bytes, because a read can
+  end inside a multi-byte character and the ring's incremental decoder joins
+  it. `FileFollower` opens through `applog._open_private_regular` (no symlink,
+  hard link, FIFO or foreign owner) and treats a size below its offset as
+  `rotate_if_needed`'s in-place truncate. `JournalFollower` runs
+  `journalctl --user --unit=<unit>` in its own session and stops it on
+  `stop()`. **`--unit=` glued, not `-u -- <unit>`**: `-u` takes `--` as its
+  value and the unit becomes a journal match, which journalctl refuses
+  (measured, systemd 261). A fragment with no newline is flushed after two
+  quiet ticks, so a server's last words show even when it died mid-line.
+- **`src/lwsm/logpanel.py`** — UI layer. `LogPanel`: a heading, a status
+  line, a read-only `QPlainTextEdit` and Close. **It owns no reading**; the
+  window hands it a `LogSource` from `ProjectController.log_source`, which
+  picks the file for a child of ours, the journal for a project run by its
+  own unit, and flags a `running (foreign)` server's output as unavailable.
+  **Follows unless scrolled up**, judged by the scroll bar before each
+  append. **Escape is filtered on the view**, because the window's own Escape
+  clears the filter box. `MainWindow.show_output` opens it under the list,
+  grows the window to fit once per opening, moves focus into the output, and
+  re-places the panel in the tab order after the last row: rows join Qt's
+  focus chain when parented, which is after the panel was built.
+
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are
 `test_<module>.py` for the module of that name. The ones a name does not

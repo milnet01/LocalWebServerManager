@@ -4688,3 +4688,132 @@ def test_a_start_that_raises_something_unexpected_is_reported(
 
     assert "an argv the code never met" in caught.args[1]
     assert controller._overlay is None
+
+
+# --- LWSM-1015: where the log panel reads a project's output from --------------
+
+
+class LoggingSupervisor:
+    """Holds a child for the paths it is given, and names a log file for any."""
+
+    def __init__(self, running=()) -> None:
+        self._running = {Path(path): object() for path in running}
+
+    def running(self) -> dict:
+        return dict(self._running)
+
+    def owns_pid(self, project: Path, pid: int) -> bool:
+        return Path(project) in self._running and pid == HOLDER_PID
+
+    def exited(self, project: Path) -> bool:
+        return False
+
+    def is_stopping(self, project: Path) -> bool:
+        return False
+
+    def log_path_for(self, project: Path, name: str) -> Path:
+        return Path("/state/logs") / f"{name}.log"
+
+
+def logging_controller(controllers, records, probe, running=()) -> ProjectController:
+    controller = ProjectController(records, probe, LoggingSupervisor(running))
+    controllers.append(controller)
+    return controller
+
+
+def test_a_server_of_ours_is_read_from_its_log_file(qtbot, controllers) -> None:
+    """ADR-0003's logs row, process-managed column. Ours even where the
+    holder sits in the project's own unit: that unit is the autouse fixture's
+    answer for every holder, and the output of THIS server is in the file."""
+    controller = logging_controller(
+        controllers,
+        [replace(record("a"), unit="a.service")],
+        FakeProbe(5005),
+        running=["/srv/a"],
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    source = controller.log_source(Path("/srv/a"))
+
+    assert source is not None
+    assert source.unit is None
+    assert source.file == Path("/state/logs/a.log")
+    assert source.output_unavailable is False
+
+
+def test_a_project_run_by_its_own_unit_is_read_from_the_journal(
+    qtbot, controllers
+) -> None:
+    """ADR-0003's logs row, service-managed column (handed over by LWSM-1028):
+    the holder is in the project's own unit, and we hold no child."""
+    controller = logging_controller(controllers, [record("a")], FakeProbe(5005))
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    source = controller.log_source(Path("/srv/a"))
+
+    assert source is not None
+    assert source.unit == SERVICE_HOLDER_UNIT
+    assert source.file is None
+
+
+def test_a_stopped_bound_unit_is_still_read_from_the_journal(
+    qtbot, controllers
+) -> None:
+    """Nothing holds the port, so no holder names a unit; the scanner's
+    binding still does, and the journal keeps the unit's last run."""
+    controller = logging_controller(
+        controllers, [replace(record("a"), unit="a.service")], FakeProbe()
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    source = controller.log_source(Path("/srv/a"))
+
+    assert source is not None
+    assert source.unit == "a.service"
+
+
+def test_a_holder_in_someone_elses_unit_is_not_read_from_that_journal(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """Terminals run as user services here: a server started in one sits in
+    the terminal's unit, and that journal is not the project's output. It is
+    `running (foreign)`, so the source says the output is unavailable."""
+    monkeypatch.setattr(
+        controller_module, "unit_for_pid", lambda pid: "app-terminal@1.service"
+    )
+    monkeypatch.setattr(
+        controller_module, "unit_belongs_to", lambda unit, project: False
+    )
+    controller = logging_controller(controllers, [record("a")], FakeProbe(5005))
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.row(Path("/srv/a")).status is ProjectStatus.RUNNING_FOREIGN
+
+    source = controller.log_source(Path("/srv/a"))
+
+    assert source is not None
+    assert source.unit is None
+    assert source.file == Path("/state/logs/a.log")
+    assert source.output_unavailable is True
+
+
+def test_a_stopped_project_of_ours_keeps_its_file(qtbot, controllers) -> None:
+    """The file outlives the server, which is what makes a crash readable
+    afterwards (design.md § Observability)."""
+    controller = logging_controller(controllers, [record("a")], FakeProbe())
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    source = controller.log_source(Path("/srv/a"))
+
+    assert source is not None
+    assert source.file == Path("/state/logs/a.log")
+    assert source.output_unavailable is False
+
+
+def test_an_unknown_project_has_no_log_source(controllers) -> None:
+    controller = logging_controller(controllers, [record("a")], FakeProbe())
+    assert controller.log_source(Path("/srv/nobody")) is None

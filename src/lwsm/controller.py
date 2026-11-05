@@ -32,6 +32,7 @@ from lwsm.foreign import (
     looks_like,
     stop_tree,
 )
+from lwsm.logbuffer import LogSource
 from lwsm.ports import PortSnapshot, ProbeError, SupportsSnapshot, free_port
 from lwsm.registry import OVERRIDE_PORT_RANGE, PortFinding, ProjectRecord, port_claims
 from lwsm.service import (
@@ -316,6 +317,8 @@ class SupportsSupervision(Protocol):
     def exited(self, project: Path) -> bool: ...
 
     def is_stopping(self, project: Path) -> bool: ...
+
+    def log_path_for(self, project: Path, name: str) -> Path: ...
 
     @property
     def trust(self) -> SupportsTrust: ...
@@ -1665,6 +1668,45 @@ class ProjectController(QObject):
         if self._supervisor is None:
             return "no trust store is open, so nothing was withdrawn"
         return self._supervisor.trust.revoke(path)
+
+    def log_source(self, path: Path) -> LogSource | None:
+        """Where the log panel reads this project's output from (LWSM-1015).
+
+        ADR-0003's logs row: a server of ours writes our log file; a project
+        run by its own systemd user unit writes that unit's journal. A child
+        of ours wins even when the project also has a unit, because the
+        output of THIS server is in the file. The unit is the project's own
+        only — the one the holder is in when ADR-0003's check passed, one
+        adopted this session, or the one the scanner bound — never just any
+        unit the holder sits in: a terminal's unit holds every server started
+        from it (`_is_project_unit`).
+
+        A `running (foreign)` server writes neither, so the source says its
+        output is unavailable (design.md § Observability); the file is still
+        named, since it holds this app's earlier output for the project.
+        """
+        record = self._record(path)
+        if record is None:
+            return None
+        supervisor = self._supervisor
+        ours = path in self._supervised()
+        if not ours:
+            unit = self._log_unit(record)
+            if unit is not None:
+                return LogSource(unit=unit)
+        file = (
+            None if supervisor is None else supervisor.log_path_for(path, record.name)
+        )
+        foreign = not ours and self._status_of(path) is ProjectStatus.RUNNING_FOREIGN
+        return LogSource(file=file, output_unavailable=foreign)
+
+    def _log_unit(self, record: ProjectRecord) -> str | None:
+        holder = self._holders.get(record.path)
+        if holder is not None:
+            unit = self._units.get(holder)
+            if unit is not None and self._is_project_unit(record, unit):
+                return unit
+        return self._adopted_units.get(record.path) or record.unit
 
     def holder_identity(self, path: Path) -> HolderIdentity | None:
         """The port's holder as a disclosure is about to show it: PID and start
