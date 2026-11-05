@@ -173,7 +173,7 @@ def _outline_point(target: QWidget) -> tuple[int, int]:
 
 
 def _rendered_ring(
-    qtbot, theme: Theme, kind: str = "button", scale: int = 100
+    qtbot, theme: Theme, kind: str = "button", scale: int = 100, pressed: bool = False
 ) -> _Ring:
     """The ring the app DRAWS on a keyboard-focused control, and its inside fill.
 
@@ -187,6 +187,8 @@ def _rendered_ring(
 
     `scale` multiplies the application font as the text-size control does,
     because the ring's width is promised to follow it (LWSM-1349).
+
+    `pressed` holds the focused button down, as Space does (LWSM-1485).
     """
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
@@ -215,6 +217,9 @@ def _rendered_ring(
         plain = target.grab().toImage()
         qtbot.keyClick(other, Qt.Key.Key_Backtab)
         assert target.hasFocus()
+        if pressed:
+            assert isinstance(target, QPushButton)
+            target.setDown(True)
         focused = target.grab().toImage()
         # The row's own formula, on this control's font: the user chose one
         # ring width for every focusable thing (LWSM-1349, 2026-10-01).
@@ -237,8 +242,13 @@ def _rendered_ring(
         f"not a ring around it"
     )
     edge = changed[0]
-    while edge + 1 in changed:
-        edge += 1
+    if pressed:
+        # Held down, the whole fill changes too, so the run of changed pixels
+        # does not end at the ring. The ring is the row's width (LWSM-1349).
+        edge += row_width - 1
+    else:
+        while edge + 1 in changed:
+            edge += 1
 
     return _Ring(
         ring=_hexed(focused.pixel(changed[0], row)),
@@ -273,6 +283,24 @@ def test_the_ring_fusion_draws_clears_the_indicator_floor(
             f"the drawn focus ring {drawn.ring} is {ratio:.2f}:1 against {name} "
             f"{neighbour}, below § T8's {INDICATOR_FLOOR}:1"
         )
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_held_button_keeps_its_ring_visible_against_its_fill(
+    qtbot, theme: Theme
+) -> None:
+    """LWSM-1485. A pressed button fills with `accent`, which is also the
+    ring's colour, so holding Space on a keyboard-focused button hid its ring
+    at about 1:1 (rendered 2026-11-05). The ring must stay 3:1 against the
+    fill it sits beside while the button is held."""
+    drawn = _rendered_ring(qtbot, theme, "button", pressed=True)
+
+    ratio = contrast_ratio(drawn.ring, drawn.inside)
+    assert ratio >= INDICATOR_FLOOR, (
+        f"held down, the ring {drawn.ring} is {ratio:.2f}:1 against the pressed "
+        f"fill {drawn.inside}, below § T8's {INDICATOR_FLOOR}:1"
+    )
 
 
 @pytest.mark.gui

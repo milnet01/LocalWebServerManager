@@ -662,7 +662,10 @@ class OutlineStyle(QProxyStyle):
         else:
             super().drawControl(element, option, painter, widget)
         if element == QStyle.ControlElement.CE_PushButtonBevel:
-            self._outline(option, painter)
+            # Held down, the button fills with `accent`, the ring's own colour
+            # (LWSM-1485), so the ring is drawn in `base`, the text on that fill.
+            held = bool(option.state & QStyle.StateFlag.State_Sunken)
+            self._outline(option, painter, on_accent=held)
         elif element == QStyle.ControlElement.CE_CheckBox:
             # A check box has no frame to outline, so only the ring, round the
             # whole control (review-code 2026-10-08 L09-H1). Its outline is on
@@ -694,11 +697,13 @@ class OutlineStyle(QProxyStyle):
         *,
         ring: bool = True,
         resting: bool = True,
+        on_accent: bool = False,
     ) -> None:
         """The ring on keyboard focus, else the 1 px outline.
 
         `ring=False` for an element that never takes the ring itself, and
-        `resting=False` for one with no outline of its own.
+        `resting=False` for one with no outline of its own. `on_accent` for a
+        control filled with the ring's colour: the ring is drawn in `Base`.
         """
         # Fusion's own test for showing focus: it needs the keyboard to have
         # moved it, so a click does not draw a ring (CLAUDE.md's
@@ -711,7 +716,9 @@ class OutlineStyle(QProxyStyle):
         )
         if focused:
             width = focus_ring_width(option.fontMetrics)
-            pen = QPen(option.palette.highlight().color(), width)
+            palette = option.palette
+            colour = palette.base() if on_accent else palette.highlight()
+            pen = QPen(colour.color(), width)
         elif resting:
             width = 1
             pen = QPen(option.palette.mid().color(), width)
