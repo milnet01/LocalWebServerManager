@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
@@ -2167,6 +2168,11 @@ class MainWindow(QMainWindow):
         self._high_contrast: bool | None = None
         # True while the one retry after a timed-out read is scheduled.
         self._contrast_retry_pending = False
+        # Seconds the build has spent waiting on the session bus (LWSM-1484).
+        # The contrast read and the KWin check share `placement.DBUS_TIMEOUT_S`
+        # between them rather than taking it each, so a wedged bus costs the
+        # window one bound and not one per question.
+        self._startup_bus_spent = 0.0
         # Resolved HERE rather than by the caller, and that is the whole reason
         # the id is passed alongside the palette. `build_window` holds the id
         # but cannot resolve it: Qt's colour scheme is only readable once a
@@ -2497,7 +2503,17 @@ class MainWindow(QMainWindow):
         # session with no `dbus-send` the compositor owns placement and we
         # cannot ask it, so the honest answer is an action that says why
         # (ADR-0007). The tooltip is set in `_retranslate_menus` with the label.
-        self._centre_action.setEnabled(placement.placement_available())
+        #
+        # Asked once and kept: `_restore_position` reads the same answer, so a
+        # no here spares the startup restore a D-Bus wait of its own, and the
+        # check gets only what the contrast read left of the startup budget
+        # (LWSM-1484). `placement.kwin_on_bus` is looked up at call time so a
+        # test's monkeypatch reaches it.
+        budget = placement.DBUS_TIMEOUT_S - self._startup_bus_spent
+        self._can_place = placement.placement_available(
+            has_kwin=lambda: placement.kwin_on_bus(timeout=budget)
+        )
+        self._centre_action.setEnabled(self._can_place)
         # Checkable, and unchecked at build: hiding is only reversible because
         # this exists, so it is offered whether or not there is a writer — a
         # project can be hidden in the file on a window that cannot save one.
@@ -2873,7 +2889,9 @@ class MainWindow(QMainWindow):
             # deny the assistive palette for the session to the user who
             # asked their desktop for it. One retry, scheduled; until it
             # runs, resolutions read as no preference and ask nothing.
+            started = time.monotonic()
             answer = self._read_high_contrast()
+            self._startup_bus_spent += time.monotonic() - started
             if answer is None:
                 self._contrast_retry_pending = True
                 QTimer.singleShot(CONTRAST_RETRY_MS, self, self._retry_high_contrast)
@@ -4950,6 +4968,10 @@ class MainWindow(QMainWindow):
         cost of being wrong is a window that un-maximises itself.
         """
         if self._remembered_maximized or self._remembered_pos is None:
+            return
+        if not self._can_place:
+            # The build already found nothing to ask (LWSM-1484). Asking anyway
+            # failed honestly, but on a wedged bus only after a wait of its own.
             return
         # The window's OWN size, not the remembered one: where a size was
         # remembered the resize above has already applied it bounded, and

@@ -276,6 +276,23 @@ def test_kwin_on_bus_reads_the_bus_answer() -> None:
     assert not kwin_on_bus(no_bus)
 
 
+def test_kwin_on_bus_waits_only_as_long_as_it_is_given() -> None:
+    """LWSM-1484: the startup D-Bus waits share one budget, so this call is
+    handed what the earlier ones left. Spent already means not asked at all —
+    a fresh three seconds is the stacking the budget exists to stop."""
+    given: list[object] = []
+
+    def bus(argv, **kw):
+        given.append(kw.get("timeout"))
+        return subprocess.CompletedProcess(argv, 0, b"   boolean true\n", b"")
+
+    assert kwin_on_bus(bus, timeout=1.25)
+    assert given == [1.25]
+
+    assert not kwin_on_bus(bus, timeout=0.0)
+    assert given == [1.25], "an exhausted budget still asked the bus"
+
+
 # --- The script, which runs inside the compositor -------------------------
 
 

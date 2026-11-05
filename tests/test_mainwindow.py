@@ -6798,6 +6798,63 @@ def test_the_disabled_centre_action_explains_itself_without_a_hover(
     )
 
 
+def test_a_window_with_no_kwin_to_ask_does_not_ask_at_startup(
+    qtbot, built, monkeypatch
+) -> None:
+    """LWSM-1484: the build already asked whether KWin is there. A no must
+    spare the position restore its own D-Bus wait — on a wedged bus that
+    wait is the third three seconds before the window is usable."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setattr(mainwindow.placement.shutil, "which", lambda _n: "/bin/x")
+    monkeypatch.setattr(mainwindow.placement, "kwin_on_bus", lambda **_kw: False)
+    calls: list[object] = []
+
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(100, 200),
+        place=lambda target, **_kw: calls.append(target),
+    )
+
+    assert not window._centre_action.isEnabled()
+    assert calls == [], "the restore asked a KWin the build found absent"
+
+
+def test_the_kwin_check_gets_only_what_the_contrast_read_left(
+    qtbot, built, monkeypatch
+) -> None:
+    """LWSM-1484: the contrast read and the KWin check share one startup
+    budget, so a slow first read shortens the second rather than stacking a
+    fresh three seconds on it."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setattr(mainwindow.placement.shutil, "which", lambda _n: "/bin/x")
+    given: list[object] = []
+
+    def kwin(**kw):
+        given.append(kw.get("timeout"))
+        return True
+
+    monkeypatch.setattr(mainwindow.placement, "kwin_on_bus", kwin)
+
+    def slow_contrast() -> bool:
+        threading.Event().wait(0.3)
+        return False
+
+    geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        theme_id=FOLLOW_SYSTEM,
+        read_high_contrast=slow_contrast,
+        read_dark=lambda: False,
+    )
+
+    assert len(given) == 1
+    assert isinstance(given[0], float)
+    assert given[0] <= placement.DBUS_TIMEOUT_S - 0.3
+
+
 def test_centre_on_screen_carries_a_mnemonic_and_is_retranslated(qtbot, built) -> None:
     """`§ O8` clause 2 — every action reachable from the keyboard — and the
     label set in `_retranslate_menus` rather than at construction, so

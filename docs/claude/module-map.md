@@ -190,6 +190,9 @@ Added at P02 (LWSM-1005), contract in
   with two targets**, so both go through `place_window` and the clamp cannot
   be forgotten by either. **Setting a position and READING one are not
   symmetric** — see the Wayland trap below, which is the item's whole shape.
+  **At startup the window spends one `DBUS_TIMEOUT_S` on the bus, not one
+  per question** (LWSM-1484): the KWin check gets what the contrast read
+  left, and its no spares the position restore a wait of its own.
 - **`src/lwsm/theme.py`** — UI layer, and the **only** module
   allowed a colour literal; `test_layering.py` exempts it by an
   explicit allowlist and asserts it still holds the palette.

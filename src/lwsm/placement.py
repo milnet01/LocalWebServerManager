@@ -233,6 +233,8 @@ def on_wayland(environ: dict[str, str] | None = None) -> bool:
 
 def kwin_on_bus(
     run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
+    *,
+    timeout: float = DBUS_TIMEOUT_S,
 ) -> bool:
     """Whether anything owns `org.kde.KWin` on the session bus.
 
@@ -240,7 +242,13 @@ def kwin_on_bus(
     so on GNOME or a wlroots compositor the Centre action could only fail.
     ADR-0007 has it disabled there (L2-L2). Unreadable is False: if the bus
     cannot be asked, neither can KWin.
+
+    `timeout` is what is left of the window's startup budget (LWSM-1484), so
+    none left is not asked at all and reads as unreadable.
     """
+    if timeout <= 0:
+        log.warning("no startup time left to ask the session bus whether KWin runs")
+        return False
     runner = subprocess.run if run is None else run
     try:
         result = runner(
@@ -254,7 +262,7 @@ def kwin_on_bus(
                 "string:org.kde.KWin",
             ],
             capture_output=True,
-            timeout=DBUS_TIMEOUT_S,
+            timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         log.warning("could not ask the session bus whether KWin runs: %s", exc)
@@ -638,7 +646,8 @@ def place_window(
     anyway. The size and the not-`None` are what the caller uses.
     """
     # KWin's presence is not re-asked here: the script's own calls answer
-    # `ServiceUnknown` without it, and fail honestly (LWSM-1170).
+    # `ServiceUnknown` without it, and fail honestly (LWSM-1170). The window
+    # keeps its build-time answer and does not call this on a no (LWSM-1484).
     if not placement_available(environ, which, has_kwin=lambda: True):
         return None
     # Guarded (LWSM-1277). `clamp_to_screens` and `kwin_script` do arithmetic
