@@ -13319,7 +13319,7 @@ LWSM-1036.
   Priority: 2.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1434] **An automatic save overwrites a hand edit made to projects.json while the app runs.**
+- ✅ [LWSM-1434] **An automatic save overwrites a hand edit made to projects.json while the app runs.**
   Priority: MEDIUM.
   Decided: the user took the recommendation, 2026-11-05. The question was: (LWSM-1007 § 6 accepts last-writer-wins between two
   app instances and § 9 leaves an mtime precondition out of scope, but neither names a
@@ -13332,6 +13332,24 @@ LWSM-1036.
   Not fixed now: it changes behaviour the spec states.
   After the first save `raw` is empty, so the backup does not hold a
   later hand edit either.
+  Resolved (2026-11-05, 8a0380c): LoadResult carries on_disk, the
+  SHA-256 of the bytes last read or written; load_after_save carries
+  each save's digest forward. On a difference save_projects copies the
+  file to projects.json.edited-<time> (numbered where taken), then
+  writes and returns that path; the window names it in the banner, the
+  silent confirmed-port save included. Backing up was chosen over
+  refusing: a refusal drops the app's own change (a hide, a browser
+  choice) at quit, while the copy keeps both versions and says where.
+  A file that cannot be read for the check, or a copy that cannot be
+  made, refuses the save. LWSM-1007 §§ 4.3, 6, 9, 10 amended. Red first:
+  test_a_hand_edit_after_the_load_is_set_aside_before_a_save,
+  test_a_hand_edit_after_an_earlier_save_is_set_aside_too,
+  test_a_second_hand_edit_in_the_same_second_gets_its_own_name,
+  test_a_save_over_a_hand_edit_says_where_the_edit_was_kept,
+  test_an_automatic_save_over_a_hand_edit_is_announced; guards
+  test_a_save_over_the_apps_own_last_write_sets_nothing_aside,
+  test_a_refused_save_sets_nothing_aside,
+  test_a_silent_save_with_nothing_set_aside_shows_nothing.
   **Layman:** If you edit the project list in a text editor while the app is open, the app's next automatic save can silently undo your edit.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 02, M2).

@@ -36,11 +36,15 @@ disagreement is reported.**
   remove plus an add, which the merge reports rather than
   silently reconciling.
 - **Each record has two halves.** *Detected* — launcher command,
-  declared port, runtime kind, systemd unit name — refreshed on
-  every scan. *User-owned* — display name, hidden flag, port
-  override, launcher override, notes, start-at-login flag, and
-  the **`actions` list** (`docs/design.md § Custom project
-  actions`) — never written by a scan.
+  declared port with where it was read and any conflicting
+  readings (LWSM-1385), the confirmed port (LWSM-1038), runtime
+  kind, systemd unit name — refreshed on every scan. *User-owned*
+  — display name, hidden flag, port override, launcher override,
+  notes, start-at-login flag, browser, health check and its page
+  (LWSM-1034), and the **`actions` list** (`docs/design.md § Custom
+  project actions`) — never written by a scan. The authoritative
+  lists are `DETECTED_FIELDS` and `USER_FIELDS` in
+  `src/lwsm/registry.py` (amended 2026-11-05, LWSM-1435).
 
   The `actions` list is user-owned by design and not merely by
   convention: a scan that discovered commands inside a project
@@ -57,9 +61,13 @@ disagreement is reported.**
     *override differs from detected*, so a stale override is
     visible instead of mysterious. **An unknown is not a change**
     (LWSM-1131 § 4.1): a rescan that cannot tell a project's port
-    keeps the stored port rather than erasing it. `port` is the only
-    detected field with an unknown value; for the others a
-    completed scan's value always wins.
+    keeps the stored port rather than erasing it. `port` is
+    unknown when the launcher could not be read cleanly, and
+    `unit` when the scan could not ask systemd
+    (`units_unavailable`, LWSM-1131 § 4.1). An unknown `unit` keeps
+    the stored launch fields together. For the other detected
+    fields a completed scan's value always wins (amended
+    2026-11-05, LWSM-1435).
   - **Missing:** in the registry, absent from disk → marked
     *missing*, kept, never auto-deleted. Removal is a user
     action, because an unmounted drive must not destroy the list.
@@ -79,8 +87,10 @@ disagreement is reported.**
   with that message until the user re-ports one of them. No
   silent winner, and no state where two rows both claim to own
   one port.
-- **Effective port** = port override if set, else declared port.
-  This is the value the pre-flight check tests and the value
+- **Effective port** = port override if set, else the confirmed
+  port — the port a poll last saw the project running on
+  (LWSM-1038) — else the declared port (amended 2026-11-05,
+  LWSM-1435). This is the value the pre-flight check tests and the value
   passed as `PORT` (ADR-0002). **An override is validated at
   entry** against the same 1024–65535 range ADR-0002 requires,
   and rejected in the UI with that reason. Otherwise an override

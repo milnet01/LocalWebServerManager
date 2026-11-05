@@ -1584,11 +1584,12 @@ def _detected_half_applied(
     form on the first rescan.
 
     The `port` qualifier is not a detail either: unqualified, this writes `None`
-    over a stored `3000` on the first unreadable launcher. `port` is the **only**
-    detected field with an unknown value at all. `unit`'s `None` is a real
-    value — it is what every non-systemd project has — and treating it as
-    unknown would keep a stale unit name forever on a project that stopped being
-    a service, which is this rule's own mirror image.
+    over a stored `3000` on the first unreadable launcher. From a scan that
+    asked systemd, `unit`'s `None` is a real value — it is what every
+    non-systemd project has — and treating it as unknown would keep a stale
+    unit name forever on a project that stopped being a service, which is this
+    rule's own mirror image. Only a scan that could not ask (`units_seen`
+    False) makes it unknown; the branch at the end says why.
 
     Derived from the set, not listed by hand (known-issue-044, LWSM-1322):
     listed, a fifth detected field would be classified correctly, keep INV-1
