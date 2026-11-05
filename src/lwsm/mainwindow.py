@@ -1133,10 +1133,14 @@ class ProjectRow(QFrame):
             max(metrics.horizontalAdvance(g) for g in STATE_GLYPHS.values())
             + layout.spacing()
         )
+        # On the state word's side, which a right-to-left layout mirrors to
+        # the right. Qt mirrors the cells but not these margins (measured
+        # 2026-11-05, LWSM-1476), so the side is chosen here.
+        glyph_left = 0 if self.isRightToLeft() else self._glyph_width
         layout.setContentsMargins(
-            self._base_margins.left() + self._glyph_width,
+            self._base_margins.left() + glyph_left,
             self._base_margins.top(),
-            self._base_margins.right(),
+            self._base_margins.right() + self._glyph_width - glyph_left,
             self._base_margins.bottom(),
         )
         # The browser column is FIXED and capped -- see `BROWSER_COLUMN_CHARS`.
@@ -1405,7 +1409,10 @@ class ProjectRow(QFrame):
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
-        if event.type() == QEvent.Type.FontChange:
+        if event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.LayoutDirectionChange,
+        ):
             self._apply_text_metrics()
 
     def hidden_by_user(self) -> bool:
@@ -1502,6 +1509,12 @@ class ProjectRow(QFrame):
         self.window().setAttribute(Qt.WidgetAttribute.WA_KeyboardFocusChange, False)
         self.update()
 
+    def _glyph_left(self) -> int:
+        """The glyph column's left edge, beside the state word (LWSM-1476)."""
+        if self.isRightToLeft():
+            return self.width() - self._base_margins.right() - self._glyph_width
+        return self._glyph_x
+
     def paintEvent(self, event: QPaintEvent) -> None:
         """Paint the state glyph, and the focus ring `QFrame` does not.
 
@@ -1529,7 +1542,7 @@ class ProjectRow(QFrame):
             # afterwards — the glyph would drift down the taller row and sit
             # beside nothing (LWSM-1032).
             QRect(
-                self._glyph_x,
+                self._glyph_left(),
                 self._state.y(),
                 self._glyph_width,
                 self._state.height(),

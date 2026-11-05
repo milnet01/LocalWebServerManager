@@ -366,6 +366,51 @@ def test_the_glyph_is_still_painted_after_leaving_the_label(
     )
 
 
+@pytest.mark.parametrize(
+    "direction",
+    [Qt.LayoutDirection.LeftToRight, Qt.LayoutDirection.RightToLeft],
+    ids=["ltr", "rtl"],
+)
+def test_the_glyph_sits_beside_the_state_word_in_either_direction(
+    qtbot, built, direction
+) -> None:
+    """LWSM-1476. The box layout mirrors in a right-to-left layout, so the
+    state word moves to the right edge; a glyph still painted at the left
+    sat a whole row away from the word it belongs to.
+
+    Measured from the pixels, over the whole row width, so it holds whatever
+    `_glyph_x` says: blank the glyph, re-render, and the difference is where
+    the glyph was. Both directions, so a glyph hardwired to either side
+    fails one.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
+    window.setLayoutDirection(direction)
+    row = rows_of(window)[0]
+    with qtbot.waitExposed(window):
+        window.show()
+    qtbot.waitUntil(lambda: row.layoutDirection() == direction, timeout=2000)
+
+    with_glyph = row.grab().toImage()
+    row._glyph_text = ""
+    without_glyph = row.grab().toImage()
+    xs = [
+        x
+        for y in range(with_glyph.height())
+        for x in range(with_glyph.width())
+        if with_glyph.pixel(x, y) != without_glyph.pixel(x, y)
+    ]
+    assert xs, "no glyph was painted"
+
+    word = row._state.geometry()
+    if direction == Qt.LayoutDirection.RightToLeft:
+        assert min(xs) >= word.right(), "the glyph is not on the word's right"
+        gap = min(xs) - word.right()
+    else:
+        assert max(xs) <= word.left(), "the glyph is not on the word's left"
+        gap = word.left() - max(xs)
+    assert gap <= row._glyph_width, f"the glyph is {gap} px from its word"
+
+
 def test_the_state_word_is_still_coloured_from_the_theme(qtbot, built) -> None:
     """LWSM-1077 moved the colour from composed CSS to a generated style sheet
     selecting on a dynamic property. This pins that the sheet reaches the label
