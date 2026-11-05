@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1494 -->
+<!-- ants-roadmap-id-high-water: LWSM=1495 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13753,6 +13753,25 @@ LWSM-1036.
   Kind: security.
   Source: security-pass-0.4.0-2026-11-05.
   Lanes: supervisor.
+
+- 📋 [LWSM-1495] **Three cases LWSM-1434's hand-edit protection does not cover.**
+  Priority: LOW.
+  Found building LWSM-1434 (2026-11-05), not fixed there:
+  (1) No projects.json at startup: a file that appears on disk before
+  the first save is overwritten, since there is no fingerprint to
+  compare.
+  (2) A hand edit landing between the comparison and the write is not
+  protected (a very short window).
+  (3) When the silent confirmed-port save both sets a file aside and
+  raises ConfigFileNotDurable, the banner shows nothing; it is logged
+  at WARNING only.
+  Likely shape: (1) treat "absent at load" as a fingerprint so a file
+  that appears counts as an edit; (3) let the durability path keep the
+  set-aside notice. (2) may be accepted as is; say so if so.
+  **Layman:** In three rare cases, a change you make to the project list by hand can still be lost or go unannounced.
+  Kind: fix.
+  Source: in-session-2026-11-05 (LWSM-1434 build).
+  Lanes: registry, mainwindow.
 
 ## 1.0.0 — A download for other people
 
