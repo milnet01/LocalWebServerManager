@@ -3478,6 +3478,49 @@ def test_a_file_deleted_by_hand_is_written_again_with_nothing_set_aside(
     assert path.exists() and _set_aside(path) == []
 
 
+def test_a_file_that_appears_after_a_first_run_load_is_set_aside(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1495 (1): with no file at startup there is no digest to compare,
+    so a list written by hand before the first save was overwritten. Absent
+    at load is the fingerprint: a file that is there now is an edit."""
+    path = tmp_path / "projects.json"
+    path.write_bytes(_HAND_EDIT)
+
+    aside = save_projects(path, [], load=RegistryMissing("first run"))
+
+    assert aside is not None and _set_aside(path) == [aside]
+    assert aside.read_bytes() == _HAND_EDIT
+    assert load_projects(path).records == [], "the save itself was not written"
+
+
+def test_a_first_run_save_with_still_no_file_sets_nothing_aside(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "projects.json"
+
+    assert save_projects(path, [], load=RegistryMissing("first run")) is None
+    assert path.exists() and _set_aside(path) == []
+
+
+def test_a_save_that_is_not_durable_still_names_the_set_aside_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """LWSM-1495 (3): `RegistryNotDurable` replaces the return value, so it
+    must carry the set-aside path itself for a caller that shows only that."""
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    path.write_bytes(_HAND_EDIT)
+    _written_but_not_durable(monkeypatch)
+
+    with pytest.raises(registry.RegistryNotDurable) as caught:
+        save_projects(path, [], load=loaded)
+
+    assert caught.value.set_aside is not None
+    assert _set_aside(path) == [caught.value.set_aside]
+    assert caught.value.set_aside.read_bytes() == _HAND_EDIT
+
+
 def test_a_refused_save_sets_nothing_aside(tmp_path: Path) -> None:
     """The gate runs first: a save that will not write moves nothing."""
     path = write(tmp_path, {"schema_version": 1, "projects": [one_good(), 7]})

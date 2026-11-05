@@ -4547,6 +4547,9 @@ class MainWindow(QMainWindow):
         if self._projects_file is not None and self._should_write(records):
             saved = True
             set_aside: Path | None = None
+            # Where an exception's own text already names the set-aside file,
+            # so the message must not name it twice (LWSM-1495).
+            named_in_message = False
             try:
                 set_aside = self._projects_file.save(
                     self._projects_file.path, records, load=self._load
@@ -4556,6 +4559,8 @@ class MainWindow(QMainWindow):
                 # is neither called unsaved nor left out of the refresh below
                 # (known-issue-047, LWSM-1322).
                 log.warning("the %s was saved but not made durable: %s", source, exc)
+                set_aside = exc.set_aside
+                named_in_message = True
                 message = _filled(
                     QCoreApplication.translate(
                         "ProjectRow", "%1 — saved, but may not survive a crash: %2"
@@ -4580,7 +4585,8 @@ class MainWindow(QMainWindow):
                     ),
                     str(set_aside),
                 )
-                message = f"{message} — {notice}" if message else notice
+                if not named_in_message:
+                    message = f"{message} — {notice}" if message else notice
                 if announce_set_aside:
                     self.set_status_message(notice)
             if saved:

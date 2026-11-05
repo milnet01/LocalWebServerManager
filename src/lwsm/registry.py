@@ -165,7 +165,15 @@ class RegistryNotDurable(RegistryError):
     reversed. A subclass for `RegistryMissing`'s reason — existing handlers
     keep working — so a caller can refuse to call a written file unsaved
     (known-issue-047, LWSM-1322).
+
+    `set_aside` is where the save kept a hand edit, or None: this exception
+    replaces `save_projects`' return value, so it carries that path itself
+    for a caller that shows nothing else (LWSM-1495).
     """
+
+    def __init__(self, message: str, set_aside: Path | None = None) -> None:
+        super().__init__(message)
+        self.set_aside = set_aside
 
 
 class RegistryMissing(RegistryError):
@@ -1192,11 +1200,15 @@ def save_projects(
     data = _encoded(path, records, load.unknown if isinstance(load, LoadResult) else ())
     if isinstance(load, LoadResult) and load.raw:
         _back_up(path, load.raw)
-    set_aside = (
-        _set_aside_if_edited(path, load.on_disk)
-        if isinstance(load, LoadResult) and load.on_disk is not None
-        else None
-    )
+    # A first run read no file, so absent is its fingerprint and a file that
+    # is there now was written by hand (LWSM-1495). A load built with no
+    # digest at all has nothing to compare against.
+    if isinstance(load, RegistryMissing):
+        set_aside = _set_aside_if_edited(path, None)
+    elif isinstance(load, LoadResult) and load.on_disk is not None:
+        set_aside = _set_aside_if_edited(path, load.on_disk)
+    else:
+        set_aside = None
 
     try:
         # The directory, the hostile-target refusal and the durable write, in
@@ -1210,7 +1222,7 @@ def save_projects(
         # file in its text: otherwise the one save that moved a hand edit
         # would be the one that did not say where.
         kept = "" if set_aside is None else f"; {set_aside_notice(set_aside)}"
-        raise RegistryNotDurable(f"{exc}{kept}") from exc
+        raise RegistryNotDurable(f"{exc}{kept}", set_aside) from exc
     except ConfigFileError as exc:
         # Converted rather than propagated: this function's contract, § 6 and
         # four tests all promise `RegistryError`, and `ConfigFileError` is its
@@ -1240,8 +1252,11 @@ def _unused_name(path: Path, label: str) -> Path:
     return candidate
 
 
-def _set_aside_if_edited(path: Path, expected: str) -> Path | None:
+def _set_aside_if_edited(path: Path, expected: str | None) -> Path | None:
     """Copy `path` aside when its bytes are not the `expected` digest.
+
+    `expected` None means the file was absent at load, so any file now is an
+    edit (LWSM-1495).
 
     A copy, not a rename: renamed away, a failed write after it would leave
     no file at `path`, and the next launch would read that as a first run
@@ -1258,7 +1273,7 @@ def _set_aside_if_edited(path: Path, expected: str) -> Path | None:
             f"{quoted(str(path))}: not writing; could not check whether it was "
             f"changed outside the app ({quoted(str(exc))})"
         ) from exc
-    if _digest(current) == expected:
+    if expected is not None and _digest(current) == expected:
         return None
     try:
         aside = _unused_name(path, "edited")

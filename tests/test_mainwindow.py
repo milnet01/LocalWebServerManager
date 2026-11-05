@@ -2395,6 +2395,36 @@ def test_an_automatic_save_over_a_hand_edit_is_announced(
     window.shutdown()
 
 
+def test_an_automatic_save_that_is_not_durable_still_announces_the_set_aside(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1495 (3): when the same save also could not be made durable, the
+    exception replaced the returned path and the banner showed nothing."""
+    from lwsm.configfile import ConfigFileNotDurable
+
+    window, controller, path = _window_over_a_real_file(qtbot, built, tmp_path)
+    window.set_status_message("")
+    path.write_bytes(_HAND_EDITED)
+    real = registry.write_atomically
+
+    def not_durable(target, data, **kwargs):
+        real(target, data, **kwargs)
+        raise ConfigFileNotDurable(f"{target}: written, but not made durable")
+
+    monkeypatch.setattr(registry, "write_atomically", not_durable)
+    controller.set_records(
+        [dataclasses.replace(controller.records()[0], confirmed_port=3000)]
+    )
+
+    controller.confirmed_ports_changed.emit()
+
+    kept = sorted(tmp_path.glob("projects.json.edited-*"))
+    assert len(kept) == 1 and kept[0].read_bytes() == _HAND_EDITED
+    shown = message_of(window)
+    assert "changed outside the app" in shown and kept[0].name in shown
+    window.shutdown()
+
+
 def test_a_silent_save_with_nothing_set_aside_shows_nothing(
     qtbot, built, tmp_path
 ) -> None:

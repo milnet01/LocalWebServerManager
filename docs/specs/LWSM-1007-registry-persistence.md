@@ -447,6 +447,8 @@ class LoadResult:
 class RegistryNotDurable(RegistryError):
     """Raised when step 4 fails: the file WAS written (LWSM-1322)."""
 
+    set_aside: Path | None  # the § 6 set-aside file, as the return would be (LWSM-1495)
+
 
 class RegistryMissing(RegistryError):
     """Raised when the file is absent. A subclass, so existing
@@ -788,7 +790,12 @@ that stops a hand-edited newline reaching the message banner or the log.
   window names the file in the banner, the silent confirmed-port save included
   (LWSM-1434). A copy that cannot be made, or a file that cannot be read for the
   comparison, refuses the save. A file deleted by hand is written again with
-  nothing set aside.
+  nothing set aside. A first run read no file, so absence is its fingerprint: a
+  file there at the first save is set aside the same way. A save that is also
+  not durable carries the path on `RegistryNotDurable.set_aside`, and the
+  silent save still names it (LWSM-1495). An edit landing between the
+  comparison and the write is not caught: no lock covers a text editor, and
+  the window is the length of one write.
 - **Two app instances write concurrently.** `os.replace` makes each write
   atomic, so no reader ever sees a half-file. The other instance's last save is
   set aside as above rather than lost, but each instance still writes its own
@@ -931,7 +938,7 @@ by asserting harder.
 | § 4.2 a dropped field's original text is lost | **nothing** — an accepted cost, stated in § 4.2 and § 8, not a rule |
 | § 4.2 port provenance not persisted | superseded — [LWSM-1385](LWSM-1385-port-provenance.md) § 10 owns the checks |
 | § 4.3 steps 4 and 6 (directory `fsync`, and its failure reported not reversed) | **nothing** — a durability claim a unit test cannot falsify without power loss; the call site is reviewed, not tested |
-| § 6 a file changed on disk is set aside before a save | `test_registry.py`: `test_a_hand_edit_after_the_load_is_set_aside_before_a_save`, `test_a_hand_edit_after_an_earlier_save_is_set_aside_too`, `test_a_save_over_the_apps_own_last_write_sets_nothing_aside`; `test_mainwindow.py`: `test_an_automatic_save_over_a_hand_edit_is_announced` (LWSM-1434) |
+| § 6 a file changed on disk is set aside before a save | `test_registry.py`: `test_a_hand_edit_after_the_load_is_set_aside_before_a_save`, `test_a_hand_edit_after_an_earlier_save_is_set_aside_too`, `test_a_save_over_the_apps_own_last_write_sets_nothing_aside`, `test_a_file_that_appears_after_a_first_run_load_is_set_aside`, `test_a_save_that_is_not_durable_still_names_the_set_aside_file`; `test_mainwindow.py`: `test_an_automatic_save_over_a_hand_edit_is_announced`, `test_an_automatic_save_that_is_not_durable_still_announces_the_set_aside` (LWSM-1434, LWSM-1495) |
 | § 9 five fields persisted but inert | **nothing** — deliberate; INV-3's round-trip proves they survive, and nothing reads them |
 
 **The `nothing` rows are limits or deliberate omissions rather than
@@ -1004,6 +1011,7 @@ log is split rather than restated.
 | 2 | 2026-08-13 | 3 (general-purpose, strong model), brief byte-identical to loop 1, no prior-loop findings disclosed | Q1 ×1 · Q2 ×3 · Q3 ×4 · Q4 ×1 | **9 verified, 0 dismissed, 9 fixed. Nothing from loop 1 resurfaced, so all fourteen of those fixes held.** **The finding about this loop is that every one of its nine landed in text loop 1 ADDED** — which is exactly what loop 1's own row predicted, and it is the measured shape `4a-min` describes rather than a fresh reading of the draft. **Two would have produced a test that fails against correct code.** INV-8 asked for a refusal message "within `MAX_REASON_CHARS`", which is unachievable: `_quoted` clips the *value* to 120 and appends an ellipsis, so one quoted value is already 121 characters before any template — and the loader's existing test states the right bound with the reasoning in a comment (`<= len(str(path)) + 3 * MAX_REASON_CHARS`). All three lanes found it. And INV-6's first-run fixture would have passed against a writer that never creates its parent directory, because `tmp_path` always exists. **That second one exposed a genuine hole rather than a test defect:** § 6 required the config directory "created `0700` before the first write" while § 1 says nothing in this item calls the writer, so the `mkdir` was assigned to nobody — now § 4.3 step 0, inside `save_projects`. **Three counts and types contradicted their own section.** The § 10 row parametrised the wrong-type rule "over all eight", the table's *row* count, where there are **eleven** optional keys — three rows pair two — which would have left `port_override`, `launcher_override` and `start_at_login` untested by the very case the row exists to force. INV-7 named four constants then called them "the three this item adds"; it adds two. And `added`'s type cell still read "RFC 3339 **UTC**" four lines above prose requiring a `+01:00` value to be preserved, so a loader following the table would drop the tie-break stamp LWSM-1131 depends on. **`actions` was fixed in loop 1 and still under-specified:** "opaque" gave no Python type, and both available readings are wrong — a `list` fails INV-3's `==` round-trip, and a `tuple[dict, ...]` makes the `frozen=True` `ProjectRecord` raise `TypeError` on `hash()`. Now one canonical-JSON string per element, with the normalised key order named as the cost. **Loop 1's `added` parse rule was unfalsifiable in the other direction** — "well-formed" was never defined, and `datetime.fromisoformat` is far broader than RFC 3339. Pinned by measurement, and **the refuting run corrected my own first wording**: I wrote "must carry a date, a time and a `tzinfo`", but `'2026-08-12'` parses to midnight and *has* a time, so the `tzinfo` clause alone does all the work and the longer rule merely read safer. One finding was mine: the `lstat`-then-`replace` race was unstated, and is now accepted explicitly with the reason a retry loop is wrong. **Two open questions resolved clean, not in the tally** (`scanner.MAX_DISPLAY_NAME_CHARS` exists; known-issue-034 names exactly the two constants INV-7 pins). **Phase 5's collateral rule applies and gates the next dispatch:** with nine of nine landing on last loop's additions, 4b was re-run over the whole seed-pair list instead — it found two more staleness items of my own (the `actions` § 10 row still claiming a byte-unchanged round-trip, and § 6 still implying a caller creates the directory), both fixed here. 888 → 946 lines. |
 | impl-1434 | 2026-11-05 | **none — no reviewer was dispatched** | — | **Amendment row, not a review.** LWSM-1434 (user decision 2026-11-05): a save now sets aside a file changed on disk since this session read or wrote it, and returns where. § 4.3's signatures, § 6, § 9 and § 10 amended to match the code. No gate is owed for an amendment (global rule 14). |
 | impl-1435 | 2026-11-05 | **none — no reviewer was dispatched** | — | **Amendment row, not a review.** LWSM-1435: § 4.1's field sets, § 4.2's pointers for the keys later items added, and § 4.3's account of where an `OSError` is converted brought in line with the code after LWSM-1038, LWSM-1131, LWSM-1187, LWSM-1034, LWSM-1357 and LWSM-1385. No gate is owed for an amendment (global rule 14). |
+| impl-1495 | 2026-11-05 | **none — no reviewer was dispatched** | — | **Amendment row, not a review.** LWSM-1495: § 6 sets aside a file that appeared after a first-run load, `RegistryNotDurable` carries the set-aside path, and the read-to-write window is recorded as accepted. No gate is owed for an amendment (global rule 14). |
 
 ## 13. Resource cost
 

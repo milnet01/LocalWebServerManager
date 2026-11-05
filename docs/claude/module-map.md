@@ -97,7 +97,10 @@ Added at P02 (LWSM-1005), contract in
   `save_projects` copies a file that no longer matches to
   `projects.json.edited-<time>` and returns that path for the window to show.
   `load_after_save` re-encodes the saved records to carry the digest forward,
-  because `raw` is emptied after the first save.
+  because `raw` is emptied after the first save. A first-run load counts as "absent", so
+  a file written by hand before the first save is set aside too, and
+  `RegistryNotDurable.set_aside` carries the path when the exception replaces
+  the return (LWSM-1495).
 - **`src/lwsm/health.py`** — core, no Qt at all (LWSM-1034). `ask`, the
   one place the app makes a request: an HTTP `GET` to `localhost:<port>`
   through `http.client`, which follows no redirect, returning the status code
