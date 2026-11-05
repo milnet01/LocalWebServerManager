@@ -4,7 +4,7 @@
 
 # LocalWebServerManager — Roadmap
 
-> **Current version:** 0.3.0. See
+> **Current version:** 0.4.0. See
 > [CHANGELOG.md](CHANGELOG.md) for what's shipped; this file
 > covers what's **planned**.
 >
