@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1502 -->
+<!-- ants-roadmap-id-high-water: LWSM=1503 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13874,24 +13874,34 @@ LWSM-1036.
   Source: in-session-2026-11-05 (LWSM-1434 build).
   Lanes: registry, mainwindow.
 
-- 📋 [LWSM-1496] **README still lists "what is using this port?" help as not there yet.**
+- ✅ [LWSM-1496] **README still lists "what is using this port?" help as not there yet.**
   Priority: LOW.
   README's "What is not there yet" names "what is using this port?" help
   as planned, but the port lookup shipped (LWSM-1041) and is under View.
   Seen while editing the neighbouring bullet for LWSM-1475; not fixed
   there because it is outside that item.
+  Shipped (2026-11-05, 0e35b0f). Removed the port lookup from "What is not
+  there yet" and added it to "What works now". The rest of the list was
+  checked against the roadmap and is still planned: live log panel
+  LWSM-1015, tray LWSM-1017, start at login LWSM-1027, downloadable
+  package LWSM-1021.
   **Layman:** The README says a feature is missing that the app already has.
   Kind: doc-fix.
   Source: lwsm-1475-work-2026-11-05.
   Lanes: docs.
 
-- 📋 [LWSM-1497] **design.md's SettingsDialog entry lists settings it does not edit.**
+- ✅ [LWSM-1497] **design.md's SettingsDialog entry lists settings it does not edit.**
   Priority: LOW.
   design.md's component list says SettingsDialog edits a slow-start
   threshold, theme and text size. There is no slow-start threshold
   (ADR-0004), and theme and text size are Settings-menu entries, not the
   dialog. It also omits the log cap and, since LWSM-1475, the single-key
   shortcuts switch. Seen 2026-11-05 while working LWSM-1475.
+  Shipped (2026-11-05, 65400e7). The entry now lists what
+  settingsdialog.py edits: scan roots, poll interval, log size cap and
+  single-key shortcuts. Theme and text size are named as Settings-menu
+  entries, and saving as __main__'s, not the Registry's. The diagram's
+  SettingsDialog -> ThemeManager edge, the same wrong claim, is removed.
   **Layman:** A design document describes the Preferences window wrongly.
   Kind: doc-fix.
   Source: lwsm-1475-work-2026-11-05.
@@ -13960,16 +13970,40 @@ LWSM-1036.
   Kind: review-fix.
   Source: LWSM-1462 split 2026-11-05.
 
-- 📋 [LWSM-1502] **A supervisor reaping test fails under heavy machine load.**
+- ✅ [LWSM-1502] **A supervisor reaping test fails under heavy machine load.**
   test_the_managed_child_is_not_reaped_before_the_stop_sequence_ends
   failed once in the full gate on 2026-11-05 (load average 32): its
   own precondition `len(seen) > 1` saw the wait loop turn only once.
   It passed 5 of 5 run alone straight after. The precondition depends
   on how many poll turns fit before the child exits, which load changes.
   Lanes: supervisor, tests.
+  Shipped (2026-11-05, 269b730). The test counted on the loop turning
+  after the child's exit by speed. Now a group member that ignores
+  SIGTERM holds the loop open until the test releases it, after two
+  turns have seen the child exited, so load cannot make the check
+  vacuous. Each turn also checks the PID is still a zombie. Red by
+  mutation: Popen.poll() each turn and psutil.wait_procs in _wait_for
+  both fail (the old test missed the second). 15/15 green at load 23-33.
   **Layman:** One automatic check sometimes fails when the computer is very busy, even though nothing is wrong.
   Kind: test.
   Source: local-ci 2026-11-05 (LWSM-1462 session).
+
+- ✅ [LWSM-1503] **traps.md's AT-SPI recipe does not work inside a sandboxed session.**
+  Priority: LOW.
+  The trap "offscreen cannot show what a screen reader hears" says to
+  walk Atspi.get_desktop(0). From a sandboxed session the real
+  accessibility bus refuses the connection. LWSM-1477 found it works
+  under dbus-run-session once at-spi-bus-launcher and
+  at-spi2-registryd are started by hand. Correct the trap.
+  Shipped (2026-11-05, e9e6792). The trap now gives the private-bus
+  setup, re-measured: the real a11y bus refused the connection, and under
+  dbus-run-session with the launcher and registryd started by hand a
+  PySide6 window on Xvfb showed up with its PID. A second trap records
+  that xdg-desktop-portal-kde and ksecretd outlive the private bus.
+  **Layman:** A note on how to check what a screen reader hears gives steps that fail when run by an automated session.
+  Kind: doc-fix.
+  Source: in-session-2026-11-05 (LWSM-1477).
+  Lanes: docs.
 
 ## 1.0.0 — A download for other people
 
