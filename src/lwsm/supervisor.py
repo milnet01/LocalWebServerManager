@@ -217,6 +217,9 @@ class ManagedProcess:
     log_path: Path
     log_fd: int
     port: int | None
+    # Adopted entries only: the boot-clock moment the group was last seen
+    # occupied by a process we can vouch for (LWSM-1494, `_vouched`).
+    vouched_at: float | None = None
 
     @property
     def pid(self) -> int:
@@ -1126,6 +1129,22 @@ def _alive(proc: psutil.Process) -> bool:
         return False
 
 
+# psutil reads a start time in clock ticks (1/100 s on Linux), rounded down,
+# so a process started up to one tick after a moment can read as started at it.
+START_TIME_RESOLUTION_SECONDS = 0.01
+
+
+def _boot_clock() -> float:
+    """Seconds since boot, suspend included: the clock a start time is read on."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
+def _started_since_boot(proc: psutil.Process) -> float:
+    """`proc`'s start on `_boot_clock`. psutil adds the boot time to the kernel's
+    ticks-since-boot, so taking it away again undoes no wall-clock reading."""
+    return proc.create_time() - psutil.boot_time()
+
+
 # --------------------------------------------------------------------------
 # The supervisor
 # --------------------------------------------------------------------------
@@ -1589,6 +1608,9 @@ class Supervisor:
         # Each refusal says which check failed (LWSM-1443). A `create_time`
         # mismatch is a reused PID, or a clock stepped between sessions
         # (LWSM-1448); without the line the two read like no record at all.
+        # Read before the checks: the leader passing them proves the group
+        # occupied at this moment (`_vouched`).
+        checked_at = _boot_clock()
         try:
             handle = psutil.Process(entry.pid)
             if handle.create_time() != entry.create_time:
@@ -1621,6 +1643,7 @@ class Supervisor:
             log_path=log_path,
             log_fd=fd,
             port=entry.port,
+            vouched_at=checked_at,
         )
 
     # -- stopping --------------------------------------------------------
@@ -1900,8 +1923,12 @@ class Supervisor:
         # parent reaps it the moment it exits, so `is_running()` turns False
         # while the server it left still runs in the group. There the guard is
         # the kernel's: a PID in use as a process-group id is not reissued
-        # while any member lives (LWSM-1428 § 4.4), and `reap_exited` drops the
-        # entry once the group is gone.
+        # while any member lives (LWSM-1428 § 4.4). That guard ends with the
+        # group, and `reap_exited` drops the entry only on its next tick, so
+        # once the leader is gone the group is walked and vouched for
+        # (`_vouched`, LWSM-1494) rather than judged by its id.
+        if managed.popen is None and not self._leader_alive(managed):
+            return any(proc.pid == pid for proc in self._group_members(managed))
         if managed.popen is not None:
             try:
                 if not managed.handle.is_running():
@@ -1928,6 +1955,7 @@ class Supervisor:
         That is the wrapper-script case LWSM-1009's acceptance names.
         """
         pgid = managed.pid
+        checked_at = _boot_clock()
         if pgid == os.getpgrp():
             # Unreachable while start_new_session=True holds, and checked anyway:
             # if it ever stopped holding, this function would signal the manager.
@@ -1961,7 +1989,45 @@ class Supervisor:
                 continue
         if not seen_leader:
             members.append(managed.handle)
-        return [proc for proc in members if _alive(proc)]
+        alive = [proc for proc in members if _alive(proc)]
+        if managed.popen is None and not self._vouched(managed, alive, checked_at):
+            return []
+        return alive
+
+    def _leader_alive(self, managed: ManagedProcess) -> bool:
+        """`_alive` on the leader, and for an adopted one, a fresh vouch: while
+        it lives, its PID, which is the group id, cannot be reissued."""
+        checked_at = _boot_clock()
+        alive = _alive(managed.handle)
+        if alive and managed.popen is None:
+            managed.vouched_at = checked_at
+        return alive
+
+    def _vouched(
+        self, managed: ManagedProcess, alive: list[psutil.Process], checked_at: float
+    ) -> bool:
+        """Whether an adopted group is still the one adopted (LWSM-1494).
+
+        An adopted leader is not our child, so nothing holds its PID once the
+        whole group has exited, and the kernel may then reissue that id to an
+        unrelated group. The id alone cannot tell the two apart. A member that
+        started before `vouched_at`, the last moment the group was seen
+        occupied, can: it has lived through the whole gap, so the group never
+        emptied and every process in it is ours. With none, the group is
+        treated as ended. That can disown a server whose every older process
+        exited within one tick, leaving only a newer one: the safe direction.
+        """
+        vouched = managed.vouched_at
+        if vouched is not None:
+            for proc in alive:
+                try:
+                    started = _started_since_boot(proc)
+                except psutil.Error:
+                    continue
+                if started <= vouched - START_TIME_RESOLUTION_SECONDS:
+                    managed.vouched_at = checked_at
+                    return True
+        return False
 
     def _wait_for(
         self,
@@ -2070,7 +2136,7 @@ class Supervisor:
         """
         collected: dict[Path, int | None] = {}
         for project, managed in self._entries().items():
-            if _alive(managed.handle):
+            if self._leader_alive(managed):
                 continue
             if self._group_members(managed):
                 continue
@@ -2161,7 +2227,7 @@ class Supervisor:
         managed = self._get(project)
         if managed is None:
             return False
-        return _alive(managed.handle) or bool(self._group_members(managed))
+        return self._leader_alive(managed) or bool(self._group_members(managed))
 
     def close(self) -> None:
         """Release our descriptors and threads, and **leave the servers running**.

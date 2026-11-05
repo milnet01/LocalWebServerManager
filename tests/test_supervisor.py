@@ -3830,6 +3830,53 @@ def test_adoption_leaves_a_project_with_a_start_or_stop_in_flight_alone(
         _reap(managed.popen)
 
 
+def test_an_adopted_group_id_reissued_after_the_group_ended_is_not_ours(
+    tmp_path: Path, project: Path, monkeypatch
+) -> None:
+    """LWSM-1494: an adopted entry outlived its group until the next upkeep
+    tick, and meanwhile ownership was judged by group id alone. Once every
+    member has exited the kernel may reissue that id, and a process in the
+    reissued group read as ours.
+
+    The reissue is simulated: a stranger started after the group ended is
+    reported as a member of the old group id.
+    """
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    write_launcher(project, "touch ready\nwhile [ ! -e go ]; do sleep 0.02; done\n")
+    argv = ("./start.sh",)
+    first.trust.confirm(project, launcher_fingerprint(project, argv))
+    managed = first.start(project, name="demo", argv=list(argv), port=None)
+    await_ready(project)
+    first.close()
+    second = started_session(tmp_path, record)
+    stranger = None
+    try:
+        assert second.adopt() == {project.resolve()}
+        (project / "go").touch()
+        managed.popen.wait(timeout=5)
+        stranger = subprocess.Popen(["sleep", "30"])
+        real_getpgid = os.getpgid
+
+        def reissued(pid: int) -> int:
+            return managed.pid if pid == stranger.pid else real_getpgid(pid)
+
+        monkeypatch.setattr(os, "getpgid", reissued)
+
+        assert not second.owns_pid(project, stranger.pid), "a stranger is ours"
+        assert not second.group_alive(project), "a reissued group is ours"
+        second.reap_exited()
+        assert project.resolve() not in second.running()
+        assert stranger.poll() is None, "the stranger was signalled"
+    finally:
+        monkeypatch.undo()
+        if stranger is not None:
+            stranger.kill()
+            stranger.wait()
+        second.close()
+        _reap(managed.popen)
+
+
 def test_an_adopted_server_stays_ours_after_its_launcher_exits(
     tmp_path: Path, project: Path
 ) -> None:

@@ -106,21 +106,31 @@ An adopted launcher is not this process's child, so it cannot be waited on.
   descriptor.
 - `close()` skips the poll.
 - `owns_pid` skips its `is_running()` gate on the leader, which an
-  adopted leader fails as soon as its new parent reaps it, and relies on
-  the group id alone (LWSM-1437; the argument below).
+  adopted leader fails as soon as its new parent reaps it (LWSM-1437).
+  Once the leader is gone it walks the group instead (LWSM-1494; the
+  argument below).
+- `_group_members` keeps an adopted group only while it can vouch for it.
+  `vouched_at` is the last moment the group was seen occupied: when the
+  leader passed adoption's checks, or was seen alive since. A walk that
+  finds a member started before `vouched_at`, less one start-time tick,
+  moves `vouched_at` to the walk. A walk that finds none returns no members.
 
-Everything else — `_group_members`, `stop`, `exited`,
-`group_alive`, `reap_exited`, `rotate_if_needed` — reads the handle, the group
-or the log descriptor, and is unchanged.
+Everything else — `stop`, `exited`, `group_alive`, `reap_exited`,
+`rotate_if_needed` — reads the handle, the group or the log descriptor, and
+is unchanged.
 
 **The PID-reuse argument changes for an adopted group.** For a spawned child,
 the unreaped leader keeps its PID reserved through the stop. An adopted leader
 is reaped by its new parent the moment it exits. Linux does not reissue a PID
 still in use as a process-group id, so the number stays reserved while any
-member lives. Once the whole group is gone, a re-enumeration could only match a
-stranger if the PID counter wrapped all the way round to it within the stop's
-wait. `pid_max` on this machine is 4194304. Every signal still goes through a
-`psutil.Process` handle, which refuses a reused PID.
+member lives. Once the whole group is gone, the id can be reissued, and the
+entry outlives the group until the next `reap_exited`. The id alone then
+cannot tell a stranger's group from ours (LWSM-1494). A member started before
+`vouched_at` can: it lived through the whole gap, so the group never emptied.
+With none, the group is treated as ended. That can disown a server whose
+every older process exited within one tick, leaving only a newer one; the
+safe direction. Every signal still goes through a `psutil.Process` handle,
+which refuses a reused PID.
 
 ## 5. Invariants
 
@@ -155,6 +165,12 @@ nothing.
   *Test:* `tests/test_supervisor.py::test_an_adopted_server_is_owned_and_stops`.
   *Breaks when:* `stop()` waits on a missing `Popen`, or leaves the group running.
 
+- **INV-7** — An adopted group id reissued after the group ended is not ours
+  (LWSM-1494).
+  *Test:* `tests/test_supervisor.py::test_an_adopted_group_id_reissued_after_the_group_ended_is_not_ours`.
+  *Breaks when:* a process in the reissued group is owned, kept alive by
+  `group_alive`, or keeps the entry through `reap_exited`.
+
 ## 6. Failure modes
 
 - **The file cannot be read, or is malformed.** Logged; nothing is adopted;
@@ -170,7 +186,7 @@ nothing.
 
 ## 7. Tests
 
-- `tests/test_supervisor.py` — INV-1, INV-2, INV-3, INV-4, INV-5, INV-6.
+- `tests/test_supervisor.py` — INV-1 to INV-7.
 
 The invariants' *Test:* lines name each test. Every test spawns real children in
 its own session and uses a `started.json` under the test's private
@@ -196,8 +212,8 @@ its own session and uses a `started.json` under the test's private
 
 | Clause | What checks it |
 |---|---|
-| INV-1 to INV-6 | the tests named on each |
-| § 4.4 PID-reuse argument | **nothing** — a kernel property, stated with the measured `pid_max` |
+| INV-1 to INV-7 | the tests named on each |
+| § 4.4 PID-reuse argument | INV-7's test, with the reissue simulated |
 | § 4.1 no path read from the file | **nothing mechanical** — read in review |
 
 ## 11. Cross-doc impact
