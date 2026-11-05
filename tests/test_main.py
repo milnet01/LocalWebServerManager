@@ -2109,7 +2109,7 @@ def test_a_trust_confirmation_survives_a_restart_of_the_app(
 ) -> None:
     """LWSM-1046, through `build_window`: the store is tested on its own in
     `test_supervisor.py`, and this is what proves the app hands it a file."""
-    from lwsm.supervisor import default_trust_path
+    from lwsm.stores import default_trust_path
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     projects = tmp_path / "projects.json"

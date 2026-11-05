@@ -32,9 +32,11 @@ from unittest import mock
 import psutil
 import pytest
 
+from lwsm import stores as stores_module
 from lwsm import supervisor as supervisor_module
 from lwsm.configfile import ConfigFileNotDurable, quoted
 from lwsm.ports import PortProbe, PortSnapshot
+from lwsm.stores import StartedEntry, StartedStore, TrustStore
 from lwsm.supervisor import (
     ENV_ALLOWLIST,
     MAX_LAUNCHER_BYTES,
@@ -45,11 +47,8 @@ from lwsm.supervisor import (
     LauncherUntrusted,
     ManagedProcess,
     PortAlreadyBound,
-    StartedEntry,
-    StartedStore,
     StopOutcome,
     Supervisor,
-    TrustStore,
     _launcher_path,
     build_child_env,
     launcher_fingerprint,
@@ -1718,7 +1717,8 @@ def test_a_server_outlives_a_manager_whose_desktop_unit_ends(tmp_path: Path) -> 
             import sys
             from pathlib import Path
             from lwsm.ports import PortSnapshot
-            from lwsm.supervisor import Supervisor, TrustStore, launcher_fingerprint
+            from lwsm.stores import TrustStore
+            from lwsm.supervisor import Supervisor, launcher_fingerprint
 
             class NothingListening:
                 def snapshot(self):
@@ -3262,13 +3262,13 @@ def test_a_confirmation_that_cannot_be_saved_still_holds_this_session(
 
 def _written_but_not_durable(monkeypatch) -> None:
     """`write_atomically` that writes, then reports the directory fsync failed."""
-    real = supervisor_module.write_atomically
+    real = stores_module.write_atomically
 
     def not_durable(path, data, **kwargs):
         real(path, data, **kwargs)
         raise ConfigFileNotDurable(f"{path}: written, but not made durable")
 
-    monkeypatch.setattr(supervisor_module, "write_atomically", not_durable)
+    monkeypatch.setattr(stores_module, "write_atomically", not_durable)
 
 
 def test_a_trust_file_written_but_not_durable_is_not_called_unsaved(
@@ -3787,6 +3787,21 @@ def test_a_bad_record_adopts_nothing(tmp_path: Path, text: str) -> None:
         assert not sup.running()
     finally:
         sup.close()
+
+
+def test_a_refused_started_record_is_logged_with_its_reason(
+    tmp_path: Path, caplog
+) -> None:
+    """LWSM-1492: the started record shares `TrustStore`'s reader but keeps
+    its own handling, a log line rather than a reason for the window."""
+    record = tmp_path / "started.json"
+    record.write_text('{"schema_version": 2, "started": []}', "utf-8")
+
+    with caplog.at_level("WARNING", logger=stores_module.log.name):
+        assert StartedStore(record).entries() == []
+
+    assert "schema_version 2 is not 1; adopting nothing" in caplog.text
+    assert str(record) in caplog.text
 
 
 def test_an_adopted_server_is_owned_and_stops(tmp_path: Path, project: Path) -> None:

@@ -242,7 +242,8 @@ its own session and uses a `started.json` under the test's private
 
 - ADR-0004 § Decision's "Nothing about runtime state is persisted" names this
   file as the one exception.
-- `docs/claude/module-map.md`'s `supervisor.py` entry names the record.
+- `docs/claude/module-map.md`'s `stores.py` entry names the record (moved
+  from `supervisor.py` by LWSM-1492).
 
 ## 12. Cold-eyes loop log
 

@@ -75,13 +75,13 @@ def build_window(
     )
     from lwsm.settings import load as load_settings
     from lwsm.settings import save as save_settings
-    from lwsm.supervisor import (
+    from lwsm.stores import (
         StartedStore,
-        Supervisor,
         TrustStore,
         default_started_path,
         default_trust_path,
     )
+    from lwsm.supervisor import Supervisor
     from lwsm.theme import theme_for_id
 
     log = applog.get_logger(__name__)

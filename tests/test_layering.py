@@ -41,6 +41,7 @@ CORE_MODULES = [
     "scanner.py",
     "scanroots.py",
     "settings.py",
+    "stores.py",
     "supervisor.py",
 ]
 

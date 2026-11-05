@@ -373,9 +373,7 @@ built under § Review cadence's build-first default:
 - **`src/lwsm/supervisor.py`** — core, no Qt at all, like
   `ports.py`; stop needs a worker thread and a plain
   `ThreadPoolExecutor` is enough for one. `Supervisor`,
-  `ManagedProcess`, `StopOutcome`, `TrustStore`, `StartedStore`
-  (`started.json`, the servers a relaunch adopts back; LWSM-1428),
-  `build_child_env`, `scope_prefix` (each server in its own
+  `ManagedProcess`, `StopOutcome`, `build_child_env`, `scope_prefix` (each server in its own
   systemd scope, ADR-0003), `validate_launcher`, `launcher_fingerprint`,
   and the refusals `LauncherRefused` / `LauncherUntrusted` /
   `PortAlreadyBound` / `AlreadyRunning`. **Stop signals the process
@@ -414,6 +412,14 @@ built under § Review cadence's build-first default:
   in the same `finally` shape and for the same reason. It gates `start()`
   alone: a second `stop()` still finds nothing and returns an empty outcome,
   which is what makes stop() idempotent.
+- **`src/lwsm/stores.py`** — core, no Qt at all. The two small files the
+  supervisor keeps: `TrustStore` (`trust.json`, the launchers the user
+  confirmed; LWSM-1046) and `StartedStore` with `StartedEntry`
+  (`started.json`, the servers a relaunch adopts back; LWSM-1428), plus their
+  `default_*_path` functions. Moved out of `supervisor.py` by LWSM-1492, with
+  one shared reader and writer. **The two stores fail differently on
+  purpose**: both err safe, but `TrustStore` keeps each reason in `reasons`
+  for the window, and `StartedStore` only logs.
 
 Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
 
