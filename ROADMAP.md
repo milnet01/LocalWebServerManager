@@ -14372,7 +14372,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-09.
   Lanes: settings.
 
-- 📋 [LWSM-1512] **A systemd project's port can come from a .env or README in its directory, against INV-17.**
+- ✅ [LWSM-1512] **A systemd project's port can come from a .env or README in its directory, against INV-17.**
   Priority: 3.
   scanner.py:2120-2125 `_settle_port(candidate, quoted, launcher.port,
   deadline, named_note)` runs for every launcher kind, SYSTEMD
@@ -14386,6 +14386,11 @@ LWSM-1036.
   Remedy: skip `_settle_port` for LauncherKind.SYSTEMD (the unit's
   port, or none). Add a .env decoy holding PORT= to INV-17's test, red
   before the fix.
+  Shipped 2026-11-05. scan() no longer calls _settle_port for a
+  SYSTEMD launcher: the port is the unit's or none, with no conflicts.
+  New test test_a_systemd_project_reads_no_port_from_its_directory
+  plants a .env and a README, with and without a unit port; red before
+  the fix (port 5555 from .env). INV-17's test list names it.
   **Layman:** For a project run by systemd, the app can take its port from a stray file in the folder instead of from systemd.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-03.

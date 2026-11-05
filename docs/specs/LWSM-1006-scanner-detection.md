@@ -1620,6 +1620,9 @@ is the property the derivation exists for.
   **The decoy port in the directory is what makes this falsifiable:** without
   it the test passes against an implementation that ignores the unit entirely
   and reads `serve.mjs`.
+  `serve.mjs` is no decoy for the `.env` and README the port-settling step
+  reads, so `::test_a_systemd_project_reads_no_port_from_its_directory` plants
+  both, with the unit's port and without one (LWSM-1512).
 
 - **INV-18** — `ScanResult.skipped` holds at most `MAX_SKIP_REASONS` entries
   plus one final entry naming the suppressed count, which is present whenever
@@ -1903,7 +1906,7 @@ orders of magnitude rather than by a hair — which is what keeps it off
 | INV-14 | `tests/test_layering.py::test_core_never_imports_qtwidgets`, `::test_the_core_module_list_matches_the_criterion` |
 | INV-15 | `tests/test_scanner.py::test_the_port_matcher_does_not_backtrack`, `::test_a_crafted_line_costs_the_rules_linear_time`, `::test_a_crafted_line_costs_the_hop_patterns_linear_time` |
 | INV-16 | `tests/test_scanner.py::test_the_app_does_not_detect_itself` |
-| INV-17 | `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit`, `::test_a_systemd_project_reads_exec_start_after_environment`, `::test_exec_start_is_a_record_and_only_its_argv_field_is_scanned` |
+| INV-17 | `tests/test_scanner.py::test_a_systemd_project_takes_its_port_from_the_unit`, `::test_a_systemd_project_reads_exec_start_after_environment`, `::test_exec_start_is_a_record_and_only_its_argv_field_is_scanned`, `::test_a_systemd_project_reads_no_port_from_its_directory` |
 | INV-18 | `tests/test_scanner.py::test_the_reason_list_is_capped_and_says_so`, `::test_a_newline_in_a_directory_name_cannot_forge_a_log_record`, `::test_the_source_of_a_port_finding_is_sanitised_like_a_reason`, `::test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours` |
 | INV-19 | `tests/test_scanner.py::test_a_commented_out_port_is_not_detected`, `::test_a_negative_number_is_not_a_port` |
 | INV-20 | `tests/test_scanner.py::test_nothing_inside_node_modules_is_read` |

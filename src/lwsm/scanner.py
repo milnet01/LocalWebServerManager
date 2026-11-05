@@ -2123,13 +2123,16 @@ def scan(
                     launcher = _detect(
                         candidate, raw_name, quoted, lookup, deadline, named_note
                     )
-                    port, conflicts = (
-                        (None, ())
-                        if launcher is None
-                        else _settle_port(
+                    if launcher is None:
+                        port, conflicts = None, ()
+                    elif launcher.kind is LauncherKind.SYSTEMD:
+                        # INV-17: the unit's port or none, never one from a
+                        # file in the project directory (LWSM-1512).
+                        port, conflicts = launcher.port, ()
+                    else:
+                        port, conflicts = _settle_port(
                             candidate, quoted, launcher.port, deadline, named_note
                         )
-                    )
                 except OSError as exc:
                     # Contained per candidate, and deliberately at the class
                     # rather than at the metadata calls that raise today:

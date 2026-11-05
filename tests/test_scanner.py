@@ -761,6 +761,31 @@ def test_a_systemd_project_takes_its_port_from_the_unit(corpus_tree: Path) -> No
     assert project.port.source == "the project-a.service unit"
 
 
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [("APP_PORT=4321", 4321), ("", None)],
+    ids=["unit-has-a-port", "unit-has-none"],
+)
+def test_a_systemd_project_reads_no_port_from_its_directory(
+    tmp_path: Path, environment: str, expected: int | None
+) -> None:
+    """INV-17 of LWSM-1006: "not from any file in the project directory"
+    (LWSM-1512). The corpus decoy is a `serve.mjs`, which the port-settling
+    step never reads; a `.env` and a README it does read. With the unit
+    silent the port is unknown, never the file's, and with the unit speaking
+    neither file is reported as a conflict."""
+    root = build_tree(tmp_path)
+    (root / "project-a" / ".env").write_text("PORT=5555\n")
+    (root / "project-a" / "README.md").write_text("Open http://localhost:6666\n")
+    units = corpus_units(root)
+    units.units["project-a.service"]["Environment"] = environment
+
+    project = by_name(scan_root(root, units))["project-a"]
+
+    assert (project.port and project.port.port) == expected
+    assert project.port_conflicts == ()
+
+
 EXEC_START_8080 = (
     "{ path=/usr/bin/node ; argv[]=/usr/bin/node serve.mjs --port 8080 ; pid=0 }"
 )
