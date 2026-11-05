@@ -401,6 +401,8 @@ class StartedEntry:
 
     ADR-0004's identity for a managed server — the launcher's PID plus its
     `create_time`. `name` only rebuilds the log path; no path is read back.
+    `since_boot` and `boot_id` carry the same identity off the wall clock
+    (LWSM-1448); an entry written before them has neither.
     """
 
     project: Path
@@ -408,6 +410,8 @@ class StartedEntry:
     pid: int
     create_time: float
     port: int | None
+    since_boot: float | None = None
+    boot_id: str | None = None
 
 
 class StartedStore:
@@ -473,6 +477,11 @@ class StartedStore:
                     "pid": entry.pid,
                     "create_time": entry.create_time,
                     "port": entry.port,
+                    **(
+                        {"since_boot": entry.since_boot, "boot_id": entry.boot_id}
+                        if entry.since_boot is not None
+                        else {}
+                    ),
                 }
                 for _project, entry in sorted(self._entries.items())
             ],
@@ -522,7 +531,18 @@ def _started_entry(raw: object) -> StartedEntry | None:
         return None
     if port is not None and type(port) is not int:
         return None
-    return StartedEntry(Path(project), name, pid, float(created), port)
+    # Both or neither (LWSM-1448). Neither is a file from before them, and
+    # adoption then falls back to `create_time`.
+    since_boot, boot_id = raw.get("since_boot"), raw.get("boot_id")
+    if since_boot is None and boot_id is None:
+        return StartedEntry(Path(project), name, pid, float(created), port)
+    if isinstance(since_boot, bool) or not isinstance(since_boot, (int, float)):
+        return None
+    if not isinstance(boot_id, str) or not boot_id:
+        return None
+    return StartedEntry(
+        Path(project), name, pid, float(created), port, float(since_boot), boot_id
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1140,9 +1160,42 @@ def _boot_clock() -> float:
 
 
 def _started_since_boot(proc: psutil.Process) -> float:
-    """`proc`'s start on `_boot_clock`. psutil adds the boot time to the kernel's
-    ticks-since-boot, so taking it away again undoes no wall-clock reading."""
-    return proc.create_time() - psutil.boot_time()
+    """`proc`'s start on `_boot_clock`, which no clock step moves.
+
+    psutil adds `/proc/stat`'s boot time to the kernel's ticks since boot, and
+    taking the boot time away again undoes that. Rounded to the tick, so the
+    same process gives the same value whatever the boot time read (LWSM-1448).
+    A clock step landing between the two reads is not covered.
+    """
+    return round(proc.create_time() - psutil.boot_time(), 2)
+
+
+def _boot_id() -> str | None:
+    """This boot's id, or None where the kernel does not say (LWSM-1448)."""
+    try:
+        with open("/proc/sys/kernel/random/boot_id", encoding="ascii") as f:
+            return f.read().strip() or None
+    except (OSError, ValueError):
+        return None
+
+
+def _identity_refusal(entry: StartedEntry, handle: psutil.Process) -> str:
+    """Why `handle` is not the process `entry` recorded, or "" if it is.
+
+    Off the wall clock where the entry allows (LWSM-1448): psutil's
+    `create_time` moves with a clock step, so comparing it read our own server
+    as a reused PID. An entry from before `since_boot` still compares it, and a
+    mismatch there is a reused PID or a clock stepped between sessions.
+    """
+    if entry.since_boot is None:
+        if handle.create_time() != entry.create_time:
+            return "pid %d has another create_time, so it is not the one started"
+        return ""
+    if entry.boot_id != _boot_id():
+        return "the machine has restarted since pid %d was started"
+    if _started_since_boot(handle) != entry.since_boot:
+        return "pid %d started at another time, so it is not the one started"
+    return ""
 
 
 # --------------------------------------------------------------------------
@@ -1555,12 +1608,20 @@ class Supervisor:
         """Write a started child to the record a later session adopts from."""
         try:
             created = managed.handle.create_time()
+            since_boot = _started_since_boot(managed.handle)
         except psutil.Error:
             # Exited already: there is nothing a later session could adopt.
             return
+        boot_id = _boot_id()
         self.started.add(
             StartedEntry(
-                managed.project, managed.name, managed.pid, created, managed.port
+                managed.project,
+                managed.name,
+                managed.pid,
+                created,
+                managed.port,
+                since_boot if boot_id is not None else None,
+                boot_id,
             )
         )
 
@@ -1605,20 +1666,15 @@ class Supervisor:
         return frozenset(taken)
 
     def _adoptable(self, entry: StartedEntry) -> ManagedProcess | None:
-        # Each refusal says which check failed (LWSM-1443). A `create_time`
-        # mismatch is a reused PID, or a clock stepped between sessions
-        # (LWSM-1448); without the line the two read like no record at all.
+        # Each refusal says which check failed (LWSM-1443).
         # Read before the checks: the leader passing them proves the group
         # occupied at this moment (`_vouched`).
         checked_at = _boot_clock()
         try:
             handle = psutil.Process(entry.pid)
-            if handle.create_time() != entry.create_time:
-                why = "pid %d has another create_time, so it is not the one started"
-            elif os.getpgid(entry.pid) != entry.pid:
+            why = _identity_refusal(entry, handle)
+            if not why and os.getpgid(entry.pid) != entry.pid:
                 why = "pid %d no longer leads its own process group"
-            else:
-                why = ""
         except (psutil.Error, OSError):
             log.info("not adopting %s: pid %d no longer runs", entry.name, entry.pid)
             return None

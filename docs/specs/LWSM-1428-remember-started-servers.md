@@ -53,7 +53,8 @@ this session.
   "schema_version": 1,
   "started": [
     {"project": "/abs/path", "name": "RetroDB", "pid": 2345212,
-     "create_time": 1761734512.43, "port": 5000}
+     "create_time": 1761734512.43, "port": 5000,
+     "since_boot": 81234.56, "boot_id": "fb6c764c-…"}
   ]
 }
 ```
@@ -65,6 +66,17 @@ this session.
   process-group id.
 - `create_time`: `psutil.Process.create_time()` taken at spawn.
 - `port`: the port passed as `PORT`, or `null`.
+- `since_boot` and `boot_id` (LWSM-1448): the start in seconds since boot,
+  to the kernel's 0.01 s tick, and `/proc/sys/kernel/random/boot_id`. Both
+  or neither; a file written before them has neither. `schema_version` stays
+  1: the fields are additive, and a reader that does not know them ignores
+  them.
+
+`create_time` is wall clock: psutil adds the boot time, read from
+`/proc/stat` on every call, to the start's ticks since boot. A clock step
+moves the boot time, so one process's `create_time` changes (psutil's own
+`boot_time` docstring says so). `since_boot` does not move, and `boot_id`
+tells a reboot apart, after which no stored PID can be the one started.
 
 Written whole through `configfile.write_atomically` after every change. With no
 path, the store is memory only, as `TrustStore` is; every test's `Supervisor`
@@ -86,7 +98,10 @@ gets that.
 poll. For each entry it builds a `psutil.Process(pid)` and takes the entry only
 if all of these hold:
 
-1. The process exists and its `create_time()` equals the stored one.
+1. The process exists and is the one started. With `since_boot` and
+   `boot_id` stored: `boot_id` is this boot's, and the process's start since
+   boot equals `since_boot`. Without them: its `create_time()` equals the
+   stored one.
 2. `os.getpgid(pid) == pid`: it is still the leader of the group it was
    started in.
 3. The project is not already in the registry, nor held by a start or stop
@@ -171,6 +186,13 @@ nothing.
   *Breaks when:* a process in the reissued group is owned, kept alive by
   `group_alive`, or keeps the entry through `reap_exited`.
 
+- **INV-8** — A clock step between sessions does not refuse our own server,
+  and a reboot refuses every entry recorded before it (LWSM-1448).
+  *Test:* `tests/test_supervisor.py::test_a_clock_step_between_sessions_still_adopts`,
+  `::test_an_entry_from_another_boot_is_not_adopted`.
+  *Breaks when:* adoption compares the wall-clock `create_time` where
+  `since_boot` is stored, or ignores `boot_id`.
+
 ## 6. Failure modes
 
 - **The file cannot be read, or is malformed.** Logged; nothing is adopted;
@@ -186,7 +208,7 @@ nothing.
 
 ## 7. Tests
 
-- `tests/test_supervisor.py` — INV-1 to INV-7.
+- `tests/test_supervisor.py` — INV-1 to INV-8.
 
 The invariants' *Test:* lines name each test. Every test spawns real children in
 its own session and uses a `started.json` under the test's private
@@ -212,7 +234,7 @@ its own session and uses a `started.json` under the test's private
 
 | Clause | What checks it |
 |---|---|
-| INV-1 to INV-7 | the tests named on each |
+| INV-1 to INV-8 | the tests named on each |
 | § 4.4 PID-reuse argument | INV-7's test, with the reissue simulated |
 | § 4.1 no path read from the file | **nothing mechanical** — read in review |
 

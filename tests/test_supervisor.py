@@ -3685,6 +3685,50 @@ def test_adoption_takes_only_the_same_process(tmp_path: Path, project: Path) -> 
         _reap(managed.popen)
 
 
+def test_a_clock_step_between_sessions_still_adopts(
+    tmp_path: Path, project: Path, monkeypatch
+) -> None:
+    """LWSM-1448, INV-8: psutil's `create_time` adds `/proc/stat`'s boot time,
+    which moves when the wall clock is stepped, so a clock correction between
+    two sessions read our own server as a reused PID and showed it foreign.
+
+    The step is simulated where psutil reads the boot time: two minutes on.
+    """
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    managed = start_sleeper(first, project)
+    first.close()
+    real_boot_time = psutil._pslinux.boot_time
+    monkeypatch.setattr(psutil._pslinux, "boot_time", lambda: real_boot_time() + 120)
+    second = started_session(tmp_path, record)
+    try:
+        assert second.adopt() == {project.resolve()}
+    finally:
+        second.stop(project, grace=0.5)
+        second.close()
+        _reap(managed.popen)
+
+
+def test_an_entry_from_another_boot_is_not_adopted(
+    tmp_path: Path, project: Path, monkeypatch, caplog
+) -> None:
+    """LWSM-1448, INV-8: after a reboot no stored PID is the one started, even
+    where a new process has the same PID and start since boot."""
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    managed = start_sleeper(first, project)
+    first.close()
+    try:
+        monkeypatch.setattr(supervisor_module, "_boot_id", lambda: "another-boot")
+        second = started_session(tmp_path, record)
+        with caplog.at_level("INFO", logger="lwsm.supervisor"):
+            assert second.adopt() == frozenset()
+        assert "restarted" in caplog.text
+        second.close()
+    finally:
+        _reap(managed.popen)
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -3698,6 +3742,8 @@ def test_adoption_takes_only_the_same_process(tmp_path: Path, project: Path) -> 
         '{"schema_version": 1, "started": [{"project": "/srv/a", "name": "a",'
         ' "pid": 4242, "create_time": "now", "port": null}]}',
         '{"schema_version": 1, "started": ["junk"]}',
+        '{"schema_version": 1, "started": [{"project": "/srv/a", "name": "a",'
+        ' "pid": 4242, "create_time": 1.0, "port": null, "since_boot": 1.0}]}',
     ],
     ids=[
         "not json",
@@ -3707,6 +3753,7 @@ def test_adoption_takes_only_the_same_process(tmp_path: Path, project: Path) -> 
         "bool pid",
         "text time",
         "not an object",
+        "half the boot identity",
     ],
 )
 def test_a_bad_record_adopts_nothing(tmp_path: Path, text: str) -> None:
@@ -3794,6 +3841,19 @@ def test_a_refused_adoption_says_which_check_failed(tmp_path: Path, caplog) -> N
             (Path("/srv/gone"), gone.pid, 1.0),
         ]:
             sup.started.add(StartedEntry(path, path.name, pid, when, None))
+        # LWSM-1448: with `since_boot` stored, that is what must match.
+        since_boot = supervisor_module._started_since_boot(psutil.Process(stranger.pid))
+        sup.started.add(
+            StartedEntry(
+                Path("/srv/later"),
+                "later",
+                stranger.pid,
+                created,
+                None,
+                since_boot + 5.0,
+                supervisor_module._boot_id(),
+            )
+        )
         with caplog.at_level("INFO", logger="lwsm.supervisor"):
             assert sup.adopt() == frozenset()
         sup.close()
@@ -3802,6 +3862,7 @@ def test_a_refused_adoption_says_which_check_failed(tmp_path: Path, caplog) -> N
         stranger.wait()
 
     text = caplog.text
+    assert "not adopting later" in text and "another time" in text
     assert "not adopting clock" in text and "create_time" in text
     assert "not adopting group" in text and "process group" in text
     assert "not adopting gone" in text and "no longer runs" in text
