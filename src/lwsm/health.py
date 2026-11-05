@@ -86,8 +86,9 @@ def _final_status(response: http.client.HTTPResponse) -> int | None:
         status = response.status
         if not 100 <= status < 200 or status == 101:
             return status
-        stream, response.fp = response.fp, None
-        response = http.client.HTTPResponse(_SameStream(stream), method="GET")
+        stream = response.fp
+        response.fp = None  # type: ignore[assignment]  # None: how the stdlib marks it closed
+        response = http.client.HTTPResponse(_SameStream(stream), method="GET")  # type: ignore[arg-type]
         response.begin()
     return None
 
