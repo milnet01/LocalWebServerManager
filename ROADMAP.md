@@ -13496,7 +13496,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 05, L4).
   Lanes: portlookup.
 
-- 📋 [LWSM-1458] **A health check reports a 103 Early Hints as the server's answer.**
+- ✅ [LWSM-1458] **A health check reports a 103 Early Hints as the server's answer.**
   Priority: LOW.
   `http.client` skips only `100 Continue`, so `health.ask` returns a
   `103 Early Hints` (RFC 8297) as the status, and the row shows
@@ -13505,12 +13505,22 @@ LWSM-1036.
   status line, and reporting 1xx as no answer would misreport a
   working server. Settle it by choosing between reading the final
   response off the same socket and reporting 1xx as interim.
+  Resolved (2026-11-05, 726cdf8): `health._final_status` reads each
+  further status line off the same buffered reader until one is not
+  interim (1xx other than 101), and gives up with no answer after
+  `MAX_INTERIM_REPLIES`. Decided without asking: reading the final reply
+  reports the server truly, while counting 1xx as no answer would
+  misreport a working server. LWSM-1034 INV-1 amended. Red first:
+  test_an_early_hints_reply_is_skipped_for_the_final_answer (103 == 503
+  failed); guard
+  test_a_server_sending_only_interim_replies_is_no_answer, which a
+  range(100) mutant fails.
   **Layman:** A site that sends an early 'hints' reply could show a meaningless code on its row instead of whether it works.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 05, L2).
   Lanes: health.
 
-- 📋 [LWSM-1459] **LWSM-1005 INV-16 names three pools that stop() waits for; it waits for four.**
+- ✅ [LWSM-1459] **LWSM-1005 INV-16 names three pools that stop() waits for; it waits for four.**
   Priority: LOW.
   INV-16 says `stop()` returns within one `STOP_WAIT_MS` for each of
   its snapshot, service and health pools. LWSM-1401 added the upkeep
@@ -13518,6 +13528,10 @@ LWSM-1036.
   four. The code follows the per-pool rule; the sentence lists three.
   Pre-existing, found while checking review-code-2026-11-04 lane 04's
   INFO note on the up-to-8 s total.
+  Resolved (2026-11-05, 3509ba2): INV-16 now names the snapshot,
+  service, health and upkeep pools; checked against
+  `ProjectController.stop`, which waits on all four within one
+  `STOP_WAIT_MS` each. Doc-only, no test owed; loop-log row added.
   **Layman:** A design document lists three of the four background jobs the app waits for when it quits.
   Kind: doc-fix.
   Source: review-code-2026-11-04 (lane 04, INFO).
@@ -13533,12 +13547,18 @@ LWSM-1036.
   is unmeasured. Settle it by measuring whether a `stat` read blocks
   behind a process stuck in uninterruptible sleep; then either move
   the answers into `_resolve_holders` or narrow the sentence.
+  Checked 2026-11-05 against the code after LWSM-1494 (not built; larger than the body says).
+  Three GUI-thread callers, not two: `_managed_paths`, `_our_ports`, and `_owns`, which `_classify` calls, so the module map's "`_classify` only reads the answers" is also not quite true.
+  Since LWSM-1494, for an adopted project whose leader has exited, `owns_pid` walks every PID on the machine (`_group_members`: `os.getpgid` on each, `is_running()` on members) on the GUI thread, once per held port per tick. Measured 2026-11-05 on this machine: 579 processes, a comparable walk took 0.8 ms median, 1.2 ms max over 20 runs. Cheap, but it is OS work on the GUI thread every tick.
+  Not measured: whether `is_running()`'s `/proc/<pid>/stat` read can block behind a process in uninterruptible sleep. Reproducing that needs a process holding its memory lock in D state (a hung FUSE or NFS mount), a harness that outlives this item.
+  Proposed shape for the move: `_resolve_holders` takes the supervisor and fills `owned[(path, pid)]` for each supervised path and each localhost holder, on the snapshot thread; `_managed_paths`, `_our_ports` and `_owns` read it, and a pair not in it reads not-ours (one tick late after a start: the safe direction). It needs `owns_pid` to be safe off the GUI thread: `_get` reads the table that start/stop change on the GUI thread, and `vouched_at` is then written from the snapshot and upkeep threads. The test fakes in test_controller.py and test_mainwindow.py change with it.
+  Waiting-on: user (move the ownership check off the window's thread as above, or narrow the module map's sentence to say this one check still runs there and costs about a millisecond? Recommended: narrow the sentence now, since nothing has been seen to block and the move adds a third thread reading the supervisor; reopen the move if a freeze is ever traced to it, 2026-11-05).
   **Layman:** The app may still ask the system a small question from its window's thread each second; it needs checking whether that can ever freeze it.
   Kind: investigate.
   Source: review-code-2026-11-04 (lane 04, open question).
   Lanes: controller, supervisor.
 
-- 📋 [LWSM-1461] **drop_in_seen compares path spellings, so a symlinked XDG_CONFIG_HOME may refuse a start.**
+- ✅ [LWSM-1461] **drop_in_seen compares path spellings, so a symlinked XDG_CONFIG_HOME may refuse a start.**
   Priority: LOW.
   `drop_in_seen` checks `str(path)` against systemd's `DropInPaths`.
   If `XDG_CONFIG_HOME` goes through a symlink or holds `..`, systemd
@@ -13547,6 +13567,14 @@ LWSM-1036.
   Settle it by running a user manager with a symlinked config folder
   and reading `DropInPaths`; that needs a test manager, not the real
   one.
+  Resolved (2026-11-05, 4edb16f): `drop_in_seen` keeps the exact match
+  and otherwise compares each listed path with `os.path.samefile`, so a
+  symlink or `..` spelling of our own file counts as read; a same-named
+  file elsewhere still does not. The systemd measurement was not run:
+  comparing files makes the answer independent of the spelling systemd
+  prints. ADR-0003 amended. Red first:
+  test_drop_in_seen_matches_another_spelling_of_the_same_file (False on
+  the symlinked spelling).
   **Layman:** On an unusual folder setup the app might refuse to start a login service it could have started.
   Kind: investigate.
   Source: review-code-2026-11-04 (lane 05, open question).
