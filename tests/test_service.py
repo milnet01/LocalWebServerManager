@@ -565,6 +565,32 @@ def test_drop_in_seen_keeps_a_quoted_space_in_one_path() -> None:
     assert REAL_SEEN("a.service", path, run=FakeRun(stdout=listed)) is True
 
 
+def test_drop_in_seen_matches_another_spelling_of_the_same_file(tmp_path) -> None:
+    """LWSM-1461. systemd builds its paths from its own `XDG_CONFIG_HOME`,
+    which may reach the same folder as this app's through a symlink or a
+    `..`. The file is the same, so the start must not be refused. A file of
+    the same name in another folder is still not seen.
+
+    Dies on comparing the spellings alone.
+    """
+    real = tmp_path / "real" / "systemd" / "user" / "a.service.d"
+    real.mkdir(parents=True)
+    (real / "50-lwsm-port.conf").write_text("")
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    ours = tmp_path / "link" / "systemd" / "user" / "a.service.d" / "50-lwsm-port.conf"
+    dotted = tmp_path / "real" / "systemd" / ".." / "systemd" / "user"
+    dotted = dotted / "a.service.d" / "50-lwsm-port.conf"
+    elsewhere = tmp_path / "other" / "a.service.d"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "50-lwsm-port.conf").write_text("")
+
+    for listed in (real / "50-lwsm-port.conf", dotted):
+        run = FakeRun(stdout=f"{listed}\n")
+        assert REAL_SEEN("a.service", ours, run=run) is True, listed
+    run = FakeRun(stdout=f"{elsewhere / '50-lwsm-port.conf'}\n")
+    assert REAL_SEEN("a.service", ours, run=run) is False
+
+
 def test_drop_in_seen_treats_unbalanced_quoting_as_no_answer() -> None:
     """LWSM-1429. An answer that cannot be read proves nothing, so it must not
     become the definite "not read" that refuses a start, or an exception out

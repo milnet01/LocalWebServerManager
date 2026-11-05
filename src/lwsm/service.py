@@ -519,7 +519,19 @@ def drop_in_seen(unit: str, path: Path, *, run: object = None) -> bool | None:
         listed = shlex.split(getattr(completed, "stdout", "") or "")
     except ValueError:
         return None
-    return str(path) in listed
+    if str(path) in listed:
+        return True
+    # systemd spells the path from its own XDG_CONFIG_HOME, which may reach
+    # the same folder through a symlink or `..` (LWSM-1461): the same file
+    # is read, so compare files, not spellings.
+    return any(_same_file(Path(entry), path) for entry in listed)
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
 
 
 def clear_drop_in(unit: str) -> UnitOutcome:

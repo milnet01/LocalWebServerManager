@@ -245,7 +245,7 @@ Environment=LWSM_MANAGED=1
 absolute. Then `systemctl --user daemon-reload` before starting, on
 every Start even when the bytes are unchanged, since an earlier reload
 may have failed; then `systemctl --user show -p DropInPaths` must list
-the file, or the start is refused, because the app's `$XDG_CONFIG_HOME`
+the file, under any spelling that reaches it (LWSM-1461), or the start is refused, because the app's `$XDG_CONFIG_HOME`
 can differ from the user manager's (review-code 2026-10-08 L05-M1,
 L05-L3). A unit
 made by `systemd-xdg-autostart-generator` reads the drop-in too: measured
