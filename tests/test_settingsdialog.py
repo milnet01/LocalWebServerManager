@@ -335,3 +335,60 @@ def test_a_language_change_retranslates_the_form(qtbot) -> None:
     dialog.changeEvent(QEvent(QEvent.Type.LanguageChange))
 
     assert dialog._roots_label.text() != "stale"
+
+
+def _roots_reporting_focus(dialog: SettingsDialog) -> list[str]:
+    """The folders whose accessible state says FOCUSED."""
+    from PySide6.QtGui import QAccessible
+
+    roots = QAccessible.queryAccessibleInterface(dialog._roots)
+    focused = []
+    for i in range(roots.childCount()):
+        item = roots.child(i)
+        if item.state().focused:
+            focused.append(item.text(QAccessible.Text.Name))
+    return focused
+
+
+def test_a_folder_reports_focused_only_while_the_list_has_focus(qtbot) -> None:
+    """LWSM-1505. Qt marks a list's CURRENT item focused whether or not the
+    list has focus, so with the poll box focused the bus still said "/srv/a"
+    had the focus (measured on a private AT-SPI bus, 2026-11-05) — the same
+    cause as LWSM-1504's browser picker. Coming back must land on the folder
+    the user left, not the first one, with the selection untouched; and when
+    the folders removed include the last one, on the new last folder."""
+    from PySide6.QtCore import Qt
+
+    dialog = build(qtbot, roots=("/srv/a", "/srv/b", "/srv/c", "/srv/d"))
+    dialog.show()
+    dialog.activateWindow()
+    qtbot.waitUntil(lambda: dialog.isActiveWindow())
+    roots = dialog._roots
+
+    roots.setFocus(Qt.FocusReason.TabFocusReason)
+    roots.setCurrentRow(3)
+    roots.item(2).setSelected(True)
+    assert roots.hasFocus()
+    assert _roots_reporting_focus(dialog) == ["/srv/d"]
+
+    dialog._poll.setFocus(Qt.FocusReason.TabFocusReason)
+    assert not roots.hasFocus()
+    assert _roots_reporting_focus(dialog) == []
+
+    roots.setFocus(Qt.FocusReason.BacktabFocusReason)
+    assert roots.currentRow() == 3, "coming back lost the folder the user left"
+    assert _roots_reporting_focus(dialog) == ["/srv/d"]
+    # Remove acts on the selection, so coming back must not change it.
+    assert sorted(item.text() for item in roots.selectedItems()) == [
+        "/srv/c",
+        "/srv/d",
+    ]
+
+    # Read from the view, not the accessible children: with no screen reader
+    # attached, Qt's cached cells still name the removed rows (measured).
+    # Qt's own fallback is the FIRST folder, which is what this tells apart.
+    dialog._remove.setFocus(Qt.FocusReason.TabFocusReason)
+    dialog._remove_roots()
+    roots.setFocus(Qt.FocusReason.BacktabFocusReason)
+    assert roots.currentItem() is not None, "nowhere for the keyboard to start"
+    assert roots.currentItem().text() == "/srv/b", "not the new last folder"

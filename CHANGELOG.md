@@ -30,6 +30,7 @@ signaling per
 
 ### Fixed
 
+- **Preferences no longer tells a screen reader a scan folder has focus while another control does.** The folder list in Preferences told the accessibility system that its current folder had the focus, even while you were in another field. That came from Qt, the same cause as the browser picker's. Tabbing back into the list still lands on the folder you left. (LWSM-1505)
 - **A screen reader is no longer told the browser choice has focus when it does not.** Each project's browser picker told the accessibility system that its "Auto" entry had the focus, even while you were somewhere else. That came from Qt, the toolkit the app is built on. The picker now reports focus only when its list is open. (LWSM-1504)
 - **Two more cases of a hand-edited project list are now kept and announced.** If the app started with no `projects.json` and you wrote one by hand before its first save, that save wrote over your file. It now keeps your file as `projects.json.edited-<time>`, as it does for any other hand edit. And when the automatic save of a confirmed port kept a hand edit but could not confirm it reached the disk, the banner said nothing. It now names the kept file. (LWSM-1495)
 - **Under Wayland the window no longer sometimes stays where KWin put it instead of where you left it.** The app hands KWin a small script that moves the window, and then cleans it up. About one time in seven hundred, the cleanup removed the script before KWin had run it, and the app never knew. The app now waits for KWin to say the script has run. (LWSM-1483)

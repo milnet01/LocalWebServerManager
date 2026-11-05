@@ -448,6 +448,12 @@ Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
   objects are in reach, which is what the `open_settings` seam was left for
   (LWSM-1146). `choose_directory` is an injected seam, for `confirm`'s
   reason: a real `QFileDialog` in a test hangs the run.
+  **`RootsList`** is the scan-roots list (LWSM-1505), for `BrowserPicker`'s
+  reason: its current folder reported FOCUSED on the accessibility bus while
+  another control had focus. It clears the current item when focus leaves and
+  puts it back when focus returns, which Qt's own `focusInEvent` does not once
+  it is cleared; when that folder was removed, focus resumes on the folder
+  now in its row, or on the last.
   **Both numbers apply without a restart** — `QTimer.setInterval` is honoured
   on a live timer, and `rotate_if_needed` re-reads `Supervisor.max_log_bytes`
   each poll. `settings.py` owns both defaults and `controller.POLL_INTERVAL_MS`

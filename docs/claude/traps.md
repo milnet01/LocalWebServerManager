@@ -532,6 +532,19 @@ window's portal registration activates `xdg-desktop-portal-kde` and
 `/proc/<pid>/environ` shows your private bus's
 `DBUS_SESSION_BUS_ADDRESS`. Measured 2026-11-05 (LWSM-1503).
 
+**Trap: with no screen reader attached, Qt's accessible list cells go stale
+when rows are removed.** Offscreen, `QAccessible.isActive()` is false, so the
+list's cached child interfaces are never told a row went: after a removal
+`child(i)` still names the old rows, one of them blank. Assert on the view
+(`currentItem()`, `selectedItems()`) after a model change. On the private
+bus the cells followed the removal. Measured 2026-11-05 (LWSM-1505).
+
+**Trap: a scroll area's viewport reports FOCUSED beside the view.** The
+viewport's focus proxy is its scroll area, so `hasFocus()` is true for both,
+and the bus shows a nameless `filler` child of a focused text view as focused
+too. It reports nothing while the view lacks focus. Measured 2026-11-05 on the
+log panel's output (LWSM-1505); left alone, see that item.
+
 **Trap: "the most common colour" is not a control's fill once it has a
 one-colour outline.** Fusion shades a button's fill across many near-equal
 colours, so the 1 px outline `OutlineStyle` paints round the perimeter

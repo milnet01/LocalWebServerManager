@@ -33,8 +33,14 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+from PySide6.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QItemSelectionModel,
+    QPersistentModelIndex,
+    Qt,
+)
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QFocusEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -78,6 +84,48 @@ POLL_STEP_MS = 250
 MARKER_LINES = 5
 
 
+class RootsList(QListWidget):
+    """The scan-roots list, minus a false "focused" while it lacks focus.
+
+    Qt's accessible list item reports FOCUSED when it is its view's current
+    item, whether or not the view has the focus, so with another control
+    focused the bus still said the current folder had it (LWSM-1505, measured
+    on a private AT-SPI bus; the cause LWSM-1504 found in `BrowserPicker`).
+    The current item is cleared when focus leaves and put back when it
+    returns, so the keyboard resumes on the folder the user left. Qt's own
+    `focusInEvent` does not put it back once it has been cleared.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # Where focus left from. The row is kept beside the index because
+        # removing that folder invalidates the index; the keyboard then resumes
+        # on the folder now in that row, or on the last one if the row went.
+        self._left_at = QPersistentModelIndex()
+        self._left_row = -1
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        super().focusOutEvent(event)
+        current = self.currentIndex()
+        self._left_at = QPersistentModelIndex(current)
+        self._left_row = current.row()
+        self.selectionModel().clearCurrentIndex()
+
+    def focusInEvent(self, event: QFocusEvent) -> None:
+        if not self.currentIndex().isValid() and self._left_row >= 0 and self.count():
+            row = (
+                self._left_at.row()
+                if self._left_at.isValid()
+                else min(self._left_row, self.count() - 1)
+            )
+            # NoUpdate: the selection is the user's, and Remove acts on it.
+            self.selectionModel().setCurrentIndex(
+                self.model().index(row, 0),
+                QItemSelectionModel.SelectionFlag.NoUpdate,
+            )
+        super().focusInEvent(event)
+
+
 class SettingsDialog(QDialog):
     """Scan roots, poll interval, log cap, single-key shortcuts, error markers."""
 
@@ -98,7 +146,7 @@ class SettingsDialog(QDialog):
         )
         self.setModal(True)
 
-        self._roots = QListWidget()
+        self._roots = RootsList()
         # The list is the one control here that can be empty and still be
         # correct: no roots means "scan the default", which is what
         # `default_scan_roots` falls back to. So there is no validation on it.

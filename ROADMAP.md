@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1505 -->
+<!-- ants-roadmap-id-high-water: LWSM=1506 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -14120,7 +14120,7 @@ LWSM-1036.
   Source: in-session-2026-11-05.
   Lanes: ui.
 
-- 📋 [LWSM-1505] **Check two more places Qt may report a false focused state on the accessibility bus.**
+- ✅ [LWSM-1505] **Check two more places Qt may report a false focused state on the accessibility bus.**
   Found 2026-11-05 while fixing LWSM-1504, not fixed there (§ O9 outcome 2).
   LWSM-1504's cause is Qt's: a list item reports FOCUSED when it is its
   view's current item, whether or not the view has focus. (1) Preferences'
@@ -14132,8 +14132,43 @@ LWSM-1036.
   follows; whether Orca or another tool reads the static state is
   unverified. Check each on the private bus, and fix the first the
   BrowserPicker way if it reports focused.
+  Resolved 2026-11-05. (1) Confirmed and fixed. On the private AT-SPI
+  bus, with the poll box focused, the scan-roots list item "/srv/a"
+  reported FOCUSED beside the real focus; offscreen too. Fix:
+  settingsdialog.RootsList clears the current item on focus-out and
+  puts it back on focus-in, with NoUpdate so the selection Remove acts
+  on is untouched; when that folder was removed, it resumes on the
+  folder now in its row, or the last. No shared helper with
+  BrowserPicker: the shared part is one call, and the triggers differ
+  (popup visibility, list focus). Re-walked on the bus: only the spin
+  button reports focused; tabbing back after a removal reports the
+  remaining folder. Test: test_a_folder_reports_focused_only_while_the_list_has_focus
+  (red first); mutation probes 6 of 6 killed. (2) Confirmed, not a
+  false focus elsewhere: the output view's viewport reports FOCUSED
+  only while the view has it, because its focus proxy is the view.
+  Not fixed; filed as LWSM-1506 with a proposed shape. Orca is not
+  installed, so neither case was checked against it.
   **Layman:** A screen reader might be told the wrong thing has focus in Preferences or the output panel; check whether it matters.
   Kind: investigate.
+  Source: in-session-2026-11-05.
+  Lanes: ui.
+
+- 💭 [LWSM-1506] **Decide whether a text view's viewport reporting focused beside the view needs fixing.**
+  Found by LWSM-1505 (2026-11-05), measured on a private AT-SPI bus.
+  While the log panel's output view has focus, its nameless viewport
+  (role filler) also reports FOCUSED, nested inside it. Cause: Qt makes a
+  scroll area's viewport take the area as its focus proxy, so hasFocus()
+  is true for both. It reports nothing while the view lacks focus, so it
+  never points away from the real focus. Preferences' error-markers
+  box does the same (measured offscreen; a list view does not expose its
+  viewport as a child, so lists are not affected). Orca is not
+  installed here, so whether it is misled is unverified. Proposed shape,
+  if a check shows it matters: a QAccessible.installFactory factory
+  (PySide6 exposes it) giving viewports an interface without the
+  focused state; clearing the focus proxy instead would change real
+  focus behaviour. Otherwise drop it as Qt's standard behaviour.
+  **Layman:** The output panel tells a screen reader that both the text box and an invisible part inside it have focus; probably harmless, but unchecked with a real screen reader.
+  Kind: accessibility.
   Source: in-session-2026-11-05.
   Lanes: ui.
 
