@@ -14172,7 +14172,7 @@ LWSM-1036.
   Source: in-session-2026-11-05.
   Lanes: ui.
 
-- 🚧 [LWSM-1507] **Two adoption tests failed on GitHub when they adopted a server within one start-time tick of its start.**
+- ✅ [LWSM-1507] **Two adoption tests failed on GitHub when they adopted a server within one start-time tick of its start.**
   test_an_adopted_server_is_owned_and_stops and
   test_an_adopted_server_stays_ours_after_its_launcher_exits failed 7 of
   15 GitHub runs on 2026-11-05 and never here. `_vouched` (LWSM-1494)
@@ -14185,9 +14185,37 @@ LWSM-1036.
   is older than two ticks before adopting, and pick the server by its
   `sleep 30` command line rather than the first `sleep` child, which
   could be the wait loop's `sleep 0.02`. No product code changed.
+  Commit ae2107b.
   **Layman:** GitHub's checks kept failing on two tests because its machines run them faster than ours; the tests now wait a hundredth of a second so the app's safety check can recognise the server.
   Kind: test.
   Source: user-request-2026-11-05.
+  Lanes: tests, ci.
+
+- ✅ [LWSM-1329] **Run the test suite in parallel, once the tests are proven to share no state.**
+  local-gate.md § 9's test-parallelism row. pytest is most of a push:
+  1688 tests in 58s locally (2026-09-28). Safe only once the tests share no
+  state and each has a timeout: the integration tests bind real sockets and
+  spawn real children, and some tests count processes with pgrep. So:
+  audit shared ports, temp paths and config directories; add pytest-xdist
+  and pytest-timeout; then measure before and after, and repeat-run the whole
+  suite under -n to check for flakes (§ 9 rules 1 and 3). Not taken on
+  2026-09-28, because a flaky push gate teaches --no-verify.
+  Shipped 2026-11-05 (user asked for CI speedups without flaky ones).
+  pytest-xdist 3.8.0, four workers in scripts/local-ci.sh,
+  LWSM_TEST_WORKERS overrides. Measured on a 12-core machine: 58s on one
+  process, about 16s on four, 13s on six, 15s on eight. Audit: literal
+  ports in tests are scanner-fixture text, not bound sockets; the
+  process scans in test_supervisor filter on the test's own process
+  group; the orphan check matched a bare prefix of its base temp dir, so
+  worker gw1 would have claimed gw10's processes at eleven or more
+  workers; fixed to match under the separator. Soak: 20 whole-suite runs
+  at four workers, ten of them squeezed onto two cores with taskset,
+  each under a new seed; all 2905 passed every time. pytest-timeout not
+  added: the job's 15-minute timeout already ends a hang, and nothing
+  hung.
+  **Layman:** The checks before each push could run several tests at once and finish sooner.
+  Kind: perf.
+  Source: session-message-161-2026-09-28.
   Lanes: tests, ci.
 
 ## 1.0.0 — A download for other people
@@ -14723,20 +14751,6 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Kind: chore.
   Source: in-session-2026-09-28 (global rule 18a).
   Lanes: docs.
-
-- 📋 [LWSM-1329] **Run the test suite in parallel, once the tests are proven to share no state.**
-  local-gate.md § 9's test-parallelism row. pytest is most of a push:
-  1688 tests in 58s locally (2026-09-28). Safe only once the tests share no
-  state and each has a timeout: the integration tests bind real sockets and
-  spawn real children, and some tests count processes with pgrep. So:
-  audit shared ports, temp paths and config directories; add pytest-xdist
-  and pytest-timeout; then measure before and after, and repeat-run the whole
-  suite under -n to check for flakes (§ 9 rules 1 and 3). Not taken on
-  2026-09-28, because a flaky push gate teaches --no-verify.
-  **Layman:** The checks before each push could run several tests at once and finish sooner.
-  Kind: perf.
-  Source: session-message-161-2026-09-28.
-  Lanes: tests, ci.
 
 - ✅ [LWSM-1344] **A profile import restores `actions` wholesale, a route design.md's by-type argument does not cover.**
   USER_FIELDS includes "actions" and user_half_applied restores every

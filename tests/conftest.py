@@ -396,6 +396,9 @@ def _no_orphans_outlive_the_run(tmp_path_factory):
     """
     yield
     base = str(tmp_path_factory.getbasetemp())
+    # Under the separator too: a parallel worker's base is `.../popen-gw1`,
+    # and a bare prefix would claim worker 10's `.../popen-gw10` (LWSM-1329).
+    within = base.rstrip(os.sep) + os.sep
     strays = []
     for proc in psutil.process_iter(["pid", "cmdline"]):
         try:
@@ -404,7 +407,7 @@ def _no_orphans_outlive_the_run(tmp_path_factory):
             # Gone between the listing and the question, or not ours to ask
             # about. Either way it is not evidence.
             continue
-        if not cwd.startswith(base):
+        if cwd != base and not cwd.startswith(within):
             continue
         strays.append(f"{proc.pid} {' '.join(proc.info['cmdline'] or [])} in {cwd}")
         with contextlib.suppress(psutil.Error, OSError):

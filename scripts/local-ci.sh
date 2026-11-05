@@ -269,10 +269,17 @@ order=()
 if head=$(git rev-parse --short=8 HEAD 2>/dev/null); then
     order=("--randomly-seed=$((16#$head))")
 fi
+# Four worker processes (LWSM-1329): GitHub's runner has four CPUs, and four
+# leave most of a developer's machine to everything else. Measured 2026-11-05
+# on a 12-core machine: 58s on one process, about 16s on four, no faster on
+# eight. Workers take tests as they free up, so which tests share a worker
+# differs between runs even under the same seed. LWSM_TEST_WORKERS overrides
+# the count; 0 runs on one process.
+workers=(-n "${LWSM_TEST_WORKERS:-4}")
 if [[ $FAST -eq 1 ]]; then
-    uv run pytest -q "${order[@]}" -m "not integration"
+    uv run pytest -q "${workers[@]}" "${order[@]}" -m "not integration"
 else
-    uv run pytest -q "${order[@]}"
+    uv run pytest -q "${workers[@]}" "${order[@]}"
 fi
 
 step "Shell scripts (shellcheck)"
