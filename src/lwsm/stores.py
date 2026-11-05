@@ -265,8 +265,21 @@ class StartedStore:
         self._entries: dict[Path, StartedEntry] = {}
         self._lock = threading.Lock()
         self._path = path
+        self._frozen = False
         if path is not None:
             self._load(path)
+
+    def freeze(self) -> None:
+        """Stop writing the file; entries still change in memory (LWSM-1447).
+
+        A quitting copy releases the single-instance socket before its queued
+        stops run, so a relaunch may write this file meanwhile. `_save` writes
+        this store's whole view, which never saw the relaunch's entries, so a
+        save from here would wipe them. A stop's entry left behind instead is
+        refused as gone by the next adoption (INV-3).
+        """
+        with self._lock:
+            self._frozen = True
 
     def _load(self, path: Path) -> None:
         # A repeated key leaves which of two PIDs, or two projects, is the
@@ -291,7 +304,7 @@ class StartedStore:
 
     def _save(self) -> None:
         """Write the whole set. Called with `_lock` held, so writes keep order."""
-        if self._path is None:
+        if self._path is None or self._frozen:
             return
         payload = {
             "schema_version": STARTED_SCHEMA_VERSION,

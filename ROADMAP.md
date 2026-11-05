@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1507 -->
+<!-- ants-roadmap-id-high-water: LWSM=1508 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13474,7 +13474,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 01, M2; synthesis theme 3).
   Lanes: supervisor.
 
-- 📋 [LWSM-1447] **Quit waits without a limit for every stop in flight before the next launch can claim the app.**
+- ✅ [LWSM-1447] **Quit waits without a limit for every stop in flight before the next launch can claim the app.**
   Priority: LOW.
   `Supervisor.close` calls `self._stoppers.shutdown(wait=True)`: about 9 s
   per stop, four at a time. It runs after `app.exec()` returns, so the
@@ -13500,6 +13500,18 @@ LWSM-1036.
   nothing for up to ~9 s per four stops. Option B, bounding close()
   with stops owning their descriptors, needs the same overlap and more
   code, 2026-11-05).
+  Decided: the user accepted the overlap and chose option A, 2026-11-05.
+  Release the single-instance socket before waiting for stops; a
+  quitting copy finishes its queued stops without writing started.json.
+  Shipped 2026-11-05, option A. main's quit order is now: poll loop,
+  rescan pool, freeze started.json (StartedStore.freeze, via
+  Supervisor/ProjectController.freeze_started_record), release the
+  socket, close the supervisor. Red first:
+  test_main_lets_a_relaunch_in_before_it_waits_for_stops and
+  test_a_stop_after_quit_began_leaves_a_relaunch_s_record_alone failed
+  before, pass after. LWSM-1428 INV-2 and section 6 folded back; module
+  map notes the overlap. Both copies write app.log during the overlap:
+  filed as LWSM-1508.
   **Layman:** Quitting while several servers are stopping can keep the app's process alive for many seconds after its window has gone, and a relaunch in that time does nothing.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 01, L6).
@@ -13607,7 +13619,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 04, INFO).
   Lanes: controller, docs.
 
-- 📋 [LWSM-1460] **owns_pid still asks the OS on the GUI thread, against the module map's LWSM-1401 sentence.**
+- ✅ [LWSM-1460] **owns_pid still asks the OS on the GUI thread, against the module map's LWSM-1401 sentence.**
   Priority: LOW.
   `_managed_paths` and `_our_ports` call `supervisor.owns_pid` in
   `_on_snapshot`, which runs psutil's `is_running()` (a
@@ -13623,6 +13635,13 @@ LWSM-1036.
   Not measured: whether `is_running()`'s `/proc/<pid>/stat` read can block behind a process in uninterruptible sleep. Reproducing that needs a process holding its memory lock in D state (a hung FUSE or NFS mount), a harness that outlives this item.
   Proposed shape for the move: `_resolve_holders` takes the supervisor and fills `owned[(path, pid)]` for each supervised path and each localhost holder, on the snapshot thread; `_managed_paths`, `_our_ports` and `_owns` read it, and a pair not in it reads not-ours (one tick late after a start: the safe direction). It needs `owns_pid` to be safe off the GUI thread: `_get` reads the table that start/stop change on the GUI thread, and `vouched_at` is then written from the snapshot and upkeep threads. The test fakes in test_controller.py and test_mainwindow.py change with it.
   Waiting-on: user (move the ownership check off the window's thread as above, or narrow the module map's sentence to say this one check still runs there and costs about a millisecond? Recommended: narrow the sentence now, since nothing has been seen to block and the move adds a third thread reading the supervisor; reopen the move if a freeze is ever traced to it, 2026-11-05).
+  Decided: the user chose to narrow the module map's sentence rather
+  than move the check, 2026-11-05. Reopen the move if a freeze is ever
+  traced to it.
+  Shipped 2026-11-05: module-map.md now names owns_pid as the one
+  GUI-thread OS call, with its four callers (a fourth,
+  _bound_off_localhost, found while editing), and corrects "_classify
+  only reads the answers". No code changed.
   **Layman:** The app may still ask the system a small question from its window's thread each second; it needs checking whether that can ever freeze it.
   Kind: investigate.
   Source: review-code-2026-11-04 (lane 04, open question).
@@ -13818,7 +13837,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 10, L2).
   Lanes: mainwindow, placement, appearance.
 
-- 📋 [LWSM-1485] **A keyboard-focused button held down hides its focus ring in its own fill.**
+- ✅ [LWSM-1485] **A keyboard-focused button held down hides its focus ring in its own fill.**
   Priority: LOW.
   `QPushButton:pressed` fills with `accent`, and `OutlineStyle` paints
   the focus ring in `Highlight`, which is also `accent`. Rendered
@@ -13839,6 +13858,10 @@ LWSM-1036.
   it reads as a thin band between button and window. If that is not
   enough, the other route from the original question (change the
   pressed fill instead) stays open.
+  Decided: the user approved merging branch lwsm-1485-focus-ring,
+  2026-11-05.
+  Shipped 2026-11-05: cherry-picked onto main as a8fb7a3; branch
+  deleted. test_theme.py passes.
   **Layman:** While you hold Space on a button, its focus outline blends into the button's pressed colour.
   Kind: accessibility.
   Source: review-code-2026-11-04 (lane 10, L3).
@@ -14217,6 +14240,21 @@ LWSM-1036.
   Kind: perf.
   Source: session-message-161-2026-09-28.
   Lanes: tests, ci.
+
+- 💭 [LWSM-1508] **Decide whether two copies sharing app.log during a quit overlap needs fixing.**
+  Priority: LOW.
+  Found while building LWSM-1447. `main` now releases the single-instance
+  socket before `close_supervisor` waits for stops in flight, so a relaunch
+  can run while the quitting copy still logs its stops. Two
+  `RotatingFileHandler`s on one file can lose a generation if either rotates
+  in that window; LWSM-1065 named that as half of why only one copy runs.
+  Rare: it needs a rotation inside a few seconds of overlap. Not measured.
+  Options: leave it; or have the quitting copy log to stderr once it has
+  released the socket, which drops its last stop lines from the file.
+  **Layman:** After quitting while servers are still stopping, a quick relaunch and the old copy can both write the app's log for a few seconds.
+  Kind: investigate.
+  Source: lwsm-1447-build-2026-11-05.
+  Lanes: main, applog.
 
 ## 1.0.0 — A download for other people
 

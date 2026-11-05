@@ -2186,6 +2186,17 @@ class ProjectController(QObject):
             if close is not None:
                 close()
 
+    def freeze_started_record(self) -> None:
+        """Stop the supervisor writing `started.json`, if there is one (LWSM-1447).
+
+        Optional on the supervisor, as `close` is, so test doubles need not grow
+        it.
+        """
+        if self._supervisor is not None:
+            freeze = getattr(self._supervisor, "freeze_started_record", None)
+            if freeze is not None:
+                freeze()
+
     def poll_once(self) -> None:
         if self._stopped:
             # A stray tick after stop() would re-arm delivery into a controller

@@ -398,6 +398,9 @@ def test_main_stops_the_controller_when_the_loop_returns(
             # descriptors and the stop worker (LWSM-1010).
             supervisor_closes.append(1)
 
+        def freeze_started_record(self) -> None:
+            return None
+
     shutdowns: list[int] = []
     supervisor_closes: list[int] = []
 
@@ -450,6 +453,9 @@ def test_one_failed_shutdown_step_does_not_defeat_the_other_two(
         def close_supervisor(self) -> None:
             done.append("close_supervisor")
 
+        def freeze_started_record(self) -> None:
+            return None
+
     class FakeWindow:
         def show(self) -> None:
             return None
@@ -464,7 +470,8 @@ def test_one_failed_shutdown_step_does_not_defeat_the_other_two(
     )
 
     assert main([]) == 0
-    assert done == ["close_supervisor", "shutdown"], (
+    # Rescan pool first, supervisor last (LWSM-1447).
+    assert done == ["shutdown", "close_supervisor"], (
         f"a failing stop() skipped the rest of the shutdown: {done}"
     )
     # Read from the real log file, not `caplog`: `main` calls
@@ -673,6 +680,9 @@ def test_main_releases_the_socket_when_it_exits(monkeypatch, tmp_path: Path) -> 
         def close_supervisor(self) -> None:
             return None
 
+        def freeze_started_record(self) -> None:
+            return None
+
     class Window:
         def show(self) -> None:
             return None
@@ -687,6 +697,51 @@ def test_main_releases_the_socket_when_it_exits(monkeypatch, tmp_path: Path) -> 
     assert seen == [True], "main() ran without claiming the socket"
     assert not os.path.exists(entry.instance_socket_path()), (
         "main() left its socket behind"
+    )
+
+
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+def test_main_lets_a_relaunch_in_before_it_waits_for_stops(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """LWSM-1447: closing the supervisor waits for every stop in flight, about
+    9 s per four, and a relaunch in that time found the socket and did nothing.
+
+    So the socket goes first, and the started record is frozen before it: once
+    the socket is gone a relaunch may write that record, and a stop the quitting
+    copy finishes must not overwrite it.
+    """
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    events: list[tuple[str, bool]] = []
+
+    def socket_live() -> bool:
+        return os.path.exists(entry.instance_socket_path())
+
+    class Controller:
+        def stop(self) -> None:
+            return None
+
+        def freeze_started_record(self) -> None:
+            events.append(("freeze", socket_live()))
+
+        def close_supervisor(self) -> None:
+            events.append(("close_supervisor", socket_live()))
+
+    class Window:
+        def show(self) -> None:
+            return None
+
+        def shutdown(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        entry, "build_window", lambda _path=None: (Window(), Controller())
+    )
+    assert main([]) == 0
+    assert events == [("freeze", True), ("close_supervisor", False)], (
+        f"the record must be frozen while the socket is held, and the socket "
+        f"released before the stops are waited for: {events}"
     )
 
 

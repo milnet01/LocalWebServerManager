@@ -38,7 +38,10 @@ from `CLAUDE.md` § Module map on 2026-10-15.)
   and exits 0 without ever opening `app.log`, and a socket nobody answers on
   is a crashed copy's leftover and is replaced. **It sets no socket
   options** — with any set, Qt renames the socket into place and silently
-  replaces a live copy's instead of failing (measured). `conftest.py` pins
+  replaces a live copy's instead of failing (measured). On quit, `main`
+  releases the socket before closing the supervisor, which waits for every
+  stop in flight (LWSM-1447). A relaunch can therefore run beside the quitting
+  copy's last stops, and both write `app.log` meanwhile. `conftest.py` pins
   `XDG_RUNTIME_DIR`, or a test calling `main()` finds the developer's own
   open copy and returns early.
 - **`src/lwsm/applog.py`** — the application log.

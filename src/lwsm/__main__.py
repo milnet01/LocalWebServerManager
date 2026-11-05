@@ -868,16 +868,24 @@ def main(argv: list[str] | None = None) -> int:
         shutdown_steps = (
             # Stops the timer and waits, bounded, for any outstanding probe.
             ("stop the poll loop", controller.stop),
+            # The rescan worker is a second pool with the same hazard, so it
+            # gets the same bounded wait rather than being left to
+            # `~QThreadPool`, which joins with no timeout at all. Before the
+            # socket goes, so a rescan has its bounded wait to finish before a
+            # relaunch can start.
+            ("wait for the rescan pool", window.shutdown),
+            # Before the socket goes: from then on a relaunch may write
+            # `started.json`, and a stop finishing here must not overwrite it.
+            ("stop writing the started record", controller.freeze_started_record),
+            # Closing removes the socket file, so the next launch finds no
+            # leftover and needs no stale-socket recovery. Before the
+            # supervisor closes, because that waits for every stop in flight,
+            # about 9 s per four, and a relaunch in that time did nothing
+            # (LWSM-1447). The user accepted the overlap, 2026-11-05.
+            ("release the single-instance socket", _release(claim)),
             # ADR-0003: the servers themselves are LEFT RUNNING, deliberately —
             # this releases our descriptors and threads and signals nothing.
             ("close the supervisor", controller.close_supervisor),
-            # The rescan worker is a second pool with the same hazard, so it
-            # gets the same bounded wait rather than being left to
-            # `~QThreadPool`, which joins with no timeout at all.
-            ("wait for the rescan pool", window.shutdown),
-            # Closing removes the socket file, so the next launch finds no
-            # leftover and needs no stale-socket recovery.
-            ("release the single-instance socket", _release(claim)),
         )
         for description, step in shutdown_steps:
             try:

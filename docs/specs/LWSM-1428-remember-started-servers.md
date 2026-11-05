@@ -153,11 +153,14 @@ which refuses a reused PID.
   *Test:* `tests/test_supervisor.py::test_a_start_is_recorded_and_a_stop_forgets_it`.
   *Breaks when:* `start()` spawns without writing the entry, or writes another PID.
 
-- **INV-2** — A stop, or a group found gone, removes the entry.
+- **INV-2** — A stop, or a group found gone, removes the entry. Once a quit
+  has frozen the record (LWSM-1447), a stop leaves the file unwritten.
   *Test:* `tests/test_supervisor.py::test_a_start_is_recorded_and_a_stop_forgets_it`,
-  `::test_a_group_that_ended_on_its_own_is_forgotten`.
+  `::test_a_group_that_ended_on_its_own_is_forgotten`,
+  `::test_a_stop_after_quit_began_leaves_a_relaunch_s_record_alone`.
   *Breaks when:* `stop()` or `reap_exited()` leaves the entry, so a later launch
-  tries to adopt a dead server.
+  tries to adopt a dead server; or a stop after the freeze rewrites the file
+  and wipes a relaunch's entry.
 
 - **INV-3** — Adoption takes an entry only when PID, `create_time` and group all
   match.
@@ -205,6 +208,12 @@ nothing.
   Accepted: without the launcher, nothing distinguishes our group from a
   stranger's.
 - **Two instances of the app.** The last writer wins, as for `trust.json`.
+- **A relaunch while the quitting copy finishes its stops** (LWSM-1447).
+  `main` freezes the record, then releases the single-instance socket, then
+  waits for the stops. A stopped server's entry stays in the file. A relaunch
+  may adopt it while the process lives and show it running until the reap;
+  once the process is gone, step 1 of § 4.3 refuses it. Accepted by the user,
+  2026-11-05.
 
 ## 7. Tests
 

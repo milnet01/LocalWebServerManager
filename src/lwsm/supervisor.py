@@ -1974,6 +1974,15 @@ class Supervisor:
             return False
         return self._leader_alive(managed) or bool(self._group_members(managed))
 
+    def freeze_started_record(self) -> None:
+        """Stop writing `started.json`, before a quit lets a relaunch in.
+
+        `main` calls it before releasing the single-instance socket, and
+        `close` waits for the queued stops after (LWSM-1447): see
+        `StartedStore.freeze`.
+        """
+        self.started.freeze()
+
     def close(self) -> None:
         """Release our descriptors and threads, and **leave the servers running**.
 

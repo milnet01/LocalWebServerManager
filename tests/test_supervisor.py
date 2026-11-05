@@ -3666,6 +3666,37 @@ def test_a_start_is_recorded_and_a_stop_forgets_it(
         sup.close()
 
 
+def test_a_stop_after_quit_began_leaves_a_relaunch_s_record_alone(
+    tmp_path: Path, project: Path
+) -> None:
+    """LWSM-1447: a quitting copy releases the single-instance socket before
+    its queued stops run, so a relaunch can record a server in between.
+
+    `_save` writes the store's whole view, and the quitting copy's view never
+    saw the relaunch's entry, so its stop wiped it. Once the record is frozen
+    the stop leaves the file alone; the stopped server's own entry stays
+    behind, and the next adoption refuses it as gone (INV-3).
+    """
+    record = tmp_path / "state" / "started.json"
+    quitting = started_session(tmp_path, record)
+    try:
+        start_sleeper(quitting, project)
+        quitting.freeze_started_record()
+
+        relaunch = StartedStore(record)
+        relaunch.add(StartedEntry(tmp_path / "other", "other", 4242, 1.5, 3001))
+
+        quitting.stop(project, grace=0.5)
+        assert 4242 in [entry["pid"] for entry in stored(record)], (
+            "the quitting copy's stop wiped the relaunch's server"
+        )
+        assert quitting.started.entries() == [], (
+            "the frozen store stopped tracking its own entries"
+        )
+    finally:
+        quitting.close()
+
+
 def test_a_group_that_ended_on_its_own_is_forgotten(
     tmp_path: Path, project: Path
 ) -> None:
