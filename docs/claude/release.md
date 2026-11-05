@@ -51,11 +51,10 @@ automated gate a release gets; the big review above is the other.
 Two things to know. **The verdict never reads "ready" while a check was
 skipped** — a blocker and a check that could not run are tracked
 separately, because "no blockers found" and "the blocker check did not
-run" must not print the same way. And **`--dry-bump` refuses on a dirty
-tree**: its revert is a `git checkout`, which destroys uncommitted work.
-That is the mistake LWSM-1067 made twice in one session, once taking a
-`roadmap_log` flip with it and leaving ROADMAP.md saying 📋 while the
-store said ✅.
+run" must not print the same way. And **`--dry-bump` works in a scratch worktree at HEAD**, never in your
+tree, and refuses on a dirty tree, whose changes HEAD would not hold. It
+once reverted with `git checkout` in your tree, which discarded a
+`roadmap_log` render made while it ran (LWSM-1067, LWSM-1510).
 
 `cut-release` still owns the release itself — this performs no bump, no
 commit, no tag and no publish.

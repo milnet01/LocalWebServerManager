@@ -12,6 +12,7 @@ text can only say which verdicts exist.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -276,8 +277,8 @@ def _tree_state(repo: Path, tmp_path: Path, *, git_fails: str | None) -> list[st
 def test_a_failed_status_query_never_reads_as_a_clean_tree(tmp_path) -> None:
     """`git status --porcelain` that failed printed nothing, which read as a
     clean tree (2026-10-08 review, L10-L3). TREE_CLEAN=1 is what lets
-    `--dry-bump` run its `git checkout --` revert, so a wrong "clean" there
-    can destroy uncommitted work.
+    `--dry-bump` try the bump on HEAD as the tree you have, so a wrong
+    "clean" there tests a tree you would not release.
     """
     repo = _repo_with_remote(tmp_path, reachable=True)
 
@@ -299,19 +300,30 @@ def test_a_clean_tree_still_reads_as_clean(tmp_path) -> None:
 # --- LWSM-1264: the dry bump has to unwind from anywhere ----------------------
 
 
-def _bump_repo(tmp_path: Path, *, second_writable: bool) -> Path:
-    """Two version-bearing files and a recipe naming both, in that order."""
+def _bump_repo(
+    tmp_path: Path, *, missing_third: bool = False, post_check: str = ""
+) -> Path:
+    """Two version-bearing files and a recipe naming both, in that order.
+
+    `missing_third` adds a recipe path that is not in the repository, so the
+    write loop fails on its third file. `post_check` goes into the recipe.
+    """
     work = tmp_path / "bump"
     work.mkdir()
     _run("git", "init", "-q", ".", cwd=work)
     (work / "first.txt").write_text('version = "0.1.0"\n')
     (work / "second.txt").write_text('version = "0.1.0"\n')
+    entry = (
+        '{{"path": "{}", "pattern": "version = \\"{{OLD}}\\"",'
+        ' "replace": "version = \\"{{NEW}}\\""}}'
+    )
+    names = ["first.txt", "second.txt"] + (["missing.txt"] if missing_third else [])
     (work / "recipe.json").write_text(
         '{"version_source": "first.txt", "version_pattern": "x", "files": ['
-        '{"path": "first.txt", "pattern": "version = \\"{OLD}\\"",'
-        ' "replace": "version = \\"{NEW}\\""},'
-        '{"path": "second.txt", "pattern": "version = \\"{OLD}\\"",'
-        ' "replace": "version = \\"{NEW}\\""}]}'
+        + ", ".join(entry.format(n) for n in names)
+        + "], "
+        + f'"post_check": {json.dumps(post_check)}'
+        + "}"
     )
     _run("git", "add", "-A", cwd=work)
     _run(
@@ -326,9 +338,12 @@ def _bump_repo(tmp_path: Path, *, second_writable: bool) -> Path:
         "first",
         cwd=work,
     )
-    if not second_writable:
-        (work / "second.txt").chmod(0o444)
     return work
+
+
+def _worktrees(repo: Path) -> list[str]:
+    listing = _run("git", "worktree", "list", "--porcelain", cwd=repo)
+    return [line for line in listing.splitlines() if line.startswith("worktree ")]
 
 
 def _dry_bump(repo: Path) -> subprocess.CompletedProcess[str]:
@@ -352,40 +367,59 @@ def _dry_bump(repo: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores the read-only bit")
-def test_a_write_that_fails_part_way_still_puts_the_tree_back(tmp_path) -> None:
+def test_a_write_that_fails_part_way_leaves_nothing_behind(tmp_path) -> None:
     """The write loop runs under the ERR trap (LWSM-1264).
 
-    A failure on the second of two files leaves through `fail`, so a revert
-    placed after the loop never runs and the first file stays bumped — a
-    half-applied version, which is the one state a dry run must never leave
-    behind. Armed on EXIT before the first write, it unwinds from anywhere.
+    A failure on the third file leaves through `fail`, so cleanup placed
+    after the loop never runs. Armed on EXIT before the first write, it
+    unwinds from anywhere: no half-bumped file, and no worktree left over.
     """
-    repo = _bump_repo(tmp_path, second_writable=False)
+    repo = _bump_repo(tmp_path, missing_third=True)
 
     done = _dry_bump(repo)
 
-    assert done.returncode != 0, "an unwritable file was not reported at all"
+    assert done.returncode != 0, "a missing recipe path was not reported at all"
     assert (repo / "first.txt").read_text() == 'version = "0.1.0"\n', (
-        "the tree was left half-bumped"
+        "the user's tree was bumped"
     )
+    assert len(_worktrees(repo)) == 1, "the dry-bump worktree was left behind"
 
 
-def test_a_successful_dry_bump_reverts_and_says_so(tmp_path) -> None:
-    """The other half: the normal path must still revert and report.
+def test_a_successful_dry_bump_checks_the_bump_and_leaves_the_tree_alone(
+    tmp_path,
+) -> None:
+    """The normal path: post_check sees the bumped files, the user's do not.
 
-    Without this, a `dry_bump` that failed before writing anything would
-    satisfy the test above.
+    The post_check greps its own working directory for the new version, so
+    this fails if the bump and the check ran in different trees.
     """
-    repo = _bump_repo(tmp_path, second_writable=True)
+    repo = _bump_repo(tmp_path, post_check="grep -q 0.2.0 first.txt second.txt")
 
     done = _dry_bump(repo)
 
     assert done.returncode == 0, done.stderr
     assert "bumped first.txt" in done.stdout, done.stdout
-    assert "OK reverted 2 file(s) to 0.1.0" in done.stdout, done.stdout
+    assert "OK post_check passed on the bumped tree" in done.stdout, done.stdout
     for name in ("first.txt", "second.txt"):
         assert (repo / name).read_text() == 'version = "0.1.0"\n', name
+    assert len(_worktrees(repo)) == 1, "the dry-bump worktree was left behind"
+
+
+def test_a_save_made_during_the_dry_bump_is_kept(tmp_path) -> None:
+    """LWSM-1510: another session's write during the dry bump survives it.
+
+    The dry bump used to write the user's tree and `git checkout --` the
+    recipe paths afterwards. ROADMAP.md is one of them, and a roadmap_log
+    render landing in that window was discarded. The post_check here stands
+    in for that session, writing a recipe path in the user's tree.
+    """
+    saved = tmp_path / "bump" / "second.txt"
+    repo = _bump_repo(tmp_path, post_check=f"echo saved > {saved}")
+
+    done = _dry_bump(repo)
+
+    assert done.returncode == 0, done.stderr
+    assert saved.read_text() == "saved\n", "the other session's save was discarded"
 
 
 # --- LWSM-1268: the trigger list and the sentence about it -------------------

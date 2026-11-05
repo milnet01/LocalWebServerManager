@@ -22,8 +22,8 @@
 #   ./scripts/local-release.sh              # everything that needs no target
 #   ./scripts/local-release.sh 0.1.0        # the full preflight for 0.1.0
 #   ./scripts/local-release.sh 0.1.0 --dry-bump
-#                                           # also apply the bump, run
-#                                           # post_check, and revert
+#                                           # also apply the bump and run
+#                                           # post_check in a scratch worktree
 set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
@@ -41,9 +41,9 @@ usage() {
     printf 'usage: %s [X.Y.Z] [--dry-bump]\n' "$0"
     printf '  X.Y.Z       the version you intend to cut; omitted, the checks\n'
     printf '              that need one are reported as SKIPPED\n'
-    printf '  --dry-bump  apply the recipe, run post_check, then revert.\n'
-    printf '              Refuses on a dirty tree — the revert is a git\n'
-    printf '              checkout and would destroy uncommitted work\n'
+    printf '  --dry-bump  apply the recipe and run post_check in a scratch\n'
+    printf '              worktree at HEAD. Refuses on a dirty tree, whose\n'
+    printf '              changes HEAD would not hold\n'
 }
 
 TARGET=""
@@ -192,8 +192,8 @@ PY
 # --- 0c: tree state ----------------------------------------------------------
 
 # A failed `git status` prints nothing, which reads as a clean tree (L10-L3).
-# TREE_CLEAN=1 is what lets --dry-bump revert with `git checkout --`, so an
-# unanswered query must leave it 0.
+# TREE_CLEAN=1 is what lets --dry-bump try the bump on HEAD as the tree you
+# have, so an unanswered query must leave it 0.
 tree_state() {
     local status
     if ! status=$(git status --porcelain); then
@@ -503,32 +503,34 @@ done
 
 # --- optional: prove the bump applies and post_check passes ------------------
 
-# Apply the recipe's bump, run its post_check, and ALWAYS put the tree back.
+# Apply the recipe's bump and run its post_check in a detached worktree at HEAD,
+# never in the user's tree (LWSM-1510). The bump used to write the user's tree
+# and `git checkout --` the recipe paths afterwards. ROADMAP.md is one of them,
+# any roadmap_log write re-renders it, and several sessions share this
+# repository, so a render landing between the clean-tree check and the revert
+# was discarded. That checkout also reverted nothing at all when one recipe path
+# had moved, since one unknown path fails the whole command.
 #
-# The revert is armed on EXIT before the first write (LWSM-1264). The write loop
-# runs under the ERR trap, so a failure part way through — an unwritable file, a
-# recipe path that has moved — leaves through `fail` and never reaches a revert
-# placed after it, leaving the tree half-bumped: the exact state this exercise
-# exists to avoid. A Ctrl-C unwinds the same way. The reasoning below about
-# post_check was already right and covered one of the two windows.
+# The worktree sits beside the git directory, on the repository's own disk, as
+# the pre-push hook's does: `$TMPDIR` is RAM on the author's machine.
 #
-# BUMPED_PATHS is global rather than `local`, and the reason is narrower than it
-# looks: measured 2026-09-07, bash still sees a function's locals in an EXIT
-# trap that fires from inside it, so `local` passes every test here. What it
-# would not survive is the trap firing after this function has been left, where
-# the name is gone and `set -u` turns the expansion into an error inside a trap
-# — which nothing reports.
+# Its removal is armed on EXIT before the first write (LWSM-1264). The write
+# loop runs under the ERR trap, so a failure part way through leaves through
+# `fail` and never reaches cleanup placed after it. A Ctrl-C unwinds the same
+# way.
+#
+# DRY_BUMP_ROOT and DRY_BUMP_WORKTREE are global rather than `local`: measured
+# 2026-09-07, bash still sees a function's locals in an EXIT trap that fires
+# from inside it, but not once the function has been left, where `set -u` turns
+# the expansion into an error inside a trap — which nothing reports.
 dry_bump() {
     local old=$1 new=$2 recipe=$3 post_check bump_failed=0
 
-    # Revert only the recipe's own paths, never `git checkout -- .`.
-    mapfile -t BUMPED_PATHS < <(python3 - "$recipe" <<'PY'
-import json, sys
-for e in json.loads(open(sys.argv[1]).read())["files"]:
-    print(e["path"])
-PY
-)
-    trap 'git checkout -- "${BUMPED_PATHS[@]}" 2>/dev/null || true' EXIT
+    DRY_BUMP_ROOT=$(git rev-parse --show-toplevel)
+    DRY_BUMP_WORKTREE=$(mktemp -d "$(git rev-parse --path-format=absolute --git-common-dir)/lwsm-dry-bump.XXXXXX")
+    trap 'git -C "$DRY_BUMP_ROOT" worktree remove --force "$DRY_BUMP_WORKTREE" 2>/dev/null || true' EXIT
+    git worktree add --detach --quiet "$DRY_BUMP_WORKTREE" HEAD
+    cd "$DRY_BUMP_WORKTREE"
 
     python3 - "$recipe" "$old" "$new" <<'PY'
 import json, sys
@@ -549,7 +551,7 @@ print(json.loads(open(sys.argv[1]).read()).get("post_check", ""))
 PY
 )
     if [[ -n $post_check ]]; then
-        # Not under the ERR trap: the revert MUST run even when this fails.
+        # Not under the ERR trap: cleanup MUST run even when this fails.
         if eval "$post_check"; then
             ok "post_check passed on the bumped tree"
         else
@@ -559,9 +561,10 @@ PY
         skip "post_check (the recipe defines none)"
     fi
 
-    git checkout -- "${BUMPED_PATHS[@]}"
+    cd "$DRY_BUMP_ROOT"
+    git worktree remove --force "$DRY_BUMP_WORKTREE"
     trap - EXIT
-    ok "reverted ${#BUMPED_PATHS[@]} file(s) to $old"
+    ok "bumped a scratch worktree to $new; your tree was not written"
 
     if ((bump_failed)); then
         block "post_check failed on the bumped tree"
@@ -570,9 +573,9 @@ PY
 }
 
 if ((DRY_BUMP)); then
-    step "Dry bump (writes, then reverts)"
+    step "Dry bump (in a scratch worktree)"
     if ((TREE_CLEAN == 0)); then
-        fail "--dry-bump refuses on a tree not known to be clean: the revert is a git checkout, and it would destroy uncommitted work"
+        fail "--dry-bump refuses on a tree not known to be clean: it tries the bump on HEAD, which would not hold your uncommitted changes"
     fi
     [[ -n $TARGET ]] || fail "--dry-bump needs a target version"
     dry_bump "$OLD" "$TARGET" "$RECIPE"

@@ -14312,7 +14312,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-01, lane-03.
   Lanes: supervisor, scanner.
 
-- 📋 [LWSM-1510] **local-release.sh --dry-bump can silently discard a ROADMAP.md render made during its network checks.**
+- ✅ [LWSM-1510] **local-release.sh --dry-bump can silently discard a ROADMAP.md render made during its network checks.**
   Priority: 3.
   scripts/local-release.sh:212-213 (`tree_state`, step 0c), :531
   (`trap 'git checkout -- "${BUMPED_PATHS[@]}" ...' EXIT`) and :562
@@ -14330,6 +14330,13 @@ LWSM-1036.
   longer the bumped text.
   Hazard: until fixed, do not run --dry-bump while another session may
   write the roadmap.
+  Shipped 2026-11-05. dry_bump() now bumps and runs post_check in a
+  detached worktree at HEAD, beside the git directory, and removes it
+  on EXIT; the user's tree is never written, so nothing is reverted.
+  Also fixed: the old `git checkout --` reverted nothing when one recipe
+  path had moved, since one unknown path fails the whole command. The
+  dirty-tree refusal stays, with its reason changed: the bump is tried
+  on HEAD. Tests: tests/test_local_release.py, the three dry-bump tests.
   **Layman:** A release rehearsal can quietly throw away a roadmap update another session saved while it was running.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-13.
