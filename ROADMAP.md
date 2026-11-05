@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1501 -->
+<!-- ants-roadmap-id-high-water: LWSM=1502 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -13589,7 +13589,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 05, open question).
   Lanes: service.
 
-- 📋 [LWSM-1462] **Four ADR-0003 and ADR-0004 questions from the 2026-11-04 review need a decision.**
+- ✅ [LWSM-1462] **Four ADR-0003 and ADR-0004 questions from the 2026-11-04 review need a decision.**
   Priority: LOW.
   (a) A foreign server whose children come and go changes its set on
   every re-read, so ADR-0004's ask-again rule can never stop it.
@@ -13608,6 +13608,8 @@ LWSM-1036.
   user would hit, 2026-11-04).
   Split 2026-11-05: (a) LWSM-1498, (b) LWSM-1499, (c) LWSM-1500, (d)
   LWSM-1501.
+  All four parts shipped 2026-11-05: (a) LWSM-1498, (b) LWSM-1499, (c)
+  LWSM-1500, (d) LWSM-1501.
   **Layman:** The review raised four edge cases where the design documents do not say what the app should do; each needs a yes or no.
   Kind: investigate.
   Source: review-code-2026-11-04 (lanes 04 and 05, open questions).
@@ -13871,45 +13873,79 @@ LWSM-1036.
   Source: lwsm-1475-work-2026-11-05.
   Lanes: docs.
 
-- 🚧 [LWSM-1498] **Offer to stop a foreign set as it is now once it has changed twice during the dialog.**
+- ✅ [LWSM-1498] **Offer to stop a foreign set as it is now once it has changed twice during the dialog.**
   LWSM-1462 (a). A foreign server whose children come and go changes
   its set on every re-read, so ADR-0004's ask-again rule never let
   Stop happen. After a second change the dialog says the set keeps
   changing, and a yes stops the set it shows.
   Lanes: mainwindow, foreign.
+  Shipped 2026-11-05 in c9e41fb. The foreign-stop dialog seam takes a
+  change count; at KEEPS_CHANGING (2) its intro says the processes keep
+  changing and a yes stops the set shown, with no read after it.
+  Red-first: test_a_set_that_keeps_changing_is_offered_as_it_is_now
+  (asked a fourth time) and
+  test_the_set_dialog_says_when_the_set_keeps_changing. ADR-0004 and
+  module map amended.
   **Layman:** Stopping a server started outside the app no longer asks forever when its processes keep changing.
   Kind: review-fix.
   Source: LWSM-1462 split 2026-11-05.
 
-- 🚧 [LWSM-1499] **Record in ADR-0003 that an editor opened on a file inside the project binds as the project's unit.**
+- ✅ [LWSM-1499] **Record in ADR-0003 that an editor opened on a file inside the project binds as the project's unit.**
   LWSM-1462 (b). ADR-0003's command-line anchor accepts an absolute
   FILE inside the project, so an autostarted editor opened on one
   binds as the project's unit. The user accepted that, as the
   WorkingDirectory rule already accepts an editor started in the
   project (2026-11-05). Doc only: the code already does this.
   Lanes: service.
+  Shipped 2026-11-05 in 7a49185. Doc only: ADR-0003 now says a file
+  anchor binds an editor opened on a file inside the project, accepted
+  as WorkingDirectory already is, with ADR-0004's disclosure naming the
+  unit as the backstop. No code changed; unit_belongs_to already behaved
+  so.
   **Layman:** The design notes now say plainly which rare case the app accepts rather than guards against.
   Kind: review-fix.
   Source: LWSM-1462 split 2026-11-05.
 
-- 🚧 [LWSM-1500] **Read a child bound only to a LAN address as running (wrong port), not starting.**
+- ✅ [LWSM-1500] **Read a child bound only to a LAN address as running (wrong port), not starting.**
   LWSM-1462 (c). Our child bound only to an address localhost does
   not reach read `starting` for ever: the snapshot named no holder
   off localhost, so nothing saw it bind. ADR-0004 now reads it as
   `running (wrong port)`.
   Lanes: ports, controller.
+  Shipped 2026-11-05 in b30b4b4. PortSnapshot.elsewhere names pids off
+  localhost; _classify reads our group there as running (wrong port),
+  kept out of _our_ports so no unreachable port is learned as confirmed.
+  Red-first:
+  test_our_child_bound_only_off_localhost_is_on_the_wrong_port
+  (STARTING), plus a stranger control and a probe test. ADR-0004,
+  LWSM-1005 § 6 and design.md amended.
   **Layman:** A server the app started that listens only on the network address, not on localhost, now says it is on the wrong address instead of 'starting' for ever.
   Kind: review-fix.
   Source: LWSM-1462 split 2026-11-05.
 
-- 🚧 [LWSM-1501] **Drop the remembered unit bindings on Rescan.**
+- ✅ [LWSM-1501] **Drop the remembered unit bindings on Rescan.**
   LWSM-1462 (d). `_unit_binding` kept each unit's ADR-0003 answer for
   the whole session, so a unit file edited later was never checked
   again. The cache stays, and Rescan now empties it.
   Lanes: controller, mainwindow.
+  Shipped 2026-11-05 in a2daece.
+  ProjectController.forget_unit_bindings(), called when Rescan starts.
+  Red-first: test_a_rescan_asks_again_whose_unit_holds_a_port (one ask,
+  not two). ADR-0004 amended.
   **Layman:** Pressing Rescan now re-checks which systemd service belongs to which project, so an edited service file is noticed.
   Kind: review-fix.
   Source: LWSM-1462 split 2026-11-05.
+
+- 📋 [LWSM-1502] **A supervisor reaping test fails under heavy machine load.**
+  test_the_managed_child_is_not_reaped_before_the_stop_sequence_ends
+  failed once in the full gate on 2026-11-05 (load average 32): its
+  own precondition `len(seen) > 1` saw the wait loop turn only once.
+  It passed 5 of 5 run alone straight after. The precondition depends
+  on how many poll turns fit before the child exits, which load changes.
+  Lanes: supervisor, tests.
+  **Layman:** One automatic check sometimes fails when the computer is very busy, even though nothing is wrong.
+  Kind: test.
+  Source: local-ci 2026-11-05 (LWSM-1462 session).
 
 ## 1.0.0 — A download for other people
 
