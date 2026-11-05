@@ -1526,48 +1526,67 @@ def test_the_managed_child_is_not_reaped_before_the_stop_sequence_ends(
 
     While the sequence runs, the child's PID must still be reserved — a reaped
     PID is one the kernel may reissue, and it is in use here as a process-group
-    id. A zombie is unreaped, so `Popen.returncode` staying `None` throughout is
-    the observable form of the rule.
+    id. So on every turn of the wait loop after the child has exited, it must
+    still be a zombie with `Popen.returncode` still `None`.
 
-    The launcher **exits on SIGTERM rather than ignoring it**, which is what
-    makes this test able to fail at all. Against a child that ignores the
-    signal, a premature `poll()` finds it still running and reads `None` anyway,
-    so the assertion holds whether or not the rule does. Measured by mutation on
-    2026-08-14: the first version of this test survived a reap injected straight
-    into the wait loop.
+    The launcher **exits on SIGTERM rather than ignoring it**: against a child
+    that is still running, a premature `poll()` reads `None` anyway, so only
+    turns after the child's exit can catch a reap (mutation, 2026-08-14).
 
-    The trap leaves a short-lived member in the group and exits AT ONCE, so the
-    child dies at the start of the window and the loop keeps turning after it —
-    which is what lets a premature reap be seen. An immediate exit with nothing
-    left behind let the loop turn only once on a loaded machine and trip the
-    vacuity guard; a sleep BEFORE the exit fixed that and let an injected reap
-    survive, because the loop then ended on the turn that reaped (LWSM-1334).
+    What keeps the loop turning after that exit is **a group member that
+    ignores SIGTERM and leaves only when this test lets it**: the test releases
+    it once two turns have seen the child exited. The loop cannot end before
+    then, so the check below cannot hold vacuously however loaded the machine
+    is. The earlier fixture counted turns that happened to fit before the child
+    exited, and a loaded machine fitted only one (LWSM-1334, LWSM-1502).
     """
+    release = project / "release"
     write_launcher(
         project,
         """
-        trap '(sleep 0.3 &); exit 7' TERM
+        (trap '' TERM; echo holder-ready
+         while [ ! -e release ]; do sleep 0.05; done) &
+        trap 'exit 7' TERM
         echo trap-installed
         while true; do sleep 0.05; done
         """,
     )
     supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
     managed = supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
-    assert wait_until(
-        lambda: "trap-installed" in managed.log_path.read_text(encoding="utf-8")
-    ), "the launcher never reported installing its SIGTERM trap"
 
-    seen: list[int | None] = []
-    supervisor.stop(
-        project, grace=2.0, _on_wait=lambda: seen.append(managed.popen.returncode)
+    def log_has(*lines: str) -> bool:
+        text = managed.log_path.read_text(encoding="utf-8")
+        return all(line in text for line in lines)
+
+    assert wait_until(lambda: log_has("trap-installed", "holder-ready")), (
+        "the launcher and its holder never reported installing their traps"
     )
 
-    assert len(seen) > 1, (
-        "the wait loop turned at most once, so it never spanned the child's exit "
-        "and the assertion below would hold vacuously"
+    def child_state() -> str:
+        try:
+            status = psutil.Process(managed.pid).status()
+        except psutil.NoSuchProcess:
+            return "reaped"
+        return "exited" if status == psutil.STATUS_ZOMBIE else "running"
+
+    seen: list[tuple[str, int | None]] = []
+
+    def on_wait() -> None:
+        seen.append((child_state(), managed.popen.returncode))
+        if sum(state != "running" for state, _ in seen) >= 2:
+            release.touch()
+
+    supervisor.stop(project, grace=10.0, _on_wait=on_wait)
+
+    after_exit = [entry for entry in seen if entry[0] != "running"]
+    assert len(after_exit) >= 2, (
+        f"the wait loop saw the child exited on {len(after_exit)} turn(s); the "
+        "holder should have kept it turning until two did"
     )
-    assert all(code is None for code in seen)
-    assert managed.popen.returncode is not None, "the child was never reaped at all"
+    assert after_exit == [("exited", None)] * len(after_exit), (
+        f"the child was reaped before the stop sequence ended: {after_exit}"
+    )
+    assert managed.popen.returncode == 7, "the child was never reaped at all"
 
 
 @pytest.mark.integration
