@@ -13744,6 +13744,12 @@ LWSM-1036.
   looks, so it needs a render for you to see, 2026-11-05).
   Built, not merged (2026-11-05, 3f45b25 on local branch lwsm-1485-focus-ring): the ring is drawn in `base` while the button is held. Red first: test_a_held_button_keeps_its_ring_visible_against_its_fill failed on all eight themes, 1.02:1 to 1.72:1, and passes after. Base against the pressed fill measures 4.51:1 to 19.56:1. Base against the window measures 1.00 to 1.12:1 on every theme, so while held the ring shows as a band between the fill and the window. It is not a line on the window. Renders, magnified 4x, focused at rest beside held: before-<theme>.png and after-<theme>.png for all eight themes.
   Waiting-on: user (look at the before/after renders in ~/.local/share/claude-scratch/lwsm-1485/ and say whether to merge branch lwsm-1485-focus-ring, 2026-11-05)
+  For the user's look (2026-11-05): with the branch, a held button's ring
+  stands out from the button's fill (4.51:1 to 19.56:1 across themes)
+  but barely from the window behind it (1.00 to 1.12:1), so while held
+  it reads as a thin band between button and window. If that is not
+  enough, the other route from the original question (change the
+  pressed fill instead) stays open.
   **Layman:** While you hold Space on a button, its focus outline blends into the button's pressed colour.
   Kind: accessibility.
   Source: review-code-2026-11-04 (lane 10, L3).
