@@ -511,13 +511,26 @@ the same wrong answer.
 
 **Trap: `offscreen` cannot show what a screen reader hears, but the bus
 can be read directly.** The system `python3` has `gi` with the `Atspi`
-typelib; the venv does not. Run a test copy of the window on a private
-`Xvfb` display with `QT_QPA_PLATFORM=xcb` and
-`QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`, then walk
+typelib; the venv does not. From a sandboxed session the desktop's
+accessibility bus refuses the connection ("Couldn't connect to
+accessibility bus … Connection refused"), so bring up private ones.
+Run everything inside `dbus-run-session`, and there start
+`/usr/libexec/at-spi2/at-spi-bus-launcher` and then
+`/usr/libexec/at-spi2/at-spi2-registryd` in the background. Run a test
+copy of the window on a private `Xvfb` display with
+`QT_QPA_PLATFORM=xcb` and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`, then walk
 `Atspi.get_desktop(0)` for the child whose `get_process_id()` is that copy's
 PID, printing `get_role_name()` and `get_name()`. Nothing appears on the
 user's screen. Measured 2026-10-01 for LWSM-1348: Qt's `Border` role reads
-as `panel` on the bus.
+as `panel` on the bus. The private-bus setup was measured 2026-11-05
+(LWSM-1477, LWSM-1503).
+
+**Trap: the private bus starts desktop services that outlive it.** The Qt
+window's portal registration activates `xdg-desktop-portal-kde` and
+`ksecretd` on the private bus, and both keep running after
+`dbus-run-session` exits. Stop them by PID, once their
+`/proc/<pid>/environ` shows your private bus's
+`DBUS_SESSION_BUS_ADDRESS`. Measured 2026-11-05 (LWSM-1503).
 
 **Trap: "the most common colour" is not a control's fill once it has a
 one-colour outline.** Fusion shades a button's fill across many near-equal
