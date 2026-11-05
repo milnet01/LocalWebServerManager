@@ -804,15 +804,26 @@ def test_error_markers_survive_the_round_trip(
         ["ERROR", "two\nlines"],
         ["x" * (settings.MAX_ERROR_MARKER_CHARS + 1)],
         [f"m{n}" for n in range(settings.MAX_ERROR_MARKERS + 1)],
+        ["ERROR", "\ud800"],
     ],
-    ids=["a-string", "an-object", "a-number", "empty", "newline", "long", "many"],
+    ids=[
+        "a-string",
+        "an-object",
+        "a-number",
+        "empty",
+        "newline",
+        "long",
+        "many",
+        "lone-surrogate",
+    ],
 )
 def test_unusable_error_markers_fall_back_to_the_defaults_and_say_why(
     tmp_path: Path, stored: object
 ) -> None:
     """Whole field, like every other here: one bad entry is a reason, which
     stops the next save from rewriting what the user typed (LWSM-1271). An
-    empty marker would match every line, and a newline none."""
+    empty marker would match every line, and a newline none. A lone surrogate
+    passed with no reason, then failed every save naming no field (LWSM-1511)."""
     path = write(
         tmp_path / "settings.json",
         {"schema_version": settings.SCHEMA_VERSION, "error_markers": stored},

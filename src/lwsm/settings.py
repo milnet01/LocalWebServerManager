@@ -38,6 +38,7 @@ from lwsm.configfile import (
     ConfigFileNotDurable,
     JsonFileRefused,
     encode_each,
+    is_writable_text,
     load_json_object,
     quoted,
     write_atomically,
@@ -362,6 +363,13 @@ def _markers_or_reason(value: object) -> tuple[tuple[str, ...] | None, str | Non
     if type(value) is not list or any(type(item) is not str for item in value):
         return None, (
             f"error_markers: {quoted(value)} is not a list of strings; "
+            "using the default"
+        )
+    # A lone surrogate passes every check below and then fails the writer's
+    # UTF-8 encode, so every save raised naming no field (LWSM-1511).
+    if not all(is_writable_text(item) for item in value):
+        return None, (
+            "error_markers has an entry that cannot be written as UTF-8; "
             "using the default"
         )
     markers = tuple(value)

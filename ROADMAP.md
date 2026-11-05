@@ -14342,7 +14342,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-13.
   Lanes: tooling.
 
-- 📋 [LWSM-1511] **A lone surrogate in error_markers passes the settings load, then makes every settings save fail.**
+- ✅ [LWSM-1511] **A lone surrogate in error_markers passes the settings load, then makes every settings save fail.**
   Priority: 3.
   settings.py:362 `if type(value) is not list or any(type(item) is not
   str for item in value):`. Verified at f57689c.
@@ -14361,6 +14361,12 @@ LWSM-1036.
   called here.
   Remedy: in `_markers_or_reason`, refuse the field with a reason when
   any item fails is_writable_text.
+  Shipped 2026-11-05. _markers_or_reason refuses the whole field with
+  a reason when an entry fails is_writable_text, so load reports it and
+  the save gate's refusal now names the field. Saves still refuse until
+  the file is fixed, by LWSM-1271's accepted trade. Test: the
+  lone-surrogate case of
+  test_unusable_error_markers_fall_back_to_the_defaults_and_say_why.
   **Layman:** One odd character hand-typed into the settings file stops the app saving any setting, even the window size.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-09.
