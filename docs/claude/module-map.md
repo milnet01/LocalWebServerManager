@@ -476,7 +476,8 @@ Added later, both core with no Qt at all:
   systemd unit (LWSM-1301): the holder and its descendants, identified by
   PID and start time, and signalled as exactly that set through
   `psutil.Process` handles. No Qt. The window shows the set, re-enumerates
-  it after the user's yes, and asks again if it changed.
+  it after the user's yes, and asks again if it changed. After a second
+  change a yes stops the set as shown (LWSM-1498).
 
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are

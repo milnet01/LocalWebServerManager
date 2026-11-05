@@ -28,6 +28,7 @@ signaling per
 
 ### Fixed
 
+- **A server started outside the app can be stopped even when its processes keep changing.** Before stopping such a server, the app lists its processes and checks the list again after you say yes. A server whose helper processes come and go changed the list every time, so the app asked again for ever. After the second change it now says the processes keep changing, and a yes stops the ones it lists. (LWSM-1498)
 - **A server that listens only on your network address no longer reads `starting` for ever.** The app looks for a server where Open does, at `localhost`. A server it started that listened only on the machine's network address was never seen, so its row said `starting` with the timer rising. It now reads `running (wrong port)`: it is up, but not where Open can reach it. (LWSM-1500)
 - **Rescan now notices a login service file you edited.** The app checks once whether a systemd service belongs to a project, and kept that answer until it closed. A service file edited after that check was never checked again. Rescan now clears the answers, so the next check reads the file as it is. (LWSM-1501)
 - **A screen reader now hears a project's new state once, not twice.** The app told the screen reader about each state change, and Qt already did, so every change was announced twice. The app's extra notice is gone. (LWSM-1477)

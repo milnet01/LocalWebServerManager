@@ -133,6 +133,11 @@ PlaceWindow = Callable[..., "Rect | None"]
 # slow scan into an app that cannot be quit.
 RESCAN_STOP_WAIT_MS = 5000
 
+# After this many changes under the foreign-stop dialog, a yes stops the set as
+# shown rather than asking again: a server whose children come and go changes
+# on every read (LWSM-1498, user decision 2026-11-05).
+KEEPS_CHANGING = 2
+
 # How many rows the window shows before the list starts scrolling, and the
 # fewest it stays legible at (LWSM-1149). Counts of rows, not pixels: the
 # height each implies is measured off a real row at the current text size.
@@ -2027,7 +2032,7 @@ class MainWindow(QMainWindow):
         ]
         | None = None,
         disclose: Callable[[Path, object], bool] | None = None,
-        confirm_tree: Callable[[Path, Tree, bool], bool] | None = None,
+        confirm_tree: Callable[[Path, Tree, int], bool] | None = None,
         confirm_first_run: Callable[
             [list[ProjectRecord], tuple[str, ...]], list[ProjectRecord] | None
         ]
@@ -3686,8 +3691,12 @@ class MainWindow(QMainWindow):
         box.setDefaultButton(QMessageBox.StandardButton.No)
         return _answered(box) == QMessageBox.StandardButton.Yes
 
-    def _confirm_tree_dialog(self, project: Path, tree: Tree, changed: bool) -> bool:
+    def _confirm_tree_dialog(self, project: Path, tree: Tree, changes: int) -> bool:
         """ADR-0004's foreign-stop confirmation, on screen.
+
+        `changes` counts how often the set changed under an earlier dialog. At
+        two the intro says the set keeps changing, and a yes stops this set as
+        shown (LWSM-1498).
 
         PID, start time, program and command sit in separate cells, never one
         sentence: a process chooses its own name, and the dialog is the only
@@ -3700,19 +3709,26 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle(
             QCoreApplication.translate("ProjectRow", "Stop a server started elsewhere")
         )
-        intro = (
-            QCoreApplication.translate(
+        if changes >= KEEPS_CHANGING:
+            intro = QCoreApplication.translate(
+                "ProjectRow",
+                "The processes keep changing while you decide. %1's port is "
+                "held by these right now. Stop the ones listed? A process "
+                "that starts after this is not stopped.",
+            )
+        elif changes:
+            intro = QCoreApplication.translate(
                 "ProjectRow",
                 "The processes changed while you were deciding. %1's port is "
                 "now held by these. Stop all of them?",
             )
-            if changed
-            else QCoreApplication.translate(
+        else:
+            intro = QCoreApplication.translate(
                 "ProjectRow",
                 "%1's port is held by a server this manager did not start. "
                 "Stopping it stops all of these processes:",
             )
-        ).replace("%1", _no_layout_forgery(project.name))
+        intro = intro.replace("%1", _no_layout_forgery(project.name))
         label = QLabel(intro, dialog)
         label.setTextFormat(Qt.TextFormat.PlainText)
         label.setWordWrap(True)
@@ -3832,7 +3848,11 @@ class MainWindow(QMainWindow):
 
         The set is enumerated, shown, and enumerated again after the yes. If
         it changed while the dialog was open, the user is asked again about
-        the new set rather than shown a stale one.
+        the new set rather than shown a stale one. A server whose children
+        come and go changes on every read, so after the second change a yes
+        stops the set the dialog showed, read no further (LWSM-1498). Its
+        handles carry each start time, so a member that has gone is skipped,
+        never a stranger signalled.
         """
         view = self._controller.row(path)
         if (
@@ -3845,11 +3865,16 @@ class MainWindow(QMainWindow):
             return False
         pid = view.holder_pid
         disclosed = self._shown_holder(path)
-        changed = False
+        changes = 0
         while True:
             try:
                 shown = enumerate_tree(pid)
-                if not self._confirm_tree(path, shown, changed):
+                if not self._confirm_tree(path, shown, changes):
+                    return True
+                if changes >= KEEPS_CHANGING:
+                    self._controller.stop_foreign_tree(
+                        path, shown, disclosed_holder=disclosed
+                    )
                     return True
                 current = enumerate_tree(pid)
             except TreeRefused as exc:
@@ -3867,7 +3892,7 @@ class MainWindow(QMainWindow):
                     path, current, disclosed_holder=disclosed
                 )
                 return True
-            changed = True
+            changes += 1
 
     def _restart_project(self, path: Path) -> None:
         shown = self._shown_holder(path)

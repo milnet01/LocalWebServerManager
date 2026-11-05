@@ -232,7 +232,13 @@ Consequences of the rule:
   A modal dialog waits an unbounded time; processes die, PIDs get
   reused, and children spawned during the wait are missed. If the
   set changed while the dialog was open, the user is asked again
-  rather than shown a stale list. And because a process chooses its
+  rather than shown a stale list. A server whose children come and
+  go changes on every read, so asking again never ends. After a
+  second change the dialog says the set keeps changing, and a yes
+  stops the set it shows with no read after it: a process that
+  started since is not stopped (LWSM-1498, user decision
+  2026-11-05). The handles still carry each start time, so nothing
+  the user was not shown is signalled. And because a process chooses its
   own name, the dialog renders **pid / executable path /
   create-time as separate columns** — never one formatted sentence
   a hostile process can shape into "only one harmless thing will

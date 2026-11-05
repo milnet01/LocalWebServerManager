@@ -9648,6 +9648,56 @@ def test_a_set_that_changed_during_the_dialog_is_asked_about_again(
     assert [tree for _, tree, _ in stops] == [grown]
 
 
+def test_a_set_that_keeps_changing_is_offered_as_it_is_now(
+    qtbot, built, monkeypatch
+) -> None:
+    """LWSM-1498 (LWSM-1462 a). A server whose children come and go changes its
+    set on every read, so asking again after every change never let Stop
+    happen. After a second change the dialog says so, and a yes stops the set
+    it shows, with no read after it: only what the user saw is signalled."""
+    first = _foreign_tree((9999, 1.0))
+    grown = _foreign_tree((9999, 1.0), (10001, 3.0))
+    regrown = _foreign_tree((9999, 1.0), (10002, 4.0))
+    again = _foreign_tree((9999, 1.0), (10003, 5.0))
+    window, _, asked, stops = tree_window(
+        qtbot,
+        built,
+        monkeypatch,
+        [first, grown, grown, regrown, regrown, again, again],
+        [True, True, True, False],
+    )
+
+    window._stop_project(Path("/srv/theirs"))
+
+    assert asked == [(first, 0), (grown, 1), (regrown, 2)]
+    assert [tree for _, tree, _ in stops] == [regrown]
+
+
+def test_the_set_dialog_says_when_the_set_keeps_changing(qtbot, built, monkeypatch):
+    """LWSM-1498: the third dialog tells the user why it stops asking, and
+    that a process starting after the yes is not stopped."""
+    from PySide6.QtWidgets import QDialog, QLabel
+
+    seen: list[str] = []
+
+    def fake_exec(dialog) -> int:
+        seen.append(dialog.findChild(QLabel).text())
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    controller = build_controller(built, [record("theirs", 6006)], FakeProbe(6006))
+    window = MainWindow(controller, Theme.default(), [])
+    qtbot.addWidget(window)
+    tree = _foreign_tree((9999, 1.0))
+
+    for changes in (0, 1, 2):
+        window._confirm_tree_dialog(Path("/srv/theirs"), tree, changes)
+
+    assert "keep changing" not in seen[0] and "keep changing" not in seen[1]
+    assert "keep changing" in seen[2], seen[2]
+    assert "not stopped" in seen[2], seen[2]
+
+
 def test_a_set_that_cannot_be_listed_is_reported_not_stopped(
     qtbot, built, monkeypatch
 ) -> None:
