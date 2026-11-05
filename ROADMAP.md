@@ -14438,7 +14438,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-04, lane-01.
   Lanes: controller, supervisor.
 
-- 📋 [LWSM-1514] **The health check's deadline stops working once a reply says Connection: close.**
+- ✅ [LWSM-1514] **The health check's deadline stops working once a reply says Connection: close.**
   Priority: 3.
   health.py:111-113 `sock = connection.sock` / `if sock is None:
   return`. Verified at f57689c.
@@ -14454,6 +14454,11 @@ LWSM-1036.
   re-opens L02-L5 (four such servers hold every health thread).
   Remedy: capture the raw socket before getresponse(), where the timer
   can reach it, and have `_shut_down` shut down that captured socket.
+  Shipped 2026-11-05. ask() keeps the socket after connect and the
+  deadline timer shuts that one down, so a reply saying Connection:
+  close no longer hides it. Test: the after-an-interim-reply-saying-close
+  case of test_a_trickling_server_is_cut_off_at_the_deadline (red
+  before: 200 after the full trickle).
   **Layman:** A misbehaving server can keep the app's health checker busy far past its time limit.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-05.

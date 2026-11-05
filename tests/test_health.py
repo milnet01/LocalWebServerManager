@@ -129,9 +129,11 @@ def test_a_server_that_never_replies_is_no_answer(raw_server) -> None:
 
 
 @pytest.fixture
-def trickling_server() -> Iterator[int]:
+def trickling_server(request: pytest.FixtureRequest) -> Iterator[int]:
     """Sends a valid status line one byte every 0.1 s: each read is quick, so a
-    per-operation timeout never fires, and the whole line takes 1.7 s."""
+    per-operation timeout never fires, and the whole line takes 1.7 s. An
+    indirect parameter is sent at once first."""
+    prefix: bytes = getattr(request, "param", b"")
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     sock.listen(1)
@@ -144,6 +146,7 @@ def trickling_server() -> Iterator[int]:
             return
         with conn:
             conn.recv(4096)
+            conn.sendall(prefix)
             for byte in b"HTTP/1.1 200 OK\r\n\r\n":
                 if done.wait(0.1):
                     return
@@ -163,11 +166,21 @@ def trickling_server() -> Iterator[int]:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    "trickling_server",
+    [b"", b"HTTP/1.1 103 Early Hints\r\nConnection: close\r\n\r\n"],
+    ids=["status-line", "after-an-interim-reply-saying-close"],
+    indirect=True,
+)
 def test_a_trickling_server_is_cut_off_at_the_deadline(trickling_server) -> None:
     """review-code 2026-10-08 L02-L5: the timeout is per socket operation, so a
     server dribbling its status line held a health thread for as long as it
     liked, and four such servers held all four. The call as a whole now ends
-    at `deadline`."""
+    at `deadline`.
+
+    LWSM-1514: a reply saying `Connection: close` makes `http.client` drop
+    `connection.sock`, so the deadline found no socket to shut down while the
+    interim-reply loop read on."""
     started = time.monotonic()
     answer = ask(trickling_server, "/", timeout=0.5, deadline=0.5)
     elapsed = time.monotonic() - started

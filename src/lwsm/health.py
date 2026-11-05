@@ -48,11 +48,14 @@ def ask(
     """
     connection = http.client.HTTPConnection("localhost", port, timeout=timeout)
     fired = threading.Event()
-    cutoff = threading.Timer(deadline, _shut_down, args=(connection, fired))
+    held: list[socket.socket] = []
+    cutoff = threading.Timer(deadline, _shut_down, args=(connection, held, fired))
     cutoff.daemon = True
     cutoff.start()
     try:
         connection.connect()
+        if connection.sock is not None:
+            held.append(connection.sock)
         if fired.is_set():
             # The deadline passed during name lookup or connect, when there
             # was no socket yet to shut down (LWSM-1456).
@@ -103,12 +106,22 @@ class _SameStream:
         return self._stream
 
 
-def _shut_down(connection: http.client.HTTPConnection, fired: threading.Event) -> None:
+def _shut_down(
+    connection: http.client.HTTPConnection,
+    held: list[socket.socket],
+    fired: threading.Event,
+) -> None:
     """Unblock a read past the deadline. `shutdown`, not `close`: a read
     blocked in another thread returns at once only on a shutdown. `fired`
-    tells `ask` the deadline passed, for a connect that had no socket yet."""
+    tells `ask` the deadline passed, for a connect that had no socket yet.
+
+    `held` is the socket `ask` kept after connecting. A reply saying
+    `Connection: close` makes `http.client` set `connection.sock` to None,
+    while `_final_status` reads on through the response's reader, which still
+    holds the descriptor open (LWSM-1514).
+    """
     fired.set()
-    sock = connection.sock
+    sock = held[0] if held else connection.sock
     if sock is None:
         return
     try:
