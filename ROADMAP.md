@@ -13690,7 +13690,7 @@ LWSM-1036.
   Source: review-code-2026-11-04 (lane 06, open question).
   Lanes: mainwindow.
 
-- 📋 [LWSM-1483] **Find out whether the final KWin unload and file delete can beat KWin's read of the placement script.**
+- ✅ [LWSM-1483] **Find out whether the final KWin unload and file delete can beat KWin's read of the placement script.**
   Priority: MEDIUM (unverified).
   `run_kwin_script` calls `start`, then `unloadScript`, then deletes
   the script file in its `finally`. The reviewer recalls, from KWin's
@@ -13708,12 +13708,23 @@ LWSM-1036.
   desktop, many times, to measure this? Recommend yes, after 0.4.0: it
   moves no window and leaves nothing registered, and the answer decides
   whether ADR-0007 changes, 2026-11-05).
+  Shipped 2026-11-05 in 7a8b7a5: a real race, fixed. Measured on the
+  live KWin with a print-only script under a unique plugin name, from a
+  throwaway script outside the repo. Deleting the file between load and
+  start printed 0 of 300, so KWin reads it after `start` replies. The
+  `start` order lost 9 of 6300 runs (1 of 4000 through the committed
+  function, which returned True each time). `run` on
+  `/Scripting/Script<id>` lost 0 of 6000. `run_kwin_script` now calls
+  that `run` and falls back to `start` when there is no id or no object.
+  ADR-0007 amended. Red first:
+  tests/test_placement.py::test_the_script_is_run_through_its_own_object_before_cleanup
+  and ::test_a_kwin_with_no_script_object_falls_back_to_start.
   **Layman:** Placing the window under Wayland might sometimes silently do nothing while the app believes it worked.
   Kind: investigate.
   Source: review-code-2026-11-04 (lane 10, M3).
   Lanes: placement.
 
-- 📋 [LWSM-1484] **Three separate three-second D-Bus bounds can stack to nine seconds before the window appears.**
+- ✅ [LWSM-1484] **Three separate three-second D-Bus bounds can stack to nine seconds before the window appears.**
   Priority: LOW.
   On the startup path, `placement.kwin_on_bus` (the Centre action's
   enabled state), `appearance.high_contrast` (Follow system) and
@@ -13728,6 +13739,19 @@ LWSM-1036.
   Decided: the user took the recommendation, 2026-11-05. The question was: (fix this in 0.4.0, or after? Recommend after: it
   needs a stuck bus to bite, and a shared deadline crosses three
   modules, 2026-11-05).
+  Shipped 2026-11-05 in a53ca17. The window times its startup contrast
+  read and gives the KWin check only what is left of `DBUS_TIMEOUT_S`.
+  `kwin_on_bus` takes a `timeout` and does not ask when none is left.
+  The answer is kept as `_can_place`, and `_restore_position` skips on a
+  no. Not one deadline across all three: the restore runs after first
+  expose and only when the check answered yes, so the bus was answering.
+  Giving it the remainder would cost a slow login (portal start 1.4 to
+  2.2 s) its position for nothing. Worst case on a wedged bus is now one
+  bound. Red first:
+  tests/test_placement.py::test_kwin_on_bus_waits_only_as_long_as_it_is_given
+  and two tests in tests/test_mainwindow.py
+  (no_kwin_to_ask_does_not_ask_at_startup;
+  kwin_check_gets_only_what_the_contrast_read_left).
   **Layman:** On a stuck desktop message bus the app could take about nine seconds to show its window.
   Kind: review-fix.
   Source: review-code-2026-11-04 (lane 10, L2).
