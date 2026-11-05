@@ -1123,6 +1123,9 @@ def test_a_refused_settings_write_still_saves_the_scan_roots(
         def values(self):
             return chosen, 1500, 7
 
+        def single_key_shortcuts(self) -> bool:
+            return True
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1303,6 +1306,9 @@ def test_the_settings_dialog_is_released_on_both_paths(
         def values(self):
             return (), 1500, 7
 
+        def single_key_shortcuts(self) -> bool:
+            return True
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", CountingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1366,6 +1372,9 @@ def test_both_write_failures_are_named_not_just_the_first(
         def values(self):
             return (Path("/srv/alpha"),), 1500, 7
 
+        def single_key_shortcuts(self) -> bool:
+            return True
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1422,6 +1431,9 @@ def test_clearing_every_scan_root_means_the_same_thing_after_a_restart(
         def values(self):
             return (), 1500, 7
 
+        def single_key_shortcuts(self) -> bool:
+            return True
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", ClearingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1469,6 +1481,9 @@ def test_a_settings_save_that_works_says_nothing(qtbot, monkeypatch, tmp_path) -
         def values(self):
             return chosen, 1500, 7
 
+        def single_key_shortcuts(self) -> bool:
+            return True
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1514,6 +1529,9 @@ def test_a_settings_save_written_but_not_made_durable_is_called_saved(
 
         def values(self):
             return (Path("/srv/only"),), 1500, 7
+
+        def single_key_shortcuts(self) -> bool:
+            return True
 
     def not_durable_settings(*_args, **_kwargs) -> None:
         raise settings_module.SettingsNotDurable("fsync of the directory failed")
@@ -1765,7 +1783,8 @@ def test_stored_numbers_are_applied_at_startup(qtbot, tmp_path, monkeypatch) -> 
     config = tmp_path / "config" / "localwebservermanager"
     config.mkdir(parents=True)
     (config / "settings.json").write_text(
-        '{"schema_version": 1, "poll_interval_ms": 4000, "log_max_mib": 32}\n',
+        '{"schema_version": 1, "poll_interval_ms": 4000, "log_max_mib": 32,'
+        ' "single_key_shortcuts": false}\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
@@ -1775,6 +1794,8 @@ def test_stored_numbers_are_applied_at_startup(qtbot, tmp_path, monkeypatch) -> 
     try:
         assert controller._timer.interval() == 4000
         assert controller._supervisor.max_log_bytes == 32 * 1024 * 1024
+        # LWSM-1475: the stored "off" reaches the window at start.
+        assert window.single_key_shortcuts() is False
     finally:
         controller.stop()
 
@@ -1808,6 +1829,8 @@ def test_accepting_the_dialog_applies_and_persists_every_field(
     monkeypatch.setattr(
         SettingsDialog, "values", lambda self: ((chosen_root,), 3000, 32)
     )
+    # LWSM-1475. Off, because on is the default and would pass unapplied.
+    monkeypatch.setattr(SettingsDialog, "single_key_shortcuts", lambda self: False)
 
     window, controller = build_window(tmp_path / "projects.json")
     qtbot.addWidget(window)
@@ -1824,6 +1847,8 @@ def test_accepting_the_dialog_applies_and_persists_every_field(
         assert stored.poll_interval_ms == 3000
         assert stored.log_max_mib == 32
         assert default_scan_roots() == (chosen_root,)
+        assert window.single_key_shortcuts() is False
+        assert stored.single_key_shortcuts is False
     finally:
         controller.stop()
 
@@ -1839,7 +1864,7 @@ def test_the_dialog_opens_on_the_values_in_force(qtbot, tmp_path, monkeypatch) -
     seen: list[tuple] = []
 
     def exec_(self):
-        seen.append(self.values()[1:])
+        seen.append((*self.values()[1:], self.single_key_shortcuts()))
         return SettingsDialog.DialogCode.Rejected
 
     monkeypatch.setattr(SettingsDialog, "exec", exec_)
@@ -1849,10 +1874,11 @@ def test_the_dialog_opens_on_the_values_in_force(qtbot, tmp_path, monkeypatch) -
     try:
         controller.set_poll_interval_ms(3000)
         controller._supervisor.max_log_bytes = 32 * 1024 * 1024
+        window.set_single_key_shortcuts(False)
 
         window._open_settings()
 
-        assert seen == [(3000, 32)]
+        assert seen == [(3000, 32, False)]
     finally:
         controller.stop()
 

@@ -70,6 +70,8 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
 - **Drive it from the keyboard.** `/` jumps to a filter box and
   narrows the list as you type, Escape clears it, the number keys
   jump to a project, and Enter starts or stops the one you are on.
+  If you use speech input, Preferences can turn off `/` and the
+  number keys, so a spoken word does not move you.
 - **A log per project**, written to a private file and capped in
   size so a chatty server cannot fill your disk.
 

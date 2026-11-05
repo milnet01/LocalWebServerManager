@@ -3,8 +3,9 @@
 UI layer — imports QtWidgets, so no core module may import it back
 (`docs/standards/coding-overrides.md § O1`, enforced by `tests/test_layering.py`).
 
-**It edits three fields, not the four the roadmap bullet filed**, and both
-absences were settled with the user on 2026-08-21 rather than dropped quietly:
+**LWSM-1018 gave it three fields, not the four its roadmap bullet filed**, and
+both absences were settled with the user on 2026-08-21 rather than dropped
+quietly (LWSM-1475 later added the single-key shortcuts switch):
 
 - *Scan roots* are not moved into `settings.json`. They live in the `scan-roots`
   file (LWSM-1144), whose own docstring says this dialog owns the UI while that
@@ -34,6 +35,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -66,7 +68,7 @@ POLL_STEP_MS = 250
 
 
 class SettingsDialog(QDialog):
-    """Scan roots, poll interval and log cap, as one modal form."""
+    """Scan roots, poll interval, log cap and the single-key shortcuts."""
 
     def __init__(
         self,
@@ -74,6 +76,7 @@ class SettingsDialog(QDialog):
         roots: Sequence[Path],
         poll_interval_ms: int,
         log_max_mib: int,
+        single_key_shortcuts: bool = True,
         choose_directory: Callable[[], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -112,6 +115,12 @@ class SettingsDialog(QDialog):
         self._log.setRange(MIN_LOG_MAX_MIB, MAX_LOG_MAX_MIB)
         self._log.setValue(log_max_mib)
 
+        # LWSM-1475, WCAG 2.1.4: `/` and the number keys act on one key press,
+        # so speech input can trigger them by accident. A check box carries its
+        # own text, so it needs no buddy label.
+        self._shortcuts = QCheckBox()
+        self._shortcuts.setChecked(single_key_shortcuts)
+
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -128,6 +137,7 @@ class SettingsDialog(QDialog):
         for target in (
             self._poll,
             self._log,
+            self._shortcuts,
             self._buttons.button(QDialogButtonBox.StandardButton.Ok),
             self._buttons.button(QDialogButtonBox.StandardButton.Cancel),
         ):
@@ -156,6 +166,7 @@ class SettingsDialog(QDialog):
         form.addRow(self._roots_label, roots_column)
         form.addRow(self._poll_label, self._poll)
         form.addRow(self._log_label, self._log)
+        form.addRow(self._shortcuts)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -184,6 +195,11 @@ class SettingsDialog(QDialog):
         )
         self._add.setText(QCoreApplication.translate("SettingsDialog", "&Add..."))
         self._remove.setText(QCoreApplication.translate("SettingsDialog", "&Remove"))
+        self._shortcuts.setText(
+            QCoreApplication.translate(
+                "SettingsDialog", "Single-&key shortcuts: / to filter, 1 to 9 to jump"
+            )
+        )
         # A suffix rather than a unit baked into the label, so the value and
         # its unit are announced together by a screen reader.
         self._poll.setSuffix(QCoreApplication.translate("SettingsDialog", " ms"))
@@ -244,6 +260,14 @@ class SettingsDialog(QDialog):
         )
         return roots, self._poll.value(), self._log.value()
 
+    def single_key_shortcuts(self) -> bool:
+        """Whether `/` and the number keys stay on (LWSM-1475).
+
+        Its own accessor rather than a fourth element of `values()`, whose
+        callers unpack three.
+        """
+        return self._shortcuts.isChecked()
+
 
 def keyboard_focus_order(dialog: SettingsDialog) -> tuple[Qt.FocusPolicy, ...]:
     """The focus policy of each control, in tab order. Used by the tests.
@@ -266,6 +290,7 @@ def keyboard_focus_order(dialog: SettingsDialog) -> tuple[Qt.FocusPolicy, ...]:
             dialog._remove,
             dialog._poll,
             dialog._log,
+            dialog._shortcuts,
             dialog._buttons.button(QDialogButtonBox.StandardButton.Ok),
             dialog._buttons.button(QDialogButtonBox.StandardButton.Cancel),
         )

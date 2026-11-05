@@ -412,14 +412,16 @@ built under § Review cadence's build-first default:
 Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
 
 - **`src/lwsm/settingsdialog.py`** — UI layer. `SettingsDialog`,
-  `keyboard_focus_order`. **It edits three fields, not the four the bullet
-  filed**, and both absences were settled with the user (2026-08-21) rather
-  than dropped: *scan roots* stay in the `scan-roots` file (LWSM-1144) and the
+  `keyboard_focus_order`. **LWSM-1018 gave it three fields, not the four the
+  bullet filed**, and both absences were settled with the user (2026-08-21)
+  rather than dropped: *scan roots* stay in the `scan-roots` file (LWSM-1144) and the
   dialog edits that file in place, because copying them into `settings.json`
   buys a migration and a second owner for no user-visible gain; and there is no
   *slow-start threshold* to configure, because ADR-0004 § Slowness is not
   failure deleted the 15-second `starting` deadline on measured evidence, so a
-  setting for it would re-introduce the defect that ADR reversed.
+  setting for it would re-introduce the defect that ADR reversed. LWSM-1475
+  added a fourth: a check box that turns `/` and the number keys off, applied
+  through `MainWindow.set_single_key_shortcuts`.
   **The dialog owns no I/O** — it is handed values and returns values, and
   `build_window` is the only scope where both config files and both live
   objects are in reach, which is what the `open_settings` seam was left for

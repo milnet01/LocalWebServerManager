@@ -171,6 +171,10 @@ class Settings:
     # Not `None`: a window either is maximised or is not, and a first run's
     # answer is "not".
     maximized: bool = False
+    # `/` and the number keys (LWSM-1475). On, because they are a shipped
+    # feature; the switch is for a speech-input user, for whom a spoken "one"
+    # or "slash" moves the focus (WCAG 2.1.4). A file with no key had the keys.
+    single_key_shortcuts: bool = True
     # Keys this build does not write, as sorted (key, canonical JSON) pairs,
     # handed back unchanged on save (LWSM-1289). `registry.ProjectRecord.unknown`
     # has the same job for the same reason: a preference added inside schema v1
@@ -409,11 +413,12 @@ def load(path: Path) -> LoadResult:
         )
         settings = replace(settings, text_scale=MIN_TEXT_SCALE)
 
-    maximized, reason = _bool_or_reason("maximized", document.get("maximized"))
-    if reason is not None:
-        reasons.append(reason)
-    if maximized is not None:
-        settings = replace(settings, maximized=maximized)
+    for field in ("maximized", "single_key_shortcuts"):
+        flag, reason = _bool_or_reason(field, document.get(field))
+        if reason is not None:
+            reasons.append(reason)
+        if flag is not None:
+            settings = replace(settings, **{field: flag})
 
     # Read the way every field here is read: one that will not re-serialise
     # loses only itself, with a reason. Nothing is interpreted.
@@ -470,6 +475,7 @@ def _payload(settings: Settings) -> dict[str, object]:
         "width": settings.width,
         "height": settings.height,
         "maximized": settings.maximized,
+        "single_key_shortcuts": settings.single_key_shortcuts,
     }
 
 

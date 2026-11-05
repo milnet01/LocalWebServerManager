@@ -28,11 +28,14 @@ from lwsm.settingsdialog import SettingsDialog, keyboard_focus_order
 pytestmark = pytest.mark.gui
 
 
-def build(qtbot, roots=(), poll=1000, log=5, chooser=None) -> SettingsDialog:
+def build(
+    qtbot, roots=(), poll=1000, log=5, chooser=None, shortcuts=True
+) -> SettingsDialog:
     dialog = SettingsDialog(
         roots=[Path(root) for root in roots],
         poll_interval_ms=poll,
         log_max_mib=log,
+        single_key_shortcuts=shortcuts,
         choose_directory=chooser if chooser is not None else (lambda: None),
     )
     qtbot.addWidget(dialog)
@@ -80,6 +83,7 @@ def test_every_control_in_the_dialog_clears_the_target_floor(
         "Remove": dialog._remove,
         "poll interval": dialog._poll,
         "log cap": dialog._log,
+        "single-key shortcuts": dialog._shortcuts,
         "Ok": dialog._buttons.button(QDialogButtonBox.StandardButton.Ok),
         "Cancel": dialog._buttons.button(QDialogButtonBox.StandardButton.Cancel),
     }
@@ -104,6 +108,23 @@ def test_what_goes_in_comes_back_out_untouched(qtbot) -> None:
     dialog = build(qtbot, roots=roots, poll=2500, log=64)
 
     assert dialog.values() == (tuple(Path(r) for r in roots), 2500, 64)
+
+
+@pytest.mark.parametrize("shortcuts", [True, False], ids=str)
+def test_the_shortcuts_switch_comes_back_as_it_went_in_and_as_toggled(
+    qtbot, shortcuts: bool
+) -> None:
+    """LWSM-1475. Both starting values, so a box hardwired either way fails
+    one; then a Space press, the keyboard's way to flip it."""
+    from PySide6.QtCore import Qt
+
+    dialog = build(qtbot, shortcuts=shortcuts)
+    assert dialog.single_key_shortcuts() is shortcuts
+
+    qtbot.keyClick(dialog._shortcuts, Qt.Key.Key_Space)
+
+    assert dialog.single_key_shortcuts() is (not shortcuts)
+    assert "&" in dialog._shortcuts.text(), "the keyboard needs a mnemonic"
 
 
 def test_the_order_of_the_roots_is_the_order_they_are_scanned_in(qtbot) -> None:

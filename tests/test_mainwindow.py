@@ -4147,6 +4147,40 @@ def test_a_number_key_counts_the_rows_still_on_screen(qtbot, built) -> None:
     )
 
 
+def test_the_single_key_shortcuts_can_be_turned_off(qtbot, built) -> None:
+    """LWSM-1475, WCAG 2.1.4: speech input saying "one" or "slash" must not
+    move the focus. Off, `/` and the number keys do nothing; on again, both
+    work — pinned in one test so a switch that disables everything, or
+    nothing, fails one half. Escape is not a character key and stays.
+    """
+    window, _ = keyboard_window(qtbot, built, ["alpha", "beta", "gamma"], show=True)
+    rows = window._ordered_rows()
+    assert window.single_key_shortcuts() is True, "on by default"
+
+    window.set_single_key_shortcuts(False)
+    rows[0].setFocus()
+    qtbot.waitUntil(rows[0].hasFocus, timeout=2000)
+    qtbot.keyClick(rows[0], Qt.Key.Key_2)
+    qtbot.keyClick(rows[0], Qt.Key.Key_Slash)
+    assert window.focusWidget() is rows[0], "off, neither key may move the focus"
+
+    window.set_single_key_shortcuts(True)
+    qtbot.keyClick(rows[0], Qt.Key.Key_2)
+    assert window.focusWidget() is rows[1], "on again, 2 jumps"
+    qtbot.keyClick(rows[1], Qt.Key.Key_Slash)
+    assert window.focusWidget() is window._filter, "on again, / reaches the filter"
+
+
+def test_the_shortcuts_switch_is_taken_from_the_constructor(qtbot, built) -> None:
+    """The stored choice reaches the window at start, not only from the
+    dialog."""
+    controller = build_controller(built, [record("alpha", 3000)], FakeProbe())
+    window = MainWindow(controller, Theme.default(), [], single_key_shortcuts=False)
+    qtbot.addWidget(window)
+
+    assert window.single_key_shortcuts() is False
+
+
 def test_a_number_key_past_the_end_of_the_list_does_nothing(qtbot, built) -> None:
     """Three rows, `9` pressed. The focused row must not move and nothing may
     raise — an index off the end of the visible list is the ordinary case for a

@@ -450,6 +450,9 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
         "width": None,
         "height": None,
         "maximized": False,
+        # LWSM-1475. On by default: the keys are a shipped feature, and the
+        # switch exists for the speech-input user who needs them off.
+        "single_key_shortcuts": True,
     }
 
 
@@ -703,6 +706,57 @@ def test_a_real_boolean_survives_the_round_trip(tmp_path: Path, stored: bool) ->
 
     assert result.settings.maximized is stored
     assert result.reasons == []
+
+
+# --- LWSM-1475: the single-key shortcuts switch -------------------------------
+
+
+def test_single_key_shortcuts_are_on_unless_the_file_says_otherwise(
+    tmp_path: Path,
+) -> None:
+    """A file from before the switch existed has no key, and its user had the
+    keys; turning them off on upgrade would take a feature away unasked."""
+    path = write(
+        tmp_path / "settings.json", {"schema_version": settings.SCHEMA_VERSION}
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.single_key_shortcuts is True
+    assert result.reasons == []
+
+
+@pytest.mark.parametrize("stored", [True, False], ids=str)
+def test_the_single_key_shortcuts_switch_survives_the_round_trip(
+    tmp_path: Path, stored: bool
+) -> None:
+    path = tmp_path / "settings.json"
+
+    settings.save(path, replace(Settings(), single_key_shortcuts=stored))
+    result = settings.load(path)
+
+    assert result.settings.single_key_shortcuts is stored
+    assert result.reasons == []
+
+
+@pytest.mark.parametrize("stored", [0, "false", None], ids=str)
+def test_a_shortcuts_switch_that_is_not_a_boolean_is_refused(
+    tmp_path: Path, stored: object
+) -> None:
+    """`0` is the hand-editor's "no", and it is refused as `maximized`'s `1`
+    is; `None` is an absent key, which is not a complaint."""
+    path = write(
+        tmp_path / "settings.json",
+        {"schema_version": settings.SCHEMA_VERSION, "single_key_shortcuts": stored},
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.single_key_shortcuts is True
+    if stored is not None:
+        assert any("single_key_shortcuts" in reason for reason in result.reasons)
+    else:
+        assert result.reasons == []
 
 
 # --- LWSM-1237: the clip ate the cause, not the hostile input -----------------

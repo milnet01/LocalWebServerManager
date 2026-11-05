@@ -23,6 +23,7 @@ signaling per
 
 ### Added
 
+- **Preferences can turn off the single-key shortcuts.** `/` and the number keys act on one key press, so speech-input software saying "one" or "slash" could move the focus without you meaning to. A new check box in Preferences turns them off. They stay on unless you change it, and Escape and Enter still work either way. (LWSM-1475)
 - **The "What's using a port?" window has a Copy answer button.** The answer could be copied with the mouse but not reached from the keyboard. Press Tab from the port box to reach the new button beside Close, and it copies the whole answer. A screen reader still hears the answer as before. (LWSM-1457)
 
 ### Fixed

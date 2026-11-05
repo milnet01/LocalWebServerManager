@@ -2047,6 +2047,7 @@ class MainWindow(QMainWindow):
         maximized: bool = False,
         save_geometry: Callable[[Rect | None, bool, bool], None] | None = None,
         place: PlaceWindow | None = None,
+        single_key_shortcuts: bool = True,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -2201,6 +2202,7 @@ class MainWindow(QMainWindow):
         self._remembered_size = size
         self._remembered_maximized = maximized
         self._geometry_restored = False
+        self._single_key_shortcuts = single_key_shortcuts
         # A seam, and it defaults to doing nothing for `save_theme`'s
         # reason rather than `confirm`'s: this one fires on every close, so a
         # test that closed a window would write that window's geometry into the
@@ -3242,7 +3244,11 @@ class MainWindow(QMainWindow):
         clearing the filter is exactly what it should do in both.
         """
         key = event.key()
-        if key == Qt.Key.Key_Slash:
+        # LWSM-1475, WCAG 2.1.4: a single-character shortcut must be possible
+        # to turn off, because speech input "types" a spoken "one" or "slash".
+        # Escape is not a character key, so it stays.
+        shortcuts = self._single_key_shortcuts
+        if shortcuts and key == Qt.Key.Key_Slash:
             self._filter.setFocus(Qt.FocusReason.ShortcutFocusReason)
             # Selected, not appended to: `/` on an already-narrowed list means
             # "filter again", and the alternative is a user typing a second
@@ -3266,7 +3272,11 @@ class MainWindow(QMainWindow):
         # because those are real shortcut space and Qt does hand `text()` back
         # for some of those combinations; Shift is allowed, which is the point.
         typed = event.text()
-        if typed in _JUMP_KEYS and not (event.modifiers() & _JUMP_BLOCKED_MODIFIERS):
+        if (
+            shortcuts
+            and typed in _JUMP_KEYS
+            and not (event.modifiers() & _JUMP_BLOCKED_MODIFIERS)
+        ):
             shown = self._visible_rows()
             index = int(typed) - 1
             if index < len(shown):
@@ -3275,6 +3285,14 @@ class MainWindow(QMainWindow):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def single_key_shortcuts(self) -> bool:
+        """Whether `/` and the number keys act (LWSM-1475)."""
+        return self._single_key_shortcuts
+
+    def set_single_key_shortcuts(self, on: bool) -> None:
+        """Turn `/` and the number keys on or off; Preferences calls this."""
+        self._single_key_shortcuts = on
 
     @staticmethod
     def _window_title() -> str:

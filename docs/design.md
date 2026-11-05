@@ -804,8 +804,9 @@ deliberately not JSON:
 - `~/.config/localwebservermanager/settings.json` — poll
   interval, log cap, theme choice, text-size percentage, and the
   window geometry keys `width` / `height` / `x` / `y` /
-  `maximized` (ADR-0007). It carries its own `schema_version` on
-  the same terms.
+  `maximized` (ADR-0007), and `single_key_shortcuts`, whether `/`
+  and the number keys act (LWSM-1475). It carries its own
+  `schema_version` on the same terms.
 - `~/.config/localwebservermanager/trust.json` — which launchers
   the user confirmed at ADR-0003's trust gate: the resolved project
   path and the launcher fingerprint confirmed for it, plus a
