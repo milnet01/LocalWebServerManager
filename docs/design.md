@@ -79,7 +79,6 @@ flowchart TB
     MW --> CTL
     TR --> CTL
     SD --> CTL
-    SD --> THM
     THM --> MW
     THM --> LP
     THM --> TR
@@ -152,10 +151,13 @@ Two rules the diagram encodes:
   is hidden. Closing the window hides to tray; servers keep
   running (user decision, 2026-08-03), and they survive Quit too
   (ADR-0003).
-- **SettingsDialog** — edits app-wide settings: scan roots, poll
-  interval, slow-start threshold, theme, text size. Main
-  responsibility: capturing configuration edits and handing them
-  to the Registry. **Per-project** configuration — launcher, port
+- **SettingsDialog** — the Preferences dialog. It edits app-wide
+  settings: scan roots, poll interval, the log size cap and the
+  single-key shortcuts switch. Theme and text size are entries on
+  the Settings menu, not in the dialog. Main responsibility:
+  capturing configuration edits and returning them; `__main__`
+  applies them and writes `settings.json` and `scan-roots`.
+  **Per-project** configuration — launcher, port
   override, custom actions — is edited on the project's own row
   instead, never in here.
 - **ThemeManager** — turns the selected palette into a `QPalette`
