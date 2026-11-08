@@ -532,6 +532,12 @@ class LogFeed(QObject):
         self._text.emit(data)
 
     def _on_text(self, data: bytes) -> None:
+        # Text and failures the reader queued before stop() joined it arrive
+        # after it, when whoever showed this feed may have moved on to
+        # another project (LWSM-1516). Only this thread sets the flag, so it
+        # is read here without the lock.
+        if self._closing:
+            return
         with self._room:
             self._in_flight = max(0, self._in_flight - len(data))
             self._room.notify_all()
@@ -541,5 +547,7 @@ class LogFeed(QObject):
         self._quiet.start()
 
     def _on_error(self, reason: str, detail: str) -> None:
+        if self._closing:
+            return
         self._flush()
         self.failed.emit(reason, detail)

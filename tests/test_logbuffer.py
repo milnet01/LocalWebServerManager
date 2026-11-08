@@ -451,6 +451,28 @@ def test_stopping_the_feed_releases_a_waiting_reader(qtbot) -> None:
 
 
 @pytest.mark.gui
+def test_a_stopped_feed_delivers_nothing_it_had_queued(qtbot) -> None:
+    """LWSM-1516: the reader queues text and failures for the GUI thread
+    before stop() joins it, and they are taken after. A feed delivering them
+    then put one project's output, or its failure, under the next one's name
+    in a panel that had already moved on."""
+    feed = LogFeed(LogSource())
+    lines: list[list[str]] = []
+    failures: list[tuple[str, str]] = []
+    feed.lines_added.connect(lines.append)
+    feed.failed.connect(lambda reason, detail: failures.append((reason, detail)))
+    feed._send(b"late line\n")
+    feed._send(b"half a line")
+    feed._error.emit("unreadable", "gone")
+
+    feed.stop()
+    qtbot.wait(50)
+
+    assert lines == [], "a stopped feed delivered queued output"
+    assert failures == [], "a stopped feed announced a queued failure"
+
+
+@pytest.mark.gui
 def test_a_source_with_neither_file_nor_unit_starts_nothing(qtbot) -> None:
     """A window with no supervisor has no log directory to name."""
     feed = LogFeed(LogSource())

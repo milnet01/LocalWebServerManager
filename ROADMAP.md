@@ -14501,7 +14501,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-12.
   Lanes: logbuffer.
 
-- 📋 [LWSM-1516] **Switching log panel rows can show the old feed's output, and scrolled-back reading drifts once the view is full.**
+- ✅ [LWSM-1516] **Switching log panel rows can show the old feed's output, and scrolled-back reading drifts once the view is full.**
   Priority: 3.
   Two findings in logpanel.py. Cited lines read at f57689c.
   1. logpanel.py:267-271: `_stop_feed` calls feed.stop() and
@@ -14526,6 +14526,12 @@ LWSM-1036.
   lane's memory; prove it with a full panel (write-test, red first).
   Remedy: subtract the trimmed blocks (count before + lines appended -
   count after) from `held`.
+  Shipped 2026-11-08. 1: the fix sits in LogFeed, not the panel: a
+  stopped feed drops text and failures already queued (_on_text,
+  _on_error), so every consumer gets it. 2: confirmed red first (the
+  reader's top line moved by the 30 lines trimmed); append_lines now
+  holds the top block and its wrapped-line offset, and finds it again
+  after the trim.
   **Layman:** The output panel can show one server's lines under another's name, and text you scrolled back to read can slide away.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-12.

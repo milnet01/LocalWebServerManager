@@ -468,3 +468,70 @@ def test_opening_another_project_clears_the_last_jump(
 
     window.show_output(Path("/srv/api"))
     assert "Last error" not in panel.status.text()
+
+
+# --- LWSM-1516: switching rows, and reading back in a full view ---------------
+
+
+def test_switching_projects_drops_the_old_feeds_queued_output(qtbot, tmp_path) -> None:
+    """open_for stops web's feed and starts api's in one call, so text web's
+    reader had already queued arrived after the switch, under 'Output of api'."""
+    from lwsm.logpanel import LogPanel
+
+    for name in ("web", "api"):
+        (tmp_path / f"{name}.log").write_text("")
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.open_for("web", LogSource(file=tmp_path / "web.log"))
+    old = panel.feed
+    assert old is not None
+    old._send(b"web said this\n")
+    old._error.emit("unreadable", "web's file")
+
+    panel.open_for("api", LogSource(file=tmp_path / "api.log"))
+    qtbot.wait(50)
+
+    assert "web said this" not in panel.view.toPlainText()
+    assert "web's file" not in panel.status.text()
+    panel.close_panel()
+
+
+def test_reading_back_in_a_full_view_keeps_the_same_line_in_view(
+    qtbot, tmp_path
+) -> None:
+    """Once the view holds MAX_LINES lines every append trims from the top.
+    The scroll value counts lines from the top, so holding it moved the text
+    the user was reading up by what was trimmed. Long lines are mixed in
+    because the view wraps, and a wrapped line is more than one scroll step."""
+    from PySide6.QtCore import QPoint
+
+    from lwsm.logbuffer import MAX_LINES
+    from lwsm.logpanel import LogPanel
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.resize(500, 400)
+    (tmp_path / "web.log").write_text("")
+    panel.open_for("web", LogSource(file=tmp_path / "web.log"))
+    with qtbot.waitExposed(panel):
+        panel.show()
+
+    def line(n: int) -> str:
+        return f"line {n} " + ("wide " * 60 if n % 3 == 0 else "")
+
+    panel.append_lines([line(n) for n in range(MAX_LINES)])
+    bar = panel.view.verticalScrollBar()
+    bar.setValue(bar.maximum() // 2)
+
+    def top_text() -> str:
+        return panel.view.cursorForPosition(QPoint(0, 0)).block().text()
+
+    reading = top_text()
+    assert "Paused" in panel.status.text()
+
+    panel.append_lines([line(MAX_LINES + n) for n in range(30)])
+
+    assert panel.view.document().blockCount() == MAX_LINES, "the view must be full"
+    assert top_text() == reading, "the text being read moved"
+    assert "Paused" in panel.status.text()
+    panel.close_panel()

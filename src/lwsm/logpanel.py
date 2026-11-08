@@ -201,13 +201,25 @@ class LogPanel(QFrame):
                 return
         bar = self.view.verticalScrollBar()
         following = self._following
+        document = self.view.document()
+        # The reader's place is held as the block at the top of the view and
+        # how many of its wrapped lines are scrolled past, not as the bar's
+        # value: once the view is full every append trims blocks from the
+        # top, and the value, a count of lines from the top, would then point
+        # further down by what was trimmed (LWSM-1516).
         held = bar.value()
+        top = document.findBlockByLineNumber(held)
+        top_number = top.blockNumber()
+        into_top = held - top.firstLineNumber()
+        before = document.blockCount()
         for line in lines:
             self.view.appendPlainText(line)
         if following:
             bar.setValue(bar.maximum())
-        else:
-            bar.setValue(held)
+            return
+        trimmed = before + len(lines) - document.blockCount()
+        top = document.findBlockByNumber(top_number - trimmed)
+        bar.setValue(top.firstLineNumber() + into_top if top.isValid() else 0)
 
     def jump_to_last_error(self) -> None:
         """Select the last error line, show it, focus it and say it.
