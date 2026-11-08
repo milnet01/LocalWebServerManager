@@ -52,9 +52,9 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
   project's own start script and never changes a single file in
   your project.
 - **An Open button** that opens the running site in your browser.
-  It is offered only for servers this app started itself — if
-  something else is sitting on that port, the app will not send
-  you to a page it cannot vouch for.
+  It is offered whenever the site is running. For a server this
+  app did not start, it first shows you what is holding the port
+  and asks before opening it.
 - **A Rescan button** that goes and looks again, folding in new
   projects without losing anything you changed by hand.
 - **Eight colour themes**, including two high-contrast ones, and

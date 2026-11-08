@@ -2961,6 +2961,69 @@ def test_open_uses_the_port_that_is_bound(qtbot, built) -> None:
     assert opened[0].host() == "localhost"
 
 
+def test_open_on_a_wrong_port_row_opens_the_port_our_server_holds(qtbot, built) -> None:
+    """LWSM-1519. `running (wrong port)` is ADR-0004's "bound, but not where
+    asked": the user set 5005, the server ignored it and bound 5999. Open
+    went to 5005, where nothing listens."""
+    opened: list = []
+    stubborn = dataclasses.replace(record("a", 5999), port_override=5005)
+    window = opening_window(qtbot, built, [stubborn], FakeProbe(5999), opened)
+    row = rows_of(window)[0]
+    assert row._view.status is ProjectStatus.RUNNING_WRONG_PORT, "precondition"
+
+    row.open_button.click()
+
+    assert [url.toString() for url in opened] == ["http://localhost:5999/"]
+
+
+def test_open_refuses_when_the_held_port_moves_during_the_disclosure(
+    qtbot, built
+) -> None:
+    """A wrong-port row is not `managed` (our group does not hold its
+    effective port), so Open discloses first, and polls run under the dialog.
+    The port Open would use moved from 5999 to 5998 meanwhile; opening it
+    would send the user somewhere they were never shown (LWSM-1445)."""
+    opened: list = []
+    probe = FakeProbe(5999)
+    window_box: list[MainWindow] = []
+
+    def moved_while_open(path, holder) -> bool:
+        probe.listening = {5998}
+        controller = window_box[0]._controller
+        with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+            controller.poll_once()
+        return True
+
+    stubborn = dataclasses.replace(record("a", 5999), port_override=5005)
+    window = opening_window(
+        qtbot, built, [stubborn], probe, opened, disclose=moved_while_open
+    )
+    window_box.append(window)
+    row = rows_of(window)[0]
+    assert row._view.open_port == 5999, "precondition"
+
+    row.open_button.click()
+
+    assert opened == [], "Open went to a port the user was never shown"
+    assert "changed while you were deciding" in message_of(window)
+
+
+def test_open_on_a_wrong_port_row_with_no_single_port_says_so(qtbot, built) -> None:
+    """Two ports held, neither the one asked for or declared: a dev server and
+    its websocket port cannot be told apart, so nothing is opened, and the
+    user is told why rather than sent to a guess."""
+    opened: list = []
+    stubborn = dataclasses.replace(record("a", 5000), port_override=5005)
+    window = opening_window(qtbot, built, [stubborn], FakeProbe(5998, 5999), opened)
+    row = rows_of(window)[0]
+    assert row._view.status is ProjectStatus.RUNNING_WRONG_PORT, "precondition"
+
+    row.open_button.click()
+
+    assert opened == []
+    assert "not listening on one port" in message_of(window)
+
+
 def test_open_reads_the_port_at_click_time_not_at_build_time(qtbot, built) -> None:
     """An override or a rescan can move the port. Opening a value cached when
     the button was created is the confidently-wrong failure ADR-0003 records a

@@ -446,6 +446,12 @@ class RowView:
     # otherwise. ADR-0004 § Slowness is not failure: `starting` has no deadline
     # "and the UI shows the elapsed time" (LWSM-1402).
     starting_for: float | None = None
+    # Where Open goes (LWSM-1519): the effective port, except on a
+    # `running (wrong port)` row, which by definition is not bound there. That
+    # row names the one port our group holds where `localhost` reaches it,
+    # chosen as `_port_seen_by_our_group` chooses, and None when no single
+    # port can be named, so Open guesses nothing.
+    open_port: int | None = None
 
 
 def _port_seen_by_our_group(record: ProjectRecord, ours: frozenset[int]) -> int | None:
@@ -1100,6 +1106,9 @@ class ProjectController(QObject):
         # port holder PIDs from the same snapshot, so a foreign server can be
         # named. Cleared with `_managed` when a probe fails, for its reason.
         self._holders: dict[Path, int] = {}
+        # Each `running (wrong port)` row's `RowView.open_port`, rebuilt from
+        # the same snapshot as the statuses on every tick.
+        self._open_ports: dict[Path, int] = {}
         # The last snapshot itself, for `port_lookup` (LWSM-1041). Cleared when
         # a probe fails, so the lookup never answers from a table it has lost
         # sight of.
@@ -1212,11 +1221,17 @@ class ProjectController(QObject):
         self, record: ProjectRecord, supervised: set[Path], now: float
     ) -> RowView:
         supervisor = self._supervisor
+        status = self._status_of(record.path)
         return RowView(
             path=record.path,
             name=record.name,
             effective_port=record.effective_port,
-            status=self._status_of(record.path),
+            status=status,
+            open_port=(
+                self._open_ports.get(record.path)
+                if status is ProjectStatus.RUNNING_WRONG_PORT
+                else record.effective_port
+            ),
             starting_for=(
                 now - self._starting_since[record.path]
                 if record.path in self._starting_since
@@ -2373,6 +2388,7 @@ class ProjectController(QObject):
         spawning = self._spawning_paths()
         records = list(self._records)
         statuses: dict[Path, ProjectStatus] = {}
+        open_ports: dict[Path, int] = {}
         for index, record in enumerate(records):
             ours = self._our_ports(record.path, snapshot)
             # LWSM-1038 § 4.3 step 1, BEFORE classifying: a project with no
@@ -2382,6 +2398,10 @@ class ProjectController(QObject):
             if seen is not None and seen != record.confirmed_port:
                 record = records[index] = replace(record, confirmed_port=seen)
             status = self._classify(record, snapshot, record.path in spawning, ours)
+            if status is ProjectStatus.RUNNING_WRONG_PORT:
+                bound = _port_seen_by_our_group(record, ours)
+                if bound is not None:
+                    open_ports[record.path] = bound
             # Step 2: a server we did not start, that is the project's own unit
             # or looks like the project. Only the two ports `_classify` probes.
             # It never decides whether a holder is ours (INV-11).
@@ -2402,6 +2422,7 @@ class ProjectController(QObject):
         if confirmed:
             self._records = records
         self._statuses = statuses
+        self._open_ports = open_ports
         # An answer belongs to a server that is running; once a poll says the
         # project is not, it is dropped (LWSM-1034 § 4.2). The status change
         # itself is what makes this tick emit.

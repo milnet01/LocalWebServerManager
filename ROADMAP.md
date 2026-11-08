@@ -14607,7 +14607,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-06.
   Lanes: mainwindow.
 
-- 📋 [LWSM-1519] **Open on a running (wrong port) row opens the requested port, not the bound one; README's Open claim is wrong.**
+- ✅ [LWSM-1519] **Open on a running (wrong port) row opens the requested port, not the bound one; README's Open claim is wrong.**
   Priority: 3.
   mainwindow.py:1767 `self.open_button.setEnabled(running)` enables
   Open in every RUNNING_STATES state, RUNNING_WRONG_PORT included,
@@ -14624,6 +14624,14 @@ LWSM-1036.
   matches design.md § Components (enabled in all three running states,
   running (foreign) included), so correct README.md. CHANGELOG's
   LWSM-1141 entry is history and stays.
+  Shipped 2026-11-08. Took the remedy's first branch: RowView.open_port
+  is the effective port, except on a wrong-port row, where it is the one
+  port our group holds on localhost (_port_seen_by_our_group's choice)
+  or None. Open stays offered in all running states, as design.md says;
+  with no single port it says why and opens nothing. The disclosure
+  recheck compares open_port, since a wrong-port row is not managed and
+  so discloses. README corrected: Open is offered whenever the site runs,
+  and asks first for a server this app did not start.
   **Layman:** For a server listening on an unexpected port, Open sends the browser to the wrong address; the README also describes Open wrongly.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-06, lane-11.

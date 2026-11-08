@@ -729,10 +729,10 @@ def project_url(port: int) -> QUrl:
     security fix — the live version of this rule is LWSM-1121's `open_url`
     action, where the value is user-authored text.
 
-    **The port is the one observed BOUND, not the one requested.** The two
-    differ exactly when a project ignored `PORT`, which is the case this button
-    would otherwise get wrong every time — and the status is derived from the
-    socket table, so a row reading `running` is a row whose port is bound.
+    **The caller passes the port observed BOUND, not the one requested**:
+    `RowView.open_port`. The two differ exactly when a project ignored `PORT`,
+    which reads `running (wrong port)` and is the case Open got wrong every
+    time until LWSM-1519.
     """
     url = QUrl()
     url.setScheme("http")
@@ -4175,7 +4175,7 @@ class MainWindow(QMainWindow):
             if (
                 view is None
                 or view.status not in RUNNING_STATES
-                or view.effective_port != before.effective_port
+                or view.open_port != before.open_port
                 or (shown is None and view.holder_pid is not None)
             ):
                 self.set_status_message(
@@ -4186,14 +4186,25 @@ class MainWindow(QMainWindow):
                     ).replace("%1", display_text(path.name))
                 )
                 return
-        if view is None or view.effective_port is None:
+        if view is None or view.open_port is None:
+            wrong_port = (
+                view is not None and view.status is ProjectStatus.RUNNING_WRONG_PORT
+            )
             self.set_status_message(
-                QCoreApplication.translate(
-                    "ProjectRow", "%1 has no port to open"
+                (
+                    QCoreApplication.translate(
+                        "ProjectRow",
+                        "%1 is running but not listening on one port this app "
+                        "can open; nothing was opened",
+                    )
+                    if wrong_port
+                    else QCoreApplication.translate(
+                        "ProjectRow", "%1 has no port to open"
+                    )
                 ).replace("%1", display_text(path.name))
             )
             return
-        url = project_url(view.effective_port)
+        url = project_url(view.open_port)
         chosen = browsers.by_id(self._browsers, view.browser)
         if chosen is None:
             if view.browser is not None:

@@ -3739,6 +3739,43 @@ def test_our_child_bound_only_off_localhost_is_on_the_wrong_port(
     assert controller.rows()[0].status is ProjectStatus.RUNNING_WRONG_PORT
 
 
+@pytest.mark.parametrize(
+    ("held", "elsewhere", "expected"),
+    [
+        ({5999}, set(), 5999),
+        ({5998, 5999}, set(), None),
+        (set(), {5999}, None),
+    ],
+    ids=["one port held", "two ports held", "only off localhost"],
+)
+def test_a_wrong_port_row_names_the_port_open_can_use(
+    controllers, held, elsewhere, expected
+) -> None:
+    """LWSM-1519: `open_port` is the port Open goes to. On a wrong-port row it
+    is the one port our group holds where `localhost` reaches it, and None
+    when no single such port can be named, rather than the effective port,
+    which is the one the server did not bind."""
+    supervisor = FakeSupervisor()
+    path = Path("/srv/a")
+    supervisor._running[path] = object()
+    supervisor.child_pids[path] = OURS
+    stubborn = replace(startable("a", 5000), port_override=5005)
+    controller = supervised(controllers, [stubborn], FakeProbe(), supervisor)
+    snapshot = PortSnapshot(
+        frozenset(held | elsewhere),
+        {port: OURS for port in held},
+        frozenset(held),
+        elsewhere={port: frozenset({OURS}) for port in elsewhere},
+    )
+
+    controller._on_snapshot(snapshot)
+
+    row = controller.rows()[0]
+    assert row.status is ProjectStatus.RUNNING_WRONG_PORT
+    assert row.effective_port == 5005
+    assert row.open_port == expected
+
+
 def test_a_stranger_bound_only_off_localhost_leaves_our_child_starting(
     controllers,
 ) -> None:
