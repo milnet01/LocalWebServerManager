@@ -10790,3 +10790,86 @@ def test_a_failure_that_is_not_a_taken_port_offers_no_port_change(
     controller.action_failed.emit(row._view.path, "a has no launcher recorded")
 
     assert row._port_button is None
+
+
+# --- LWSM-1518: a row's own buttons, its failure, and its browser list --------
+
+
+def focused_row_window(qtbot, built):
+    window, controller = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    with qtbot.waitExposed(window):
+        window.show()
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    return window, controller, rows_of(window)[0]
+
+
+def test_removing_the_focused_change_port_button_keeps_focus_on_the_row(
+    qtbot, built
+) -> None:
+    """The keyboard path: Change port..., the dialog closes and focus returns
+    to the button, the new port changes the row and the button is deleted.
+    Qt then moves focus wherever it likes; the row is where the user was."""
+    _, controller, row = focused_row_window(qtbot, built)
+    controller.action_failed.emit(row._view.path, "port 5005 is taken")
+    row.offer_port_change()
+    qtbot.wait(20)
+    row._port_button.setFocus()
+    assert row._port_button.hasFocus(), "the fixture must focus the button"
+
+    row.update_from(dataclasses.replace(row._view, effective_port=5006))
+
+    assert row._port_button is None
+    assert row.hasFocus(), f"focus went to {QApplication.focusWidget()!r}"
+
+
+def test_removing_the_focused_view_output_button_keeps_focus_on_the_row(
+    qtbot, built
+) -> None:
+    _, _, row = focused_row_window(qtbot, built)
+    row.update_from(dataclasses.replace(row._view, status=ProjectStatus.FAILED))
+    assert row.output_button is not None, "precondition"
+    qtbot.wait(20)
+    row.output_button.setFocus()
+    assert row.output_button.hasFocus(), "the fixture must focus the button"
+
+    row.update_from(dataclasses.replace(row._view, status=ProjectStatus.STOPPED))
+
+    assert row.output_button is None
+    assert row.hasFocus(), f"focus went to {QApplication.focusWidget()!r}"
+
+
+def test_a_failure_outlives_changes_that_do_not_move_the_state(qtbot, built) -> None:
+    """Any RowView change cleared it, so the starting counter (once a second)
+    or picking a browser erased a failure before it could be read. A new
+    state or a new port still clears it: the message described the old one."""
+    _, controller, row = focused_row_window(qtbot, built)
+    controller.action_failed.emit(row._view.path, "it would not start")
+    qtbot.wait(20)
+    assert row.error_rect() is not None, "precondition"
+
+    for change in (
+        {"browser": "brave.desktop"},
+        {"health_check": True},
+        {"holder_pid": 4321},
+    ):
+        row.update_from(dataclasses.replace(row._view, **change))
+        assert row.error_rect() is not None, f"{change} wiped the failure"
+
+    row.update_from(dataclasses.replace(row._view, effective_port=5006))
+    assert row.error_rect() is None, "a new port kept a failure about the old one"
+
+
+def test_a_row_with_a_chosen_browser_reports_no_list_item_focused(
+    qtbot, built, tmp_path
+) -> None:
+    """LWSM-1504's false 'focused', by the refresh route: update_from sets the
+    index under a signal blocker, and Qt moves the list's current item before
+    the signal the clearing hangs off, so the blocker kept the move."""
+    window, _ = browser_window(
+        qtbot, built, tmp_path, [with_browser("a", 3000, "brave.desktop")]
+    )
+    box = row_named(window, "a").browser_box
+    assert box.currentText() == "Brave", "precondition"
+
+    assert _picker_items_reporting_focus(box) == []

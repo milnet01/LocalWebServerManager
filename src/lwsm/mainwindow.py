@@ -1308,8 +1308,7 @@ class ProjectRow(QFrame):
         """Destroy the label rather than blanking it — see `__init__` on why an
         empty one may not be left in the accessibility tree."""
         if self._port_button is not None:
-            self._outer_layout.removeWidget(self._port_button)
-            self._port_button.deleteLater()
+            self._remove_button(self._port_button)
             self._port_button = None
         if self._error is None:
             return
@@ -1354,9 +1353,21 @@ class ProjectRow(QFrame):
             self._label_output_button()
             self._fit_buttons()
         elif not failed and self.output_button is not None:
-            self._outer_layout.removeWidget(self.output_button)
-            self.output_button.deleteLater()
+            self._remove_button(self.output_button)
             self.output_button = None
+
+    def _remove_button(self, button: QPushButton) -> None:
+        """Take one of the buttons under the row away, keeping the user's place.
+
+        A keyboard user can be on it when it goes: focus returns to Change
+        port... when its dialog closes, and the new port is what removes it.
+        Qt would move focus wherever it likes, so it goes to the row, as
+        `_apply_button_state` does for a button it disables (LWSM-1518).
+        """
+        if button.hasFocus():
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._outer_layout.removeWidget(button)
+        button.deleteLater()
 
     def _label_output_button(self) -> None:
         if self.output_button is None:
@@ -1934,18 +1945,25 @@ class ProjectRow(QFrame):
             # glyph is painted from this cached value. `apply_theme` handles it
             # through `_rerender` (LWSM-1031).
             return
-        self._view = row
+        previous, self._view = self._view, row
         # The state has moved on, so a failure describing the old one is now a
         # lie — and a magnifier user reading one row at a time has nothing else
         # on screen to contradict it (LWSM-1032). Cleared here rather than on a
-        # timer: what makes the message stale is the state changing, and that
-        # is exactly what reaching this line means.
+        # timer: what makes the message stale is the state changing. The state
+        # is the status and the port, not the whole view: the starting counter
+        # changes it once a second, and a browser choice or a health answer
+        # says nothing about a failure, so either one erased it unread
+        # (LWSM-1518).
         #
         # Not on a re-render, which reaches this line with the SAME view: a
         # theme or language change invalidates nothing (LWSM-1175). The user it
         # hurt is the one switching to a high-contrast theme in order to read
         # the message they were then shown losing.
-        if not rerendering:
+        if not rerendering and (
+            previous is None
+            or (previous.status, previous.effective_port)
+            != (row.status, row.effective_port)
+        ):
             self.clear_error()
 
         # .get, not [...]: this runs inside a signal handler, so an unmapped
@@ -2018,6 +2036,10 @@ class ProjectRow(QFrame):
             # the default entry; the id stays in the file, so reinstalling the
             # browser restores the choice (`browsers.by_id` takes the same view).
             self.browser_box.setCurrentIndex(index if index >= 0 else 0)
+        # The blocker also stopped the signal that clears the closed list's
+        # current item, and Qt had already moved it, so a row with a chosen
+        # browser reported it focused (LWSM-1504, by this route LWSM-1518).
+        self.browser_box._forget_list_position()
         # Which project this picker is for, for the same reason each button
         # names its project: the visible label reads as "Firefox" three times
         # over in a list of three projects (`§ O8`). Not folded into the row's

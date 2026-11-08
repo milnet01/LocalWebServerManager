@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1540 -->
+<!-- ants-roadmap-id-high-water: LWSM=1541 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -14563,7 +14563,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-02.
   Lanes: registry, mainwindow.
 
-- 📋 [LWSM-1518] **A project row deletes the focused button under the keyboard, wipes its error on any change, and can leave the browser list falsely focused.**
+- ✅ [LWSM-1518] **A project row deletes the focused button under the keyboard, wipes its error on any change, and can leave the browser list falsely focused.**
   Priority: 3.
   Three findings in ProjectRow. Cited lines read at f57689c.
   1. mainwindow.py:1272-1275 `self._port_button.deleteLater()` and
@@ -14594,6 +14594,14 @@ LWSM-1036.
   Related [R] queued in 1.0.0: one helper for the two buttons'
   create/label/fit/destroy (mainwindow.py:1300-1347); fix 1 may land as
   that helper.
+  Shipped 2026-11-08. 1: _remove_button moves focus to the row before
+  deleting Change port... or View output (the [R] helper in LWSM-1539
+  is not built here). 2: clear_error now fires when the status or the
+  effective port changes, not on any RowView change. 3: the unsettled
+  claim reproduced at Qt's accessibility layer (a Brave row reported
+  'Brave' focused); update_from now clears the closed list's current
+  item after the blocked setCurrentIndex. The O9 sweep found a removed
+  row as the same shape, filed as an investigate item in 1.0.0.
   **Layman:** Keyboard focus can vanish after changing a port, error messages disappear before you read them, and a screen reader can be told the wrong thing is focused.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-06.
@@ -15457,6 +15465,20 @@ author's own use, which is why it sits after the app works.
   Kind: refactor.
   Source: review-code-2026-11-05 lane-13.
   Lanes: tooling.
+
+- 📋 [LWSM-1541] **Where keyboard focus goes when the focused project row is removed from the list.**
+  Found by LWSM-1518's O9 sweep, not reproduced. MainWindow._sync_rows
+  removes a row with setParent(None) and deleteLater(). Nothing moves
+  focus first, so a keyboard user on that row (Hide this project, or a
+  rescan dropping it) lands wherever Qt puts focus. Unverified: Qt may
+  already move it to the next widget in the chain. First measure where
+  it lands, then decide the target (the next row, the previous row, or
+  the filter box). LWSM-1518 fixed the same shape for the row's own
+  Change port... and View output buttons.
+  **Layman:** If you hide the project you are on, or a rescan drops it, the keyboard focus may land somewhere unexpected.
+  Kind: investigate.
+  Source: write-code-2026-11-08 LWSM-1518 O9 sweep.
+  Lanes: mainwindow.
 
 ## After 1.0.0
 
