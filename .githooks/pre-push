@@ -18,7 +18,8 @@
 # see docs_only().
 #
 # Every push is also scanned for secrets first, by the machine-wide hook's
-# --secrets-only mode, and neither escape hatch below skips that scan.
+# --secrets-only mode where that hook is installed. LWSM_SKIP_PREPUSH does not
+# skip that scan; --no-verify does, as it skips this whole hook.
 #
 # Escape hatches for the gate, in order of preference:
 #   git push --no-verify          one push, git's own mechanism; skips the scan too

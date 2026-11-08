@@ -91,8 +91,11 @@ Before opening a PR:
    `docs/standards/` and `docs/claude/` are asserted against by the suite, so
    editing one can turn it red — they always run the full gate.
    `scripts/`, `.github/`, `src/` and `tests/` always do too: a
-   change to the checker must run the check. Every push is
-   scanned for secrets first, whatever it touches.
+   change to the checker must run the check. Where the
+   maintainer's machine-wide hook is installed, every push is also
+   scanned for secrets first, whatever it touches. That hook is not
+   in this repository: in a clone without it, the hook prints
+   `NO SECRET SCAN on this machine` and the push goes ahead.
 
 PRs that don't follow the standards may be asked to update
 before review.

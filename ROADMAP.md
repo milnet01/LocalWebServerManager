@@ -14700,7 +14700,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-11.
   Lanes: main.
 
-- 📋 [LWSM-1522] **CONTRIBUTING.md promises every push a secret scan that only runs where the maintainer's hook is installed.**
+- ✅ [LWSM-1522] **CONTRIBUTING.md promises every push a secret scan that only runs where the maintainer's hook is installed.**
   Priority: 3.
   CONTRIBUTING.md:94-95 'Every push is scanned for secrets first,
   whatever it touches.' against .githooks/pre-push:44-49: the scan is
@@ -14715,6 +14715,10 @@ LWSM-1036.
   scan too'. The second line and CLAUDE.md § Before pushing are
   right; change the first to 'LWSM_SKIP_PREPUSH does not skip that
   scan'. Verified at f57689c.
+  Shipped 2026-11-08. CONTRIBUTING.md now says the secret scan runs
+  only where the maintainer's machine-wide hook is installed, and what a
+  clone without it prints. The hook header says LWSM_SKIP_PREPUSH does
+  not skip the scan and --no-verify does. Doc and comment only.
   **Layman:** The contributor guide says every push is checked for leaked passwords, but on a contributor's own machine it is not.
   Kind: doc-fix.
   Source: review-code-2026-11-05 lane-13.
