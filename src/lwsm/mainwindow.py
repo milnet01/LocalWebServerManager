@@ -178,6 +178,9 @@ PLACEMENT_FALLBACK_MS = 50
 # bound by then, and the portal's on-demand start measured 1.4 to 2.2 s at
 # login on the author's desktop, so it has normally started.
 CONTRAST_RETRY_MS = 2000
+# The same wait, for the KWin check the spent startup budget left unasked
+# (LWSM-1520): the same login, the same bus.
+KWIN_RETRY_MS = CONTRAST_RETRY_MS
 
 # The characters that jump to a row, and the modifiers that must NOT be held
 # (LWSM-1282). Matched against `QKeyEvent.text()` rather than a key code, so a
@@ -2695,11 +2698,17 @@ class MainWindow(QMainWindow):
         # check gets only what the contrast read left of the startup budget
         # (LWSM-1484). `placement.kwin_on_bus` is looked up at call time so a
         # test's monkeypatch reaches it.
+        #
+        # None is "not asked": the budget was spent, normally by a contrast read
+        # timing out at login. Centre stays offered and asks when used, and
+        # the check is asked once more a little later (LWSM-1520).
         budget = placement.DBUS_TIMEOUT_S - self._startup_bus_spent
-        self._can_place = placement.placement_available(
+        self._can_place: bool | None = placement.placement_available(
             has_kwin=lambda: placement.kwin_on_bus(timeout=budget)
         )
-        self._centre_action.setEnabled(self._can_place)
+        self._centre_action.setEnabled(self._can_place is not False)
+        if self._can_place is None:
+            QTimer.singleShot(KWIN_RETRY_MS, self, self._retry_kwin)
         # Checkable, and unchecked at build: hiding is only reversible because
         # this exists, so it is offered whether or not there is a writer — a
         # project can be hidden in the file on a window that cannot save one.
@@ -3086,6 +3095,30 @@ class MainWindow(QMainWindow):
         return resolve_theme_id(
             theme_id, dark=dark, high_contrast=bool(self._high_contrast)
         )
+
+    def _ask_kwin_again(self) -> bool:
+        """Ask the KWin check the startup budget left unasked, and keep it.
+
+        The full timeout: the startup is over, and the caller is a retry or the
+        user's own Centre. Asked once; a second answer is never sought.
+        """
+        if self._can_place is None and not self._stopped:
+            self._can_place = bool(
+                placement.placement_available(
+                    has_kwin=lambda: placement.kwin_on_bus(
+                        timeout=placement.DBUS_TIMEOUT_S
+                    )
+                )
+            )
+            self._centre_action.setEnabled(self._can_place)
+            # The entry's label says whether it is available.
+            self._retranslate_menus()
+        return bool(self._can_place)
+
+    def _retry_kwin(self) -> None:
+        """The scheduled ask; a yes restores the remembered position after all."""
+        if self._can_place is None and self._ask_kwin_again():
+            self._restore_position()
 
     def _retry_high_contrast(self) -> None:
         """The one retry after a timed-out contrast read; its answer is kept.
@@ -5115,7 +5148,10 @@ class MainWindow(QMainWindow):
         # is a centre of the whole screen and puts the window half a panel too
         # low (LWSM-1241). It is still computed, still used on X11, and is the
         # fallback if KWin cannot answer.
-        target = self._centre_target()
+        placeable = (
+            self._ask_kwin_again() if self._can_place is None else self._can_place
+        )
+        target = self._centre_target() if placeable else None
         if target is None or self._place_at(target, centre=True) is None:
             self.set_status_message(
                 QCoreApplication.translate(

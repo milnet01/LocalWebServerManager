@@ -7087,6 +7087,95 @@ def test_the_kwin_check_gets_only_what_the_contrast_read_left(
     assert given[0] <= placement.DBUS_TIMEOUT_S - 0.3
 
 
+def unasked_kwin(monkeypatch, later: bool) -> list[object]:
+    """Wayland, `dbus-send` present, and the build's KWin check unasked
+    because the startup budget was spent; `later` is the answer once asked
+    with time to spare. Returns the timeout of every call."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setattr(mainwindow.placement.shutil, "which", lambda _n: "/bin/x")
+    asked: list[object] = []
+    real = mainwindow.placement.kwin_on_bus
+
+    def never(*_args, **_kwargs):
+        raise AssertionError("a spent budget asked the bus")
+
+    def kwin(**kw):
+        asked.append(kw.get("timeout"))
+        # The first answer is the real one for a spent budget.
+        return real(never, timeout=0.0) if len(asked) == 1 else later
+
+    monkeypatch.setattr(mainwindow.placement, "kwin_on_bus", kwin)
+    return asked
+
+
+def test_an_unasked_kwin_is_asked_again_and_the_position_restored(
+    qtbot, built, monkeypatch
+) -> None:
+    """LWSM-1520: a contrast read that times out at login spends the whole
+    startup budget, and the KWin check that follows was read as KWin absent,
+    so Centre stayed off and the remembered position was never restored on
+    a working KWin session. Not asked is asked again, once, a little later."""
+    monkeypatch.setattr(mainwindow, "KWIN_RETRY_MS", 10)
+    asked = unasked_kwin(monkeypatch, later=True)
+    calls: list[object] = []
+
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(100, 200),
+        place=lambda target, **_kw: calls.append(target) or target,
+    )
+    assert window._centre_action.isEnabled(), "Centre was disabled unasked"
+    qtbot.waitUntil(lambda: len(asked) == 2, timeout=2000)
+
+    assert asked[1] == placement.DBUS_TIMEOUT_S
+    qtbot.waitUntil(lambda: bool(calls), timeout=2000)
+    assert (calls[0].x, calls[0].y) == (100, 200)
+    assert window._centre_action.isEnabled()
+
+
+def test_centre_asks_an_unasked_kwin_before_it_moves_anything(
+    qtbot, built, monkeypatch
+) -> None:
+    """The user may reach Centre before the retry runs. It asks then, with
+    the full timeout: the wait is one the user started."""
+    monkeypatch.setattr(mainwindow, "KWIN_RETRY_MS", 60_000)
+    asked = unasked_kwin(monkeypatch, later=True)
+    calls: list[object] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        place=lambda target, **kw: calls.append(kw) or target,
+    )
+
+    window._centre_action.trigger()
+
+    assert asked[1:] == [placement.DBUS_TIMEOUT_S]
+    assert calls and calls[-1].get("centre") is True
+
+
+def test_a_retry_that_finds_no_kwin_disables_centre(qtbot, built, monkeypatch) -> None:
+    """Asked properly and answered no: ADR-0007's case, disabled with its
+    reason, and nothing is placed."""
+    monkeypatch.setattr(mainwindow, "KWIN_RETRY_MS", 10)
+    asked = unasked_kwin(monkeypatch, later=False)
+    calls: list[object] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(100, 200),
+        place=lambda target, **_kw: calls.append(target),
+    )
+    qtbot.waitUntil(lambda: len(asked) == 2, timeout=2000)
+    qtbot.wait(20)
+
+    assert not window._centre_action.isEnabled()
+    assert calls == []
+
+
 def test_centre_on_screen_carries_a_mnemonic_and_is_retranslated(qtbot, built) -> None:
     """`§ O8` clause 2 — every action reachable from the keyboard — and the
     label set in `_retranslate_menus` rather than at construction, so

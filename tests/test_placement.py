@@ -289,8 +289,18 @@ def test_kwin_on_bus_waits_only_as_long_as_it_is_given() -> None:
     assert kwin_on_bus(bus, timeout=1.25)
     assert given == [1.25]
 
-    assert not kwin_on_bus(bus, timeout=0.0)
+    # Not asked is not "no KWin" (LWSM-1520): a no disables Centre and the
+    # restore for the session, and the budget runs out at login, when the
+    # portal is starting on a desktop where KWin is very much there.
+    assert kwin_on_bus(bus, timeout=0.0) is None
     assert given == [1.25], "an exhausted budget still asked the bus"
+
+
+def test_placement_unasked_is_its_own_answer() -> None:
+    """LWSM-1520: `placement_available` passes "not asked" through rather than
+    folding it into False, so the window can ask again."""
+    assert placement_available(WAYLAND, have_dbus_send, has_kwin=lambda: None) is None
+    assert placement_available(X11, have_dbus_send, has_kwin=lambda: None) is True
 
 
 # --- The script, which runs inside the compositor -------------------------

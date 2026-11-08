@@ -241,7 +241,7 @@ def kwin_on_bus(
     run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
     *,
     timeout: float = DBUS_TIMEOUT_S,
-) -> bool:
+) -> bool | None:
     """Whether anything owns `org.kde.KWin` on the session bus.
 
     The only placement this module can ask for under Wayland is a KWin script,
@@ -250,11 +250,14 @@ def kwin_on_bus(
     cannot be asked, neither can KWin.
 
     `timeout` is what is left of the window's startup budget (LWSM-1484), so
-    none left is not asked at all and reads as unreadable.
+    none left is not asked at all. That answers None, "not asked", rather than
+    False: the budget runs out at login while the portal starts, on a desktop
+    whose KWin is there, and a no would turn placement off for the session
+    (LWSM-1520). The caller asks again.
     """
     if timeout <= 0:
-        log.warning("no startup time left to ask the session bus whether KWin runs")
-        return False
+        log.info("no startup time left to ask the session bus whether KWin runs")
+        return None
     runner = subprocess.run if run is None else run
     try:
         result = runner(
@@ -279,8 +282,8 @@ def kwin_on_bus(
 def placement_available(
     environ: dict[str, str] | None = None,
     which: Callable[[str], str | None] | None = None,
-    has_kwin: Callable[[], bool] | None = None,
-) -> bool:
+    has_kwin: Callable[[], bool | None] | None = None,
+) -> bool | None:
     """Whether asking for a position can do anything at all.
 
     `which=None` rather than `which=shutil.which`, and the difference is not
@@ -295,7 +298,7 @@ def placement_available(
     `dbus-send` is missing, or nothing owns `org.kde.KWin` (L2-L2). There the
     compositor owns placement and we have no way to ask it, so the Centre
     action is disabled and says why rather than being offered and doing
-    nothing (ADR-0007).
+    nothing (ADR-0007). None is `kwin_on_bus`'s "not asked", passed through.
 
     Off Wayland this is optimistic on purpose. `move()` works under X11, and
     under a Wayland compositor that is not KWin it does not — but nothing

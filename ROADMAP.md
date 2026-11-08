@@ -14637,7 +14637,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-06, lane-11.
   Lanes: mainwindow, docs.
 
-- 📋 [LWSM-1520] **A used-up startup D-Bus budget is read as KWin absent, so Centre and position restore stay off all session.**
+- ✅ [LWSM-1520] **A used-up startup D-Bus budget is read as KWin absent, so Centre and position restore stay off all session.**
   Priority: 3.
   placement.py:255-257 `if timeout <= 0: log.warning(...); return
   False`, fed by mainwindow.py:2629-2631 `budget =
@@ -14656,6 +14656,12 @@ LWSM-1036.
   again on the retry or the first Centre trigger. Related LOWs queued
   in 1.0.0: appearance's restated timeout and three dbus-send callers
   reading a timeout three ways.
+  Shipped 2026-11-08. kwin_on_bus answers None ("not asked") for a
+  spent budget, and placement_available passes it through. The window
+  keeps Centre offered on None, asks again once after KWIN_RETRY_MS
+  (restoring the remembered position on a yes), and Centre asks with
+  the full timeout if used first. Not measured on a real login with a
+  slow portal; the tests drive the real spent-budget answer.
   **Layman:** If the desktop is slow to answer at login, the app can wrongly decide it cannot place its window, and stays that way until restarted.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-10.
