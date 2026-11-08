@@ -5779,6 +5779,7 @@ def profile_window(
     to_open: str | None = None,
     load=None,
     saves: list | None = None,
+    rescan: bool = True,
 ) -> tuple[MainWindow, ProjectController]:
     """A window whose registry is reachable and whose file dialogs are fakes.
 
@@ -5807,7 +5808,7 @@ def profile_window(
         controller,
         Theme.default(),
         [],
-        rescan=context,
+        rescan=context if rescan else None,
         projects_file=files,
         load=load if load is not None else LoadResult([], [], 0),
         choose_profile_to_save=lambda: to_save,
@@ -5966,6 +5967,7 @@ def test_import_restores_the_user_half_saves_it_and_updates_the_controller(
     )
 
     window._import_action.trigger()
+    qtbot.waitUntil(lambda: len(saves) == 1, timeout=3000)
 
     restored = controller.records()[0]
     assert restored.name == "a-from-profile"
@@ -6053,6 +6055,143 @@ def test_import_is_disabled_while_a_rescan_is_in_flight(qtbot, built, tmp_path) 
 
     window._set_rescan_enabled(True)
     assert window._import_action.isEnabled()
+
+
+@pytest.mark.parametrize("with_rescan", [True, False])
+def test_an_import_merges_off_the_gui_thread(
+    qtbot, built, tmp_path, monkeypatch, with_rescan
+) -> None:
+    """LWSM-1517: the merge resolves every stored and every imported path,
+    and a project on a hard-mounted share whose server is down blocks there.
+    Run in the menu's slot, that froze the window. Profiles need no rescan
+    context (LWSM-1358), so a window without one must still import."""
+    on_gui_thread: list[bool] = []
+    real = registry.merge_imported
+
+    def recording(stored, imported):
+        on_gui_thread.append(threading.current_thread() is threading.main_thread())
+        return real(stored, imported)
+
+    monkeypatch.setattr(registry, "merge_imported", recording)
+    saves: list = []
+    profile = write_profile(tmp_path, [{"path": "/srv/a", "name": "a-from-profile"}])
+    window, controller = profile_window(
+        qtbot,
+        built,
+        two_rows(),
+        tmp_path,
+        to_open=str(profile),
+        saves=saves,
+        rescan=with_rescan,
+    )
+
+    window._import_action.trigger()
+    qtbot.waitUntil(lambda: len(saves) == 1, timeout=3000)
+
+    assert on_gui_thread == [False]
+    assert controller.records()[0].name == "a-from-profile"
+    assert "Import:" in message_of(window)
+    assert window._import_action.isEnabled()
+
+
+def test_rescan_waits_while_an_import_is_merging(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """One merge at a time, the reason Import is disabled during a rescan:
+    each merge starts from the records it was handed, so whichever lands
+    second would write over the other's result."""
+    release = threading.Event()
+    real = registry.merge_imported
+
+    def held(stored, imported):
+        release.wait(5)
+        return real(stored, imported)
+
+    monkeypatch.setattr(registry, "merge_imported", held)
+    saves: list = []
+    profile = write_profile(tmp_path, [{"path": "/srv/a", "name": "a-from-profile"}])
+    window, _ = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_open=str(profile), saves=saves
+    )
+    try:
+        window._import_action.trigger()
+        qtbot.waitUntil(lambda: not window._rescan_button.isEnabled(), timeout=3000)
+        assert not window._import_action.isEnabled()
+        window._rescan_action.trigger()
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: window._import_action.isEnabled(), timeout=3000)
+
+    assert len(saves) == 1, "a rescan ran while the import was merging"
+    assert window._rescan_button.isEnabled()
+
+
+def test_a_failed_import_merge_says_so_and_ends_the_merge(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """On the worker, an exception escaping the merge must still reach the
+    window: otherwise the in-flight flag stays set and Rescan and Import stay
+    disabled for the rest of the session."""
+
+    def broken(_stored, _imported):
+        raise OSError("the share went away")
+
+    monkeypatch.setattr(registry, "merge_imported", broken)
+    saves: list = []
+    profile = write_profile(tmp_path, [{"path": "/srv/a", "name": "a"}])
+    window, controller = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_open=str(profile), saves=saves
+    )
+    before = controller.records()
+
+    window._import_action.trigger()
+    qtbot.waitUntil(lambda: "Profile not loaded" in message_of(window), timeout=3000)
+
+    assert "the share went away" in message_of(window)
+    assert window._import_action.isEnabled()
+    assert window._rescan_button.isEnabled()
+    assert controller.records() == before
+    assert saves == []
+
+
+def test_an_import_landing_after_shutdown_writes_nothing(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """`test_a_rescan_landing_after_shutdown_writes_nothing`'s race, for the
+    import now that it merges on the same worker: a merge delivered after
+    teardown would save over the project list on the way out."""
+    monkeypatch.setattr(mainwindow, "RESCAN_STOP_WAIT_MS", 50)
+    release = threading.Event()
+    real = registry.merge_imported
+
+    def held(stored, imported):
+        release.wait(5)
+        return real(stored, imported)
+
+    monkeypatch.setattr(registry, "merge_imported", held)
+    saves: list = []
+    profile = write_profile(tmp_path, [{"path": "/srv/a", "name": "a-from-profile"}])
+    window, _ = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_open=str(profile), saves=saves
+    )
+    try:
+        window._import_action.trigger()
+        qtbot.waitUntil(lambda: window._rescan_in_flight, timeout=2000)
+
+        signals = window._import_signals
+        assert signals is not None
+
+        window.shutdown()
+        release.set()
+        for _ in range(3):
+            qtbot.wait(50)
+
+        assert saves == [], "an import wrote the project list after shutdown"
+        # LWSM-1233's hazard: the abandoned task emits on this window child.
+        assert signals.parent() is None, "the window still owns the import signaller"
+    finally:
+        release.set()
+        assert wait_for_abandoned_pools(5000) == 0
 
 
 def test_the_profile_entries_retranslate(qtbot, built, tmp_path) -> None:

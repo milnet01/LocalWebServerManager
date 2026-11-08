@@ -14537,7 +14537,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-12.
   Lanes: logpanel.
 
-- 📋 [LWSM-1517] **Import resolves every project path on the GUI thread, so a dead network mount freezes the window.**
+- ✅ [LWSM-1517] **Import resolves every project path on the GUI thread, so a dead network mount freezes the window.**
   Priority: 3.
   registry.py:1834 `resolved, failure = _resolve_or_lexical(record.path)`
   (also registry.py:2171), reached from mainwindow.py:3197 `merged =
@@ -14551,6 +14551,13 @@ LWSM-1036.
   realpath's syscalls, not measured.
   Remedy: run merge_imported on the rescan pool, as merge() does.
   Not LWSM-1460, which is owns_pid alone.
+  Shipped 2026-11-08. merge_imported now runs on the window's merge
+  pool as an _ImportTask, beside _RescanTask under a shared _MergeTask.
+  The pool is built whenever profiles exist, since Import needs no
+  rescan context (LWSM-1358). One merge at a time: an import in flight
+  disables Rescan, as a rescan already disabled Import. The hang itself
+  was not reproduced on a real dead mount; the tests prove where the
+  merge runs.
   **Layman:** Importing a profile can freeze the app if one of your projects sits on a network drive that has gone away.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-02.

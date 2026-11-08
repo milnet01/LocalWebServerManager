@@ -861,28 +861,29 @@ class _RescanSignals(QObject):
     failed = Signal(str)
 
 
-class _RescanTask(QRunnable):
-    """Scan and merge on a pool thread; the write and the UI happen in the slot.
+class _MergeTask(QRunnable):
+    """A merge on a pool thread; the write and the UI happen in the slot.
 
-    `scan()` is budgeted precisely because it is slow — it walks roots, opens
-    other people's files and may shell out to `systemctl` — so running it inline
-    would freeze the window for its whole duration.
+    Both merges resolve every stored and every incoming project path, and
+    `Path.resolve()` on a project on a hard-mounted share whose server is down
+    blocks in `lstat` for as long as the server stays down. Run inline, that
+    froze the window (LWSM-1517). A rescan also scans first, which is slow by
+    design.
 
     The signaller belongs to the **window**, not to this task, for the reason
     `controller._SnapshotTask` records: owning one per task forces
     `setAutoDelete(False)` and nothing on the Python side can then free it.
     """
 
-    def __init__(
-        self,
-        context: RescanContext,
-        stored: list[ProjectRecord],
-        signals: _RescanSignals,
-    ) -> None:
+    # Names the merge in the log.
+    what = "merge"
+
+    def __init__(self, signals: _RescanSignals) -> None:
         super().__init__()
-        self._context = context
-        self._stored = stored
         self.signals = signals
+
+    def _merge(self) -> MergeResult:
+        raise NotImplementedError
 
     def run(self) -> None:
         # Two layers, exactly as `_SnapshotTask` has: PySide6 **swallows** an
@@ -892,22 +893,9 @@ class _RescanTask(QRunnable):
         # covers the case where the signaller itself is already gone.
         try:
             try:
-                result = self._context.scan(self._context.roots)
-                # What the scanner looked at and refused. It bounds and quotes
-                # these for an operator, and nothing read them (review-code
-                # 2026-10-01 L4-H1). The log only: one stray folder in a scan
-                # root is a skip, so a banner message would fire on every
-                # rescan of every populated machine.
-                for reason in result.skipped:
-                    log.info("rescan: skipped %s", reason)
-                merged = replace(
-                    registry.merge(
-                        self._stored, result, self._context.roots, self._context.now
-                    ),
-                    skipped=tuple(result.skipped),
-                )
+                merged = self._merge()
             except BaseException as exc:
-                log.exception("the rescan failed")
+                log.exception("the %s failed", self.what)
                 # `quoted`, never an f-string (LWSM-1255). This lands in
                 # `showMessage`, which neither escapes nor clips, and `exc`
                 # interpolates a path or launcher name from somebody else's
@@ -925,13 +913,63 @@ class _RescanTask(QRunnable):
             # emits into a destroyed signaller. Nobody is left to report to, and
             # a warning class that fires on a normal quit is one people read
             # past — so this one stays below the shipped level.
-            log.debug("rescan ended with no live signaller", exc_info=True)
+            log.debug("%s ended with no live signaller", self.what, exc_info=True)
         except BaseException:
             # Anything else is the residual failure both layers exist to
             # prevent: the in-flight flag stays set and Rescan never re-enables
             # (LWSM-1131 § 6). `design.md` sets the app log to INFO, so at DEBUG
             # the one outcome nothing else can catch had no record (LWSM-1251).
-            log.warning("the rescan ended without reporting", exc_info=True)
+            log.warning("the %s ended without reporting", self.what, exc_info=True)
+
+
+class _RescanTask(_MergeTask):
+    """Scan the roots, then merge what was found into the stored records."""
+
+    what = "rescan"
+
+    def __init__(
+        self,
+        context: RescanContext,
+        stored: list[ProjectRecord],
+        signals: _RescanSignals,
+    ) -> None:
+        super().__init__(signals)
+        self._context = context
+        self._stored = stored
+
+    def _merge(self) -> MergeResult:
+        result = self._context.scan(self._context.roots)
+        # What the scanner looked at and refused. It bounds and quotes these
+        # for an operator, and nothing read them (review-code 2026-10-01
+        # L4-H1). The log only: one stray folder in a scan root is a skip, so a
+        # banner message would fire on every rescan of every populated machine.
+        for reason in result.skipped:
+            log.info("rescan: skipped %s", reason)
+        return replace(
+            registry.merge(
+                self._stored, result, self._context.roots, self._context.now
+            ),
+            skipped=tuple(result.skipped),
+        )
+
+
+class _ImportTask(_MergeTask):
+    """Fold a loaded profile into the stored records (LWSM-1517)."""
+
+    what = "import"
+
+    def __init__(
+        self,
+        stored: list[ProjectRecord],
+        imported: list[ProjectRecord],
+        signals: _RescanSignals,
+    ) -> None:
+        super().__init__(signals)
+        self._stored = stored
+        self._imported = imported
+
+    def _merge(self) -> MergeResult:
+        return registry.merge_imported(self._stored, self._imported)
 
 
 class BrowserPicker(QComboBox):
@@ -2460,14 +2498,23 @@ class MainWindow(QMainWindow):
             # came here to do.
             strip.addWidget(self._rescan_button)
             self._rescan_button.clicked.connect(self._start_rescan)
-            # A private pool, not the global instance: teardown must wait for
-            # this window's own worker and nothing else, which is
-            # `ProjectController`'s reasoning on its poll.
-            self._rescan_pool = QThreadPool(self)
-            self._rescan_pool.setMaxThreadCount(1)
             self._rescan_signals = _RescanSignals(self)
             self._rescan_signals.done.connect(self._on_rescan_done)
             self._rescan_signals.failed.connect(self._on_rescan_failed)
+        # An import merges on the same worker (LWSM-1517), and profiles need no
+        # rescan context (LWSM-1358), so the pool is built for either. A
+        # private pool, not the global instance: teardown must wait for this
+        # window's own worker and nothing else, which is `ProjectController`'s
+        # reasoning on its poll. One thread, and `_rescan_in_flight` covers
+        # both merges, so one runs at a time.
+        self._import_signals: _RescanSignals | None = None
+        if self._projects_file is not None and self._load is not None:
+            self._import_signals = _RescanSignals(self)
+            self._import_signals.done.connect(self._on_import_done)
+            self._import_signals.failed.connect(self._on_import_failed)
+        if self._rescan_signals is not None or self._import_signals is not None:
+            self._rescan_pool = QThreadPool(self)
+            self._rescan_pool.setMaxThreadCount(1)
         # After the branch: the strip is added whether or not it got a button,
         # because the filter box is in it either way.
         outer.addLayout(strip)
@@ -3178,7 +3225,11 @@ class MainWindow(QMainWindow):
         what lets `user_half_applied` take the user half whole, with no
         per-field qualifier.
         """
-        if self._projects_file is None or self._load is None:
+        if (
+            self._rescan_in_flight
+            or self._rescan_pool is None
+            or self._import_signals is None
+        ):
             return
         chosen = self._choose_profile_to_open()
         if not chosen:
@@ -3194,10 +3245,41 @@ class MainWindow(QMainWindow):
             self._refuse_import(loaded.reasons[0])
             return
 
-        merged = registry.merge_imported(self._controller.records(), loaded.records)
-        self.set_status_message(
-            self._apply_merge(merged, summarise_import(merged.counts), "import")
+        self._rescan_in_flight = True
+        self._set_rescan_enabled(False)
+        self._rescan_pool.start(
+            _ImportTask(
+                self._controller.records(), loaded.records, self._import_signals
+            )
         )
+
+    def _on_import_done(self, merged: MergeResult) -> None:
+        """Write the merge and show it; always end the merge, as
+        `_on_rescan_done` does and for its reasons."""
+        if self._stopped:
+            return
+        message = ""
+        try:
+            message = self._apply_merge(
+                merged, summarise_import(merged.counts), "import"
+            )
+        except BaseException as exc:
+            log.exception("the import could not be applied")
+            message = _filled(
+                QCoreApplication.translate("ProjectRow", "Profile not loaded: %1"),
+                quoted(exc),
+            )
+        finally:
+            self._rescan_in_flight = False
+            self._set_rescan_enabled(True)
+            self.set_status_message(message)
+
+    def _on_import_failed(self, detail: str) -> None:
+        if self._stopped:
+            return
+        self._rescan_in_flight = False
+        self._set_rescan_enabled(True)
+        self._refuse_import(detail)
 
     def _refuse_import(self, detail: str) -> None:
         log.warning("the profile could not be imported: %s", detail)
@@ -4458,10 +4540,10 @@ class MainWindow(QMainWindow):
         # The signaller goes too: the abandoned task emits on it, and it is a
         # child of this window, whose destructor would otherwise destroy it
         # under that thread (LWSM-1233).
-        if self._rescan_signals is not None:
-            abandon_pool(pool, self._rescan_signals)
-        else:
-            abandon_pool(pool)
+        abandon_pool(
+            pool,
+            *(s for s in (self._rescan_signals, self._import_signals) if s is not None),
+        )
 
     def show_output(self, path: Path) -> None:
         """Open the log panel on `path`'s output and move focus into it.

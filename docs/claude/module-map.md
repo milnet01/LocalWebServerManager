@@ -248,7 +248,10 @@ Added at P02 (LWSM-1005), contract in
   owns the **Rescan** seam: `RescanContext` (scan roots, the scan
   function and the clock, all injected so `testing-overrides.md § T1` holds; the
   writer is `registry.ProjectsFile`, which every writer shares, LWSM-1358),
-  `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`.
+  `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`. An
+  import's `_ImportTask` runs on the same pool (LWSM-1517), because
+  `merge_imported` resolves every project path, and one on a dead network
+  mount froze the window.
   **The write happens in the slot, never in `merge()`** — the merge
   runs on the pool thread and is handed no `LoadResult`, so the
   window is the only place the records and LWSM-1007's read-only
@@ -336,7 +339,8 @@ Added at P02 (LWSM-1005), contract in
   and importing needs somewhere to write back to, so one condition covers both
   and states nothing untrue. **Import is disabled while a rescan is in flight**
   and export is not — a rescan that started first writes last, so a restored
-  user half would be silently dropped; export only reads. `_apply_rescan`'s body
+  user half would be silently dropped; export only reads. Rescan is disabled
+  while an import merges, for the same reason the other way round. `_apply_rescan`'s body
   became **`_apply_merge`**, shared by both, because the write gate, the
   `RegistryError` handling and the `self._load` refresh after a successful write
   are the same three rules either way — and a second copy is a second place to
