@@ -14667,7 +14667,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-10.
   Lanes: placement, mainwindow.
 
-- 📋 [LWSM-1521] **A second launch does not bring the window forward on KWin Wayland; pass an xdg-activation token.**
+- 🚧 [LWSM-1521] **A second launch does not bring the window forward on KWin Wayland; pass an xdg-activation token.**
   Priority: 3.
   __main__.py:747-753: setWindowState(state & ~WindowMinimized |
   WindowActive), raise_(), activateWindow(). Verified at f57689c.
@@ -14687,6 +14687,14 @@ LWSM-1036.
   Verify on a real KWin Wayland session; the tests cannot reach one.
   Related LOW queued in 1.0.0: a launch arriving during build_window's
   nested dialog is answered and dropped (__main__.py:784-787, 837-838).
+  2026-11-08: code landed. The second copy sends its
+  XDG_ACTIVATION_TOKEN over the instance socket; the running copy checks
+  it (activation_token), sets it only around activateWindow(), then
+  removes it. The pinned Qt 6.12.0 libxdg-shell.so contains the
+  variable's name (strings), which is the basis for Qt reading it on
+  activation; that is evidence, not a run. Open: the real KWin Wayland
+  check (launch from the app menu while running, and from a terminal).
+  Flip to shipped and add the CHANGELOG entry after it passes.
   **Layman:** Opening the app again while it runs should bring its window to the front; on this desktop it probably only flashes the taskbar.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-11.

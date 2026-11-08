@@ -35,7 +35,10 @@ from `CLAUDE.md` § Module map on 2026-10-15.)
   display.
   Since LWSM-1065 `main` also claims **`claim_single_instance`**'s socket in
   `$XDG_RUNTIME_DIR`, before logging: a second launch wakes the running copy
-  and exits 0 without ever opening `app.log`, and a socket nobody answers on
+  and exits 0 without ever opening `app.log`. It sends its xdg-activation
+  token, which the running copy checks with `activation_token` and keeps in
+  `XDG_ACTIVATION_TOKEN` only while its window activates (LWSM-1521). A
+  socket nobody answers on
   is a crashed copy's leftover and is replaced. **It sets no socket
   options** — with any set, Qt renames the socket into place and silently
   replaces a live copy's instead of failing (measured). On quit, `main`

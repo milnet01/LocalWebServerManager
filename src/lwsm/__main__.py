@@ -6,6 +6,7 @@ Both name `run()`, not `main()`. See `run()` for why the two are separate.
 from __future__ import annotations
 
 import argparse
+import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -18,7 +19,7 @@ from lwsm import __version__, applog
 if TYPE_CHECKING:
     # Type-checking only: the runtime imports stay inside build_window so
     # `--version` and `--help` need no Qt and therefore no display (INV-14).
-    from PySide6.QtNetwork import QLocalServer
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
     from PySide6.QtWidgets import QApplication
 
     from lwsm.controller import ProjectController
@@ -597,6 +598,15 @@ INSTANCE_SOCKET_NAME = "localwebservermanager.sock"
 # than a slow one.
 INSTANCE_CONNECT_MS = 1000
 
+# The environment variable a launcher sets to an xdg-activation token, the
+# compositor's permission for the launched app to take focus (LWSM-1521).
+# KWin's launcher and `.desktop` activation set it; a terminal does not.
+ACTIVATION_VARIABLE = "XDG_ACTIVATION_TOKEN"
+
+# The most a second copy may send. Tokens are short, and anything this user
+# runs can connect, so what is read is bounded before it is judged.
+MAX_ACTIVATION_TOKEN_BYTES = 256
+
 
 @dataclass(frozen=True)
 class InstanceClaim:
@@ -650,7 +660,37 @@ def _claim_lock(path: str) -> Iterator[None]:
         yield
 
 
-def claim_single_instance(path: str, on_activated: Callable[[], None]) -> InstanceClaim:
+def activation_token(data: bytes) -> str | None:
+    """The token a second copy sent, or None when it sent nothing usable.
+
+    Printable ASCII with no space, and no more than the bound: what reaches
+    `ACTIVATION_VARIABLE` must not carry a newline or a control
+    character into this process's environment, which every server and
+    browser it starts would inherit if the variable were left set.
+    """
+    text = data.rstrip(b"\n")
+    if not text or len(text) > MAX_ACTIVATION_TOKEN_BYTES:
+        return None
+    if any(byte < 0x21 or byte > 0x7E for byte in text):
+        return None
+    return text.decode("ascii")
+
+
+def _wake(probe: QLocalSocket, token: str | None) -> None:
+    """Ask the running copy to come forward, handing it our token if we have one."""
+    if token is not None:
+        data = token.encode("ascii", "replace")
+        if activation_token(data) is not None:
+            probe.write(data + b"\n")
+            probe.waitForBytesWritten(INSTANCE_CONNECT_MS)
+    probe.disconnectFromServer()
+
+
+def claim_single_instance(
+    path: str,
+    on_activated: Callable[[str | None], None],
+    token: str | None = None,
+) -> InstanceClaim:
     """Become the one running copy, or wake the one that already is (LWSM-1065).
 
     The user's decision (2026-09-28): only one copy runs, and opening the app a
@@ -669,13 +709,17 @@ def claim_single_instance(path: str, on_activated: Callable[[], None]) -> Instan
     socket is the running copy, and it cannot outlive the process it belongs
     to while anyone could mistake it for one.
 
-    Any connection counts as a request to come to the front; nothing is read
-    from it. The runtime directory is the user's own and 0700, so only this
-    user can make one. **No socket options**: with any set, Qt binds in a
+    Any connection counts as a request to come to the front. What it sends
+    before closing is the second copy's xdg-activation token (`token` here),
+    which `on_activated` receives checked by `activation_token`, or None: under
+    Wayland the compositor lets a window take focus only with one (LWSM-1521).
+    The runtime directory is the user's own and 0700, so only this user can
+    make one. **No socket options**: with any set, Qt binds in a
     scratch directory and RENAMES the socket into place, which silently
     replaces a live copy's socket instead of failing with `AddressInUseError`
     — measured 2026-09-28, where it let a second copy run.
     """
+    from PySide6.QtCore import QTimer
     from PySide6.QtNetwork import QAbstractSocket, QLocalServer, QLocalSocket
 
     if not Path(path).is_absolute():
@@ -694,7 +738,7 @@ def claim_single_instance(path: str, on_activated: Callable[[], None]) -> Instan
         probe = QLocalSocket()
         probe.connectToServer(path)
         if probe.waitForConnected(INSTANCE_CONNECT_MS):
-            probe.disconnectFromServer()
+            _wake(probe, token)
             return InstanceClaim(primary=False)
         # Nobody answered, so the file is a crashed copy's leftover. Removed
         # under a lock and only after asking again: two copies launched
@@ -704,7 +748,7 @@ def claim_single_instance(path: str, on_activated: Callable[[], None]) -> Instan
             probe = QLocalSocket()
             probe.connectToServer(path)
             if probe.waitForConnected(INSTANCE_CONNECT_MS):
-                probe.disconnectFromServer()
+                _wake(probe, token)
                 return InstanceClaim(primary=False)
             QLocalServer.removeServer(path)
             if not server.listen(path):
@@ -716,27 +760,58 @@ def claim_single_instance(path: str, on_activated: Callable[[], None]) -> Instan
                     probe = QLocalSocket()
                     probe.connectToServer(path)
                     if probe.waitForConnected(INSTANCE_CONNECT_MS):
-                        probe.disconnectFromServer()
+                        _wake(probe, token)
                         return InstanceClaim(primary=False)
                 return InstanceClaim(primary=True, problem=server.errorString())
 
     def answer() -> None:
         while server.hasPendingConnections():
-            connection = server.nextPendingConnection()
-            connection.disconnected.connect(connection.deleteLater)
-            connection.disconnectFromServer()
-        on_activated()
+            _hear(server.nextPendingConnection())
+
+    def _hear(connection: QLocalSocket) -> None:
+        """Read what the caller sends until it closes, then act on it once.
+
+        Bounded in size, and in time: a caller that never closes is cut off
+        after `INSTANCE_CONNECT_MS`, and the wake still happens, without a
+        token, as it did before tokens were sent.
+        """
+        received = bytearray()
+        answered: list[bool] = []
+
+        def take() -> None:
+            room = MAX_ACTIVATION_TOKEN_BYTES + 1 - len(received)
+            if room > 0:
+                received.extend(connection.read(room).data())
+            connection.readAll()  # past the bound: dropped, not kept
+
+        def done() -> None:
+            if answered:
+                return
+            answered.append(True)
+            take()
+            # Its own `disconnected` comes back here, and is ignored above.
+            connection.abort()
+            connection.deleteLater()
+            on_activated(activation_token(bytes(received)))
+
+        connection.readyRead.connect(take)
+        connection.disconnected.connect(done)
+        # Whichever comes first: the caller closing, or the time running out.
+        QTimer.singleShot(INSTANCE_CONNECT_MS, connection, done)
 
     server.newConnection.connect(answer)
     return InstanceClaim(primary=True, server=server)
 
 
-def _bring_to_front(window: MainWindow) -> None:
+def _bring_to_front(window: MainWindow, token: str | None = None) -> None:
     """Show the running copy's window to a user who just tried to open another.
 
-    Under Wayland a client may not take focus unasked, so whether the window
-    actually comes forward is the compositor's decision — not yet checked on
-    KWin. Either way the user gets the running copy, never a second one.
+    Under Wayland a client may not take focus unasked: KWin turns an
+    activation without an xdg-activation token into a taskbar attention hint.
+    With the second copy's `token`, Qt's xdg-shell plugin (the pinned 6.12
+    reads `XDG_ACTIVATION_TOKEN` when a window asks to be activated) hands it
+    to the compositor. The variable is removed afterwards, so no server or
+    browser this process starts inherits a spent token (LWSM-1521).
 
     Only the minimised bit is cleared. `showNormal()` cleared maximised with it,
     so a second launch un-maximised the window and the next close saved that
@@ -750,7 +825,12 @@ def _bring_to_front(window: MainWindow) -> None:
             | Qt.WindowState.WindowActive
         )
     window.raise_()
-    window.activateWindow()
+    if token is not None:
+        os.environ[ACTIVATION_VARIABLE] = token
+    try:
+        window.activateWindow()
+    finally:
+        os.environ.pop(ACTIVATION_VARIABLE, None)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -781,12 +861,24 @@ def main(argv: list[str] | None = None) -> int:
     # all: two `RotatingFileHandler`s on one file can discard a generation of
     # it, which is half of why only one copy runs (LWSM-1065).
     shown: list[MainWindow] = []
+    token = os.environ.get(ACTIVATION_VARIABLE)
     claim = claim_single_instance(
         instance_socket_path(),
-        lambda: _bring_to_front(shown[0]) if shown else None,
+        lambda received: _bring_to_front(shown[0], received) if shown else None,
+        token,
     )
     if not claim.primary:
-        print("Local Web Server Manager is already running; showing its window.")
+        from lwsm.placement import on_wayland
+
+        if token is None and on_wayland():
+            # A terminal launch has no token, and without one the compositor
+            # only marks the window for attention, so "showing" would be false.
+            print(
+                "Local Web Server Manager is already running. Its window cannot "
+                "be brought forward from here; switch to it from the taskbar."
+            )
+        else:
+            print("Local Web Server Manager is already running; showing its window.")
         return 0
 
     try:

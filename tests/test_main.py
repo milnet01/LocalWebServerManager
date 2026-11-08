@@ -499,10 +499,12 @@ def test_a_second_claim_wakes_the_first_instead_of_running(qtbot, tmp_path) -> N
     """
     path = str(tmp_path / "lwsm.sock")
     woken: list[str] = []
-    first = entry.claim_single_instance(path, lambda: woken.append("first"))
+    first = entry.claim_single_instance(path, lambda _token: woken.append("first"))
     try:
         assert first.primary and first.server is not None, first
-        second = entry.claim_single_instance(path, lambda: woken.append("second"))
+        second = entry.claim_single_instance(
+            path, lambda _token: woken.append("second")
+        )
         assert not second.primary, "a second copy claimed the socket too"
         qtbot.waitUntil(lambda: woken == ["first"], timeout=2000)
     finally:
@@ -525,7 +527,7 @@ def test_a_socket_left_by_a_crashed_copy_is_taken_over(tmp_path) -> None:
     leftover.close()
     assert path.exists(), "the fixture did not leave a socket file behind"
 
-    claim = entry.claim_single_instance(str(path), lambda: None)
+    claim = entry.claim_single_instance(str(path), lambda _token: None)
     try:
         assert claim.primary and claim.server is not None, claim
     finally:
@@ -567,7 +569,7 @@ def test_a_copy_that_wins_the_path_during_recovery_is_deferred_to(
 
     monkeypatch.setattr(QLocalServer, "removeServer", remove_then_lose_the_race)
     try:
-        claim = entry.claim_single_instance(str(path), lambda: None)
+        claim = entry.claim_single_instance(str(path), lambda _token: None)
         assert not claim.primary, "both copies ran: the rival won and so did this one"
     finally:
         rival.close()
@@ -594,7 +596,7 @@ def test_a_path_lost_during_recovery_to_nobody_still_lets_the_app_run(
         return removed
 
     monkeypatch.setattr(QLocalServer, "removeServer", remove_then_find_another_leftover)
-    claim = entry.claim_single_instance(str(path), lambda: None)
+    claim = entry.claim_single_instance(str(path), lambda _token: None)
     assert claim.primary, "a copy refused to run with nobody else running"
     assert claim.problem, "the missing guard was not explained"
 
@@ -622,11 +624,156 @@ def test_bringing_a_maximised_window_to_the_front_keeps_it_maximised(qtbot) -> N
     assert not window.isMinimized(), "the window was left minimised"
 
 
+# --- LWSM-1521: the second launch's activation token ----------------------------
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("token", ["kwin-7c1e_0a.b", None], ids=["token", "none"])
+def test_a_second_claim_hands_the_running_copy_its_activation_token(
+    qtbot, tmp_path, token
+) -> None:
+    """Under Wayland a window takes focus only with an xdg-activation token,
+    and the launcher gave it to the second copy, not the running one. So the
+    second copy sends it; a launch with none still wakes the first."""
+    path = str(tmp_path / "lwsm.sock")
+    woken: list[object] = []
+    first = entry.claim_single_instance(path, woken.append)
+    try:
+        second = entry.claim_single_instance(path, woken.append, token)
+        assert not second.primary
+        qtbot.waitUntil(lambda: woken == [token], timeout=2000)
+    finally:
+        first.server.close()
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (b"kwin-1234\n", "kwin-1234"),
+        (b"kwin-1234", "kwin-1234"),
+        (b"", None),
+        (b"\n", None),
+        (b"two words", None),
+        (b"line\nbreak", None),
+        (b"esc\x1b[2J", None),
+        (b"caf\xc3\xa9", None),
+        (
+            b"x" * entry.MAX_ACTIVATION_TOKEN_BYTES,
+            "x" * entry.MAX_ACTIVATION_TOKEN_BYTES,
+        ),
+        (b"x" * (entry.MAX_ACTIVATION_TOKEN_BYTES + 1), None),
+    ],
+)
+def test_only_a_plausible_token_is_taken(data, expected) -> None:
+    """Anything this user runs can connect, and the token goes into the
+    environment every server and browser inherits while it is set, so a
+    newline, a control character or an unbounded blob is refused."""
+    assert entry.activation_token(data) == expected
+
+
+@pytest.mark.gui
+def test_a_caller_sending_junk_still_wakes_the_running_copy_with_no_token(
+    qtbot, tmp_path
+) -> None:
+    from PySide6.QtNetwork import QLocalSocket
+
+    path = str(tmp_path / "lwsm.sock")
+    woken: list[object] = []
+    first = entry.claim_single_instance(path, woken.append)
+    caller = QLocalSocket()
+    try:
+        caller.connectToServer(path)
+        assert caller.waitForConnected(1000)
+        caller.write(b"y" * 4096 + b"\n")
+        caller.waitForBytesWritten(1000)
+        caller.disconnectFromServer()
+        qtbot.waitUntil(lambda: woken == [None], timeout=2000)
+    finally:
+        first.server.close()
+
+
+@pytest.mark.gui
+def test_a_caller_that_never_closes_is_cut_off_and_still_wakes_it(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """Before tokens, any connection woke the window at once. Waiting for the
+    caller to close must not let one that never does keep the window back."""
+    from PySide6.QtNetwork import QLocalSocket
+
+    monkeypatch.setattr(entry, "INSTANCE_CONNECT_MS", 50)
+    path = str(tmp_path / "lwsm.sock")
+    woken: list[object] = []
+    first = entry.claim_single_instance(path, woken.append)
+    caller = QLocalSocket()
+    try:
+        caller.connectToServer(path)
+        assert caller.waitForConnected(1000)
+        qtbot.waitUntil(lambda: len(woken) == 1, timeout=2000)
+    finally:
+        caller.abort()
+        first.server.close()
+
+
+@pytest.mark.gui
+def test_the_token_is_in_the_environment_only_while_the_window_activates(
+    qtbot, monkeypatch
+) -> None:
+    """Qt's xdg-shell plugin reads `XDG_ACTIVATION_TOKEN` when the window
+    asks to be activated. Left set afterwards, every server and browser the
+    app starts would inherit a spent token."""
+    from PySide6.QtWidgets import QWidget
+
+    monkeypatch.delenv(entry.ACTIVATION_VARIABLE, raising=False)
+    window = QWidget()
+    qtbot.addWidget(window)
+    seen: list[object] = []
+    window.activateWindow = lambda: seen.append(
+        os.environ.get(entry.ACTIVATION_VARIABLE)
+    )
+
+    entry._bring_to_front(window, "kwin-42")
+
+    assert seen == ["kwin-42"]
+    assert entry.ACTIVATION_VARIABLE not in os.environ
+
+
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+@pytest.mark.parametrize("token", [None, "kwin-99"], ids=["terminal", "launcher"])
+def test_a_second_launch_on_wayland_says_what_it_could_do(
+    qtbot, monkeypatch, capsys, tmp_path: Path, token
+) -> None:
+    """From a terminal there is no token, and KWin only marks the window for
+    attention, so "showing its window" would be false."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    if token is None:
+        monkeypatch.delenv(entry.ACTIVATION_VARIABLE, raising=False)
+    else:
+        monkeypatch.setenv(entry.ACTIVATION_VARIABLE, token)
+    woken: list[object] = []
+    running = entry.claim_single_instance(entry.instance_socket_path(), woken.append)
+    assert running.server is not None, running
+    monkeypatch.setattr(entry, "build_window", lambda _path=None: 1 / 0)
+    try:
+        assert main([]) == 0
+        qtbot.waitUntil(lambda: woken == [token], timeout=2000)
+    finally:
+        running.server.close()
+    out = capsys.readouterr().out
+    assert "already running" in out
+    if token is None:
+        assert "showing its window" not in out, out
+        assert "taskbar" in out
+    else:
+        assert "showing its window" in out
+
+
 @pytest.mark.gui
 def test_a_socket_that_cannot_be_made_still_lets_the_app_run(tmp_path) -> None:
     """No guard is a reason to warn, never a reason not to start."""
     claim = entry.claim_single_instance(
-        str(tmp_path / "no-such-dir" / "lwsm.sock"), lambda: None
+        str(tmp_path / "no-such-dir" / "lwsm.sock"), lambda _token: None
     )
     assert claim.primary, "a copy with no guard refused to run"
     assert claim.server is None
@@ -646,7 +793,7 @@ def test_main_shows_the_running_copy_and_opens_nothing(
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     woken: list[int] = []
     running = entry.claim_single_instance(
-        entry.instance_socket_path(), lambda: woken.append(1)
+        entry.instance_socket_path(), lambda _token: woken.append(1)
     )
     assert running.server is not None, running
 
@@ -2256,7 +2403,7 @@ def test_a_relative_socket_name_runs_unguarded_rather_than_in_tmp() -> None:
     Dies on removing the absolute-path check from `claim_single_instance`.
     """
     claim = entry.claim_single_instance(
-        str(Path("") / entry.INSTANCE_SOCKET_NAME), lambda: None
+        str(Path("") / entry.INSTANCE_SOCKET_NAME), lambda _token: None
     )
     try:
         assert claim.primary
@@ -2280,7 +2427,7 @@ def test_a_crashed_copys_socket_is_recovered(tmp_path: Path) -> None:
     stale.bind(path)
     stale.close()  # the file stays, with nobody behind it
 
-    claim = entry.claim_single_instance(path, lambda: None)
+    claim = entry.claim_single_instance(path, lambda _token: None)
     try:
         assert claim.primary
         assert claim.server is not None, claim.problem
