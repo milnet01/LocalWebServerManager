@@ -1,0 +1,49 @@
+# LWSM-1021. Builds the AppImage for a published release and attaches it.
+#
+# Deliberately thin, like ci.yml: scripts/build-appimage.sh is the whole
+# recipe, smoke test included, so a release builds here exactly as it builds
+# on a developer's machine. This file prepares a machine, calls it, and
+# uploads what it made.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    # Pinned rather than -latest, as in ci.yml.
+    runs-on: ubuntu-24.04
+    # The build and both smoke launches take minutes, not an hour.
+    timeout-minutes: 45
+    permissions:
+      # To attach the AppImage to the release.
+      contents: write
+    steps:
+      # SHA-pinned with the release in a trailing comment, as in ci.yml. The
+      # release event checks out the release's tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The build exports the locked dependencies with uv, so it is the same uv
+      # the gate uses; tests/test_ci_contract.py holds both to ci-tools.env.
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.23"
+          enable-cache: false
+
+      - name: Build and smoke-test the AppImage
+        run: ./scripts/build-appimage.sh
+
+      # The file name carries pyproject.toml's version, so a tag that disagrees
+      # with it names a file that does not exist, and the upload fails.
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" "dist/LocalWebServerManager-${TAG#v}-x86_64.AppImage"

@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Added
+
+- **A download that needs nothing installed first.** Each release now carries an AppImage: one file that runs on 64-bit Linux without Python or Qt. Make it executable and double-click it. It needs a system at least as new as Debian 12 (glibc 2.36). Every AppImage is started on a clean machine before it is attached to the release. (LWSM-1021)
+
 ### Changed
 
 - **A much smaller install.** The app now depends on PySide6-Essentials instead of the full PySide6 bundle, which also pulled in a web browser engine and a PDF library the app never uses. Measured on 2026-11-10, the installed Qt files shrink from 673 MB to 245 MB. If you already have a copy set up, run `uv sync --extra dev --reinstall-package pyside6-essentials --reinstall-package shiboken6` once after updating: a plain `uv sync` deletes a file PySide6-Essentials installs. (LWSM-1397)

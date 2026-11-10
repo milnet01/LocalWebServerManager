@@ -311,6 +311,50 @@ def test_run_bounds_the_process_exit(monkeypatch) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("frozen", "original", "expected"),
+    [
+        # The AppImage: the bundle's path goes, the user's own value comes back.
+        (True, "/user/lib", "/user/lib"),
+        # The AppImage, launched with no library path of its own: none at all.
+        (True, None, None),
+        # A source run: the user's value is theirs, and nothing touches it.
+        (False, None, "/bundle/_internal"),
+    ],
+)
+def test_run_gives_children_the_library_path_the_app_was_launched_with(
+    monkeypatch, frozen, original, expected
+) -> None:
+    """A frozen app must not hand its bundled libraries to the servers it starts.
+
+    PyInstaller's bootloader points `LD_LIBRARY_PATH` at the bundle and saves the
+    launch value in `LD_LIBRARY_PATH_ORIG`. Every server, browser and
+    `systemctl` this app starts inherits the environment, so without the
+    restore a project's `npm run dev` would load the bundle's libraries instead
+    of the system's (LWSM-1021). Checked inside `main`, because the restore
+    must come before anything is launched.
+    """
+    from lwsm import controller as controller_module
+
+    monkeypatch.setattr(sys, "frozen", frozen, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/bundle/_internal")
+    if original is None:
+        monkeypatch.delenv("LD_LIBRARY_PATH_ORIG", raising=False)
+    else:
+        monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", original)
+    seen: list[str | None] = []
+    monkeypatch.setattr(
+        entry, "main", lambda: seen.append(os.environ.get("LD_LIBRARY_PATH")) or 0
+    )
+    monkeypatch.setattr(
+        controller_module, "exit_without_waiting_for_abandoned_pools", lambda _: None
+    )
+
+    entry.run()
+
+    assert seen == [expected]
+
+
 def test_run_bounds_the_exit_when_main_raises(monkeypatch) -> None:
     """known-issue-008 (LWSM-1323): an exception must not skip the bound.
 

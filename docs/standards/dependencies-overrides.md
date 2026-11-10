@@ -21,6 +21,9 @@ machine and not in this repository**: a contributor reads this file plus
 | Python interpreter | the version in the committed `.python-version` |
 | CI tools (`scripts/ci-tools.env`) | an exact version |
 | OS packages a workflow installs with `apt-get` | not pinned; they move with the pinned runner image |
+| Container images the AppImage build runs in | a digest, with the tag in a comment |
+| Tools the AppImage build downloads (appimagetool, its runtime) | a numbered release and the asset's SHA-256 |
+| OS packages the AppImage build containers install | not pinned; they move with the pinned image |
 
 `requires-python` is a floor, not a pin.
 
@@ -63,9 +66,9 @@ a re-lock.
 
 ## D5. Every ecosystem dependabot supports is registered in `.github/dependabot.yml`
 
-Here that is GitHub Actions and uv. The interpreter, the runner label and
-the CI tools have no dependabot ecosystem; D2's contact rule stands in for
-it.
+Here that is GitHub Actions and uv. The interpreter, the runner label, the
+CI tools and the AppImage build's images and tools have no dependabot
+ecosystem; D2's contact rule stands in for it.
 
 Why: an unregistered ecosystem gets no update pull requests, which looks
 exactly like having nothing outdated.
@@ -102,10 +105,14 @@ dependency, tool or interpreter version. The project's own version is
 |---|---|---|
 | Runtime and dev dependencies | `pyproject.toml` `[project]` | `uv.lock`, re-locked |
 | Build backend | `pyproject.toml` `[build-system] requires` | `[tool.uv] build-constraint-dependencies` in the same file, and `uv.lock`'s `build-constraints` |
-| Python interpreter | `.python-version` | `requires-python` in `pyproject.toml` (a floor), and README's "Python 3.13+" |
-| CI tools | `scripts/ci-tools.env` | uv also in `.github/workflows/ci.yml`'s setup-uv `version:` |
-| GitHub Actions | `.github/workflows/ci.yml` `uses:` SHAs, release in a trailing comment | — |
-| Runner image | `.github/workflows/ci.yml` `runs-on:` | — |
+| Python interpreter | `.python-version` | `requires-python` in `pyproject.toml` (a floor), README's "Python 3.13+", and the build image tag in `scripts/build-appimage.sh` |
+| CI tools | `scripts/ci-tools.env` | uv also in the setup-uv `version:` of `.github/workflows/ci.yml` and `release.yml` |
+| GitHub Actions | `uses:` SHAs in `.github/workflows/ci.yml` and `release.yml`, release in a trailing comment | the same action in the other workflow |
+| Runner image | `runs-on:` in `.github/workflows/ci.yml` and `release.yml` | the other workflow |
+| AppImage packaging tool | PyInstaller in `pyproject.toml`'s `package` extra | `uv.lock`, re-locked |
+| AppImage build and smoke images | `scripts/build-appimage.sh` | — |
+| appimagetool and the AppImage runtime | `scripts/_appimage-build.sh`, version and SHA-256 together | — |
+| Libraries left out of the AppImage | `packaging/appimage-excludelist`, copied from a named upstream commit | the smoke image's package list in `scripts/build-appimage.sh` |
 | Design premises tied to a version (D6) | the comment above PySide6 in `pyproject.toml`; psutil's `_send_signal` behaviour in `src/lwsm/foreign.py` and ADR-0003 | re-checked on that dependency's bump |
 
 Dated mentions in `ROADMAP.md`, `CHANGELOG.md`, `docs/journal/`,

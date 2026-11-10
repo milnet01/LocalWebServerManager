@@ -52,6 +52,12 @@ dev = [
     # uv.lock, instead of whatever Node a machine happens to have.
     "pyright[nodejs]==1.1.414",
 ]
+# LWSM-1021. Freezes the app into the folder the AppImage wraps. Only
+# scripts/build-appimage.sh installs it, inside its build container, from the
+# hashes in uv.lock; the gate never does.
+package = [
+    "pyinstaller==6.22.3",
+]
 
 [project.scripts]
 lwsm = "lwsm.__main__:run"

@@ -164,6 +164,7 @@ Feature set`, formalised as an ADR in Phase B.
 uv sync --extra dev     # resolves from the committed uv.lock
 ./scripts/local-ci.sh   # the whole gate
 ./scripts/local-ci.sh --fast   # same, minus the integration tests
+./scripts/build-appimage.sh    # the AppImage, smoke-tested; needs podman or docker
 ```
 
 There is no compile step. What the gate runs, in order, and the reasoning

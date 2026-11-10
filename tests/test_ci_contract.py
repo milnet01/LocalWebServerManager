@@ -33,6 +33,8 @@ from test_docs import ASSERTED, GOVERNED
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github/workflows/ci.yml"
+# LWSM-1021: builds and attaches the AppImage when a release is published.
+RELEASE_WORKFLOW = REPO / ".github/workflows/release.yml"
 TOOLS_ENV = REPO / "scripts/ci-tools.env"
 LOCAL_CI = REPO / "scripts/local-ci.sh"
 
@@ -157,7 +159,8 @@ def test_no_tool_is_built_by_the_runner_s_go() -> None:
     assert not [line for line in commands if "go install" in line]
 
 
-def test_the_workflow_installs_the_pinned_uv() -> None:
+@pytest.mark.parametrize("workflow", [WORKFLOW, RELEASE_WORKFLOW], ids=lambda p: p.name)
+def test_the_workflow_installs_the_pinned_uv(workflow: Path) -> None:
     """uv is pinned by literal, not by interpolation, and this test is why that
     is still a link rather than a coincidence.
 
@@ -169,8 +172,8 @@ def test_the_workflow_installs_the_pinned_uv() -> None:
     """
     pinned = pins()["UV_VERSION"]
 
-    assert f'version: "{pinned}"' in WORKFLOW.read_text(), (
-        f"ci-tools.env pins uv {pinned}, which the workflow does not install"
+    assert f'version: "{pinned}"' in workflow.read_text(), (
+        f"ci-tools.env pins uv {pinned}, which {workflow.name} does not install"
     )
 
 

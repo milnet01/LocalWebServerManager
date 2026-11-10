@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -994,6 +995,25 @@ def _release(claim: InstanceClaim) -> Callable[[], None]:
     return server.close if server is not None else lambda: None
 
 
+def _restore_launch_library_path() -> None:
+    """Give the servers this app starts the library path it was launched with.
+
+    Only in the AppImage (LWSM-1021). PyInstaller's bootloader points
+    `LD_LIBRARY_PATH` at the bundle and keeps the launch value in
+    `LD_LIBRARY_PATH_ORIG`. Every child inherits the environment, so a
+    project's server would otherwise load the bundle's libraries instead of the
+    system's. The running app keeps its own: the loader reads the variable once,
+    at process start, so changing it here reaches children only.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    original = os.environ.get("LD_LIBRARY_PATH_ORIG")
+    if original:
+        os.environ["LD_LIBRARY_PATH"] = original
+    else:
+        os.environ.pop("LD_LIBRARY_PATH", None)
+
+
 def run() -> int:
     """The shipped `lwsm` command: `main`, then a process exit that is bounded.
 
@@ -1010,6 +1030,7 @@ def run() -> int:
     """
     from lwsm.controller import exit_without_waiting_for_abandoned_pools
 
+    _restore_launch_library_path()
     try:
         code = main()
     except SystemExit as exc:
