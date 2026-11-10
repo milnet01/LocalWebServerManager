@@ -14845,7 +14845,7 @@ because it changes the machine-wide uv.
   premise above that nothing on GitHub checks a release is now
   false: release.yml runs after publishing (see LWSM-1021).
 
-- 📋 [LWSM-1022] **P10: release process and user-facing docs.**
+- 🚧 [LWSM-1022] **P10: release process and user-facing docs.**
   A tagged release carrying the AppImage, a CHANGELOG section, and
   a README Install/Quickstart written for someone who has never
   seen the project. Success: a stranger gets from the repo page to
@@ -14856,6 +14856,15 @@ because it changes the machine-wide uv.
   Kind: doc.
   Source: user-2026-08-03.
   Priority: 3.
+  Progress (2026-11-10): README Install now leads with the AppImage
+  download (local commit, held unpushed until the release so the
+  "latest release" link does not land on 0.5.0, which has no asset).
+  CHANGELOG [Unreleased] already describes the AppImage. Decided
+  (user, 2026-11-10): cut 0.5.1 to carry the first AppImage; its
+  pre-release review (docs/claude/release.md) is narrowed to the
+  changes since v0.5.0, because 0.5.0 had the full review the same
+  day. Remaining: that review, then cut-release 0.5.1, which also
+  ships LWSM-1021 and triggers the website message.
   Lanes: docs, build.
 
 - 📋 [LWSM-1188] **Define what 1.0.0 means, and hold the line on it.**
