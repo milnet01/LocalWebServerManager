@@ -43,7 +43,7 @@ dev = [
     # test that depends on another's leftovers fails (shared testing.md § 7).
     # A failing order reproduces with `--randomly-seed=N`, N being the seed the
     # run prints (or `last`); disabling it with `-p no:randomly` is a smell.
-    "pytest-randomly==5.0.0",
+    "pytest-randomly==5.1.0",
     # LWSM-1329. Runs the suite on several processes; scripts/local-ci.sh
     # sets how many.
     "pytest-xdist==3.8.0",
