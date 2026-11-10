@@ -857,6 +857,7 @@ def main(argv: list[str] | None = None) -> int:
     # `instance()` is typed as the `QCoreApplication` base (LWSM-1066).
     existing = QApplication.instance()
     app = existing if isinstance(existing, QApplication) else QApplication([])
+    _forget_bundle_environment(app)
 
     # Before logging is configured, so a second copy never opens `app.log` at
     # all: two `RotatingFileHandler`s on one file can discard a generation of
@@ -996,22 +997,60 @@ def _release(claim: InstanceClaim) -> Callable[[], None]:
 
 
 def _restore_launch_library_path() -> None:
-    """Give the servers this app starts the library path it was launched with.
+    """Give the programs this app starts the library path it was launched with.
 
-    Only in the AppImage (LWSM-1021). PyInstaller's bootloader points
-    `LD_LIBRARY_PATH` at the bundle and keeps the launch value in
-    `LD_LIBRARY_PATH_ORIG`. Every child inherits the environment, so a
-    project's server would otherwise load the bundle's libraries instead of the
-    system's. The running app keeps its own: the loader reads the variable once,
-    at process start, so changing it here reaches children only.
+    Only in a frozen build, which is the AppImage (LWSM-1021). PyInstaller's
+    bootloader points `LD_LIBRARY_PATH` at the bundle and keeps the launch
+    value in `LD_LIBRARY_PATH_ORIG`. The browser, `xdg-open`, `systemctl`,
+    `journalctl` and `dbus-send` inherit the whole environment, so they would
+    otherwise load the bundle's libraries instead of the system's. Servers get
+    no library path at all: `supervisor.build_child_env` passes only its
+    allowlist (ADR-0003). The running app keeps its own: the loader reads the
+    variable once, at process start, so changing it here reaches children only.
     """
     if not getattr(sys, "frozen", False):
         return
-    original = os.environ.get("LD_LIBRARY_PATH_ORIG")
+    original = os.environ.pop("LD_LIBRARY_PATH_ORIG", None)
     if original:
         os.environ["LD_LIBRARY_PATH"] = original
     else:
         os.environ.pop("LD_LIBRARY_PATH", None)
+
+
+# Set by the AppImage runtime to describe this app. A child that reads them
+# takes itself for this AppImage.
+_APPIMAGE_VARIABLES = ("APPDIR", "APPIMAGE", "ARGV0", "OWD")
+# Set by PySide6's PyInstaller runtime hook to the bundle's own Qt.
+_BUNDLE_QT_VARIABLES = ("QT_PLUGIN_PATH", "QML2_IMPORT_PATH")
+
+
+def _forget_bundle_environment(app: QApplication) -> None:
+    """Keep the bundle's own variables out of every program this app starts.
+
+    Only in a frozen build (LWSM-1021). A Qt child such as `kde-open`, which
+    `xdg-open` runs on Plasma, would load the bundle's Qt plugins through
+    `QT_PLUGIN_PATH` against its own Qt; the AppImage and `_PYI_*` variables
+    describe this process, not the child. Measured 2026-11-10: a `systemctl`
+    the app started inherited all of them.
+
+    Called once `app` exists, because the app needs `QT_PLUGIN_PATH` to find its
+    own plugins. Pinning the library paths Qt computed from it means a plugin
+    loaded later, an image format say, still finds the bundle's copy. A Qt
+    variable is removed only while it points into the bundle, so a value the
+    user set survives.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    app.setLibraryPaths(app.libraryPaths())
+    bundle = getattr(sys, "_MEIPASS", "")
+    for name in _BUNDLE_QT_VARIABLES:
+        if bundle and os.environ.get(name, "").startswith(bundle):
+            del os.environ[name]
+    for name in [
+        *_APPIMAGE_VARIABLES,
+        *(n for n in os.environ if n.startswith("_PYI_")),
+    ]:
+        os.environ.pop(name, None)
 
 
 def run() -> int:

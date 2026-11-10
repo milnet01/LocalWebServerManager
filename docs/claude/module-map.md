@@ -23,7 +23,10 @@ from `CLAUDE.md` § Module map on 2026-10-15.)
   ended the pytest run at 40 % of the suite with exit code 0** and
   a report that read as green (LWSM-1100). Anything that ends the
   process belongs behind `run()`, never in `main()`, which tests
-  call in-process. An `argparse` parser, so
+  call in-process. In a frozen build, the AppImage, `run()` first puts
+  back the launch `LD_LIBRARY_PATH`, and `main()` drops the bundle's Qt,
+  AppImage and `_PYI_*` variables once the `QApplication` exists, so no
+  program the app starts inherits them (LWSM-1021). An `argparse` parser, so
   `--version` and `--help` work and an unrecognised option exits
   2 rather than being ignored. Prints where it is logging to, and
   starts anyway — with a warning on stderr — when the log

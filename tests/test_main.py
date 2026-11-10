@@ -342,17 +342,89 @@ def test_run_gives_children_the_library_path_the_app_was_launched_with(
         monkeypatch.delenv("LD_LIBRARY_PATH_ORIG", raising=False)
     else:
         monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", original)
-    seen: list[str | None] = []
-    monkeypatch.setattr(
-        entry, "main", lambda: seen.append(os.environ.get("LD_LIBRARY_PATH")) or 0
-    )
+    seen: list[tuple[str | None, str | None]] = []
+
+    def record_environment() -> int:
+        environ = os.environ
+        seen.append(
+            (environ.get("LD_LIBRARY_PATH"), environ.get("LD_LIBRARY_PATH_ORIG"))
+        )
+        return 0
+
+    monkeypatch.setattr(entry, "main", record_environment)
     monkeypatch.setattr(
         controller_module, "exit_without_waiting_for_abandoned_pools", lambda _: None
     )
 
     entry.run()
 
-    assert seen == [expected]
+    # A frozen run also drops the saved copy, which no child should inherit.
+    assert seen == [(expected, None if frozen else original)]
+
+
+class _LibraryPathsApp:
+    """Stands in for QApplication's two library-path calls, and records the set."""
+
+    def __init__(self) -> None:
+        self.pinned: list[list[str]] = []
+
+    def libraryPaths(self) -> list[str]:
+        return ["/bundle/_internal/PySide6/Qt/plugins"]
+
+    def setLibraryPaths(self, paths: list[str]) -> None:
+        self.pinned.append(paths)
+
+
+_BUNDLE_ENVIRONMENT = {
+    "QT_PLUGIN_PATH": "/bundle/_internal/PySide6/Qt/plugins",
+    "QML2_IMPORT_PATH": "/bundle/_internal/PySide6/Qt/qml",
+    "APPDIR": "/run/appimage/mount",
+    "APPIMAGE": "/home/u/LocalWebServerManager.AppImage",
+    "ARGV0": "LocalWebServerManager.AppImage",
+    "OWD": "/home/u",
+    "_PYI_ARCHIVE_FILE": "/bundle/lwsm",
+    "_PYI_PARENT_PROCESS_LEVEL": "1",
+}
+
+
+@pytest.mark.parametrize("frozen", [True, False])
+def test_forget_bundle_environment_keeps_the_bundle_from_children(
+    monkeypatch, frozen
+) -> None:
+    """A frozen app's children must not inherit the bundle's Qt and AppImage
+    variables (LWSM-1021, review-code 2026-11-10).
+
+    `kde-open`, which `xdg-open` runs on Plasma, would load the bundle's Qt
+    plugins against its own Qt. A source run touches nothing.
+    """
+    monkeypatch.setattr(sys, "frozen", frozen, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", "/bundle/_internal", raising=False)
+    for name, value in _BUNDLE_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    app = _LibraryPathsApp()
+
+    entry._forget_bundle_environment(app)  # type: ignore[arg-type]
+
+    left = {name: os.environ.get(name) for name in _BUNDLE_ENVIRONMENT}
+    if frozen:
+        assert left == dict.fromkeys(_BUNDLE_ENVIRONMENT)
+        # Pinned before the variable goes, so a plugin Qt loads later is found.
+        assert app.pinned == [["/bundle/_internal/PySide6/Qt/plugins"]]
+    else:
+        assert left == _BUNDLE_ENVIRONMENT
+        assert app.pinned == []
+
+
+def test_forget_bundle_environment_keeps_a_qt_path_the_user_set(monkeypatch) -> None:
+    """A Qt variable pointing outside the bundle is the user's, and stays."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", "/bundle/_internal", raising=False)
+    monkeypatch.setenv("QT_PLUGIN_PATH", "/home/u/qt-plugins")
+    monkeypatch.delenv("QML2_IMPORT_PATH", raising=False)
+
+    entry._forget_bundle_environment(_LibraryPathsApp())  # type: ignore[arg-type]
+
+    assert os.environ.get("QT_PLUGIN_PATH") == "/home/u/qt-plugins"
 
 
 def test_run_bounds_the_exit_when_main_raises(monkeypatch) -> None:

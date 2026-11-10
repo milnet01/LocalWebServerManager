@@ -4,13 +4,17 @@
 #
 # Usage: _appimage-smoke.sh <AppImage> <expected version>
 #
-# Two checks:
+# Three checks:
 #   1. `--version` prints the expected version: the bundled Python and the
 #      package load.
 #   2. A real launch, offscreen, is still running after STAY seconds and has
 #      logged its start with no traceback. A missing library or Qt plugin
 #      ends the process within a second or two, so surviving means it reached
-#      the event loop with its window built.
+#      the event loop with its window built. Offscreen only: the xcb and
+#      wayland platform plugins are not loaded here.
+#   3. A program the app starts gets the launch environment, not the bundle's.
+#      A stand-in `systemctl`, which the first scan runs, records what it
+#      inherited (LWSM-1021, review-code 2026-11-10).
 set -euo pipefail
 
 APPIMAGE="$1"
@@ -30,6 +34,19 @@ export XDG_RUNTIME_DIR=/tmp/runtime
 mkdir -p "$HOME"
 mkdir -m 0700 "$XDG_RUNTIME_DIR"
 LOG="$HOME/.local/state/localwebservermanager/app.log"
+
+# Check 3's setup. A scan root holding one project makes the first scan run
+# `systemctl`; the stand-in on PATH writes its environment and exits.
+CHILD_ENV=/tmp/child-env
+mkdir -p /tmp/fakebin /tmp/projects/demo "$HOME/.config/localwebservermanager"
+printf '#!/bin/sh\nenv > %s\n' "$CHILD_ENV" > /tmp/fakebin/systemctl
+chmod +x /tmp/fakebin/systemctl
+export PATH="/tmp/fakebin:$PATH"
+echo /tmp/projects > "$HOME/.config/localwebservermanager/scan-roots"
+echo 'print("demo")' > /tmp/projects/demo/serve.py
+# A library path of the user's own, which the child must get back unchanged.
+LAUNCH_LIBRARY_PATH=/smoke/launch/lib
+export LD_LIBRARY_PATH="$LAUNCH_LIBRARY_PATH"
 
 got="$("$APPIMAGE" --version)" || fail "--version exited non-zero: $got"
 [ "$got" = "lwsm $VERSION" ] || fail "--version printed '$got', expected 'lwsm $VERSION'"
@@ -58,3 +75,14 @@ if grep -q "Traceback" "$LOG" /tmp/app.out; then
     fail "a traceback was printed (above)"
 fi
 echo "smoke: launch OK (running after ${STAY}s, start logged, no traceback)"
+
+[ -f "$CHILD_ENV" ] || fail "the app started no systemctl, so no child environment was seen"
+leaked="$(grep -E '^(QT_PLUGIN_PATH|QML2_IMPORT_PATH|APPDIR|APPIMAGE|ARGV0|OWD|LD_LIBRARY_PATH_ORIG|_PYI_[A-Z_]*)=' "$CHILD_ENV" || true)"
+if [ -n "$leaked" ]; then
+    printf '%s\n' "$leaked" >&2
+    fail "the bundle's variables reached a child (above)"
+fi
+child_path="$(sed -n 's/^LD_LIBRARY_PATH=//p' "$CHILD_ENV")"
+[ "$child_path" = "$LAUNCH_LIBRARY_PATH" ] ||
+    fail "a child got LD_LIBRARY_PATH '$child_path', expected the launch value '$LAUNCH_LIBRARY_PATH'"
+echo "smoke: child environment OK (launch library path, no bundle variables)"
