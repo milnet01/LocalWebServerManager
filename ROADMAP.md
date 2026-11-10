@@ -14812,7 +14812,7 @@ because it changes the machine-wide uv.
   `python -m` run -- and this project has no AppImage yet. There is nothing
   for an updater to replace until there is.
 
-- 📋 [LWSM-1052] **P10: a local release script, run before CI is asked to build one.**
+- ✅ [LWSM-1052] **P10: a local release script, run before CI is asked to build one.**
   `scripts/local-release.sh` builds and
   smoke-tests the AppImage on this machine, so a broken release
   surfaces locally rather than inside a tagged CI run that has
@@ -14837,6 +14837,13 @@ because it changes the machine-wide uv.
   scripts/local-release.sh run build-appimage.sh before the tag is
   pushed, so a broken AppImage stops the release here rather than in
   CI after publishing.
+  Shipped 2026-11-10 (803d8fa): scripts/local-release.sh step 0i
+  runs scripts/build-appimage.sh. A failed build or launch blocks; no
+  podman or docker skips. Four tests in tests/test_local_release.py
+  run the script's own appimage_status(). Run for real once: the
+  AppImage built, the smoke test passed, 0i reported OK. The
+  premise above that nothing on GitHub checks a release is now
+  false: release.yml runs after publishing (see LWSM-1021).
 
 - 📋 [LWSM-1022] **P10: release process and user-facing docs.**
   A tagged release carrying the AppImage, a CHANGELOG section, and
