@@ -43,10 +43,17 @@ mechanical pre-flight and does not replace this.
 anything.
 
 **It mirrors nothing, and that is the difference from `local-ci.sh`.**
-That script is the CI — the workflow calls it. CI here fires on `push`
-and `pull_request` only, with **no tag trigger and no release trigger**,
-so *nothing on GitHub ever checks a release*. This script is the only
-automated gate a release gets; the big review above is the other.
+That script is the CI — the workflow calls it. The release workflow
+(`.github/workflows/release.yml`) runs only **after** a release is
+published, to build and attach the AppImage, so what it finds is found
+after the tag is public. This script is the only automated gate that runs
+before a release; the big review above is the other.
+
+**It builds and smoke-tests the AppImage** with
+`scripts/build-appimage.sh`, the script the release workflow runs, so a
+broken AppImage blocks the release here (LWSM-1052). It needs podman or
+docker; without either, the check is skipped and the verdict cannot read
+"ready".
 
 Two things to know. **The verdict never reads "ready" while a check was
 skipped** — a blocker and a check that could not run are tracked

@@ -1,9 +1,9 @@
-"""`scripts/local-release.sh` — the only gate a release gets.
+"""`scripts/local-release.sh` — the only gate that runs before a release.
 
-CI here fires on `push` and `pull_request` only, so nothing on GitHub ever
-checks a release. This file had no tests at all until LWSM-1265, which is why
-the defect it locks — a failed query reported as a clean answer — could sit in
-the one script whose whole purpose is to refuse a release that is not ready.
+The release workflow runs only after a release is published. This file had
+no tests at all until LWSM-1265, which is why the defect it locks — a failed
+query reported as a clean answer — could sit in the one script whose whole
+purpose is to refuse a release that is not ready.
 
 The functions are executed rather than read, for `test_ci_contract`'s reason:
 what is under test is which verdict a given state produces, and reading the
@@ -720,3 +720,67 @@ def test_every_pin_in_the_tools_file_is_checked() -> None:
     )
     checked = set(re.findall(r'^\s+"(\w+_VERSION) ', RELEASE.read_text(), re.M))
     assert pinned and pinned == checked
+
+
+# --- LWSM-1052: the AppImage builds and starts before anything is tagged -----
+
+
+def _appimage_status(
+    tmp_path: Path, *, runner: str | None, build_exit: int
+) -> list[str]:
+    """Run the script's OWN `appimage_status()` in a tree whose
+    `scripts/build-appimage.sh` exits `build_exit`, with `runner` (podman,
+    docker, or None for neither) the only container tool on PATH."""
+    body = re.search(
+        r"^appimage_status\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M
+    )
+    assert body, "the release script has no appimage_status() to run"
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/build-appimage.sh").write_text(f"exit {build_exit}\n")
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    (binaries / "bash").symlink_to(bash)
+    if runner:
+        stub = binaries / runner
+        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.chmod(0o755)
+    script = (
+        "set -Eeuo pipefail\n"
+        'block() { printf "BLOCK %s\\n" "$1"; }\n'
+        'skip()  { printf "SKIP %s\\n" "$1"; }\n'
+        'ok()    { printf "OK %s\\n" "$1"; }\n'
+        f"{body.group(0)}\n"
+        "appimage_status"
+    )
+    done = subprocess.run(
+        [bash, "-c", script],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PATH": str(binaries)},
+    )
+    assert done.returncode == 0, f"appimage_status() failed: {done.stderr}"
+    return done.stdout.splitlines()
+
+
+@pytest.mark.parametrize("runner", ["podman", "docker"])
+def test_an_appimage_that_builds_and_starts_is_ok(tmp_path, runner) -> None:
+    (line,) = _appimage_status(tmp_path, runner=runner, build_exit=0)
+    assert line.startswith("OK ")
+
+
+def test_an_appimage_that_fails_blocks_the_release(tmp_path) -> None:
+    """The point of LWSM-1052: a broken AppImage stops the release here, not
+    in the release workflow after the tag and release are public."""
+    (line,) = _appimage_status(tmp_path, runner="podman", build_exit=1)
+    assert line.startswith("BLOCK ")
+
+
+def test_no_container_runner_is_a_skip_and_never_ok(tmp_path) -> None:
+    """The script's one rule: "not checked" must not read as "clear". The
+    build is not attempted, so its stub's exit code does not matter."""
+    (line,) = _appimage_status(tmp_path, runner=None, build_exit=0)
+    assert line.startswith("SKIP ")

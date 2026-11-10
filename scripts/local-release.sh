@@ -4,10 +4,10 @@
 #
 # HOW THIS DIFFERS FROM scripts/local-ci.sh. That script IS the CI — the
 # GitHub workflow calls it, so running it locally runs the same checks the
-# same way. There is no release workflow to mirror: this project's CI fires
-# on push and pull_request only, with no tag or release trigger, so nothing
-# on GitHub ever checks a release. That makes this script the ONLY gate a
-# release gets, rather than a local copy of a remote one.
+# same way. The release workflow (.github/workflows/release.yml) runs only
+# once a release is published, to build and attach the AppImage, so anything
+# it finds is found after the tag is public. That makes this script the only
+# gate that runs before a release, rather than a local copy of a remote one.
 #
 # WHAT IT IS. `cut-release`'s Phase 0 made runnable. That skill is the release
 # procedure and this is not a replacement for it: it performs no bump, no
@@ -500,6 +500,27 @@ for entry in "${TOOL_REPOS[@]}"; do
     # shellcheck disable=SC2086  # two words, split on purpose
     pin_status $entry
 done
+
+# --- 0i: the AppImage builds and starts --------------------------------------
+
+# The release workflow builds the AppImage only once the release is published,
+# so a packaging bug found there is found after the tag is public (LWSM-1052).
+# This runs the same script here first. It builds the tree as it stands, at the
+# current version; the release builds the bumped tag, which differs only in the
+# version, and 0c already blocks on uncommitted changes.
+appimage_status() {
+    if ! command -v podman >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then
+        skip "AppImage build (neither podman nor docker is installed)"
+    elif bash scripts/build-appimage.sh; then
+        ok "the AppImage builds and starts"
+    else
+        block "the AppImage did not build or did not start (output above)"
+    fi
+    return 0
+}
+
+step "0i  AppImage builds and starts"
+appimage_status
 
 # --- optional: prove the bump applies and post_check passes ------------------
 
