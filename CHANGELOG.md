@@ -23,6 +23,8 @@ signaling per
 
 ## [0.5.1] - 2026-11-10
 
+**Theme:** A download that needs nothing installed first
+
 ### Added
 
 - **A download that needs nothing installed first.** Each release now carries an AppImage: one file that runs on 64-bit Linux without Python or Qt. Make it executable and double-click it. It needs a system at least as new as Debian 12 (glibc 2.36). Every AppImage is started on a clean machine before it is attached to the release. (LWSM-1021)

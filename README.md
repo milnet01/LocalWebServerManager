@@ -33,7 +33,7 @@ your projects with a live status light, and start, stop, restart
 and open them in a browser. Download it as one file, or run it
 from a copy of the source (see **Install**).
 
-Current version: **0.5.0**. It is early:
+Current version: **0.5.1**. It is early:
 until 1.0, nothing is promised to keep working from one release
 to the next.
 (That exact line is what `scripts/check-version-drift.sh`
