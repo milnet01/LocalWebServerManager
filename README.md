@@ -30,8 +30,8 @@ project's own start script and never edits your projects.
 
 **Early days, but it runs.** You can open the window today, see
 your projects with a live status light, and start, stop, restart
-and open them in a browser. There is no installer or download
-yet, so you run it from a copy of the source (see **Install**).
+and open them in a browser. Download it as one file, or run it
+from a copy of the source (see **Install**).
 
 Current version: **0.5.0**. It is early:
 until 1.0, nothing is promised to keep working from one release
@@ -93,9 +93,10 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
 
 **What is not there yet**
 
-- No **system tray icon**, no **start on login**, and no
-  **downloadable package** — those are planned for later
-  versions.
+- No **system tray icon** and no **start on login** — those are
+  planned for later versions.
+- No **automatic updates**: you download each new version
+  yourself. How updates should work is still being decided.
 
 Every one of those has a stable ID and stated acceptance criteria
 in [ROADMAP.md](ROADMAP.md), so what is real and what is merely
@@ -114,13 +115,27 @@ there and with [CONTRIBUTING.md](CONTRIBUTING.md).
   particular has no process groups, which is the mechanism the
   whole start/stop design rests on (ADR-0003). See LWSM-1024 and
   LWSM-1025.
-- **Python 3.13+**, and [uv](https://docs.astral.sh/uv/).
+- **To run from the source: Python 3.13+**, and
+  [uv](https://docs.astral.sh/uv/). The download needs neither.
 
 ## Install
 
-There is no download, package or AppImage yet — an AppImage is
-planned for version 1.0.0. For now you run it from a copy of the
-source.
+### Download (nothing to install first)
+
+1. From the [latest release](https://github.com/milnet01/LocalWebServerManager/releases/latest),
+   download `LocalWebServerManager-<version>-x86_64.AppImage`.
+2. Make it executable: right-click it, **Properties > Permissions >
+   Is executable**, or run `chmod +x LocalWebServerManager-*.AppImage`.
+3. Double-click it. The window opens.
+
+It runs on 64-bit Linux at least as new as Debian 12 (glibc 2.36),
+with no Python or Qt installed. It does not add itself to your
+application launcher.
+
+### From the source
+
+This needs Python and uv (see **Requirements**), and gives you the
+launcher entry.
 
 ```bash
 git clone https://github.com/milnet01/LocalWebServerManager.git
@@ -154,8 +169,9 @@ password.
 
    Without that file it looks in `~/projects`.
 
-2. **Run `uv run lwsm`.** The window opens and lists what it
-   found, with a status light per project.
+2. **Start the app** — double-click the AppImage, or run
+   `uv run lwsm` from the source. The window opens and lists what
+   it found, with a status light per project.
 
 3. **Press Start on a row.** The first time you start a given
    project, the app shows you exactly what it is about to run and
