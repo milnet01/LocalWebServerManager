@@ -7,11 +7,10 @@
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Nothing is released yet — see [CHANGELOG](CHANGELOG.md) for shipped
-work, [ROADMAP](ROADMAP.md) for what's coming, and
-[docs/standards/](docs/standards/) for the five shareable v1
-standards (coding · documentation · testing · commits ·
-dependencies) the project follows.
+See [CHANGELOG](CHANGELOG.md) for what each release shipped,
+[ROADMAP](ROADMAP.md) for what's coming, and
+[docs/standards/](docs/standards/) for where this project departs
+from the shared standards it follows.
 
 ## What it's for
 

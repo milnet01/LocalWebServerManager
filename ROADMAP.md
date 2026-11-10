@@ -15352,7 +15352,7 @@ because it changes the machine-wide uv.
   Source: review-code-2026-11-05 lane-13.
   Lanes: tooling.
 
-- 📋 [LWSM-1536] **Four contract documents state things the code no longer does.**
+- 📋 [LWSM-1536] **Contract documents state things the code no longer does.**
   Priority: 4.
   Spec amendments: amend in place (write-doc), code side unchanged.
   1. ADR-0003's allowlist omits the absolute-only PATH filter and the
@@ -15369,6 +15369,13 @@ because it changes the machine-wide uv.
   confirmation; the code keeps it (_with_current_confirmation,
   mainwindow.py:4676-4688) (lane-08).
   Items 1, 2, 4 are lane claims.
+  5. Added by the 2026-11-10 debt sweep (read): LWSM-1428's INV-3 says
+  adoption needs PID, `create_time` and group to match. Since LWSM-1448,
+  supervisor._identity_refusal compares `boot_id` and `since_boot`
+  instead when the entry has `since_boot`, and `create_time` only for an
+  older entry. INV-1 (and the decision line on identity) name
+  `create_time` alone. Remedy: reword INV-3 to cover both forms, citing
+  INV-8; check INV-1 against what start() records.
   **Layman:** Some design documents describe older behaviour and need correcting to match the app.
   Kind: doc-fix.
   Source: review-code-2026-11-05 lane-01, lane-02, lane-03, lane-08.
