@@ -14701,7 +14701,7 @@ LWSM-1052, LWSM-1022 and LWSM-1043; then the review fixes (Priority 4);
 then the refactors (Priority 5). LWSM-1543 waits for the user's go-ahead
 because it changes the machine-wide uv.
 
-- 🚧 [LWSM-1021] **P10: self-contained AppImage, built in CI.**
+- ✅ [LWSM-1021] **P10: self-contained AppImage, built in CI.**
   One downloadable file that runs on any reasonably current
   x86-64 Linux without installing Python, PySide6 or anything
   else. Built by GitHub Actions on tag, attached to the release,
@@ -14743,6 +14743,13 @@ because it changes the machine-wide uv.
   traceback)". The CI build is proven. Still in progress until a
   published release carries the AppImage; then message the website
   session.
+  2026-11-10: shipped in 0.5.1, flipped before publishing because
+  local-release.sh blocks a release whose changelog cites an item not ✅.
+  Evidence so far: built and smoke-tested locally on Debian 13 and by
+  hand on Debian 12; the review-code 2026-11-10 fixes (1cdc943, 87de4b7)
+  are in. Still to check after publishing: the release workflow attaches
+  the AppImage to v0.5.1. If it does not, this flips back to
+  in-progress.
   Lanes: build, ci.
 
 - 📋 [LWSM-1043] **P10: decide how updates reach users — research first.**
