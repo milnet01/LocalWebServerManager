@@ -30,6 +30,8 @@ signaling per
 
 ### Fixed
 
+- **Opening the app again from the menu now brings its window to the front under Wayland.** Only one copy runs. Opening it again from the app menu used to make the taskbar entry flash, because KWin lets a window come forward only with the permission the menu gives the copy it starts, and that copy closes. The new copy now passes that permission to the one already running. Opened from a terminal, which gets no such permission, it says to switch to the window from the taskbar. (LWSM-1521)
+
 - **Switching the output panel to another project no longer shows the last one's lines.** Lines and errors the old project's reader had already sent arrived after the switch, so they appeared under the new project's name. Text you scroll back to read also stays put once the panel is full; it used to slide away as new lines arrived. (LWSM-1516)
 - **Importing a profile no longer freezes the window when a project is on a network drive that has gone away.** The import checked every project's folder on the window's own thread. It now does that in the background, and Rescan waits while an import runs. (LWSM-1517)
 - **A project row keeps your place and its error message.** When the Change port… or View output button you were on went away, keyboard focus went somewhere else; it now stays on the row. An error under a row was erased by unrelated updates, such as the starting timer or choosing a browser; it now stays until the project's state or port changes. And a row with a chosen browser no longer tells a screen reader that its browser list has focus. (LWSM-1518)

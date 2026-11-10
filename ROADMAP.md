@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1541 -->
+<!-- ants-roadmap-id-high-water: LWSM=1542 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -14667,7 +14667,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-10.
   Lanes: placement, mainwindow.
 
-- 🚧 [LWSM-1521] **A second launch does not bring the window forward on KWin Wayland; pass an xdg-activation token.**
+- ✅ [LWSM-1521] **A second launch does not bring the window forward on KWin Wayland; pass an xdg-activation token.**
   Priority: 3.
   __main__.py:747-753: setWindowState(state & ~WindowMinimized |
   WindowActive), raise_(), activateWindow(). Verified at f57689c.
@@ -14695,6 +14695,16 @@ LWSM-1036.
   activation; that is evidence, not a run. Open: the real KWin Wayland
   check (launch from the app menu while running, and from a terminal).
   Flip to shipped and add the CHANGELOG entry after it passes.
+  Real-KWin check 2026-11-10, Plasma 6 Wayland. Menu launch over a
+  covered window: came forward. Menu launch over a minimised window:
+  came forward after a couple of seconds. WAYLAND_DEBUG on the running
+  copy showed xdg_activation_v1.activate("kwin-42") and ("kwin-81") on
+  those launches, so the token reaches KWin. Terminal launch prints
+  "switch to it from the taskbar" as designed. One earlier untraced menu
+  launch the same day did not come forward; cause not found, and three
+  traced launches all worked. The minimised delay is filed separately; a
+  second copy's hand-off measured 0.18 s, so the wait is after the
+  hand-off.
   **Layman:** Opening the app again while it runs should bring its window to the front; on this desktop it probably only flashes the taskbar.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-11.
@@ -15505,6 +15515,18 @@ author's own use, which is why it sits after the app works.
   Kind: investigate.
   Source: write-code-2026-11-08 LWSM-1518 O9 sweep.
   Lanes: mainwindow.
+
+- 💭 [LWSM-1542] **A minimised window takes a couple of seconds to come forward when the app is opened again from the menu.**
+  Seen in LWSM-1521's real-KWin check (2026-11-10). A covered window
+  came forward with no wait reported. A second copy's hand-off measured
+  0.18 s, and the trace shows xdg_activation_v1.activate sent, so the
+  wait is after the hand-off: in the menu's launch, KWin's restore, or
+  _bring_to_front clearing the minimised bit before activating. Not yet
+  measured which. Start by timestamping the click against the activate
+  line and the un-minimise configure in a WAYLAND_DEBUG trace.
+  **Layman:** Opening the app from the menu while its window is minimised brings it back, but with a short wait.
+  Kind: investigate.
+  Source: user-kwin-check-2026-11-10.
 
 ## After 1.0.0
 
