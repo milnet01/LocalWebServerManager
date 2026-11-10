@@ -14701,7 +14701,7 @@ LWSM-1052, LWSM-1022 and LWSM-1043; then the review fixes (Priority 4);
 then the refactors (Priority 5). LWSM-1543 waits for the user's go-ahead
 because it changes the machine-wide uv.
 
-- 📋 [LWSM-1021] **P10: self-contained AppImage, built in CI.**
+- 🚧 [LWSM-1021] **P10: self-contained AppImage, built in CI.**
   One downloadable file that runs on any reasonably current
   x86-64 Linux without installing Python, PySide6 or anything
   else. Built by GitHub Actions on tag, attached to the release,
@@ -14723,6 +14723,18 @@ because it changes the machine-wide uv.
   the Ants Projects Hub website session (session_message or SendMessage)
   so the project page's download button switches from "Download source"
   to the AppImage. Promised to that session on 2026-09-28.
+  Progress (2026-11-10, e238e13): built and smoke-tested locally.
+  scripts/build-appimage.sh is the recipe; .github/workflows/release.yml
+  runs it on `release: published` and attaches the file. Local build
+  passed three times; the smoke test was shown to fail on an app that
+  cannot start; a Wayland desktop launch worked. Removed the AppImage
+  excludelist's libraries from the bundle after Debian 12's fontconfig
+  spammed warnings on this machine. run() restores LD_LIBRARY_PATH for
+  children when frozen (unit-tested only).
+  NOT yet done, and why this stays in-progress: the workflow has never
+  run. Ship when the first published release carries a working AppImage,
+  then message the website session (promise below). Known limit: needs
+  glibc 2.36+ (Debian 12 build image), so Ubuntu 22.04 is out.
   Lanes: build, ci.
 
 - 📋 [LWSM-1043] **P10: decide how updates reach users — research first.**
@@ -14809,6 +14821,14 @@ because it changes the machine-wide uv.
   Priority: 2.
   Lanes: build, ci.
   Filename collision, resolved (2026-08-18): `scripts/local-release.sh` NOW EXISTS and does a different job — LWSM-1151 shipped it as the release PREFLIGHT (cut-release Phase 0: recipe validity, version lockstep, pattern uniqueness, tag freedom, dated changelog section, roadmap agreement, CI cost). It contains no AppImage step and cannot, because LWSM-1021 has not built one. **Do NOT create a second script and do NOT overwrite that one.** This item's work becomes: ADD an AppImage build-and-smoke-test step to the existing `scripts/local-release.sh`, for the same reason this bullet already gives — one script is the source of truth, so two cannot drift. The bullet's other premise needs correcting too: it says "the release workflow calls it", and there IS no release workflow. CI fires on push and pull_request only, with no tag trigger and no release trigger, so nothing on GitHub checks a release at all; the script is the only gate a release gets rather than a local mirror of a remote one. That strengthens this item rather than weakening it — a packaging bug has nothing downstream to catch it. Dependency on LWSM-1021 is unchanged.
+  Premise update (2026-11-10): LWSM-1021 added the AppImage build as
+  scripts/build-appimage.sh (smoke test included), and a release
+  workflow now exists: .github/workflows/release.yml, on
+  `release: published`, calls that script. So "there IS no release
+  workflow" above is out of date. This item's remaining work: have
+  scripts/local-release.sh run build-appimage.sh before the tag is
+  pushed, so a broken AppImage stops the release here rather than in
+  CI after publishing.
 
 - 📋 [LWSM-1022] **P10: release process and user-facing docs.**
   A tagged release carrying the AppImage, a CHANGELOG section, and
