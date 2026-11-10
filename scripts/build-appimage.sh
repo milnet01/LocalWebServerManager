@@ -13,7 +13,8 @@
 #   2. Smoke: debian:13-slim, with no Python, offline, launches it
 #      (_appimage-smoke.sh). An AppImage nobody ran is not a release.
 #
-# Needs podman or docker, uv, and python3. Only the build reaches the network.
+# Needs podman or docker, uv, and python3 3.11 or newer (for tomllib). Only the
+# build reaches the network.
 # The release workflow calls this script; it is the one recipe.
 set -euo pipefail
 
@@ -47,8 +48,9 @@ rm -f "$DIST/$APPIMAGE"
 
 # The exact runtime closure and PyInstaller, with hashes, from uv.lock. The
 # container installs these and nothing else, so the bundle holds what the lock
-# says.
-uv export --frozen --no-dev --no-emit-project --extra package \
+# says. --locked refuses a lock that no longer matches pyproject.toml, where
+# --frozen would export its stale pins.
+uv export --locked --no-dev --no-emit-project --extra package \
     --format requirements-txt --output-file "$WORK/requirements.txt" >/dev/null
 
 # label=disable: on an SELinux host a bind mount is unreadable inside the
