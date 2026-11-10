@@ -1,10 +1,10 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1542 -->
+<!-- ants-roadmap-id-high-water: LWSM=1543 -->
 
 # LocalWebServerManager — Roadmap
 
-> **Current version:** 0.4.0. See
+> **Current version:** 0.5.0. See
 > [CHANGELOG.md](CHANGELOG.md) for what's shipped; this file
 > covers what's **planned**.
 >
@@ -15527,6 +15527,16 @@ author's own use, which is why it sits after the app works.
   **Layman:** Opening the app from the menu while its window is minimised brings it back, but with a short wait.
   Kind: investigate.
   Source: user-kwin-check-2026-11-10.
+
+- 📋 [LWSM-1543] **Bump the UV_VERSION pin from 0.12.23 to the current uv release.**
+  local-release.sh 0h warned on 2026-11-10: pinned 0.12.23, latest
+  0.13.7. The pin forces the machine-wide uv in ~/.local/bin, which other
+  projects' gates check, so ask the user before installing. Run the full
+  gate on the new version. User chose 2026-11-10 to do it after 0.5.0, on
+  its own.
+  **Layman:** Update the tool that installs the project's dependencies.
+  Kind: chore.
+  Source: local-release-preflight-2026-11-10.
 
 ## After 1.0.0
 

@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-10
+
+**Theme:** Logs
+
 ### Added
 
 - **The output panel finds the error for you.** In the output panel, Jump to last error (Alt+E) moves to the last line that looks like an error, highlights it and reads it out, so you do not have to scroll for it. Errors only (Alt+O) hides every other line, including new ones. A line counts as an error when it contains Traceback, ERROR, CRITICAL or Exception, or reports a non-zero exit. Preferences lets you change those words, one per line, to the ones your servers print. (LWSM-1036)
@@ -31,6 +35,8 @@ signaling per
 ### Fixed
 
 - **Opening the app again from the menu now brings its window to the front under Wayland.** Only one copy runs. Opening it again from the app menu used to make the taskbar entry flash, because KWin lets a window come forward only with the permission the menu gives the copy it starts, and that copy closes. The new copy now passes that permission to the one already running. Opened from a terminal, which gets no such permission, it says to switch to the window from the taskbar. (LWSM-1521)
+- **Opening the app straight after quitting it now works.** Quitting while servers were still stopping kept the old copy waiting for every stop, about nine seconds per four, and opening the app in that time did nothing. The old copy now steps aside first and finishes its stops in the background. (LWSM-1447)
+- **Holding a button down with Space no longer hides its focus outline.** The outline was the same colour as a pressed button, so it vanished while you held the key. It is now drawn in the background colour while the button is held. (LWSM-1485)
 
 - **Switching the output panel to another project no longer shows the last one's lines.** Lines and errors the old project's reader had already sent arrived after the switch, so they appeared under the new project's name. Text you scroll back to read also stays put once the panel is full; it used to slide away as new lines arrived. (LWSM-1516)
 - **Importing a profile no longer freezes the window when a project is on a network drive that has gone away.** The import checked every project's folder on the window's own thread. It now does that in the background, and Rescan waits while an import runs. (LWSM-1517)
