@@ -14740,6 +14740,11 @@ The project is public and meant to be useful to strangers, so a release has to
 be something a person downloads and runs. Nothing here is needed for the
 author's own use, which is why it sits after the app works.
 
+Order (user, 2026-11-10): packaging first. LWSM-1397, then LWSM-1021,
+LWSM-1052, LWSM-1022 and LWSM-1043; then the review fixes (Priority 4);
+then the refactors (Priority 5). LWSM-1543 waits for the user's go-ahead
+because it changes the machine-wide uv.
+
 - 📋 [LWSM-1021] **P10: self-contained AppImage, built in CI.**
   One downloadable file that runs on any reasonably current
   x86-64 Linux without installing Python, PySide6 or anything
@@ -14748,7 +14753,11 @@ author's own use, which is why it sits after the app works.
   and asserting it starts — an AppImage nobody ran is not a
   release. Includes the `.desktop` entry and icon so it
   integrates with the KDE launcher.
-  Dependencies: LWSM-1017.
+  Dependencies: LWSM-1397.
+  Decided 2026-11-10 (user): the tray (LWSM-1017) is no longer a
+  dependency. It sits in After 1.0.0 and LWSM-1188 keeps it out of
+  1.0; a download does not need a tray. LWSM-1397 lands first so the
+  AppImage is built without WebEngine and Pdf.
   **Layman:** Publish one file people can download and double-click,
   with nothing to install first.
   Kind: package.
