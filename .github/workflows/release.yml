@@ -9,6 +9,9 @@ name: Release
 on:
   release:
     types: [published]
+  # Run by hand to prove the build on GitHub's runner without publishing:
+  # it builds and smoke-tests, then skips the upload.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -43,6 +46,7 @@ jobs:
       # The file name carries pyproject.toml's version, so a tag that disagrees
       # with it names a file that does not exist, and the upload fails.
       - name: Attach it to the release
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
