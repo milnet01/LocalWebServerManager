@@ -14750,6 +14750,11 @@ because it changes the machine-wide uv.
   are in. Still to check after publishing: the release workflow attaches
   the AppImage to v0.5.1. If it does not, this flips back to
   in-progress.
+  Confirmed 2026-11-10 after publishing: release workflow run
+  42832430096 built LocalWebServerManager-0.5.1-x86_64.AppImage from the
+  tag, passed all three smoke checks (version, launch, child
+  environment) and attached it to v0.5.1. The downloaded asset prints
+  'lwsm 0.5.1' on this machine.
   Lanes: build, ci.
 
 - 📋 [LWSM-1043] **P10: decide how updates reach users — research first.**
@@ -14852,7 +14857,7 @@ because it changes the machine-wide uv.
   premise above that nothing on GitHub checks a release is now
   false: release.yml runs after publishing (see LWSM-1021).
 
-- 🚧 [LWSM-1022] **P10: release process and user-facing docs.**
+- ✅ [LWSM-1022] **P10: release process and user-facing docs.**
   A tagged release carrying the AppImage, a CHANGELOG section, and
   a README Install/Quickstart written for someone who has never
   seen the project. Success: a stranger gets from the repo page to
@@ -14872,6 +14877,13 @@ because it changes the machine-wide uv.
   changes since v0.5.0, because 0.5.0 had the full review the same
   day. Remaining: that review, then cut-release 0.5.1, which also
   ships LWSM-1021 and triggers the website message.
+  Shipped 2026-11-10 in 0.5.1 (release commit 7ed1583, tag v0.5.1). The
+  README's 'latest release' link now resolves to v0.5.1, which carries
+  the AppImage; the release notes are the 0.5.1 CHANGELOG section
+  verbatim (read back and diffed). The pre-release review ran narrowed
+  to v0.5.0..HEAD: check-code clean, review-code 15 findings, 6 fixed
+  (1cdc943, 87de4b7, 620bc26), 7 filed as LWSM-1544..1547, 1 open
+  question settled by measurement.
   Lanes: docs, build.
 
 - 📋 [LWSM-1188] **Define what 1.0.0 means, and hold the line on it.**
