@@ -14735,6 +14735,14 @@ because it changes the machine-wide uv.
   run. Ship when the first published release carries a working AppImage,
   then message the website session (promise below). Known limit: needs
   glibc 2.36+ (Debian 12 build image), so Ubuntu 22.04 is out.
+  Progress (2026-11-10, 96ad8a8): release.yml also runs on
+  workflow_dispatch, build and smoke only; the upload step runs only
+  on a published release. First CI run, by hand (run 42818307093,
+  main at 96ad8a8): passed. The smoke test logged "--version OK (lwsm
+  0.5.0)" and "launch OK (running after 15s, start logged, no
+  traceback)". The CI build is proven. Still in progress until a
+  published release carries the AppImage; then message the website
+  session.
   Lanes: build, ci.
 
 - 📋 [LWSM-1043] **P10: decide how updates reach users — research first.**
