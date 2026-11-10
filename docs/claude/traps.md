@@ -682,3 +682,10 @@ at collection, before the fixture, says the manager is reachable. CI run
 39312566342 (LWSM-1420). Read the variable at import, as
 `test_a_server_outlives_a_manager_whose_desktop_unit_ends` does, and reproduce
 the runner locally with `env -u DBUS_SESSION_BUS_ADDRESS`.
+
+**Trap: swapping the PySide6 meta-package for PySide6-Essentials breaks an
+existing `.venv`.** Both packages list `PySide6/__init__.py`, so `uv sync`
+removing the meta-package deletes a file Essentials still needs, and
+`import PySide6` then has no `__version__`. A fresh install is unaffected.
+Repair with `uv sync --extra dev --reinstall-package pyside6-essentials
+--reinstall-package shiboken6`. Measured 2026-11-10 (LWSM-1397).

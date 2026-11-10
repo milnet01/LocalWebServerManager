@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Changed
+
+- **A much smaller install.** The app now depends on PySide6-Essentials instead of the full PySide6 bundle, which also pulled in a web browser engine and a PDF library the app never uses. Measured on 2026-11-10, the installed Qt files shrink from 673 MB to 245 MB. If you already have a copy set up, run `uv sync --extra dev --reinstall-package pyside6-essentials --reinstall-package shiboken6` once after updating: a plain `uv sync` deletes a file PySide6-Essentials installs. (LWSM-1397)
+
 ## [0.5.0] - 2026-11-10
 
 **Theme:** Logs
