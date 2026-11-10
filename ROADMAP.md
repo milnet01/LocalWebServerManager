@@ -14871,7 +14871,7 @@ because it changes the machine-wide uv.
   Source: user-decision-2026-08-24.
   Lanes: release, docs.
 
-- 📋 [LWSM-1397] **Depend on PySide6-Essentials, not the PySide6 meta-package that pulls Addons, WebEngine and Pdf.**
+- ✅ [LWSM-1397] **Depend on PySide6-Essentials, not the PySide6 meta-package that pulls Addons, WebEngine and Pdf.**
   Measured 2026-10-08 under PySide6 6.12.0: src/ imports only QtCore,
   QtGui, QtWidgets and QtNetwork, all in PySide6-Essentials. The
   PySide6 meta-package also installs pyside6-addons and, new in 6.12,
@@ -14882,6 +14882,12 @@ because it changes the machine-wide uv.
   shiboken6 via the lock), re-check ADR-0003's hasattr on it, run the
   gate. pyproject.toml's comment above the pins names the AppImage
   weight as the reason the runtime set stays small.
+  Shipped 2026-11-10 (28b13a1): pyproject pins PySide6-Essentials==6.12.0.
+  Measured: the venv's PySide6 directory went from 673M to 245M. ADR-0003's
+  hasattr re-run on Essentials: setChildProcessModifier still absent. Gate
+  green, 2977 passed. Swapping packages in an existing venv deletes
+  PySide6/__init__.py; trap recorded in docs/claude/traps.md, repair command
+  in CHANGELOG. pytest-randomly bumped to 5.1.0 alongside per D2 (d63acf0).
   **Layman:** The app installs a large browser engine and PDF library it never uses; drop them so the download is smaller.
   Kind: package.
   Source: in-session-2026-10-08 (LWSM-1394 PySide6 bump).
