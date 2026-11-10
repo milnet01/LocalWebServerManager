@@ -14182,25 +14182,6 @@ LWSM-1036.
   Source: in-session-2026-11-05.
   Lanes: ui.
 
-- 💭 [LWSM-1506] **Decide whether a text view's viewport reporting focused beside the view needs fixing.**
-  Found by LWSM-1505 (2026-11-05), measured on a private AT-SPI bus.
-  While the log panel's output view has focus, its nameless viewport
-  (role filler) also reports FOCUSED, nested inside it. Cause: Qt makes a
-  scroll area's viewport take the area as its focus proxy, so hasFocus()
-  is true for both. It reports nothing while the view lacks focus, so it
-  never points away from the real focus. Preferences' error-markers
-  box does the same (measured offscreen; a list view does not expose its
-  viewport as a child, so lists are not affected). Orca is not
-  installed here, so whether it is misled is unverified. Proposed shape,
-  if a check shows it matters: a QAccessible.installFactory factory
-  (PySide6 exposes it) giving viewports an interface without the
-  focused state; clearing the focus proxy instead would change real
-  focus behaviour. Otherwise drop it as Qt's standard behaviour.
-  **Layman:** The output panel tells a screen reader that both the text box and an invisible part inside it have focus; probably harmless, but unchecked with a real screen reader.
-  Kind: accessibility.
-  Source: in-session-2026-11-05.
-  Lanes: ui.
-
 - ✅ [LWSM-1507] **Two adoption tests failed on GitHub when they adopted a server within one start-time tick of its start.**
   test_an_adopted_server_is_owned_and_stops and
   test_an_adopted_server_stays_ours_after_its_launcher_exits failed 7 of
@@ -14246,31 +14227,6 @@ LWSM-1036.
   Kind: perf.
   Source: session-message-161-2026-09-28.
   Lanes: tests, ci.
-
-- 💭 [LWSM-1508] **Decide whether two copies sharing app.log during a quit overlap needs fixing.**
-  Priority: LOW.
-  Found while building LWSM-1447. `main` now releases the single-instance
-  socket before `close_supervisor` waits for stops in flight, so a relaunch
-  can run while the quitting copy still logs its stops. Two
-  `RotatingFileHandler`s on one file can lose a generation if either rotates
-  in that window; LWSM-1065 named that as half of why only one copy runs.
-  Rare: it needs a rotation inside a few seconds of overlap. Not measured.
-  Options: leave it; or have the quitting copy log to stderr once it has
-  released the socket, which drops its last stop lines from the file.
-  review-code 2026-11-05: lane-12 re-found the app.log rotation overlap
-  (applog.py:303-308); settled here, not reopened. Lane-11 found a
-  second consequence of the same overlap: __main__.py:879-888 freezes
-  started.json and releases the socket before close_supervisor waits, so
-  a relaunch's supervisor.adopt() (__main__.py:390) can adopt a server
-  the old copy is still stopping, and when its SIGKILL lands the new
-  window would likely show that project failed. The lane did not open
-  adopt(); unverified. Remedy offered: write a stopping mark into the
-  record before freezing, so adopt skips those entries. Related to the
-  LWSM-1447 ruling, not settled by it.
-  **Layman:** After quitting while servers are still stopping, a quick relaunch and the old copy can both write the app's log for a few seconds.
-  Kind: investigate.
-  Source: lwsm-1447-build-2026-11-05.
-  Lanes: main, applog.
 
 - ✅ [LWSM-1509] **Two crafted-project holes: an unreadable launcher's confirmation outlives its contents, and two scanner patterns run quadratic with no deadline.**
   Priority: 3.
@@ -15914,6 +15870,50 @@ open DS01 debt-sweep items, and the open FP02 review items.
   **Layman:** The app remembers how long a project usually takes to start and says so.
   Kind: feature.
   Source: user-decision-2026-10-08.
+
+- 💭 [LWSM-1506] **Decide whether a text view's viewport reporting focused beside the view needs fixing.**
+  Found by LWSM-1505 (2026-11-05), measured on a private AT-SPI bus.
+  While the log panel's output view has focus, its nameless viewport
+  (role filler) also reports FOCUSED, nested inside it. Cause: Qt makes a
+  scroll area's viewport take the area as its focus proxy, so hasFocus()
+  is true for both. It reports nothing while the view lacks focus, so it
+  never points away from the real focus. Preferences' error-markers
+  box does the same (measured offscreen; a list view does not expose its
+  viewport as a child, so lists are not affected). Orca is not
+  installed here, so whether it is misled is unverified. Proposed shape,
+  if a check shows it matters: a QAccessible.installFactory factory
+  (PySide6 exposes it) giving viewports an interface without the
+  focused state; clearing the focus proxy instead would change real
+  focus behaviour. Otherwise drop it as Qt's standard behaviour.
+  **Layman:** The output panel tells a screen reader that both the text box and an invisible part inside it have focus; probably harmless, but unchecked with a real screen reader.
+  Kind: accessibility.
+  Source: in-session-2026-11-05.
+  Lanes: ui.
+
+- 💭 [LWSM-1508] **Decide whether two copies sharing app.log during a quit overlap needs fixing.**
+  Priority: LOW.
+  Found while building LWSM-1447. `main` now releases the single-instance
+  socket before `close_supervisor` waits for stops in flight, so a relaunch
+  can run while the quitting copy still logs its stops. Two
+  `RotatingFileHandler`s on one file can lose a generation if either rotates
+  in that window; LWSM-1065 named that as half of why only one copy runs.
+  Rare: it needs a rotation inside a few seconds of overlap. Not measured.
+  Options: leave it; or have the quitting copy log to stderr once it has
+  released the socket, which drops its last stop lines from the file.
+  review-code 2026-11-05: lane-12 re-found the app.log rotation overlap
+  (applog.py:303-308); settled here, not reopened. Lane-11 found a
+  second consequence of the same overlap: __main__.py:879-888 freezes
+  started.json and releases the socket before close_supervisor waits, so
+  a relaunch's supervisor.adopt() (__main__.py:390) can adopt a server
+  the old copy is still stopping, and when its SIGKILL lands the new
+  window would likely show that project failed. The lane did not open
+  adopt(); unverified. Remedy offered: write a stopping mark into the
+  record before freezing, so adopt skips those entries. Related to the
+  LWSM-1447 ruling, not settled by it.
+  **Layman:** After quitting while servers are still stopping, a quick relaunch and the old copy can both write the app's log for a few seconds.
+  Kind: investigate.
+  Source: lwsm-1447-build-2026-11-05.
+  Lanes: main, applog.
 
 ## 💭 Considered — not scheduled
 
