@@ -1,6 +1,7 @@
 """`scripts/local-release.sh` — the only gate that runs before a release.
 
-The release workflow runs only after a release is published. This file had
+The release workflow attaches the AppImage only after a release is published.
+This file had
 no tests at all until LWSM-1265, which is why the defect it locks — a failed
 query reported as a clean answer — could sit in the one script whose whole
 purpose is to refuse a release that is not ready.

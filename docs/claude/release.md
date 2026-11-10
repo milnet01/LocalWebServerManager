@@ -39,15 +39,16 @@ mechanical pre-flight and does not replace this.
 ## Before releasing
 
 **Run `./scripts/local-release.sh [X.Y.Z]`** (LWSM-1151). It is
-`cut-release`'s Phase 0 made runnable, and it reports without changing
-anything.
+`cut-release`'s Phase 0 made runnable. It changes nothing git tracks; its
+AppImage step builds into `dist/` and tags a local container image.
 
 **It mirrors nothing, and that is the difference from `local-ci.sh`.**
 That script is the CI — the workflow calls it. The release workflow
-(`.github/workflows/release.yml`) runs only **after** a release is
-published, to build and attach the AppImage, so what it finds is found
-after the tag is public. This script is the only automated gate that runs
-before a release; the big review above is the other.
+(`.github/workflows/release.yml`) attaches the AppImage only **after** a
+release is published, so what it finds is found after the tag is public.
+Run by hand, it builds and smoke-tests without uploading. This script is the
+only automated gate that runs before a release; the big review above is the
+other.
 
 **It builds and smoke-tests the AppImage** with
 `scripts/build-appimage.sh`, the script the release workflow runs, so a

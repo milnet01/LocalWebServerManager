@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # The RELEASE preflight. Run this before cutting a version; it answers
-# "would a release stop, and where?" without changing anything.
+# "would a release stop, and where?" It changes nothing git tracks; step 0i
+# builds into dist/ and tags a local container image.
 #
 # HOW THIS DIFFERS FROM scripts/local-ci.sh. That script IS the CI — the
 # GitHub workflow calls it, so running it locally runs the same checks the
-# same way. The release workflow (.github/workflows/release.yml) runs only
-# once a release is published, to build and attach the AppImage, so anything
-# it finds is found after the tag is public. That makes this script the only
-# gate that runs before a release, rather than a local copy of a remote one.
+# same way. The release workflow (.github/workflows/release.yml) attaches the
+# AppImage once a release is published, so anything it finds is found after
+# the tag is public; run by hand, it builds and smoke-tests without uploading.
+# That makes this script the only gate that runs before a release, rather than
+# a local copy of a remote one.
 #
 # WHAT IT IS. `cut-release`'s Phase 0 made runnable. That skill is the release
 # procedure and this is not a replacement for it: it performs no bump, no
