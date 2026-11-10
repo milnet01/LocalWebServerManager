@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1543 -->
+<!-- ants-roadmap-id-high-water: LWSM=1547 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15559,6 +15559,69 @@ because it changes the machine-wide uv.
   **Layman:** Update the tool that installs the project's dependencies.
   Kind: chore.
   Source: local-release-preflight-2026-11-10.
+
+- 📋 [LWSM-1544] **The AppImage smoke test proves only the offscreen display and only Debian 13.**
+  review-code 2026-11-10 (v0.5.0..HEAD), lane 1, two MEDIUMs.
+
+  1. `_appimage-smoke.sh` runs with QT_QPA_PLATFORM=offscreen, so a
+     library missing for the xcb or wayland platform plugin still passes.
+     Measured 2026-11-10: on the bare smoke machines libqxcb lacks
+     libxkbcommon-x11 and libqwayland lacks libwayland-cursor. Both are
+     left to the host by design. On this openSUSE desktop both resolve.
+     Fix: install those two in the smoke image, then fail on any
+     `not found` from ldd over platforms/*.so; or launch under Xvfb.
+  2. The README promises Debian 12 (glibc 2.36); the smoke runs only on
+     Debian 13. Passed by hand on debian:12-slim on 2026-11-10 (0.5.1
+     build). Fix: smoke on a digest-pinned debian:12-slim as well.
+
+  Not fixed for 0.5.1: both were checked by hand for that build.
+  **Layman:** The automatic start-up test does not yet try a real X11 or Wayland screen, or the oldest system the README promises.
+  Kind: test.
+  Source: review-code-2026-11-10.
+
+- 📋 [LWSM-1545] **build-appimage.sh: root-owned output under docker, and two runs at once clobber each other.**
+  review-code 2026-11-10, lanes 1 and 2 (LOW; one raw MEDIUM calibrated down).
+
+  1. Under rootful docker the build container writes dist/ and its
+     cache as root. Fix: pass the host UID/GID in and chown at the end
+     of _appimage-build.sh. Rootless podman is unaffected.
+  2. Two runs (local-release step 0i, a hand run, another session)
+     share dist/.appimage-build, requirements.txt, the smoke image tag
+     and the output file. Fix: flock on dist/.appimage-build.lock.
+
+  Not fixed for 0.5.1: neither affects a single podman build.
+  **Layman:** Building the AppImage with docker leaves files only an administrator can delete, and two builds at once can spoil each other.
+  Kind: fix.
+  Source: review-code-2026-11-10.
+
+- 📋 [LWSM-1546] **release.yml: write permission for the whole job, and a re-run cannot replace an uploaded asset.**
+  review-code 2026-11-10, lane 2 (MEDIUM calibrated to LOW, and LOW).
+
+  1. `contents: write` covers checkout, setup-uv and the whole build,
+     not only the upload. Every input is pinned (images by digest,
+     wheels by hash, actions by SHA). Unsettled: whether setup-uv takes
+     github.token through its github-token default. Fix: a read-only
+     build job uploading an artifact, then an attach job with write.
+  2. `gh release upload` refuses an asset that exists, so a re-run after
+     an upload fails. Fix: --clobber on a re-run, or write the recovery
+     step into docs/claude/release.md.
+
+  Not fixed for 0.5.1: the workflow has never run on a real release;
+  change it after one run proves the current shape.
+  **Layman:** The release workflow holds the power to change a release for longer than it needs, and cannot redo a half-finished upload.
+  Kind: security.
+  Source: review-code-2026-11-10.
+
+- 📋 [LWSM-1547] **local-release.sh step 0i blocks, rather than skips, when uv or the container runner cannot run.**
+  review-code 2026-11-10, lane 2 LOW. Step 0i skips only when neither
+  podman nor docker is on PATH. A missing uv, a stopped docker daemon or
+  no network gives BLOCK "did not build or did not start", against the
+  script's own split between blocked and could-not-run. It fails closed.
+  Fix: add `command -v uv` to the skip test and skip when
+  `"$runner" info` fails.
+  **Layman:** The release check reports a missing tool as a broken AppImage.
+  Kind: fix.
+  Source: review-code-2026-11-10.
 
 ## After 1.0.0
 
