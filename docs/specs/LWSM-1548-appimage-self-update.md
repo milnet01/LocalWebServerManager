@@ -179,7 +179,8 @@ A failed check at start-up writes one `app.log` line and shows nothing. A
 manual check reports through `MainWindow.set_status_message`: "You have the
 newest version.", "Couldn't reach GitHub to check for updates.", or "Couldn't
 read GitHub's reply." An offer found by either opens the banner (§4.5); a
-manual check also opens the window.
+manual check also opens the window. A manual check calls `offer` with
+`skipped=None`, so it offers a skipped version too.
 
 ### 4.5 The banner and the window
 
@@ -187,13 +188,16 @@ manual check also opens the window.
 message never replaces the offer: "Version {offered} is available." and a
 **What's new** button. It hides when the offer is skipped or installed.
 
-**The window**, `updatedialog.UpdateDialog(QDialog)`, opened with `show()`,
-never `exec()`:
+**The window**, `updatedialog.UpdateDialog(QDialog)`, parented to the main
+window and opened with `show()`, never `exec()`. A visible parentless dialog
+keeps `app.exec()` running after the main window closes (PySide6 6.12.0,
+2026-11-11), and §4.7's waiter would then wait out its limit.
 
 - Heading: "Version {offered} is available. You have {installed}."
 - A read-only `QTextBrowser` subclass holding each version from
   `changelog()` under a "Version X.Y.Z" heading, newest first, set with
-  `setMarkdown(text, MarkdownDialectGitHub | MarkdownNoHTML)`. Its
+  `document().setMarkdown(text, MarkdownDialectGitHub | MarkdownNoHTML)`;
+  `QTextBrowser.setMarkdown` takes no feature flags. Its
   `loadResource` returns nothing for every URL, and `openLinks` and
   `openExternalLinks` are both false, so the notes load no file, fetch nothing
   and open nothing.
@@ -250,8 +254,9 @@ open through its mount.
 
 ```python
 def relaunch(target: Path) -> None:   # update.py
-    """subprocess.Popen(['/bin/sh', '-c', WAITER, 'sh', str(os.getpid()),
-    str(target)], start_new_session=True, env=dict(os.environ),
+    """subprocess.Popen([*supervisor.scope_prefix(os.environ), '/bin/sh',
+    '-c', WAITER, 'sh', str(os.getpid()), str(target)],
+    start_new_session=True, env=dict(os.environ),
     stdin/stdout/stderr=DEVNULL). The caller then closes the main window
     through its normal close path."""
 ```
@@ -259,11 +264,17 @@ def relaunch(target: Path) -> None:   # update.py
 - **`WAITER` polls every 0.1 s, for at most 60 s, until the pid has gone**,
   a zombie counting as gone, then `exec`s the target. Waiting is what lets the
   new copy own the single-instance socket (§2 item 3).
+- **In a systemd scope of its own**, as each server is (ADR-0003, LWSM-1420).
+  A desktop launch runs the app in a transient service with
+  `KillMode=control-group`, and a new session stays in that cgroup. Measured
+  2026-11-11 with `systemd-run --user`: a `start_new_session` child died when
+  the service's main process exited. Where `scope_prefix` returns `()`, the
+  waiter starts plainly.
 - **One pid**, because `AppRun` `exec`s the frozen app and `--onedir` has no
   bootloader parent (§2).
 - **The environment is `os.environ` as the app holds it**: `run` and `main`
   have already restored the launch library path and removed the AppImage and
-  `_PYI_*` variables, the same environment every server's launcher gets.
+  `_PYI_*` variables.
 - **Never `os.exec*`**: it cannot replace the busy mount (finbreak 0.1.2).
 - **Servers keep running.** They outlive the window (ADR-0003), and the new
   copy finds them by probing (ADR-0004).
@@ -279,7 +290,8 @@ update_skip: str | None = None     # "X.Y.Z"; parse_version must accept it
 
 `load` reads `update_check` with `_bool_or_reason`, and refuses an
 `update_skip` that `parse_version` rejects, with a reason, keeping `None`.
-`_payload` writes both, `update_skip` only when set. An older build carries
+`_payload` writes both, `update_skip` as `null` while unset: `load` takes
+its known keys from `_payload(Settings())`. An older build carries
 both through `Settings.unknown` (LWSM-1289). `SettingsDialog` gains "Check for
 updates when the app starts", shown only for `appimage`.
 
@@ -348,12 +360,12 @@ cannot verify is never released.
   by suffix alone, so an older version's file attached to a newer tag counts.
 
 - **INV-4** — `offer` returns the highest release above `installed` that
-  carries both assets and is not `skipped`, and `None` while
-  `public_key()` is `None`.
+  carries both assets, `None` when that release's version is `skipped`, and
+  `None` while `public_key()` is `None`.
   *Test:* `tests/test_update.py` — releases `0.7.0` (unsigned) and `0.6.0`
   (signed) over installed `0.5.1` → `0.6.0`; skipped `0.6.0` → `None`;
-  `0.8.0` signed beside a skipped `0.6.0` → `0.8.0`; empty public key →
-  `None`.
+  `0.8.0` signed beside a skipped `0.6.0` → `0.8.0`; signed `0.7.0` skipped
+  over signed `0.6.0` → `None`; empty public key → `None`.
   *Breaks when:* the skip is compared with `<=`, silencing every later
   version, or an unsigned release is offered.
 
@@ -394,15 +406,17 @@ cannot verify is never released.
   string naming `sudo` or `pkexec`.
   *Breaks when:* an unwritable folder falls back to a privileged copy.
 
-- **INV-9** — `relaunch` starts `/bin/sh` in a new session with the waiter,
-  this pid and the target, in the app's current environment, and never calls
-  `os.exec*`; the waiter execs only after the pid has gone.
+- **INV-9** — `relaunch` starts `/bin/sh` behind `scope_prefix`'s argv, in a
+  new session, with the waiter, this pid and the target, in the app's current
+  environment, and never calls `os.exec*`; the waiter execs once the pid has
+  gone, or at its 60 s limit.
   *Test:* `tests/test_update.py` — `subprocess.Popen` patched to record: argv
   and `start_new_session=True` as specified, `env` equal to `os.environ`; the
   waiter run for real against a child `sleep 0.5` → it exits after the child,
   not before. The relaunch inside a real AppImage is §7's manual recipe.
-  *Breaks when:* the relaunch is an `execv`, or the new copy starts while the
-  old one still holds the single-instance socket.
+  *Breaks when:* the relaunch is an `execv`, the waiter stays in the app's
+  cgroup and dies with it, or the new copy starts while the old one still
+  holds the single-instance socket.
 
 - **INV-10** — Every read is capped on bytes received: the list at 1 MiB, the
   `.sig` at 1 KiB and exactly 64 bytes, the AppImage at 256 MiB; an over-cap
@@ -461,7 +475,8 @@ cannot verify is never released.
   version's banner across launches; a newer version is offered again; Later
   stores nothing.
   *Test:* `tests/test_mainwindow.py` — Skip on `0.6.0`, a new window, an offer
-  of `0.6.0` → no banner; `0.7.0` → banner; Later → `update_skip` unchanged.
+  of `0.6.0` → no banner; a manual check finding `0.6.0` → banner; `0.7.0`
+  → banner; Later → `update_skip` unchanged.
   *Breaks when:* the skip is stored only in memory, or compared with `<=`.
 
 - **INV-17** — `update_check` and `update_skip` round-trip through `save` and
@@ -528,8 +543,8 @@ green. The new modules join `CORE_MODULES` or `NON_CORE_MODULES` in
 
 **What no suite covers**: the relaunch inside a real AppImage on a real
 desktop — the FUSE mount, `AppRun`'s `exec` and the single-instance handover.
-**Manual recipe**, run on the first two signed releases: run AppImage N,
-publish N+1 signed, press What's new → Update now. The app closes and reopens
+**Manual recipe**, run on the first two signed releases: run AppImage N from
+the desktop menu, publish N+1 signed, press What's new → Update now. The app closes and reopens
 on N+1 within a few seconds, with one window, and a server it had started
 still reads `running`. Then once with the AppImage reached through a symlink.
 
