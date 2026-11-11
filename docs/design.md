@@ -936,6 +936,9 @@ make past reasoning look better than it was.
 - [ADR-0007](decisions/0007-window-geometry-and-centering.md) —
   Window geometry, and why restoring a position under Wayland
   goes through KWin rather than `move()`.
+- [ADR-0008](decisions/0008-updates-reach-users.md) — The
+  AppImage updates itself from signed GitHub releases, rather
+  than through OneUp.
 
 ## Sign-off
 
