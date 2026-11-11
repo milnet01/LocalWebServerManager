@@ -524,6 +524,30 @@ appimage_status() {
 step "0i  AppImage builds and starts"
 appimage_status
 
+# --- 0j: the release signing key is here and matches -------------------------
+
+# LWSM-1548. A release is signed on this PC after it is published
+# (`scripts/sign-release.py publish`), and an unsigned one is offered to no
+# AppImage. So a missing or wrong key stops the release before the tag exists.
+# `check-key` prints only its answer, never key material.
+signing_key_status() {
+    if ! command -v uv >/dev/null 2>&1; then
+        skip "release signing key (uv is not installed)"
+    elif uv run --quiet scripts/sign-release.py check-key; then
+        ok "the release signing key matches the committed public key"
+    else
+        block "the release signing key is missing or does not match; see docs/claude/release.md"
+    fi
+    return 0
+}
+
+step "0j  Release signing key"
+if [[ -z $TARGET ]]; then
+    skip "release signing key (needs a target version)"
+else
+    signing_key_status
+fi
+
 # --- optional: prove the bump applies and post_check passes ------------------
 
 # Apply the recipe's bump and run its post_check in a detached worktree at HEAD,

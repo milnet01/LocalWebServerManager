@@ -11,9 +11,9 @@ requires-python = ">=3.13"
 license = "MIT"
 authors = [{ name = "Anthony Schemel" }]
 
-# Runtime dependencies, pinned exactly. Two, and no more than two: the whole
-# app is a Qt window over the socket table, and every extra dependency is
-# weight in the self-contained AppImage (LWSM-1021).
+# Runtime dependencies, pinned exactly. Three, each earning its weight in the
+# self-contained AppImage (LWSM-1021): the whole app is a Qt window over the
+# socket table, plus the signature check its self-update rests on (LWSM-1548).
 dependencies = [
     # The GUI. ADR-0003 exists BECAUSE this binding does not expose
     # QProcess.setChildProcessModifier, so the version is load-bearing rather
@@ -29,6 +29,10 @@ dependencies = [
     # needs (ADR-0004). The alternative was parsing `ss -tlnp`, rejected as
     # fragile in docs/discovery.md § Tech stack.
     "psutil==7.2.2",
+    # Checks the Ed25519 signature on a downloaded update (LWSM-1548). A
+    # hand-written verifier was rejected: a subtle mistake there accepts a fake
+    # update. scripts/_appimage-build.sh fails a bundle missing its binding.
+    "cryptography==50.0.2",
 ]
 
 [project.optional-dependencies]

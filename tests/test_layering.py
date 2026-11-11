@@ -44,6 +44,9 @@ CORE_MODULES = [
     "settings.py",
     "stores.py",
     "supervisor.py",
+    "update.py",
+    "update_fetch.py",
+    "update_key.py",
 ]
 
 # The complement of core, named explicitly rather than derived from
@@ -58,6 +61,7 @@ NON_CORE_MODULES = {
     "firstrun.py",
     "logpanel.py",
     "theme.py",
+    "updatedialog.py",
     "__main__.py",
     "__init__.py",
 }
@@ -129,6 +133,66 @@ def test_the_health_module_imports_no_qt_at_all() -> None:
     tie the one module that talks to a project's server to the event loop."""
     offenders = {name for name in imported_names("health.py") if "PySide6" in name}
     assert not offenders, f"health.py imports Qt: {sorted(offenders)}"
+
+
+# LWSM-1548 INV-12. What reaches a network, by import. `QLocalSocket` and
+# `QLocalServer` are the single-instance socket, a file, so they are not here.
+NETWORK_IMPORTS = (
+    "urllib",
+    "http.client",
+    "socket",
+    "PySide6.QtNetwork.QNetworkAccessManager",
+)
+# The one module that reaches the internet, and the one that reaches
+# `localhost` only (its project's own server).
+NETWORK_ALLOWED = {
+    "update_fetch.py": set(NETWORK_IMPORTS),
+    "health.py": {"http.client", "socket"},
+}
+
+
+def network_imports(path: Path) -> set[str]:
+    """Which of `NETWORK_IMPORTS` the file at `path` imports, at any depth."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+            names.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return {
+        wanted
+        for wanted in NETWORK_IMPORTS
+        for name in names
+        if name == wanted or name.startswith(wanted + ".")
+    }
+
+
+def test_only_update_fetch_reaches_the_internet() -> None:
+    """LWSM-1548 INV-12: the download cannot move into `update.py` or a UI
+    module without this naming it."""
+    offenders = {
+        path.relative_to(SRC).as_posix(): found
+        for path in sorted(SRC.rglob("*.py"))
+        if (
+            found := network_imports(path)
+            - NETWORK_ALLOWED.get(path.relative_to(SRC).as_posix(), set())
+        )
+    }
+    assert not offenders, f"network imports outside update_fetch.py: {offenders}"
+
+
+def test_the_network_check_sees_a_planted_import(tmp_path: Path) -> None:
+    """A scratch copy of another module with `import urllib.request` added."""
+    planted = tmp_path / "settings.py"
+    planted.write_text(
+        (SRC / "settings.py").read_text(encoding="utf-8")
+        + "\n\ndef _fetch():\n    import urllib.request\n",
+        encoding="utf-8",
+    )
+    assert network_imports(planted) == {"urllib"}
+    assert network_imports(SRC / "settings.py") == set()
 
 
 def test_the_core_module_list_matches_the_criterion() -> None:

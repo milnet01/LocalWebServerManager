@@ -568,6 +568,28 @@ Added for LWSM-1015, the live log panel. **No spec** — build-first, per
   redraws from the feed's ring. `_announce` is the seam the tests replace
   to hear what a screen reader is told.
 
+Added for LWSM-1548, the AppImage's self-update, contract in
+[`docs/specs/LWSM-1548-appimage-self-update.md`](../specs/LWSM-1548-appimage-self-update.md):
+
+- **`src/lwsm/update.py`** — core, no Qt. The install kind, the version
+  grammar, reading GitHub's release list, which release to offer, the
+  signature check (`verify`, the trust boundary), the atomic write over the
+  running file (`install`), and the relaunch's waiter in its own systemd
+  scope (`relaunch`). It imports `supervisor` inside `relaunch` only:
+  `supervisor` imports `settings`, which imports this module.
+- **`src/lwsm/update_key.py`** — core, no Qt. The committed public key.
+  Empty until the user runs `scripts/sign-release.py generate`, and while
+  empty nothing is offered.
+- **`src/lwsm/update_fetch.py`** — core, `QtCore` and `QtNetwork`. The only
+  module that reaches the internet. `Download` holds one capped GET in
+  memory; its `receive` and `complete` are split from the Qt slots so the
+  tests drive them with injected replies. `UpdateCheck` reads the release
+  list, and `UpdateInstaller` runs download, verify, install.
+- **`src/lwsm/updatedialog.py`** — UI layer. `UpdateDialog`, non-modal, and
+  `ReleaseNotes`, which renders the notes as Markdown with raw HTML off and
+  loads and opens nothing. The banner and the "Check for updates" entry are
+  `MainWindow`'s, built only when `build_window` is given an AppImage path.
+
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are
 `test_<module>.py` for the module of that name. The ones a name does not

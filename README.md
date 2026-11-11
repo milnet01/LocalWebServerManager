@@ -132,6 +132,15 @@ It runs on 64-bit Linux at least as new as Debian 12 (glibc 2.36),
 with no Python or Qt installed. It does not add itself to your
 application launcher.
 
+**It updates itself**, from the first release after 0.5.1. At each
+start it asks GitHub whether a newer version exists, and a banner
+above the project list offers it. Nothing downloads until you click
+**Update now**. The app then checks that the download was signed by
+the author, replaces its own file and reopens. Your servers keep
+running. Turn the check off in **Settings > Preferences**, or ask by
+hand with **Settings > Check for updates**. Copies of 0.5.1 and
+earlier have no updater: download the newer version by hand once.
+
 ### From the source
 
 This needs Python and uv (see **Requirements**), and gives you the

@@ -55,6 +55,15 @@ sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' /src/packaging/appimage-exclu
         find /tmp/dist/lwsm -name "$lib" -printf 'removed %f\n' -delete
     done
 
+echo "-- checking the bundle can verify an update --"
+# LWSM-1548 INV-19. Without cryptography's compiled binding the app refuses
+# every update, and nothing else in the build or the smoke launch would notice.
+if ! find /tmp/dist/lwsm -path '*/cryptography/hazmat/bindings/_rust.abi3.so' \
+    -print -quit | grep -q .; then
+    echo "_appimage-build: the frozen app lacks cryptography/hazmat/bindings/_rust.abi3.so; it could not verify an update" >&2
+    exit 1
+fi
+
 echo "-- fetching appimagetool and the AppImage runtime --"
 # Both pinned to a numbered release and checked against the digest GitHub
 # records for the asset. Without --runtime-file, appimagetool downloads the

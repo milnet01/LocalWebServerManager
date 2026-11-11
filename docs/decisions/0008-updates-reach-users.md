@@ -61,8 +61,10 @@ The shape, to be specified by the item that builds it:
 ## Consequences
 
 - **The release process gains a signing step on this PC.** CI builds and
-  attaches the AppImage. `scripts/local-release.sh` then signs it and uploads
-  the signature. A release without a signature is never offered as an update.
+  attaches the AppImage. `scripts/sign-release.py publish` then signs it and
+  uploads the signature, after the release is published;
+  `scripts/local-release.sh` only checks beforehand that the key is present.
+  A release without a signature is never offered as an update.
 - **A relaunch fix reaches users one release late.** The version doing the
   relaunch is the old one. finbreak had to tell users this three times.
 - **Running servers are not interrupted.** Servers outlive the manager
@@ -70,8 +72,8 @@ The shape, to be specified by the item that builds it:
 - **The app must save the AppImage's path before scrubbing its environment.**
   `_forget_bundle_environment` in `src/lwsm/__main__.py` deletes `APPIMAGE` at
   start-up. The update needs that path.
-- **The app makes its first requests to the internet.** Whether the check runs
-  by default is for the build item to decide.
+- **The app makes its first requests to the internet.** The check runs at
+  every start by default, with an off switch in Settings (LWSM-1548).
 
 ## Alternatives considered
 

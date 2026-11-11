@@ -533,7 +533,7 @@ def test_main_stops_the_controller_when_the_loop_returns(
     # `_path=None` matches build_window's signature since LWSM-1116: `main`
     # calls it with no argument so the path resolution happens inside its catch.
     monkeypatch.setattr(
-        entry, "build_window", lambda _path=None: (FakeWindow(), SpyController())
+        entry, "build_window", lambda _path=None, **_kw: (FakeWindow(), SpyController())
     )
 
     assert main([]) == 0
@@ -582,7 +582,7 @@ def test_one_failed_shutdown_step_does_not_defeat_the_other_two(
     monkeypatch.setattr(
         entry,
         "build_window",
-        lambda _path=None: (FakeWindow(), FailingController()),
+        lambda _path=None, **_kw: (FakeWindow(), FailingController()),
     )
 
     assert main([]) == 0
@@ -870,7 +870,7 @@ def test_a_second_launch_on_wayland_says_what_it_could_do(
     woken: list[object] = []
     running = entry.claim_single_instance(entry.instance_socket_path(), woken.append)
     assert running.server is not None, running
-    monkeypatch.setattr(entry, "build_window", lambda _path=None: 1 / 0)
+    monkeypatch.setattr(entry, "build_window", lambda _path=None, **_kw: 1 / 0)
     try:
         assert main([]) == 0
         qtbot.waitUntil(lambda: woken == [token], timeout=2000)
@@ -913,7 +913,7 @@ def test_main_shows_the_running_copy_and_opens_nothing(
     )
     assert running.server is not None, running
 
-    def must_not_build(_path=None):
+    def must_not_build(_path=None, **_kw):
         raise AssertionError("a second copy built a window")
 
     monkeypatch.setattr(entry, "build_window", must_not_build)
@@ -954,7 +954,7 @@ def test_main_releases_the_socket_when_it_exits(monkeypatch, tmp_path: Path) -> 
             return None
 
     monkeypatch.setattr(
-        entry, "build_window", lambda _path=None: (Window(), Controller())
+        entry, "build_window", lambda _path=None, **_kw: (Window(), Controller())
     )
     assert main([]) == 0
     assert seen == [True], "main() ran without claiming the socket"
@@ -999,7 +999,7 @@ def test_main_lets_a_relaunch_in_before_it_waits_for_stops(
             return None
 
     monkeypatch.setattr(
-        entry, "build_window", lambda _path=None: (Window(), Controller())
+        entry, "build_window", lambda _path=None, **_kw: (Window(), Controller())
     )
     assert main([]) == 0
     assert events == [("freeze", True), ("close_supervisor", False)], (
@@ -1448,6 +1448,10 @@ def test_a_refused_settings_write_still_saves_the_scan_roots(
         def error_markers(self) -> tuple[str, ...]:
             return DEFAULT_ERROR_MARKERS
 
+        # LWSM-1548: a checkout is not offered the update switch.
+        def update_check(self) -> bool | None:
+            return None
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1634,6 +1638,10 @@ def test_the_settings_dialog_is_released_on_both_paths(
         def error_markers(self) -> tuple[str, ...]:
             return DEFAULT_ERROR_MARKERS
 
+        # LWSM-1548: a checkout is not offered the update switch.
+        def update_check(self) -> bool | None:
+            return None
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", CountingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1703,6 +1711,10 @@ def test_both_write_failures_are_named_not_just_the_first(
         def error_markers(self) -> tuple[str, ...]:
             return DEFAULT_ERROR_MARKERS
 
+        # LWSM-1548: a checkout is not offered the update switch.
+        def update_check(self) -> bool | None:
+            return None
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1765,6 +1777,10 @@ def test_clearing_every_scan_root_means_the_same_thing_after_a_restart(
         def error_markers(self) -> tuple[str, ...]:
             return DEFAULT_ERROR_MARKERS
 
+        # LWSM-1548: a checkout is not offered the update switch.
+        def update_check(self) -> bool | None:
+            return None
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", ClearingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1818,6 +1834,10 @@ def test_a_settings_save_that_works_says_nothing(qtbot, monkeypatch, tmp_path) -
         def error_markers(self) -> tuple[str, ...]:
             return DEFAULT_ERROR_MARKERS
 
+        # LWSM-1548: a checkout is not offered the update switch.
+        def update_check(self) -> bool | None:
+            return None
+
     monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
 
     window, controller = build_window(tmp_path / "projects.json")
@@ -1869,6 +1889,10 @@ def test_a_settings_save_written_but_not_made_durable_is_called_saved(
 
         def error_markers(self) -> tuple[str, ...]:
             return DEFAULT_ERROR_MARKERS
+
+        # LWSM-1548: a checkout is not offered the update switch.
+        def update_check(self) -> bool | None:
+            return None
 
     def not_durable_settings(*_args, **_kwargs) -> None:
         raise settings_module.SettingsNotDurable("fsync of the directory failed")
@@ -2774,3 +2798,111 @@ def test_a_saved_list_starts_no_first_run(qtbot, tmp_path, monkeypatch) -> None:
     finally:
         controller.stop()
         window.shutdown()
+
+
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+@pytest.mark.parametrize(
+    ("frozen", "real_file", "offered"),
+    [(True, True, True), (False, True, False), (True, False, False)],
+    ids=["appimage", "checkout", "missing-file"],
+)
+def test_main_hands_the_window_builder_the_appimage(
+    monkeypatch, tmp_path: Path, frozen: bool, real_file: bool, offered: bool
+) -> None:
+    """LWSM-1548 INV-1: `APPIMAGE` is read before `_forget_bundle_environment`
+    deletes it, and only a frozen build with a real file is an AppImage."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    appimage = tmp_path / "LocalWebServerManager-0.5.1-x86_64.AppImage"
+    if real_file:
+        appimage.write_bytes(b"x")
+    monkeypatch.setenv("APPIMAGE", str(appimage))
+    monkeypatch.setattr(sys, "frozen", frozen, raising=False)
+    received: list[object] = []
+
+    class Controller:
+        def stop(self) -> None:
+            return None
+
+        def close_supervisor(self) -> None:
+            return None
+
+        def freeze_started_record(self) -> None:
+            return None
+
+    class Window:
+        def show(self) -> None:
+            return None
+
+        def shutdown(self) -> None:
+            return None
+
+    def build(_path=None, *, appimage=None, **_kw):
+        received.append(appimage)
+        return Window(), Controller()
+
+    monkeypatch.setattr(entry, "build_window", build)
+    assert main([]) == 0
+    assert received == [str(appimage) if offered else None]
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("appimage", [True, False], ids=["appimage", "checkout"])
+def test_preferences_offers_and_saves_the_update_switch_for_an_appimage_only(
+    qtbot, monkeypatch, tmp_path, appimage: bool
+) -> None:
+    """LWSM-1548 § 4.8: the switch is shown to an AppImage, seeded from the
+    stored value, and what the user chose reaches `settings.json`."""
+    from lwsm import settingsdialog as dialog_module
+    from lwsm.settings import default_settings_path
+    from lwsm.settings import load as load_settings
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    offered: list[object] = []
+
+    class AcceptingDialog:
+        DialogCode = dialog_module.SettingsDialog.DialogCode
+
+        def __init__(self, **kwargs) -> None:
+            offered.append(kwargs.get("update_check"))
+
+        def deleteLater(self) -> None:
+            pass
+
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def values(self):
+            return (Path("/srv/alpha"),), 1500, 7
+
+        def single_key_shortcuts(self) -> bool:
+            return True
+
+        def error_markers(self) -> tuple[str, ...]:
+            return DEFAULT_ERROR_MARKERS
+
+        def update_check(self) -> bool | None:
+            return False if offered[-1] is not None else None
+
+    monkeypatch.setattr(dialog_module, "SettingsDialog", AcceptingDialog)
+    path = tmp_path / "LocalWebServerManager.AppImage"
+    path.write_bytes(b"x")
+
+    window, controller = build_window(
+        tmp_path / "projects.json", appimage=str(path) if appimage else None
+    )
+    qtbot.addWidget(window)
+    try:
+        window._settings_action.trigger()
+        window._settings_action.trigger()
+    finally:
+        controller.stop()
+
+    stored = load_settings(default_settings_path()).settings
+    if appimage:
+        # The second open is seeded from the first's choice, not the file.
+        assert offered == [True, False]
+        assert stored.update_check is False
+    else:
+        assert offered == [None, None]
+        assert stored.update_check is True

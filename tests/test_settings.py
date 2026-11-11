@@ -456,6 +456,10 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
         # LWSM-1036. A list of plain strings, so a user whose runtime shouts
         # differently can add its word by hand.
         "error_markers": ["Traceback", "ERROR", "CRITICAL", "Exception"],
+        # LWSM-1548. Inside schema v1: an older build keeps both through
+        # `Settings.unknown`. The skip is `null` until a version is skipped.
+        "update_check": True,
+        "update_skip": None,
     }
 
 
@@ -992,3 +996,72 @@ def test_an_unknown_key_that_cannot_be_kept_loses_only_itself(tmp_path: Path) ->
     assert result.settings.unknown == (("a_kept", "[1,2]"), ("c_kept", '"x"'))
     assert any("b_lost" in reason for reason in result.reasons), result.reasons
     assert not any("a_kept" in reason for reason in result.reasons), result.reasons
+
+
+# --- LWSM-1548 INV-17: the update check's switch and the skipped version ----
+
+
+def test_the_update_settings_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+
+    settings.save(path, replace(Settings(), update_check=False, update_skip="0.6.0"))
+    result = settings.load(path)
+
+    assert result.settings.update_check is False
+    assert result.settings.update_skip == "0.6.0"
+    assert result.reasons == []
+    assert result.settings.unknown == ()
+
+
+def test_default_update_settings_round_trip_with_no_reason(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+
+    settings.save(path, Settings())
+    result = settings.load(path)
+
+    assert result.settings == Settings()
+    assert result.reasons == []
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["update_check"] is True
+    assert document["update_skip"] is None
+
+
+@pytest.mark.parametrize("stored", ["0.6", 7, "v0.6.0-rc.1"], ids=repr)
+def test_a_malformed_skip_is_refused_and_read_as_none(
+    tmp_path: Path, stored: object
+) -> None:
+    path = write(
+        tmp_path / "settings.json",
+        {"schema_version": settings.SCHEMA_VERSION, "update_skip": stored},
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.update_skip is None
+    assert len([r for r in result.reasons if "update_skip" in r]) == 1
+
+
+def test_an_older_file_gets_the_update_defaults(tmp_path: Path) -> None:
+    """A file with neither key checks for updates and skips nothing; a missing
+    key must never read as off."""
+    path = write(
+        tmp_path / "settings.json", {"schema_version": settings.SCHEMA_VERSION}
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.update_check is True
+    assert result.settings.update_skip is None
+    assert result.reasons == []
+
+
+def test_an_update_switch_that_is_not_a_boolean_is_refused(tmp_path: Path) -> None:
+    path = write(
+        tmp_path / "settings.json",
+        {"schema_version": settings.SCHEMA_VERSION, "update_check": 0},
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.update_check is True
+    assert any("update_check" in reason for reason in result.reasons)

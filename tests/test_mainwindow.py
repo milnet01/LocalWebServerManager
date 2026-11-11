@@ -27,7 +27,16 @@ from PySide6.QtGui import QPalette, QShowEvent
 from PySide6.QtWidgets import QApplication, QWidgetItem
 
 from banner import message_of
-from lwsm import __version__, browsers, mainwindow, placement, registry, scanner
+from lwsm import (
+    __version__,
+    browsers,
+    mainwindow,
+    placement,
+    registry,
+    scanner,
+    update,
+    update_key,
+)
 from lwsm import controller as controller_module
 from lwsm.__main__ import build_window
 from lwsm.browsers import Browser
@@ -11025,3 +11034,230 @@ def test_a_row_with_a_chosen_browser_reports_no_list_item_focused(
     assert box.currentText() == "Brave", "precondition"
 
     assert _picker_items_reporting_focus(box) == []
+
+
+# --- LWSM-1548: the AppImage's self-update offer ------------------------------
+
+
+def _update_release(version: tuple[int, int, int]) -> update.Release:
+    url = "https://github.invalid/LocalWebServerManager.AppImage"
+    return update.Release(version, f"notes {version}", url, url + ".sig", 10)
+
+
+@pytest.fixture
+def release_key(monkeypatch) -> None:
+    """A committed key, so `update.offer` can offer anything at all."""
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    raw = (
+        Ed25519PrivateKey.generate()
+        .public_key()
+        .public_bytes(Encoding.Raw, PublicFormat.Raw)
+    )
+    monkeypatch.setattr(
+        update_key, "RELEASE_PUBLIC_KEY_B64", base64.b64encode(raw).decode()
+    )
+
+
+def _update_window(
+    qtbot,
+    built,
+    *,
+    appimage: bool = True,
+    check_on_start: bool = True,
+    skipped: tuple[int, int, int] | None = None,
+    saved: list[str] | None = None,
+) -> MainWindow:
+    controller = build_controller(built, [], FakeProbe())
+    updates = (
+        mainwindow.UpdateContext(
+            appimage="/apps/LocalWebServerManager.AppImage",
+            installed=(0, 5, 1),
+            check_on_start=check_on_start,
+            skipped=skipped,
+            save_skip=(saved if saved is not None else []).append,
+        )
+        if appimage
+        else None
+    )
+    window = MainWindow(controller, Theme.default(), [], updates=updates)
+    qtbot.addWidget(window)
+    return window
+
+
+@pytest.mark.parametrize(
+    ("appimage", "check_on_start", "calls"),
+    [(False, True, []), (True, False, []), (True, True, [False])],
+    ids=["checkout", "appimage-off", "appimage-on"],
+)
+def test_the_start_up_check_runs_only_for_an_appimage_with_it_on(
+    qtbot, built, monkeypatch, appimage, check_on_start, calls
+) -> None:
+    """LWSM-1548 INV-15: a checkout makes no request at all."""
+    seen: list[bool] = []
+    monkeypatch.setattr(
+        MainWindow, "check_for_updates", lambda self, manual: seen.append(manual)
+    )
+    window = _update_window(
+        qtbot, built, appimage=appimage, check_on_start=check_on_start
+    )
+    window.show()
+    qtbot.waitExposed(window)
+    qtbot.wait(50)
+    window.hide()
+    window.show()
+    qtbot.wait(50)
+
+    assert seen == calls
+    has_entry = window._check_updates_action is not None
+    assert has_entry is appimage
+
+
+def _drive_check(window: MainWindow, monkeypatch, *, manual, status, body) -> None:
+    """Run the real check with the request replaced by an injected reply."""
+    from lwsm.update_fetch import Download
+
+    monkeypatch.setattr(Download, "start", lambda self: None)
+    window.check_for_updates(manual=manual)
+    check = window._update_check
+    assert check is not None
+    check.download.receive(body)
+    check.download.complete(
+        error=status != 200, status=status, final_url="https://api.github.invalid"
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "wording"),
+    [
+        (403, b'{"message": "rate limited"}', "Couldn't reach GitHub"),
+        (200, b"<html>", "Couldn't read GitHub's reply."),
+        (200, b'{"message": "moved"}', "Couldn't read GitHub's reply."),
+        (200, b"[]", "No update is ready to install."),
+    ],
+    ids=["403", "not-json", "object", "nothing-newer"],
+)
+def test_a_failed_check_is_silent_at_start_up_and_said_when_asked(
+    qtbot, built, monkeypatch, release_key, status, body, wording
+) -> None:
+    """LWSM-1548 INV-15 and § 4.4."""
+    window = _update_window(qtbot, built)
+
+    _drive_check(window, monkeypatch, manual=False, status=status, body=body)
+    assert window._update_banner.isHidden()
+    assert window._banner.isHidden()
+
+    _drive_check(window, monkeypatch, manual=True, status=status, body=body)
+    assert window._update_banner.isHidden()
+    assert wording in window._banner_text.text()
+
+
+def _offer(window: MainWindow, version, *, manual: bool = False) -> None:
+    window.on_update_releases([_update_release(version)], manual)
+
+
+def test_an_offer_shows_the_update_banner_beside_the_message(
+    qtbot, built, release_key
+) -> None:
+    window = _update_window(qtbot, built)
+    window.set_status_message("something else")
+
+    _offer(window, (0, 6, 0))
+
+    assert not window._update_banner.isHidden()
+    assert "0.6.0" in window._update_banner_text.text()
+    assert window._banner_text.text() == "something else"
+    assert window._update_banner_open.accessibleName()
+
+
+def test_skip_persists_and_silences_only_that_version(
+    qtbot, built, release_key
+) -> None:
+    """LWSM-1548 INV-16: stored, so a new window does not offer it again; a
+    manual check does; a newer version is offered."""
+    saved: list[str] = []
+    window = _update_window(qtbot, built, saved=saved)
+    _offer(window, (0, 6, 0))
+    window._skip_update((0, 6, 0))
+    assert saved == ["0.6.0"]
+    assert window._update_banner.isHidden()
+
+    again = _update_window(qtbot, built, skipped=update.parse_version(saved[-1]))
+    _offer(again, (0, 6, 0))
+    assert again._update_banner.isHidden()
+
+    monkeypatched_open: list[int] = []
+    again.open_update_window = lambda: monkeypatched_open.append(1)  # type: ignore[method-assign]
+    _offer(again, (0, 6, 0), manual=True)
+    assert not again._update_banner.isHidden()
+    assert monkeypatched_open == [1]
+
+    newer = _update_window(qtbot, built, skipped=(0, 6, 0))
+    _offer(newer, (0, 7, 0))
+    assert not newer._update_banner.isHidden()
+
+
+def test_later_stores_nothing(qtbot, built, release_key) -> None:
+    saved: list[str] = []
+    window = _update_window(qtbot, built, saved=saved)
+    _offer(window, (0, 6, 0))
+
+    window.open_update_window()
+    dialog = window._update_dialog
+    assert dialog is not None and dialog.isVisible()
+    dialog._later.click()
+
+    assert saved == []
+    assert not window._update_banner.isHidden()
+
+
+def test_skip_from_the_window_reaches_the_saver(qtbot, built, release_key) -> None:
+    saved: list[str] = []
+    window = _update_window(qtbot, built, saved=saved)
+    _offer(window, (0, 6, 0))
+    window.open_update_window()
+    dialog = window._update_dialog
+    assert dialog is not None
+
+    dialog._skip.click()
+
+    assert saved == ["0.6.0"]
+    assert window._update_banner.isHidden()
+
+
+def test_an_installed_update_relaunches_and_closes(
+    qtbot, built, release_key, monkeypatch
+) -> None:
+    relaunched: list[Path] = []
+    monkeypatch.setattr(update, "relaunch", relaunched.append)
+    window = _update_window(qtbot, built, check_on_start=False)
+    window.show()
+    qtbot.waitExposed(window)
+    _offer(window, (0, 6, 0))
+    window.open_update_window()
+    dialog = window._update_dialog
+    assert dialog is not None
+
+    dialog.installed.emit(Path("/apps/LocalWebServerManager.AppImage"))
+
+    assert relaunched == [Path("/apps/LocalWebServerManager.AppImage")]
+    assert not window.isVisible()
+
+
+def test_a_relaunch_that_cannot_start_still_closes(
+    qtbot, built, release_key, monkeypatch
+) -> None:
+    def refuse(_target) -> None:
+        raise OSError(2, "No such file or directory: '/bin/sh'")
+
+    monkeypatch.setattr(update, "relaunch", refuse)
+    window = _update_window(qtbot, built, check_on_start=False)
+    window.show()
+    qtbot.waitExposed(window)
+    _offer(window, (0, 6, 0))
+    window._on_update_installed(Path("/apps/x.AppImage"))
+
+    assert not window.isVisible()

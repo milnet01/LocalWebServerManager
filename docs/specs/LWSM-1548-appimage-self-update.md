@@ -118,8 +118,10 @@ def install_kind(frozen: bool, appimage: str | None) -> str:
 ```
 
 `main` reads `os.environ.get("APPIMAGE")` **before** `_forget_bundle_environment`
-and passes `install_kind(getattr(sys, "frozen", False), value)` and the path to
-the window builder. Nothing reads `APPIMAGE` from the environment after that.
+and passes the window builder `build_window(appimage=...)` the path when
+`install_kind(getattr(sys, "frozen", False), value)` is `appimage`, and `None`
+otherwise; `None` is how the window knows it is a checkout. Nothing reads
+`APPIMAGE` from the environment after that.
 
 ### 4.3 The release list and the version grammar
 
@@ -436,7 +438,9 @@ cannot verify is never released.
   `.sig` at 1 KiB and exactly 64 bytes, the AppImage at 256 MiB; an over-cap
   read aborts and keeps nothing.
   *Test:* `tests/test_update_fetch.py` — each handler fed one byte over its
-  cap with no `Content-Length` → aborted, nothing kept.
+  cap with no `Content-Length` → aborted, nothing kept. The AppImage's own
+  download is driven with its cap shrunk for the test and the 256 MiB value
+  pinned separately: filling 256 MiB would cost that much memory every run.
   *Breaks when:* a cap is checked on `Content-Length` only, which a server may
   omit.
 

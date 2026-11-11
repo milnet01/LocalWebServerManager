@@ -137,6 +137,7 @@ class SettingsDialog(QDialog):
         log_max_mib: int,
         single_key_shortcuts: bool = True,
         error_markers: Sequence[str] = DEFAULT_ERROR_MARKERS,
+        update_check: bool | None = None,
         choose_directory: Callable[[], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -181,6 +182,13 @@ class SettingsDialog(QDialog):
         self._shortcuts = QCheckBox()
         self._shortcuts.setChecked(single_key_shortcuts)
 
+        # LWSM-1548: `None` for a checkout, which never checks and so is not
+        # offered the switch.
+        self._update_check: QCheckBox | None = None
+        if update_check is not None:
+            self._update_check = QCheckBox()
+            self._update_check.setChecked(update_check)
+
         # LWSM-1036: the lines the log panel counts as errors, one per line.
         # Tab moves on rather than typing a tab, or the box is a keyboard trap.
         self._markers = QPlainTextEdit()
@@ -216,6 +224,7 @@ class SettingsDialog(QDialog):
             self._markers,
             self._buttons.button(QDialogButtonBox.StandardButton.Ok),
             self._buttons.button(QDialogButtonBox.StandardButton.Cancel),
+            *((self._update_check,) if self._update_check is not None else ()),
         ):
             target.setMinimumHeight(MIN_TARGET_PX)
             target.setMinimumWidth(MIN_TARGET_PX)
@@ -246,6 +255,8 @@ class SettingsDialog(QDialog):
         form.addRow(self._poll_label, self._poll)
         form.addRow(self._log_label, self._log)
         form.addRow(self._shortcuts)
+        if self._update_check is not None:
+            form.addRow(self._update_check)
         markers_column = QVBoxLayout()
         markers_column.addWidget(self._markers)
         markers_column.addWidget(self._markers_problem)
@@ -283,6 +294,12 @@ class SettingsDialog(QDialog):
                 "SettingsDialog", "Single-&key shortcuts: / to filter, 1 to 9 to jump"
             )
         )
+        if self._update_check is not None:
+            self._update_check.setText(
+                QCoreApplication.translate(
+                    "SettingsDialog", "Check for &updates when the app starts"
+                )
+            )
         # A suffix rather than a unit baked into the label, so the value and
         # its unit are announced together by a screen reader.
         self._poll.setSuffix(QCoreApplication.translate("SettingsDialog", " ms"))
@@ -401,6 +418,10 @@ class SettingsDialog(QDialog):
         """
         return self._shortcuts.isChecked()
 
+    def update_check(self) -> bool | None:
+        """The start-up check's switch, or `None` where it was not offered."""
+        return None if self._update_check is None else self._update_check.isChecked()
+
 
 def keyboard_focus_order(dialog: SettingsDialog) -> tuple[Qt.FocusPolicy, ...]:
     """The focus policy of each control, in tab order. Used by the tests.
@@ -424,6 +445,7 @@ def keyboard_focus_order(dialog: SettingsDialog) -> tuple[Qt.FocusPolicy, ...]:
             dialog._poll,
             dialog._log,
             dialog._shortcuts,
+            *((dialog._update_check,) if dialog._update_check is not None else ()),
             dialog._markers,
             dialog._buttons.button(QDialogButtonBox.StandardButton.Ok),
             dialog._buttons.button(QDialogButtonBox.StandardButton.Cancel),

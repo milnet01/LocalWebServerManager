@@ -44,6 +44,7 @@ from lwsm.configfile import (
     write_atomically,
 )
 from lwsm.registry import default_projects_path
+from lwsm.update import parse_version
 
 SCHEMA_VERSION = 1
 
@@ -196,6 +197,12 @@ class Settings:
     # The log panel's error markers (LWSM-1036). A file with no key gets the
     # usual set; an empty list leaves only the built-in exit-line rule.
     error_markers: tuple[str, ...] = DEFAULT_ERROR_MARKERS
+    # Ask GitHub for a newer release at start-up (LWSM-1548). On by default,
+    # the user's call (2026-11-11); only a running AppImage ever asks.
+    update_check: bool = True
+    # The version "Skip this version" stored, "X.Y.Z". Only that version is
+    # silenced; a newer one is offered again.
+    update_skip: str | None = None
     # Keys this build does not write, as sorted (key, canonical JSON) pairs,
     # handed back unchanged on save (LWSM-1289). `registry.ProjectRecord.unknown`
     # has the same job for the same reason: a preference added inside schema v1
@@ -315,6 +322,22 @@ def _bool_or_reason(field: str, value: object) -> tuple[bool | None, str | None]
         return None, None
     if type(value) is not bool:
         return None, f"{field}: {quoted(value)} is not true or false; using the default"
+    return value, None
+
+
+def _skip_or_reason(value: object) -> tuple[str | None, str | None]:
+    """A version `update.parse_version` accepts, or the reason it was ignored.
+
+    `null` is the unset value and needs no reason. Anything else that does not
+    parse is refused, so a malformed skip never reaches `update.offer`.
+    """
+    if value is None:
+        return None, None
+    if not isinstance(value, str) or parse_version(value) is None:
+        return None, (
+            f"update_skip: {quoted(value)} is not a version such as 0.6.0; "
+            "skipping nothing"
+        )
     return value, None
 
 
@@ -501,7 +524,7 @@ def load(path: Path) -> LoadResult:
         )
         settings = replace(settings, text_scale=MIN_TEXT_SCALE)
 
-    for field in ("maximized", "single_key_shortcuts"):
+    for field in ("maximized", "single_key_shortcuts", "update_check"):
         flag, reason = _bool_or_reason(field, document.get(field))
         if reason is not None:
             reasons.append(reason)
@@ -513,6 +536,12 @@ def load(path: Path) -> LoadResult:
         reasons.append(reason)
     if markers is not None:
         settings = replace(settings, error_markers=markers)
+
+    skip, reason = _skip_or_reason(document.get("update_skip"))
+    if reason is not None:
+        reasons.append(reason)
+    if skip is not None:
+        settings = replace(settings, update_skip=skip)
 
     # Read the way every field here is read: one that will not re-serialise
     # loses only itself, with a reason. Nothing is interpreted.
@@ -571,6 +600,9 @@ def _payload(settings: Settings) -> dict[str, object]:
         "maximized": settings.maximized,
         "single_key_shortcuts": settings.single_key_shortcuts,
         "error_markers": list(settings.error_markers),
+        "update_check": settings.update_check,
+        # `null` while unset, so the key is known and never kept as unknown.
+        "update_skip": settings.update_skip,
     }
 
 

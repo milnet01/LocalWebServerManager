@@ -32,6 +32,7 @@ def build_window(
     projects_path: Path | None = None,
     *,
     ask_restore: Callable[[datetime], bool] | None = None,
+    appimage: str | None = None,
 ) -> tuple[MainWindow, ProjectController]:
     """Load, construct and connect. Does not run an event loop.
 
@@ -52,10 +53,14 @@ def build_window(
     `ask_restore` is asked, with the backup's save time, when the list could
     not be read and a backup exists (LWSM-1039). Injected for the same reason
     as the window's dialogs: a test that reached the real one would block.
+
+    `appimage` is the running AppImage's path, and `None` for a checkout
+    (LWSM-1548): only an AppImage is offered updates. `main` decides it, from
+    `APPIMAGE` read before the scrub, through `update.install_kind`.
     """
     from lwsm.configfile import ConfigFileError, ConfigFileNotDurable
     from lwsm.controller import ProjectController
-    from lwsm.mainwindow import MainWindow, RescanContext
+    from lwsm.mainwindow import MainWindow, RescanContext, UpdateContext
     from lwsm.placement import pair_or_none
     from lwsm.ports import PortProbe
     from lwsm.registry import (
@@ -85,6 +90,7 @@ def build_window(
     )
     from lwsm.supervisor import Supervisor
     from lwsm.theme import theme_for_id
+    from lwsm.update import parse_version
 
     log = applog.get_logger(__name__)
     notices: list[str] = []
@@ -267,6 +273,10 @@ def build_window(
             changes |= {"x": rect.x, "y": rect.y}
         save_field(**changes)
 
+    # The start-up check's switch as this session holds it, so Preferences
+    # opens on what is running rather than on a re-read (see below).
+    update_check = stored.update_check
+
     def open_settings() -> None:
         """Preferences (LWSM-1018), applied without a restart.
 
@@ -281,6 +291,8 @@ def build_window(
         """
         from lwsm.settingsdialog import SettingsDialog
 
+        nonlocal update_check
+
         # Seeded from what is running, not from a re-read of the file. A save
         # refused by one bad field leaves the applied values only in memory,
         # and a re-read offered the file's (or the defaults) instead: pressing
@@ -291,6 +303,8 @@ def build_window(
             log_max_mib=supervisor.max_log_bytes // (1024 * 1024),
             single_key_shortcuts=window.single_key_shortcuts(),
             error_markers=window.error_markers(),
+            # Offered to an AppImage only (LWSM-1548).
+            update_check=update_check if appimage is not None else None,
             parent=window,
         )
         # `deleteLater`, on BOTH paths (LWSM-1276). The dialog is parented to
@@ -309,6 +323,7 @@ def build_window(
             roots, poll_ms, log_mib = dialog.values()
             shortcuts = dialog.single_key_shortcuts()
             markers = dialog.error_markers()
+            chosen_update_check = dialog.update_check()
         finally:
             dialog.deleteLater()
 
@@ -326,6 +341,11 @@ def build_window(
         # to the fallback, so applying `()` literally here made this session
         # disagree with the next one (LWSM-1213).
         window.set_scan_roots(roots or scan_root_fallback())
+        # Read at the next start; nothing to apply now.
+        update_fields: dict[str, object] = {}
+        if chosen_update_check is not None:
+            update_check = chosen_update_check
+            update_fields["update_check"] = chosen_update_check
 
         # Two files, two attempts, ONE message. Sharing the `try` meant a
         # refusal of the first skipped the second entirely — and `save_field`
@@ -349,6 +369,7 @@ def build_window(
                 log_max_mib=log_mib,
                 single_key_shortcuts=shortcuts,
                 error_markers=markers,
+                **update_fields,
             ),
             lambda: save_scan_roots(roots),
         ):
@@ -428,6 +449,20 @@ def build_window(
         save_geometry=save_geometry,
         single_key_shortcuts=stored.single_key_shortcuts,
         error_markers=stored.error_markers,
+        updates=(
+            None
+            if appimage is None
+            else UpdateContext(
+                appimage=appimage,
+                installed=parse_version(__version__),
+                check_on_start=stored.update_check,
+                # `load` refused any skip that does not parse.
+                skipped=(
+                    parse_version(stored.update_skip) if stored.update_skip else None
+                ),
+                save_skip=lambda version: save_field(update_skip=version),
+            )
+        ),
     )
     # The stored choices, applied once at startup. `Supervisor` and
     # `ProjectController` default to the same values `settings.py` does, so a
@@ -857,6 +892,17 @@ def main(argv: list[str] | None = None) -> int:
     # `instance()` is typed as the `QCoreApplication` base (LWSM-1066).
     existing = QApplication.instance()
     app = existing if isinstance(existing, QApplication) else QApplication([])
+    # Before the scrub below removes it (LWSM-1548 INV-1). Only a frozen build
+    # with a real file is an AppImage: a checkout started from inside another
+    # AppImage's environment inherits the variable.
+    from lwsm.update import install_kind
+
+    launched_from = os.environ.get("APPIMAGE")
+    appimage = (
+        launched_from
+        if install_kind(getattr(sys, "frozen", False), launched_from) == "appimage"
+        else None
+    )
     _forget_bundle_environment(app)
 
     # Before logging is configured, so a second copy never opens `app.log` at
@@ -928,7 +974,7 @@ def main(argv: list[str] | None = None) -> int:
     _identify(app)
     # No argument: resolving the default path is itself fallible, so it happens
     # inside build_window's RegistryError catch rather than out here (LWSM-1116).
-    window, controller = build_window()
+    window, controller = build_window(appimage=appimage)
     shown.append(window)
     # Queued, so the window is on screen before the first-run scan and its
     # dialog (LWSM-1008). A timer object rather than `singleShot`, so it can be

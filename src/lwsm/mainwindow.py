@@ -88,6 +88,7 @@ from lwsm import (
     placement,
     registry,
     scanner,
+    update,
 )
 from lwsm.configfile import ConfigFileError, display_text, quoted
 from lwsm.controller import (
@@ -778,6 +779,24 @@ class RescanContext:
         default=lambda roots, **kwargs: scanner.scan(roots, **kwargs)
     )
     now: Callable[[], str] = field(default=lambda: utc_stamp())
+
+
+@dataclass(frozen=True)
+class UpdateContext:
+    """What the window needs to offer a running AppImage an update (LWSM-1548).
+
+    `None` in its place means a checkout, which is never offered one and makes
+    no request (spec § 3 item 7).
+    """
+
+    appimage: str
+    # `parse_version(__version__)`; `None` for a version that does not parse,
+    # which is then offered nothing.
+    installed: update.Version | None
+    check_on_start: bool
+    skipped: update.Version | None
+    # Stores "X.Y.Z" as `Settings.update_skip`; raises as `save_theme` does.
+    save_skip: Callable[[str], None]
 
 
 def _merge_parts(counts: dict[str, int]) -> list[str]:
@@ -2225,6 +2244,7 @@ class MainWindow(QMainWindow):
         place: PlaceWindow | None = None,
         single_key_shortcuts: bool = True,
         error_markers: tuple[str, ...] = DEFAULT_ERROR_MARKERS,
+        updates: UpdateContext | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -2296,6 +2316,14 @@ class MainWindow(QMainWindow):
         self._open_settings = (
             open_settings if open_settings is not None else self._settings_unavailable
         )
+        # LWSM-1548. Set before `_build_menus`, which adds "Check for updates"
+        # only for an AppImage.
+        self._updates = updates
+        self._update_skipped = updates.skipped if updates is not None else None
+        self._update_releases: list[update.Release] = []
+        self._update_offer: update.Release | None = None
+        self._update_check: QObject | None = None
+        self._update_dialog: QDialog | None = None
         # A seam, and the one that defaults to doing NOTHING rather
         # than to the real thing. `confirm` and `open_url` can default to the
         # real behaviour because a test that never triggers them never reaches
@@ -2568,6 +2596,21 @@ class MainWindow(QMainWindow):
         banner_layout.addWidget(self._banner_dismiss)
         self._banner.hide()
         outer.addWidget(self._banner)
+        # The update offer, a second frame so a status message never replaces
+        # it (LWSM-1548). Built for every window, shown only with an offer.
+        self._update_banner = QFrame(central)
+        self._update_banner.setFrameShape(QFrame.Shape.StyledPanel)
+        update_layout = QHBoxLayout(self._update_banner)
+        self._update_banner_text = QLabel(self._update_banner)
+        self._update_banner_text.setWordWrap(True)
+        self._update_banner_text.setTextFormat(Qt.TextFormat.PlainText)
+        update_layout.addWidget(self._update_banner_text, 1)
+        self._update_banner_open = QPushButton(self._update_banner)
+        self._update_banner_open.setMinimumSize(MIN_TARGET_PX, MIN_TARGET_PX)
+        self._update_banner_open.clicked.connect(self.open_update_window)
+        update_layout.addWidget(self._update_banner_open)
+        self._update_banner.hide()
+        outer.addWidget(self._update_banner)
         self._retranslate_strip()
         # The list scrolls (LWSM-1149). Without this the window's minimum
         # height is every row it holds, so a user with twenty projects gets a
@@ -2726,6 +2769,13 @@ class MainWindow(QMainWindow):
         self._settings_menu.addSeparator()
         self._settings_action = self._settings_menu.addAction("")
         self._settings_action.triggered.connect(self._open_settings)
+        # An AppImage only: a checkout is updated by git and uv (LWSM-1548).
+        self._check_updates_action: QAction | None = None
+        if self._updates is not None:
+            self._check_updates_action = self._settings_menu.addAction("")
+            self._check_updates_action.triggered.connect(
+                lambda: self.check_for_updates(manual=True)
+            )
         self._retranslate_menus()
 
     def _open_port_lookup(self) -> None:
@@ -3053,6 +3103,10 @@ class MainWindow(QMainWindow):
         self._settings_action.setText(
             QCoreApplication.translate("ProjectRow", "&Preferences...")
         )
+        if self._check_updates_action is not None:
+            self._check_updates_action.setText(
+                QCoreApplication.translate("ProjectRow", "Check for &updates")
+            )
 
     def _resolved_theme_id(self, theme_id: str) -> str:
         """The palette id to render for a stored id (LWSM-1244).
@@ -3419,6 +3473,13 @@ class MainWindow(QMainWindow):
         self._banner_dismiss.setAccessibleName(
             QCoreApplication.translate("ProjectRow", "Dismiss message")
         )
+        self._update_banner_open.setText(
+            QCoreApplication.translate("ProjectRow", "What's &new")
+        )
+        self._update_banner_open.setAccessibleName(
+            QCoreApplication.translate("ProjectRow", "What's new in the update")
+        )
+        self._show_update_offer()
 
     def _ordered_rows(self) -> list[ProjectRow]:
         """Every row in LAYOUT order — the order the user sees (LWSM-1040).
@@ -3761,6 +3822,145 @@ class MainWindow(QMainWindow):
             self._load_error = label
         self._load_error.setText(text)
         self.set_status_message(text)
+
+    # --- LWSM-1548: the AppImage's self-update ---------------------------------
+
+    def check_for_updates(self, manual: bool) -> None:
+        """Ask GitHub for the release list; the answer arrives in a slot.
+
+        A failed start-up check writes one log line and shows nothing; a manual
+        one says what went wrong (spec § 4.4).
+        """
+        if self._updates is None:
+            return
+        from lwsm.update_fetch import UpdateCheck
+
+        check = UpdateCheck(self)
+        self._update_check = check
+        check.found.connect(lambda releases: self.on_update_releases(releases, manual))
+        check.failed.connect(lambda why: self.on_update_check_failed(why, manual))
+        check.start()
+
+    def on_update_releases(self, releases: list[update.Release], manual: bool) -> None:
+        """Offer the newest signed release, if any.
+
+        A manual check offers a skipped version again (user, 2026-11-11).
+        """
+        self._update_check = None
+        updates = self._updates
+        offered = None
+        if updates is not None and updates.installed is not None:
+            skipped = None if manual else self._update_skipped
+            offered = update.offer(releases, updates.installed, skipped)
+        if offered is None:
+            if manual:
+                self.set_status_message(
+                    QCoreApplication.translate(
+                        "ProjectRow", "No update is ready to install."
+                    )
+                )
+            return
+        self._update_releases = list(releases)
+        self._update_offer = offered
+        self._show_update_offer()
+        if manual:
+            self.open_update_window()
+
+    def on_update_check_failed(self, why: str, manual: bool) -> None:
+        from lwsm.update_fetch import CHECK_UNREADABLE
+
+        self._update_check = None
+        log.info("update check failed (%s)", why)
+        if not manual:
+            return
+        if why == CHECK_UNREADABLE:
+            text = QCoreApplication.translate(
+                "ProjectRow", "Couldn't read GitHub's reply."
+            )
+        else:
+            text = QCoreApplication.translate(
+                "ProjectRow", "Couldn't reach GitHub to check for updates."
+            )
+        self.set_status_message(text)
+
+    def _show_update_offer(self) -> None:
+        """The banner shows the current offer, or hides with none."""
+        offered = self._update_offer
+        if offered is None:
+            self._update_banner.hide()
+            return
+        self._update_banner_text.setText(
+            QCoreApplication.translate(
+                "ProjectRow", "Version %1 is available."
+            ).replace("%1", update.format_version(offered.version))
+        )
+        self._update_banner.show()
+
+    def open_update_window(self) -> None:
+        """The non-modal update window for the current offer, one copy."""
+        updates, offered = self._updates, self._update_offer
+        if updates is None or offered is None or updates.installed is None:
+            return
+        from lwsm.updatedialog import UpdateDialog
+
+        dialog = self._update_dialog
+        if isinstance(dialog, UpdateDialog) and dialog.offered == offered:
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            return
+        if isinstance(dialog, UpdateDialog):
+            if dialog.is_downloading():
+                dialog.raise_()
+                return
+            dialog.deleteLater()
+        dialog = UpdateDialog(
+            updates.installed,
+            offered,
+            update.changelog(self._update_releases, updates.installed, offered.version),
+            updates.appimage,
+            parent=self,
+        )
+        dialog.skip_requested.connect(self._skip_update)
+        dialog.installed.connect(self._on_update_installed)
+        self._update_dialog = dialog
+        dialog.show()
+
+    def _skip_update(self, version: update.Version) -> None:
+        """Remember the skip across launches; silence only this version."""
+        updates = self._updates
+        if updates is None:
+            return
+        self._update_skipped = version
+        if self._update_offer is not None and self._update_offer.version == version:
+            self._update_offer = None
+            self._show_update_offer()
+        self._save_setting(
+            updates.save_skip,
+            update.format_version(version),
+            "skipped update",
+            QCoreApplication.translate(
+                "ProjectRow", "The skipped version could not be saved: %1"
+            ),
+            QCoreApplication.translate(
+                "ProjectRow",
+                "The skipped version was saved, but may not survive a crash: %1",
+            ),
+        )
+
+    def _on_update_installed(self, target: Path) -> None:
+        """Start the waiter, then close through the normal path.
+
+        Closed even when the waiter cannot start: the file is already new, so
+        the next launch runs it (spec § 6).
+        """
+        self._update_offer = None
+        self._show_update_offer()
+        try:
+            update.relaunch(target)
+        except OSError:
+            log.exception("the updated app could not be relaunched")
+        self.close()
 
     def set_status_message(self, text: str) -> None:
         """Show `text` in the banner above the list, or hide it when empty.
@@ -5210,6 +5410,10 @@ class MainWindow(QMainWindow):
         if self._geometry_restored:
             return
         self._geometry_restored = True
+        # Once, on the first show, like the restore (LWSM-1548 § 4.4). Queued,
+        # so the window is on screen before the request goes out.
+        if self._updates is not None and self._updates.check_on_start:
+            QTimer.singleShot(0, self, lambda: self.check_for_updates(manual=False))
         # Size and maximised state go on NOW, not on the deferred path
         # (LWSM-1263). ADR-0007 divides the work: "Size and maximised state are
         # applied directly on every platform — `resize()` is honoured under
@@ -5466,8 +5670,9 @@ class MainWindow(QMainWindow):
         # The banner, where a status bar used to be counted (LWSM-1345) --
         # and only while it shows: asking for `statusBar()` BUILDS one, which
         # put an empty bar back at the bottom of the window.
-        if not self._banner.isHidden():
-            chrome += self._banner.sizeHint().height() + outer.spacing()
+        for banner in (self._banner, self._update_banner):
+            if not banner.isHidden():
+                chrome += banner.sizeHint().height() + outer.spacing()
         # The STRIP, not the button in it. The filter box is the taller of the
         # two on most styles, so measuring the button would under-count the
         # chrome by the difference and open the window that much short — the

@@ -30,7 +30,14 @@ pytestmark = pytest.mark.gui
 
 
 def build(
-    qtbot, roots=(), poll=1000, log=5, chooser=None, shortcuts=True, markers=None
+    qtbot,
+    roots=(),
+    poll=1000,
+    log=5,
+    chooser=None,
+    shortcuts=True,
+    markers=None,
+    update_check=None,
 ) -> SettingsDialog:
     dialog = SettingsDialog(
         roots=[Path(root) for root in roots],
@@ -38,6 +45,7 @@ def build(
         log_max_mib=log,
         single_key_shortcuts=shortcuts,
         error_markers=markers if markers is not None else DEFAULT_ERROR_MARKERS,
+        update_check=update_check,
         choose_directory=chooser if chooser is not None else (lambda: None),
     )
     qtbot.addWidget(dialog)
@@ -392,3 +400,31 @@ def test_a_folder_reports_focused_only_while_the_list_has_focus(qtbot) -> None:
     roots.setFocus(Qt.FocusReason.BacktabFocusReason)
     assert roots.currentItem() is not None, "nowhere for the keyboard to start"
     assert roots.currentItem().text() == "/srv/b", "not the new last folder"
+
+
+# --- LWSM-1548: the update check's switch, an AppImage's only ---------------
+
+
+def test_a_checkout_is_not_offered_the_update_switch(qtbot) -> None:
+    dialog = build(qtbot)
+    assert dialog.update_check() is None
+    assert dialog._update_check is None
+
+
+@pytest.mark.parametrize("checked", [True, False])
+def test_the_update_switch_comes_back_as_it_went_in_and_as_toggled(
+    qtbot, checked: bool
+) -> None:
+    from PySide6.QtCore import Qt
+
+    dialog = build(qtbot, update_check=checked)
+    assert dialog.update_check() is checked
+
+    assert dialog._update_check is not None
+    qtbot.keyClick(dialog._update_check, Qt.Key.Key_Space)
+
+    assert dialog.update_check() is (not checked)
+    assert "&" in dialog._update_check.text(), "the keyboard needs a mnemonic"
+    assert (
+        len(keyboard_focus_order(dialog)) == len(keyboard_focus_order(build(qtbot))) + 1
+    )

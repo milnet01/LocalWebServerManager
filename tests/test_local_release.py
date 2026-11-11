@@ -785,3 +785,54 @@ def test_no_container_runner_is_a_skip_and_never_ok(tmp_path) -> None:
     build is not attempted, so its stub's exit code does not matter."""
     (line,) = _appimage_status(tmp_path, runner=None, build_exit=0)
     assert line.startswith("SKIP ")
+
+
+# --- LWSM-1548: the release signing key stops a release it cannot sign -------
+
+
+def _signing_key_status(tmp_path: Path, *, uv_exit: int | None) -> list[str]:
+    """Run the script's OWN `signing_key_status()` with a stub `uv` that exits
+    `uv_exit`, or no `uv` at all for None."""
+    body = re.search(
+        r"^signing_key_status\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M
+    )
+    assert body, "the release script has no signing_key_status() to run"
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    (binaries / "bash").symlink_to(bash)
+    if uv_exit is not None:
+        stub = binaries / "uv"
+        stub.write_text(f"#!/bin/sh\nexit {uv_exit}\n")
+        stub.chmod(0o755)
+    script = (
+        "set -Eeuo pipefail\n"
+        'block() { printf "BLOCK %s\\n" "$1"; }\n'
+        'skip()  { printf "SKIP %s\\n" "$1"; }\n'
+        'ok()    { printf "OK %s\\n" "$1"; }\n'
+        f"{body.group(0)}\n"
+        "signing_key_status"
+    )
+    done = subprocess.run(
+        [bash, "-c", script],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PATH": str(binaries)},
+    )
+    assert done.returncode == 0, f"signing_key_status() failed: {done.stderr}"
+    return done.stdout.splitlines()
+
+
+@pytest.mark.parametrize(
+    ("uv_exit", "verdict"),
+    [(0, "OK "), (1, "BLOCK "), (None, "SKIP ")],
+    ids=["matches", "missing-or-wrong", "no-uv"],
+)
+def test_the_signing_key_check_blocks_a_release_it_cannot_sign(
+    tmp_path, uv_exit, verdict
+) -> None:
+    (line,) = _signing_key_status(tmp_path, uv_exit=uv_exit)
+    assert line.startswith(verdict)

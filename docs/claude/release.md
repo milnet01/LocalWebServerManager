@@ -66,3 +66,21 @@ once reverted with `git checkout` in your tree, which discarded a
 
 `cut-release` still owns the release itself — this performs no bump, no
 commit, no tag and no publish.
+
+## After publishing: sign the AppImage
+
+**Run `uv run scripts/sign-release.py publish X.Y.Z`** once the release is
+published (LWSM-1548, ADR-0008). It waits for the Release workflow, downloads
+the AppImage, signs it with the key on this PC, checks the signature against
+the committed public key, and uploads the `.sig`. A release with no `.sig` is
+offered to no installed AppImage. Run it again after moving a tag.
+
+**The key is set up once, by the user:** `uv run scripts/sign-release.py
+generate` writes it to `~/.config/lwsm-release/signing.key` and prints the
+line for `src/lwsm/update_key.py`. **Back the key up.** Lost, every installed
+AppImage refuses later updates until its user downloads one by hand. The key
+never enters the repository or a Claude session.
+
+`local-release.sh X.Y.Z` blocks when the key is missing or does not match
+(its step 0j, through `sign-release.py check-key`). Nothing checks that
+`publish` was run.

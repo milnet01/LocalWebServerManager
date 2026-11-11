@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Added
+
+- **The download updates itself.** At each start the AppImage asks GitHub whether a newer version exists, and a banner above the project list offers it, with what changed. Nothing downloads until you click **Update now**. The app checks the download was signed by the author before it replaces its own file, then reopens; your servers keep running. **Settings > Preferences** turns the check off, and **Settings > Check for updates** asks by hand. Copies of 0.5.1 and earlier have no updater, so download the next version by hand once. (LWSM-1548)
+
 ## [0.5.1] - 2026-11-10
 
 **Theme:** A download that needs nothing installed first

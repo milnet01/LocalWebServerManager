@@ -12,21 +12,24 @@ file plus `CONTRIBUTING.md`.
 
 ## O1. The core never imports `QtWidgets`
 
-The package is split four ways, and a core module imports `QtCore` at most:
+The package is split four ways, and a core module imports `QtCore` at most,
+plus `QtNetwork` in `update_fetch.py`:
 
 | Layer | Modules | Rule |
 |---|---|---|
-| UI | `mainwindow.py`, `settingsdialog.py`, `portlookup.py`, `firstrun.py`, `logpanel.py`, `theme.py` | may import `QtWidgets` |
+| UI | `mainwindow.py`, `settingsdialog.py`, `portlookup.py`, `firstrun.py`, `logpanel.py`, `theme.py`, `updatedialog.py` | may import `QtWidgets` |
 | Entry point | `__main__.py` | may import `QtWidgets`; builds the `QApplication`, inside `main()` after `argparse` |
 | Package marker | `__init__.py` | imports nothing |
-| Core | every other module | `QtCore` only, never `QtWidgets` |
+| Core | every other module | `QtCore` only, and `QtNetwork` in `update_fetch.py`; never `QtWidgets` |
 
 `tests/test_layering.py` holds the split as two lists: `CORE_MODULES` and
 `NON_CORE_MODULES`. A new module goes into one of them in the commit that
 creates it.
 
 Why: keeping `QtWidgets` out of the core is what makes the core testable
-without a display.
+without a display. `QtNetwork` needs no display either; it is allowed in
+`update_fetch.py` alone because that is the one module that may reach the
+internet (LWSM-1548 INV-12, `tests/test_layering.py::test_only_update_fetch_reaches_the_internet`).
 
 ## O2. Nothing touches a widget off the UI thread
 

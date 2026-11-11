@@ -28,6 +28,9 @@ desktop.ini
 # Secrets / local env
 .env
 .env.*
+# The release signing key lives in ~/.config/lwsm-release, never here
+# (LWSM-1548); this catches one copied in by mistake.
+*.key
 !.env.example
 
 # Claude Code (local settings, history, allowlist — mostly personal).
