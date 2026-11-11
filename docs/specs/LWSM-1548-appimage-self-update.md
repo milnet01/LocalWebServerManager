@@ -137,17 +137,20 @@ default (`QNetworkRequest().header(UserAgentHeader)` → `None`, PySide6 6.12.0,
 APPIMAGE_ASSET = "LocalWebServerManager-{version}-x86_64.AppImage"
 SIGNATURE_ASSET = APPIMAGE_ASSET + ".sig"
 
+
 def parse_version(tag: str) -> tuple[int, int, int] | None:
     """'v0.6.0' / '0.6.0' -> (0, 6, 0). Exactly three dot-separated parts, each
     str.isascii() and str.isdigit(), one leading v or V allowed. Else None."""
 
+
 @dataclass(frozen=True)
 class Release:
     version: tuple[int, int, int]
-    body: str                  # the release notes, Markdown; may be ""
-    appimage_url: str | None   # browser_download_url of APPIMAGE_ASSET
+    body: str  # the release notes, Markdown; may be ""
+    appimage_url: str | None  # browser_download_url of APPIMAGE_ASSET
     signature_url: str | None  # browser_download_url of SIGNATURE_ASSET
-    appimage_size: int         # the asset's "size"; 0 when absent
+    appimage_size: int  # the asset's "size"; 0 when absent
+
 
 def releases_from_json(data: object) -> list[Release] | None:
     """None when data is not a list. Otherwise every dict entry that is not a
@@ -156,10 +159,13 @@ def releases_from_json(data: object) -> list[Release] | None:
     name is the pattern filled with THIS release's version, and its URL starts
     with https://."""
 
-Version = tuple[int, int, int]   # parse_version's result; callers parse
+
+Version = tuple[int, int, int]  # parse_version's result; callers parse
+
 
 def changelog(releases, installed: Version, offered: Version) -> list[Release]:
     """installed < r.version <= offered, highest first."""
+
 
 def offer(releases, installed: Version, skipped: Version | None) -> Release | None:
     """The highest release above installed carrying both asset URLs, unless
@@ -239,7 +245,7 @@ hides the banner. **Later** closes the window and stores nothing.
 verified are the bytes written.
 
 ```python
-def install(data: bytes, appimage: str) -> Path:   # update.py
+def install(data: bytes, appimage: str) -> Path:  # update.py
     """target = Path(os.path.realpath(appimage)). Raise UpdateInstallError,
     writing nothing, when os.access(target.parent, os.W_OK) is false. Write
     data to tempfile.mkstemp(prefix=".lwsm-update-", dir=target.parent),
@@ -257,7 +263,7 @@ open through its mount.
 ### 4.7 The relaunch
 
 ```python
-def relaunch(target: Path) -> None:   # update.py
+def relaunch(target: Path) -> None:  # update.py
     """subprocess.Popen([*supervisor.scope_prefix(os.environ), '/bin/sh',
     '-c', WAITER, 'sh', str(os.getpid()), str(target)],
     start_new_session=True, env=dict(os.environ),
@@ -288,8 +294,8 @@ def relaunch(target: Path) -> None:   # update.py
 `Settings` gains two fields, inside schema v1:
 
 ```python
-update_check: bool = True          # §3 item 2
-update_skip: str | None = None     # "X.Y.Z"; parse_version must accept it
+update_check: bool = True  # §3 item 2
+update_skip: str | None = None  # "X.Y.Z"; parse_version must accept it
 ```
 
 `load` reads `update_check` with `_bool_or_reason`, reads a `null`
