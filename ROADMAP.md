@@ -15680,6 +15680,14 @@ decided, is the last packaging item (added 2026-11-11).
   accepted. Loop 2's 4 fixes were read by no lane, so the build is their
   reader. Rows: docs/reviews/LWSM-1548-appimage-self-update-loop-log.md.
   Commits b422b2e and 0e0a09e.
+  2026-11-11: spec accepted after review-contract's two loops (11
+  findings, all fixed; log in
+  docs/reviews/LWSM-1548-appimage-self-update-loop-log.md). The user
+  confirmed the review's two open calls: a manual check offers a skipped
+  version again, and says "No update is ready to install." when there is
+  nothing to install. Next: build with /write-code. Before the first
+  signed release, the user runs `uv run scripts/sign-release.py
+  generate` once the script exists; the key never enters a session.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.

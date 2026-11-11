@@ -84,6 +84,9 @@ Decided by the user on 2026-11-11 unless marked otherwise.
    update switch.
 8. **A manual "Check for updates" entry** in the Settings menu — decided here,
    so a user who turned the start-up check off can still ask. AppImage only.
+9. **A manual check offers a skipped version again**, and finding nothing to
+   install it says "No update is ready to install." — both raised by the
+   review and confirmed by the user on 2026-11-11 (§4.4).
 
 ## 4. Design
 
