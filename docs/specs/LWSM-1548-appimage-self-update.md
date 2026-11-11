@@ -1,7 +1,7 @@
 <!-- ants-spec-format: 1 -->
 # LWSM-1548 — The AppImage updates itself, from a signed release
 
-**Status:** spec draft (2026-11-11).
+**Status:** accepted (2026-11-11).
 **Kind:** feature.
 **Source:** ROADMAP LWSM-1548 (ADR-0008, user-2026-11-11).
 **Pairs with:** [ADR-0008](../decisions/0008-updates-reach-users.md), which
@@ -156,10 +156,12 @@ def releases_from_json(data: object) -> list[Release] | None:
     name is the pattern filled with THIS release's version, and its URL starts
     with https://."""
 
-def changelog(releases, installed, offered) -> list[Release]:
+Version = tuple[int, int, int]   # parse_version's result; callers parse
+
+def changelog(releases, installed: Version, offered: Version) -> list[Release]:
     """installed < r.version <= offered, highest first."""
 
-def offer(releases, installed, skipped) -> Release | None:
+def offer(releases, installed: Version, skipped: Version | None) -> Release | None:
     """The highest release above installed carrying both asset URLs, unless
     its version equals skipped. None when update_key.public_key() is None."""
 ```
@@ -176,8 +178,8 @@ fails `parse_version` and is never offered.
 - **From Settings → Check for updates**, shown only for `appimage`.
 
 A failed check at start-up writes one `app.log` line and shows nothing. A
-manual check reports through `MainWindow.set_status_message`: "You have the
-newest version.", "Couldn't reach GitHub to check for updates.", or "Couldn't
+manual check reports through `MainWindow.set_status_message`: "No update is
+ready to install.", "Couldn't reach GitHub to check for updates.", or "Couldn't
 read GitHub's reply." An offer found by either opens the banner (§4.5); a
 manual check also opens the window. A manual check calls `offer` with
 `skipped=None`, so it offers a skipped version too.
@@ -201,8 +203,10 @@ keeps `app.exec()` running after the main window closes (PySide6 6.12.0,
   `loadResource` returns nothing for every URL, and `openLinks` and
   `openExternalLinks` are both false, so the notes load no file, fetch nothing
   and open nothing.
-- Buttons: **Update now**, **Skip this version**, **Later**. None is the
-  default button, so Enter installs nothing.
+- Buttons: **Update now**, **Skip this version**, **Later**, each with
+  `setAutoDefault(False)`, so none is the default and Enter installs nothing.
+  A `QPushButton` in a `QDialog` is auto-default, and the first becomes the
+  default when shown (PySide6 6.12.0, 2026-11-11).
 - During a download: a progress bar, determinate from `appimage_size`, and
   **Cancel** in place of the buttons.
 - Every control has an accessible name; every string goes through `self.tr`;
@@ -288,8 +292,9 @@ update_check: bool = True          # §3 item 2
 update_skip: str | None = None     # "X.Y.Z"; parse_version must accept it
 ```
 
-`load` reads `update_check` with `_bool_or_reason`, and refuses an
-`update_skip` that `parse_version` rejects, with a reason, keeping `None`.
+`load` reads `update_check` with `_bool_or_reason`, reads a `null`
+`update_skip` as `None` with no reason, and refuses any other value that
+`parse_version` rejects, with a reason, keeping `None`.
 `_payload` writes both, `update_skip` as `null` while unset: `load` takes
 its known keys from `_payload(Settings())`. An older build carries
 both through `Settings.unknown` (LWSM-1289). `SettingsDialog` gains "Check for
@@ -482,7 +487,8 @@ cannot verify is never released.
 - **INV-17** — `update_check` and `update_skip` round-trip through `save` and
   `load`; a malformed `update_skip` is refused with a reason and read as
   `None`; a file without them gets the defaults.
-  *Test:* `tests/test_settings.py` — round-trip of `False`/`"0.6.0"`;
+  *Test:* `tests/test_settings.py` — round-trip of `False`/`"0.6.0"`, and of
+  `Settings()` with no reason;
   `"0.6"` and `7` → `None` with one reason each; an older file → `True`/`None`.
   *Breaks when:* a malformed skip reaches `offer`, or a missing key reads as
   off.
