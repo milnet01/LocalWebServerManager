@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1547 -->
+<!-- ants-roadmap-id-high-water: LWSM=1548 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -14698,8 +14698,8 @@ author's own use, which is why it sits after the app works.
 
 Order (user, 2026-11-10): packaging first. LWSM-1397, then LWSM-1021,
 LWSM-1052, LWSM-1022 and LWSM-1043; then the review fixes (Priority 4);
-then the refactors (Priority 5). LWSM-1543 waits for the user's go-ahead
-because it changes the machine-wide uv.
+then the refactors (Priority 5). LWSM-1548, the self-update LWSM-1043
+decided, is the last packaging item (added 2026-11-11).
 
 - ✅ [LWSM-1021] **P10: self-contained AppImage, built in CI.**
   One downloadable file that runs on any reasonably current
@@ -14757,7 +14757,7 @@ because it changes the machine-wide uv.
   'lwsm 0.5.1' on this machine.
   Lanes: build, ci.
 
-- 📋 [LWSM-1043] **P10: decide how updates reach users — research first.**
+- ✅ [LWSM-1043] **P10: decide how updates reach users — research first.**
   The user already runs **OneUp**
   (`<scan root>/OneUp/`), an updater with a weekly
   systemd user timer, so the first question is whether this app
@@ -14823,6 +14823,10 @@ because it changes the machine-wide uv.
   the app is a packaged artifact -- `detect_installer()` returns None for a
   `python -m` run -- and this project has no AppImage yet. There is nothing
   for an updater to replace until there is.
+  Decided 2026-11-11 (commit 27af11d): ADR-0008. OneUp cannot take this
+  app (fixed openSUSE-only steps, no registration, its self-update names
+  its own AppImage). The user chose a full signed self-update modelled
+  on OneUp's ONEUP-0112. No code changed; the build is LWSM-1548.
 
 - ✅ [LWSM-1052] **P10: a local release script, run before CI is asked to build one.**
   `scripts/local-release.sh` builds and
@@ -15569,12 +15573,17 @@ because it changes the machine-wide uv.
   Kind: investigate.
   Source: user-kwin-check-2026-11-10.
 
-- 📋 [LWSM-1543] **Bump the UV_VERSION pin from 0.12.23 to the current uv release.**
+- ✅ [LWSM-1543] **Bump the UV_VERSION pin from 0.12.23 to the current uv release.**
   local-release.sh 0h warned on 2026-11-10: pinned 0.12.23, latest
   0.13.7. The pin forces the machine-wide uv in ~/.local/bin, which other
   projects' gates check, so ask the user before installing. Run the full
   gate on the new version. User chose 2026-11-10 to do it after 0.5.0, on
   its own.
+  Done 2026-11-11 (commit f7b8564), on the user's go-ahead. uv 0.13.7
+  installed in ~/.local/bin with its checksum verified; the 0.12.23 pair
+  is backed up under ~/.local/share/uv-binary-backup-0.12.23/. Pin
+  bumped in scripts/ci-tools.env, ci.yml and release.yml; the push
+  passed the pre-push gate.
   **Layman:** Update the tool that installs the project's dependencies.
   Kind: chore.
   Source: local-release-preflight-2026-11-10.
@@ -15641,6 +15650,28 @@ because it changes the machine-wide uv.
   **Layman:** The release check reports a missing tool as a broken AppImage.
   Kind: fix.
   Source: review-code-2026-11-10.
+
+- 📋 [LWSM-1548] **Build the signed AppImage self-update decided in ADR-0008.**
+  ADR-0008 (docs/decisions/0008-updates-reach-users.md) decided the
+  shape: check GitHub releases; offer updates only to a running
+  AppImage; nothing downloads without a click; Ed25519 signature
+  checked against a built-in public key, private key on the author's
+  PC; verified bytes held in memory are the bytes written; detached
+  relaunch with loader variables restored. Model: OneUp's
+  docs/specs/ONEUP-0112-self-update.md, plus LWSM-1043's finbreak notes.
+  **Spec-first** (CLAUDE.md review cadence, rule 2): the signing key,
+  the signature file's name and format, and the release step are
+  durable artifacts. Write the spec with /write-spec; global rule 14's
+  review-contract gate runs before building.
+  Open for the spec: whether the check runs by default; saving
+  APPIMAGE before _forget_bundle_environment scrubs it; the signing
+  step in scripts/local-release.sh.
+  Dependencies: LWSM-1043.
+  Priority: 3.
+  **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
+  Kind: feature.
+  Source: ADR-0008-2026-11-11.
+  Lanes: build, ui, docs.
 
 ## After 1.0.0
 
