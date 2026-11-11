@@ -15688,6 +15688,14 @@ decided, is the last packaging item (added 2026-11-11).
   nothing to install. Next: build with /write-code. Before the first
   signed release, the user runs `uv run scripts/sign-release.py
   generate` once the script exists; the key never enters a session.
+  2026-11-11: built (commit 08001af). Gate green; AppImage built and
+  smoke-tested with the new cryptography binding check. Every invariant's
+  test seen red by mutating its rule. Spec folded back (two clauses).
+  Still owed before this ships: (1) the user runs `uv run
+  scripts/sign-release.py generate`, backs up the key, and pastes the
+  printed line into src/lwsm/update_key.py; until then nothing is
+  offered. (2) The spec §7 manual relaunch recipe on the first two
+  signed releases.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.
