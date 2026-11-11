@@ -15675,6 +15675,11 @@ decided, is the last packaging item (added 2026-11-11).
   file, keeping its path and name; (4) releases are signed on this PC,
   as ADR-0008 says. Spec in progress:
   docs/specs/LWSM-1548-appimage-self-update.md.
+  2026-11-11: review-contract gate done, 2 loops of 2 (the cap), 2 lanes
+  each. 11 verified findings, all fixed; none deferred. The spec is now
+  accepted. Loop 2's 4 fixes were read by no lane, so the build is their
+  reader. Rows: docs/reviews/LWSM-1548-appimage-self-update-loop-log.md.
+  Commits b422b2e and 0e0a09e.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.
