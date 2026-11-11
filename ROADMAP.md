@@ -15651,7 +15651,7 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: fix.
   Source: review-code-2026-11-10.
 
-- 📋 [LWSM-1548] **Build the signed AppImage self-update decided in ADR-0008.**
+- 🚧 [LWSM-1548] **Build the signed AppImage self-update decided in ADR-0008.**
   ADR-0008 (docs/decisions/0008-updates-reach-users.md) decided the
   shape: check GitHub releases; offer updates only to a running
   AppImage; nothing downloads without a click; Ed25519 signature
@@ -15668,6 +15668,13 @@ decided, is the last packaging item (added 2026-11-11).
   step in scripts/local-release.sh.
   Dependencies: LWSM-1043.
   Priority: 3.
+  Decided by the user 2026-11-11, for the spec: (1) the AppImage checks
+  GitHub on each start, on by default, with an off switch in Settings;
+  (2) add `cryptography` as a runtime dependency, retiring the "no more
+  than two" comment in pyproject.toml; (3) an update rewrites the same
+  file, keeping its path and name; (4) releases are signed on this PC,
+  as ADR-0008 says. Spec in progress:
+  docs/specs/LWSM-1548-appimage-self-update.md.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.
