@@ -260,4 +260,4 @@ its own session and uses a `started.json` under the test's private
 
 ## 12. Cold-eyes loop log
 
-Rows live in `../reviews/LWSM-1428-remember-started-servers-loop-log.md`.
+Rows live in `../reviews/LWSM-1428-remember-started-servers-loop-log.md`. That file is not published.

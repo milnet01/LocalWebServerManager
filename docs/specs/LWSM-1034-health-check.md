@@ -441,4 +441,4 @@ on port 0 on a thread, per `testing-overrides.md` § T3.
 
 ## 12. Cold-eyes loop log
 
-Rows live in `../reviews/LWSM-1034-health-check-loop-log.md`.
+Rows live in `../reviews/LWSM-1034-health-check-loop-log.md`. That file is not published.

@@ -125,6 +125,11 @@ appimagetool*
 # author's machine. The public docs refer to them by neutral label.
 docs/private/
 
+# Review records: loop logs and findings ledgers (user, 2026-11-14). They
+# list defects found in the software, so they stay on the author's machine.
+# New ones go in docs/private/reviews/.
+docs/reviews/
+
 # Audit scan output. Generated, one more pair of files every run, and it embeds
 # absolute paths from the machine that ran it — this is a public repo. The
 # durable record of what a scan found lives in ROADMAP.md and

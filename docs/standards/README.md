@@ -26,4 +26,5 @@ The table below is the list; no prose in this folder states its length.
 Specs and plans start from the shared skeletons in
 `~/.claude/standards/skeletons/`, which `/write-spec` copies.
 
-The review records of the files these replaced are in `docs/reviews/`.
+The review records of the files these replaced are in `docs/reviews/`,
+which is kept on the author's machine and not published.

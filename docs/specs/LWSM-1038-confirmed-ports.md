@@ -403,7 +403,7 @@ the *(detected)* or *(confirmed)* word.
 
 ## 12. Cold-eyes loop log
 
-Rows live in `../reviews/LWSM-1038-confirmed-ports-loop-log.md`.
+Rows live in `../reviews/LWSM-1038-confirmed-ports-loop-log.md`. That file is not published.
 
 ## 13. Resource cost
 

@@ -635,7 +635,7 @@ still reads `running`. Then once with the AppImage reached through a symlink.
 
 ## 12. Cold-eyes loop log
 
-Rows live in `../reviews/LWSM-1548-appimage-self-update-loop-log.md`.
+Rows live in `../reviews/LWSM-1548-appimage-self-update-loop-log.md`. That file is not published.
 
 ## 13. Resource cost
 

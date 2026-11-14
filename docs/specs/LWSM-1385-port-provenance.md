@@ -339,4 +339,4 @@ before its rule is written, by breaking that rule once in a scratch copy per
 
 ## 12. Cold-eyes loop log
 
-Rows live in `../reviews/LWSM-1385-port-provenance-loop-log.md`.
+Rows live in `../reviews/LWSM-1385-port-provenance-loop-log.md`. That file is not published.
