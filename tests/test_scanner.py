@@ -1163,8 +1163,8 @@ def test_a_directory_swapped_for_a_symlink_after_the_hop_check_is_not_followed(
     real = scanner._accept_hop
     swapped: list[bool] = []
 
-    def swap_after_check(token, candidate, launcher):
-        result = real(token, candidate, launcher)
+    def swap_after_check(token, candidate, launcher, base=None):
+        result = real(token, candidate, launcher, base)
         if result[0] is not None and not swapped:
             (sub / "app.py").unlink()
             sub.rmdir()
@@ -2445,7 +2445,7 @@ def test_the_source_of_a_port_finding_is_sanitised_like_a_reason(
 def test_the_budget_signal_is_not_an_oserror() -> None:
     """The structural half of the guarantee its docstring claims.
 
-    `_read_alternate`, `_match_node_package` and `scan()` itself all carry
+    `_read_project_file`, `_match_node_package` and `scan()` itself all carry
     `except OSError` blocks that exist to keep one bad file from ending a scan.
     An `OSError`-derived budget signal is swallowed by every one of them, so the
     project's own named trap applies here too: `TimeoutError` subclasses

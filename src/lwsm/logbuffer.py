@@ -32,7 +32,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
-from lwsm.applog import _open_private_regular, get_logger
+from lwsm.applog import get_logger, open_private_regular
 from lwsm.configfile import DISPLAY_CONTROL_CLASS
 from lwsm.scanner import MAX_SOURCE_LINE_CHARS, valid_unit_name
 from lwsm.settings import DEFAULT_ERROR_MARKERS
@@ -221,9 +221,9 @@ class LogSource:
 
 
 def journal_argv(unit: str) -> list[str]:
-    """`journalctl --user -u <unit> -f`, ADR-0003's logs row.
+    """`journalctl --user --unit=<unit> --follow`, ADR-0003's logs row.
 
-    `--unit=<unit>`, glued, rather than `systemctl`'s `-- <unit>`: `-u` takes
+    `--unit=<unit>`, glued, rather than `systemctl`'s `-- <unit>`: `--unit` takes
     `--` as its own argument and the unit then becomes a journal match, which
     journalctl refuses (measured 2026-11-05, systemd 261). Glued, a name
     beginning with `-` is the option's value and never an option of its own;
@@ -286,7 +286,7 @@ class _Follower:
 class FileFollower(_Follower):
     """Follow one of our own log files: read its tail, then what is added.
 
-    Opened through `_open_private_regular`, the discipline every log of ours
+    Opened through `open_private_regular`, the discipline every log of ours
     has: a symlink, a hard link, a FIFO or a file of another user's at the
     path is refused, never followed (LWSM-1049). The open is retried while the
     file does not exist, so a panel opened before the first start shows it.
@@ -319,7 +319,7 @@ class FileFollower(_Follower):
 
     def _open(self) -> int | None:
         try:
-            return _open_private_regular(self._path, os.O_RDONLY)
+            return open_private_regular(self._path, os.O_RDONLY)
         except FileNotFoundError:
             return None
 
@@ -470,8 +470,9 @@ class LogFeed(QObject):
     thread — because the follower's callbacks emit a private signal connected
     QUEUED. The ring is touched only there, so it needs no lock.
 
-    A fragment left without a newline is flushed after one quiet tick, so a
-    server's last words show even when it died mid-line.
+    A fragment left without a newline is flushed once the source has been
+    quiet for two ticks, so a server's last words show even when it died
+    mid-line.
     """
 
     lines_added = Signal(list)

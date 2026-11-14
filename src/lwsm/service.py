@@ -13,7 +13,7 @@ one (`testing-overrides.md § T1`).
 signalling a bare PID; a unit name is what makes it unnecessary. `systemctl`
 resolves the name itself, inside the caller's own session, so a PID recycled
 between the probe and the stop cannot be signalled by mistake — the hazard
-`Supervisor._raise_if_pid_reused` exists to catch on the managed path.
+`psutil.Process._raise_if_pid_reused` exists to catch on the managed path.
 
 **Stopping a unit does not disable it.** `stop` and `disable` are separate
 systemd verbs, so a server stopped from here still starts at the next logon.
@@ -64,6 +64,12 @@ UNIT_VERB_TIMEOUT_SECONDS = 15.0
 # no legitimate server these could name, so they are refused before any argv is
 # built rather than trusted to be unreachable.
 SESSION_UNIT = re.compile(r"^(user@\d+\.service|init\.scope)$")
+
+
+def _drivable(unit: str) -> bool:
+    """Whether `unit` is a name this module may drive: a valid unit name that is
+    not the session manager's own."""
+    return valid_unit_name(unit) and not SESSION_UNIT.match(unit)
 
 
 @dataclass(frozen=True)
@@ -153,7 +159,7 @@ def unit_for_pid(pid: int, *, read_cgroup: object = None) -> str | None:
         leaf = line.strip().rsplit("/", 1)[-1]
         if not leaf.endswith(".service"):
             continue
-        if SESSION_UNIT.match(leaf) or not valid_unit_name(leaf):
+        if not _drivable(leaf):
             return None
         return leaf
     return None
@@ -269,7 +275,7 @@ def unit_argv(verb: str, unit: str) -> list[str]:
     """
     if verb not in VERBS:
         raise ValueError(f"refusing to drive {verb!r}: not one of {VERBS}")
-    if not valid_unit_name(unit) or SESSION_UNIT.match(unit):
+    if not _drivable(unit):
         raise ValueError(f"refusing to drive {unit!r}: not a drivable unit name")
     return ["systemctl", "--user", verb, "--", unit]
 
@@ -361,7 +367,7 @@ def user_unit_dir() -> Path:
 def drop_in_path(unit: str) -> Path:
     """Where this app's drop-in for `unit` lives. The name is validated first:
     it becomes a directory name, and `valid_unit_name` admits no `/`."""
-    if not valid_unit_name(unit) or SESSION_UNIT.match(unit):
+    if not _drivable(unit):
         raise ValueError(f"refusing {unit!r}: not a drivable unit name")
     return user_unit_dir() / f"{unit}.d" / DROP_IN_NAME
 
@@ -584,7 +590,7 @@ def unit_state(unit: str, *, run: object = None) -> str | None:
     `None` means unreadable, which is not evidence of anything. `is-active`
     exits non-zero for every state but `active`, so stdout is read regardless.
     """
-    if not valid_unit_name(unit) or SESSION_UNIT.match(unit):
+    if not _drivable(unit):
         return None
     runner = run if run is not None else subprocess.run
     try:

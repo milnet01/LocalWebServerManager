@@ -37,7 +37,7 @@ correct code faithfully implements a wrong contract **and the tests pass**.
 **One piece of evidence arrived after the decision and cuts against rule 1, so
 it is recorded here rather than left in a journal.** The P03b close
 (2026-08-15) found 55 defects in five items built under the build-first default,
-including three CRITICALs — one of which, `_launcher_path` refusing three of the
+including three CRITICALs — one of which, `launcher_path` refusing three of the
 four launcher kinds, meant the app did not do what the roadmap said it did for a
 full day. **That is not yet an argument for reverting.** Ask of each such
 defect: *would a test have caught it?* For the launcher bug the honest answer

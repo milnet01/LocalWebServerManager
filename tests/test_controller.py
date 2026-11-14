@@ -34,12 +34,11 @@ from lwsm.ports import PortSnapshot, ProbeError
 from lwsm.registry import ProjectRecord
 from lwsm.supervisor import (
     MAX_LOG_BYTES,
-    LauncherUntrusted,
     PortAlreadyBound,
     StopOutcome,
     Supervisor,
-    launcher_fingerprint,
 )
+from lwsm.trust import LauncherUntrusted, launcher_fingerprint
 
 pytestmark = pytest.mark.gui
 

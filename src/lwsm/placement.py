@@ -455,7 +455,7 @@ def run_kwin_script(
         # accepts a directory already left loose. That function creates each
         # component explicitly and re-chmods the leaf. `supervisor.py` reaches
         # for the same private name for the same tree.
-        applog._prepare_state_dir(state_dir)
+        applog.prepare_state_dir(state_dir)
         handle, name = tempfile.mkstemp(suffix=".js", prefix="place-", dir=state_dir)
         with os.fdopen(handle, "w", encoding="utf-8") as script:
             # The descriptor is now owned by the file object, so the `finally`

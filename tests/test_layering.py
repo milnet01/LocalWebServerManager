@@ -44,6 +44,7 @@ CORE_MODULES = [
     "settings.py",
     "stores.py",
     "supervisor.py",
+    "trust.py",
     "update.py",
     "update_fetch.py",
     "update_key.py",

@@ -50,12 +50,11 @@ from lwsm.service import (
 )
 from lwsm.settings import DEFAULT_POLL_INTERVAL_MS
 from lwsm.supervisor import (
-    LauncherUntrusted,
     ManagedProcess,
     PortAlreadyBound,
     StopOutcome,
-    SupervisorError,
 )
+from lwsm.trust import LauncherUntrusted, SupervisorError
 
 log = logging.getLogger(__name__)
 

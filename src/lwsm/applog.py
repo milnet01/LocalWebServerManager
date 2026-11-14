@@ -29,7 +29,7 @@ def _require_private_regular_file(fd: int, path: str) -> None:
         raise OSError(errno.EPERM, "log path is owned by another user", path)
 
 
-def _open_private_regular(path: Path, flags: int) -> int:
+def open_private_regular(path: Path, flags: int) -> int:
     """Open `path` as a regular file of ours alone, following nothing.
 
     One function because there were two copies and they had diverged
@@ -79,7 +79,7 @@ class _NoFollowRotatingFileHandler(RotatingFileHandler):
     """
 
     def _open(self) -> io.TextIOWrapper:
-        fd = _open_private_regular(
+        fd = open_private_regular(
             Path(self.baseFilename), os.O_WRONLY | os.O_CREAT | os.O_APPEND
         )
         try:
@@ -103,7 +103,7 @@ class _NoFollowRotatingFileHandler(RotatingFileHandler):
         )
 
 
-def _prepare_state_dir(directory: Path) -> None:
+def prepare_state_dir(directory: Path) -> None:
     """Create `directory` and every missing component of it as 0700.
 
     `mkdir(parents=True, mode=0o700)` applies the mode to the LEAF only, so
@@ -254,7 +254,7 @@ def configure_logging(
     # signal, port probe and config write, i.e. the user's whole project
     # inventory and directory layout. `.gitignore` treats that as private, so
     # writing it world-readable would contradict the project's own posture.
-    _prepare_state_dir(directory)
+    prepare_state_dir(directory)
     log_path = directory / "app.log"
 
     logger = get_logger()

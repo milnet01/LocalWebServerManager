@@ -31,7 +31,7 @@ import psutil
 from lwsm.supervisor import (
     GRACE_SECONDS,
     KILL_TIMEOUT_SECONDS,
-    _wait_until_gone,
+    wait_until_gone,
 )
 
 
@@ -194,7 +194,7 @@ def stop_tree(
             pass  # exited, or its PID now names someone else: either way, skip
         except psutil.Error:
             refused.append(proc.pid)
-    survivors = _wait_until_gone(list(tree.handles), grace, clock, sleep)
+    survivors = wait_until_gone(list(tree.handles), grace, clock, sleep)
     killed: list[int] = []
     for proc in survivors:
         try:
@@ -207,7 +207,7 @@ def stop_tree(
                 refused.append(proc.pid)
     # Read afresh even when nothing was killed: a survivor whose kill() raised
     # NoSuchProcess exited in between, and is not left.
-    left = _wait_until_gone(
+    left = wait_until_gone(
         survivors, KILL_TIMEOUT_SECONDS if killed else 0.0, clock, sleep
     )
     return TreeOutcome(

@@ -106,7 +106,7 @@ in the current build. Owners are named, not implied.
 - **Detail:** `applog.py:55` passes `0o600` to `os.open(..., O_CREAT)`, which
   applies only on creation. `_require_private_regular_file` checks type, link
   count and owner but not mode; a pre-created `0644` log stays `0644`.
-- **Why deferred:** `_prepare_state_dir` re-`fchmod`s the containing directory
+- **Why deferred:** `prepare_state_dir` re-`fchmod`s the containing directory
   to `0700` every run, so the file is unreachable by other users regardless.
   It matters only if the log is copied out or `XDG_STATE_HOME` is pointed at a
   shared location, neither of which the current build does.
@@ -984,7 +984,7 @@ the phase that owns the code. Owners are named, not implied.
   owned by them, is not group/other-writable, and passes cleanly. ADR-0003's
   stated refusal is "a file any other local account can rewrite", which this
   does not achieve. Compounding it, the same name is resolved three separate
-  times — `os.stat` (`:290`), `os.open` in `_launcher_bytes` (`:336`), and the
+  times — `os.stat` (`:290`), `os.open` in `bounded_regular_bytes` (`:336`), and the
   kernel at `Popen` (`:559`) — so even a correct check is not the thing executed
   (CWE-367).
 - **Why deferred:** the TOCTOU half needs `fexecve` or `/proc/self/fd/<n>`
@@ -1009,7 +1009,7 @@ the phase that owns the code. Owners are named, not implied.
   caller; fixing it now would be untestable through any real path
 - **Will be addressed in:** LWSM-1136 (fix both in the same pass)
 - **Logged:** 2026-08-15
-- **RESOLVED (re-triaged 2026-09-28)**: the backup opens through `_open_private_regular` (496638c, LWSM-1229).
+- **RESOLVED (re-triaged 2026-09-28)**: the backup opens through `open_private_regular` (496638c, LWSM-1229).
 
 ## known-issue-039 — The process group is enumerated once and never re-enumerated
 

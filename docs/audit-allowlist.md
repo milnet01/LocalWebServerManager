@@ -194,7 +194,7 @@ Do not delete revoked entries — the history is the value.
 - **Tool / rule:** `semgrep` —
   `python.lang.security.audit.insecure-file-permissions.insecure-file-permissions`
 - **Location:** `src/lwsm/applog.py`, the `os.fchmod(fd, 0o700)` call in
-  `_prepare_state_dir`
+  `prepare_state_dir`
 - **Why this is a false positive:** the rule's message is wrong on its own
   terms here. It calls `0o700` "widely permissive" and recommends `0o644`
   as "a good default" — but `0o644` is world-**readable**, strictly more

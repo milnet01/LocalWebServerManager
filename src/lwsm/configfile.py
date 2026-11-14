@@ -353,7 +353,7 @@ def prepare_config_dir(directory: Path) -> list[Path]:
 
     Each component explicitly, because `mkdir(parents=True, mode=0o700)` applies
     the mode to the **leaf only** and leaves everything it created at the umask
-    default — the defect `applog._prepare_state_dir` records having measured at
+    default — the defect `applog.prepare_state_dir` records having measured at
     0o755. Unlike that function this one does **not** re-chmod a directory that
     already exists: § 4.3 step 0 says create it if absent, and silently
     tightening a directory the user already made is a change nobody asked for.

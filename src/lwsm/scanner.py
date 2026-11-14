@@ -166,12 +166,14 @@ class ScanResult:
     skipped: tuple[str, ...]
     timed_out: bool  # the budget expired; `projects` is partial
 
-    # Roots `os.scandir` refused. A separate field rather than a reading of
+    # Roots `os.scandir` refused, and roots listed only in part (more than
+    # `MAX_ROOT_ENTRIES` entries). A separate field rather than a reading of
     # `skipped`, because those are two different kinds of thing (LWSM-1131
     # § 4.3): a per-entry skip — "is not a directory", "no launcher matched" —
     # means the scanner LOOKED at something and rejected it, which is evidence.
-    # A root that could not be listed means an unknown number of projects were
-    # never seen at all, and only that may suppress the merge's *missing* check.
+    # A root that could not be listed, wholly or in part, means an unknown
+    # number of projects were never seen at all, and only that may suppress the
+    # merge's *missing* check.
     #
     # `skipped` is `tuple[str, ...]`, so one stray file in a scan root makes it
     # non-empty: a merge reading it as a blanket signal would never flag anything
@@ -744,6 +746,10 @@ def _scan_source(
     each read: a file read within the budget was then matched outside it
     (LWSM-1463). It is required so a new caller has to choose; `None` is for
     a value that is not a file — one unit property, one `scripts` entry.
+
+    `strip=False` is for a value that is already one bare field, such as a
+    unit's `ExecStart`: it skips both the comment stripping and, for a `.py`
+    name, the docstring blanking.
     """
     if strip and name.endswith(".py"):
         lines = _without_docstrings(lines)
@@ -856,9 +862,13 @@ _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def _accept_hop(
-    token: str, root: Path, launcher: Path, base: Path | None = None
+    token: str, root: Path, importer: Path, base: Path | None = None
 ) -> tuple[Path | None, str | None]:
     """§ 4.5's six constraints, on a path.
+
+    `importer` is the file the token was read from: the launcher for an
+    invocation hop, the file whose imports are being walked for an import hop.
+    A token that resolves to it is refused.
 
     `token` is resolved against `base`, the project root when omitted; every
     constraint is still judged against `root`. An import passes the importing
@@ -897,7 +907,7 @@ def _accept_hop(
         return None, f"hop target {_quoted(token)} is under an excluded directory"
     if len(parts) > MAX_HOP_DEPTH:
         return None, f"hop target {_quoted(token)} is more than {MAX_HOP_DEPTH} deep"
-    if target == launcher:
+    if target == importer:
         return None, f"hop target {_quoted(token)} is the launcher itself"
     if written.is_symlink():
         # Constraints 1-5 all pass for an in-project symlink whose target is
@@ -905,6 +915,32 @@ def _accept_hop(
         # rejection with no reason attached to the thing that caused it.
         return None, f"hop target {_quoted(token)} is a symlink"
     return target, None
+
+
+def _accept_hop_contained(
+    token: str, root: Path, importer: Path, base: Path | None = None
+) -> tuple[Path | None, str | None]:
+    """`_accept_hop`, with an `OSError` turned into a refusal.
+
+    Contained at the HOP, which is the unit, and deliberately not at the
+    `is_symlink` inside it — `Path.exists` / `is_symlink` / `is_file` re-raise
+    EACCES and ENAMETOOLONG on 3.13, and patching each call site is the
+    fifth-guard-on-a-fifth-call-site this project has already paid for four
+    times.
+
+    Uncontained it reached `scan()`'s per-candidate handler, which dropped the
+    WHOLE PROJECT: measured, a `sub/` directory at 0o000 took a project whose
+    own directory and launcher are both perfectly readable out of the list
+    entirely (LWSM-1221, review-code 2026-10-01 L4-M1). Losing the project is
+    out of all proportion to one unreadable file that the port merely might
+    have been in, so the hop is skipped and the port stays unknown.
+    """
+    try:
+        return _accept_hop(token, root, importer, base)
+    except OSError as exc:
+        return None, (
+            f"hop target {_quoted(token)} cannot be examined ({exc.strerror or exc})"
+        )
 
 
 # LWSM-1155 — the same one hop, taken along an IMPORT rather than an
@@ -984,12 +1020,15 @@ def _import_specifiers(line: str, suffix: str) -> list[str]:
 
 def _import_hop_port(
     candidate: Path,
-    launcher: Path,
+    importer: Path,
     lines: Sequence[str],
     deadline: Deadline,
     note: Callable[[str], None],
 ) -> PortFinding | None:
     """§ 4.5's one hop, taken along an import.
+
+    `importer` is the file whose `lines` are walked: the launcher itself, or
+    the file a shell launcher's invocation hop named.
 
     Reached two ways: from launcher rules 3 and 4, where the launcher IS the
     program and there is no `exec` line to read; and from the shell rule's
@@ -1016,7 +1055,7 @@ def _import_hop_port(
             note(reason)
 
     try:
-        return _walk_imports(candidate, launcher, lines, deadline, hop_note)
+        return _walk_imports(candidate, importer, lines, deadline, hop_note)
     finally:
         if held > 1:
             note(f"{_quoted(candidate.name)}: {held - 1} more import hops refused")
@@ -1024,7 +1063,7 @@ def _import_hop_port(
 
 def _walk_imports(
     candidate: Path,
-    launcher: Path,
+    importer: Path,
     lines: Sequence[str],
     deadline: Deadline,
     note: Callable[[str], None],
@@ -1033,7 +1072,7 @@ def _walk_imports(
     seen: set[Path] = set()
     hops = 0
     for line in lines:
-        for specifier in _import_specifiers(strip_comment(line), launcher.suffix):
+        for specifier in _import_specifiers(strip_comment(line), importer.suffix):
             # Two different budgets, and they end the walk in two DIFFERENT
             # ways — which is the whole of LWSM-1220. `MAX_IMPORT_HOPS` bounds
             # the files actually READ, which is the expensive half; the
@@ -1064,29 +1103,9 @@ def _walk_imports(
                     f"after {MAX_IMPORT_HOPS} files"
                 )
                 return None
-            try:
-                target, reason = _accept_hop(
-                    specifier, candidate, launcher, launcher.parent
-                )
-            except OSError as exc:
-                # Contained at the HOP, which is the unit, and deliberately
-                # not at the `is_symlink` inside it — `Path.exists` /
-                # `is_symlink` / `is_file` re-raise EACCES and ENAMETOOLONG on
-                # 3.13, and patching each call site is the fifth-guard-on-a-
-                # fifth-call-site this project has already paid for four times.
-                #
-                # It reached `scan()`'s per-candidate handler, which dropped
-                # the WHOLE PROJECT: measured, a `sub/` directory at 0o000 took
-                # a project whose own directory and launcher are both perfectly
-                # readable out of the list entirely (LWSM-1221). Losing the
-                # project is out of all proportion to one unreadable file that
-                # the port merely might have been in, so the hop is skipped and
-                # the port stays unknown.
-                note(
-                    f"hop target {_quoted(specifier)} cannot be examined "
-                    f"({exc.strerror or exc})"
-                )
-                continue
+            target, reason = _accept_hop_contained(
+                specifier, candidate, importer, importer.parent
+            )
             if reason is not None:
                 note(reason)
                 continue
@@ -1170,18 +1189,9 @@ def _hop_target(
                 # rather than listed with a port nobody finished looking for
                 # (LWSM-1220, `_BudgetExpired`).
                 raise _BudgetExpired
-            try:
-                target, reason = _accept_hop(token, root, launcher)
-            except OSError as exc:
-                # `_walk_imports`' containment, for its reason (LWSM-1221):
-                # `is_symlink` re-raises EACCES and ENAMETOOLONG on 3.13, and
-                # uncontained it dropped the whole project (L4-M1). A refusal,
-                # so the token before it is still tried.
-                target = None
-                reason = (
-                    f"hop target {_quoted(token)} cannot be examined "
-                    f"({exc.strerror or exc})"
-                )
+            # A refusal on an OSError too, so the token before it is still
+            # tried.
+            target, reason = _accept_hop_contained(token, root, launcher)
             if reason is not None:
                 # Step 4 takes the last token that satisfies the six
                 # constraints, which is not the same as *the last token*: a
@@ -1538,14 +1548,21 @@ def _systemd_port(props: dict[str, str], unit: str) -> PortFinding | None:
     return None
 
 
-def _read_alternate(
+def _is_present(path: Path) -> bool:
+    """Whether something is at `path`, a dangling symlink included: that one is
+    a refused file to report, not an absent one to skip. Raises `OSError`."""
+    return path.is_symlink() or path.exists()
+
+
+def _read_project_file(
     candidate: Path,
     filename: str,
     quoted: str,
     deadline: Deadline,
     note: Callable[[str], None],
 ) -> list[str] | None:
-    """One alternate of a launcher rule, or `None` with a reason recorded.
+    """One named file of a project — a launcher alternate, `.env`, a compose
+    file or the README — as lines, or `None` with a reason recorded.
 
     **A refused launcher file is not a match, and the rules continue.** Stopping
     at the first refused file would mean anyone able to drop a symlink named
@@ -1557,7 +1574,7 @@ def _read_alternate(
         # Inside the `try`: on 3.13 both checks re-raise EACCES and
         # ENAMETOOLONG, and outside it that error cost the whole project
         # rather than this file (LWSM-1464).
-        if not path.is_symlink() and not path.exists():
+        if not _is_present(path):
             return None
         return _read_lines(path, deadline, note)
     except OSError as exc:
@@ -1569,7 +1586,7 @@ def _match_shell(
     candidate: Path, quoted: str, deadline: Deadline, note: Callable[[str], None]
 ) -> _Launcher | None:
     for filename in ("start.sh", "run.sh"):
-        lines = _read_alternate(candidate, filename, quoted, deadline, note)
+        lines = _read_project_file(candidate, filename, quoted, deadline, note)
         if lines is None:
             continue
         path = candidate / filename
@@ -1661,8 +1678,8 @@ def _match_node_package(
     """
     path = candidate / "package.json"
     try:
-        # Inside the `try` for `_read_alternate`'s reason (LWSM-1464).
-        if not path.is_symlink() and not path.exists():
+        # Inside the `try` for `_read_project_file`'s reason (LWSM-1464).
+        if not _is_present(path):
             return None
         raw = _read_bytes(path)
     except OSError as exc:
@@ -1782,7 +1799,7 @@ def _match_named_file(
     three and so goes last.
     """
     for filename in alternates:
-        lines = _read_alternate(candidate, filename, quoted, deadline, note)
+        lines = _read_project_file(candidate, filename, quoted, deadline, note)
         if lines is None:
             continue
         port = _scan_source(filename, lines, deadline=deadline)
@@ -1900,7 +1917,7 @@ def _settle_port(
     def read(
         filename: str, parse: Callable[[Sequence[str], str], PortFinding | None]
     ) -> bool:
-        lines = _read_alternate(candidate, filename, quoted, deadline, note)
+        lines = _read_project_file(candidate, filename, quoted, deadline, note)
         if lines is None:
             return False
         finding = parse(lines, filename)

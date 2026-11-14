@@ -426,9 +426,8 @@ built under § Review cadence's build-first default:
   `ports.py`; stop needs a worker thread and a plain
   `ThreadPoolExecutor` is enough for one. `Supervisor`,
   `ManagedProcess`, `StopOutcome`, `build_child_env`, `scope_prefix` (each server in its own
-  systemd scope, ADR-0003), `validate_launcher`, `launcher_fingerprint`,
-  and the refusals `LauncherRefused` / `LauncherUntrusted` /
-  `PortAlreadyBound` / `AlreadyRunning`. **Stop signals the process
+  systemd scope, ADR-0003), and the refusals `PortAlreadyBound` /
+  `AlreadyRunning`; the trust gate it calls is `trust.py`. **Stop signals the process
   *group*, not the descendants** — a launcher that double-forks
   leaves a server reparented to init, which `Process.children()`
   can no longer see while `start_new_session=True` guarantees it is
@@ -439,7 +438,7 @@ built under § Review cadence's build-first default:
   duplicate of our descriptor and a rename would leave it writing
   into an unlinked inode — which is also why the log is opened
   `O_RDWR` rather than `O_WRONLY`. **Which file an argv names is
-  decided by POSIX, not by path arithmetic**: `_launcher_path`
+  decided by POSIX, not by path arithmetic**: `trust.launcher_path`
   returns the script for `./start.sh`, `python3 serve.py` and
   `node serve.mjs`, and `None` for `npm run <script>`, whose
   untrusted content is a string inside `package.json` that
@@ -464,6 +463,15 @@ built under § Review cadence's build-first default:
   in the same `finally` shape and for the same reason. It gates `start()`
   alone: a second `stop()` still finds nothing and returns an empty outcome,
   which is what makes stop() idempotent.
+- **`src/lwsm/trust.py`** — core, no Qt at all. The trust gate, apart from the
+  module that spawns: `validate_launcher` (the refusals no confirmation can
+  lift), `launcher_fingerprint` and the `npm run` material it hashes
+  (`npm_material`, `npm_shown`), `launcher_path` (which file an argv names),
+  `bounded_regular_bytes` (the one capped read of a launcher, `package.json`
+  or `.npmrc`), and the refusals `LauncherRefused` / `LauncherUntrusted`.
+  Their root, `SupervisorError`, is defined here so `supervisor.py` can import
+  it and this module need not import `supervisor.py`; `supervisor.py` still
+  names it. `stores.TrustStore` keeps the confirmations.
 - **`src/lwsm/stores.py`** — core, no Qt at all. The two small files the
   supervisor keeps: `TrustStore` (`trust.json`, the launchers the user
   confirmed; LWSM-1046) and `StartedStore` with `StartedEntry`
@@ -560,7 +568,7 @@ Added later, both core with no Qt at all:
   names (LWSM-1444, moved here from `service.py` by LWSM-1493). `looks_like`
   resolves symlinks on both sides, the holder's paths and the project's, since
   the kernel reports real paths. Its stop
-  polls through `supervisor._wait_until_gone`, the managed stop's loop.
+  polls through `supervisor.wait_until_gone`, the managed stop's loop.
 
 Added for LWSM-1015, the live log panel. **No spec** — build-first, per
 § Review cadence; `docs/design.md` § Components carries the fold-back:
@@ -572,7 +580,7 @@ Added for LWSM-1015, the live log panel. **No spec** — build-first, per
   `LogFeed` turns them into a signal connected QUEUED, so the ring is touched
   on the GUI thread alone and needs no lock (`§ O2`). Bytes, because a read can
   end inside a multi-byte character and the ring's incremental decoder joins
-  it. `FileFollower` opens through `applog._open_private_regular` (no symlink,
+  it. `FileFollower` opens through `applog.open_private_regular` (no symlink,
   hard link, FIFO or foreign owner) and treats a size below its offset as
   `rotate_if_needed`'s in-place truncate. `JournalFollower` runs
   `journalctl --user --unit=<unit>` in its own session and stops it on

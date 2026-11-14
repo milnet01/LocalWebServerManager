@@ -437,7 +437,7 @@ def test_every_component_of_the_state_directory_is_created_owner_only(
 ) -> None:
     """`mkdir(parents=True, mode=0o700)` applies the mode to the LEAF only and
     leaves every parent it created at the umask default — measured 0o755 by
-    `applog._prepare_state_dir`, and again here on 2026-08-25. The file this
+    `applog.prepare_state_dir`, and again here on 2026-08-25. The file this
     directory holds is one the compositor executes, so a parent another local
     account can traverse and unlink from is the whole exposure."""
     state_dir = tmp_path / "state" / "lwsm" / "place"

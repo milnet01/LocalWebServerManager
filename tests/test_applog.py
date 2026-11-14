@@ -271,7 +271,7 @@ def test_refuses_a_plain_file_where_the_state_dir_should_be(tmp_path: Path):
 
     Distinct from a symlinked state directory, which IS supported — see
     `test_idempotent_through_a_symlinked_state_dir` and the reasoning in
-    `_prepare_state_dir`. This pins the half of the 2026-08-06 finding that
+    `prepare_state_dir`. This pins the half of the 2026-08-06 finding that
     survived calibration: `O_DIRECTORY` must reject a non-directory rather than
     letting the failure surface later as a confusing open error on `app.log`.
     """
@@ -524,7 +524,7 @@ def test_preparing_a_state_dir_survives_a_racing_first_run(
 ) -> None:
     """Two first-run copies both build the missing list; the loser raised.
 
-    `_prepare_state_dir` walks up collecting components that do not exist, then
+    `prepare_state_dir` walks up collecting components that do not exist, then
     creates each one. Between the check and the create, another copy of the app
     can create the same component — and `mkdir(mode=0o700)` without `exist_ok`
     raised `FileExistsError` straight out of startup (LWSM-1271).
@@ -545,7 +545,7 @@ def test_preparing_a_state_dir_survives_a_racing_first_run(
 
     monkeypatch.setattr(Path, "mkdir", racing_mkdir)
 
-    applog._prepare_state_dir(target)
+    applog.prepare_state_dir(target)
 
     assert raced["done"], "the race was never triggered, so nothing was tested"
     assert target.is_dir()

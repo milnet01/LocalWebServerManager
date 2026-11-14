@@ -39,20 +39,22 @@ from lwsm.ports import PortProbe, PortSnapshot
 from lwsm.stores import StartedEntry, StartedStore, TrustStore
 from lwsm.supervisor import (
     ENV_ALLOWLIST,
-    MAX_LAUNCHER_BYTES,
     MAX_LOG_BYTES,
     ROTATION_SUFFIX,
     AlreadyRunning,
-    LauncherRefused,
-    LauncherUntrusted,
     ManagedProcess,
     PortAlreadyBound,
     StopOutcome,
     Supervisor,
-    _launcher_path,
     build_child_env,
-    launcher_fingerprint,
     scope_prefix,
+)
+from lwsm.trust import (
+    MAX_LAUNCHER_BYTES,
+    LauncherRefused,
+    LauncherUntrusted,
+    launcher_fingerprint,
+    launcher_path,
     validate_launcher,
 )
 
@@ -339,8 +341,8 @@ def test_start_refuses_a_launcher_symlinked_out_of_the_project(
     """The refusal above has to be reachable from `start()`, not only by hand.
 
     `validate_launcher` had this rule and was never called for the escaping
-    case: `_contained` resolved the symlink, saw it leave the project, and
-    returned `None` — which `_launcher_path` reports as "this argv names no
+    case: `_as_written` resolved the symlink, saw it leave the project, and
+    returned `None` — which `launcher_path` reports as "this argv names no
     file of ours", the same answer it gives `npm run dev`. So the launcher was
     never validated and the fingerprint hashed argv alone (LWSM-1162).
 
@@ -504,12 +506,12 @@ def test_an_oversized_manifest_does_not_fingerprint_as_its_prefix(
         ("env", "sh", "start.sh"),
         ("npm", "start"),
         # Three elements beginning `npm`, but the subcommand is not `run`.
-        # `_npm_material` reads argv[2] as a script name, so without the
+        # `npm_material` reads argv[2] as a script name, so without the
         # subcommand check this would be vouched for by the hash of an
         # unrelated `scripts` entry while doing something else entirely.
         ("npm", "config", "list"),
         # `npm run <script>` is the supported shape; another package manager
-        # spelling it the same way is not, because `_npm_material` reads the
+        # spelling it the same way is not, because `npm_material` reads the
         # script out of `package.json` under npm's rules alone.
         ("yarn", "run", "dev"),
     ],
@@ -519,7 +521,7 @@ def test_start_refuses_an_argv_shape_it_cannot_check(
 ) -> None:
     """A shape that names no launcher skips every refusal (LWSM-1228).
 
-    `_launcher_path` answers `None` for anything that is neither one of the
+    `launcher_path` answers `None` for anything that is neither one of the
     four shapes the scanner emits nor `npm run <script>`, and `start()` read
     that as "nothing to check". So a launcher this very file refuses when it is
     named directly ran unchecked when it was named as an argument, and the
@@ -695,7 +697,7 @@ def test_a_symlink_on_the_written_path_in_a_writable_directory_is_refused(
     (via / "bin").symlink_to("../scripts")
     via.chmod(0o775)
     try:
-        launcher = _launcher_path(project, ("./via/bin/start.sh",))
+        launcher = launcher_path(project, ("./via/bin/start.sh",))
         assert launcher is not None
         with pytest.raises(LauncherRefused) as caught:
             validate_launcher(project, launcher)
@@ -714,7 +716,7 @@ def test_a_symlink_on_the_written_path_in_a_safe_directory_is_allowed(
     (project / "via").mkdir(mode=0o755)
     (project / "via" / "bin").symlink_to("../scripts")
 
-    launcher = _launcher_path(project, ("./via/bin/start.sh",))
+    launcher = launcher_path(project, ("./via/bin/start.sh",))
     assert launcher is not None
     assert validate_launcher(project, launcher) == target.resolve()
 
@@ -2081,7 +2083,7 @@ def test_every_launcher_kind_the_scanner_emits_can_start(
 ) -> None:
     """All four kinds, because three of them could not start at all.
 
-    `_launcher_path` built `<project>/npm` for a PATH-resolved command:
+    `launcher_path` built `<project>/npm` for a PATH-resolved command:
     `.resolve()` is non-strict so the path came back unchanged, it *is* inside
     the project, and `validate_launcher`'s `os.stat` then raised ENOENT. The
     user saw `cannot read <project>/npm` — a message blaming their project for
@@ -2102,7 +2104,7 @@ def test_a_path_resolved_command_names_no_file_inside_the_project(
     never the working directory. `<project>/npm` is not a path that means
     anything, and constructing it is what refused three launcher kinds.
     """
-    assert _launcher_path(project, ("npm", "run", "dev")) is None
+    assert launcher_path(project, ("npm", "run", "dev")) is None
 
 
 @pytest.mark.parametrize(
@@ -2118,7 +2120,7 @@ def test_an_interpreter_argv_names_its_script_as_the_launcher(
     """
     (project / filename).write_text("", encoding="utf-8")
 
-    launcher = _launcher_path(project, argv)
+    launcher = launcher_path(project, argv)
     assert launcher is not None
     assert launcher.resolve() == (project / filename).resolve()
 
@@ -2136,12 +2138,12 @@ def test_npm_never_names_a_launcher_file_whatever_its_argv_length(
     """
     (project / "run").write_text("", encoding="utf-8")
 
-    assert _launcher_path(project, argv) is None
+    assert launcher_path(project, argv) is None
 
 
 def test_a_relative_launcher_still_resolves_inside_the_project(project: Path) -> None:
     """The one kind that already worked, pinned so the fix cannot regress it."""
-    launcher = _launcher_path(project, ("./start.sh",))
+    launcher = launcher_path(project, ("./start.sh",))
     assert launcher is not None
     assert launcher.resolve() == (project / "start.sh").resolve()
 
@@ -2160,7 +2162,7 @@ def test_an_interpreter_script_outside_the_project_is_still_the_launcher(
     `start()` and is the test this one could never be.
     """
     escape = (project / ".." / "escape.py").resolve()
-    launcher = _launcher_path(project, ("python3", "../escape.py"))
+    launcher = launcher_path(project, ("python3", "../escape.py"))
     assert launcher is not None
     assert launcher.resolve() == escape
 
@@ -2265,7 +2267,7 @@ def test_a_project_npmrc_re_arms_the_trust_gate(project: Path) -> None:
 def test_a_symlinked_package_json_still_fingerprints_its_scripts(
     project: Path,
 ) -> None:
-    """LWSM-1364. `_launcher_bytes` opens with `O_NOFOLLOW`, so a `package.json`
+    """LWSM-1364. `bounded_regular_bytes` opens with `O_NOFOLLOW`, so a `package.json`
     that is a symlink read as missing and fingerprinted as the constant
     `nofile` marker: confirmed once, its target's scripts then changed freely.
     """

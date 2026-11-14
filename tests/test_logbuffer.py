@@ -280,7 +280,7 @@ def test_the_file_follower_reads_only_the_tail_of_a_large_file(tmp_path) -> None
 
 def test_the_file_follower_never_follows_a_symlink(tmp_path) -> None:
     """The log directory is ours, but a symlink planted at a log's name would
-    show any file this user can read in the panel. `_open_private_regular`
+    show any file this user can read in the panel. `open_private_regular`
     refuses it (LWSM-1049: logs open with `O_NOFOLLOW`)."""
     secret = tmp_path / "secret.txt"
     secret.write_text("password=hunter2\n")

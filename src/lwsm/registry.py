@@ -1,7 +1,10 @@
 """The project list, read from a hand-editable JSON file.
 
 Core module — may import QtCore, never QtWidgets (`docs/standards/coding-overrides.md
-§ O1`). Contract: `docs/specs/LWSM-1005-vertical-slice.md § 4.1`.
+§ O1`). Contracts: `docs/specs/LWSM-1007-registry-persistence.md` (the file, its
+loader and writer), `docs/specs/LWSM-1131-rescan-merge.md` (the rescan merge),
+`docs/specs/LWSM-1385-port-provenance.md` (port provenance) and
+`docs/specs/LWSM-1038-confirmed-ports.md` (confirmed ports).
 
 The file is hand-editable and therefore attacker-editable (ADR-0007's
 reasoning about settings.json, applied here), so every field is type-checked
@@ -322,7 +325,12 @@ def with_port_override(record: ProjectRecord, port: int | None) -> ProjectRecord
 
 @dataclass(frozen=True)
 class LoadResult:
-    """What `load_projects` returns. Replaces the `(records, reasons)` tuple.
+    """What `load_projects` returns, and the licence `save_projects` and
+    `export_profile` check before they write.
+
+    The load is the licence: `path`, `rows_refused` and `unknown` say whether a
+    write over THIS file may go ahead and what it must hand back. A result built
+    by hand binds no file and licenses any.
 
     `rows_refused` cannot be derived from `reasons`: a **field** refusal appends
     a reason and keeps the row, a **row** refusal drops the object. The write
@@ -446,13 +454,8 @@ def _string_or_reason(
 
 def _text_or_reason(value: object, field: str, name: str) -> tuple[str, str | None]:
     """A `str` field defaulting to `""` — `notes`."""
-    if value is None:
-        return "", None
-    if not isinstance(value, str):
-        return "", f"{name}: {field} {quoted(value)} is not a string"
-    if not is_writable_text(value):
-        return "", f"{name}: {field} {quoted(value)} holds an unpaired surrogate"
-    return value, None
+    text, reason = _string_or_reason(value, field, name)
+    return ("" if text is None else text), reason
 
 
 def _bool_or_reason(value: object, field: str, name: str) -> tuple[bool, str | None]:
@@ -1647,8 +1650,9 @@ def _detected_half_applied(
     Derived from the set, not listed by hand (known-issue-044, LWSM-1322):
     listed, a fifth detected field would be classified correctly, keep INV-1
     green, and never be refreshed by a rescan. The port with its provenance
-    and its confirmed port, and `argv`'s tuple, are the only per-field
-    knowledge.
+    and its confirmed port, `argv`'s tuple, and the launch fields (`kind`,
+    `argv`, `unit`) held together when `units_seen` is False, are the only
+    per-field knowledge.
 
     A `None` from a scan that read every file cleanly is the exception: that is
     an observation that the project declares no port, so it clears the stored
@@ -1703,6 +1707,26 @@ def _without_provenance(record: ProjectRecord) -> ProjectRecord:
     return replace(record, port_from=None, port_conflicts=())
 
 
+def _merge_tally() -> tuple[
+    dict[str, int], BoundedReasons, Callable[[str], None], Callable[[str, str], None]
+]:
+    """The outcome counts, the bounded reason list, and its two writers.
+
+    `note` records a reason; `flag(outcome, reason)` counts the outcome and
+    records the reason. Shared by `merge()` and `merge_imported()`, which bound
+    their reasons alike (LWSM-1007 INV-6, LWSM-1361).
+    """
+    counts: dict[str, int] = dict.fromkeys(OUTCOMES, 0)
+    bounded = BoundedReasons(MAX_REASONS, "and {count} more merge notes, not shown")
+    note = bounded.note
+
+    def flag(outcome: str, reason: str) -> None:
+        counts[outcome] += 1
+        note(reason)
+
+    return counts, bounded, note, flag
+
+
 def merge(
     stored: Sequence[ProjectRecord],
     scan: ScanLike,
@@ -1726,14 +1750,7 @@ def merge(
     timestamp, leaving the duplicate-port tie-break with nothing to compare on
     exactly the records the app made itself.
     """
-    counts: dict[str, int] = dict.fromkeys(OUTCOMES, 0)
-    # `load_projects`' bound, on a second surface (INV-6).
-    bounded = BoundedReasons(MAX_REASONS, "and {count} more merge notes, not shown")
-    note = bounded.note
-
-    def flag(outcome: str, reason: str) -> None:
-        counts[outcome] += 1
-        note(reason)
+    counts, bounded, note, flag = _merge_tally()
 
     resolved_roots: list[Path] = []
     for root in roots:
@@ -2197,15 +2214,7 @@ def merge_imported(
     not news, and a project stored here but absent from the profile is simply
     kept — an import is a merge, never a replacement.
     """
-    counts: dict[str, int] = dict.fromkeys(OUTCOMES, 0)
-    # `load_projects`' bound, on a third surface (LWSM-1007 INV-6). The merge's
-    # own tail, since an import is a merge (LWSM-1361).
-    bounded = BoundedReasons(MAX_REASONS, "and {count} more merge notes, not shown")
-    note = bounded.note
-
-    def flag(outcome: str, reason: str) -> None:
-        counts[outcome] += 1
-        note(reason)
+    counts, bounded, note, flag = _merge_tally()
 
     records = list(stored)
 

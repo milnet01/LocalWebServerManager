@@ -364,7 +364,7 @@ be entered, never raced for.
 
 **Trap: a fixture set that only exercises one branch of a four-way split.**
 Every `start()` test in `test_supervisor.py` used `("./start.sh",)`, so the one
-launcher kind that works was the only one tested — and `_launcher_path` refusing
+launcher kind that works was the only one tested — and `launcher_path` refusing
 `npm`, `python3` and `node` outright survived 494 green tests and shipped as
 "success criterion 2 closed end to end" (found 2026-08-15, `FP07`/LWSM-1132).
 This is the **one-row-fixture trap one layer up**: there, one row could not see a
