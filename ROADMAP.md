@@ -15696,6 +15696,11 @@ decided, is the last packaging item (added 2026-11-11).
   printed line into src/lwsm/update_key.py; until then nothing is
   offered. (2) The spec §7 manual relaunch recipe on the first two
   signed releases.
+  2026-11-14: the user generated the signing key; its public half is
+  committed in `src/lwsm/update_key.py` and `sign-release.py check-key`
+  passes. Still owed before this flips shipped: the first signed
+  release, then spec §7's manual relaunch recipe, which needs a second
+  signed release to update to.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.

@@ -17,7 +17,7 @@ import binascii
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 # The raw 32-byte Ed25519 public key, base64.
-RELEASE_PUBLIC_KEY_B64 = ""
+RELEASE_PUBLIC_KEY_B64 = "iF0Y5stoYAQysOXPTvCphJ+EMaW3V+lcql3ympcjuxo="
 
 
 def public_key() -> Ed25519PublicKey | None:
