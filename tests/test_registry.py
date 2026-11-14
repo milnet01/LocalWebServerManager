@@ -3533,6 +3533,103 @@ def test_a_refused_save_sets_nothing_aside(tmp_path: Path) -> None:
     assert path.read_bytes() == _HAND_EDIT
 
 
+def test_a_save_that_will_refuse_the_target_sets_nothing_aside(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1525 (1). The copy was made before `write_atomically` refused a
+    symlinked target, so the refused save left a `.edited-<time>` file that
+    each retry added to.
+
+    Dies on removing the `refuse_existing_target` call before the copy.
+    """
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    real = tmp_path / "real.json"
+    path.rename(real)
+    path.symlink_to(real)
+    real.write_bytes(_HAND_EDIT)
+
+    for _ in range(2):
+        with pytest.raises(RegistryError, match="symlink"):
+            save_projects(path, [], load=loaded)
+
+    assert _set_aside(path) == []
+    assert path.is_symlink()
+
+
+def test_a_save_refused_after_the_set_aside_names_the_copy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """LWSM-1525 (1). The copy exists, so the refusal says where, as
+    `RegistryNotDurable` does.
+
+    Dies on dropping the set-aside notice from the `ConfigFileError` branch.
+    """
+    from lwsm.configfile import ConfigFileError
+
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    path.write_bytes(_HAND_EDIT)
+    real = registry.write_atomically
+
+    def full_for_the_save(target, data, **kwargs):
+        if kwargs.get("prefix") == ".projects-":
+            raise ConfigFileError(f"{target}: No space left on device")
+        real(target, data, **kwargs)
+
+    monkeypatch.setattr(registry, "write_atomically", full_for_the_save)
+
+    with pytest.raises(RegistryError) as caught:
+        save_projects(path, [], load=loaded)
+
+    (aside,) = _set_aside(path)
+    assert str(aside) in str(caught.value)
+    assert aside.read_bytes() == _HAND_EDIT
+
+
+def test_a_restore_whose_backup_will_not_load_puts_the_damaged_file_back(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1525 (2). A backup that reads but does not load escaped after the
+    damaged file was set aside and the backup written over it, against the
+    docstring's promise.
+
+    Dies on loading the written file outside the rollback.
+    """
+    path, _raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    registry.backup_path(path).write_text("{ also not json", encoding="utf-8")
+    path.write_text("{ this is not json", encoding="utf-8")
+
+    with pytest.raises(RegistryError, match="could not be restored"):
+        registry.restore_backup(path)
+
+    assert path.read_text(encoding="utf-8") == "{ this is not json"
+    assert not list(tmp_path.glob("projects.json.damaged-*"))
+    assert registry.backup_path(path).read_text(encoding="utf-8") == "{ also not json"
+
+
+def test_a_restore_refuses_a_symlinked_projects_file(tmp_path: Path) -> None:
+    """LWSM-1525 (3). `path.exists()` follows the link, so the symlink was
+    renamed aside and a regular file written in its place, which INV-4 forbids
+    a save to do.
+
+    Dies on removing the `refuse_existing_target` call from `restore_backup`.
+    """
+    path, _raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    real = tmp_path / "real.json"
+    real.write_text("{ this is not json", encoding="utf-8")
+    path.unlink()
+    path.symlink_to(real)
+
+    with pytest.raises(RegistryError, match="symlink"):
+        registry.restore_backup(path)
+
+    assert path.is_symlink()
+    assert not list(tmp_path.glob("projects.json.damaged-*"))
+
+
 def test_restoring_sets_the_damaged_file_aside_and_loads_the_backup(
     tmp_path: Path,
 ) -> None:
@@ -4153,3 +4250,49 @@ def test_changing_the_override_forgets_the_confirmed_port(override, confirmed) -
     assert changed == dataclasses.replace(
         stored, port_override=override, confirmed_port=confirmed
     ), "nothing but the two port fields"
+
+
+# --- LWSM-1525 (4): a merge never produces more than the writer will write ----
+
+
+def _crowd(root: Path, count: int) -> tuple[FakeProject, ...]:
+    return tuple(FakeProject(root / f"p{i}", f"p{i}") for i in range(count))
+
+
+def test_a_rescan_never_grows_the_list_past_the_record_cap(tmp_path: Path) -> None:
+    """`_encoded` refuses past `MAX_RECORDS`, and the window keeps the merged
+    list in memory even when its save fails, so every later save failed.
+
+    Dies on removing the cap check from the new-project loop in `merge`.
+    """
+    root = a_root(tmp_path)
+    # Found again and unchanged, so the report has room for the cap's note.
+    seen = tuple(
+        FakeProject(root / f"s{i}", f"s{i}") for i in range(registry.MAX_RECORDS - 1)
+    )
+    stored = [
+        ProjectRecord(path=p.path, name=p.name, kind=p.kind, argv=p.argv, added=stamp())
+        for p in seen
+    ]
+
+    result = registry.merge(stored, FakeScan(seen + _crowd(root, 3)), (root,), stamp)
+
+    assert len(result.records) == registry.MAX_RECORDS
+    assert any("not added" in reason and "full" in reason for reason in result.reasons)
+    assert not any(r.name == "p2" for r in result.records)
+
+
+def test_an_import_never_grows_the_list_past_the_record_cap(tmp_path: Path) -> None:
+    """Dies on removing the cap check from the appending branch of
+    `merge_imported`."""
+    stored = [
+        ProjectRecord(path=tmp_path / f"s{i}", name=f"s{i}")
+        for i in range(registry.MAX_RECORDS - 1)
+    ]
+    imported = [ProjectRecord(path=tmp_path / f"p{i}", name=f"p{i}") for i in range(3)]
+
+    result = registry.merge_imported(stored, imported)
+
+    assert len(result.records) == registry.MAX_RECORDS
+    assert any("not added" in reason and "full" in reason for reason in result.reasons)
+    assert result.counts[registry.NEW] == 1

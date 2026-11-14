@@ -38,6 +38,7 @@ from lwsm.configfile import (
     load_json_object,
     quoted,
     read_bounded,
+    refuse_existing_target,
     write_atomically,
 )
 
@@ -1200,6 +1201,12 @@ def save_projects(
     data = _encoded(path, records, load.unknown if isinstance(load, LoadResult) else ())
     if isinstance(load, LoadResult) and load.raw:
         _back_up(path, load.raw)
+    # Before the copy: a target the write will refuse (a symlink, a FIFO) would
+    # otherwise leave a copy behind on every attempt (LWSM-1525).
+    try:
+        refuse_existing_target(path)
+    except ConfigFileError as exc:
+        raise RegistryError(str(exc)) from exc
     # A first run read no file, so absent is its fingerprint and a file that
     # is there now was written by hand (LWSM-1495). A load built with no
     # digest at all has nothing to compare against.
@@ -1227,7 +1234,10 @@ def save_projects(
         # Converted rather than propagated: this function's contract, § 6 and
         # four tests all promise `RegistryError`, and `ConfigFileError` is its
         # base, so an `except RegistryError` would not catch it.
-        raise RegistryError(str(exc)) from exc
+        # The copy was made before the write failed, so the refusal says where
+        # it is (LWSM-1525), as the not-durable branch does.
+        kept = "" if set_aside is None else f"; {set_aside_notice(set_aside)}"
+        raise RegistryError(f"{exc}{kept}") from exc
     return set_aside
 
 
@@ -1380,6 +1390,10 @@ def restore_backup(path: Path) -> LoadResult:
         # Inside the handler: `exists()` raises on Python 3.13 where a name
         # cannot be checked, and this function promises `RegistryError`
         # (review-code 2026-10-08 L03-L2).
+        # A symlinked or non-regular `path` is refused here, not renamed away:
+        # `exists()` follows the link and the rename would then replace the
+        # user's indirection with a regular file (LWSM-1525, LWSM-1007 INV-4).
+        refuse_existing_target(path)
         aside = _unused_name(path, "damaged")
         if path.exists():
             path.rename(aside)
@@ -1404,7 +1418,31 @@ def restore_backup(path: Path) -> LoadResult:
             f"{quoted(str(path))}: the backup could not be restored "
             f"({quoted(str(exc))}){kept}"
         ) from exc
-    loaded = load_projects(path)
+    try:
+        loaded = load_projects(path)
+    except RegistryError as exc:
+        # The backup read but does not load: undo, as for a failed write, so
+        # the damaged file is where it was and the next launch offers the same
+        # backup again (LWSM-1525). `os.replace` puts it over the copy just
+        # written; a first-run `path` that held nothing is emptied again.
+        try:
+            if set_aside is not None:
+                os.replace(set_aside, path)
+            else:
+                path.unlink()
+        except OSError as back_exc:
+            kept = (
+                f"; the damaged file is kept as {quoted(str(set_aside))} "
+                f"({quoted(str(back_exc))})"
+                if set_aside is not None
+                else ""
+            )
+        else:
+            kept = ""
+        raise RegistryError(
+            f"{quoted(str(path))}: the backup could not be restored "
+            f"({quoted(str(exc))}){kept}"
+        ) from exc
     if not_durable:
         loaded = replace(
             loaded,
@@ -1800,6 +1838,15 @@ def merge(
             unit=project.unit,
             added=now(),
         )
+        if len(merged) >= MAX_RECORDS:
+            # The writer refuses past the cap, and the window keeps the merged
+            # list in memory even when its save fails, so growing past it
+            # failed every later save of the session (LWSM-1525).
+            note(
+                f"{quoted(project.name)}: not added, the project list is full "
+                f"({MAX_RECORDS} projects)"
+            )
+            continue
         if not _saveable(new):
             # The loader refuses such a row; adding it here instead failed every
             # save of the merged list, on every run while the directory existed
@@ -2198,6 +2245,13 @@ def merge_imported(
         if index is None:
             # Not on this machine. Appended with the profile's own `path`, not
             # its resolved form, for the reason a merge never rewrites one.
+            if len(records) >= MAX_RECORDS:
+                # As in `merge`: the writer refuses past the cap (LWSM-1525).
+                note(
+                    f"{quoted(record.name)}: not added, the project list is "
+                    f"full ({MAX_RECORDS} projects)"
+                )
+                continue
             owner[resolved] = len(records)
             # The USER half only. The profile's detected fields describe the
             # machine it came from, and this one has never scanned this path
