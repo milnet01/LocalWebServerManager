@@ -276,6 +276,24 @@ def test_kwin_on_bus_reads_the_bus_answer() -> None:
     assert not kwin_on_bus(no_bus)
 
 
+def test_kwin_on_bus_timing_out_is_not_asked_rather_than_no() -> None:
+    """LWSM-1532. The contrast read answers a timeout as None, \"not answered\",
+    and `kwin_on_bus` answered the same event False: a bus that did not reply
+    in time turned placement off for the session, where an unanswered portal
+    is asked again. Both now say None, and the window asks once more.
+    """
+
+    def slow(argv, **kw):
+        raise subprocess.TimeoutExpired(cmd="dbus-send", timeout=1.0)
+
+    assert kwin_on_bus(slow) is None
+
+    def broken(argv, **kw):
+        raise FileNotFoundError("dbus-send")
+
+    assert kwin_on_bus(broken) is False
+
+
 def test_kwin_on_bus_waits_only_as_long_as_it_is_given() -> None:
     """LWSM-1484: the startup D-Bus waits share one budget, so this call is
     handed what the earlier ones left. Spent already means not asked at all —

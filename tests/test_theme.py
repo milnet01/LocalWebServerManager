@@ -327,6 +327,47 @@ def test_every_focus_ring_is_as_thick_as_the_rows(
     )
 
 
+@pytest.mark.gui
+@pytest.mark.parametrize("scale", [100, 200])
+def test_a_click_on_the_last_pixel_of_a_check_box_label_toggles_it(
+    qtbot, scale: int
+) -> None:
+    """LWSM-1532. `OutlineStyle` grows a check box by the ring and a gap on
+    every side and has Fusion lay the label out inside them, but Fusion's
+    click area was still the one for the un-grown box, so the label's last
+    few pixels did not toggle. The click lands where the
+    label is drawn, which is the last column before the inset.
+    """
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtWidgets import QApplication, QCheckBox
+
+    app = QApplication.instance()
+    install_outline_style(app)
+    previous_font = app.font()
+    font = app.font()
+    font.setPointSizeF(font.pointSizeF() * scale / 100)
+    app.setFont(font)
+    try:
+        box = QCheckBox("alpha")
+        qtbot.addWidget(box)
+        box.show()
+        inset = OutlineStyle.check_box_inset(box.fontMetrics())
+        # The last column of the label's own rect, mid-height.
+        point = QPoint(box.width() - inset - 1, box.height() // 2)
+        qtbot.mouseClick(box, Qt.MouseButton.LeftButton, pos=point)
+        assert box.isChecked(), (
+            f"a click at {point.x()} of {box.width()} px, on the label's last "
+            "column, did not toggle the check box"
+        )
+        # And the gap and ring at the left edge stay part of the control.
+        qtbot.mouseClick(
+            box, Qt.MouseButton.LeftButton, pos=QPoint(0, box.height() // 2)
+        )
+        assert not box.isChecked(), "a click on the ring's own pixels did not toggle"
+    finally:
+        app.setFont(previous_font)
+
+
 @pytest.mark.parametrize("surface", ["window", "base", "alt_base"])
 @pytest.mark.parametrize("theme", THEMES)
 def test_every_outline_clears_the_indicator_floor(theme: Theme, surface: str) -> None:

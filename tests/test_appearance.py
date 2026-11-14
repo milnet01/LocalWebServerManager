@@ -17,7 +17,7 @@ import subprocess
 
 import pytest
 
-from lwsm import appearance
+from lwsm import appearance, placement
 
 # Measured. The value nests in two variants, which is why the parse looks for
 # `uint32` by name instead of taking a fixed field.
@@ -85,7 +85,7 @@ def test_the_portal_is_asked_with_an_argument_vector_and_a_bound() -> None:
     assert argv[0] == "dbus-send"
     assert f"string:{appearance.PORTAL_NAMESPACE}" in argv
     assert f"string:{appearance.PORTAL_CONTRAST_KEY}" in argv
-    assert kwargs["timeout"] == appearance.DBUS_TIMEOUT_S
+    assert kwargs["timeout"] == placement.DBUS_TIMEOUT_S
 
 
 def test_a_desktop_without_dbus_send_is_asked_nothing_at_all() -> None:
@@ -152,3 +152,22 @@ def test_a_reply_carrying_no_number_is_not_read_as_high_contrast() -> None:
         )
         is False
     )
+
+
+def test_the_read_waits_as_long_as_the_startup_budget_it_shares(monkeypatch) -> None:
+    """LWSM-1532. The contrast read and the KWin check share
+    `placement.DBUS_TIMEOUT_S` (LWSM-1484), but this module kept a constant of
+    its own, so the one budget held only while both happened to be 3.0. The
+    bound is `placement`'s, read when the call is made, and a caller may hand
+    in what is left of it.
+    """
+    monkeypatch.setattr(placement, "DBUS_TIMEOUT_S", 1.7)
+    calls: list[tuple] = []
+    appearance.high_contrast(
+        run=fake_run(REPLY_NO_PREFERENCE, record=calls), which=present
+    )
+    appearance.high_contrast(
+        run=fake_run(REPLY_NO_PREFERENCE, record=calls), which=present, timeout=0.4
+    )
+
+    assert [kwargs["timeout"] for _argv, kwargs in calls] == [1.7, 0.4]

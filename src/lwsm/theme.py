@@ -653,6 +653,22 @@ class OutlineStyle(QProxyStyle):
             grown = grown + QSize(2 * inset, 2 * inset)
         return grown
 
+    def subElementRect(self, element, option, widget=None) -> QRect:
+        rect = super().subElementRect(element, option, cast(QWidget, widget))
+        if element == QStyle.SubElement.SE_CheckBoxClickRect:
+            # What the user can click. Fusion's answer is for the un-grown
+            # box, so it stopped short of the label drawn in the inset rect
+            # (LWSM-1532). Asked of the inset rect, then widened back out to
+            # the whole control, so the gap and the ring toggle it too. The
+            # other check box sub-rects stay Fusion's: the tests ask them of
+            # an already inset rect.
+            inset = self.check_box_inset(option.fontMetrics)
+            inner = QStyleOptionButton(option)
+            inner.rect = option.rect.adjusted(inset, inset, -inset, -inset)
+            rect = super().subElementRect(element, inner, cast(QWidget, widget))
+            rect = rect.adjusted(-inset, -inset, inset, inset).intersected(option.rect)
+        return rect
+
     def drawControl(self, element, option, painter, widget=None) -> None:
         if element == QStyle.ControlElement.CE_CheckBox:
             inset = self.check_box_inset(option.fontMetrics)

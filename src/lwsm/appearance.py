@@ -23,14 +23,9 @@ import shutil
 import subprocess
 from collections.abc import Callable
 
-from lwsm import applog
+from lwsm import applog, placement
 
 log = applog.get_logger(__name__)
-
-# `placement.py`'s bound, restated rather than imported: that one paces three
-# calls to KWin, this one paces a single read of a settings service, and tying
-# them together would make a change to either a change to both.
-DBUS_TIMEOUT_S = 3.0
 
 PORTAL_NAMESPACE = "org.freedesktop.appearance"
 PORTAL_CONTRAST_KEY = "contrast"
@@ -48,6 +43,7 @@ _UINT32 = re.compile(r"uint32\s+(\d+)")
 def high_contrast(
     run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
     which: Callable[[str], str | None] | None = None,
+    timeout: float | None = None,
 ) -> bool | None:
     """True only when the desktop actually asks for higher contrast.
 
@@ -59,17 +55,24 @@ def high_contrast(
     unknown case is reported as the absence of a preference, which is also
     what the portal's own 0 means, rather than as a preference we invented.
 
+    `timeout` is what the read may wait. The window shares one
+    `placement.DBUS_TIMEOUT_S` between this and the KWin check (LWSM-1484), so
+    the default is that bound, read when called and not restated here
+    (LWSM-1532).
+
     **A timeout alone returns None: unknown, not answered.** The portal is
     started on demand, and at login that start measured 1.4 to 2.2 s on the
-    author's desktop against the 3 s bound, so a timeout is a portal still
-    starting rather than a desktop with no preference. The caller asks again
-    rather than keep False for the session (review-code 2026-11-04 L10-M2).
+    author's desktop against the 3 s bound of `placement.DBUS_TIMEOUT_S`, so a
+    timeout is a portal still starting rather than a desktop with no
+    preference. The caller asks again rather than keep False for the session
+    (review-code 2026-11-04 L10-M2).
 
     `run` and `which` are resolved in the body, not in the signature: a default
     bound to a module function is captured when this function is *defined*, so
     no monkeypatch of `subprocess` or `shutil` would ever reach it.
     """
     runner = subprocess.run if run is None else run
+    wait = placement.DBUS_TIMEOUT_S if timeout is None else timeout
     look_up = shutil.which if which is None else which
 
     if look_up("dbus-send") is None:
@@ -92,7 +95,7 @@ def high_contrast(
                 f"string:{PORTAL_CONTRAST_KEY}",
             ],
             capture_output=True,
-            timeout=DBUS_TIMEOUT_S,
+            timeout=wait,
         )
     except subprocess.TimeoutExpired:
         log.debug("the contrast read timed out; the portal may still be starting")

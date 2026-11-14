@@ -247,7 +247,8 @@ def kwin_on_bus(
     The only placement this module can ask for under Wayland is a KWin script,
     so on GNOME or a wlroots compositor the Centre action could only fail.
     ADR-0007 has it disabled there (L2-L2). Unreadable is False: if the bus
-    cannot be asked, neither can KWin.
+    cannot be asked, neither can KWin. A timeout is None, not False: the bus
+    may only be slow.
 
     `timeout` is what is left of the window's startup budget (LWSM-1484), so
     none left is not asked at all. That answers None, "not asked", rather than
@@ -273,6 +274,11 @@ def kwin_on_bus(
             capture_output=True,
             timeout=timeout,
         )
+    except subprocess.TimeoutExpired:
+        # Not answered, like the contrast read's timeout: a no here would turn
+        # placement off for the session (LWSM-1532). The caller asks again.
+        log.warning("the session bus did not say in time whether KWin runs")
+        return None
     except (OSError, subprocess.SubprocessError) as exc:
         log.warning("could not ask the session bus whether KWin runs: %s", exc)
         return False
