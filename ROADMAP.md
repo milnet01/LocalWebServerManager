@@ -15121,6 +15121,9 @@ decided, is the last packaging item (added 2026-11-11).
   2026-11-14: point 1 fixed (commit eb1dc6f); LWSM-1006 § 4.3 folded
   back. The open question in point 2 is answered and is with the user
   for a decision; the item stays open until then.
+  2026-11-14: the user decided point 2: on a first run with units
+  unavailable, every row starts unticked and marked. To build in
+  firstrun.py and mainwindow.py.
   **Layman:** A port written far along a very long line in a project file is missed, and the scan does not say it skipped anything.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-03.
@@ -15150,6 +15153,10 @@ decided, is the last packaging item (added 2026-11-11).
   given confirm_and_start (:1657) catches nothing? A systemd start
   whose unit binds another port reads starting with no end (ADR-0004
   defines wrong port only for our child): defect or intended?
+  2026-11-14: points 1 to 3 fixed (commit d100e0d), tests seen red
+  first. Open question 4a dismissed: TrustStore._save returns a failure
+  string and does not raise. Question 4b (a service start whose unit
+  binds another port) is with the user; the item stays open until then.
   **Layman:** Rare failures around Stop can leave a row stuck, and the output panel can follow the wrong source.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-04.
@@ -15186,6 +15193,10 @@ decided, is the last packaging item (added 2026-11-11).
   read the window's button gating. localhost lookup in connect() is
   outside the deadline (health.py:55-59); harmless unless NSS hangs.
   Items 1-3, 5 are lane claims.
+  2026-11-14: points 1 to 5 fixed (commit 6d4b9de). The runner merge in
+  point 2 is LWSM-1537's. Point 6's stop-then-start question needs a
+  read of the controller's Start gating and is still open; its
+  localhost-lookup note is dismissed as the item itself calls it harmless.
   **Layman:** Small faults in how the app checks ports and drives systemd can mislabel a server or leave an old port setting loaded.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-05.
@@ -15228,7 +15239,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-06, lane-07, lane-08.
   Lanes: mainwindow.
 
-- 📋 [LWSM-1530] **Settings edge cases: reasons cut with no tail, an overstated error docstring, and two downgrade questions.**
+- ✅ [LWSM-1530] **Settings edge cases: reasons cut with no tail, an overstated error docstring, and two downgrade questions.**
   Priority: 4.
   1. settings.py:523 `reasons[:MAX_REASONS]` cuts with no tail (read);
   configfile.BoundedReasons (configfile.py:55-85, LWSM-1361) exists so
@@ -15250,6 +15261,13 @@ decided, is the last packaging item (added 2026-11-11).
   Dismissed from lane-09: open question 1 (repr raising RecursionError
   on a nested value) was refuted by the orchestrator's probe (repr never
   failed on a value json.loads accepted).
+  2026-11-14: points 1 and 2 fixed (commit 6c2eea0). Point 3 dismissed:
+  the coupling is unreachable, and the item asked for no action. The two
+  downgrade questions are answered and dismissed as designed: a reason
+  blocks every settings write until the file is corrected (LWSM-1271),
+  which overwrites nothing the user typed; and only an integer
+  schema_version above the current one counts as newer, which is what a
+  newer build writes.
   **Layman:** When the settings file has many problems, the app shows some and hides that there are more.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-09.

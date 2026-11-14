@@ -27,6 +27,16 @@ signaling per
 
 ### Fixed
 
+- **If Stop cannot be carried out, the row says so instead of staying on "stopping".** (LWSM-1527)
+  The output panel also no longer follows a stopped service's journal
+  when the server was started from a terminal.
+
+- **A project added through a linked folder is recognised as running, not blocked.** (LWSM-1528)
+  A systemd reload that takes too long is now reported in plain words,
+  and tried once more so an old port setting is not left loaded.
+
+- **A settings file with many problems says how many more were not shown.** (LWSM-1530)
+
 - **A server still starts normally when the system's boot time cannot be read.** (LWSM-1524)
 
 - **Restoring the project list from its backup is safer.** (LWSM-1525)
