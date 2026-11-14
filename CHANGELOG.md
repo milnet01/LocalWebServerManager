@@ -33,6 +33,10 @@ signaling per
 
 ### Fixed
 
+- **Stop works on a project started through its systemd service that still reads "starting".** (LWSM-1527)
+  That row used to have no working button, for example when the service
+  listens on a different port than expected.
+
 - **Error text from outside the app is cleaned before it is shown or logged.** (LWSM-1523)
   Line breaks and direction-control characters in an error message, a
   service name or a file name can no longer garble a project row, the
@@ -90,6 +94,13 @@ signaling per
 
 - **Picking a browser from a project's list works again.** (LWSM-1549)
   In 0.5.0 and 0.5.1, choosing a browser from the drop-down left the box blank or on "Auto" and reset that project to the default browser. The choice is now kept and saved. On those versions, select the closed box and press the Up or Down arrow key instead of opening the list.
+
+### Security
+
+- **The prompt that asks before running a project's scripts shows a very long run of spaces as its length.** (LWSM-1523)
+  A script can no longer hide part of its command off screen. The box
+  that names the program holding a port shows that program's command
+  line cut to a readable length.
 
 ## [0.5.1] - 2026-11-10
 

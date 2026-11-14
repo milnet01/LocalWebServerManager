@@ -15002,7 +15002,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-04.
   Lanes: controller, settings, registry, service, foreign, theme, main, supervisor, scanner, firstrun.
 
-- 📋 [LWSM-1523] **Outside text still reaches the row, a dialog and app.log without the shared cleaner at three more sites.**
+- ✅ [LWSM-1523] **Outside text still reaches the row, a dialog and app.log without the shared cleaner at three more sites.**
   Priority: 4.
   Theme 1 of review-code 2026-11-05. The MEDIUM site (logbuffer
   _CONTROLS) is LWSM-1515. LOW sites:
@@ -15030,6 +15030,9 @@ decided, is the last packaging item (added 2026-11-11).
   and long space runs is unverified; check it with this item.
   2026-11-14: points 1 and 3 fixed, with the log panel's failure detail
   (commit 6a4dc8d). Points 2 and 4 are in mainwindow.py and still open.
+  2026-11-14: point 2 fixed (the command line is escaped and clipped)
+  and point 4 answered: bidi controls were already escaped; a long run
+  of space separators was not, and is now shown as its length.
   **Layman:** A few places still show or log text from outside the app without cleaning it first, so odd file names could garble a message.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-04, lane-08, lane-11, lane-01.
@@ -15137,7 +15140,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-03.
   Lanes: scanner.
 
-- 📋 [LWSM-1527] **Controller edge cases: Stop has no catch-all, the log source ignores a foreign holder, and stop() leaves signals attached.**
+- ✅ [LWSM-1527] **Controller edge cases: Stop has no catch-all, the log source ignores a foreign holder, and stop() leaves signals attached.**
   Priority: 4.
   1. controller.py:1602-1604 sets the stopping overlay, then calls
   stop_async with nothing catching (read). After executor shutdown
@@ -15170,6 +15173,9 @@ decided, is the last packaging item (added 2026-11-11).
   quits, with every button on the row off. With the user.
   2026-11-14: the user decided 4b: Stop stays usable on a service row
   that is still starting. No timer and no new state. Being built.
+  2026-11-14: question 4b built as the user decided: Stop stays usable
+  on a row whose `starting` came from a Start or Restart through its
+  unit. Every point now has a disposition.
   **Layman:** Rare failures around Stop can leave a row stuck, and the output panel can follow the wrong source.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-04.
