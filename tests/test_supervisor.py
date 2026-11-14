@@ -3519,6 +3519,54 @@ def test_a_child_whose_handle_cannot_be_built_is_not_left_running(
             child.wait()
 
 
+def test_a_child_that_outlives_sigkill_does_not_hang_a_failed_start(
+    supervisor, project, monkeypatch
+) -> None:
+    """LWSM-1524: the failure path waited on the killed child with no limit,
+    so one stuck past SIGKILL (uninterruptible sleep) held `start()` for good.
+    The wait is bounded and the child is reaped later by a daemon thread."""
+    write_launcher(project, "sleep 30\n")
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+    real_popen = subprocess.Popen
+    waits: list[float | None] = []
+    spawned: list[subprocess.Popen] = []
+
+    class Stuck(real_popen):
+        def wait(self, timeout=None):
+            waits.append(timeout)
+            if len(waits) == 1:
+                if timeout is None:
+                    raise AssertionError("an unbounded wait would hang here")
+                raise subprocess.TimeoutExpired(self.args, timeout)
+            return super().wait(timeout)
+
+    def spawn(*args, **kwargs):
+        child = Stuck(*args, **kwargs)
+        spawned.append(child)
+        return child
+
+    def no_handle(_pid):
+        raise psutil.AccessDenied(_pid)
+
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    monkeypatch.setattr(psutil, "Process", no_handle)
+    try:
+        with pytest.raises(psutil.AccessDenied):
+            supervisor.start(project, name="demo", argv=["./start.sh"], port=None)
+    finally:
+        monkeypatch.undo()
+    (child,) = spawned
+    try:
+        assert waits[0] == supervisor_module.KILL_TIMEOUT_SECONDS
+        assert wait_until(lambda: child.returncode is not None), (
+            "nothing reaped the child later"
+        )
+    finally:
+        if child.poll() is None:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
+
+
 def test_the_log_of_a_server_this_session_did_not_start_is_still_capped(
     supervisor, project
 ) -> None:
@@ -3678,6 +3726,32 @@ def test_a_start_is_recorded_and_a_stop_forgets_it(
 
         sup.stop(project, grace=0.5)
         assert stored(record) == []
+    finally:
+        sup.close()
+
+
+def test_a_start_whose_boot_time_cannot_be_read_still_succeeds(
+    tmp_path: Path, project: Path, monkeypatch
+) -> None:
+    """LWSM-1524: `psutil.boot_time()` raises RuntimeError when /proc/stat has
+    no `btime` line. `_record` caught only `psutil.Error`, so `start()` raised
+    after the entry was registered: a failed Start for a live server."""
+    record = tmp_path / "state" / "started.json"
+    sup = started_session(tmp_path, record)
+
+    def no_btime() -> float:
+        raise RuntimeError("line 'btime' not found in /proc/stat")
+
+    monkeypatch.setattr(psutil, "boot_time", no_btime)
+    try:
+        managed = start_sleeper(sup, project)
+        assert sup.running()
+        assert managed.pid > 0
+        # Still adoptable by `create_time`, as an entry from before LWSM-1448.
+        (entry,) = stored(record)
+        assert entry["pid"] == managed.pid
+        assert "since_boot" not in entry
+        sup.stop(project, grace=0.5)
     finally:
         sup.close()
 
@@ -3954,6 +4028,31 @@ def test_a_record_that_repeats_a_key_adopts_nothing(
         f'"pid": 4242, "pid": {entry["pid"]}, '
         f'"create_time": {entry["create_time"]!r}, "port": null}}]}}',
         "utf-8",
+    )
+    second = started_session(tmp_path, record)
+    try:
+        assert second.adopt() == frozenset()
+        assert not second.running()
+    finally:
+        second.close()
+        _reap(managed.popen)
+
+
+def test_a_record_that_repeats_a_project_adopts_nothing(
+    tmp_path: Path, project: Path
+) -> None:
+    """LWSM-1524: two entries for one project were kept last-wins, so a hand
+    edit decided which PID was ours — the ambiguity LWSM-1436 refuses for a
+    repeated key. The last entry here names a live server that would pass
+    every adoption check."""
+    record = tmp_path / "started.json"
+    first = started_session(tmp_path, record)
+    managed = start_sleeper(first, project)
+    first.close()
+    (entry,) = stored(record)
+    decoy = {**entry, "pid": 4242}
+    record.write_text(
+        json.dumps({"schema_version": 1, "started": [decoy, entry]}), "utf-8"
     )
     second = started_session(tmp_path, record)
     try:

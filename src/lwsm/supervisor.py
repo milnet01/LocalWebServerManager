@@ -1298,7 +1298,14 @@ class Supervisor:
             # this is not the bare-PID signal ADR-0003 forbids.
             with contextlib.suppress(OSError):
                 os.killpg(popen.pid, signal.SIGKILL)
-            popen.wait()
+            try:
+                popen.wait(timeout=KILL_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                # Stuck past SIGKILL (LWSM-1524), as `_reap` finds one: an
+                # unbounded wait here would hold this start for good.
+                threading.Thread(
+                    target=popen.wait, name="lwsm-late-reap", daemon=True
+                ).start()
             raise
         return ManagedProcess(
             project=project,
@@ -1316,11 +1323,21 @@ class Supervisor:
         """Write a started child to the record a later session adopts from."""
         try:
             created = managed.handle.create_time()
-            since_boot = _started_since_boot(managed.handle)
         except psutil.Error:
             # Exited already: there is nothing a later session could adopt.
             return
-        boot_id = _boot_id()
+        try:
+            since_boot = _started_since_boot(managed.handle)
+        except psutil.Error:
+            return
+        except (OSError, RuntimeError) as exc:
+            # `psutil.boot_time()` raises RuntimeError when /proc/stat has no
+            # `btime` line. The server is running and registered, so a failed
+            # Start would lie; record it by `create_time` alone, as an entry
+            # from before LWSM-1448 is (LWSM-1524).
+            log.warning("no boot-relative start time for %s: %s", managed.name, exc)
+            since_boot = None
+        boot_id = _boot_id() if since_boot is not None else None
         self.started.add(
             StartedEntry(
                 managed.project,

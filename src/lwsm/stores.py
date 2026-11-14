@@ -259,6 +259,10 @@ class StartedStore:
     every session showed before this record existed. Unlike `TrustStore` it
     keeps no reasons; a failure is logged only. With no `path` it is memory
     only, which is what every test's `Supervisor` gets.
+
+    A file with a newer `schema_version` is refused, as `TrustStore` refuses
+    one, and the next save overwrites it. Here the cost is that servers a newer
+    copy recorded then read as foreign.
     """
 
     def __init__(self, path: Path | None = None) -> None:
@@ -282,8 +286,9 @@ class StartedStore:
             self._frozen = True
 
     def _load(self, path: Path) -> None:
-        # A repeated key leaves which of two PIDs, or two projects, is the
-        # server's unknowable, so it adopts nothing (LWSM-1436).
+        # A repeated key, or a repeated project, leaves which of two PIDs, or
+        # two projects, is the server's unknowable, so it adopts nothing
+        # (LWSM-1436).
         document, refused = _read_document(
             path, STARTED_SCHEMA_VERSION, "adopting nothing"
         )
@@ -295,12 +300,22 @@ class StartedStore:
         if not isinstance(started, list):
             log.warning('started record: no "started" list; adopting nothing')
             return
+        entries: dict[Path, StartedEntry] = {}
         for raw in started:
             entry = _started_entry(raw)
             if entry is None:
                 log.warning("started record: dropped a malformed entry")
+            elif entry.project in entries:
+                # The same ambiguity as a repeated key (LWSM-1524): which of
+                # two PIDs is the project's server cannot be known.
+                log.warning(
+                    "started record: repeats the project %s; adopting nothing",
+                    quoted(str(entry.project)),
+                )
+                return
             else:
-                self._entries[entry.project] = entry
+                entries[entry.project] = entry
+        self._entries = entries
 
     def _save(self) -> None:
         """Write the whole set. Called with `_lock` held, so writes keep order."""
