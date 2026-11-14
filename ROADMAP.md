@@ -15168,6 +15168,8 @@ decided, is the last packaging item (added 2026-11-11).
   2026-11-14: question 4b measured by reading: a service start whose
   unit stays active on another port reads `starting` until the app
   quits, with every button on the row off. With the user.
+  2026-11-14: the user decided 4b: Stop stays usable on a service row
+  that is still starting. No timer and no new state. Being built.
   **Layman:** Rare failures around Stop can leave a row stuck, and the output panel can follow the wrong source.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-04.
@@ -15315,7 +15317,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-07, lane-09.
   Lanes: mainwindow, settingsdialog.
 
-- 📋 [LWSM-1532] **Placement and theme: appearance restates the D-Bus timeout, three dbus-send callers read a timeout three ways, and a check box's click area may be short.**
+- ✅ [LWSM-1532] **Placement and theme: appearance restates the D-Bus timeout, three dbus-send callers read a timeout three ways, and a check box's click area may be short.**
   Priority: 4.
   Pairs with LWSM-1520. Lane claims.
   1. appearance.py:30-33 says placement's bound is restated rather than
@@ -15343,6 +15345,12 @@ decided, is the last packaging item (added 2026-11-11).
   contrast read, and it now answers None on a timeout. Point 4's three
   questions need a measurement on a live Plasma session and are with
   the user.
+  2026-11-14: point 4, by the user's choice: only the read-only check
+  ran. On Plasma 6.8.2 the portal answers the contrast read (uint32 0).
+  Not measured, because they need a test script loaded into the live
+  KWin: whether every other top-level window is transient, and whether
+  the Scripting.start fallback starts scripts that are not ours. Both
+  stay recorded here as open questions; no code depends on an answer.
   **Layman:** Small inconsistencies in how the app asks the desktop questions, and the right edge of a tick box label may not respond to clicks.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-10.
@@ -15375,7 +15383,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-11.
   Lanes: main, browsers.
 
-- 📋 [LWSM-1534] **Log follower edge cases: stray escape text, a silent crash on a bad unit name, lost refusal reasons, and journalctl outliving the app.**
+- ✅ [LWSM-1534] **Log follower edge cases: stray escape text, a silent crash on a bad unit name, lost refusal reasons, and journalctl outliving the app.**
   Priority: 4.
   Related MEDIUMs: LWSM-1515, LWSM-1516.
   1. logbuffer.py:65 `\x1b[@-_]?` covers only Fe escapes: ESC ( B
@@ -15409,6 +15417,10 @@ decided, is the last packaging item (added 2026-11-11).
   no cheap reliable signal for a truncate and regrow inside one poll.
   Point 7 (journalctl outliving the app) is with the user; a preexec_fn
   is unsafe in a threaded process.
+  2026-11-14: point 7 dismissed. journalctl ends when it next writes to
+  the closed pipe; forcing it earlier needs a preexec_fn, unsafe in a
+  threaded process, or a setpriv wrapper that changes the tested argv,
+  for a reader that holds no resource worth either.
   **Layman:** Smaller faults in the output panel: leftover symbols, a panel that silently fails to open, and vague error wording.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-12.
@@ -15680,6 +15692,9 @@ decided, is the last packaging item (added 2026-11-11).
 
   Not fixed for 0.5.1: both were checked by hand for that build.
   2026-11-14: verified, not changed. Options are with the user.
+  2026-11-14: the user decided: fail the smoke on a missing library for
+  the xcb or wayland plugin, and smoke on a digest-pinned Debian 12 as
+  well. Being built.
   **Layman:** The automatic start-up test does not yet try a real X11 or Wayland screen, or the oldest system the README promises.
   Kind: test.
   Source: review-code-2026-11-10.
@@ -15717,6 +15732,10 @@ decided, is the last packaging item (added 2026-11-11).
   change it after one run proves the current shape.
   2026-11-14: verified, not changed. The pinned setup-uv action does
   take github.token by default. Options are with the user.
+  2026-11-14: the user decided: --clobber now (point 2); the job split
+  (point 1) after 0.6.0, so the first signed release is not also the
+  first run of a reshaped workflow. That is the one exception to
+  "every open finding before 0.6.0".
   **Layman:** The release workflow holds the power to change a release for longer than it needs, and cannot redo a half-finished upload.
   Kind: security.
   Source: review-code-2026-11-10.
