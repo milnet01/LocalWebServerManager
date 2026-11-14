@@ -37,6 +37,7 @@ from PySide6.QtCore import (
     QCoreApplication,
     QEvent,
     QItemSelectionModel,
+    QLocale,
     QPersistentModelIndex,
     Qt,
 )
@@ -390,11 +391,11 @@ class SettingsDialog(QDialog):
         if problem == "too-many":
             text = QCoreApplication.translate(
                 "SettingsDialog", "Keep it to %1 lines or fewer."
-            ).replace("%1", str(MAX_ERROR_MARKERS))
+            ).replace("%1", QLocale().toString(MAX_ERROR_MARKERS))
         elif problem == "too-long":
             text = QCoreApplication.translate(
                 "SettingsDialog", "Keep each line to %1 characters or fewer."
-            ).replace("%1", str(MAX_ERROR_MARKER_CHARS))
+            ).replace("%1", QLocale().toString(MAX_ERROR_MARKER_CHARS))
         else:
             text = QCoreApplication.translate(
                 "SettingsDialog", "A line has a tab or other control character in it."

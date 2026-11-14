@@ -1545,6 +1545,35 @@ def test_the_status_bar_summary_is_translatable(qtbot, built) -> None:
         app.removeTranslator(translator)
 
 
+def test_a_translator_can_reorder_the_notice_count(qtbot, built) -> None:
+    """LWSM-1531 point 1. The count was a fragment glued after the first
+    notice, so a translation could not put it first or inflect it. One template
+    holds both, so the translator owns the whole sentence. Dies on going back
+    to a fragment, which this translator never sees."""
+    from PySide6.QtCore import QCoreApplication, QTranslator
+
+    class Reorder(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return "<%2 more> %1" if sourceText == "%1 (+%2 more)" else ""
+
+        def isEmpty(self) -> bool:
+            return False
+
+    translator = Reorder()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        window = MainWindow(
+            build_controller(built, [record("a", 5005)], FakeProbe(5005)),
+            Theme.default(),
+            ["first notice", "second notice", "third notice"],
+        )
+        qtbot.addWidget(window)
+        assert message_of(window) == "<2 more> first notice", message_of(window)
+    finally:
+        app.removeTranslator(translator)
+
+
 def test_a_translation_that_widens_a_column_also_widens_the_floor(qtbot, built) -> None:
     """The other arm of LWSM-1200, and a mutant proved it unmeasured.
 
@@ -6016,6 +6045,64 @@ def test_an_export_written_but_not_made_durable_is_called_saved(
     assert "fsync of the directory failed" in message, message
 
 
+def test_a_successful_export_reaches_the_log(qtbot, built, tmp_path, caplog) -> None:
+    """LWSM-1529 point 1: `design.md § Observability`, every config write."""
+    window, _ = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_save=str(tmp_path / "saved.json")
+    )
+
+    with caplog.at_level(logging.INFO, logger="lwsm.mainwindow"):
+        window._export_action.trigger()
+
+    assert "the profile was exported" in caplog.text
+
+
+def test_an_export_bug_is_logged_and_named_as_internal(
+    qtbot, built, tmp_path, caplog, monkeypatch
+) -> None:
+    """LWSM-1529 point 2. Driven through the menu, where Qt prints and drops an
+    escaping exception: nothing reached the banner or the log."""
+    window, _ = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_save=str(tmp_path / "saved.json")
+    )
+
+    def broken(*_args, **_kwargs) -> None:
+        raise TypeError("a bug, not a full disk")
+
+    monkeypatch.setattr(registry, "export_profile", broken)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.mainwindow"):
+        window._export_action.trigger()
+
+    assert any(r.exc_info and r.exc_info[0] is TypeError for r in caplog.records)
+    message = message_of(window)
+    assert "internal error" in message, message
+    assert "a bug, not a full disk" not in message, message
+
+
+def test_an_import_bug_is_logged_and_named_as_internal(
+    qtbot, built, tmp_path, caplog, monkeypatch
+) -> None:
+    """LWSM-1529 point 2, the import side of the same slot."""
+    window, _ = profile_window(
+        qtbot, built, two_rows(), tmp_path, to_open=str(tmp_path / "in.json")
+    )
+
+    def broken(*_args, **_kwargs) -> None:
+        raise TypeError("a bug, not a bad file")
+
+    monkeypatch.setattr(registry, "load_projects", broken)
+
+    with caplog.at_level(logging.WARNING, logger="lwsm.mainwindow"):
+        window._import_action.trigger()
+
+    assert any(r.exc_info and r.exc_info[0] is TypeError for r in caplog.records)
+    message = message_of(window)
+    assert "internal error" in message, message
+    assert "a bug, not a bad file" not in message, message
+    assert window._import_action.isEnabled()
+
+
 def write_profile(tmp_path: Path, projects: list[dict]) -> Path:
     profile = tmp_path / "profile.json"
     profile.write_text(
@@ -9889,6 +9976,54 @@ def test_a_saver_s_programming_error_is_logged_and_named_as_internal(
     message = message_of(window)
     assert "internal error" in message, message
     assert "a bug, not a full disk" not in message, message
+
+
+@pytest.mark.parametrize("which", ["text size", "theme"])
+def test_a_saved_setting_reaches_the_log(qtbot, built, caplog, which) -> None:
+    """LWSM-1529 point 1. `design.md § Observability` says the app log records
+    every config write; only the failures were recorded. Dies on removing the
+    success record from `_save_setting`."""
+    window, _ = scaled_window(
+        qtbot, built, save_text_scale=lambda _v: None, save_theme=lambda _v: None
+    )
+
+    with caplog.at_level(logging.INFO, logger="lwsm.mainwindow"):
+        if which == "text size":
+            window._text_size_actions[200].trigger()
+        else:
+            window._theme_actions["emerald"].trigger()
+
+    assert f"the {which} was saved" in caplog.text
+
+
+def test_a_failed_save_is_not_also_logged_as_saved(qtbot, built, caplog) -> None:
+    """LWSM-1529 point 1: the success record sits on the success path only."""
+
+    def refuse(_value) -> None:
+        raise SettingsError("nowhere to write")
+
+    window, _ = scaled_window(qtbot, built, save_text_scale=refuse)
+    with caplog.at_level(logging.INFO, logger="lwsm.mainwindow"):
+        window._text_size_actions[200].trigger()
+
+    assert "was saved" not in caplog.text
+
+
+def test_a_refused_size_between_the_steps_leaves_no_tick(qtbot, built) -> None:
+    """LWSM-1529 point 4. A stored size between the steps ticks nothing, so a
+    refusal had no tick to put back and left the chosen entry ticked, claiming
+    a size the window never took."""
+    window = scaling_window(qtbot, built)
+    window._text_scale = 130
+    for action in window._text_size_actions.values():
+        action.setChecked(False)
+    window._base_point_size = 0.0
+
+    window._text_size_actions[200].trigger()
+
+    assert not window._text_size_actions[200].isChecked(), (
+        "the refused size is still ticked"
+    )
 
 
 # --- LWSM-1385: a port's source and any disagreement, on the row -------------

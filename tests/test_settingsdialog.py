@@ -191,6 +191,34 @@ def test_markers_the_settings_file_would_refuse_keep_the_dialog_open(qtbot) -> N
     assert dialog.result() == SettingsDialog.DialogCode.Accepted
 
 
+def test_the_marker_limits_are_written_in_the_locale_s_digits(qtbot) -> None:
+    """LWSM-1531 point 2. `.replace("%1", str(limit))` wrote ASCII digits where
+    the window's numbers use the locale's (L09-L1). Under an Arabic locale the
+    limits must read as that locale writes them."""
+    from PySide6.QtCore import QLocale
+
+    from lwsm.settings import MAX_ERROR_MARKER_CHARS, MAX_ERROR_MARKERS
+
+    previous = QLocale()
+    QLocale.setDefault(QLocale("ar_EG"))
+    try:
+        dialog = build(qtbot)
+        dialog._markers.setPlainText("\n".join(f"m{i}" for i in range(80)))
+        dialog.accept()
+        many = dialog._markers_problem.text()
+        dialog._markers.setPlainText("x" * (MAX_ERROR_MARKER_CHARS + 1))
+        dialog.accept()
+        long = dialog._markers_problem.text()
+        want_many = QLocale().toString(MAX_ERROR_MARKERS)
+        want_long = QLocale().toString(MAX_ERROR_MARKER_CHARS)
+    finally:
+        QLocale.setDefault(previous)
+
+    assert want_many != str(MAX_ERROR_MARKERS), "the locale does not change digits"
+    assert want_many in many and str(MAX_ERROR_MARKERS) not in many, many
+    assert want_long in long and str(MAX_ERROR_MARKER_CHARS) not in long, long
+
+
 def test_the_order_of_the_roots_is_the_order_they_are_scanned_in(qtbot) -> None:
     """`default_scan_roots` keeps file order because it is the walk order.
 

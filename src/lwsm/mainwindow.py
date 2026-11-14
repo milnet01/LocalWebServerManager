@@ -2950,6 +2950,13 @@ class MainWindow(QMainWindow):
             current = self._text_size_actions.get(self._text_scale)
             if current is not None:
                 current.setChecked(True)
+            else:
+                # The size in force sits between the steps and ticks nothing,
+                # so there is no tick to put back: take the refused one off
+                # (LWSM-1529).
+                checked = self._text_size_group.checkedAction()
+                if checked is not None:
+                    checked.setChecked(False)
             return
         self._text_scale = percent
         font = app.font()
@@ -3015,6 +3022,8 @@ class MainWindow(QMainWindow):
                     ),
                 )
             )
+        else:
+            log.info("the %s was saved", what)
 
     def _retranslate_menus(self) -> None:
         """`QCoreApplication.translate` under the file's one context, never
@@ -3318,6 +3327,22 @@ class MainWindow(QMainWindow):
                 ).replace("%1", str(exc))
             )
             return
+        except Exception:
+            # A bug, not a refusal: this runs in a menu slot, where Qt prints
+            # an escaping exception and drops it (LWSM-1529; as `_save_setting`).
+            log.exception("the profile could not be exported: an internal error")
+            self.set_status_message(
+                QCoreApplication.translate(
+                    "ProjectRow", "Profile not saved: %1"
+                ).replace(
+                    "%1",
+                    QCoreApplication.translate(
+                        "ProjectRow", "an internal error, recorded in the log"
+                    ),
+                )
+            )
+            return
+        log.info("the profile was exported")
         self.set_status_message(
             QCoreApplication.translate("ProjectRow", "Profile saved to %1").replace(
                 "%1", chosen
@@ -3351,6 +3376,15 @@ class MainWindow(QMainWindow):
             loaded = registry.load_projects(Path(chosen))
         except RegistryError as exc:
             self._refuse_import(str(exc))
+            return
+        except Exception:
+            # As `_export_profile`: a menu slot drops what escapes it.
+            log.exception("the profile could not be imported: an internal error")
+            self._refuse_import(
+                QCoreApplication.translate(
+                    "ProjectRow", "an internal error, recorded in the log"
+                )
+            )
             return
         if loaded.reasons:
             for reason in loaded.reasons:
@@ -3665,17 +3699,23 @@ class MainWindow(QMainWindow):
 
         The "(+N more)" half was an f-string and so never reached a translator,
         leaving it identical in every language against § 4.4's "**every**
-        user-visible string in this file" (LWSM-1107). `%1` and `str.replace`
+        user-visible string in this file" (LWSM-1107). `%1` and `_filled`
         for the same reason as `port_text`: a translation is data from outside
         the program and must not be able to raise in here.
+
+        One template holds the notice and the count (LWSM-1531), so a translator
+        can reorder them. The count is `%2`, not `%n`: Qt writes `%n` in ASCII
+        digits, and this window's numbers use the locale's. So there is no
+        plural form, which is a decision for when a translation exists.
         """
         first = notices[0]
         if len(notices) == 1:
             return first
-        extra = QCoreApplication.translate("ProjectRow", " (+%1 more)").replace(
-            "%1", QLocale().toString(len(notices) - 1)
+        return _filled(
+            QCoreApplication.translate("ProjectRow", "%1 (+%2 more)"),
+            first,
+            QLocale().toString(len(notices) - 1),
         )
-        return f"{first}{extra}"
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
