@@ -535,3 +535,37 @@ def test_reading_back_in_a_full_view_keeps_the_same_line_in_view(
     assert top_text() == reading, "the text being read moved"
     assert "Paused" in panel.status.text()
     panel.close_panel()
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    [
+        ("bad-unit", "not a valid unit name"),
+        ("journal-failed", "The journal reader failed"),
+    ],
+)
+def test_the_panel_words_each_new_failure_reason(qtbot, reason, expected) -> None:
+    """LWSM-1534: a bad unit and a journal crash are not "The log file cannot
+    be read"."""
+    from lwsm.logpanel import LogPanel
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.open_for("web", LogSource())
+    panel._on_failed(reason, "the detail")
+    assert expected in panel.status.text()
+    assert "log file" not in panel.status.text()
+    panel.close_panel()
+
+
+def test_opening_a_bad_unit_shows_why_instead_of_nothing(qtbot) -> None:
+    """LWSM-1534: a hand-edited unit name raised inside `open_for`'s slot; the
+    panel never showed."""
+    from lwsm.logpanel import LogPanel
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.open_for("web", LogSource(unit="-bad unit"))
+    qtbot.waitUntil(lambda: "valid unit name" in panel.status.text(), timeout=3000)
+    assert panel.isVisible() or not panel.isHidden()
+    panel.close_panel()

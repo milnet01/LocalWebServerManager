@@ -52,7 +52,9 @@ from PySide6.QtWidgets import (
 )
 
 from lwsm.logbuffer import (
+    BAD_UNIT,
     JOURNAL_ENDED,
+    JOURNAL_FAILED,
     MAX_LINES,
     NO_JOURNAL,
     ErrorMatcher,
@@ -300,6 +302,15 @@ class LogPanel(QFrame):
                 "The system journal cannot be read here, so this service's "
                 "output cannot be shown.",
             )
+        elif reason == BAD_UNIT:
+            self._failure = QCoreApplication.translate(
+                "LogPanel",
+                "%1 is not a valid unit name, so its output cannot be shown.",
+            ).replace("%1", detail)
+        elif reason == JOURNAL_FAILED:
+            self._failure = QCoreApplication.translate(
+                "LogPanel", "The journal reader failed: %1"
+            ).replace("%1", detail)
         elif reason == JOURNAL_ENDED:
             self._failure = QCoreApplication.translate(
                 "LogPanel", "The journal reader stopped (exit %1)."

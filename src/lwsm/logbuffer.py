@@ -60,10 +60,16 @@ _READ_CHUNK = 64 * 1024
 # How long a stopped journal reader gets after SIGTERM before SIGKILL.
 STOP_WAIT_SECONDS = 2.0
 
-# CSI (colours, cursor moves), OSC (window titles, ended by BEL or ST), and any
-# other two-character escape. Then every C0 control but tab, and DEL.
+# CSI (colours, cursor moves), OSC (window titles, ended by BEL or ST), the
+# other string sequences (DCS, SOS, PM and APC, ended by ST, their payload
+# going with them), and any other escape: intermediates then a final, as in
+# `ESC ( B`, or a lone final, as in `ESC 7`, `ESC c` and `ESC =`. Then every C0
+# control but tab, and DEL.
 _ESCAPES = re.compile(
-    r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]?"
+    r"\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?"
+    r"|\x1b[PX^_][^\x1b]*(?:\x1b\\)?"
+    r"|\x1b[ -/]*[0-~]?"
 )
 _CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 # What is left of `configfile`'s display set once those are gone, tab aside:
@@ -91,6 +97,10 @@ MAX_BYTES_IN_FLIGHT = 8 * _READ_CHUNK
 UNREADABLE = "unreadable"
 NO_JOURNAL = "no-journal"
 JOURNAL_ENDED = "journal-ended"
+# The journal follower's own thread crashed, or its unit name was refused: not
+# a log file the panel can call unreadable.
+JOURNAL_FAILED = "journal-failed"
+BAD_UNIT = "bad-unit"
 
 
 def _clean(line: str) -> str:
@@ -170,9 +180,11 @@ class LogBuffer:
         written with no newline, and holding them for one would hide them for
         ever.
         """
-        if not self._partial:
+        # Bytes held back for a character cut in half become U+FFFD here.
+        text = self._partial + self._decoder.decode(b"", final=True)
+        if not text:
             return []
-        line = _clean(self._partial)
+        line = _clean(text)
         self._partial = ""
         self._lines.append(line)
         return [line]
@@ -245,6 +257,9 @@ class _Follower:
         self._stopping = threading.Event()
         self._thread = threading.Thread(target=self._guarded, daemon=True)
 
+    # The reason given when `_run` raises: what the panel calls that source.
+    _crash_reason = UNREADABLE
+
     def start(self) -> None:
         self._thread.start()
 
@@ -258,7 +273,7 @@ class _Follower:
             self._run()
         except Exception as exc:
             log.exception("the log follower stopped")
-            self._on_error(UNREADABLE, str(exc))
+            self._on_error(self._crash_reason, str(exc))
 
     def _run(self) -> None:
         raise NotImplementedError
@@ -290,8 +305,10 @@ class FileFollower(_Follower):
         *,
         interval: float = POLL_SECONDS,
         initial_bytes: int = INITIAL_BYTES,
+        on_restart: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(on_text, on_error)
+        self._on_restart = on_restart
         self._path = Path(path)
         self._interval = interval
         self._initial_bytes = initial_bytes
@@ -315,7 +332,12 @@ class FileFollower(_Follower):
                     try:
                         fd = self._open()
                     except OSError as exc:
-                        self._on_error(UNREADABLE, os.strerror(exc.errno or errno.EIO))
+                        # `strerror` is the refusal's own words ("log path has
+                        # another hard link"); the errno's would be "Too many
+                        # links".
+                        reason = exc.strerror or os.strerror(exc.errno or errno.EIO)
+                        log.warning("refusing to follow %s: %s", self._path, reason)
+                        self._on_error(UNREADABLE, reason)
                         return
                     if fd is not None:
                         offset = self._first_offset(fd)
@@ -324,6 +346,7 @@ class FileFollower(_Follower):
                     if self._replaced(fd):
                         os.close(fd)
                         fd = None
+                        self._restarted()
                         continue
                 self._stopping.wait(self._interval)
         finally:
@@ -344,6 +367,7 @@ class FileFollower(_Follower):
         size = os.fstat(fd).st_size
         if size < offset:
             offset = 0  # truncated in place by a rotation
+            self._restarted()
         while offset < size and not self._stopping.is_set():
             chunk = os.pread(fd, min(_READ_CHUNK, size - offset), offset)
             if not chunk:
@@ -351,6 +375,11 @@ class FileFollower(_Follower):
             offset += len(chunk)
             self._on_text(chunk)
         return offset
+
+    def _restarted(self) -> None:
+        """Say the text starts again, so a held fragment is not joined to it."""
+        if self._on_restart is not None:
+            self._on_restart()
 
     def _replaced(self, fd: int) -> bool:
         try:
@@ -381,10 +410,12 @@ class JournalFollower(_Follower):
         popen: Popen | None = None,
     ) -> None:
         super().__init__(on_text, on_error)
-        self._argv = journal_argv(unit)
+        self._argv = journal_argv(unit)  # raises ValueError: `LogFeed.start` catches
         self._popen = popen if popen is not None else subprocess.Popen
         self._process: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
+
+    _crash_reason = JOURNAL_FAILED
 
     def _run(self) -> None:
         with self._lock:
@@ -451,6 +482,8 @@ class LogFeed(QObject):
     # ring's incremental decoder is what puts it back together.
     _text = Signal(object)
     _error = Signal(str, str)
+    # The file was truncated or replaced: what is held of the old text ends.
+    _restart = Signal()
 
     def __init__(
         self,
@@ -476,6 +509,7 @@ class LogFeed(QObject):
         self._follower: FileFollower | JournalFollower | None = None
         self._text.connect(self._on_text, Qt.ConnectionType.QueuedConnection)
         self._error.connect(self._on_error, Qt.ConnectionType.QueuedConnection)
+        self._restart.connect(self._on_restart, Qt.ConnectionType.QueuedConnection)
         # Restarted by every read, so it fires only once the source has been
         # quiet for two ticks.
         self._quiet = QTimer(self)
@@ -488,12 +522,23 @@ class LogFeed(QObject):
             self._closing = False
         source = self.source
         if source.unit is not None:
-            self._follower = JournalFollower(
-                source.unit, self._send, self._error.emit, popen=self._popen
-            )
+            try:
+                self._follower = JournalFollower(
+                    source.unit, self._send, self._error.emit, popen=self._popen
+                )
+            except ValueError as exc:
+                # A hand-edited unit name. This runs in a slot, where PySide6
+                # swallows an exception and nothing would say why.
+                log.warning("not following the journal: %s", exc)
+                self._error.emit(BAD_UNIT, source.unit)
+                return
         elif source.file is not None:
             self._follower = FileFollower(
-                source.file, self._send, self._error.emit, interval=self._interval
+                source.file,
+                self._send,
+                self._error.emit,
+                interval=self._interval,
+                on_restart=self._restart.emit,
             )
         else:
             return
@@ -545,6 +590,10 @@ class LogFeed(QObject):
         if added:
             self.lines_added.emit(added)
         self._quiet.start()
+
+    def _on_restart(self) -> None:
+        if not self._closing:
+            self._flush()
 
     def _on_error(self, reason: str, detail: str) -> None:
         if self._closing:

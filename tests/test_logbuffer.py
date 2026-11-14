@@ -546,3 +546,157 @@ def test_the_default_markers_are_the_settings_defaults() -> None:
     from lwsm.settings import DEFAULT_ERROR_MARKERS
 
     assert ErrorMatcher().markers == DEFAULT_ERROR_MARKERS
+
+
+# --- LWSM-1534: edge cases ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "shown"),
+    [
+        ("a\x1b(Bb", "ab"),
+        ("a\x1b)0b", "ab"),
+        ("a\x1b7b\x1b8c", "abc"),
+        ("a\x1bcb", "ab"),
+        ("a\x1b=b\x1b>c", "abc"),
+        ("a\x1bPq;secret\x1b\\b", "ab"),
+        ("a\x1b_apc payload\x1b\\b", "ab"),
+        ("a\x1b^pm payload\x1b\\b", "ab"),
+        ("a\x1bXsos payload\x1b\\b", "ab"),
+        ("a\x1b[31mb\x1b[0m", "ab"),
+    ],
+    ids=[
+        "g0-charset",
+        "g1-charset",
+        "save-restore-cursor",
+        "reset",
+        "keypad-mode",
+        "dcs",
+        "apc",
+        "pm",
+        "sos",
+        "csi-still-works",
+    ],
+)
+def test_every_kind_of_escape_leaves_no_stray_text(raw: str, shown: str) -> None:
+    """LWSM-1534: only two-character escapes in the Fe range were removed, so
+    `ESC ( B` left "(B", `ESC 7` left a "7" and a DCS/APC/PM/SOS string left
+    its payload."""
+    assert LogBuffer().feed(raw + "\n") == [shown]
+
+
+def test_a_flushed_fragment_ends_a_character_cut_in_half() -> None:
+    """LWSM-1534: `flush` never decoded the decoder's last bytes, so a
+    fragment ending inside a multi-byte character lost that character."""
+    ring = LogBuffer()
+    assert ring.feed_bytes(b"ab\xe2\x82") == []
+    assert ring.flush() == ["ab�"]
+    assert ring.feed_bytes(b"next\n") == ["next"], "the decoder kept its state"
+
+
+def test_a_truncate_or_replace_tells_the_reader_to_start_afresh(tmp_path) -> None:
+    """LWSM-1534: a truncate or a replaced file is a new text, so what was
+    held of the old one must not be joined to it."""
+    log = tmp_path / "web.log"
+    log.write_text("x" * 500 + "\n")
+    restarts: list[int] = []
+    collected = Collected()
+    follower = FileFollower(
+        log,
+        collected.on_text,
+        collected.on_error,
+        interval=FAST,
+        on_restart=lambda: restarts.append(1),
+    )
+    follower.start()
+    try:
+        wait_for(lambda: collected.joined().endswith("x\n"))
+        assert restarts == []
+        with log.open("r+") as out:
+            out.truncate(0)
+        wait_for(lambda: len(restarts) == 1)
+        log.rename(tmp_path / "web.log.1")
+        log.write_text("new\n")
+        wait_for(lambda: len(restarts) == 2)
+    finally:
+        follower.stop()
+
+
+def test_a_file_follower_gives_the_reason_a_log_was_refused(tmp_path, caplog) -> None:
+    """LWSM-1534: `os.strerror(EMLINK)` turned "log path has another hard
+    link" into "Too many links", and nothing was logged."""
+    log = tmp_path / "web.log"
+    log.write_text("x\n")
+    (tmp_path / "other").hardlink_to(log)
+    collected = Collected()
+    with caplog.at_level("WARNING"):
+        follower = follow_file(log, collected)
+        try:
+            wait_for(lambda: collected.errors)
+        finally:
+            follower.stop()
+    assert collected.errors[0][0] == "unreadable"
+    assert "hard link" in collected.errors[0][1]
+    assert "hard link" in caplog.text
+
+
+def test_a_journal_follower_that_crashes_has_its_own_reason() -> None:
+    """LWSM-1534: a crash was reported as "unreadable", which the panel words
+    as "The log file cannot be read", for a service with no log file."""
+
+    def popen(argv, **kwargs):
+        raise RuntimeError("boom")
+
+    collected = Collected()
+    follower = JournalFollower(
+        "web.service", collected.on_text, collected.on_error, popen=popen
+    )
+    follower.start()
+    try:
+        wait_for(lambda: collected.errors)
+    finally:
+        follower.stop()
+    assert collected.errors == [("journal-failed", "boom")]
+
+
+@pytest.mark.gui
+def test_a_bad_unit_name_is_reported_not_swallowed_in_a_slot(qtbot) -> None:
+    """LWSM-1534: `journal_argv` raised inside `LogFeed.start`, which runs in a
+    slot, where PySide6 swallows it; the panel was left half open."""
+    feed = LogFeed(LogSource(unit="-bad unit"))
+    failures: list[tuple[str, str]] = []
+    feed.failed.connect(lambda reason, detail: failures.append((reason, detail)))
+    feed.start()
+    try:
+        qtbot.waitUntil(lambda: bool(failures), timeout=3000)
+    finally:
+        feed.stop()
+    assert failures[0][0] == "bad-unit"
+    assert "-bad unit" in failures[0][1]
+
+
+@pytest.mark.gui
+def test_a_restart_releases_the_held_fragment_as_its_own_line(qtbot) -> None:
+    """LWSM-1534: the half line of the old file is shown, not glued to the
+    first line of the new one."""
+    feed = LogFeed(LogSource())
+    feed.buffer.feed_bytes(b"old tail")
+    feed._restart.emit()
+    qtbot.waitUntil(lambda: feed.buffer.lines() == ["old tail"], timeout=3000)
+    assert feed.buffer.feed_bytes(b"new\n") == ["new"]
+
+
+@pytest.mark.gui
+def test_a_feed_hears_its_file_follower_restart(qtbot, tmp_path) -> None:
+    """LWSM-1534: the wiring from the follower's truncate to the feed."""
+    log = tmp_path / "web.log"
+    log.write_text("x" * 500 + "\n")
+    feed = LogFeed(LogSource(file=log), interval=FAST)
+    feed.start()
+    try:
+        qtbot.waitUntil(lambda: feed.buffer.lines() == ["x" * 500], timeout=3000)
+        with qtbot.waitSignal(feed._restart, timeout=3000):
+            with log.open("r+") as out:
+                out.truncate(0)
+    finally:
+        feed.stop()
