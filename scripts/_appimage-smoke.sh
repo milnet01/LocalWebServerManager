@@ -4,17 +4,18 @@
 #
 # Usage: _appimage-smoke.sh <AppImage> <expected version>
 #
-# Three checks:
+# Four checks:
 #   1. `--version` prints the expected version: the bundled Python and the
 #      package load.
 #   2. A real launch, offscreen, is still running after STAY seconds and has
 #      logged its start with no traceback. A missing library or Qt plugin
 #      ends the process within a second or two, so surviving means it reached
 #      the event loop with its window built. Offscreen only: the xcb and
-#      wayland platform plugins are not loaded here.
+#      wayland platform plugins are not loaded here, so check 4 covers them.
 #   3. A program the app starts gets the launch environment, not the bundle's.
 #      A stand-in `systemctl`, which the first scan runs, records what it
-#      inherited (LWSM-1021, review-code 2026-11-10).
+#      inherited.
+#   4. `ldd` over the bundle's Qt platform plugins finds no missing library.
 set -euo pipefail
 
 APPIMAGE="$1"
@@ -47,6 +48,25 @@ echo 'print("demo")' > /tmp/projects/demo/serve.py
 # A library path of the user's own, which the child must get back unchanged.
 LAUNCH_LIBRARY_PATH=/smoke/launch/lib
 export LD_LIBRARY_PATH="$LAUNCH_LIBRARY_PATH"
+
+# Fails on any library a Qt platform plugin (xcb, wayland, ...) cannot find.
+# libxkbcommon-x11 and libwayland-cursor are otherwise left to the host by
+# design, so the smoke image carries them. $1 is the extracted bundle.
+check_platform_plugins() {
+    local root=$1 plugins libs missing so
+    mapfile -t plugins < <(find "$root" -path '*/platforms/*.so' | sort)
+    [ "${#plugins[@]}" -gt 0 ] || fail "no Qt platform plugin found under $root"
+    libs="$(find "$root" -name '*.so*' -printf '%h\n' | sort -u | paste -sd:)"
+    missing=""
+    for so in "${plugins[@]}"; do
+        missing+="$(LD_LIBRARY_PATH="$libs" ldd "$so" 2>&1 | grep 'not found' | sed "s|^|${so##*/}: |" || true)"$'\n'
+    done
+    if [ -n "${missing//$'\n'/}" ]; then
+        printf '%s' "$missing" | sed '/^$/d' | sort -u >&2
+        fail "a Qt platform plugin lacks a library (above)"
+    fi
+    echo "smoke: platform plugins OK (${#plugins[@]} checked, no library missing)"
+}
 
 got="$("$APPIMAGE" --version)" || fail "--version exited non-zero: $got"
 [ "$got" = "lwsm $VERSION" ] || fail "--version printed '$got', expected 'lwsm $VERSION'"
@@ -86,3 +106,8 @@ child_path="$(sed -n 's/^LD_LIBRARY_PATH=//p' "$CHILD_ENV")"
 [ "$child_path" = "$LAUNCH_LIBRARY_PATH" ] ||
     fail "a child got LD_LIBRARY_PATH '$child_path', expected the launch value '$LAUNCH_LIBRARY_PATH'"
 echo "smoke: child environment OK (launch library path, no bundle variables)"
+
+EXTRACT=/tmp/extracted
+mkdir "$EXTRACT"
+(cd "$EXTRACT" && "$APPIMAGE" --appimage-extract >/dev/null) || fail "could not extract the AppImage"
+check_platform_plugins "$EXTRACT/squashfs-root"

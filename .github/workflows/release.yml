@@ -50,4 +50,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" "dist/LocalWebServerManager-${TAG#v}-x86_64.AppImage"
+        run: |
+          gh release upload --clobber "$TAG" \
+            "dist/LocalWebServerManager-${TAG#v}-x86_64.AppImage"

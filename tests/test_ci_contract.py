@@ -1056,3 +1056,13 @@ def test_the_usage_line_names_every_flag_the_gate_accepts() -> None:
     synopsis = done.stdout.splitlines()[0]
     missing = [flag for flag in accepted if f"[{flag}]" not in synopsis]
     assert not missing, f"usage line {synopsis!r} omits {missing}"
+
+
+def test_the_release_upload_replaces_an_asset_already_there() -> None:
+    """LWSM-1546. A re-run after an upload meets the asset it uploaded; without
+    `--clobber`, `gh release upload` refuses it and the re-run fails.
+
+    Dies on dropping the flag.
+    """
+    text = RELEASE_WORKFLOW.read_text()
+    assert re.search(r"^\s+gh release upload --clobber \"\$TAG\"", text, re.M), text

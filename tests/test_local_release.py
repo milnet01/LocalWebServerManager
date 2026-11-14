@@ -84,7 +84,7 @@ def _tag_status(
     # which the function reads as "no such release", passing the test for a
     # reason unrelated to what it claims to measure.
     binaries = tmp_path / f"bin-{gh}"
-    binaries.mkdir(exist_ok=True)
+    binaries.mkdir(parents=True)
     for tool in ("git", "bash"):
         found = shutil.which(tool)
         assert found, f"{tool} is not on PATH"
@@ -1006,3 +1006,145 @@ def test_the_signing_key_check_blocks_a_release_it_cannot_sign(
 ) -> None:
     (line,) = _signing_key_status(tmp_path, uv_exit=uv_exit)
     assert line.startswith(verdict)
+
+
+# --- LWSM-1544: the smoke checks the display plugins and both Debians --------
+
+SMOKE = REPO / "scripts/_appimage-smoke.sh"
+
+
+def _check_plugins(tmp_path: Path, *, ldd_says: str, plugins: bool = True):
+    """Run the smoke script's OWN `check_platform_plugins()` over a fake bundle
+    whose stand-in `ldd` prints `ldd_says` for every plugin."""
+    bundle = tmp_path / "squashfs-root/usr/lib/lwsm/_internal/PySide6/Qt"
+    (bundle / "plugins/platforms").mkdir(parents=True)
+    (bundle / "lib").mkdir()
+    if plugins:
+        (bundle / "plugins/platforms/libqxcb.so").write_text("")
+        (bundle / "plugins/platforms/libqwayland-generic.so").write_text("")
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    (binaries / "ldd").write_text(f"#!/bin/sh\ncat <<'EOF'\n{ldd_says}\nEOF\n")
+    (binaries / "ldd").chmod(0o755)
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    script = (
+        'fail() { echo "FAIL $*" >&2; exit 1; }\n'
+        f"{_function(SMOKE, 'check_platform_plugins')}\n"
+        'check_platform_plugins "$1"'
+    )
+    return subprocess.run(
+        [bash, "-c", script, "_", str(tmp_path / "squashfs-root")],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}"},
+    )
+
+
+def test_a_platform_plugin_with_a_missing_library_fails_the_smoke(tmp_path) -> None:
+    """LWSM-1544. The offscreen launch never loads libqxcb or libqwayland, so
+    their libraries are checked with `ldd`.
+
+    Dies on dropping the `not found` match, or on ignoring ldd's verdict.
+    """
+    done = _check_plugins(
+        tmp_path,
+        ldd_says="\tlibxkbcommon-x11.so.0 => not found\n\tlibc.so.6 => /lib/libc.so.6",
+    )
+    assert done.returncode == 1, done.stdout
+    assert "libxkbcommon-x11.so.0" in done.stderr
+    assert "libqxcb.so" in done.stderr
+
+
+def test_platform_plugins_that_resolve_pass(tmp_path) -> None:
+    done = _check_plugins(tmp_path, ldd_says="\tlibc.so.6 => /lib/libc.so.6")
+    assert done.returncode == 0, done.stderr
+    assert "platform plugins OK" in done.stdout
+
+
+def test_a_bundle_with_no_platform_plugin_fails_the_smoke(tmp_path) -> None:
+    """A check that finds nothing to check must not pass."""
+    done = _check_plugins(tmp_path, ldd_says="", plugins=False)
+    assert done.returncode == 1, done.stdout
+
+
+def test_the_smoke_runs_the_plugin_check_after_the_launch() -> None:
+    """The function is useless unless it is called, on the extracted bundle."""
+    text = SMOKE.read_text()
+    call = text.index('check_platform_plugins "$EXTRACT')
+    assert call > text.index('echo "smoke: launch OK'), (
+        "the check runs before the launch"
+    )
+    assert "--appimage-extract" in text
+
+
+def test_the_smoke_image_carries_the_two_host_libraries() -> None:
+    """The xcb and wayland plugins are otherwise left to the host by design."""
+    text = BUILD.read_text()
+    assert "libxkbcommon-x11-0" in text
+    assert "libwayland-cursor0" in text
+
+
+def _smoke_on(tmp_path: Path, release: str, base: str) -> list[str]:
+    """Run the build script's OWN `smoke_on()` with a stand-in container
+    runner; return what the runner was asked, one call per line, with the
+    Dockerfile it was fed."""
+    binaries = tmp_path / "bin"
+    binaries.mkdir(parents=True)
+    record = tmp_path / "runner.log"
+    (binaries / "runner").write_text(
+        f'#!/bin/sh\necho "$@" >> {record}\n'
+        f'[ "$1" = build ] && cat >> {record}\nexit 0\n'
+    )
+    (binaries / "runner").chmod(0o755)
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    script = (
+        "set -euo pipefail\n"
+        f"RUNNER={binaries}/runner WORK=/w DIST=/d ROOT=/r\n"
+        "APPIMAGE=a.AppImage VERSION=1\n"
+        'SMOKE_PACKAGES="pkg-a pkg-b"\n'
+        f"{_function(BUILD, 'smoke_on')}\n"
+        'smoke_on "$1" "$2"'
+    )
+    subprocess.run([bash, "-c", script, "_", release, base], check=True)
+    return record.read_text().splitlines()
+
+
+def test_each_debian_gets_its_own_image_and_its_own_smoke_run(tmp_path) -> None:
+    """LWSM-1544. Two releases must not share a tag, and the image a release is
+    built from must be the one its smoke runs in.
+
+    Dies on a shared tag, or on running the smoke in the other image.
+    """
+    seen = {}
+    for release, base in (("13", "base@sha256:13"), ("12", "base@sha256:12")):
+        calls = _smoke_on(tmp_path / release, release, base)
+        build = next(c for c in calls if c.startswith("build "))
+        run = next(c for c in calls if c.startswith("run "))
+        tag = build.split("-t ")[1].split()[0]
+        assert tag.endswith(f":{release}"), build
+        assert f"FROM {base}" in calls, calls
+        assert "pkg-a pkg-b" in "\n".join(calls)
+        assert f" {tag} bash /scripts/_appimage-smoke.sh /artifact/a.AppImage 1" in run
+        seen[release] = tag
+    assert seen["13"] != seen["12"]
+
+
+def test_both_debians_are_smoked_from_digest_pins() -> None:
+    """The README promises Debian 12; the smoke covers it and Debian 13, each
+    pinned by digest."""
+    text = BUILD.read_text()
+    pins = {
+        m.group(1): m.group(2)
+        for m in re.finditer(
+            r'^SMOKE_BASE_(\d+)="docker\.io/library/debian@(sha256:[0-9a-f]{64})"$',
+            text,
+            re.M,
+        )
+    }
+    assert set(pins) == {"13", "12"}, pins
+    assert len(set(pins.values())) == 2
+    assert re.search(r'^smoke_on 13 "\$SMOKE_BASE_13"$', text, re.M)
+    assert re.search(r'^smoke_on 12 "\$SMOKE_BASE_12"$', text, re.M)

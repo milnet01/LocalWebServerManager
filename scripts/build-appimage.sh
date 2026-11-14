@@ -10,8 +10,8 @@
 #   1. Build: python:<.python-version>-slim-bookworm freezes the app with
 #      PyInstaller and wraps it with appimagetool (_appimage-build.sh). Debian
 #      12's glibc 2.36 is the oldest a user's system may have.
-#   2. Smoke: debian:13-slim, with no Python, offline, launches it
-#      (_appimage-smoke.sh). An AppImage nobody ran is not a release.
+#   2. Smoke: debian:13-slim and debian:12-slim, each with no Python and
+#      offline, launch it (_appimage-smoke.sh). An AppImage nobody ran is not a release.
 #
 # Needs podman or docker, uv, flock and python3 3.11 or newer (for tomllib).
 # Only the build reaches the network.
@@ -26,8 +26,9 @@ WORK="$DIST/.appimage-build"
 # python:3.13.16-slim-bookworm — keep the version equal to .python-version.
 BUILD_IMAGE="docker.io/library/python@sha256:73aa5faee130c60da030e105ec971ccf57473fbd22ce73bd6fc9ba99a40b838d"
 # debian:13-slim
-SMOKE_BASE="docker.io/library/debian@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2"
-SMOKE_IMAGE="localhost/lwsm-appimage-smoke:13"
+SMOKE_BASE_13="docker.io/library/debian@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2"
+# debian:12-slim — the README's oldest system (glibc 2.36)
+SMOKE_BASE_12="docker.io/library/debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc"
 
 VERSION="$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' "$ROOT/pyproject.toml")"
 APPIMAGE="LocalWebServerManager-$VERSION-x86_64.AppImage"
@@ -81,23 +82,35 @@ uv export --locked --no-dev --no-emit-project --extra package \
 # The smoke machine: Debian plus only the libraries every desktop has, which
 # the bundle leaves out — GL, tied to the graphics driver; libxkbcommon, which
 # must match the host's keyboard data; and one package per library that
-# packaging/appimage-excludelist removed from this build.
+# packaging/appimage-excludelist removed from this build. libxkbcommon-x11-0
+# and libwayland-cursor0 are left to the host by design; the smoke image has
+# them so the xcb and wayland platform plugins can be checked.
 SMOKE_PACKAGES="libgl1 libegl1 libxkbcommon0 libfontconfig1 libfreetype6"
 SMOKE_PACKAGES+=" libharfbuzz0b libstdc++6 libgcc-s1 libx11-6 libx11-xcb1"
 SMOKE_PACKAGES+=" libcom-err2 libexpat1 libgpg-error0 zlib1g"
-echo "== build-appimage: preparing the smoke machine =="
-if ! smoke_build_out="$(printf 'FROM %s\nRUN apt-get update && apt-get install -y --no-install-recommends %s && rm -rf /var/lib/apt/lists/*\n' \
-        "$SMOKE_BASE" "$SMOKE_PACKAGES" | "$RUNNER" build -t "$SMOKE_IMAGE" -f - "$WORK" 2>&1)"; then
-    printf '%s\n' "$smoke_build_out" >&2
-    echo "build-appimage: building the smoke image failed (output above)" >&2
-    exit 1
-fi
+SMOKE_PACKAGES+=" libxkbcommon-x11-0 libwayland-cursor0"
 
-echo "== build-appimage: smoke test (offline, no Python) =="
-"$RUNNER" run --rm --network=none \
-    --security-opt label=disable \
-    -v "$DIST":/artifact:ro \
-    -v "$ROOT/scripts":/scripts:ro \
-    "$SMOKE_IMAGE" bash /scripts/_appimage-smoke.sh "/artifact/$APPIMAGE" "$VERSION"
+# Builds the smoke machine for one Debian release and runs the smoke in it.
+# Each release has its own image tag, so two images never clash.
+smoke_on() {
+    local release=$1 base=$2 image="localhost/lwsm-appimage-smoke:$1" smoke_build_out
+    echo "== build-appimage: preparing the Debian $release smoke machine =="
+    if ! smoke_build_out="$(printf 'FROM %s\nRUN apt-get update && apt-get install -y --no-install-recommends %s && rm -rf /var/lib/apt/lists/*\n' \
+            "$base" "$SMOKE_PACKAGES" | "$RUNNER" build -t "$image" -f - "$WORK" 2>&1)"; then
+        printf '%s\n' "$smoke_build_out" >&2
+        echo "build-appimage: building the Debian $release smoke image failed (output above)" >&2
+        exit 1
+    fi
+
+    echo "== build-appimage: smoke test on Debian $release (offline, no Python) =="
+    "$RUNNER" run --rm --network=none \
+        --security-opt label=disable \
+        -v "$DIST":/artifact:ro \
+        -v "$ROOT/scripts":/scripts:ro \
+        "$image" bash /scripts/_appimage-smoke.sh "/artifact/$APPIMAGE" "$VERSION"
+}
+
+smoke_on 13 "$SMOKE_BASE_13"
+smoke_on 12 "$SMOKE_BASE_12"
 
 echo "== build-appimage: PASS — dist/$APPIMAGE =="

@@ -52,7 +52,10 @@ other.
 
 **It builds and smoke-tests the AppImage** with
 `scripts/build-appimage.sh`, the script the release workflow runs, so a
-broken AppImage blocks the release here (LWSM-1052). It needs uv and a
+broken AppImage blocks the release here (LWSM-1052). The smoke test runs on
+Debian 13 and Debian 12. On each it launches the app offscreen and runs `ldd`
+over the bundle's Qt platform plugins, failing on a missing library
+(LWSM-1544). It needs uv and a
 podman or docker that can run; without them, the check is skipped and the
 verdict cannot read "ready".
 
@@ -74,6 +77,10 @@ published (LWSM-1548, ADR-0008). It waits for the Release workflow, downloads
 the AppImage, signs it with the key on this PC, checks the signature against
 the committed public key, and uploads the `.sig`. A release with no `.sig` is
 offered to no installed AppImage. Run it again after moving a tag.
+
+**Run it again after a re-run of the Release workflow too.** A re-run replaces
+the AppImage already attached to the release (`gh release upload --clobber`,
+LWSM-1546), so the `.sig` no longer matches it.
 
 **The key is set up once, by the user:** `uv run scripts/sign-release.py
 generate` writes it to `~/.config/lwsm-release/signing.key` and prints the

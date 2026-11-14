@@ -110,7 +110,7 @@ dependency, tool or interpreter version. The project's own version is
 | GitHub Actions | `uses:` SHAs in `.github/workflows/ci.yml` and `release.yml`, release in a trailing comment | the same action in the other workflow |
 | Runner image | `runs-on:` in `.github/workflows/ci.yml` and `release.yml` | the other workflow |
 | AppImage packaging tool | PyInstaller in `pyproject.toml`'s `package` extra | `uv.lock`, re-locked |
-| AppImage build and smoke images | `scripts/build-appimage.sh` | — |
+| AppImage build image and the two smoke images (Debian 13 and Debian 12) | `scripts/build-appimage.sh`: `BUILD_IMAGE`, `SMOKE_BASE_13`, `SMOKE_BASE_12`, each a digest | — |
 | appimagetool and the AppImage runtime | `scripts/_appimage-build.sh`, version and SHA-256 together | — |
 | Libraries left out of the AppImage | `packaging/appimage-excludelist`, copied from a named upstream commit | the smoke image's package list in `scripts/build-appimage.sh` |
 | Design premises tied to a version (D6) | the comment above PySide6 in `pyproject.toml`; psutil's `_send_signal` behaviour in `src/lwsm/foreign.py` and ADR-0003 | re-checked on that dependency's bump |
