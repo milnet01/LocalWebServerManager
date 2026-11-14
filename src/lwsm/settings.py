@@ -34,6 +34,7 @@ from dataclasses import field as dataclass_field
 from pathlib import Path
 
 from lwsm.configfile import (
+    BoundedReasons,
     ConfigFileError,
     ConfigFileNotDurable,
     JsonFileRefused,
@@ -152,7 +153,8 @@ MAX_REASONS = 20
 
 
 class SettingsError(ConfigFileError):
-    """The file could not be *written*. There is no read-side failure."""
+    """Saving the file failed: not written, or (`SettingsNotDurable`) written
+    but not made durable. There is no read-side failure."""
 
 
 class SettingsNotDurable(SettingsError):
@@ -420,7 +422,9 @@ def load(path: Path) -> LoadResult:
     there a `RegistryError` reaches the user as an empty window with a reason,
     here the same condition reaches them as the default theme and a log line.
     """
-    reasons: list[str] = []
+    reasons = BoundedReasons(
+        MAX_REASONS, "and {count} more problems in this file, not shown"
+    )
     notes: list[str] = []
     try:
         # The shared reader (LWSM-1357) brings the guards this file needed one
@@ -431,7 +435,7 @@ def load(path: Path) -> LoadResult:
     except FileNotFoundError:
         # First run. Not a refusal, so it earns no reason — a clean machine
         # must not report a problem it does not have.
-        return LoadResult(Settings(), reasons)
+        return LoadResult(Settings(), [])
     except JsonFileRefused as exc:
         return LoadResult(
             Settings(), [_refusal_reason(path, exc)], document_refused=True
@@ -441,7 +445,7 @@ def load(path: Path) -> LoadResult:
     # `save_field`, and a write after last-wins deletes the value the user
     # typed first (review-code 2026-11-04 L09).
     for key in loaded.duplicate_keys:
-        reasons.append(f"duplicate key {quoted(key)}; the last value was used")
+        reasons.note(f"duplicate key {quoted(key)}; the last value was used")
 
     version = document.get("schema_version")
     # `type(v) is int` and not `isinstance`, for `_theme_or_reason`'s reason:
@@ -481,7 +485,7 @@ def load(path: Path) -> LoadResult:
     settings = Settings()
     theme, reason = _theme_or_reason(document.get("theme"))
     if reason is not None:
-        reasons.append(reason)
+        reasons.note(reason)
     if theme is not None:
         settings = replace(settings, theme=theme)
 
@@ -509,7 +513,7 @@ def load(path: Path) -> LoadResult:
             field, document.get(field), low, high, noun
         )
         if reason is not None:
-            reasons.append(reason)
+            reasons.note(reason)
         if number is not None:
             settings = replace(settings, **{field: number})
 
@@ -517,7 +521,7 @@ def load(path: Path) -> LoadResult:
     # was applied with no entry checked (LWSM-1281). Refused like a value out of
     # range, so the fallback and the reason are the ones the user already sees.
     if settings.text_scale not in TEXT_SIZE_STEPS:
-        reasons.append(
+        reasons.note(
             f"text_scale {settings.text_scale} is not one of the offered sizes "
             f"{', '.join(str(step) for step in TEXT_SIZE_STEPS)}; using "
             f"{MIN_TEXT_SCALE}"
@@ -527,19 +531,19 @@ def load(path: Path) -> LoadResult:
     for field in ("maximized", "single_key_shortcuts", "update_check"):
         flag, reason = _bool_or_reason(field, document.get(field))
         if reason is not None:
-            reasons.append(reason)
+            reasons.note(reason)
         if flag is not None:
             settings = replace(settings, **{field: flag})
 
     markers, reason = _markers_or_reason(document.get("error_markers"))
     if reason is not None:
-        reasons.append(reason)
+        reasons.note(reason)
     if markers is not None:
         settings = replace(settings, error_markers=markers)
 
     skip, reason = _skip_or_reason(document.get("update_skip"))
     if reason is not None:
-        reasons.append(reason)
+        reasons.note(reason)
     if skip is not None:
         settings = replace(settings, update_skip=skip)
 
@@ -552,12 +556,10 @@ def load(path: Path) -> LoadResult:
         document, sorted(key for key in document if key not in known)
     )
     if lost:
-        reasons.append(
-            f"unrecognised keys could not be kept ({quoted(', '.join(lost))})"
-        )
+        reasons.note(f"unrecognised keys could not be kept ({quoted(', '.join(lost))})")
     settings = replace(settings, unknown=kept)
 
-    return LoadResult(settings, reasons[:MAX_REASONS], notes=notes)
+    return LoadResult(settings, reasons.close(), notes=notes)
 
 
 def _refusal_reason(path: Path, refused: JsonFileRefused) -> str:

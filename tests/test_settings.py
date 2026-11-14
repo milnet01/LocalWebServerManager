@@ -304,6 +304,33 @@ def test_a_repeated_key_is_a_reason_so_the_next_save_cannot_delete_it(
     )
 
 
+def test_reasons_cut_at_the_cap_say_how_many_were_not_shown(tmp_path: Path) -> None:
+    """LWSM-1530: a cap with no tail reads exactly like completeness.
+
+    25 repeated keys made 25 reasons and `load` kept 20 with no sign of the
+    other 5 (`BoundedReasons` exists so that never happens).
+    """
+    path = tmp_path / "settings.json"
+    keys = [f"k{n:02d}" for n in range(25)]
+    body = ", ".join(f'"{key}": 1, "{key}": 2' for key in keys)
+    path.write_text("{" + body + "}", encoding="utf-8")
+
+    result = settings.load(path)
+
+    assert len(result.reasons) == settings.MAX_REASONS + 1
+    assert result.reasons[-1] == "and 5 more problems in this file, not shown"
+
+
+def test_reasons_under_the_cap_get_no_tail(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text('{"a": 1, "a": 2}', encoding="utf-8")
+
+    result = settings.load(path)
+
+    assert len(result.reasons) == 1
+    assert "more problems" not in result.reasons[0]
+
+
 def test_a_deeply_nested_document_is_a_reason_and_not_a_crash(tmp_path: Path) -> None:
     """`RecursionError` is not a `ValueError`, so it escaped by itself.
 
