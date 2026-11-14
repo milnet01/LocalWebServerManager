@@ -15062,7 +15062,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-01.
   Lanes: supervisor, stores.
 
-- 📋 [LWSM-1525] **Registry write, restore and merge edge cases: stray set-aside copies, a restore that breaks its promise, and merges past the record cap.**
+- ✅ [LWSM-1525] **Registry write, restore and merge edge cases: stray set-aside copies, a restore that breaks its promise, and merges past the record cap.**
   Priority: 4.
   Lane claims, not re-read at f57689c.
   1. registry.py:1206-1230: _set_aside_if_edited copies before
@@ -15097,6 +15097,11 @@ decided, is the last packaging item (added 2026-11-11).
   first. Point 6 dismissed: ADR-0005 defines the tie-break as earliest
   `added`, by design. Points 5 and 7 are with the user for a decision;
   the item stays open until they are answered.
+  2026-11-14: point 7's wording fixed in LWSM-1533's commit (9ec1257);
+  its format half is dismissed, since keeping a refused field would
+  change what is written to projects.json. Point 5 dismissed:
+  user_half_applied takes `added` whole on purpose.
+  2026-11-14: every point now has a disposition (see the notes above).
   **Layman:** Rare cases when saving, restoring or importing the project list can leave extra files, lose track of a damaged file, or block later saves.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-02.
@@ -15234,6 +15239,11 @@ decided, is the last packaging item (added 2026-11-11).
   Ctrl/Alt/Meta (:3419). The _load_error label (:3615-3625) is not
   re-derived on a language change. position_is_readable() decides
   Wayland from env vars, not QGuiApplication.platformName().
+  2026-11-14: points 1, 2 and 4 fixed (commit 769997d). Points 3 and 5
+  are being built (the export sweep; a window-side guard on Stop and
+  Restart). Open questions 6a to 6d dismissed with reasons in the
+  close-findings ledger; 6e (position_is_readable reads env vars) is a
+  recorded choice in placement.py.
   **Layman:** Several menu actions do not log their success or report unexpected errors, and Stop can act on a process the user was not shown.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-06, lane-07, lane-08.
@@ -15273,7 +15283,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-09.
   Lanes: settings, settingsdialog.
 
-- 📋 [LWSM-1531] **Two window-side strings cannot be translated well: a glued '(+N more)' fragment and ASCII digits in the settings dialog.**
+- ✅ [LWSM-1531] **Two window-side strings cannot be translated well: a glued '(+N more)' fragment and ASCII digits in the settings dialog.**
   Priority: 4.
   Window-side, so outside LWSM-1478's core-module scope; latent like
   it (no QTranslator installed). Lane claims.
@@ -15284,6 +15294,10 @@ decided, is the last packaging item (added 2026-11-11).
   2. settingsdialog.py:376, :380 `.replace("%1",
   str(MAX_ERROR_MARKERS))` inserts ASCII digits where firstrun.py:198
   uses QLocale().toString (L09-L1). Remedy: QLocale().toString(...).
+  2026-11-14: both points fixed (commit 769997d). Point 1 uses one
+  "%1 (+%2 more)" template with the count in the locale's digits; a
+  plural form would need %n, which Qt writes in ASCII digits, so that
+  choice waits for a translation.
   **Layman:** Two small bits of on-screen text are put together in a way a future translation could not get right.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-07, lane-09.
@@ -15312,12 +15326,17 @@ decided, is the last packaging item (added 2026-11-11).
   xdg-desktop-portal-kde provide `contrast` on the target Plasma?
   placement.py:574's Scripting.start fallback starts every loaded but
   unstarted KWin script, not only ours.
+  2026-11-14: points 1 to 3 fixed (commit 65d162e). The single shared
+  dbus-send helper is dismissed: only kwin_on_bus disagreed with the
+  contrast read, and it now answers None on a timeout. Point 4's three
+  questions need a measurement on a live Plasma session and are with
+  the user.
   **Layman:** Small inconsistencies in how the app asks the desktop questions, and the right edge of a tick box label may not respond to clicks.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-10.
   Lanes: placement, appearance, theme.
 
-- 📋 [LWSM-1533] **Entry and browsers: an unguarded flock, an activation dropped during startup, and uninstalled browsers still listed.**
+- ✅ [LWSM-1533] **Entry and browsers: an unguarded flock, an activation dropped during startup, and uninstalled browsers still listed.**
   Priority: 4.
   1. __main__.py:649 fcntl.flock is unguarded; only open() is caught
   (read), against the docstring (:638-639). ENOLCK on NFS ends main()
@@ -15335,6 +15354,10 @@ decided, is the last packaging item (added 2026-11-11).
   None -> None after parse_exec. Lane claim.
   4. Open: does a launched browser inherit VIRTUAL_ENV or a .venv/bin
   PATH from uv run?
+  2026-11-14: points 1 to 3 fixed (commit 9ec1257), with LWSM-1525
+  point 7's wording. Point 4 answered and dismissed: a browser inherits
+  the checkout's VIRTUAL_ENV only under `uv run`; the installed app and
+  the AppImage have no .venv.
   **Layman:** Rare startup failures, a second launch ignored while the app is still opening, and a removed browser still offered.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-11.
@@ -15370,6 +15393,10 @@ decided, is the last packaging item (added 2026-11-11).
   writes (closed-pipe behaviour on systemd 261 unsettled). Remedy:
   PR_SET_PDEATHSIG in the child.
   Items 3-7 are lane claims.
+  2026-11-14: points 1 to 5 fixed (commit 871e149). Point 6 dismissed:
+  no cheap reliable signal for a truncate and regrow inside one poll.
+  Point 7 (journalctl outliving the app) is with the user; a preexec_fn
+  is unsafe in a threaded process.
   **Layman:** Smaller faults in the output panel: leftover symbols, a panel that silently fails to open, and vague error wording.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-12.

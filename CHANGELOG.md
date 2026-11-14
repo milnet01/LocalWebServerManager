@@ -27,6 +27,24 @@ signaling per
 
 ### Fixed
 
+- **An unexpected error during Export or Import is shown and logged instead of vanishing.** (LWSM-1529)
+  Saving the theme, the text size or an exported profile is recorded in
+  the app log.
+
+- **The right-hand edge of a tick box's label responds to clicks.** (LWSM-1532)
+  A desktop that is slow to answer at start-up is asked again, rather
+  than window placement being switched off for the session.
+
+- **Starting a second copy while the first is still opening brings the first window forward once it appears.** (LWSM-1533)
+  A browser that has been uninstalled no longer stays in the browser
+  list. The restore question says the project list "could not be read"
+  rather than "damaged".
+
+- **The output panel no longer shows stray characters from terminal colour codes.** (LWSM-1534)
+  It says why when a service's output cannot be shown. A log file that
+  is cleared or replaced no longer has an old half-written line joined
+  to the new text.
+
 - **If Stop cannot be carried out, the row says so instead of staying on "stopping".** (LWSM-1527)
   The output panel also no longer follows a stopped service's journal
   when the server was started from a terminal.
