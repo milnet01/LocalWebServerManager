@@ -68,7 +68,8 @@ this session.
 - `port`: the port passed as `PORT`, or `null`.
 - `since_boot` and `boot_id` (LWSM-1448): the start in seconds since boot,
   to the kernel's 0.01 s tick, and `/proc/sys/kernel/random/boot_id`. Both
-  or neither; a file written before them has neither. `schema_version` stays
+  or neither; a file written before them has neither, and so does an entry
+  whose boot time could not be read at the start (LWSM-1524). `schema_version` stays
   1: the fields are additive, and a reader that does not know them ignores
   them.
 

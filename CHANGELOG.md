@@ -27,6 +27,15 @@ signaling per
 
 ### Fixed
 
+- **A server still starts normally when the system's boot time cannot be read.** (LWSM-1524)
+
+- **Restoring the project list from its backup is safer.** (LWSM-1525)
+  It refuses a linked project file, and puts the unreadable file back if
+  the backup will not load. A rescan or import no longer grows the list
+  past its limit, and says when it stops.
+
+- **The scan says when it skipped the end of a very long line in a project file, rather than reporting that the project sets no port.** (LWSM-1526)
+
 - **Picking a browser from a project's list works again.** (LWSM-1549)
   In 0.5.0 and 0.5.1, choosing a browser from the drop-down left the box blank or on "Auto" and reset that project to the default browser. The choice is now kept and saved. On those versions, select the closed box and press the Up or Down arrow key instead of opening the list.
 

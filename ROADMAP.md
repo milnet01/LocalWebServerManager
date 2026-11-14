@@ -15033,7 +15033,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-04, lane-08, lane-11, lane-01.
   Lanes: controller, mainwindow, browsers.
 
-- 📋 [LWSM-1524] **Supervisor and stores edge cases: an unexpected boot-time error, an unbounded reap wait, and a repeated project kept last-wins.**
+- ✅ [LWSM-1524] **Supervisor and stores edge cases: an unexpected boot-time error, an unbounded reap wait, and a repeated project kept last-wins.**
   Priority: 4.
   1. supervisor.py:1309-1314: _record catches only psutil.Error (read).
   psutil.boot_time() raises RuntimeError when /proc/stat has no btime
@@ -15053,6 +15053,10 @@ decided, is the last packaging item (added 2026-11-11).
   on the next save. TrustStore's docstring says so (stores.py:123-126);
   StartedStore's does not, and there the cost is newer adoptions read
   as foreign. Remedy: say so in StartedStore's docstring. Lane claim.
+  2026-11-14: all four points fixed (commit b37f25f), each behavioural
+  one with a test seen red first. Point 1 records the entry by
+  create_time alone rather than skipping it; LWSM-1428 § 4.1 says so.
+  Point 3 took the "refuse the file" option.
   **Layman:** Rare failure paths in the code that starts and remembers servers can report the wrong outcome or hang.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-01.
@@ -15089,6 +15093,10 @@ decided, is the last packaging item (added 2026-11-11).
   drop it and the next save (maybe silent) erase it; LWSM-1007 § 4.2
   justifies that only for `kind`. And restore_backup calls a file
   'damaged' when it may only be newer.
+  2026-11-14: points 1 to 4 fixed (commit 80166d6), tests seen red
+  first. Point 6 dismissed: ADR-0005 defines the tie-break as earliest
+  `added`, by design. Points 5 and 7 are with the user for a decision;
+  the item stays open until they are answered.
   **Layman:** Rare cases when saving, restoring or importing the project list can leave extra files, lose track of a damaged file, or block later saves.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-02.
@@ -15110,6 +15118,9 @@ decided, is the last packaging item (added 2026-11-11).
   spawnable SHELL launcher. Spec-conformant, and units_unavailable
   covers stored records. Check whether a first-run save, with no stored
   unit, is protected.
+  2026-11-14: point 1 fixed (commit eb1dc6f); LWSM-1006 § 4.3 folded
+  back. The open question in point 2 is answered and is with the user
+  for a decision; the item stays open until then.
   **Layman:** A port written far along a very long line in a project file is missed, and the scan does not say it skipped anything.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-03.
