@@ -161,6 +161,32 @@ def test_a_temporary_a_crash_left_behind_is_removed_by_the_next_write(
     assert other.exists(), "another writer's leftover is its own to remove"
 
 
+def test_a_write_can_skip_the_stale_temporary_sweep(tmp_path: Path) -> None:
+    """`sweep_stale=False` writes the file and leaves an old temporary of the
+    same prefix alone; the default still removes it.
+
+    Dies on ignoring the argument, and on making it the default.
+    """
+    import os
+    import time
+
+    from lwsm.configfile import write_atomically
+
+    old = time.time() - 2 * 3600
+    kept = tmp_path / ".projects-old.tmp"
+    kept.write_bytes(b"x")
+    os.utime(kept, (old, old))
+
+    write_atomically(tmp_path / "a.json", b"{}", prefix=".projects-", sweep_stale=False)
+
+    assert kept.exists()
+    assert (tmp_path / "a.json").read_bytes() == b"{}"
+
+    write_atomically(tmp_path / "b.json", b"{}", prefix=".projects-")
+
+    assert not kept.exists()
+
+
 def test_a_first_write_makes_the_directories_it_created_durable(
     tmp_path: Path, monkeypatch
 ) -> None:

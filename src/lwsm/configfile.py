@@ -450,7 +450,9 @@ def refuse_existing_target(path: Path) -> None:
         )
 
 
-def write_atomically(path: Path, data: bytes, *, prefix: str) -> None:
+def write_atomically(
+    path: Path, data: bytes, *, prefix: str, sweep_stale: bool = True
+) -> None:
     """Create the directory, refuse a hostile target, and write `data` durably.
 
     The order is the one that survives a failure at any step, and it is the
@@ -473,6 +475,9 @@ def write_atomically(path: Path, data: bytes, *, prefix: str) -> None:
     The check comes before the directory is created and before any temporary
     exists, so a refusal leaves the previous file and the filesystem untouched
     (INV-2), like every other refusal here.
+
+    `sweep_stale=False` skips the stale-temporary sweep, for a directory the
+    user chose, where a file matching the prefix may not be ours.
     """
     if len(data) > MAX_FILE_BYTES:
         raise ConfigFileError(
@@ -489,7 +494,8 @@ def write_atomically(path: Path, data: bytes, *, prefix: str) -> None:
         ) from exc
 
     refuse_existing_target(path)
-    _remove_stale_temporaries(directory, prefix)
+    if sweep_stale:
+        _remove_stale_temporaries(directory, prefix)
 
     # mkstemp creates at 0600 and in the target's own directory, so the rename
     # cannot cross a filesystem. `Path.write_text` would create at

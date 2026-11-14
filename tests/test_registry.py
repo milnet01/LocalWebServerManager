@@ -2291,6 +2291,29 @@ def clean_load(records: list[ProjectRecord] | None = None) -> registry.LoadResul
     return registry.LoadResult(records=records or [], reasons=[], rows_refused=0)
 
 
+def test_an_export_leaves_an_old_profile_temporary_in_the_chosen_folder(
+    tmp_path: Path,
+) -> None:
+    """A folder the user picked may hold a `.profile-*.tmp` that is not ours;
+    the export writes its own file and removes nothing else there.
+
+    Dies on the export sweeping stale temporaries in the chosen folder.
+    """
+    import os
+    import time
+
+    foreign = tmp_path / ".profile-something.tmp"
+    foreign.write_bytes(b"somebody else's")
+    two_hours_ago = time.time() - 2 * 3600
+    os.utime(foreign, (two_hours_ago, two_hours_ago))
+    records = [ProjectRecord(path=Path("/srv/b"), name="b")]
+
+    registry.export_profile(tmp_path / "saved.json", records, load=clean_load(records))
+
+    assert foreign.read_bytes() == b"somebody else's"
+    assert (tmp_path / "saved.json").exists()
+
+
 def test_a_profile_round_trips_through_the_registry_loader(tmp_path: Path) -> None:
     """A profile IS a `projects.json`, and this is the whole claim.
 

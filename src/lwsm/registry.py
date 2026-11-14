@@ -2067,7 +2067,7 @@ def export_profile(
 
     data = _encoded(path, records)
     try:
-        write_atomically(path, data, prefix=".profile-")
+        write_atomically(path, data, prefix=".profile-", sweep_stale=False)
     except ConfigFileNotDurable as exc:
         # Written, and the caller must be able to say so, as `save_projects`
         # does (known-issue-047, L5-L4).
