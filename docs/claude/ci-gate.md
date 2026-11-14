@@ -43,6 +43,14 @@ the hook and **1** under the workflow — so the push went out and GitHub
 failed it, which is precisely the split the hook exists to close. Running
 `./scripts/local-ci.sh` **by hand** is unaffected and stays lenient.
 
+**`scripts/lib.sh` is sourced by `scripts/local-ci.sh` and
+`scripts/local-release.sh`.** It holds what they share: the colour
+variables, `step`, `fail` and the ERR trap that names the step that broke.
+It runs nothing itself. Both scripts change into the repository root first
+and source it by that relative path, so it works from the hook's scratch
+checkout and from the workflow alike; a script that copies either one
+elsewhere must copy it too.
+
 **The tool VERSIONS are pinned in `scripts/ci-tools.env`, which both
 the workflow and the gate read**, and the gate reports any tool whose
 version differs from the pin as **TOOL DRIFT** — a warning locally, and

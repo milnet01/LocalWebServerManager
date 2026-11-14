@@ -82,17 +82,9 @@ for arg in "$@"; do
     esac
 done
 
-if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
-    BOLD=$'\033[1m'; RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'
-    RESET=$'\033[0m'
-else
-    BOLD=''; RED=''; GREEN=''; YELLOW=''; RESET=''
-fi
-
-step() { CURRENT_STEP="$1"; printf '\n%s==> %s%s\n' "$BOLD" "$1" "$RESET"; }
-fail() { printf '\n%sFAILED: %s%s\n' "$RED" "$1" "$RESET" >&2; exit 1; }
-CURRENT_STEP="startup"
-trap 'fail "$CURRENT_STEP"' ERR
+# Colours, `step`, `fail` and the ERR trap that names the step that broke.
+# shellcheck source=scripts/lib.sh
+. scripts/lib.sh
 
 # A release STOP, and a check that could not run, are different answers and
 # are tracked separately — the same split scripts/local-ci.sh draws between a
@@ -107,6 +99,15 @@ skip() { SKIPPED+=("$1"); printf '%s  SKIPPED: %s%s\n' "$YELLOW" "$1" "$RESET"; 
 warn() { WARNINGS+=("$1"); printf '%s  WARNING: %s%s\n' "$YELLOW" "$1" "$RESET"; }
 ok() { printf '  %s\n' "$1"; }
 
+# Runs the Python on stdin with the recipe already parsed as `recipe` (and
+# `json` and `sys` imported). The recipe's path is argv[1] and any further
+# arguments follow it, so the caller's body reads argv[2:] as before. One
+# reader, so no check restates how the recipe is loaded.
+recipe_py() {
+    { printf 'import json, sys\nrecipe = json.loads(open(sys.argv[1]).read())\n'; cat; } |
+        python3 - "$@"
+}
+
 # --- 0a: the recipe exists and is in the dialect cut-release reads -----------
 
 step "0a  Release recipe"
@@ -117,10 +118,9 @@ step "0a  Release recipe"
 # searches for the regex source text, finds nothing, and leaves the file at the
 # old version. bump-recipe.md § Validating names three tells; all three are
 # checked here rather than trusted.
-python3 - "$RECIPE" <<'PY' || fail "recipe is not in the dialect cut-release reads"
-import json, re, sys
+recipe_py "$RECIPE" <<'PY' || fail "recipe is not in the dialect cut-release reads"
+import re
 
-recipe = json.loads(open(sys.argv[1]).read())
 problems = []
 for key in ("version_source", "version_pattern", "files"):
     if key not in recipe:
@@ -153,9 +153,9 @@ ok "$RECIPE is well-formed"
 # --- 0b: OLD is extractable --------------------------------------------------
 
 step "0b  Current version"
-OLD=$(python3 - "$RECIPE" <<'PY'
-import json, re, sys
-recipe = json.loads(open(sys.argv[1]).read())
+OLD=$(recipe_py "$RECIPE" <<'PY'
+import re
+
 text = open(recipe["version_source"]).read()
 match = re.search(recipe["version_pattern"], text, re.M)
 print(match.group(1) if match else "")
@@ -176,10 +176,7 @@ step "0b  Recipe patterns resolve"
 # Read-only: counts occurrences, writes nothing. This is the check that caught
 # the roadmap quoting its own version line — the pattern matched twice, and a
 # real bump would have stopped mid-release with the tree half-edited.
-python3 - "$RECIPE" "$OLD" <<'PY' || fail "a recipe pattern does not match exactly once"
-import json, sys
-
-recipe = json.loads(open(sys.argv[1]).read())
+recipe_py "$RECIPE" "$OLD" <<'PY' || fail "a recipe pattern does not match exactly once"
 old = sys.argv[2]
 bad = False
 for entry in recipe["files"]:
@@ -282,9 +279,7 @@ step "0d  Already published"
 if [[ -z $TARGET ]]; then
     skip "tag and release existence (needs a target version)"
 else
-    TAG=$(python3 - "$RECIPE" "$TARGET" <<'PY'
-import json, sys
-recipe = json.loads(open(sys.argv[1]).read())
+    TAG=$(recipe_py "$RECIPE" "$TARGET" <<'PY'
 print(recipe.get("tag", "").replace("{NEW}", sys.argv[2]))
 PY
 )
@@ -297,22 +292,32 @@ fi
 
 # --- 0e: the changelog section -----------------------------------------------
 
+# The ERE for a dated `## [X.Y.Z] — YYYY-MM-DD` heading, for grep -E and awk
+# alike, so the section check and the citation reader cannot disagree about
+# what a release heading is. Match either dash: changelog-format.md § 4.3
+# spells the heading with an em dash, and `changelog_log op:release` closes one
+# with an ASCII hyphen. The DATE is what decides, not the dash — an undated
+# `## [X.Y.Z]` is an RC-flow placeholder and publishing from it puts
+# "unreleased" in the notes.
+#
+# Alternation, never `[—-]`: the em dash is three bytes, and inside a bracket
+# expression it matches as one character only under a UTF-8 locale and a
+# multibyte-aware awk — not under LC_ALL=C or mawk (L7-L2). The date is spelt
+# out rather than `{4}`, which mawk does not read. `[[]` and `[]]` rather than
+# a backslash, which awk's `-v` would treat as an escape.
+changelog_heading_re() {
+    printf '^## [[]%s[]] (—|-) [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$1"
+}
+
 step "0e  Changelog section"
 if [[ -z $TARGET ]]; then
     skip "dated changelog section (needs a target version)"
     SECTION_FOUND=0
 else
-    # Match either dash: changelog-format.md § 4.3 spells the heading with an
-    # em dash, and `changelog_log op:release` closes one with an ASCII hyphen.
-    # The DATE is what decides, not the dash — an undated `## [X.Y.Z]` is an
-    # RC-flow placeholder and publishing from it puts "unreleased" in the notes.
-    #
-    # Alternation, never `[—-]`: the em dash is three bytes, and inside a
-    # bracket expression it matches as one character only under a UTF-8 locale
-    # and a multibyte-aware awk — not under LC_ALL=C or mawk (L7-L2).
-    if grep -qE "^## \[$TARGET\] (—|-) [0-9]{4}-[0-9]{2}-[0-9]{2}" CHANGELOG.md; then
-        LINES=$(awk -v v="$TARGET" '
-            $0 ~ "^## \\[" v "\\] (—|-) [0-9]" {f=1; next}
+    HEADING_RE=$(changelog_heading_re "$TARGET")
+    if grep -qE "$HEADING_RE" CHANGELOG.md; then
+        LINES=$(awk -v re="$HEADING_RE" '
+            $0 ~ re {f=1; next}
             /^## \[/ {f=0}
             f && NF' CHANGELOG.md | wc -l)
         if ((LINES == 0)); then
@@ -346,8 +351,8 @@ cited_ids() {
     prefixes=$(grep -ohE '^- [^[]*\[[A-Z][A-Z0-9]*-[0-9]+\]' ROADMAP.md docs/roadmap/*.md 2>/dev/null |
         sed -E 's/^.*\[([A-Z][A-Z0-9]*)-[0-9]+\]$/\1/' | sort -u | paste -sd '|' || true)
     [[ -n $prefixes ]] || return 0
-    awk -v v="$target" '
-        $0 ~ "^## \\[" v "\\] (—|-) [0-9]" {f=1; next}
+    awk -v re="$(changelog_heading_re "$target")" '
+        $0 ~ re {f=1; next}
         /^## \[/ {f=0}
         f && /^- /' CHANGELOG.md |
         grep -oE "(^|[^A-Za-z0-9])($prefixes)-[0-9]+([^A-Za-z0-9]|$)" |
@@ -601,9 +606,7 @@ dry_bump() {
     git worktree add --detach --quiet "$DRY_BUMP_WORKTREE" HEAD
     cd "$DRY_BUMP_WORKTREE"
 
-    python3 - "$recipe" "$old" "$new" <<'PY'
-import json, sys
-recipe = json.loads(open(sys.argv[1]).read())
+    recipe_py "$recipe" "$old" "$new" <<'PY'
 old, new = sys.argv[2], sys.argv[3]
 for entry in recipe["files"]:
     path = entry["path"]
@@ -614,9 +617,8 @@ for entry in recipe["files"]:
     print(f"  bumped {path}")
 PY
 
-    post_check=$(python3 - "$recipe" <<'PY'
-import json, sys
-print(json.loads(open(sys.argv[1]).read()).get("post_check", ""))
+    post_check=$(recipe_py "$recipe" <<'PY'
+print(recipe.get("post_check", ""))
 PY
 )
     if [[ -n $post_check ]]; then

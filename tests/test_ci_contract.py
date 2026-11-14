@@ -37,6 +37,7 @@ WORKFLOW = REPO / ".github/workflows/ci.yml"
 RELEASE_WORKFLOW = REPO / ".github/workflows/release.yml"
 TOOLS_ENV = REPO / "scripts/ci-tools.env"
 LOCAL_CI = REPO / "scripts/local-ci.sh"
+LIB = REPO / "scripts/lib.sh"
 
 # Every `run:` step the workflow is allowed to have, by name. Preparing a
 # machine is legitimate; checking the project is not. Adding a name here is
@@ -679,7 +680,7 @@ def test_the_recipe_does_not_bump_a_historical_marker() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    [WORKFLOW, TOOLS_ENV, LOCAL_CI, HOOK, RECIPE, DRIFT],
+    [WORKFLOW, TOOLS_ENV, LOCAL_CI, LIB, HOOK, RECIPE, DRIFT],
     ids=lambda p: p.name,
 )
 def test_every_file_the_gate_depends_on_is_committed(path) -> None:

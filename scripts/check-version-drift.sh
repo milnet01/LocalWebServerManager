@@ -41,8 +41,11 @@ if [[ -z $source_of_truth ]]; then
 fi
 
 drift=0
+# pyproject.toml is the first file; every `expect` below adds one.
+checked=1
 expect() {
     local label=$1 path=$2 found=$3
+    checked=$((checked + 1))
     if [[ $found != "$source_of_truth" ]]; then
         printf '  %-28s %-14s (pyproject.toml says %s) %s\n' \
             "$label" "${found:-<not found>}" "$source_of_truth" "$path" >&2
@@ -71,4 +74,5 @@ if ((drift)); then
     exit 1
 fi
 
-printf '  version %s, consistent across 4 files\n' "$source_of_truth"
+printf '  version %s, consistent across %d files\n' \
+    "$source_of_truth" "$checked"

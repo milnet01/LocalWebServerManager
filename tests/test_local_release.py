@@ -360,6 +360,7 @@ def _dry_bump(repo: Path) -> subprocess.CompletedProcess[str]:
         'block() { printf "BLOCK %s\\n" "$1"; }\n'
         'skip()  { printf "SKIP %s\\n" "$1"; }\n'
         'ok()    { printf "OK %s\\n" "$1"; }\n'
+        f"{_function(RELEASE, 'recipe_py')}\n"
         f"{body.group(0)}\n"
         "dry_bump 0.1.0 0.2.0 recipe.json"
     )
@@ -556,7 +557,13 @@ def _cited_ids(tmp_path: Path, changelog: str, *, env: dict | None = None) -> li
     bash = shutil.which("bash")
     assert bash, "bash is not on PATH"
     done = subprocess.run(
-        [bash, "-c", f"set -Eeuo pipefail\n{body.group(0)}\ncited_ids 0.1.0"],
+        [
+            bash,
+            "-c",
+            "set -Eeuo pipefail\n"
+            f"{_function(RELEASE, 'changelog_heading_re')}\n"
+            f"{body.group(0)}\ncited_ids 0.1.0",
+        ],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -580,6 +587,17 @@ def test_only_this_roadmap_s_ids_count_as_shipping_claims(tmp_path) -> None:
         "  Also relates to LWSM-9999.\n"
     )
     assert _cited_ids(tmp_path, changelog) == ["LWSM-1234"]
+
+
+def test_citations_are_read_only_from_a_fully_dated_heading(tmp_path) -> None:
+    """The section check wants `YYYY-MM-DD` and the citation reader took any
+    digit, so a heading the first rejected still had its bullets read as claims.
+    One heading pattern now serves both.
+
+    Dies on a heading pattern in `cited_ids` looser than the section check.
+    """
+    changelog = "## [0.1.0] - 2026-1\n\n- **A thing** (LWSM-1234).\n"
+    assert _cited_ids(tmp_path, changelog) == []
 
 
 def test_a_decision_record_link_is_not_a_roadmap_prefix(tmp_path) -> None:
