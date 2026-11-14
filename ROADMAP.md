@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1550 -->
+<!-- ants-roadmap-id-high-water: LWSM=1554 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -11904,14 +11904,6 @@ contracts.
   Kind: chore.
   Source: user-request-2026-10-10.
 
-- 💭 [LWSM-1414] **Nothing proposes updates for the tool pins in scripts/ci-tools.env or for .python-version.**
-  dependabot.yml covers github-actions and uv but cannot read ci-tools.env, so
-  shellcheck, actionlint, yamllint and the exact Python patch never get an update
-  PR. Not a defect today; check-dependencies before each release covers it by hand.
-  **Layman:** The versions of the checking tools are only ever updated by hand, so they can quietly fall behind.
-  Kind: chore.
-  Source: in-session-2026-10-10 LWSM-1413 comparison.
-
 - ✅ [LWSM-1418] **Health check answer says what the code means in a word, not a bare number.**
   Found in the user's hand try-out of LWSM-1034 (2026-10-15): RetroDB
   answers / with a 302 to /dashboard and the port cell read "HTTP 302",
@@ -12216,24 +12208,6 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Kind: fix.
   Source: close-findings-2026-10-10 LWSM-1409 O9 sweep of L07-M1.
   Lanes: supervisor, service.
-
-- 💭 [LWSM-1416] **CI's yamllint pins yamllint itself but lets PyYAML and pathspec float.**
-  .github/workflows/ci.yml installs `yamllint==${YAMLLINT_VERSION}` with
-  `uv tool install`, which resolves PyYAML and pathspec to whatever is newest,
-  and local-ci.sh checks only yamllint's own version. A new PyYAML could turn
-  the gate red with no change of ours. Not fixed in LWSM-1411: pinning them
-  means adding `--with` pins in ci-tools.env and checking them locally, and
-  the local half changes the machine-wide yamllint other projects' gates use,
-  so it needs the user's decision first. Nearest item: LWSM-1414.
-  review-code 2026-11-05 lane-13 re-found this: ci.yml:139 `uv tool
-  install "yamllint==${YAMLLINT_VERSION}"` is installed with no hash and
-  unpinned transitive dependencies, while ci-tools.env:32-35 gives the
-  reason shellcheck and actionlint carry a SHA-256. Remedy offered:
-  --with-requirements from a hashed requirements file. Same decision as
-  above.
-  **Layman:** One checking tool's own helpers are not held to fixed versions, so an update to them could break the checks without warning.
-  Kind: chore.
-  Source: review-code-2026-10-08 lane-10 L10-L9.
 
 - 💭 [LWSM-1419] **Consider bumping the uv pin from 0.12.23 to 0.13.1.**
   ./scripts/local-release.sh 0.3.0 (2026-10-15) warned: UV_VERSION in
@@ -14690,7 +14664,7 @@ LWSM-1036.
   Source: review-code-2026-11-05 lane-13.
   Lanes: tooling.
 
-## 1.0.0 — A download for other people
+## 0.6.0 — A download for other people
 
 The project is public and meant to be useful to strangers, so a release has to
 be something a person downloads and runs. Nothing here is needed for the
@@ -14890,54 +14864,6 @@ decided, is the last packaging item (added 2026-11-11).
   question settled by measurement.
   Lanes: docs, build.
 
-- 📋 [LWSM-1188] **Define what 1.0.0 means, and hold the line on it.**
-  Nothing in this repository defined 1.0.0 before this bullet. Checked
-  2026-08-24 across every markdown file: the only match is a generic example
-  inside `roadmap-format.md`. LWSM-1152 defines 0.1.0 and stops there, so
-  "what gets us to 1.0?" had no answer anyone could read.
-
-  **The definition, agreed with the user 2026-08-24: 1.0.0 is the five
-  success criteria delivered end to end, plus the security fold-in, plus a
-  packaged download.** The criteria are not invented here -- the roadmap
-  already labels five phases `criterion 1` .. `criterion 5`, from
-  `discovery.md`, and they are the app's own statement of what it is for.
-
-  In scope, with the open count on the day this was written:
-
-  - criterion 1, find projects (P03b) -- 5
-  - criterion 2, start / stop / restart (P05) -- 1
-  - criterion 3, the full state model (P06) -- 6
-  - criterion 4, ports (P07) -- 4
-  - criterion 5, logs (P08) -- 2
-  - the security fold-in (FP01) -- 3
-  - packaging, so there is something to download (P10) -- 5
-
-  Deliberately OUT, and this is the half that makes the bullet worth
-  having. P09's shell work -- tray, restore-session, custom actions,
-  start-at-login, crash-loop guard -- is 7 open items of genuine value that
-  nobody needs in order to use the app for what it is for. DS01's debt and
-  the older fold-ins are another 9. Both go to 1.1. A 1.0 that waits for
-  every open item is a 1.0 that never ships, and this project has 57 open
-  items and has never released anything.
-
-  **The counts are a snapshot, not a contract.** What is fixed is the
-  membership rule -- the five criteria, security, packaging -- so a bullet
-  filed into P06 tomorrow is in scope by construction and needs no
-  renegotiation here.
-
-  Order: 0.1.0 first (LWSM-1152, gated on P04 closing, which is gated on
-  FP08). This is the milestone after it, not a replacement for it.
-
-  Watch for the failure this bullet exists to prevent: scope creeping in
-  because an item is nearly done, or because it sits next to one that is in
-  scope. The test is the membership rule above, never how finished
-  something feels.
-  Dependencies: LWSM-1152, LWSM-1021.
-  **Layman:** Write down what "finished enough to call it version 1" means, so it is a target rather than a feeling.
-  Kind: release.
-  Source: user-decision-2026-08-24.
-  Lanes: release, docs.
-
 - ✅ [LWSM-1397] **Depend on PySide6-Essentials, not the PySide6 meta-package that pulls Addons, WebEngine and Pdf.**
   Measured 2026-10-08 under PySide6 6.12.0: src/ imports only QtCore,
   QtGui, QtWidgets and QtNetwork, all in PySide6-Essentials. The
@@ -14959,48 +14885,6 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: package.
   Source: in-session-2026-10-08 (LWSM-1394 PySide6 bump).
   Lanes: packaging.
-
-- 📋 [LWSM-1478] **User-facing sentences are built in core modules and in __main__, out of the translator's reach.**
-  Priority: 4.
-  Seven review lanes (02, 04, 05, 07, 09, 10, 11) found English
-  sentences built outside the translator's reach: controller
-  `action_failed` and port-lookup sentences, `settings` and `registry`
-  reasons, `foreign.TreeRefused`, `service` reasons, theme high-contrast
-  labels, and `__main__` print() notices (argparse text and log lines
-  are deliberately untranslated, ROADMAP note 2026-08-06). Calibrated
-  MEDIUM to LOW: no QTranslator is installed (LWSM-1304's "Latent
-  today"). Sites: the lane files of the 2026-11-04 review, kept outside
-  the repo. Likely shape: core modules return a reason code plus
-  arguments, and the window translates.
-  Decided: the user took the recommendation, 2026-11-05. The question was: (fix this before 0.4.0, or move it to 1.0.0 where a
-  translation could first ship? Recommend moving it to 1.0.0: no user
-  sees an untranslated string today, and the change touches seven
-  modules, 2026-11-04).
-  review-code 2026-11-05 re-found this class and calibrated each MEDIUM
-  to LOW against this item. New sites, not in the body above:
-  supervisor.py:1536-1552 and :1851-1854 Stop warnings, emitted via
-  controller.py:1944 (lane-01; also the LauncherRefused and
-  AlreadyRunning texts at :1150, :1157, :1166, :1196, :1210 if the UI
-  shows them); scanner.py:2140 and every ScanResult.skipped reason, plus
-  MINOR_TAIL (scanner.py:83), shown in the first-run 'Not added' list
-  via mainwindow.py:4625 (lane-03). firstrun.worth_showing matches
-  reasons by their English text (firstrun.py:65-67), so the fix must
-  replace that filter too. Re-found in modules already listed:
-  controller f-strings at :1490, :1508-1510, :1533, :1745-1753, :1803,
-  :1865, :2329, :2353, :2500 and _holder_phrase/_port_conflict :360-373
-  (lane-04); port-lookup answers controller.py:1416-1434 via
-  portlookup.py:123, :128 (lane-05); TreeRefused foreign.py:110-158 via
-  mainwindow.py:4029 and service reasons service.py:304, :311, :449-452
-  via controller.py:1866 (lane-05); core reasons in the banner via
-  mainwindow.py:3156-3158, :3189, :3194, :3205, :2875, e.g.
-  registry.py:2017 (lane-07); theme.py:481, :503 labels via
-  mainwindow.py:2725, whose exemption comment (theme.py:61-62) cites
-  another project's rule (lane-10); __main__.py:126-130, :361, :364
-  banner notice and prefixes (lane-11). Window-side slips are LWSM-1531.
-  **Layman:** Some messages the app shows are written in parts of the code that a future translation would never see, so they would stay in English.
-  Kind: review-fix.
-  Source: review-code-2026-11-04.
-  Lanes: controller, settings, registry, service, foreign, theme, main, supervisor, scanner, firstrun.
 
 - ✅ [LWSM-1523] **Outside text still reaches the row, a dialog and app.log without the shared cleaner at three more sites.**
   Priority: 4.
@@ -15554,7 +15438,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-01, lane-02, lane-03, lane-05, lane-12.
   Lanes: supervisor, registry, scanner, service, applog, logbuffer.
 
-- 🚧 [LWSM-1538] **Controller, log panel, theme and entry refactoring: shared helpers for hand-copied shutdowns and catch-alls, and names that lie.**
+- ✅ [LWSM-1538] **Controller, log panel, theme and entry refactoring: shared helpers for hand-copied shutdowns and catch-alls, and names that lie.**
   Priority: 5.
   Lane claims.
   Controller (lane-04):
@@ -15587,12 +15471,18 @@ decided, is the last packaging item (added 2026-11-11).
   times (:694-720) -> _someone_answers(path).
   10. browsers._entry_fields (:179-196) re-implements
   _groups(text).get('Desktop Entry', {}) (:354-375).
+  2026-11-14: shipped in 9075576. Points 1 and 4 to 10 fixed
+  (_join_or_abandon, _emit_or_log, clean_display_text, the failure
+  announcement through _announce, outline.py, the probe helper,
+  _groups). Points 2 and 3 dismissed as renames; their comments now list
+  what the signals carry. The build_window split dismissed; its
+  docstring corrected.
   **Layman:** Tidy-up: several pieces of code are copied by hand in a few places and some names describe less than the code does.
   Kind: refactor.
   Source: review-code-2026-11-05 lane-04, lane-10, lane-11, lane-12.
   Lanes: controller, logpanel, theme, main, browsers.
 
-- 🚧 [LWSM-1539] **Main window refactoring: one button-lifecycle helper, one placeholder filler, and comments, counts and names that no longer match.**
+- ✅ [LWSM-1539] **Main window refactoring: one button-lifecycle helper, one placeholder filler, and comments, counts and names that no longer match.**
   Priority: 5.
   Lane claims.
   1. _offer_output/offer_port_change/clear_error and the two _label_*
@@ -15624,6 +15514,10 @@ decided, is the last packaging item (added 2026-11-11).
   10. place_window's docstring (placement.py, near 660-665) says
   SCREEN_FRACTION; since LWSM-1283 the remembered size is bounded to the
   whole available area (mainwindow.py:5424-5430).
+  2026-11-14: shipped in 9075576. Points 1 to 3 and 5 to 10 fixed;
+  MergeResult carries units_unavailable and _RescanMerge is gone. Point
+  4 dismissed: update_from runs only on a changed view and
+  QAction.setText skips equal text.
   **Layman:** Tidy-up in the main window code: duplicated pieces to merge and outdated comments to correct.
   Kind: refactor.
   Source: review-code-2026-11-05 lane-06, lane-07, lane-08.
@@ -15670,18 +15564,6 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: investigate.
   Source: write-code-2026-11-08 LWSM-1518 O9 sweep.
   Lanes: mainwindow.
-
-- 💭 [LWSM-1542] **A minimised window takes a couple of seconds to come forward when the app is opened again from the menu.**
-  Seen in LWSM-1521's real-KWin check (2026-11-10). A covered window
-  came forward with no wait reported. A second copy's hand-off measured
-  0.18 s, and the trace shows xdg_activation_v1.activate sent, so the
-  wait is after the hand-off: in the menu's launch, KWin's restore, or
-  _bring_to_front clearing the minimised bit before activating. Not yet
-  measured which. Start by timestamping the click against the activate
-  line and the un-minimise configure in a WAYLAND_DEBUG trace.
-  **Layman:** Opening the app from the menu while its window is minimised brings it back, but with a short wait.
-  Kind: investigate.
-  Source: user-kwin-check-2026-11-10.
 
 - ✅ [LWSM-1543] **Bump the UV_VERSION pin from 0.12.23 to the current uv release.**
   local-release.sh 0h warned on 2026-11-10: pinned 0.12.23, latest
@@ -15781,6 +15663,119 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: fix.
   Source: review-code-2026-11-10.
 
+- ✅ [LWSM-1549] **Picking a browser from a row's list wipes the choice instead of saving it.**
+  Reported by the user on 0.5.1, 2026-11-14: choosing Google Chrome
+  for one project left the box blank or on "Auto", and the banner said
+  the project opens in the default browser. The saved choice (Brave)
+  was overwritten with none.
+
+  Cause, reproduced 2026-11-14 on PySide6 6.12.0, offscreen, by mouse
+  and by keyboard: `BrowserPicker.hidePopup` clears the list's current
+  item (LWSM-1504). Qt closes the list first and only then reads that
+  current item to learn what was picked, so it reads "nothing", sets
+  the box to index -1, and `set_project_browser` saves no choice. A
+  plain `QComboBox` in the same script picks correctly. In every
+  release since LWSM-1504: 0.5.0 and 0.5.1. The LWSM-1504 test opens
+  and closes the list but never picks from it.
+  Fixed 2026-11-14: the clearing on close now waits one event-loop
+  turn (`QTimer.singleShot(0, ...)` in `BrowserPicker.hidePopup`).
+  `test_picking_from_the_open_list_keeps_the_choice` picks by keyboard
+  and by mouse; it failed on both before the fix and passes after.
+  Not yet in a release. On 0.5.0 and 0.5.1 the arrow keys on the
+  closed box still work (measured against the unfixed code).
+  **Layman:** Choosing a browser from a project's drop-down left the box blank and reset the project to the default browser.
+  Kind: fix.
+  Source: user-report-2026-11-14.
+
+## 0.7.0 — Updates you can read, and a tray
+
+The self-update shows what changed between the installed version and the new
+one. The app can sit in the tray and remember what was running.
+
+Order: LWSM-1550 first, straight after 0.6.0 is published. Then the update
+notes, which also give the second signed release that LWSM-1548 waits on. Then
+the tray items.
+
+- 📋 [LWSM-1550] **release.yml: give write permission only to the step that attaches the AppImage.**
+  LWSM-1546 point 1. `contents: write` covers checkout, setup-uv and the
+  whole build, not only the upload. Every input is pinned. The pinned
+  setup-uv action takes github.token by default.
+  Fix: a read-only build job that uploads an artifact, then an attach
+  job with write permission.
+  The user decided on 2026-11-14 that this goes after 0.6.0, so the
+  first signed release is not also the first run of a reshaped workflow.
+  Do it straight after 0.6.0 is published.
+  **Layman:** The release workflow holds the power to change a release for longer than it needs.
+  Kind: security.
+  Source: review-code-2026-11-10, split from LWSM-1546.
+
+- 📋 [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
+  Closing the window hides to tray and leaves servers
+  running; the tray offers *Show window*, *Hide*, and the app's
+  only genuine Quit. **Deliberately no per-project submenu**
+  (user, 2026-08-03): a 22-pixel icon with a nested menu is a
+  poor surface for a magnifier user, it would be a second UI
+  owing the same accessibility bar as the first, and once
+  restore-last-session (LWSM-1035) and start-at-login
+  (LWSM-1027) exist, the tray's real job is bringing the window
+  back. A tray tooltip summarising how many projects are running
+  is enough status for an icon to carry.
+  Dependencies: LWSM-1010.
+  **Layman:** Tuck the app into the system tray instead of quitting,
+  so your sites keep running — but keep the icon simple, since a
+  tiny menu is awkward to use with a magnifier.
+  Kind: implement.
+  Source: user-2026-08-03.
+  Priority: 3.
+  Lanes: ui, tests.
+
+- 📋 [LWSM-1035] **P09: restore last session, and stop all.**
+  Two bookends for a working day. On launch, optionally start
+  whatever was running when the app last quit — recorded as an
+  observation at shutdown, not as a per-project flag the user has
+  to maintain. And a single **Stop all** action that frees every
+  port at once, with one confirmation naming what it will stop,
+  never seven. Both honour the pre-flight check and the
+  foreign-server guard.
+  Dependencies: LWSM-1010.
+  **Layman:** Pick up where you left off, and one button to shut
+  everything down at the end of the day.
+  Kind: implement.
+  Source: user-2026-08-03.
+  Priority: 2.
+  Lanes: core, ui, tests.
+
+- 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
+  The manager sets `LWSM_MANAGED=1` in every
+  process it spawns, per
+  [ADR-0006](docs/decisions/0006-managed-mode-signalling.md). The
+  manager's half is one line; the sibling half ships in the
+  adoption prompt. Grouped here rather than in P05 because it is
+  only *useful* once the manager can replace what the trays do —
+  start at login (LWSM-1027) and their extra actions
+  (LWSM-1029).
+  Dependencies: LWSM-1009.
+  **Layman:** Tell each project "I'm managing you now", so it hides
+  its own tray icon and you're not looking at two of everything.
+  Kind: implement.
+  Source: user-2026-08-03.
+  Priority: 3.
+  Lanes: core.
+
+- 📋 [LWSM-1542] **A minimised window takes a couple of seconds to come forward when the app is opened again from the menu.**
+  Seen in LWSM-1521's real-KWin check (2026-11-10). A covered window
+  came forward with no wait reported. A second copy's hand-off measured
+  0.18 s, and the trace shows xdg_activation_v1.activate sent, so the
+  wait is after the hand-off: in the menu's launch, KWin's restore, or
+  _bring_to_front clearing the minimised bit before activating. Not yet
+  measured which. Start by timestamping the click against the activate
+  line and the un-minimise configure in a WAYLAND_DEBUG trace.
+  2026-11-14: planned for 0.7.0, beside the tray, which changes how the
+  window is hidden and shown.
+  **Layman:** Opening the app from the menu while its window is minimised brings it back, but with a short wait.
+  Kind: investigate.
+  Source: user-kwin-check-2026-11-10.
+
 - 🚧 [LWSM-1548] **Build the signed AppImage self-update decided in ADR-0008.**
   ADR-0008 (docs/decisions/0008-updates-reach-users.md) decided the
   shape: check GitHub releases; offer updates only to a running
@@ -15836,160 +15831,63 @@ decided, is the last packaging item (added 2026-11-11).
   Source: ADR-0008-2026-11-11.
   Lanes: build, ui, docs.
 
-- ✅ [LWSM-1549] **Picking a browser from a row's list wipes the choice instead of saving it.**
-  Reported by the user on 0.5.1, 2026-11-14: choosing Google Chrome
-  for one project left the box blank or on "Auto", and the banner said
-  the project opens in the default browser. The saved choice (Brave)
-  was overwritten with none.
+- 📋 [LWSM-1553] **The update offer shows everything that changed between the installed version and the new one.**
+  The self-update (LWSM-1548) offers a version. The user asked on
+  2026-11-14 for the full changelog between the version being updated
+  and the version being updated to: every release in between, not only
+  the newest.
+  Open for the design: where the text comes from (each release's notes
+  on GitHub, or a changelog file attached to the release and covered by
+  the signature); how it is shown to a magnifier user (plain text,
+  scrollable, focusable); what is shown when the notes cannot be
+  fetched. Text from the network is outside text and goes through the
+  cleaner.
+  Spec-first if the release gains a new signed file (a durable format).
+  **Layman:** Before you click Update, the app shows you everything that changed since the version you have.
+  Kind: feature.
+  Source: user-request-2026-11-14.
+  Blocked-by: LWSM-1548.
 
-  Cause, reproduced 2026-11-14 on PySide6 6.12.0, offscreen, by mouse
-  and by keyboard: `BrowserPicker.hidePopup` clears the list's current
-  item (LWSM-1504). Qt closes the list first and only then reads that
-  current item to learn what was picked, so it reads "nothing", sets
-  the box to index -1, and `set_project_browser` saves no choice. A
-  plain `QComboBox` in the same script picks correctly. In every
-  release since LWSM-1504: 0.5.0 and 0.5.1. The LWSM-1504 test opens
-  and closes the list but never picks from it.
-  Fixed 2026-11-14: the clearing on close now waits one event-loop
-  turn (`QTimer.singleShot(0, ...)` in `BrowserPicker.hidePopup`).
-  `test_picking_from_the_open_list_keeps_the_choice` picks by keyboard
-  and by mouse; it failed on both before the fix and passes after.
-  Not yet in a release. On 0.5.0 and 0.5.1 the arrow keys on the
-  closed box still work (measured against the unfixed code).
-  **Layman:** Choosing a browser from a project's drop-down left the box blank and reset the project to the default browser.
-  Kind: fix.
-  Source: user-report-2026-11-14.
+- 📋 [LWSM-1414] **Nothing proposes updates for the tool pins in scripts/ci-tools.env or for .python-version.**
+  dependabot.yml covers github-actions and uv but cannot read ci-tools.env, so
+  shellcheck, actionlint, yamllint and the exact Python patch never get an update
+  PR. Not a defect today; check-dependencies before each release covers it by hand.
+  2026-11-14: planned for 0.7.0 at the user's request to schedule what
+  is doable. Shape: a script the release pre-flight runs that compares
+  each pin in scripts/ci-tools.env and .python-version with upstream's
+  latest and warns.
+  **Layman:** The versions of the checking tools are only ever updated by hand, so they can quietly fall behind.
+  Kind: chore.
+  Source: in-session-2026-10-10 LWSM-1413 comparison.
 
-- 📋 [LWSM-1550] **release.yml: give write permission only to the step that attaches the AppImage.**
-  LWSM-1546 point 1. `contents: write` covers checkout, setup-uv and the
-  whole build, not only the upload. Every input is pinned. The pinned
-  setup-uv action takes github.token by default.
-  Fix: a read-only build job that uploads an artifact, then an attach
-  job with write permission.
-  The user decided on 2026-11-14 that this goes after 0.6.0, so the
-  first signed release is not also the first run of a reshaped workflow.
-  Do it straight after 0.6.0 is published.
-  **Layman:** The release workflow holds the power to change a release for longer than it needs.
-  Kind: security.
-  Source: review-code-2026-11-10, split from LWSM-1546.
+- 📋 [LWSM-1416] **CI's yamllint pins yamllint itself but lets PyYAML and pathspec float.**
+  .github/workflows/ci.yml installs `yamllint==${YAMLLINT_VERSION}` with
+  `uv tool install`, which resolves PyYAML and pathspec to whatever is newest,
+  and local-ci.sh checks only yamllint's own version. A new PyYAML could turn
+  the gate red with no change of ours. Not fixed in LWSM-1411: pinning them
+  means adding `--with` pins in ci-tools.env and checking them locally, and
+  the local half changes the machine-wide yamllint other projects' gates use,
+  so it needs the user's decision first. Nearest item: LWSM-1414.
+  review-code 2026-11-05 lane-13 re-found this: ci.yml:139 `uv tool
+  install "yamllint==${YAMLLINT_VERSION}"` is installed with no hash and
+  unpinned transitive dependencies, while ci-tools.env:32-35 gives the
+  reason shellcheck and actionlint carry a SHA-256. Remedy offered:
+  --with-requirements from a hashed requirements file. Same decision as
+  above.
+  2026-11-14: planned for 0.7.0. The CI half (a hashed requirements file
+  for yamllint) needs no decision. The local half changes the
+  machine-wide yamllint and still needs the user's yes before it is
+  built.
+  **Layman:** One checking tool's own helpers are not held to fixed versions, so an update to them could break the checks without warning.
+  Kind: chore.
+  Source: review-code-2026-10-08 lane-10 L10-L9.
 
-## After 1.0.0
+## 0.8.0 — Runs without being watched
 
-Work with no version yet: the tray, settings and session shell (was P09), the
-open DS01 debt-sweep items, and the open FP02 review items.
+Projects that start at login, a guard against a server that keeps crashing,
+per-project actions, and a start time the app has learned.
 
-- 📋 [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
-  Closing the window hides to tray and leaves servers
-  running; the tray offers *Show window*, *Hide*, and the app's
-  only genuine Quit. **Deliberately no per-project submenu**
-  (user, 2026-08-03): a 22-pixel icon with a nested menu is a
-  poor surface for a magnifier user, it would be a second UI
-  owing the same accessibility bar as the first, and once
-  restore-last-session (LWSM-1035) and start-at-login
-  (LWSM-1027) exist, the tray's real job is bringing the window
-  back. A tray tooltip summarising how many projects are running
-  is enough status for an icon to carry.
-  Dependencies: LWSM-1010.
-  **Layman:** Tuck the app into the system tray instead of quitting,
-  so your sites keep running — but keep the icon simple, since a
-  tiny menu is awkward to use with a magnifier.
-  Kind: implement.
-  Source: user-2026-08-03.
-  Priority: 3.
-  Lanes: ui, tests.
-
-- 📋 [LWSM-1035] **P09: restore last session, and stop all.**
-  Two bookends for a working day. On launch, optionally start
-  whatever was running when the app last quit — recorded as an
-  observation at shutdown, not as a per-project flag the user has
-  to maintain. And a single **Stop all** action that frees every
-  port at once, with one confirmation naming what it will stop,
-  never seven. Both honour the pre-flight check and the
-  foreign-server guard.
-  Dependencies: LWSM-1010.
-  **Layman:** Pick up where you left off, and one button to shut
-  everything down at the end of the day.
-  Kind: implement.
-  Source: user-2026-08-03.
-  Priority: 2.
-  Lanes: core, ui, tests.
-
-- 📋 [LWSM-1029] **P09: custom per-project actions.**
-  A
-  user-authored `actions` list per project — `open_file`,
-  `open_url`, `run_command` — rendered in the detail pane and the
-  tray submenu, per `docs/design.md § Custom project actions`.
-  This is what stops the consolidation being a downgrade: the
-  applets being retired carry actions the manager otherwise
-  loses. Known cases to reproduce: project-c's *Edit prompts.md*
-  and *Edit blocks.md* (`open_file`), and project-d's tray
-  *Refresh stats now* (`run_command`). Detection never authors an
-  action — only the user does.
-  Dependencies: LWSM-1015.
-  **Layman:** Let each project have its own extra buttons, so the
-  handy things its old tray icon could do aren't lost.
-  Kind: implement.
-  Source: user-2026-08-03.
-  Priority: 2.
-  Lanes: ui, core, tests.
-  Blocked-by: LWSM-1344.
-
-- 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
-  The manager sets `LWSM_MANAGED=1` in every
-  process it spawns, per
-  [ADR-0006](docs/decisions/0006-managed-mode-signalling.md). The
-  manager's half is one line; the sibling half ships in the
-  adoption prompt. Grouped here rather than in P05 because it is
-  only *useful* once the manager can replace what the trays do —
-  start at login (LWSM-1027) and their extra actions
-  (LWSM-1029).
-  Dependencies: LWSM-1009.
-  **Layman:** Tell each project "I'm managing you now", so it hides
-  its own tray icon and you're not looking at two of everything.
-  Kind: implement.
-  Source: user-2026-08-03.
-  Priority: 3.
-  Lanes: core.
-
-- 📋 [LWSM-1042] **P09: crash-loop guard.**
-  Any path that starts
-  a server **automatically** — restore-last-session today, and
-  anything added later — stops retrying after 3 failures inside
-  60 seconds, marks the project `failed (crash loop)`, and
-  surfaces the log tail. Without it, "restore my session" can
-  spend a morning respawning a server that dies on startup, and
-  the app becomes the thing generating the noise it exists to
-  reduce. Deliberately scoped to automatic starts: a human
-  pressing Start three times means it, and is never blocked.
-  Dependencies: LWSM-1035.
-  **Layman:** If something keeps dying the moment it starts, stop
-  retrying and tell me, instead of thrashing in the background.
-  Kind: implement.
-  Source: user-2026-08-03.
-  Priority: 2.
-  Lanes: core, tests.
-
-- 📋 [LWSM-1027] **P09: start-at-login, per project.**
-  A
-  per-project *start automatically* flag, plus an autostart
-  `.desktop` entry for the manager itself, so the chosen projects
-  come up with the session. **This is the piece that makes the
-  per-project tray icons redundant** — without it, replacing them
-  costs the user a manual start every morning, which is a
-  downgrade, not a simplification. Verified 2026-08-03: two of
-  the five entries in `~/.config/autostart/` are per-server trays
-  (`project-c-tray.desktop`, `project-a-tray.desktop`) and are
-  the ones this can retire; the other three are unrelated apps.
-  Acceptance: after enabling the flag for a project and logging
-  out and back in, that project is running and reachable, with no
-  per-project tray involved.
-  Dependencies: LWSM-1017, LWSM-1016, LWSM-1029, LWSM-1030.
-  **Layman:** Have chosen sites start on their own when you log in,
-  so you can delete the little tray icons each project has today.
-  Kind: implement.
-  Source: user-2026-08-03.
-  Priority: 2.
-  Lanes: ui, core, tests.
+Order: LWSM-1053 is a decision and comes before LWSM-1027, which depends on it.
 
 - 📋 [LWSM-1053] **P09: decide whether an unattended start may open a browser.**
   A sibling's launcher may open the user's browser on
@@ -16038,6 +15936,346 @@ open DS01 debt-sweep items, and the open FP02 review items.
   User, 2026-11-02: keeps "do it later"; ADR-0006 rule 3 is not amended
   now.
   Lanes: core, docs.
+
+- 📋 [LWSM-1027] **P09: start-at-login, per project.**
+  A
+  per-project *start automatically* flag, plus an autostart
+  `.desktop` entry for the manager itself, so the chosen projects
+  come up with the session. **This is the piece that makes the
+  per-project tray icons redundant** — without it, replacing them
+  costs the user a manual start every morning, which is a
+  downgrade, not a simplification. Verified 2026-08-03: two of
+  the five entries in `~/.config/autostart/` are per-server trays
+  (`project-c-tray.desktop`, `project-a-tray.desktop`) and are
+  the ones this can retire; the other three are unrelated apps.
+  Acceptance: after enabling the flag for a project and logging
+  out and back in, that project is running and reachable, with no
+  per-project tray involved.
+  Dependencies: LWSM-1017, LWSM-1016, LWSM-1029, LWSM-1030.
+  **Layman:** Have chosen sites start on their own when you log in,
+  so you can delete the little tray icons each project has today.
+  Kind: implement.
+  Source: user-2026-08-03.
+  Priority: 2.
+  Lanes: ui, core, tests.
+
+- 📋 [LWSM-1042] **P09: crash-loop guard.**
+  Any path that starts
+  a server **automatically** — restore-last-session today, and
+  anything added later — stops retrying after 3 failures inside
+  60 seconds, marks the project `failed (crash loop)`, and
+  surfaces the log tail. Without it, "restore my session" can
+  spend a morning respawning a server that dies on startup, and
+  the app becomes the thing generating the noise it exists to
+  reduce. Deliberately scoped to automatic starts: a human
+  pressing Start three times means it, and is never blocked.
+  Dependencies: LWSM-1035.
+  **Layman:** If something keeps dying the moment it starts, stop
+  retrying and tell me, instead of thrashing in the background.
+  Kind: implement.
+  Source: user-2026-08-03.
+  Priority: 2.
+  Lanes: core, tests.
+
+- 📋 [LWSM-1029] **P09: custom per-project actions.**
+  A
+  user-authored `actions` list per project — `open_file`,
+  `open_url`, `run_command` — rendered in the detail pane and the
+  tray submenu, per `docs/design.md § Custom project actions`.
+  This is what stops the consolidation being a downgrade: the
+  applets being retired carry actions the manager otherwise
+  loses. Known cases to reproduce: project-c's *Edit prompts.md*
+  and *Edit blocks.md* (`open_file`), and project-d's tray
+  *Refresh stats now* (`run_command`). Detection never authors an
+  action — only the user does.
+  Dependencies: LWSM-1015.
+  **Layman:** Let each project have its own extra buttons, so the
+  handy things its old tray icon could do aren't lost.
+  Kind: implement.
+  Source: user-2026-08-03.
+  Priority: 2.
+  Lanes: ui, core, tests.
+  Blocked-by: LWSM-1344.
+
+- 📋 [LWSM-1403] **Learn each project's usual start time and show it while starting.**
+  ADR-0004's third bullet ("usually ready in about 40 seconds").
+  Deferred past 0.3.0 by the user 2026-10-08: it adds a saved field, so
+  it is spec-first under CLAUDE.md rule 2.
+  **Layman:** The app remembers how long a project usually takes to start and says so.
+  Kind: feature.
+  Source: user-decision-2026-10-08.
+
+- 📋 [LWSM-1508] **Decide whether two copies sharing app.log during a quit overlap needs fixing.**
+  Priority: LOW.
+  Found while building LWSM-1447. `main` now releases the single-instance
+  socket before `close_supervisor` waits for stops in flight, so a relaunch
+  can run while the quitting copy still logs its stops. Two
+  `RotatingFileHandler`s on one file can lose a generation if either rotates
+  in that window; LWSM-1065 named that as half of why only one copy runs.
+  Rare: it needs a rotation inside a few seconds of overlap. Not measured.
+  Options: leave it; or have the quitting copy log to stderr once it has
+  released the socket, which drops its last stop lines from the file.
+  review-code 2026-11-05: lane-12 re-found the app.log rotation overlap
+  (applog.py:303-308); settled here, not reopened. Lane-11 found a
+  second consequence of the same overlap: __main__.py:879-888 freezes
+  started.json and releases the socket before close_supervisor waits, so
+  a relaunch's supervisor.adopt() (__main__.py:390) can adopt a server
+  the old copy is still stopping, and when its SIGKILL lands the new
+  window would likely show that project failed. The lane did not open
+  adopt(); unverified. Remedy offered: write a stopping mark into the
+  record before freezing, so adopt skips those entries. Related to the
+  LWSM-1447 ruling, not settled by it.
+  2026-11-14: planned for 0.8.0, where the app starts unattended and a
+  quit-and-relaunch overlap is likelier.
+  **Layman:** After quitting while servers are still stopping, a quick relaunch and the old copy can both write the app's log for a few seconds.
+  Kind: investigate.
+  Source: lwsm-1447-build-2026-11-05.
+  Lanes: main, applog.
+
+- 📋 [LWSM-1023] **Support more kinds of web server.**
+  Detection
+  today targets the seven shapes found on this machine — shell
+  launchers, npm scripts, plain Python and Node entry points. To
+  be broadly useful it would also need Docker Compose services,
+  PHP built-in server / Laravel `artisan serve`, Ruby `rails s`,
+  Go, `.NET`, Django `manage.py runserver`, and static-site dev
+  servers (Hugo, Jekyll, Astro). Each is a detection rule plus a
+  port-extraction rule, so this grows the *Detection rules*
+  section rather than the architecture. Deliberately later: the
+  rules should be extended against real projects that need them,
+  not guessed at up front.
+  Dependencies: LWSM-1006.
+  **Layman:** Recognise more kinds of web project than the ones on
+  your own machine, so the app is useful to other people.
+  Kind: feature.
+  Source: user-2026-08-03.
+  Priority: 3.
+  2026-11-14: planned for 0.8.0, before the wording freeze of 0.9.0,
+  since each rule adds reasons the app shows. One rule per kind, each
+  built against a real project of that kind.
+  Lanes: core.
+
+- 📋 [LWSM-1020] **Unix-socket servers.**
+  ADR-0004 probes TCP
+  listeners only, so a project serving over a unix socket would
+  be invisible. None of the seven does today; recorded as a known
+  limitation rather than designed around.
+  Dependencies: LWSM-1011.
+  **Layman:** Support a different, rarer way of serving that none of
+  your projects currently uses.
+  Kind: feature.
+  Source: cold-eyes-2026-08-03.
+  Priority: 5.
+  2026-11-14: planned for 0.8.0 with LWSM-1023. Needs an amendment to
+  ADR-0004, which probes TCP only.
+  Lanes: core.
+
+- 📋 [LWSM-1314] **`launcher_override` is stored and round-tripped, and no item builds the feature that would read it.**
+  ADR-0005 lists a launcher override among the user-owned fields, and
+  the registry stores it. The LWSM-1131 spec § 4.3 keeps it inert on
+  purpose. Unlike `start_at_login` (LWSM-1027), no roadmap item builds
+  the feature, so the field has no owner. Decide: build it, or drop it
+  from the schema.
+  review-code 2026-11-05 lane-08 (calibrated MEDIUM to LOW): the trust
+  dialog clips each argv argument at MAX_REASON_CHARS through quoted()
+  (mainwindow.py:3695; configfile.py:156-158), so two argvs differing
+  past about 120 characters look the same, against ADR-0003's 'the exact
+  argv'. Every scanner-built argv is short (scanner.py:1555, :1680,
+  :1757; orchestrator check), so only a launcher_override could reach
+  it, and nothing reads that field today. If this item builds the
+  feature, fix the clip first: quote each argument with repr() or
+  shlex.quote without the clip, keeping _no_layout_forgery.
+  2026-11-14: planned for 0.8.0 with custom per-project actions
+  (LWSM-1029): build the feature, a start command the user chooses. Fix
+  the trust dialog's argument clip first, as the body says.
+  **Layman:** A saved setting for choosing a project's start command exists, but nothing uses it yet and nothing is planned to.
+  Kind: investigate.
+  Source: in-session-2026-09-25, closing LWSM-1272 finding 6.
+  Lanes: registry.
+
+## 0.9.0 — Ready to translate
+
+Every sentence the app shows becomes reachable by a translator, the app can load
+a language and switch to it, and the window lays out correctly right to left. No
+new wording is added after this release, so the translations in 1.0.0 are made
+once.
+
+Order: LWSM-1478 first; the language loading and the right-to-left layout build
+on it.
+
+- 📋 [LWSM-1478] **User-facing sentences are built in core modules and in __main__, out of the translator's reach.**
+  Priority: 4.
+  Seven review lanes (02, 04, 05, 07, 09, 10, 11) found English
+  sentences built outside the translator's reach: controller
+  `action_failed` and port-lookup sentences, `settings` and `registry`
+  reasons, `foreign.TreeRefused`, `service` reasons, theme high-contrast
+  labels, and `__main__` print() notices (argparse text and log lines
+  are deliberately untranslated, ROADMAP note 2026-08-06). Calibrated
+  MEDIUM to LOW: no QTranslator is installed (LWSM-1304's "Latent
+  today"). Sites: the lane files of the 2026-11-04 review, kept outside
+  the repo. Likely shape: core modules return a reason code plus
+  arguments, and the window translates.
+  Decided: the user took the recommendation, 2026-11-05. The question was: (fix this before 0.4.0, or move it to 1.0.0 where a
+  translation could first ship? Recommend moving it to 1.0.0: no user
+  sees an untranslated string today, and the change touches seven
+  modules, 2026-11-04).
+  review-code 2026-11-05 re-found this class and calibrated each MEDIUM
+  to LOW against this item. New sites, not in the body above:
+  supervisor.py:1536-1552 and :1851-1854 Stop warnings, emitted via
+  controller.py:1944 (lane-01; also the LauncherRefused and
+  AlreadyRunning texts at :1150, :1157, :1166, :1196, :1210 if the UI
+  shows them); scanner.py:2140 and every ScanResult.skipped reason, plus
+  MINOR_TAIL (scanner.py:83), shown in the first-run 'Not added' list
+  via mainwindow.py:4625 (lane-03). firstrun.worth_showing matches
+  reasons by their English text (firstrun.py:65-67), so the fix must
+  replace that filter too. Re-found in modules already listed:
+  controller f-strings at :1490, :1508-1510, :1533, :1745-1753, :1803,
+  :1865, :2329, :2353, :2500 and _holder_phrase/_port_conflict :360-373
+  (lane-04); port-lookup answers controller.py:1416-1434 via
+  portlookup.py:123, :128 (lane-05); TreeRefused foreign.py:110-158 via
+  mainwindow.py:4029 and service reasons service.py:304, :311, :449-452
+  via controller.py:1866 (lane-05); core reasons in the banner via
+  mainwindow.py:3156-3158, :3189, :3194, :3205, :2875, e.g.
+  registry.py:2017 (lane-07); theme.py:481, :503 labels via
+  mainwindow.py:2725, whose exemption comment (theme.py:61-62) cites
+  another project's rule (lane-10); __main__.py:126-130, :361, :364
+  banner notice and prefixes (lane-11). Window-side slips are LWSM-1531.
+  **Layman:** Some messages the app shows are written in parts of the code that a future translation would never see, so they would stay in English.
+  Kind: review-fix.
+  Source: review-code-2026-11-04.
+  Lanes: controller, settings, registry, service, foreign, theme, main, supervisor, scanner, firstrun.
+
+- 📋 [LWSM-1551] **The window lays out correctly in a right-to-left language.**
+  User request 2026-11-14: translations include right-to-left
+  languages. Qt mirrors layouts when the language is right to left;
+  this item finds what does not follow: hand-placed widgets, arrows
+  and glyphs with a direction, text alignment set by hand, elided
+  paths, and mixed-direction text (a left-to-right path or command
+  inside a right-to-left sentence).
+  The cleaner turns direction controls in outside text into U+FFFD
+  (LWSM-1515); the app's own sentences need direction marks around
+  embedded paths instead. Keyboard focus order and the focus ring are
+  checked mirrored, for a magnifier user.
+  Tested with the pseudo-translation forced right to left.
+  **Layman:** In Arabic or Hebrew the whole window flips to read from the right, and nothing is left facing the wrong way.
+  Kind: feature.
+  Source: user-request-2026-11-14.
+  Blocked-by: LWSM-1554.
+
+- 📋 [LWSM-1554] **The app loads a translation, follows the system language, and lets you pick one in Settings.**
+  User request 2026-11-14: translate the app into multiple languages.
+  This item is the machinery: a QTranslator installed at start-up, Qt's
+  own translations loaded beside it, the translation files built and
+  bundled into the AppImage, a language choice in Settings beside
+  Follow system, and plural forms.
+  It also adds a pseudo-translation used by the tests, so a sentence
+  the translator cannot reach, or a layout that cannot hold longer
+  text, fails a test.
+  **Layman:** The app can show itself in another language, chosen by your system or by you.
+  Kind: feature.
+  Source: user-request-2026-11-14.
+  Blocked-by: LWSM-1478.
+
+## 1.0.0 — In your language
+
+The app translated into the most widely used languages, right-to-left ones
+included, and the written definition of what 1.0.0 means (LWSM-1188).
+
+- 📋 [LWSM-1188] **Define what 1.0.0 means, and hold the line on it.**
+  Nothing in this repository defined 1.0.0 before this bullet. Checked
+  2026-08-24 across every markdown file: the only match is a generic example
+  inside `roadmap-format.md`. LWSM-1152 defines 0.1.0 and stops there, so
+  "what gets us to 1.0?" had no answer anyone could read.
+
+  **The definition, agreed with the user 2026-08-24: 1.0.0 is the five
+  success criteria delivered end to end, plus the security fold-in, plus a
+  packaged download.** The criteria are not invented here -- the roadmap
+  already labels five phases `criterion 1` .. `criterion 5`, from
+  `discovery.md`, and they are the app's own statement of what it is for.
+
+  In scope, with the open count on the day this was written:
+
+  - criterion 1, find projects (P03b) -- 5
+  - criterion 2, start / stop / restart (P05) -- 1
+  - criterion 3, the full state model (P06) -- 6
+  - criterion 4, ports (P07) -- 4
+  - criterion 5, logs (P08) -- 2
+  - the security fold-in (FP01) -- 3
+  - packaging, so there is something to download (P10) -- 5
+
+  Deliberately OUT, and this is the half that makes the bullet worth
+  having. P09's shell work -- tray, restore-session, custom actions,
+  start-at-login, crash-loop guard -- is 7 open items of genuine value that
+  nobody needs in order to use the app for what it is for. DS01's debt and
+  the older fold-ins are another 9. Both go to 1.1. A 1.0 that waits for
+  every open item is a 1.0 that never ships, and this project has 57 open
+  items and has never released anything.
+
+  **The counts are a snapshot, not a contract.** What is fixed is the
+  membership rule -- the five criteria, security, packaging -- so a bullet
+  filed into P06 tomorrow is in scope by construction and needs no
+  renegotiation here.
+
+  Order: 0.1.0 first (LWSM-1152, gated on P04 closing, which is gated on
+  FP08). This is the milestone after it, not a replacement for it.
+
+  Watch for the failure this bullet exists to prevent: scope creeping in
+  because an item is nearly done, or because it sits next to one that is in
+  scope. The test is the membership rule above, never how finished
+  something feels.
+  Dependencies: LWSM-1152, LWSM-1021.
+  2026-11-14: the user widened 1.0.0. The items once held for after
+  1.0.0 (tray, session, start at login, crash-loop guard, custom
+  actions) now come before it, spread over 0.7.0, 0.8.0 and 0.9.0, and
+  1.0.0 adds translations into the most widely used languages,
+  right-to-left ones included (LWSM-1552). The membership rule above is
+  replaced by the roadmap's version sections; this item still owes the
+  written definition.
+  **Layman:** Write down what "finished enough to call it version 1" means, so it is a target rather than a feeling.
+  Kind: release.
+  Source: user-decision-2026-08-24.
+  Lanes: release, docs.
+
+- 📋 [LWSM-1552] **Translate the app into the most widely used languages, right-to-left ones included.**
+  User request 2026-11-14. Proposed set, for the user to confirm:
+  Spanish, French, German, Portuguese (Brazil), Italian, Russian,
+  Simplified Chinese, Japanese, Korean, Hindi, Arabic and Hebrew. The
+  last two are right to left.
+  Open: who checks a machine-made translation before it ships, and how
+  a translation that falls behind the English text is shown (untranslated
+  sentences stay English).
+  No new wording lands between 0.9.0 and this, so each language is
+  translated once.
+  **Layman:** The app speaks your language, including languages written right to left.
+  Kind: feature.
+  Source: user-request-2026-11-14.
+  Blocked-by: LWSM-1554, LWSM-1551.
+
+- 📋 [LWSM-1506] **Decide whether a text view's viewport reporting focused beside the view needs fixing.**
+  Found by LWSM-1505 (2026-11-05), measured on a private AT-SPI bus.
+  While the log panel's output view has focus, its nameless viewport
+  (role filler) also reports FOCUSED, nested inside it. Cause: Qt makes a
+  scroll area's viewport take the area as its focus proxy, so hasFocus()
+  is true for both. It reports nothing while the view lacks focus, so it
+  never points away from the real focus. Preferences' error-markers
+  box does the same (measured offscreen; a list view does not expose its
+  viewport as a child, so lists are not affected). Orca is not
+  installed here, so whether it is misled is unverified. Proposed shape,
+  if a check shows it matters: a QAccessible.installFactory factory
+  (PySide6 exposes it) giving viewports an interface without the
+  focused state; clearing the focus proxy instead would change real
+  focus behaviour. Otherwise drop it as Qt's standard behaviour.
+  2026-11-14: planned for 1.0.0 as a check with a real screen reader
+  before the app is offered widely; fix or drop on what it shows.
+  **Layman:** The output panel tells a screen reader that both the text box and an invisible part inside it have focus; probably harmless, but unchecked with a real screen reader.
+  Kind: accessibility.
+  Source: in-session-2026-11-05.
+  Lanes: ui.
+
+## After 1.0.0
+
+Work with no version yet: the tray, settings and session shell (was P09), the
+open DS01 debt-sweep items, and the open FP02 review items.
 
 - ✅ [LWSM-1056] **DS01: `main()` is a shipped entry point with no test.**
   `src/lwsm/__main__.py::main` takes an optional argv, branches on
@@ -16226,79 +16464,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Source: review-code 2026-09-01 lane 11, queued from LWSM-1281 on 2026-10-01.
   Lanes: core.
 
-- 📋 [LWSM-1403] **Learn each project's usual start time and show it while starting.**
-  ADR-0004's third bullet ("usually ready in about 40 seconds").
-  Deferred past 0.3.0 by the user 2026-10-08: it adds a saved field, so
-  it is spec-first under CLAUDE.md rule 2.
-  **Layman:** The app remembers how long a project usually takes to start and says so.
-  Kind: feature.
-  Source: user-decision-2026-10-08.
-
-- 💭 [LWSM-1506] **Decide whether a text view's viewport reporting focused beside the view needs fixing.**
-  Found by LWSM-1505 (2026-11-05), measured on a private AT-SPI bus.
-  While the log panel's output view has focus, its nameless viewport
-  (role filler) also reports FOCUSED, nested inside it. Cause: Qt makes a
-  scroll area's viewport take the area as its focus proxy, so hasFocus()
-  is true for both. It reports nothing while the view lacks focus, so it
-  never points away from the real focus. Preferences' error-markers
-  box does the same (measured offscreen; a list view does not expose its
-  viewport as a child, so lists are not affected). Orca is not
-  installed here, so whether it is misled is unverified. Proposed shape,
-  if a check shows it matters: a QAccessible.installFactory factory
-  (PySide6 exposes it) giving viewports an interface without the
-  focused state; clearing the focus proxy instead would change real
-  focus behaviour. Otherwise drop it as Qt's standard behaviour.
-  **Layman:** The output panel tells a screen reader that both the text box and an invisible part inside it have focus; probably harmless, but unchecked with a real screen reader.
-  Kind: accessibility.
-  Source: in-session-2026-11-05.
-  Lanes: ui.
-
-- 💭 [LWSM-1508] **Decide whether two copies sharing app.log during a quit overlap needs fixing.**
-  Priority: LOW.
-  Found while building LWSM-1447. `main` now releases the single-instance
-  socket before `close_supervisor` waits for stops in flight, so a relaunch
-  can run while the quitting copy still logs its stops. Two
-  `RotatingFileHandler`s on one file can lose a generation if either rotates
-  in that window; LWSM-1065 named that as half of why only one copy runs.
-  Rare: it needs a rotation inside a few seconds of overlap. Not measured.
-  Options: leave it; or have the quitting copy log to stderr once it has
-  released the socket, which drops its last stop lines from the file.
-  review-code 2026-11-05: lane-12 re-found the app.log rotation overlap
-  (applog.py:303-308); settled here, not reopened. Lane-11 found a
-  second consequence of the same overlap: __main__.py:879-888 freezes
-  started.json and releases the socket before close_supervisor waits, so
-  a relaunch's supervisor.adopt() (__main__.py:390) can adopt a server
-  the old copy is still stopping, and when its SIGKILL lands the new
-  window would likely show that project failed. The lane did not open
-  adopt(); unverified. Remedy offered: write a stopping mark into the
-  record before freezing, so adopt skips those entries. Related to the
-  LWSM-1447 ruling, not settled by it.
-  **Layman:** After quitting while servers are still stopping, a quick relaunch and the old copy can both write the app's log for a few seconds.
-  Kind: investigate.
-  Source: lwsm-1447-build-2026-11-05.
-  Lanes: main, applog.
-
 ## 💭 Considered — not scheduled
-
-- 💭 [LWSM-1023] **Support more kinds of web server.**
-  Detection
-  today targets the seven shapes found on this machine — shell
-  launchers, npm scripts, plain Python and Node entry points. To
-  be broadly useful it would also need Docker Compose services,
-  PHP built-in server / Laravel `artisan serve`, Ruby `rails s`,
-  Go, `.NET`, Django `manage.py runserver`, and static-site dev
-  servers (Hugo, Jekyll, Astro). Each is a detection rule plus a
-  port-extraction rule, so this grows the *Detection rules*
-  section rather than the architecture. Deliberately later: the
-  rules should be extended against real projects that need them,
-  not guessed at up front.
-  Dependencies: LWSM-1006.
-  **Layman:** Recognise more kinds of web project than the ones on
-  your own machine, so the app is useful to other people.
-  Kind: feature.
-  Source: user-2026-08-03.
-  Priority: 3.
-  Lanes: core.
 
 - 💭 [LWSM-1024] **macOS build.**
   Feasible in principle — macOS is
@@ -16355,40 +16521,7 @@ open DS01 debt-sweep items, and the open FP02 review items.
   Priority: 5.
   Lanes: core.
 
-- 💭 [LWSM-1020] **Unix-socket servers.**
-  ADR-0004 probes TCP
-  listeners only, so a project serving over a unix socket would
-  be invisible. None of the seven does today; recorded as a known
-  limitation rather than designed around.
-  Dependencies: LWSM-1011.
-  **Layman:** Support a different, rarer way of serving that none of
-  your projects currently uses.
-  Kind: feature.
-  Source: cold-eyes-2026-08-03.
-  Priority: 5.
-  Lanes: core.
-
 ---
-
-- 💭 [LWSM-1314] **`launcher_override` is stored and round-tripped, and no item builds the feature that would read it.**
-  ADR-0005 lists a launcher override among the user-owned fields, and
-  the registry stores it. The LWSM-1131 spec § 4.3 keeps it inert on
-  purpose. Unlike `start_at_login` (LWSM-1027), no roadmap item builds
-  the feature, so the field has no owner. Decide: build it, or drop it
-  from the schema.
-  review-code 2026-11-05 lane-08 (calibrated MEDIUM to LOW): the trust
-  dialog clips each argv argument at MAX_REASON_CHARS through quoted()
-  (mainwindow.py:3695; configfile.py:156-158), so two argvs differing
-  past about 120 characters look the same, against ADR-0003's 'the exact
-  argv'. Every scanner-built argv is short (scanner.py:1555, :1680,
-  :1757; orchestrator check), so only a launcher_override could reach
-  it, and nothing reads that field today. If this item builds the
-  feature, fix the clip first: quote each argument with repr() or
-  shlex.quote without the clip, keeping _no_layout_forgery.
-  **Layman:** A saved setting for choosing a project's start command exists, but nothing uses it yet and nothing is planned to.
-  Kind: investigate.
-  Source: in-session-2026-09-25, closing LWSM-1272 finding 6.
-  Lanes: registry.
 
 ## Retired IDs
 
