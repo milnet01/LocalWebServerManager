@@ -15028,6 +15028,8 @@ decided, is the last packaging item (added 2026-11-11).
   .npmrc lines reach the trust dialog through _no_layout_forgery
   (mainwindow.py:3696-3698, read). Whether that covers bidi controls
   and long space runs is unverified; check it with this item.
+  2026-11-14: points 1 and 3 fixed, with the log panel's failure detail
+  (commit 6a4dc8d). Points 2 and 4 are in mainwindow.py and still open.
   **Layman:** A few places still show or log text from outside the app without cleaning it first, so odd file names could garble a message.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-04, lane-08, lane-11, lane-01.
@@ -15107,7 +15109,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-02.
   Lanes: registry.
 
-- 📋 [LWSM-1526] **The scanner reports a clean read after discarding an over-long line's tail.**
+- ✅ [LWSM-1526] **The scanner reports a clean read after discarding an over-long line's tail.**
   Priority: 4.
   Lane claims, not re-read at f57689c.
   1. scanner.py:407-412 `if not complete and len(chunk) >=
@@ -15129,6 +15131,7 @@ decided, is the last packaging item (added 2026-11-11).
   2026-11-14: the user decided point 2: on a first run with units
   unavailable, every row starts unticked and marked. To build in
   firstrun.py and mainwindow.py.
+  2026-11-14: point 2 built as the user decided (commit 19e32f5).
   **Layman:** A port written far along a very long line in a project file is missed, and the scan does not say it skipped anything.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-03.
@@ -15162,12 +15165,15 @@ decided, is the last packaging item (added 2026-11-11).
   first. Open question 4a dismissed: TrustStore._save returns a failure
   string and does not raise. Question 4b (a service start whose unit
   binds another port) is with the user; the item stays open until then.
+  2026-11-14: question 4b measured by reading: a service start whose
+  unit stays active on another port reads `starting` until the app
+  quits, with every button on the row off. With the user.
   **Layman:** Rare failures around Stop can leave a row stuck, and the output panel can follow the wrong source.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-04.
   Lanes: controller.
 
-- 📋 [LWSM-1528] **Probe edge cases: a symlink-blind looks_like, four systemctl runners, a timed-out reload read as failed, and broad excepts.**
+- ✅ [LWSM-1528] **Probe edge cases: a symlink-blind looks_like, four systemctl runners, a timed-out reload read as failed, and broad excepts.**
   Priority: 4.
   1. foreign.py:246, :252 looks_like compares normpath'd paths without
   following symlinks, while scanner.bound_inside and unit_belongs_to
@@ -15202,12 +15208,15 @@ decided, is the last packaging item (added 2026-11-11).
   point 2 is LWSM-1537's. Point 6's stop-then-start question needs a
   read of the controller's Start gating and is still open; its
   localhost-lookup note is dismissed as the item itself calls it harmless.
+  2026-11-14: point 6 was a real, narrow race; a per-unit lock orders a
+  Stop and a Start of one unit (commit 6a4dc8d). Proven with fakes, not
+  on a live unit.
   **Layman:** Small faults in how the app checks ports and drives systemd can mislabel a server or leave an old port setting loaded.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-05.
   Lanes: foreign, service, ports.
 
-- 📋 [LWSM-1529] **Main window edge cases: unlogged config writes, Export and Import without a catch-all, a stray temp-file sweep, and a holder guard copied three ways.**
+- ✅ [LWSM-1529] **Main window edge cases: unlogged config writes, Export and Import without a catch-all, a stray temp-file sweep, and a holder guard copied three ways.**
   Priority: 4.
   Lane claims, not re-read at f57689c.
   1. mainwindow.py:2868-2869: a successful theme or text-size write,
@@ -15244,6 +15253,9 @@ decided, is the last packaging item (added 2026-11-11).
   Restart). Open questions 6a to 6d dismissed with reasons in the
   close-findings ledger; 6e (position_is_readable reads env vars) is a
   recorded choice in placement.py.
+  2026-11-14: point 3 fixed (commit 0adba44) and point 5 fixed on the
+  window side, leaving the controller's meaning of None alone (commit
+  19e32f5). Every point now has a disposition.
   **Layman:** Several menu actions do not log their success or report unexpected errors, and Stop can act on a process the user was not shown.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-06, lane-07, lane-08.
@@ -15402,7 +15414,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-12.
   Lanes: logbuffer, logpanel.
 
-- 📋 [LWSM-1535] **Tooling edge cases: the pre-push hook trusts commit-date order, the release check treats ADR as a prefix, and the desktop-entry installer has three path faults.**
+- ✅ [LWSM-1535] **Tooling edge cases: the pre-push hook trusts commit-date order, the release check treats ADR as a prefix, and the desktop-entry installer has three path faults.**
   Priority: 4.
   1. .githooks/pre-push:130 `git rev-list ... | tail -n 1` relies on
   commit-date order (read); with clock skew the last line is not a
@@ -15432,6 +15444,11 @@ decided, is the last packaging item (added 2026-11-11).
   paths; does --secrets-only need git's URL ($2)? setup-uv's
   UV_CACHE_DIR and cache-key outputs (ci.yml:159-160) unverified.
   Items 2, 4-7 are lane claims.
+  2026-11-14: points 2, 3, 5, 6 and 7 fixed (commit f56a5a6); point 4's
+  sentence in docs/claude/ci-gate.md corrected. Point 1 dismissed: a
+  clock-skewed linear history picks the same base either way, checked in
+  a scratch repository. The four open questions in point 8 are answered
+  and dismissed.
   **Layman:** The push check could under-test a change, and the menu-entry installer can write a bad path or overwrite your menu edits.
   Kind: review-fix.
   Source: review-code-2026-11-05 lane-13.
@@ -15603,7 +15620,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-13.
   Lanes: tooling.
 
-- 📋 [LWSM-1541] **Where keyboard focus goes when the focused project row is removed from the list.**
+- ✅ [LWSM-1541] **Where keyboard focus goes when the focused project row is removed from the list.**
   Found by LWSM-1518's O9 sweep, not reproduced. MainWindow._sync_rows
   removes a row with setParent(None) and deleteLater(). Nothing moves
   focus first, so a keyboard user on that row (Hide this project, or a
@@ -15612,6 +15629,9 @@ decided, is the last packaging item (added 2026-11-11).
   it lands, then decide the target (the next row, the previous row, or
   the filter box). LWSM-1518 fixed the same shape for the row's own
   Change port... and View output buttons.
+  2026-11-14: measured first. Qt moved focus to the next row, but
+  wrapped the last row's focus to the filter box. Fixed for both paths
+  (a rescan dropping the row, and Hide) in commit 19e32f5.
   **Layman:** If you hide the project you are on, or a rescan drops it, the keyboard focus may land somewhere unexpected.
   Kind: investigate.
   Source: write-code-2026-11-08 LWSM-1518 O9 sweep.
@@ -15659,11 +15679,12 @@ decided, is the last packaging item (added 2026-11-11).
      build). Fix: smoke on a digest-pinned debian:12-slim as well.
 
   Not fixed for 0.5.1: both were checked by hand for that build.
+  2026-11-14: verified, not changed. Options are with the user.
   **Layman:** The automatic start-up test does not yet try a real X11 or Wayland screen, or the oldest system the README promises.
   Kind: test.
   Source: review-code-2026-11-10.
 
-- 📋 [LWSM-1545] **build-appimage.sh: root-owned output under docker, and two runs at once clobber each other.**
+- ✅ [LWSM-1545] **build-appimage.sh: root-owned output under docker, and two runs at once clobber each other.**
   review-code 2026-11-10, lanes 1 and 2 (LOW; one raw MEDIUM calibrated down).
 
   1. Under rootful docker the build container writes dist/ and its
@@ -15674,6 +15695,8 @@ decided, is the last packaging item (added 2026-11-11).
      and the output file. Fix: flock on dist/.appimage-build.lock.
 
   Not fixed for 0.5.1: neither affects a single podman build.
+  2026-11-14: both points fixed (commit f56a5a6). The container build
+  itself was not run for that commit; local-release.sh runs it.
   **Layman:** Building the AppImage with docker leaves files only an administrator can delete, and two builds at once can spoil each other.
   Kind: fix.
   Source: review-code-2026-11-10.
@@ -15692,17 +15715,20 @@ decided, is the last packaging item (added 2026-11-11).
 
   Not fixed for 0.5.1: the workflow has never run on a real release;
   change it after one run proves the current shape.
+  2026-11-14: verified, not changed. The pinned setup-uv action does
+  take github.token by default. Options are with the user.
   **Layman:** The release workflow holds the power to change a release for longer than it needs, and cannot redo a half-finished upload.
   Kind: security.
   Source: review-code-2026-11-10.
 
-- 📋 [LWSM-1547] **local-release.sh step 0i blocks, rather than skips, when uv or the container runner cannot run.**
+- ✅ [LWSM-1547] **local-release.sh step 0i blocks, rather than skips, when uv or the container runner cannot run.**
   review-code 2026-11-10, lane 2 LOW. Step 0i skips only when neither
   podman nor docker is on PATH. A missing uv, a stopped docker daemon or
   no network gives BLOCK "did not build or did not start", against the
   script's own split between blocked and could-not-run. It fails closed.
   Fix: add `command -v uv` to the skip test and skip when
   `"$runner" info` fails.
+  2026-11-14: fixed (commit f56a5a6); docs/claude/release.md says so.
   **Layman:** The release check reports a missing tool as a broken AppImage.
   Kind: fix.
   Source: review-code-2026-11-10.

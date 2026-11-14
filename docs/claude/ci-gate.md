@@ -121,8 +121,9 @@ installed app runs from (measured 2026-10-10).
 and `TZ`, and it clears `PYTEST_ADDOPTS`, `PYTHONPATH`, `VIRTUAL_ENV`
 and their kin, which a developer's shell carries and the runner's does
 not. **The test order is seeded from the commit**, so the pre-push run
-and GitHub's run of one commit shuffle the tests the same way, and an
-order-dependent failure shows before the push. **The tests run on several
+and GitHub's run of the same commit shuffle the tests the same way, and an
+order-dependent failure often shows before the push. A pull request's run
+tests a merge commit, which has another seed. **The tests run on several
 processes** (pytest-xdist, LWSM-1329); the Tests step in
 `scripts/local-ci.sh` says how many and why, and how to change it. Which
 tests share a process differs between runs, even under one seed.

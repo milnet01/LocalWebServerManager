@@ -52,9 +52,9 @@ other.
 
 **It builds and smoke-tests the AppImage** with
 `scripts/build-appimage.sh`, the script the release workflow runs, so a
-broken AppImage blocks the release here (LWSM-1052). It needs podman or
-docker; without either, the check is skipped and the verdict cannot read
-"ready".
+broken AppImage blocks the release here (LWSM-1052). It needs uv and a
+podman or docker that can run; without them, the check is skipped and the
+verdict cannot read "ready".
 
 Two things to know. **The verdict never reads "ready" while a check was
 skipped** — a blocker and a check that could not run are tracked

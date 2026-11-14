@@ -25,7 +25,31 @@ signaling per
 
 - **The download updates itself.** At each start the AppImage asks GitHub whether a newer version exists, and a banner above the project list offers it, with what changed. Nothing downloads until you click **Update now**. The app checks the download was signed by the author before it replaces its own file, then reopens; your servers keep running. **Settings > Preferences** turns the check off, and **Settings > Check for updates** asks by hand. Copies of 0.5.1 and earlier have no updater, so download the next version by hand once. (LWSM-1548)
 
+### Changed
+
+- **A first scan that could not check systemd services adds nothing on a guess.** (LWSM-1526)
+  The first-run list starts with nothing ticked and says so on every
+  project.
+
 ### Fixed
+
+- **Error text from outside the app is cleaned before it is shown or logged.** (LWSM-1523)
+  Line breaks and direction-control characters in an error message, a
+  service name or a file name can no longer garble a project row, the
+  output panel or the app log.
+
+- **When the project you are on is hidden or dropped by a rescan, keyboard focus moves to the next project.** (LWSM-1541)
+  It used to jump to the filter box when the project was the last one.
+
+- **Stop and Restart refuse, with a message, if the server changed while you were deciding.** (LWSM-1529)
+  Exporting a profile into a folder you chose no longer removes old
+  temporary files that happen to be there.
+
+- **Start directly after Stop on the same systemd service keeps its port setting.** (LWSM-1528)
+
+- **The menu-entry installer keeps a `.bak` copy of an entry you edited, and writes a full launcher path.** (LWSM-1535)
+
+- **Building the AppImage with docker no longer leaves files you cannot delete, and a second build waits for the first.** (LWSM-1545)
 
 - **An unexpected error during Export or Import is shown and logged instead of vanishing.** (LWSM-1529)
   Saving the theme, the text size or an exported profile is recorded in
