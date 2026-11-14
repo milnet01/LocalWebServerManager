@@ -349,7 +349,7 @@ Added at P02 (LWSM-1005), contract in
   **Enter CLICKS the row's enabled button** rather than calling the controller,
   so which action is legal in which state stays stated once in
   `_apply_button_state`. The one state it names is `STARTING`: Stop is live
-  then, to cancel a slow start (LWSM-1372), and Enter must not cancel the
+  then, for our own child or a unit's pending start, to cancel a slow start (LWSM-1372), and Enter must not cancel the
   start it made (L06-M1).
   **Filtering hides rows, never rebuilds them** (INV-13), and `_sync_rows`
   re-applies the filter so a rescan cannot land a project into a list the user

@@ -118,7 +118,9 @@ Three rules the table depends on:
   with this app's credibility behind it. So Open, and a Stop or
   Restart through a unit, on a server this app did not start first
   show a disclosure naming the holder: its executable path, uid,
-  cmdline, start time and unit. Stopping a foreign set shows the
+  cmdline, start time and unit. The cmdline is shown escaped, with a
+  run of nine or more space separators written as `\s{n}`, and
+  clipped at `MAX_COMMAND_CHARS` (LWSM-1523). Stopping a foreign set shows the
   set instead (below). The disclosure is skipped where our own
   child's group holds the port, and for Stop and Restart wherever we
   hold a live child, since those signal our child and never the
@@ -189,7 +191,9 @@ So the rule is now:
   reclassifies. A genuinely hung server sits visibly in
   `starting` with a rising counter, which is both true and
   obvious, rather than being mislabelled `failed` at an arbitrary
-  moment.
+  moment. **Stop stays usable on a `starting` row**, for our own
+  child and for a start through a unit, so a start that never binds
+  can be cancelled (LWSM-1372, LWSM-1527).
 - **Bind time is learned, exactly as the port is** (LWSM-1038).
   Once a project has been observed binding in ~40 s, the app knows
   that and can say "usually ready in about 40 seconds" instead of
