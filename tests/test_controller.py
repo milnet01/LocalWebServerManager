@@ -1459,6 +1459,8 @@ class FakeSupervisor:
         # A stop whose future is already done when it is returned, which is
         # when `add_done_callback` runs inline (LWSM-1323).
         self.done_immediately = False
+        # What `stop_async` raises, as a torn-down executor does (LWSM-1527).
+        self.stop_refusal: Exception | None = None
 
     def start(self, project, name, argv, port):
         if self.refusal is not None:
@@ -1468,6 +1470,8 @@ class FakeSupervisor:
         return self._running[project]
 
     def stop_async(self, project):
+        if self.stop_refusal is not None:
+            raise self.stop_refusal
         self.stopped.append(project)
         self._running.pop(project, None)
         future: Future = Future()
@@ -3094,6 +3098,55 @@ def test_a_restart_that_reaches_no_stop_is_not_left_pending(controllers) -> None
     assert Path("/srv/a") not in controller._restarting
 
 
+@pytest.mark.parametrize("restart", [False, True])
+def test_a_stop_that_cannot_be_submitted_is_reported_and_leaves_no_overlay(
+    qtbot, controllers, restart: bool
+) -> None:
+    """LWSM-1527 (1). `stop_async` raises `RuntimeError` once the supervisor's
+    executor is shut down. Nothing caught it, so PySide6 swallowed it from the
+    click, the row read `stopping` for the session and a restart's pending
+    entry stayed, turning some later plain Stop into a restart."""
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    path = Path("/srv/a")
+    controller.start_project(path)
+    supervisor.stop_refusal = RuntimeError("cannot schedule new futures")
+
+    with qtbot.waitSignal(controller.action_failed, timeout=2000) as caught:
+        if restart:
+            controller.restart_project(path)
+        else:
+            controller.stop_project(path)
+
+    assert "cannot schedule new futures" in caught.args[1]
+    assert controller._overlay is None
+    assert path not in controller._restarting
+
+
+def test_a_stopped_controller_keeps_the_signaller_a_stop_reports_on(
+    qtbot,
+) -> None:
+    """LWSM-1527 (3). `_report_stop` emits on `_action_signals` from the
+    supervisor's executor, which `stop()` does not wait for. As a child of the
+    controller it is destroyed with it, possibly mid-`emit()`: the
+    use-after-free LWSM-1233 closed for the pools. Parentless, it lives as long
+    as the Python reference the callback holds. Property asserted, not the
+    race, as in the probe test above.
+
+    Not registered with the `controllers` fixture, which would `stop()` a dead
+    wrapper."""
+    controller = ProjectController([record("a")], FakeProbe())
+    signals = controller._action_signals
+
+    controller.stop()
+    assert isValid(signals), "alive while the controller is"
+
+    controller.deleteLater()
+    qtbot.wait(50)
+
+    assert isValid(signals), "a stop in flight would emit on a destroyed object"
+
+
 def test_a_finished_stop_is_reported_after_stop_project_returns(
     qtbot, controllers
 ) -> None:
@@ -4696,6 +4749,9 @@ class _BrokenSignals:
     state = _BrokenSignal()
     stopped = _BrokenSignal()
 
+    def setParent(self, parent: object) -> None:  # `stop()` detaches it
+        pass
+
 
 @pytest.mark.parametrize("task", ["service", "unit state", "tree stop"])
 def test_a_worker_whose_emit_fails_otherwise_still_reports_it(
@@ -4891,6 +4947,33 @@ def test_a_holder_in_someone_elses_unit_is_not_read_from_that_journal(
     assert source is not None
     assert source.unit is None
     assert source.file == Path("/state/logs/a.log")
+    assert source.output_unavailable is True
+
+
+def test_a_foreign_holder_hides_the_bound_units_journal(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """LWSM-1527 (2). A project bound to a unit but now run from a terminal:
+    the holder is named and sits in the terminal's unit, so the bound unit's
+    journal is a stopped service's, not this server's output. The source says
+    the output is unavailable, as the `running (foreign)` row does."""
+    monkeypatch.setattr(
+        controller_module, "unit_for_pid", lambda pid: "app-terminal@1.service"
+    )
+    monkeypatch.setattr(
+        controller_module, "unit_belongs_to", lambda unit, project: False
+    )
+    controller = logging_controller(
+        controllers, [replace(record("a"), unit="a.service")], FakeProbe(5005)
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    assert controller.row(Path("/srv/a")).status is ProjectStatus.RUNNING_FOREIGN
+
+    source = controller.log_source(Path("/srv/a"))
+
+    assert source is not None
+    assert source.unit is None
     assert source.output_unavailable is True
 
 

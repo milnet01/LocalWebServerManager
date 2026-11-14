@@ -1621,8 +1621,19 @@ class ProjectController(QObject):
             self._stop_foreign(path, record)
             return
         self._set_overlay(path, ProjectStatus.STOPPING)
-        future = self._supervisor.stop_async(path)
-        future.add_done_callback(lambda done: self._report_stop(path, done))
+        try:
+            future = self._supervisor.stop_async(path)
+            future.add_done_callback(lambda done: self._report_stop(path, done))
+        except Exception as exc:
+            # `submit` raises once the executor is shut down, and PySide6 drops
+            # what escapes a slot: the row would read `stopping` for the
+            # session and a restart's entry would turn a later Stop into a
+            # restart. `start_project`'s catch-all, for the other button
+            # (LWSM-1454, LWSM-1527).
+            log.warning("stopping %s raised", path, exc_info=True)
+            self._restarting.discard(path)
+            self._clear_overlay(path)
+            self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
 
     def stop_foreign_tree(
         self, path: Path, tree: Tree, *, disclosed_holder: HolderIdentity | None = None
@@ -1725,9 +1736,11 @@ class ProjectController(QObject):
     def _log_unit(self, record: ProjectRecord) -> str | None:
         holder = self._holders.get(record.path)
         if holder is not None:
+            # A NAMED holder decides, as in `_holder_unit`: one outside the
+            # project's own unit is something else, so a stopped bound unit's
+            # journal is not its output (LWSM-1527).
             unit = self._units.get(holder)
-            if unit is not None and self._is_project_unit(record, unit):
-                return unit
+            return unit if self._is_project_unit(record, unit) else None
         return self._adopted_units.get(record.path) or record.unit
 
     def holder_identity(self, path: Path) -> HolderIdentity | None:
@@ -2148,6 +2161,11 @@ class ProjectController(QObject):
         self._stopped = True
         self._timer.stop()
         self._health_timer.stop()
+        # `_report_stop` emits on this from the supervisor's executor, which
+        # nothing here waits for; as a child it would be destroyed under that
+        # thread with the controller (LWSM-1233's hazard, LWSM-1527). Parentless,
+        # the Python reference the callback holds keeps it alive.
+        self._action_signals.setParent(None)
         # Otherwise a suppressed run's count dies with the process.
         self._flush_repeated_error()
         self._in_flight = False
