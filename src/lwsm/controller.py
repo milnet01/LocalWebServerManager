@@ -432,6 +432,10 @@ class RowView:
     # the socket table and is dropped whenever that table cannot be read; this
     # needs no snapshot (LWSM-1295).
     supervised: bool = False
+    # Whether the `starting` this row shows is a Start or Restart through its
+    # systemd unit, which holds no child of ours and so ends only on evidence.
+    # Stop stays usable on it, so the row always has a way out.
+    service_start: bool = False
     # The user's own "do not show me this" flag, stored since LWSM-1007 and
     # read by nothing until LWSM-1185. Carried on the view rather than looked
     # up by the window, so the row has one source for everything it renders.
@@ -1107,6 +1111,8 @@ class ProjectController(QObject):
         # a widget, so it cannot become the second store `design.md § State
         # management` forbids.
         self._overlay: tuple[Path, ProjectStatus] | None = None
+        # Whether the overlay is a `starting` driven through a unit.
+        self._overlay_is_service = False
         # Projects the poll reaped since the last snapshot. The reap drops the
         # supervisor's entry, after which `exited()` answers False, so this is
         # the only place the settle can still learn the child died (L6-H1).
@@ -1269,6 +1275,10 @@ class ProjectController(QObject):
             # Render time too, for the same reason: bookkeeping, not the
             # socket table.
             supervised=record.path in supervised,
+            service_start=(
+                self._overlay_is_service
+                and self._overlay == (record.path, ProjectStatus.STARTING)
+            ),
             hidden=record.hidden,
             browser=record.browser,
             port_from=record.port_from,
@@ -1564,7 +1574,7 @@ class ProjectController(QObject):
             # what that amendment was written to prevent — and it is checked
             # before `argv`, because such a project need not have a launcher
             # recorded at all.
-            self._set_overlay(path, ProjectStatus.STARTING)
+            self._set_overlay(path, ProjectStatus.STARTING, service=True)
             self._run_service_verb(path, "start", unit, adopted=unit != record.unit)
             return
         if not record.argv:
@@ -1708,7 +1718,7 @@ class ProjectController(QObject):
             # two itself — which is the thing the managed path has to hand-roll
             # because a spawn before the port is released would be refused.
             self._pending_units[path] = unit
-            self._set_overlay(path, ProjectStatus.STARTING)
+            self._set_overlay(path, ProjectStatus.STARTING, service=True)
             self._run_service_verb(path, "restart", unit, adopted=True)
             return
         self.start_project(path)
@@ -2046,13 +2056,17 @@ class ProjectController(QObject):
     def _record(self, path: Path) -> ProjectRecord | None:
         return next((record for record in self._records if record.path == path), None)
 
-    def _set_overlay(self, path: Path, status: ProjectStatus) -> None:
+    def _set_overlay(
+        self, path: Path, status: ProjectStatus, *, service: bool = False
+    ) -> None:
+        """`service` marks a `starting` driven through a unit, not our child."""
         # A reap before this is about the previous child, not the one this
         # action is about to spawn.
         self._reaped.discard(path)
         self._stop_holders.pop(path, None)
         self._stops_done.discard(path)
         self._overlay = (path, status)
+        self._overlay_is_service = service
         self._track_starting()
         self.projects_changed.emit()
 

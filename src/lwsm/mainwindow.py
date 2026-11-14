@@ -142,6 +142,11 @@ PlaceWindow = Callable[..., "Rect | None"]
 # slow scan into an app that cannot be quit.
 RESCAN_STOP_WAIT_MS = 5000
 
+# The most of a foreign command line the disclosure box shows, counted as shown.
+# Longer than a display name's bound: its arguments are what the user judges the
+# process by.
+MAX_COMMAND_CHARS = 500
+
 # After this many changes under the foreign-stop dialog, a yes stops the set as
 # shown rather than asking again: a server whose children come and go changes
 # on every read (LWSM-1498, user decision 2026-11-05).
@@ -357,6 +362,16 @@ _DISCLOSE_FIELD = re.compile(r"%[1-6]")
 # the prompt would show text that differs from what runs (LWSM-1365).
 _FORGING_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 
+# Every space separator (category Zs). None adds a line or reorders text, but a
+# run of them lays a prompt out thousands of pixels wide, which pushes what
+# follows off screen.
+_SPACE_SEPARATORS = (
+    "\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007"
+    "\u2008\u2009\u200a\u202f\u205f\u3000"
+)
+# Longer than any real command line's alignment, short enough to stay as typed.
+_SPACE_RUN = re.compile(f"[{_SPACE_SEPARATORS}]{{9,}}")
+
 # Kept readable where a reader would recognise the name; everything else in
 # those categories has no conventional spelling and goes out as its code point.
 _NAMED_ESCAPES = {"\r": "\\r", "\n": "\\n", "\t": "\\t"}
@@ -396,8 +411,11 @@ def _no_layout_forgery(value: str) -> str:
     hyphen, an emoji joiner — is shown escaped. That is the same stated loss
     as the literal backslash-n below: neither can forge the dialog, which is
     what this is defending.
+
+    A run of nine or more space separators of any kind is shown as `\\s{n}`,
+    so it cannot widen the prompt past what follows it.
     """
-    return "".join(
+    escaped = "".join(
         _NAMED_ESCAPES.get(char)
         or (
             f"\\u{ord(char):04x}"
@@ -406,6 +424,19 @@ def _no_layout_forgery(value: str) -> str:
         )
         for char in value
     )
+    return _SPACE_RUN.sub(lambda run: f"\\s{{{len(run.group())}}}", escaped)
+
+
+def _shown_command(cmdline: str) -> str:
+    """A foreign command line as the disclosure shows it: escaped, then clipped.
+
+    Clipped after the escape so the bound counts what is drawn, and the cut is
+    marked with an ellipsis so it reads as cut.
+    """
+    shown = _no_layout_forgery(cmdline)
+    if len(shown) <= MAX_COMMAND_CHARS:
+        return shown
+    return shown[: MAX_COMMAND_CHARS - 1] + "\u2026"
 
 
 def state_word(status: ProjectStatus) -> str:
@@ -1773,7 +1804,8 @@ class ProjectRow(QFrame):
         whose leader may already be reaped, and a Start during a stop is the
         race the pre-flight check exists to refuse — so the disable is
         correctness rather than politeness. Stop stays live while our own child
-        starts, which is how a slow start is cancelled (LWSM-1372).
+        or a unit's start is pending, which is how a slow start is cancelled
+        (LWSM-1372).
 
         `unknown` means nobody has looked yet, so Start is offered and Stop is
         not: starting something that turns out to be running is refused by the
@@ -1797,11 +1829,15 @@ class ProjectRow(QFrame):
         can_restart = (running and not foreign_only) or failed_ours
         # A start of our own child can be stopped before it binds: that needs
         # no socket table, so it is the way out when none can be read, and it
-        # cancels a slow start (LWSM-1372).
+        # cancels a slow start (LWSM-1372). So can a start through a unit: it
+        # holds no child and ends only on evidence, so Stop is its way out.
         can_stop = (
             running
             or failed_ours
-            or (status is ProjectStatus.STARTING and row.supervised)
+            or (
+                status is ProjectStatus.STARTING
+                and (row.supervised or row.service_start)
+            )
         )
         # `not in_transition` appears once, on Start, and that is not an
         # oversight on the other three. The overlay REPLACES the status, so
@@ -4231,7 +4267,7 @@ class MainWindow(QMainWindow):
             # "?" for an unanswered uid as for every other field: a holder
             # owned by another user answers none without privileges (L07-L6).
             "%4": "?" if (uid := getattr(holder, "uid", None)) is None else str(uid),
-            "%5": getattr(holder, "cmdline", "") or "?",
+            "%5": _shown_command(getattr(holder, "cmdline", "") or "?"),
             "%6": datetime.fromtimestamp(started).isoformat(" ", "seconds")
             if started
             else "?",

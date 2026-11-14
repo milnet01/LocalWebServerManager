@@ -2936,6 +2936,140 @@ def test_a_service_still_activating_keeps_its_starting_overlay(
     assert messages == []
 
 
+def _started_through_its_unit(qtbot, controllers, monkeypatch):
+    """LWSM-1527 point 4b: a unit-bound project started through systemd whose
+    unit is active but listens on 4400, not the expected 4321. Nothing of ours
+    holds a child, so nothing but the user can end the `starting` overlay."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, None)
+    monkeypatch.setattr(controller_module, "unit_state", lambda unit: "active")
+    bound = ProjectRecord(
+        path=Path("/srv/a"), name="a", port=4321, unit="project-a.service"
+    )
+    controller = supervised(
+        controllers, [bound], HoldingProbe({4400: 1290}), FakeSupervisor()
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    controller.start_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: bool(drive.calls), timeout=2000)
+    return controller, drive
+
+
+def test_a_start_through_a_unit_marks_its_starting_row(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """The row needs to know the `starting` is a service's, so Stop can stay
+    live on it. Dies on `_row_view` never reading the flag."""
+    controller, _ = _started_through_its_unit(qtbot, controllers, monkeypatch)
+
+    row = controller.rows()[0]
+
+    assert row.status is ProjectStatus.STARTING
+    assert not row.supervised
+    assert row.service_start
+
+
+def test_a_start_of_our_own_child_is_not_marked_as_a_service_start(
+    qtbot, controllers
+) -> None:
+    """Our own child keeps the rule it always had: Stop is live because the
+    supervisor holds the child. Dies on setting the flag for every start."""
+    controller = supervised(controllers, [startable()], FakeProbe(), FakeSupervisor())
+
+    controller.start_project(Path("/srv/a"))
+
+    row = controller.rows()[0]
+    assert row.status is ProjectStatus.STARTING
+    assert row.supervised
+    assert not row.service_start
+
+
+def test_stop_on_a_start_of_our_own_child_still_signals_the_child(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """The service rule must not touch our own child's Stop: the supervisor
+    stops it and no unit is driven."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, None)
+    supervisor = FakeSupervisor()
+    controller = supervised(controllers, [startable()], FakeProbe(), supervisor)
+    controller.start_project(Path("/srv/a"))
+
+    controller.stop_project(Path("/srv/a"))
+
+    assert supervisor.stopped == [Path("/srv/a")]
+    assert drive.calls == []
+    assert controller.rows()[0].status is ProjectStatus.STOPPING
+    assert not controller.rows()[0].service_start
+
+
+def test_a_service_restart_marks_its_starting_row(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """Restart through a unit reads `starting` the same way and ends the same
+    way, so it needs the same way out."""
+    drive = RecordingDrive()
+    adopted(monkeypatch, drive, "ants-stats.service")
+    monkeypatch.setattr(controller_module, "unit_state", lambda unit: "active")
+    controller = supervised(
+        controllers,
+        [startable("a", 4321)],
+        HoldingProbe({4321: 1290}),
+        FakeSupervisor(),
+    )
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+
+    controller.restart_project(Path("/srv/a"))
+
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+    assert controller.rows()[0].service_start
+
+
+def test_stop_ends_a_service_start_that_never_settles(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """The way out: Stop drives the unit Start used, and the `starting` overlay
+    gives way to `stopping` and then to the port's own state. The flag goes
+    with the overlay it describes. Dies on a Stop that leaves `starting`."""
+    controller, drive = _started_through_its_unit(qtbot, controllers, monkeypatch)
+    assert controller.rows()[0].status is ProjectStatus.STARTING
+
+    controller.stop_project(Path("/srv/a"))
+    qtbot.waitUntil(lambda: len(drive.calls) == 2, timeout=2000)
+
+    assert drive.calls == [
+        ("start", "project-a.service"),
+        ("stop", "project-a.service"),
+    ]
+    assert controller.rows()[0].status is ProjectStatus.STOPPING
+    assert not controller.rows()[0].service_start
+    controller.poll_once()
+    qtbot.waitUntil(
+        lambda: controller.rows()[0].status is ProjectStatus.STOPPED, timeout=2000
+    )
+
+
+def test_the_service_marker_ends_with_the_overlay_it_describes(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """A service Start that failed cleared its overlay, so the row no longer
+    reads `starting` and must not claim a service start. Dies on a flag that
+    does not check the overlay is still `starting`."""
+    drive = RecordingDrive(ok=False, reason="Unit not loaded.")
+    adopted(monkeypatch, drive, None)
+    bound = ProjectRecord(
+        path=Path("/srv/a"), name="a", port=4321, unit="project-a.service"
+    )
+    controller = supervised(controllers, [bound], HoldingProbe({}), FakeSupervisor())
+    with qtbot.waitSignal(controller.action_failed, timeout=2000):
+        controller.start_project(Path("/srv/a"))
+
+    assert controller.rows()[0].status is not ProjectStatus.STARTING
+    assert not controller.rows()[0].service_start
+
+
 def test_a_failed_verb_clears_the_overlay_and_says_why(
     qtbot, controllers, monkeypatch
 ) -> None:

