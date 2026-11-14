@@ -27,11 +27,15 @@ signaling per
 
 ### Changed
 
+- **The AppImage smoke test now also runs on Debian 12 and fails when a library for the X11 or Wayland screen plugins is missing.** (LWSM-1544)
+
 - **A first scan that could not check systemd services adds nothing on a guess.** (LWSM-1526)
   The first-run list starts with nothing ticked and says so on every
   project.
 
 ### Fixed
+
+- **A re-run of the release workflow replaces the AppImage already attached to the release instead of failing.** (LWSM-1546)
 
 - **Stop works on a project started through its systemd service that still reads "starting".** (LWSM-1527)
   That row used to have no working button, for example when the service

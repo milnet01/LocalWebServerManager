@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1549 -->
+<!-- ants-roadmap-id-high-water: LWSM=1550 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15686,7 +15686,7 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: chore.
   Source: local-release-preflight-2026-11-10.
 
-- 📋 [LWSM-1544] **The AppImage smoke test proves only the offscreen display and only Debian 13.**
+- ✅ [LWSM-1544] **The AppImage smoke test proves only the offscreen display and only Debian 13.**
   review-code 2026-11-10 (v0.5.0..HEAD), lane 1, two MEDIUMs.
 
   1. `_appimage-smoke.sh` runs with QT_QPA_PLATFORM=offscreen, so a
@@ -15705,6 +15705,10 @@ decided, is the last packaging item (added 2026-11-11).
   2026-11-14: the user decided: fail the smoke on a missing library for
   the xcb or wayland plugin, and smoke on a digest-pinned Debian 12 as
   well. Being built.
+  2026-11-14: shipped in 75f4c9d. The smoke runs on digest-pinned Debian
+  13 and 12 and runs ldd over the bundle's Qt platform plugins. A real
+  build passed on both; with libxkbcommon-x11-0 removed the smoke failed
+  on both.
   **Layman:** The automatic start-up test does not yet try a real X11 or Wayland screen, or the oldest system the README promises.
   Kind: test.
   Source: review-code-2026-11-10.
@@ -15726,7 +15730,7 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: fix.
   Source: review-code-2026-11-10.
 
-- 📋 [LWSM-1546] **release.yml: write permission for the whole job, and a re-run cannot replace an uploaded asset.**
+- ✅ [LWSM-1546] **release.yml: write permission for the whole job, and a re-run cannot replace an uploaded asset.**
   review-code 2026-11-10, lane 2 (MEDIUM calibrated to LOW, and LOW).
 
   1. `contents: write` covers checkout, setup-uv and the whole build,
@@ -15746,6 +15750,9 @@ decided, is the last packaging item (added 2026-11-11).
   (point 1) after 0.6.0, so the first signed release is not also the
   first run of a reshaped workflow. That is the one exception to
   "every open finding before 0.6.0".
+  2026-11-14: point 2 shipped in 75f4c9d (`gh release upload --clobber`;
+  docs/claude/release.md says to sign again after a re-run). Point 1,
+  the job split, is LWSM-1550; no code changed for it here.
   **Layman:** The release workflow holds the power to change a release for longer than it needs, and cannot redo a half-finished upload.
   Kind: security.
   Source: review-code-2026-11-10.
@@ -15840,6 +15847,19 @@ decided, is the last packaging item (added 2026-11-11).
   **Layman:** Choosing a browser from a project's drop-down left the box blank and reset the project to the default browser.
   Kind: fix.
   Source: user-report-2026-11-14.
+
+- 📋 [LWSM-1550] **release.yml: give write permission only to the step that attaches the AppImage.**
+  LWSM-1546 point 1. `contents: write` covers checkout, setup-uv and the
+  whole build, not only the upload. Every input is pinned. The pinned
+  setup-uv action takes github.token by default.
+  Fix: a read-only build job that uploads an artifact, then an attach
+  job with write permission.
+  The user decided on 2026-11-14 that this goes after 0.6.0, so the
+  first signed release is not also the first run of a reshaped workflow.
+  Do it straight after 0.6.0 is published.
+  **Layman:** The release workflow holds the power to change a release for longer than it needs.
+  Kind: security.
+  Source: review-code-2026-11-10, split from LWSM-1546.
 
 ## After 1.0.0
 
