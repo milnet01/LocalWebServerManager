@@ -40,7 +40,9 @@ from `CLAUDE.md` § Module map on 2026-10-15.)
   `$XDG_RUNTIME_DIR`, before logging: a second launch wakes the running copy
   and exits 0 without ever opening `app.log`. It sends its xdg-activation
   token, which the running copy checks with `activation_token` and keeps in
-  `XDG_ACTIVATION_TOKEN` only while its window activates (LWSM-1521). A
+  `XDG_ACTIVATION_TOKEN` only while its window activates (LWSM-1521). A second
+  launch heard before the window exists is kept, and the latest one's token is
+  acted on once the window is shown. A
   socket nobody answers on
   is a crashed copy's leftover and is replaced. **It sets no socket
   options** — with any set, Qt renames the socket into place and silently
@@ -152,11 +154,19 @@ Added at P02 (LWSM-1005), contract in
   the snapshot task; `_classify` reads those answers and asks only `owns_pid`. `RowView` carries
   **`managed`**, read once per render from `supervisor.running()`, because
   ADR-0004 derives state from the socket table and `status` therefore cannot say
-  whose server it is.
+  whose server it is. **A per-unit lock** (`_unit_lock`) orders the service
+  verbs on one unit, so a second verb waits for the first and the drop-in one
+  writes is not removed by the one before it. **A named holder decides the log
+  source** (`_log_unit`): a holder outside the project's own unit gives no
+  journal, and the bound unit's journal is not shown as its output. `stop_project`
+  catches what `stop_async` raises, as `start_project` does, so the row's
+  `stopping` overlay and a restart's mark are cleared and the failure is
+  reported.
 - **`src/lwsm/configfile.py`** — core. `ConfigFileError`,
   `MAX_FILE_BYTES`, `MAX_REASON_CHARS`, `quoted()`, `read_bounded()`,
   `prepare_config_dir()`, `refuse_existing_target()`,
-  `write_atomically()`, and **`load_json_object()`**: the one JSON
+  `write_atomically()` (whose `sweep_stale=False` skips the stale-temporary
+  sweep, for a folder the user chose), and **`load_json_object()`**: the one JSON
   config reader, used by `registry`, `settings` and the trust store, which
   raises `JsonFileRefused` naming the stage that failed so each caller keeps
   its own wording (LWSM-1357), and **`BoundedReasons`**, the capped reason
@@ -194,7 +204,9 @@ Added at P02 (LWSM-1005), contract in
   a wrong True forces an assistive palette on someone who never asked and a
   wrong False leaves them where they already were. **A timeout alone answers
   None**: the portal starts on demand, so at login it may still be starting,
-  and the window asks once more rather than keep False for the session.
+  and the window asks once more rather than keep False for the session. **Its
+  wait is `placement.DBUS_TIMEOUT_S`**, read when called, so the KWin check and
+  this read share one bound.
 - **`src/lwsm/placement.py`** — core, and like `ports.py` imports **no Qt
   at all**, not even `QtCore`: the arithmetic in it is ADR-0007's security
   boundary, and a boundary is worth testing with no display. `Rect`,
@@ -257,7 +269,9 @@ Added at P02 (LWSM-1005), contract in
   owns the **Rescan** seam: `RescanContext` (scan roots, the scan
   function and the clock, all injected so `testing-overrides.md § T1` holds; the
   writer is `registry.ProjectsFile`, which every writer shares, LWSM-1358),
-  `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`. An
+  `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`, whose
+  result is a **`_RescanMerge`**: a `MergeResult` plus the scan's
+  `units_unavailable`, which `_apply_rescan` hands the first-run dialog. An
   import's `_ImportTask` runs on the same pool (LWSM-1517), because
   `merge_imported` resolves every project path, and one on a dead network
   mount froze the window.
@@ -339,7 +353,11 @@ Added at P02 (LWSM-1005), contract in
   start it made (L06-M1).
   **Filtering hides rows, never rebuilds them** (INV-13), and `_sync_rows`
   re-applies the filter so a rescan cannot land a project into a list the user
-  has narrowed.
+  has narrowed. **A row that is about to go, hidden by the filter or dropped
+  by a rescan, hands focus over first** (`_hand_focus_over`): to the next row
+  that stays, else the previous one, else the filter box. Left to Qt, focus
+  past the last row wraps to the filter box at the top, away from where a
+  magnifier is looking.
   Since LWSM-1148 it also owns **profile export and import** — `_export_profile`,
   `_import_profile`, `summarise_import` and two injected seams,
   `choose_profile_to_save` / `choose_profile_to_open` (a real `QFileDialog` in a
@@ -363,6 +381,12 @@ Added at P02 (LWSM-1005), contract in
   on the chosen entry, which Qt's own `showPopup` does not once it is cleared.
   The clearing on close waits one event-loop turn: Qt reads that item after
   closing the list to learn what was picked (LWSM-1549).
+  **`_holder_appeared_while_deciding`** is the window-side check Stop and
+  Restart make after a disclosure, as Open does for itself: the controller reads
+  a disclosure that named no holder as "nothing was disclosed" and compares
+  nothing, so when the row now names a holder the window refuses with a message
+  and signals nothing. It applies only to a foreign, running row, the one kind
+  that asks first.
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](../specs/LWSM-1006-scanner-detection.md):
@@ -492,7 +516,9 @@ Added for LWSM-1008. **No spec** — build-first, per § Review cadence:
   `describe`. With no `projects.json` yet, the first scan's projects are
   listed here, each ticked, before anything is written; Save returns the
   ticked records and Not now returns `None`, never `[]`, which would save an
-  empty list. **It owns no I/O**: `MainWindow._apply_rescan` calls it through
+  empty list. **When the scan's `units_unavailable` is true, no row is ticked**
+  and each carries a note, because no project's unit was looked for, so nothing
+  is added on a guess; `ask_first_run` takes it as `units_unavailable`. **It owns no I/O**: `MainWindow._apply_rescan` calls it through
   the injected `confirm_first_run` seam and writes through `_apply_merge`.
   `__main__.start_first_run` starts the scan once the window is shown, and asks
   for a folder first when no scan root exists.
@@ -521,7 +547,9 @@ Added later, both core with no Qt at all:
   this app's drop-in (`50-lwsm-port.conf`) before a start and removes it after
   each successful or rejected verb, or when the start is refused before any
   verb runs: the one file this app writes outside its own config (LWSM-1028,
-  LWSM-1387, L05-M3, LWSM-1449).
+  LWSM-1387, L05-M3, LWSM-1449). A reload that timed out sets
+  `UnitOutcome.timed_out`: `set_drop_in` and `clear_drop_in` then reload a
+  second time once the file is gone, since the first may have loaded it.
 - **`src/lwsm/foreign.py`** — ADR-0004's foreign stop, for a server in no
   systemd unit (LWSM-1301): the holder and its descendants, identified by
   PID and start time, and signalled as exactly that set through
@@ -529,7 +557,9 @@ Added later, both core with no Qt at all:
   it after the user's yes, and asks again if it changed. After a second
   change a yes stops the set as shown (LWSM-1498). It also holds `holder_identity`,
   the same PID-and-start-time identity for the one holder a disclosure
-  names (LWSM-1444, moved here from `service.py` by LWSM-1493). Its stop
+  names (LWSM-1444, moved here from `service.py` by LWSM-1493). `looks_like`
+  resolves symlinks on both sides, the holder's paths and the project's, since
+  the kernel reports real paths. Its stop
   polls through `supervisor._wait_until_gone`, the managed stop's loop.
 
 Added for LWSM-1015, the live log panel. **No spec** — build-first, per
@@ -549,7 +579,13 @@ Added for LWSM-1015, the live log panel. **No spec** — build-first, per
   `stop()`. **`--unit=` glued, not `-u -- <unit>`**: `-u` takes `--` as its
   value and the unit becomes a journal match, which journalctl refuses
   (measured, systemd 261). A fragment with no newline is flushed after two
-  quiet ticks, so a server's last words show even when it died mid-line.
+  quiet ticks, so a server's last words show even when it died mid-line. **A
+  truncate or replace of the file releases the held fragment** (the follower's
+  `on_restart`, carried to the GUI thread as `LogFeed._restart`), so the old
+  text's tail is not joined to the new text. A follower that cannot start
+  reports through `_error` with a reason the panel words: `bad-unit` for a unit
+  name `journal_argv` refuses, `journal-failed` for a journal reader thread that
+  raised, and `unreadable` for a file one.
   `ErrorMatcher` (LWSM-1036) decides which lines are errors: a configured
   marker as a literal substring, or a non-zero exit line matched by one
   fixed, linear pattern. The default markers live in `settings.py`, which

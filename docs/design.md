@@ -627,7 +627,8 @@ from today on should name the file.
 
 **Startup.** `ProjectController` asks the `Registry` to load
 `projects.json`. If the file is absent (first run) it triggers a
-scan and presents the result as a confirmation list. It then
+scan and presents the result as a confirmation list, each project ticked
+(none ticked when systemd could not be asked, since no unit was looked for). It then
 starts the **1-second status poll** (default, settings-backed)
 and renders.
 

@@ -123,7 +123,10 @@ Three rules the table depends on:
   child's group holds the port, and for Stop and Restart wherever we
   hold a live child, since those signal our child and never the
   holder. A `running (managed)` row that is a systemd instance still
-  shows it. For a *managed* server, identity is
+  shows it. Open, Stop and Restart each refuse, with a message, when a
+  disclosure that named no holder is followed by a row that names one:
+  nothing is opened, stopped or restarted on a disclosure that did not
+  cover it. For a *managed* server, identity is
   the recorded child PID **plus its `create_time`**, never the
   working directory.
 - **An exited child is remembered for exactly one classification**,
@@ -206,9 +209,10 @@ Consequences of the rule:
   the manager therefore re-adopts servers correctly by construction,
   including ones started before it existed. **The exception,
   amended 2026-10-29 (LWSM-1428):** `started.json` records the
-  launcher PID and `create_time` of each server this manager
-  started. A relaunch takes back as its own only an entry whose
-  process still matches both, so a server it started reads
+  launcher PID and start time of each server this manager
+  started: `create_time`, plus `since_boot` and `boot_id`, which no
+  clock step moves. A relaunch takes back as its own only an entry
+  whose process still matches, so a server it started reads
   `running`, not `running (foreign)`. The record never decides a
   state on its own: the probe still does.
 - **Foreign servers are shown, labelled, and guarded.** A

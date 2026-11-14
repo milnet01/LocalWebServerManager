@@ -70,6 +70,9 @@ Specifics:
   from `/proc/<pid>/environ` by any other local process. A manager
   that starts things on your behalf must not also be a credential
   broker.
+  `PATH` keeps only its absolute entries, and `os.defpath` replaces it
+  when none is left. A relative entry would let a bare `npm` or `node`
+  name a file inside the project that the trust gate never read.
   **The display and session-bus variables stay in, on purpose**
   (LWSM-1325, user decision 2026-09-28). Removing them is not a
   boundary: the session bus is a fixed socket at

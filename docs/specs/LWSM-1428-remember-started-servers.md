@@ -36,8 +36,10 @@ this session.
 - **Record each start, and use the record on relaunch** (user, 2026-10-29).
 - **No `review-contract` gate on this spec or the ADR-0004 amendment** (user,
   2026-10-29: "no review is needed, this isn't a complicated task").
-- **Identity is the launcher's PID plus its `create_time`**, the identity
-  ADR-0004 already names for a managed server. Chosen in drafting, not by the
+- **Identity is the launcher's PID plus its start time**, the identity
+  ADR-0004 already names for a managed server. The start time is
+  `since_boot` with `boot_id` where the entry has them, else `create_time`
+  (§ 4.1). Chosen in drafting, not by the
   user: anything weaker could call a stranger ours.
 
 ## 4. Design
@@ -153,7 +155,9 @@ which refuses a reused PID.
 
 ## 5. Invariants
 
-- **INV-1** — A started child is recorded with its launcher's PID and `create_time`.
+- **INV-1** — A started child is recorded with its launcher's PID and
+  `create_time`, and with `since_boot` and `boot_id` where the boot time could
+  be read.
   *Test:* `tests/test_supervisor.py::test_a_start_is_recorded_and_a_stop_forgets_it`.
   *Breaks when:* `start()` spawns without writing the entry, or writes another PID.
 
@@ -166,8 +170,9 @@ which refuses a reused PID.
   tries to adopt a dead server; or a stop after the freeze rewrites the file
   and wipes a relaunch's entry.
 
-- **INV-3** — Adoption takes an entry only when PID, `create_time` and group all
-  match.
+- **INV-3** — Adoption takes an entry only when PID, start time and group all
+  match: `boot_id` and `since_boot` where the entry has them (INV-8),
+  `create_time` where it does not.
   *Test:* `tests/test_supervisor.py::test_adoption_takes_only_the_same_process`.
   *Breaks when:* an entry whose PID now names another process, or a process that
   left its group, is taken as ours.

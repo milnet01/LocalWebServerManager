@@ -141,6 +141,10 @@ class DetectedProject:
     # Added by LWSM-1121: other sources naming a different port, best first.
     # The ranking is `scanner._settle_port`'s docstring.
     port_conflicts: tuple[PortFinding, ...] = ()
+    # True only when nothing in this project's detection was unreadable,
+    # refused or cut short, so `port=None` means "declares none". False keeps a
+    # stored port at merge (LWSM-1131 § 4.1).
+    read_cleanly: bool = False
 
     @property
     def confidence(self) -> Confidence:
@@ -510,13 +514,15 @@ Every path is at the project root, and every within-rule list is ordered: rule
 The `argv` column shows the **preferred** alternate; § 4.1's rule is that
 `argv` names whichever alternate actually matched.
 
-**Only rule 1 has a one-hop *file*.** Rules 2, 3 and 4 name the file they run
-directly, so there is nothing to follow; rule 0's unit is read through
-`systemctl` rather than opened. But two of the five launcher *rules* still
-have **two sources**, and § 4.6's file-major ordering runs them left to right as this
-table lists them: rule 0 takes `Environment=` then `ExecStart=`, and rule 1 the
-script then its hop target. Rules 2, 3 and 4 have a **single** source — for
-rule 2 that is the chosen `scripts` value alone, for the reason below.
+**Rules 1, 3 and 4 have a one-hop *file*; rules 0 and 2 do not.** Rule 1's
+script names the file it runs, and § 4.5's invocation form follows that name.
+Rules 3 and 4 run the file they match, and § 4.5's import form follows one
+import from it. Rule 2 reads the chosen `scripts` value alone, so there is
+nothing to follow, and rule 0's unit is read through
+`systemctl` rather than opened. Four of the five launcher *rules* therefore have
+**two sources**, and § 4.6's file-major ordering runs them left to right: rule 0
+takes `Environment=` then `ExecStart=`, and rules 1, 3 and 4 take the launcher
+then its hop target. Rule 2 has a **single** source, for the reason below.
 
 **Rule 1 requires the execute bit** (`os.access(path, os.X_OK)`) and a regular
 file. A `start.sh` without it is not a launcher match, and the reason is

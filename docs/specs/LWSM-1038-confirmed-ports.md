@@ -321,8 +321,11 @@ port 5005.` follows `You set this port.`
 - **The save fails, or the session is read-only.** The value holds for this
   session and is retried on the next change. `_write_records` logs each failure.
 - **A rescan runs while a port is confirmed.** `merge` folds into the records it
-  started from, so the confirmation is dropped from the result. The next poll
-  that sees the project running records it again.
+  started from, which hold no confirmation made since. The window then copies
+  `confirmed_port` from the current record onto each merged record whose
+  declared `port` is unchanged (`_with_current_confirmation`), so the
+  confirmation survives. A merged record whose `port` changed keeps the merge's
+  value.
 - **A project flips between two ports.** Each flip is a change and a save, at
   most one per poll interval. Accepted: it is visible in the row, and a project
   that does this has no single port to record.

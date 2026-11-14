@@ -585,7 +585,10 @@ reads.
 A file holding more than `MAX_RECORDS` (1000) projects loads the first 1000 and
 counts the rest as refused rows, so it is never written over (LWSM-1322).
 The writer refuses to write more than `MAX_RECORDS`, for the same reason
-(review-code 2026-10-01).
+(review-code 2026-10-01). A merge, a rescan or an import adds no project once the
+list holds `MAX_RECORDS`, and reports each one it left out
+(`::test_a_rescan_never_grows_the_list_past_the_record_cap`,
+`::test_an_import_never_grows_the_list_past_the_record_cap`).
 
 **The absent file is a `RegistryError` today, and that is why `RegistryMissing`
 exists.** `configfile.read_bounded` opens with `os.open`, so a missing
@@ -665,7 +668,10 @@ that stops a hand-edited newline reaching the message banner or the log.
   *Test:* `tests/test_registry.py::test_the_written_file_is_private`,
   `::test_a_non_regular_target_is_refused` (a FIFO at the config path), and
   `::test_a_symlinked_target_is_refused_not_followed` — a symlink pointing at a
-  **regular** file, which is the case a FIFO fixture cannot reach.
+  **regular** file, which is the case a FIFO fixture cannot reach. The refusal
+  comes before any copy is set aside, so a refused save leaves none. A restore
+  from the backup refuses such a `projects.json` the same way and renames
+  nothing (`::test_a_restore_refuses_a_symlinked_projects_file`).
   *Breaks when:* the file is created before its mode is set, or written through
   a helper that never passes `0o600` — `tempfile.NamedTemporaryFile` and
   `mkstemp` both create at `0600`, but `Path.write_text` creates at
@@ -774,7 +780,10 @@ that stops a hand-edited newline reaching the message banner or the log.
   denial, bad UTF-8, bad JSON, or the wrong `schema_version`. Unchanged from
   today: `RegistryError`, empty window, reason in the message banner — and now also
   read-only for the session (§ 4.3). LWSM-1039 adds the restore-from-backup
-  offer; this item deliberately does not.
+  offer; this item deliberately does not. A restore whose backup reads but does
+  not load puts the damaged file back where it was, so the next launch offers
+  the same backup again
+  (`::test_a_restore_whose_backup_will_not_load_puts_the_damaged_file_back`).
 - **The disk is full.** The temporary write fails, the temporary file is
   unlinked, the previous file is untouched (INV-2), and the user is told the
   write failed rather than being left believing it succeeded.
@@ -793,7 +802,9 @@ that stops a hand-edited newline reaching the message banner or the log.
   nothing set aside. A first run read no file, so absence is its fingerprint: a
   file there at the first save is set aside the same way. A save that is also
   not durable carries the path on `RegistryNotDurable.set_aside`, and the
-  silent save still names it (LWSM-1495). An edit landing between the
+  silent save still names it (LWSM-1495). A save the write refuses after the
+  copy was made names the copy in its message
+  (`::test_a_save_refused_after_the_set_aside_names_the_copy`). An edit landing between the
   comparison and the write is not caught: no lock covers a text editor, and
   the window is the length of one write.
 - **Two app instances write concurrently.** `os.replace` makes each write
@@ -1011,12 +1022,12 @@ Rows live in `../reviews/LWSM-1007-registry-persistence-loop-log.md`. That file 
   and carries its own bound.
 - **Disk.** One file, plus a transient temporary file in the same directory that
   is unlinked on any failure path.
-- **New external dependencies: none.** `registry.py` imports `errno`, `json`,
-  `os`, `stat`, `dataclasses`, `pathlib` and `typing` today; this item adds
-  **`tempfile`** for the writer and **`datetime`** for § 4.2's `added` parse.
-  `datetime` is needed **here**, not with LWSM-1131: deciding whether a present
-  `added` is well-formed is a parse, and § 4.2's fourth-column rule makes that
-  decision at load. LWSM-1131 *compares* the parsed instants and adds no import
-  of its own. `collections.abc` arrives with `save_projects`' `Sequence`. All
-  standard library, so `pyproject.toml` does not change.
+- **New external dependencies: none.** `registry.py` imports `json`, `os`,
+  `hashlib`, `enum`, `re`, `dataclasses`, `datetime`, `pathlib`, `typing` and
+  `collections.abc`, all standard library, so `pyproject.toml` does not change.
+  The file-level work (`errno`, `stat`, `tempfile`) lives in
+  `lwsm.configfile`, which `registry.py` imports from. `datetime` is here
+  because § 4.2's fourth-column rule decides at load whether a present `added`
+  is well-formed, which is a parse. LWSM-1131 *compares* the parsed instants and
+  adds no import of its own.
   *Command:* `grep -nE "^(import|from) " src/lwsm/registry.py`.
