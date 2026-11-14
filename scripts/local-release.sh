@@ -341,8 +341,10 @@ fi
 # gave itself, each a "cited as shipped but in no roadmap" BLOCKER (L7-M5).
 cited_ids() {
     local target=$1 prefixes
-    prefixes=$(grep -ohE '\[[A-Z][A-Z0-9]*-[0-9]+\]' ROADMAP.md docs/roadmap/*.md 2>/dev/null |
-        sed -E 's/^\[([A-Z][A-Z0-9]*)-.*/\1/' | sort -u | paste -sd '|' || true)
+    # From item lines only (`- <status> [ID] ...`): prose links `[ADR-0003](..)`
+    # too, which made ADR a prefix (LWSM-1535).
+    prefixes=$(grep -ohE '^- [^[]*\[[A-Z][A-Z0-9]*-[0-9]+\]' ROADMAP.md docs/roadmap/*.md 2>/dev/null |
+        sed -E 's/^.*\[([A-Z][A-Z0-9]*)-[0-9]+\]$/\1/' | sort -u | paste -sd '|' || true)
     [[ -n $prefixes ]] || return 0
     awk -v v="$target" '
         $0 ~ "^## \\[" v "\\] (—|-) [0-9]" {f=1; next}
@@ -350,6 +352,12 @@ cited_ids() {
         f && /^- /' CHANGELOG.md |
         grep -oE "(^|[^A-Za-z0-9])($prefixes)-[0-9]+([^A-Za-z0-9]|$)" |
         grep -oE "($prefixes)-[0-9]+" | sort -u || true
+}
+
+# The item line for an ID, not the first line that names it: another item's
+# prose may cite `[ID]` before the item's own line (LWSM-1535).
+item_line() {
+    grep -m1 -E "^- [^[]*\[$1\]" ROADMAP.md docs/roadmap/*.md 2>/dev/null || true
 }
 
 step "0f  Roadmap agrees with the changelog"
@@ -366,7 +374,7 @@ else
             # earlier minor, which roadmap-format.md § 3.9 rotated out of
             # ROADMAP.md. Looking only at the current file cannot tell an
             # archived ID from one that never existed.
-            line=$(grep -m1 -F "[$id]" ROADMAP.md docs/roadmap/*.md 2>/dev/null || true)
+            line=$(item_line "$id")
             if [[ -z $line ]]; then
                 block "$id is cited as shipped but appears in no roadmap"
                 unshipped=$((unshipped + 1))
@@ -511,8 +519,22 @@ done
 # current version; the release builds the bumped tag, which differs only in the
 # version, and 0c already blocks on uncommitted changes.
 appimage_status() {
-    if ! command -v podman >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then
+    # The runner is the one build-appimage.sh picks (podman first). A tool that
+    # is missing, or a daemon that is not running, means the build could not
+    # run: a SKIP, kept apart from a build that ran and failed (LWSM-1547).
+    local runner
+    if command -v podman >/dev/null 2>&1; then
+        runner=podman
+    elif command -v docker >/dev/null 2>&1; then
+        runner=docker
+    else
         skip "AppImage build (neither podman nor docker is installed)"
+        return 0
+    fi
+    if ! command -v uv >/dev/null 2>&1; then
+        skip "AppImage build (uv is not installed)"
+    elif ! "$runner" info >/dev/null 2>&1; then
+        skip "AppImage build ($runner is installed but cannot run)"
     elif bash scripts/build-appimage.sh; then
         ok "the AppImage builds and starts"
     else

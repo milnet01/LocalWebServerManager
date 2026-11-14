@@ -13,8 +13,8 @@
 #   2. Smoke: debian:13-slim, with no Python, offline, launches it
 #      (_appimage-smoke.sh). An AppImage nobody ran is not a release.
 #
-# Needs podman or docker, uv, and python3 3.11 or newer (for tomllib). Only the
-# build reaches the network.
+# Needs podman or docker, uv, flock and python3 3.11 or newer (for tomllib).
+# Only the build reaches the network.
 # The release workflow calls this script; it is the one recipe.
 set -euo pipefail
 
@@ -42,8 +42,20 @@ else
 fi
 command -v uv >/dev/null 2>&1 || { echo "build-appimage: uv is not installed" >&2; exit 1; }
 
-echo "== build-appimage: $APPIMAGE (runner: $RUNNER) =="
+# LWSM-1545. A run by hand, local-release.sh's step 0i and another session all
+# share dist/.appimage-build, the smoke image tag and the output file, so a
+# second run waits for the first. The lock is released when this process ends.
+take_build_lock() {
+    exec 9>"$1"
+    if ! flock -n 9; then
+        echo "build-appimage: another build is running; waiting for it" >&2
+        flock 9
+    fi
+}
+
 mkdir -p "$WORK/cache"
+take_build_lock "$DIST/.appimage-build.lock"
+echo "== build-appimage: $APPIMAGE (runner: $RUNNER) =="
 rm -f "$DIST/$APPIMAGE"
 
 # The exact runtime closure and PyInstaller, with hashes, from uv.lock. The

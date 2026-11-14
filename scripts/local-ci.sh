@@ -14,7 +14,7 @@
 #
 # Usage:
 #   ./scripts/local-ci.sh          # the full gate
-#   ./scripts/local-ci.sh --fast   # skip the slowest stage (still lints+tests)
+#   ./scripts/local-ci.sh --fast   # skip the integration tests (all else runs)
 #   ./scripts/local-ci.sh --docs   # only the steps that read documentation
 set -Eeuo pipefail
 
@@ -35,7 +35,7 @@ export PYTHONDONTWRITEBYTECODE=1
 
 usage() {
     printf 'usage: %s [--fast] [--docs]\n' "$0"
-    printf '  --fast   skip the slowest stage (still lints and tests)\n'
+    printf '  --fast   skip the integration tests (everything else runs)\n'
     printf '  --docs   only the steps that read documentation\n'
 }
 

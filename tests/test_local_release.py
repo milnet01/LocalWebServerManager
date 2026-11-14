@@ -582,6 +582,57 @@ def test_only_this_roadmap_s_ids_count_as_shipping_claims(tmp_path) -> None:
     assert _cited_ids(tmp_path, changelog) == ["LWSM-1234"]
 
 
+def test_a_decision_record_link_is_not_a_roadmap_prefix(tmp_path) -> None:
+    """LWSM-1535. The roadmap's prose links `[ADR-0003](...)`, so ADR became a
+    prefix and a changelog bullet naming ADR-0003 was a "cited as shipped but
+    not ✅" BLOCKER. Only an item line issues a prefix.
+
+    Dies on taking prefixes from every bracketed token.
+    """
+    changelog = (
+        "## [0.1.0] — 2026-10-01\n\n"
+        "- **Signed updates** (LWSM-1234), as ADR-0003 decided.\n"
+    )
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/roadmap").mkdir()
+    (tmp_path / "docs/roadmap/old.md").write_text(
+        "**Theme:** the buttons. [ADR-0003](docs/decisions/0003.md)\n",
+        encoding="utf-8",
+    )
+    assert _cited_ids(tmp_path, changelog) == ["LWSM-1234"]
+
+
+def _item_line(tmp_path: Path, roadmap: str) -> str:
+    """Run the script's OWN `item_line()` for LWSM-7 over `roadmap`."""
+    (tmp_path / "ROADMAP.md").write_text(roadmap, encoding="utf-8")
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    done = subprocess.run(
+        [bash, "-c", f"{_function(RELEASE, 'item_line')}\nitem_line LWSM-7"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return done.stdout
+
+
+def test_the_item_line_is_found_past_a_prose_mention_of_the_id(tmp_path) -> None:
+    """LWSM-1535. `grep -m1 -F "[ID]"` returned the first line naming the id,
+    which may be another item's prose: a 📋 item read as ✅ when that prose
+    carried the mark, and a ✅ item read as unshipped when it did not.
+
+    Dies on matching any line that merely holds `[LWSM-7]`.
+    """
+    roadmap = (
+        "- ✅ [LWSM-3] **Other.** Needed [LWSM-7] first, which is still\n"
+        "  open. See also - ✅ [LWSM-7] in prose.\n"
+        "- 📋 [LWSM-7] **The open item.**\n"
+    )
+    assert "📋" in _item_line(tmp_path, roadmap)
+    assert "✅" not in _item_line(tmp_path, roadmap)
+
+
 def test_the_em_dash_heading_is_found_under_the_c_locale(tmp_path) -> None:
     """`[—-]` matched the three-byte em dash as one character only under a
     UTF-8 locale; under `LC_ALL=C` the dated section was not found (L7-L2).
@@ -727,11 +778,18 @@ def test_every_pin_in_the_tools_file_is_checked() -> None:
 
 
 def _appimage_status(
-    tmp_path: Path, *, runner: str | None, build_exit: int
+    tmp_path: Path,
+    *,
+    runner: str | None,
+    build_exit: int,
+    uv: bool = True,
+    info_exit: int = 0,
 ) -> list[str]:
     """Run the script's OWN `appimage_status()` in a tree whose
     `scripts/build-appimage.sh` exits `build_exit`, with `runner` (podman,
-    docker, or None for neither) the only container tool on PATH."""
+    docker, or None for neither) the only container tool on PATH. `uv` says
+    whether a `uv` is on PATH too; `info_exit` is what `<runner> info` exits
+    (non-zero is a daemon that is not running)."""
     body = re.search(
         r"^appimage_status\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M
     )
@@ -745,8 +803,12 @@ def _appimage_status(
     (binaries / "bash").symlink_to(bash)
     if runner:
         stub = binaries / runner
-        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.write_text(f'#!/bin/sh\n[ "$1" = info ] && exit {info_exit}\nexit 0\n')
         stub.chmod(0o755)
+    if uv:
+        uv_stub = binaries / "uv"
+        uv_stub.write_text("#!/bin/sh\nexit 0\n")
+        uv_stub.chmod(0o755)
     script = (
         "set -Eeuo pipefail\n"
         'block() { printf "BLOCK %s\\n" "$1"; }\n'
@@ -785,6 +847,114 @@ def test_no_container_runner_is_a_skip_and_never_ok(tmp_path) -> None:
     build is not attempted, so its stub's exit code does not matter."""
     (line,) = _appimage_status(tmp_path, runner=None, build_exit=0)
     assert line.startswith("SKIP ")
+
+
+def test_a_missing_uv_is_a_skip_and_never_a_blocked_appimage(tmp_path) -> None:
+    """LWSM-1547. No `uv` means the build could not run, which is not the same
+    as a build that failed. The build's stub would exit 1, so a BLOCK here
+    means the script tried it anyway."""
+    (line,) = _appimage_status(tmp_path, runner="podman", build_exit=1, uv=False)
+    assert line.startswith("SKIP ")
+
+
+@pytest.mark.parametrize("runner", ["podman", "docker"])
+def test_a_container_runner_that_cannot_run_is_a_skip(tmp_path, runner) -> None:
+    """LWSM-1547. A stopped docker daemon is installed but cannot build; the
+    check could not run, so it is a SKIP, not a BLOCK."""
+    (line,) = _appimage_status(tmp_path, runner=runner, build_exit=1, info_exit=1)
+    assert line.startswith("SKIP ")
+
+
+# --- LWSM-1545: the AppImage build's lock and file ownership -----------------
+
+BUILD = REPO / "scripts/build-appimage.sh"
+IN_CONTAINER = REPO / "scripts/_appimage-build.sh"
+
+
+def _function(script: Path, name: str) -> str:
+    body = re.search(rf"^{name}\(\) \{{.*?^\}}$", script.read_text(), re.S | re.M)
+    assert body, f"{script.name} has no {name}() to run"
+    return body.group(0)
+
+
+def _take_lock(lock: Path) -> subprocess.CompletedProcess[str]:
+    """Run the script's OWN `take_build_lock()`, giving up after two seconds.
+
+    Exit 124 is `timeout`'s: the function was still waiting.
+    """
+    bash = shutil.which("bash")
+    timeout = shutil.which("timeout")
+    assert bash and timeout, "bash and timeout are needed"
+    script = f'{_function(BUILD, "take_build_lock")}\ntake_build_lock "$1"'
+    return subprocess.run(
+        [timeout, "2", bash, "-c", script, "_", str(lock)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_a_second_build_waits_for_the_first(tmp_path) -> None:
+    """LWSM-1545. Two builds share dist/.appimage-build, the smoke image tag and
+    the output file, so the second must wait and say so.
+
+    Dies on removing the flock, or on taking it non-blocking and carrying on.
+    """
+    import fcntl
+
+    lock = tmp_path / "build.lock"
+    with lock.open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        waiting = _take_lock(lock)
+    assert waiting.returncode == 124, waiting.stderr
+    assert "waiting" in waiting.stderr
+    free = _take_lock(lock)
+    assert free.returncode == 0, free.stderr
+    assert free.stderr == ""
+
+
+def test_a_build_hands_its_files_back_to_the_user_who_ran_it(tmp_path) -> None:
+    """LWSM-1545. Under rootful docker the container's root owns what it
+    writes. The function must give /work and the AppImage the owner of the
+    bind-mounted /work, which is the host user's under docker and root's (a
+    no-op) under rootless podman. A stand-in `chown` records its arguments.
+
+    Dies on dropping the chown, on chowning the wrong paths, or on taking the
+    owner from anywhere but the mount.
+    """
+    work = tmp_path / "work"
+    out = tmp_path / "out"
+    work.mkdir()
+    out.mkdir()
+    (out / "x.AppImage").write_text("")
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    record = tmp_path / "chown.args"
+    (binaries / "chown").write_text(f'#!/bin/sh\necho "$@" >> {record}\n')
+    (binaries / "chown").chmod(0o755)
+    bash = shutil.which("bash")
+    stat = shutil.which("stat")
+    assert bash and stat, "bash and stat are needed"
+    (binaries / "stat").symlink_to(stat)
+    script = (
+        f"{_function(IN_CONTAINER, 'hand_back_ownership')}\n"
+        'hand_back_ownership "$1" "$2" "$3"'
+    )
+    subprocess.run(
+        [bash, "-c", script, "_", str(work), str(out), "x.AppImage"],
+        check=True,
+        env={**os.environ, "PATH": f"{binaries}:/usr/bin"},
+    )
+    uid_gid = f"{os.getuid()}:{os.getgid()}"
+    args = record.read_text().split()
+    assert args[:2] == ["-R", uid_gid], args
+    assert str(work) in args and str(out / "x.AppImage") in args, args
+
+
+def test_the_container_script_hands_ownership_back_even_when_it_fails() -> None:
+    """The function is useless unless it runs on every exit, so it is trapped."""
+    text = IN_CONTAINER.read_text()
+    assert re.search(r"^trap .*hand_back_ownership.* EXIT$", text, re.M), text
 
 
 # --- LWSM-1548: the release signing key stops a release it cannot sign -------

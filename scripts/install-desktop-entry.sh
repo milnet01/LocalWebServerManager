@@ -29,10 +29,24 @@ if [ $# -ge 1 ]; then
     esac
 fi
 
+# `lwsm` on PATH is looked up here too, before the cd: `command -v` answers with
+# a relative path for a relative PATH entry, which means a directory of the
+# user's shell, not of the checkout (LWSM-1535).
+on_path="$(command -v lwsm 2>/dev/null || true)"
+case $on_path in
+    /* | "") ;;
+    *) on_path="$PWD/$on_path" ;;
+esac
+
 cd "$(dirname "$0")/.."
 
 app_id="io.github.milnet01.LocalWebServerManager"
-data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+# A relative XDG_DATA_HOME is invalid and ignored, per the spec; read after the
+# cd it would name a folder inside the checkout (LWSM-1535).
+case ${XDG_DATA_HOME:-} in
+    /*) data_home="$XDG_DATA_HOME" ;;
+    *) data_home="$HOME/.local/share" ;;
+esac
 apps_dir="$data_home/applications"
 icon_dir="$data_home/icons/hicolor/scalable/apps"
 
@@ -42,8 +56,8 @@ if [ -n "$given" ]; then
     exec_path="$given"
 elif [ -x ".venv/bin/lwsm" ]; then
     exec_path="$PWD/.venv/bin/lwsm"
-elif exec_path="$(command -v lwsm)"; then
-    :
+elif [ -n "$on_path" ]; then
+    exec_path="$on_path"
 else
     echo "error: no 'lwsm' executable found." >&2
     echo "       run 'uv sync --extra dev' first, or pass the path as an argument." >&2
@@ -146,7 +160,15 @@ fi
 # Publish. `mv` within one filesystem is a rename, so the entry appears whole or
 # not at all, and replacing an existing one is not a window in which the
 # launcher can read a truncated file.
-mv "$entry_tmp" "$apps_dir/$app_id.desktop"
+#
+# An entry already there that differs may hold edits the user made in KDE's Menu
+# Editor, which saves into this very file: keep a copy and say so (LWSM-1535).
+live="$apps_dir/$app_id.desktop"
+if [ -f "$live" ] && ! cmp -s "$live" "$entry_tmp"; then
+    cp -p "$live" "$live.bak"
+    echo "note: replaced an existing entry that differed; the old one is at $live.bak" >&2
+fi
+mv "$entry_tmp" "$live"
 rmdir "$stage_dir"
 trap - EXIT
 

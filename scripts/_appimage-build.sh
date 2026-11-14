@@ -9,6 +9,20 @@ set -euo pipefail
 APP_ID="io.github.milnet01.LocalWebServerManager"
 APPDIR=/tmp/AppDir
 
+# LWSM-1545. Under rootful docker this container's root owns what it writes to
+# the mounts, and the user cannot delete it. Give it back to whoever owns the
+# bind-mounted work directory: the host user under docker; root, so a no-op,
+# under rootless podman, where the host user is the container's root. Runs on
+# every exit, so a failed build hands its cache back too.
+hand_back_ownership() {
+    local work=$1 out=$2 file=$3 owner
+    owner="$(stat -c '%u:%g' "$work")" || return 0
+    chown -R "$owner" "$work" || true
+    [ -e "$out/$file" ] && { chown "$owner" "$out/$file" || true; }
+    return 0
+}
+trap 'hand_back_ownership /work /out "$APPIMAGE"' EXIT
+
 echo "-- installing build tools and Qt's system libraries --"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq

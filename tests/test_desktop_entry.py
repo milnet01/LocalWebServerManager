@@ -406,3 +406,112 @@ def test_an_existing_icon_cache_is_named_as_a_reason_the_icon_may_not_show(
     assert ("icon-theme.cache" in done.stderr) is cache_present, done.stderr
     if cache_present:
         assert cache.read_bytes() == b"cache", "the shared icon cache was rewritten"
+
+
+# --- LWSM-1535: three faults in where the installer reads and writes ----------
+
+
+def _checkout_copy(tmp_path: Path) -> Path:
+    """A checkout holding only the installer and the packaged files.
+
+    The installer prefers `<checkout>/.venv/bin/lwsm` and writes relative to
+    `$PWD` after its `cd`, so a fault in either needs a checkout with no venv
+    that these tests may dirty, never the real one.
+    """
+    checkout = tmp_path / "checkout"
+    (checkout / "scripts").mkdir(parents=True)
+    shutil.copy(SCRIPT, checkout / "scripts" / SCRIPT.name)
+    shutil.copytree(REPO / "packaging", checkout / "packaging")
+    return checkout
+
+
+def test_an_lwsm_found_through_a_relative_path_entry_is_written_absolute(
+    tmp_path: Path,
+) -> None:
+    """`command -v lwsm` answers `rel/lwsm` for a relative PATH entry, and the
+    script ran it after its `cd`, so it either named the wrong directory or
+    wrote a relative `Exec=` no launcher can run (LWSM-1535).
+
+    Dies on looking up `lwsm` after the `cd`, or on writing what was found
+    as it stands.
+    """
+    checkout = _checkout_copy(tmp_path)
+    target = tmp_path / "rel" / "lwsm"
+    target.parent.mkdir()
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+    subprocess.run(
+        [str(checkout / "scripts" / SCRIPT.name)],
+        cwd=tmp_path,
+        env={
+            "PATH": "rel:/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+        },
+        check=True,
+        capture_output=True,
+    )
+    entry = (tmp_path / "data/applications" / f"{APP_ID}.desktop").read_text()
+    assert unescape_exec(field(entry, "Exec")) == str(target)
+    assert field(entry, "TryExec") == str(target)
+
+
+def test_a_relative_xdg_data_home_is_ignored_as_the_spec_says(
+    tmp_path: Path,
+) -> None:
+    """The variable was read after the `cd`, so `XDG_DATA_HOME=data` installed
+    into the checkout. The spec says a relative value is invalid and to be
+    ignored (LWSM-1535).
+
+    Dies on using it.
+    """
+    checkout = _checkout_copy(tmp_path)
+    target = tmp_path / "lwsm"
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+    subprocess.run(
+        [str(checkout / "scripts" / SCRIPT.name), str(target)],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "XDG_DATA_HOME": "reldata",
+        },
+        check=True,
+        capture_output=True,
+    )
+    assert (tmp_path / ".local/share/applications" / f"{APP_ID}.desktop").is_file()
+    assert not (checkout / "reldata").exists(), "installed into the checkout"
+    assert not (tmp_path / "reldata").exists()
+
+
+def test_a_hand_edited_entry_is_kept_aside_and_the_user_told(
+    tmp_path: Path,
+) -> None:
+    """KDE's Menu Editor saves a user's edits into this very file, and `mv`
+    replaced it with no trace (LWSM-1535). A differing entry is copied to
+    `.desktop.bak` and named on stderr; an identical one, as on a plain
+    re-install, is not.
+
+    Dies on dropping the copy or the note, and on noting every install.
+    """
+    apps = tmp_path / "data" / "applications"
+    apps.mkdir(parents=True)
+    entry = apps / f"{APP_ID}.desktop"
+    entry.write_text("[Desktop Entry]\nName=My own name\n", encoding="utf-8")
+
+    done = run_installer(tmp_path, validator="passes")
+
+    assert done.returncode == 0, done.stderr
+    backup = apps / f"{APP_ID}.desktop.bak"
+    assert backup.read_text(encoding="utf-8") == "[Desktop Entry]\nName=My own name\n"
+    assert str(backup) in done.stderr
+    assert "My own name" not in entry.read_text(encoding="utf-8")
+
+    backup.unlink()
+    (tmp_path / "bin" / "desktop-file-validate").unlink()
+    (tmp_path / "bin").rmdir()
+    again = run_installer(tmp_path, validator="passes")
+    assert again.returncode == 0, again.stderr
+    assert not backup.exists(), "an identical entry was backed up"
+    assert ".bak" not in again.stderr
