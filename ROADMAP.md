@@ -15505,7 +15505,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-01, lane-02, lane-03, lane-08.
   Lanes: docs.
 
-- 📋 [LWSM-1537] **Core refactoring: a trust module, a registry split, names that lie, private names used as public, and stale docstrings.**
+- ✅ [LWSM-1537] **Core refactoring: a trust module, a registry split, names that lie, private names used as public, and stale docstrings.**
   Priority: 5.
   The [R] answers of review-code 2026-11-05. Lane claims except where
   marked read.
@@ -15541,12 +15541,20 @@ decided, is the last packaging item (added 2026-11-11).
   6. Undiverged duplicates: scanner's hop except OSError (:1047-1065,
   :1147-1156) and is_symlink/exists prologue (:1532, :1635); service's
   drivable-unit test (:269, :361, :561) -> _drivable(unit).
+  2026-11-14: shipped in e5f632e. Points 1, 3, 4, 5, 6 fixed: trust.py
+  holds the launcher gate; names and docstrings corrected; one copy of
+  each duplicated helper. Dismissed: the registry split (the halves
+  share four private helpers and the window's tests patch them by module
+  path); renaming LoadResult (docstring corrected instead); making
+  supervisor._alive public (only supervisor uses it); merging the
+  service runners (they differ in what they catch). No behaviour
+  changed.
   **Layman:** Tidy-up: some core code does two jobs, has misleading names or comments, and should be reorganised so the next person is not misled.
   Kind: refactor.
   Source: review-code-2026-11-05 lane-01, lane-02, lane-03, lane-05, lane-12.
   Lanes: supervisor, registry, scanner, service, applog, logbuffer.
 
-- 📋 [LWSM-1538] **Controller, log panel, theme and entry refactoring: shared helpers for hand-copied shutdowns and catch-alls, and names that lie.**
+- 🚧 [LWSM-1538] **Controller, log panel, theme and entry refactoring: shared helpers for hand-copied shutdowns and catch-alls, and names that lie.**
   Priority: 5.
   Lane claims.
   Controller (lane-04):
@@ -15584,7 +15592,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-04, lane-10, lane-11, lane-12.
   Lanes: controller, logpanel, theme, main, browsers.
 
-- 📋 [LWSM-1539] **Main window refactoring: one button-lifecycle helper, one placeholder filler, and comments, counts and names that no longer match.**
+- 🚧 [LWSM-1539] **Main window refactoring: one button-lifecycle helper, one placeholder filler, and comments, counts and names that no longer match.**
   Priority: 5.
   Lane claims.
   1. _offer_output/offer_port_change/clear_error and the two _label_*
@@ -15621,7 +15629,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-06, lane-07, lane-08.
   Lanes: mainwindow, settings, placement, docs.
 
-- 📋 [LWSM-1540] **Release and CI script refactoring: a shared shell library, one changelog-heading matcher, one bump.json reader, and a counted drift message.**
+- ✅ [LWSM-1540] **Release and CI script refactoring: a shared shell library, one changelog-heading matcher, one bump.json reader, and a counted drift message.**
   Priority: 5.
   Lane claims.
   1. The colour, step, fail and ERR-trap block is copied between
@@ -15637,6 +15645,10 @@ decided, is the last packaging item (added 2026-11-11).
   4. check-version-drift.sh:74 prints 'consistent across 4 files' as a
   literal; a fifth expect makes it false. Remedy: count the expect
   calls.
+  2026-11-14: shipped in 9c9b3b2. scripts/lib.sh holds the shared shell
+  block; local-release.sh has one changelog-heading matcher, which needs
+  a full date, and one recipe reader; check-version-drift.sh counts the
+  files it compared.
   **Layman:** Tidy-up in the build scripts: the same code is copied several times and one message hard-codes a number.
   Kind: refactor.
   Source: review-code-2026-11-05 lane-13.
