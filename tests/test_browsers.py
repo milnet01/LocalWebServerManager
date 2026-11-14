@@ -819,6 +819,62 @@ def test_a_refusal_reaches_the_log(tmp_path: Path, caplog) -> None:
     assert "broken.desktop" in caplog.text
 
 
+HOSTILE_FILE_NAME = "evil\nforged\u2028line\u202e"
+
+
+def _assert_log_is_one_line_per_record(caplog) -> None:
+    records = [r for r in caplog.records if r.name == "lwsm.browsers"]
+    assert records, "nothing was logged"
+    for record in records:
+        text = record.getMessage()
+        for bad in ("\n", "\u2028", "\u202e"):
+            assert bad not in text, repr(text)
+
+
+def test_a_refused_entry_with_a_hostile_name_logs_one_line(
+    tmp_path: Path, caplog
+) -> None:
+    """A file name can carry a newline, which would forge a second record in
+    `app.log` (LWSM-1078's shape)."""
+    (tmp_path / f"{HOSTILE_FILE_NAME}.desktop").write_bytes(
+        b"[Desktop Entry]\nName=\xff\xfe\n"
+    )
+
+    with caplog.at_level(logging.INFO, logger="lwsm.browsers"):
+        browsers.installed((tmp_path,))
+
+    _assert_log_is_one_line_per_record(caplog)
+
+
+def test_an_unreadable_list_with_a_hostile_name_logs_one_line(
+    tmp_path: Path, caplog
+) -> None:
+    lists = tmp_path / HOSTILE_FILE_NAME
+    lists.mkdir()  # a directory where a file is expected
+
+    with caplog.at_level(logging.INFO, logger="lwsm.browsers"):
+        browsers.installed((tmp_path / "none",), mimeapps=(lists,))
+
+    _assert_log_is_one_line_per_record(caplog)
+
+
+def test_an_unreadable_folder_with_a_hostile_name_logs_one_line(
+    tmp_path: Path, caplog
+) -> None:
+    blocked = tmp_path / HOSTILE_FILE_NAME
+    write(blocked, "web.desktop", entry(Name="Hidden Away"))
+    blocked.chmod(0o000)
+    try:
+        if os.access(blocked, os.R_OK):  # pragma: no cover - running as root
+            pytest.skip("cannot make a directory unreadable as this user")
+        with caplog.at_level(logging.INFO, logger="lwsm.browsers"):
+            browsers.installed((tmp_path,))
+    finally:
+        blocked.chmod(0o700)
+
+    _assert_log_is_one_line_per_record(caplog)
+
+
 # --------------------------------------------------------------------------
 # mimeapps.list — the associations the desktop actually resolves (LWSM-1248)
 # --------------------------------------------------------------------------

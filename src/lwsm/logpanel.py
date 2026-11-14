@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lwsm.configfile import display_text
 from lwsm.logbuffer import (
     BAD_UNIT,
     JOURNAL_ENDED,
@@ -296,6 +297,7 @@ class LogPanel(QFrame):
             self._show_status()
 
     def _on_failed(self, reason: str, detail: str) -> None:
+        detail = display_text(detail)
         if reason == NO_JOURNAL:
             self._failure = QCoreApplication.translate(
                 "LogPanel",

@@ -225,7 +225,7 @@ def _associations(
             continue
         except (ConfigFileError, OSError, UnicodeDecodeError, ValueError) as exc:
             reasons.append(f"{quoted(path.name)}: {quoted(exc)}")
-            log.info("ignoring %s: %s", path, exc)
+            log.info("ignoring %s: %s", quoted(str(path)), quoted(exc))
             continue
         for group, added in (
             ("Added Associations", True),
@@ -506,7 +506,9 @@ def _desktop_entries(
             return
         where = exc.filename or directory
         reasons.append(f"{quoted(str(where))}: {quoted(exc)}")
-        log.info("ignoring applications directory %s: %s", where, exc)
+        log.info(
+            "ignoring applications directory %s: %s", quoted(str(where)), quoted(exc)
+        )
 
     found: list[tuple[str, Path]] = []
     for root, dirnames, filenames in os.walk(
@@ -632,7 +634,7 @@ def installed(
                 # an absent one.
                 refused.add(entry_id)
                 reasons.append(f"{quoted(entry_id)}: {quoted(exc)}")
-                log.info("ignoring desktop entry %s: %s", entry_id, exc)
+                log.info("ignoring desktop entry %s: %s", quoted(entry_id), quoted(exc))
                 continue
             if browser is not None:
                 found[entry_id] = browser

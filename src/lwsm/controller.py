@@ -10,7 +10,9 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import re
 import sys
+import threading
 import time
 from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import Future
@@ -23,7 +25,7 @@ from typing import Protocol
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
 from lwsm import health
-from lwsm.configfile import display_text
+from lwsm.configfile import DISPLAY_CONTROL_CLASS, display_text
 from lwsm.foreign import (
     HolderIdentity,
     Tree,
@@ -56,6 +58,25 @@ from lwsm.supervisor import (
 )
 
 log = logging.getLogger(__name__)
+
+_DISPLAY_CONTROLS = re.compile(DISPLAY_CONTROL_CLASS)
+
+
+_UNIT_LOCKS: dict[str, threading.Lock] = {}
+_UNIT_LOCKS_GUARD = threading.Lock()
+
+
+def _unit_lock(unit: str) -> threading.Lock:
+    """One lock per unit, so two verbs on it run in the order they were taken,
+    and the drop-in one writes is not removed by the one before it."""
+    with _UNIT_LOCKS_GUARD:
+        return _UNIT_LOCKS.setdefault(unit, threading.Lock())
+
+
+def _clean_message(text: str) -> str:
+    """`display_text`'s cleaning without its clip, for a sentence the app composed."""
+    return _DISPLAY_CONTROLS.sub("\ufffd", text)
+
 
 # `design.md § State management`: "the snapshot carries its own budget: ≤ 250
 # ms". Exceeding it is a performance regression, not a correctness one, so it
@@ -941,7 +962,8 @@ class _ServiceTask(QRunnable):
 
     def run(self) -> None:
         try:
-            outcome = self._drive()
+            with _unit_lock(self._unit):
+                outcome = self._drive()
         except BaseException as exc:
             log.warning("systemctl %s %s raised", self._verb, self._unit, exc_info=True)
             outcome = UnitOutcome(
@@ -1571,19 +1593,25 @@ class ProjectController(QObject):
             self.port_taken.emit(path)
             return
         except SupervisorError as exc:
-            self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
+            self.action_failed.emit(
+                path, f"{display_text(record.name)}: {display_text(str(exc))}"
+            )
             return
         except OSError as exc:
             # The log file could not be opened. Distinct from SupervisorError
             # because it is about this machine rather than about the project.
-            self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
+            self.action_failed.emit(
+                path, f"{display_text(record.name)}: {display_text(str(exc))}"
+            )
             return
         except Exception as exc:
             # Anything else would escape a slot Qt invoked, a click or a
             # restart's `_on_stopped`, which PySide6 swallows: the user would
             # be told nothing (LWSM-1454).
             log.warning("starting %s raised", path, exc_info=True)
-            self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
+            self.action_failed.emit(
+                path, f"{display_text(record.name)}: {display_text(str(exc))}"
+            )
             return
         self._set_overlay(path, ProjectStatus.STARTING)
 
@@ -1633,7 +1661,9 @@ class ProjectController(QObject):
             log.warning("stopping %s raised", path, exc_info=True)
             self._restarting.discard(path)
             self._clear_overlay(path)
-            self.action_failed.emit(path, f"{display_text(record.name)}: {exc}")
+            self.action_failed.emit(
+                path, f"{display_text(record.name)}: {display_text(str(exc))}"
+            )
 
     def stop_foreign_tree(
         self, path: Path, tree: Tree, *, disclosed_holder: HolderIdentity | None = None
@@ -1904,7 +1934,7 @@ class ProjectController(QObject):
                 self.action_failed.emit(
                     path,
                     f"could not {outcome.verb} {display_text(path.name)}: "
-                    f"{outcome.reason}",
+                    f"{display_text(outcome.reason)}",
                 )
             elif isinstance(outcome, UnitOutcome):
                 # Exclusive with the failure above: one click must not put a
@@ -1978,13 +2008,15 @@ class ProjectController(QObject):
         if isinstance(outcome, BaseException):
             self._clear_overlay(path)
             self.action_failed.emit(
-                path, f"could not stop {display_text(path.name)}: {outcome}"
+                path,
+                f"could not stop {display_text(path.name)}: "
+                f"{display_text(str(outcome))}",
             )
             return
         if isinstance(outcome, StopOutcome):
             if outcome.warning:
                 # A bound port after a stop is a warning, never a second signal.
-                self.action_failed.emit(path, outcome.warning)
+                self.action_failed.emit(path, _clean_message(outcome.warning))
             if outcome.port_still_bound:
                 # Terminal (LWSM-1134): our child is gone and the port is
                 # still held, so every poll from here reports `running` and

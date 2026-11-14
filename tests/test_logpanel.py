@@ -558,6 +558,26 @@ def test_the_panel_words_each_new_failure_reason(qtbot, reason, expected) -> Non
     panel.close_panel()
 
 
+@pytest.mark.parametrize("reason", ["bad-unit", "journal-failed", "unreadable"])
+def test_a_failure_detail_from_outside_is_cleaned_before_it_is_shown(
+    qtbot, reason
+) -> None:
+    """The detail is a hand-edited unit name or an exception's text, which can
+    hold a scanned path."""
+    from lwsm.logpanel import LogPanel
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.open_for("web", LogSource())
+    panel._on_failed(reason, "oops\nforged\u2028line\u202eevil")
+
+    shown = panel.status.text()
+    assert "oops" in shown
+    for bad in ("\n", "\u2028", "\u202e"):
+        assert bad not in shown, repr(shown)
+    panel.close_panel()
+
+
 def test_opening_a_bad_unit_shows_why_instead_of_nothing(qtbot) -> None:
     """LWSM-1534: a hand-edited unit name raised inside `open_for`'s slot; the
     panel never showed."""

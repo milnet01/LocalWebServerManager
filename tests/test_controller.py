@@ -3017,6 +3017,67 @@ def test_a_failed_verb_reports_the_failure_and_no_success(
     assert done == []
 
 
+def test_a_start_waits_for_a_stop_of_the_same_unit_to_remove_its_drop_in() -> None:
+    """The service pool has two threads. A Stop's `clear_drop_in` ran after the
+    next Start's `set_drop_in` once the poll let Start through, and removed the
+    file the Start had just written."""
+    from lwsm.service import UnitOutcome
+
+    clearing = threading.Event()
+    release = threading.Event()
+    wrote = threading.Event()
+    order: list[str] = []
+
+    def clear_drop_in(unit):
+        order.append("clear-begin")
+        clearing.set()
+        assert release.wait(5)
+        order.append("clear-end")
+        return UnitOutcome(ok=True, verb="stop", unit=unit)
+
+    def set_drop_in(unit, port):
+        order.append("set")
+        wrote.set()
+        return UnitOutcome(ok=True, verb="start", unit=unit)
+
+    class Quiet:
+        def emit(self, *args: object) -> None:
+            pass
+
+    class Signals:
+        done = Quiet()
+
+    patched = pytest.MonkeyPatch()
+    patched.setattr(controller_module, "clear_drop_in", clear_drop_in)
+    patched.setattr(controller_module, "set_drop_in", set_drop_in)
+    patched.setattr(
+        controller_module,
+        "drive_unit",
+        lambda verb, unit: UnitOutcome(ok=True, verb=verb, unit=unit),
+    )
+    try:
+        path = Path("/srv/a")
+        stop = controller_module._ServiceTask(path, "stop", "a.service", Signals())
+        start = controller_module._ServiceTask(
+            path, "start", "a.service", Signals(), 4321
+        )
+        stopper = threading.Thread(target=stop.run)
+        starter = threading.Thread(target=start.run)
+        stopper.start()
+        assert clearing.wait(5)
+        starter.start()
+
+        assert not wrote.wait(0.3), "the start wrote while the stop was clearing"
+        release.set()
+        stopper.join(5)
+        starter.join(5)
+    finally:
+        release.set()
+        patched.undo()
+
+    assert order[:3] == ["clear-begin", "clear-end", "set"]
+
+
 # --- LWSM-1251: what the outer catch-all leaves in the log --------------------
 
 
@@ -3190,6 +3251,114 @@ def test_a_refusal_naming_a_project_carries_no_control_characters(
     for text in messages:
         assert "\n" not in text and "\u2028" not in text, repr(text)
         assert len(text) < MAX_DISPLAY_NAME_CHARS + 80, len(text)
+
+
+FOREIGN_TEXT = "oops\nforged line next‮evil"
+
+
+def _assert_clean_line(text: str) -> None:
+    assert "oops" in text, repr(text)
+    for bad in ("\n", " ", "‮"):
+        assert bad not in text, repr(text)
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        None,
+        OSError(FOREIGN_TEXT),
+        RuntimeError(FOREIGN_TEXT),
+    ],
+    ids=["supervisor-error", "os-error", "anything-else"],
+)
+def test_a_start_refusal_carries_no_control_characters_from_its_text(
+    controllers, refusal
+) -> None:
+    """The exception's text can hold a scanned path; the row and the status
+    bar draw it as it is."""
+    from lwsm.supervisor import SupervisorError
+
+    exc = SupervisorError(FOREIGN_TEXT) if refusal is None else refusal
+    controller = supervised(
+        controllers, [startable("a", 4321)], FakeProbe(), FakeSupervisor(exc)
+    )
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller.start_project(Path("/srv/a"))
+
+    assert len(messages) == 1, messages
+    _assert_clean_line(messages[0])
+
+
+def test_a_stop_that_cannot_start_carries_no_control_characters(controllers) -> None:
+    supervisor = FakeSupervisor()
+    supervisor.stop_refusal = RuntimeError(FOREIGN_TEXT)
+    supervisor._running[Path("/srv/a")] = object()
+    controller = supervised(
+        controllers, [startable("a", 4321)], FakeProbe(), supervisor
+    )
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller.stop_project(Path("/srv/a"))
+
+    assert len(messages) == 1, messages
+    _assert_clean_line(messages[0])
+
+
+def test_a_failed_stop_carries_no_control_characters_from_its_text(
+    controllers,
+) -> None:
+    controller = supervised(
+        controllers, [startable("a", 4321)], FakeProbe(), FakeSupervisor()
+    )
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller._apply_stop_outcome(Path("/srv/a"), RuntimeError(FOREIGN_TEXT))
+
+    assert len(messages) == 1, messages
+    _assert_clean_line(messages[0])
+
+
+def test_a_stop_warning_carries_no_control_characters(controllers) -> None:
+    """The warning is composed in the supervisor from a project name and a
+    straggler list, so it is cleaned where it is shown, and not clipped."""
+    controller = supervised(
+        controllers, [startable("a", 4321)], FakeProbe(), FakeSupervisor()
+    )
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+    tail = " 1234" * 60
+
+    controller._apply_stop_outcome(
+        Path("/srv/a"), StopOutcome(exit_code=0, warning=FOREIGN_TEXT + tail)
+    )
+
+    assert len(messages) == 1, messages
+    _assert_clean_line(messages[0])
+    assert messages[0].endswith("1234"), "a warning is cleaned, not cut"
+
+
+def test_a_service_failure_carries_no_control_characters_from_its_reason(
+    controllers,
+) -> None:
+    from lwsm.service import UnitOutcome
+
+    controller = supervised(
+        controllers, [startable("a", 4321)], FakeProbe(), FakeSupervisor()
+    )
+    messages: list[str] = []
+    controller.action_failed.connect(lambda _path, text: messages.append(text))
+
+    controller._on_service_done(
+        Path("/srv/a"),
+        UnitOutcome(ok=False, verb="stop", unit="a.service", reason=FOREIGN_TEXT),
+    )
+
+    assert len(messages) == 1, messages
+    _assert_clean_line(messages[0])
 
 
 # --- LWSM-1275: design.md's 250 ms snapshot budget, made observable -----------
