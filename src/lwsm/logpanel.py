@@ -305,26 +305,34 @@ class LogPanel(QFrame):
                 "output cannot be shown.",
             )
         elif reason == BAD_UNIT:
-            self._failure = QCoreApplication.translate(
-                "LogPanel",
-                "%1 is not a valid unit name, so its output cannot be shown.",
-            ).replace("%1", detail)
+            self._failure = _named(
+                QCoreApplication.translate(
+                    "LogPanel",
+                    "%1 is not a valid unit name, so its output cannot be shown.",
+                ),
+                detail,
+            )
         elif reason == JOURNAL_FAILED:
-            self._failure = QCoreApplication.translate(
-                "LogPanel", "The journal reader failed: %1"
-            ).replace("%1", detail)
+            self._failure = _named(
+                QCoreApplication.translate("LogPanel", "The journal reader failed: %1"),
+                detail,
+            )
         elif reason == JOURNAL_ENDED:
-            self._failure = QCoreApplication.translate(
-                "LogPanel", "The journal reader stopped (exit %1)."
-            ).replace("%1", detail)
+            self._failure = _named(
+                QCoreApplication.translate(
+                    "LogPanel", "The journal reader stopped (exit %1)."
+                ),
+                detail,
+            )
         else:
-            self._failure = QCoreApplication.translate(
-                "LogPanel", "The log file cannot be read: %1"
-            ).replace("%1", detail)
+            self._failure = _named(
+                QCoreApplication.translate(
+                    "LogPanel", "The log file cannot be read: %1"
+                ),
+                detail,
+            )
         self._show_status()
-        QAccessible.updateAccessibility(
-            QAccessibleAnnouncementEvent(self.view, self._failure)
-        )
+        _announce(self.view, self._failure)
 
     def _show_status(self) -> None:
         source = self._source

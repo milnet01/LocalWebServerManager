@@ -135,7 +135,11 @@ Added at P02 (LWSM-1005), contract in
   management requires it). **`QRunnable` is not a `QObject`**, so
   the task holds a composed `_SnapshotSignals(QObject)` — a
   `Signal` declared on a bare `QRunnable` has no `emit`.
-  `stop()` waits for the pool, and every test fixture calls it. Its bounded-wait
+  `stop()` waits for the pool, and every test fixture calls it. Every pool it
+  waits on goes through **`_join_or_abandon`**, so a pool added later cannot
+  miss a step. Each task's `run` is **`_emit_or_log`** around a `_report`
+  method: nothing leaves `run`, and a signaller already destroyed is a debug
+  line. Its bounded-wait
   escape is **`abandon_pool`**, public since LWSM-1139 because the window's
   rescan pool needs the identical two lines and a second copy that forgot the
   `setParent(None)` would look right and hang on exit. **Nothing in a tick
@@ -242,16 +246,21 @@ Added at P02 (LWSM-1005), contract in
   beside its value: finbreak tuned them against `window` alone and
   `alt_base` is darker. `high_contrast` is a flag **on the theme** rather
   than a set of ids beside it, because the floor a palette is judged
-  against is a property of the palette. **It also owns `OutlineStyle`**
+  against is a property of the palette. The follow-the-system rule
+  (`FOLLOW_SYSTEM`, `resolve_theme_id`) is here too, beside the palettes it
+  chooses between.
+- **`src/lwsm/outline.py`** — UI layer, names no colour. **`OutlineStyle`**
   (LWSM-1337, LWSM-1349), a proxy over Fusion that paints each control's
   outline in `Mid` and a thick focus ring in `Highlight` after Fusion has
   drawn, so the shading stays; `install_outline_style` puts it on the
   application, before the palette. `focus_ring_width` is the one ring-width
-  formula, shared with the row.
+  formula, shared with the row. `Theme.to_palette` binds `Mid` and
+  `Highlight` to the `border` and `accent` tokens, so a theme switch needs
+  nothing from this module.
 - **`src/lwsm/mainwindow.py`** — UI layer.
   Since LWSM-1033 it also owns
   **window geometry and Centre on screen** — `showEvent`/`eventFilter`,
-  `_restore_geometry`, `closeEvent`, `centre_on_screen`, `_place_at`,
+  `_restore_size_and_state`, `_restore_position`, `closeEvent`, `centre_on_screen`, `_place_at`,
   `_screens` and two injected seams (`save_geometry`, which defaults to doing
   NOTHING for `save_theme`'s reason, and `place`, which defaults to the real
   function because ADR-0007 requires the verification to be behavioural).
@@ -270,7 +279,7 @@ Added at P02 (LWSM-1005), contract in
   function and the clock, all injected so `testing-overrides.md § T1` holds; the
   writer is `registry.ProjectsFile`, which every writer shares, LWSM-1358),
   `summarise_merge`, and a `_RescanTask` on its own `QThreadPool`, whose
-  result is a **`_RescanMerge`**: a `MergeResult` plus the scan's
+  result is a `MergeResult` carrying the scan's `skipped` and
   `units_unavailable`, which `_apply_rescan` hands the first-run dialog. An
   import's `_ImportTask` runs on the same pool (LWSM-1517), because
   `merge_imported` resolves every project path, and one on a dead network
@@ -313,7 +322,7 @@ Added at P02 (LWSM-1005), contract in
   them, while this one would write to the developer's own `settings.json`
   the moment a test exercised the picker.
   Since LWSM-1146 it also owns the **menu bar** — `_build_menus`,
-  `_retranslate_menus` and `_set_rescan_enabled`. It owns the BAR only; the
+  `_retranslate_menus` and `_set_registry_writers_enabled`. It owns the BAR only; the
   settings dialog is LWSM-1018's and arrives through the injected
   **`open_settings`** seam, the same shape as `confirm` and `open_url`. Every label carries an `&` mnemonic so the bar is keyboard-
   reachable before LWSM-1040 lands, and the labels are set in

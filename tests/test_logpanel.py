@@ -589,3 +589,19 @@ def test_opening_a_bad_unit_shows_why_instead_of_nothing(qtbot) -> None:
     qtbot.waitUntil(lambda: "valid unit name" in panel.status.text(), timeout=3000)
     assert panel.isVisible() or not panel.isHidden()
     panel.close_panel()
+
+
+def test_a_failure_is_announced_through_the_announcement_seam(
+    qtbot, heard: list[str]
+) -> None:
+    """The failure goes through `_announce`, so the test seam hears it as it
+    hears "Last error"; a direct accessibility call would bypass the seam."""
+    from lwsm.logpanel import LogPanel
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.open_for("web", LogSource())
+    panel._on_failed("journal-failed", "the detail")
+
+    assert heard == ["The journal reader failed: the detail"]
+    panel.close_panel()

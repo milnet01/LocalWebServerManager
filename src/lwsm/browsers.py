@@ -177,10 +177,12 @@ def mimeapps_paths() -> tuple[Path, ...]:
 
 
 def _groups(text: str) -> dict[str, dict[str, str]]:
-    """Every group's keys, for a file whose groups all matter.
+    """Every group's keys, by group name.
 
-    `_entry_fields` deliberately reads one group; a `mimeapps.list` is several
-    and the caller needs each by name.
+    A `mimeapps.list` needs several groups; `_entry_fields` takes the one a
+    `.desktop` file's launcher is read from. A key repeated within a group (or
+    across two groups of the same name) keeps its first value: a duplicate is
+    malformed, and the first is what the spec's own parsers take.
     """
     groups: dict[str, dict[str, str]] = {}
     current: dict[str, str] | None = None
@@ -356,23 +358,9 @@ def _entry_fields(text: str) -> dict[str, str]:
 
     A `.desktop` file also carries `[Desktop Action ...]` groups, each with its
     own `Exec=`. Reading those would launch the wrong thing — "Open a New
-    Private Window" instead of the browser — so the scan stops at the next
-    group header.
+    Private Window" instead of the browser — so only the one group is taken.
     """
-    fields: dict[str, str] = {}
-    in_entry = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_entry = stripped == "[Desktop Entry]"
-            continue
-        if not in_entry or "=" not in stripped or stripped.startswith("#"):
-            continue
-        key, _, value = stripped.partition("=")
-        # First wins: a duplicated key is malformed, and taking the first is
-        # what the spec's own parsers do.
-        fields.setdefault(key.strip(), value.strip())
-    return fields
+    return _groups(text).get("Desktop Entry", {})
 
 
 def _browser_from(

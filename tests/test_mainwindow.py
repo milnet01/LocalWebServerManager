@@ -1832,7 +1832,7 @@ def test_a_window_with_nothing_to_rescan_has_no_rescan_button(qtbot, built) -> N
 def test_the_rescan_button_is_retranslated_with_its_menu_entry(
     qtbot, built, tmp_path
 ) -> None:
-    """`_set_rescan_enabled` calls the button and the menu entry "one control
+    """`_set_registry_writers_enabled` calls the button and the menu entry "one control
     with two faces", and `changeEvent` claims the shape of a generated
     `retranslateUi`. Both were false for the button: its label was set once at
     construction and `setText` was never called on it again, so a language
@@ -3850,7 +3850,7 @@ def test_the_window_puts_the_outline_style_on_the_application(qtbot, built) -> N
     """
     from PySide6.QtWidgets import QStyleFactory
 
-    from lwsm.theme import OutlineStyle
+    from lwsm.outline import OutlineStyle
 
     app = QApplication.instance()
     assert app is not None
@@ -6458,17 +6458,17 @@ def test_import_is_disabled_while_a_rescan_is_in_flight(qtbot, built, tmp_path) 
     user half would be silently dropped by it. Export is left alone because it
     only reads.
 
-    This drives `_set_rescan_enabled`, which is the one place the flight state
+    This drives `_set_registry_writers_enabled`, which is the one place the flight state
     reaches any control; that the rescan flow calls it is pinned by the button
     tests above.
     """
     window, _ = profile_window(qtbot, built, two_rows(), tmp_path)
 
-    window._set_rescan_enabled(False)
+    window._set_registry_writers_enabled(False)
     assert not window._import_action.isEnabled()
     assert window._export_action.isEnabled()
 
-    window._set_rescan_enabled(True)
+    window._set_registry_writers_enabled(True)
     assert window._import_action.isEnabled()
 
 
@@ -6739,7 +6739,7 @@ def test_the_window_reopens_at_the_remembered_position_on_wayland(qtbot, built) 
 
 def test_a_remembered_size_survives_an_empty_project_list(qtbot, built) -> None:
     """`_apply_default_geometry` returns early when there are no rows, so
-    without a second application in `_restore_geometry` a user with nothing
+    without a second application in `_restore_size_and_state` a user with nothing
     detected gets Qt's default size however they left the window.
 
     The empty list is the whole point of this test rather than an incidental
@@ -6786,7 +6786,7 @@ def test_a_size_remembered_from_a_bigger_monitor_opens_inside_this_one(
     CURRENT screens, and names "sized larger than the current display".
 
     Measured on 2026-08-25 before the fix: a stored size of three times the
-    screen opened at three times the screen on BOTH paths — `_restore_geometry`
+    screen opened at three times the screen on BOTH paths — `_restore_size_and_state`
     applied it verbatim, and where `_apply_default_geometry` had bounded it
     first that ran earlier and was overwritten. Off the edge of the display is
     where the corner that would resize the window back is unreachable.
@@ -7605,7 +7605,7 @@ def test_rows_arriving_after_the_restore_do_not_undo_the_remembered_size(
 
     `_sync_rows` runs inside `__init__`, so a window built with records already
     knows about them and sizes itself before it is ever shown — and
-    `_restore_geometry`, which fires off the first `showEvent`, then has the
+    `_restore_size_and_state`, which fires off the first `showEvent`, then has the
     last word whatever `_apply_default_geometry` decided. Built with NOTHING,
     the order reverses: the restore happens first and the measured size lands
     afterwards, on top of the size the user chose.

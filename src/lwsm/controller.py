@@ -10,7 +10,6 @@ from __future__ import annotations
 import atexit
 import logging
 import os
-import re
 import sys
 import threading
 import time
@@ -25,7 +24,7 @@ from typing import Protocol
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
 from lwsm import health
-from lwsm.configfile import DISPLAY_CONTROL_CLASS, display_text
+from lwsm.configfile import clean_display_text, display_text
 from lwsm.foreign import (
     HolderIdentity,
     Tree,
@@ -58,9 +57,6 @@ from lwsm.trust import LauncherUntrusted, SupervisorError
 
 log = logging.getLogger(__name__)
 
-_DISPLAY_CONTROLS = re.compile(DISPLAY_CONTROL_CLASS)
-
-
 _UNIT_LOCKS: dict[str, threading.Lock] = {}
 _UNIT_LOCKS_GUARD = threading.Lock()
 
@@ -72,9 +68,29 @@ def _unit_lock(unit: str) -> threading.Lock:
         return _UNIT_LOCKS.setdefault(unit, threading.Lock())
 
 
-def _clean_message(text: str) -> str:
-    """`display_text`'s cleaning without its clip, for a sentence the app composed."""
-    return _DISPLAY_CONTROLS.sub("\ufffd", text)
+def _emit_or_log(report: Callable[[], None], gone: str, unreported: str) -> None:
+    """Run a pool task's whole body so nothing can leave `QRunnable.run`.
+
+    PySide6 swallows an exception escaping `run()` and emits nothing (verified
+    against the pinned 6.11.1, LWSM-1069), which leaves the controller's
+    in-flight mark set for the life of the process. `report` does the work and
+    emits the answer; the work's own failures it turns into an answer. What
+    reaches here is the emit failing:
+
+    - `RuntimeError`: a task abandoned by `stop()` outlives the QApplication
+      that owned every other QObject, so its signaller can be destroyed and
+      `emit` raises `Signal source has been deleted`. Nobody is left to tell,
+      so it is a debug line (`gone`).
+    - Anything else is the residual failure this exists to prevent, and is a
+      warning (`unreported`) because the app log sits at INFO (LWSM-1251,
+      LWSM-1454).
+    """
+    try:
+        report()
+    except RuntimeError:
+        log.debug(gone, exc_info=True)
+    except BaseException:
+        log.warning(unreported, exc_info=True)
 
 
 # `design.md § State management`: "the snapshot carries its own budget: ≤ 250
@@ -638,54 +654,36 @@ class _SnapshotTask(QRunnable):
             return _Resolved()
 
     def run(self) -> None:
-        # Two layers, because the emit can fail too. The inner one turns any
-        # probe failure into a `failed` signal; the outer one catches the case
-        # where there is no longer anything to emit *on*.
+        _emit_or_log(
+            self._report,
+            "port probe ended with no live signaller",
+            "the port probe ended without reporting",
+        )
+
+    def _report(self) -> None:
+        # The probe's own failure becomes a `failed` signal, so the emit is the
+        # only thing that can still escape.
         try:
-            try:
-                started = time.monotonic()
-                snapshot = self._probe.snapshot()
-                elapsed = time.monotonic() - started
-                if elapsed > SNAPSHOT_BUDGET_SECONDS:
-                    log.warning(
-                        "the port snapshot took %.0f ms, over its %.0f ms budget",
-                        elapsed * 1000,
-                        SNAPSHOT_BUDGET_SECONDS * 1000,
-                    )
-            except ProbeError as exc:
-                self.signals.failed.emit(exc)
-            except BaseException as exc:
-                # An exception escaping run() is swallowed by PySide6 (verified
-                # against the pinned 6.11.1, LWSM-1069): the traceback prints to
-                # stderr, the process survives at exit 0, and *no* signal is
-                # emitted — so the controller's in-flight guard is never cleared
-                # and poll_once returns early on every later tick for the life of
-                # the process, showing plausible, permanently frozen data.
-                # Nothing may leave this method, so the clause is as wide as the
-                # language allows rather than as wide as the failures predicted.
-                log.exception("the port probe raised an unexpected exception")
-                failure = ProbeError(
-                    f"the port probe failed: {type(exc).__name__}: {exc}"
+            started = time.monotonic()
+            snapshot = self._probe.snapshot()
+            elapsed = time.monotonic() - started
+            if elapsed > SNAPSHOT_BUDGET_SECONDS:
+                log.warning(
+                    "the port snapshot took %.0f ms, over its %.0f ms budget",
+                    elapsed * 1000,
+                    SNAPSHOT_BUDGET_SECONDS * 1000,
                 )
-                failure.__cause__ = exc
-                self.signals.failed.emit(failure)
-            else:
-                self.signals.done.emit(snapshot, self._resolved(snapshot))
-        except RuntimeError:
-            # A task abandoned by stop() outlives the QApplication that owned
-            # every other QObject, so by the time it finishes its signaller can
-            # be destroyed and `emit` raises `RuntimeError: Signal source has
-            # been deleted`. That was escaping run() — the very thing the inner
-            # clause exists to prevent — because the emits sat outside it.
-            # There is nobody left to report to, so this is a debug line.
-            log.debug("port probe ended with no live signaller", exc_info=True)
-        except BaseException:
-            # Anything else is the residual failure both layers exist to
-            # prevent: the in-flight guard stays set and the poll freezes for
-            # the life of the process. `design.md` sets the app log to INFO, so
-            # at DEBUG that had no record at all (LWSM-1251, the rescan task's
-            # twin — the same clause, the same argument).
-            log.warning("the port probe ended without reporting", exc_info=True)
+        except ProbeError as exc:
+            self.signals.failed.emit(exc)
+        except BaseException as exc:
+            # As wide as the language allows rather than as wide as the failures
+            # predicted: nothing may leave `run()` (see `_emit_or_log`).
+            log.exception("the port probe raised an unexpected exception")
+            failure = ProbeError(f"the port probe failed: {type(exc).__name__}: {exc}")
+            failure.__cause__ = exc
+            self.signals.failed.emit(failure)
+        else:
+            self.signals.done.emit(snapshot, self._resolved(snapshot))
 
 
 @dataclass(frozen=True)
@@ -802,17 +800,19 @@ class _UpkeepTask(QRunnable):
         self._signals = signals
 
     def run(self) -> None:
+        _emit_or_log(
+            self._report,
+            "the poll's upkeep ended with no live signaller",
+            "the poll's upkeep ended without reporting",
+        )
+
+    def _report(self) -> None:
         try:
-            try:
-                upkeep = self._work()
-            except BaseException:
-                log.warning("the poll's process work failed", exc_info=True)
-                upkeep = _Upkeep()
-            self._signals.done.emit(upkeep, self._snapshot_next)
-        except RuntimeError:
-            log.debug("the poll's upkeep ended with no live signaller", exc_info=True)
+            upkeep = self._work()
         except BaseException:
-            log.warning("the poll's upkeep ended without reporting", exc_info=True)
+            log.warning("the poll's process work failed", exc_info=True)
+            upkeep = _Upkeep()
+        self._signals.done.emit(upkeep, self._snapshot_next)
 
 
 class _HealthSignals(QObject):
@@ -838,19 +838,21 @@ class _HealthTask(QRunnable):
         self._signals = signals
 
     def run(self) -> None:
+        _emit_or_log(
+            self._report,
+            "health check ended with no live signaller",
+            "the health check ended without reporting",
+        )
+
+    def _report(self) -> None:
         try:
-            try:
-                answer: HealthAnswer | None = HealthAnswer(
-                    health.ask(self._port, self._page)
-                )
-            except BaseException:
-                log.warning("the health check raised unexpectedly", exc_info=True)
-                answer = None
-            self._signals.done.emit(self._path, self._port, self._page, answer)
-        except RuntimeError:
-            log.debug("health check ended with no live signaller", exc_info=True)
+            answer: HealthAnswer | None = HealthAnswer(
+                health.ask(self._port, self._page)
+            )
         except BaseException:
-            log.warning("the health check ended without reporting", exc_info=True)
+            log.warning("the health check raised unexpectedly", exc_info=True)
+            answer = None
+        self._signals.done.emit(self._path, self._port, self._page, answer)
 
 
 class _ActionSignals(QObject):
@@ -867,9 +869,12 @@ class _ActionSignals(QObject):
 
 
 class _ServiceSignals(QObject):
-    """A `systemctl` verb finishing on a worker thread, delivered to the GUI."""
+    """A `systemctl` verb, or a foreign tree stop, finishing on a worker thread,
+    delivered to the GUI."""
 
-    done = Signal(object, object)  # path, UnitOutcome
+    # path, UnitOutcome. Also carries a foreign tree stop (`_TreeStopTask`),
+    # which has no unit: its `UnitOutcome.unit` is "".
+    done = Signal(object, object)
     state = Signal(object, object)  # path, ActiveState or None
 
 
@@ -964,6 +969,13 @@ class _ServiceTask(QRunnable):
         )
 
     def run(self) -> None:
+        _emit_or_log(
+            self._report,
+            "service verb ended with no live signaller",
+            "a service verb ended without reporting",
+        )
+
+    def _report(self) -> None:
         try:
             with _unit_lock(self._unit):
                 outcome = self._drive()
@@ -972,16 +984,7 @@ class _ServiceTask(QRunnable):
             outcome = UnitOutcome(
                 ok=False, verb=self._verb, unit=self._unit, reason=str(exc)
             )
-        try:
-            self._signals.done.emit(self._path, outcome)
-        except RuntimeError:
-            # `_SnapshotTask`'s outer layer, for its reason: a task abandoned by
-            # stop() can outlive its signaller, and the docstring promises the
-            # body is wrapped whole (L6-L1).
-            log.debug("service verb ended with no live signaller", exc_info=True)
-        except BaseException:
-            # `_SnapshotTask.run`'s last clause, for its reason (LWSM-1454).
-            log.warning("a service verb ended without reporting", exc_info=True)
+        self._signals.done.emit(self._path, outcome)
 
 
 class _UnitStateTask(QRunnable):
@@ -998,18 +1001,20 @@ class _UnitStateTask(QRunnable):
         self._signals = signals
 
     def run(self) -> None:
+        _emit_or_log(
+            self._report,
+            "unit state ended with no live signaller",
+            # Otherwise `_unit_check_in_flight` stays set unexplained.
+            "a unit state check ended without reporting",
+        )
+
+    def _report(self) -> None:
         try:
             state = unit_state(self._unit)
         except BaseException:
             log.warning("could not read %s's state", self._unit, exc_info=True)
             state = None
-        try:
-            self._signals.state.emit(self._path, state)
-        except RuntimeError:
-            log.debug("unit state ended with no live signaller", exc_info=True)
-        except BaseException:
-            # Otherwise `_unit_check_in_flight` stays set unexplained (LWSM-1454).
-            log.warning("a unit state check ended without reporting", exc_info=True)
+        self._signals.state.emit(self._path, state)
 
 
 class _TreeStopTask(QRunnable):
@@ -1028,17 +1033,19 @@ class _TreeStopTask(QRunnable):
         self._signals = signals
 
     def run(self) -> None:
+        _emit_or_log(
+            self._report,
+            "a foreign stop ended with no live signaller",
+            "a foreign stop ended without reporting",
+        )
+
+    def _report(self) -> None:
         try:
             outcome = _tree_outcome(stop_tree(self._tree))
         except BaseException as exc:
             log.warning("a foreign stop raised", exc_info=True)
             outcome = UnitOutcome(ok=False, verb="stop", unit="", reason=str(exc))
-        try:
-            self._signals.done.emit(self._path, outcome)
-        except RuntimeError:
-            log.debug("a foreign stop ended with no live signaller", exc_info=True)
-        except BaseException:
-            log.warning("a foreign stop ended without reporting", exc_info=True)
+        self._signals.done.emit(self._path, outcome)
 
 
 def _tree_outcome(done: TreeOutcome) -> UnitOutcome:
@@ -1055,9 +1062,13 @@ def _tree_outcome(done: TreeOutcome) -> UnitOutcome:
 
 class ProjectController(QObject):
     projects_changed = Signal()
-    # A Start or Stop that could not even be attempted — no launcher, a bound
-    # port, a refused launcher. The window puts it in its message banner.
-    # (path, message). The PATH is what lets the window put the message beside
+    # A message the window puts in its banner beside the row it names, for
+    # anything that went wrong or needs the user's eye: a Start or Stop that
+    # could not be attempted (no launcher, a bound port, a refused launcher), a
+    # systemd or foreign stop that failed, a stop that left its port bound, a
+    # service that did not stay up, and a poll that cannot read the whole
+    # socket table (path None) and its recovery. (path, message). The PATH is
+    # what lets the window put the message beside
     # the row that raised it rather than in a corner — `design.md
     # § Accessibility`: "a message in a far-off status bar is invisible to
     # someone whose lens is on a button" (LWSM-1032). Carried on the signal
@@ -1914,6 +1925,9 @@ class ProjectController(QObject):
     def _on_service_done(self, path: Path, outcome: object) -> None:
         """Report a failure; let the next poll decide what the row now says.
 
+        Takes a `systemctl` verb's outcome and a foreign tree stop's alike; the
+        latter names no unit (`unit == ""`).
+
         Nothing here sets a status. An exit code of 0 means systemd accepted the
         verb and no more, so the socket table stays the authority — ADR-0004's
         rule, and the same one the managed stop already follows.
@@ -1981,16 +1995,12 @@ class ProjectController(QObject):
             # by `concurrent.futures` and dropped, so the overlay would stay set
             # and the row would read `stopping` for the life of the session.
             outcome = exc
-        try:
-            self._action_signals.stopped.emit(path, outcome)
-        except RuntimeError:
-            # The controller was torn down while the stop was in flight; there
-            # is nobody left to tell. `_SnapshotTask.run`'s outer clause, on a
-            # second worker.
-            log.debug("a stop finished with no live signaller", exc_info=True)
-        except BaseException:
-            # `concurrent.futures` would log and drop it (LWSM-1454).
-            log.warning("a stop finished without reporting", exc_info=True)
+        _emit_or_log(
+            lambda: self._action_signals.stopped.emit(path, outcome),
+            # The controller was torn down while the stop was in flight.
+            "a stop finished with no live signaller",
+            "a stop finished without reporting",
+        )
 
     def _on_stopped(self, path: Path, outcome: object) -> None:
         """Handle the outcome, then re-render whatever the answer was.
@@ -2025,7 +2035,7 @@ class ProjectController(QObject):
         if isinstance(outcome, StopOutcome):
             if outcome.warning:
                 # A bound port after a stop is a warning, never a second signal.
-                self.action_failed.emit(path, _clean_message(outcome.warning))
+                self.action_failed.emit(path, clean_display_text(outcome.warning))
             if outcome.port_still_bound:
                 # Terminal (LWSM-1134): our child is gone and the port is
                 # still held, so every poll from here reports `running` and
@@ -2215,59 +2225,57 @@ class ProjectController(QObject):
         self._flush_repeated_error()
         self._in_flight = False
 
-        if not self._pool.waitForDone(STOP_WAIT_MS):
-            # An unbounded wait here makes a probe that never returns into an
-            # app that cannot be quit, which `§ 6` does not promise — it
-            # promises only a stale display.
-            log.warning(
-                "a port probe was still running after %d ms; abandoning it so "
-                "the app can quit",
-                STOP_WAIT_MS,
-            )
-            abandon_pool(self._pool, self._signals)
-            self._pool = QThreadPool(self)
-            self._pool.setMaxThreadCount(1)
-
-        # The same two lines for the service pool, and it needs them more: a
-        # `systemctl stop` waits out the unit's own shutdown, so this is the
-        # pool most likely to still be busy at teardown. Logging and returning
-        # would leave it parented, and `~QThreadPool` then runs the unbounded
-        # join anyway — the claim LWSM-1139 found false for a day.
-        if not self._service_pool.waitForDone(STOP_WAIT_MS):
-            log.warning(
-                "a systemctl verb was still running after %d ms; abandoning it "
-                "so the app can quit",
-                STOP_WAIT_MS,
-            )
-            abandon_pool(self._service_pool, self._service_signals)
-            self._service_pool = QThreadPool(self)
-            self._service_pool.setMaxThreadCount(2)
-
-        # And the health pool (LWSM-1034 INV-7). One call is bounded by
+        self._pool = self._join_or_abandon(
+            self._pool, self._signals, "a port probe was", 1
+        )
+        # The service pool needs it more: a `systemctl stop` waits out the
+        # unit's own shutdown, so this is the pool most likely to still be busy
+        # at teardown.
+        self._service_pool = self._join_or_abandon(
+            self._service_pool, self._service_signals, "a systemctl verb was", 2
+        )
+        # The health pool (LWSM-1034 INV-7): one call is bounded by
         # `health.HEALTH_TIMEOUT_SECONDS` per socket operation, not overall, so
         # a server trickling its reply could otherwise hold the quit.
-        if not self._health_pool.waitForDone(STOP_WAIT_MS):
-            log.warning(
-                "a health check was still running after %d ms; abandoning it so "
-                "the app can quit",
-                STOP_WAIT_MS,
-            )
-            abandon_pool(self._health_pool, self._health_signals)
-            self._health_pool = QThreadPool(self)
-            self._health_pool.setMaxThreadCount(HEALTH_THREADS)
-
-        # And the upkeep pool (LWSM-1401): a group walk or a log copy on a slow
+        self._health_pool = self._join_or_abandon(
+            self._health_pool,
+            self._health_signals,
+            "a health check was",
+            HEALTH_THREADS,
+        )
+        # The upkeep pool (LWSM-1401): a group walk or a log copy on a slow
         # disk must not hold the quit either.
         self._upkeep_in_flight = False
-        if not self._upkeep_pool.waitForDone(STOP_WAIT_MS):
-            log.warning(
-                "the poll's process work was still running after %d ms; "
-                "abandoning it so the app can quit",
-                STOP_WAIT_MS,
-            )
-            abandon_pool(self._upkeep_pool, self._upkeep_signals)
-            self._upkeep_pool = QThreadPool(self)
-            self._upkeep_pool.setMaxThreadCount(1)
+        self._upkeep_pool = self._join_or_abandon(
+            self._upkeep_pool,
+            self._upkeep_signals,
+            "the poll's process work was",
+            1,
+        )
+
+    def _join_or_abandon(
+        self, pool: QThreadPool, signals: QObject, what: str, threads: int
+    ) -> QThreadPool:
+        """Wait `STOP_WAIT_MS` for `pool`; if its worker is still busy, abandon
+        it and return a fresh one, else return `pool` itself.
+
+        An unbounded wait would make a task that never returns into an app that
+        cannot be quit, which `§ 6` does not promise — it promises only a stale
+        display. Logging and returning would leave the pool parented, and
+        `~QThreadPool` then runs the unbounded join anyway (LWSM-1139). Every
+        pool `stop()` waits on goes through here, so none can miss a step.
+        """
+        if pool.waitForDone(STOP_WAIT_MS):
+            return pool
+        log.warning(
+            "%s still running after %d ms; abandoning it so the app can quit",
+            what,
+            STOP_WAIT_MS,
+        )
+        abandon_pool(pool, signals)
+        fresh = QThreadPool(self)
+        fresh.setMaxThreadCount(threads)
+        return fresh
 
     def close_supervisor(self) -> None:
         """Release the supervisor's descriptors and threads, if there is one.

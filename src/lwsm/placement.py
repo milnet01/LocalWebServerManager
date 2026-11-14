@@ -668,9 +668,9 @@ def place_window(
     adds the decoration itself.
 
     That is not a lost clamp. `MainWindow._restore_size_and_state` applies
-    `_bounded_to_screen` — `SCREEN_FRACTION` of the screen — before calling
-    here and on every platform, so ADR-0007's "sized larger than the current
-    display" case is already closed, and closed more tightly than
+    `_bounded_to_screen` — to the screen's whole available area — before
+    calling here and on every platform, so ADR-0007's "sized larger than the
+    current display" case is already closed, and no less tightly than
     `clamp_to_screens` would close it. What makes that safe is the return
     value: the rectangle handed back carries the CLAMPED size, so a caller
     that has not bounded its own has been told what to apply.

@@ -1224,6 +1224,49 @@ def test_stop_is_bounded_when_a_probe_never_returns(
     controller_module.wait_for_abandoned_pools(2000)
 
 
+@pytest.mark.parametrize(
+    ("pool_name", "signals_name", "threads"),
+    [
+        ("_pool", "_signals", 1),
+        ("_service_pool", "_service_signals", 2),
+        ("_health_pool", "_health_signals", controller_module.HEALTH_THREADS),
+        ("_upkeep_pool", "_upkeep_signals", 1),
+    ],
+)
+def test_stop_abandons_each_busy_pool_and_leaves_a_fresh_one(
+    qtbot, controllers, monkeypatch, pool_name, signals_name, threads
+) -> None:
+    """Every pool `stop()` waits on goes through one helper: a busy one is
+    abandoned, its signaller is released from the controller, and a pool of the
+    same width takes its place."""
+    from PySide6.QtCore import QRunnable
+
+    monkeypatch.setattr(controller_module, "STOP_WAIT_MS", 100)
+    gate = threading.Event()
+
+    class Blocker(QRunnable):
+        def run(self) -> None:
+            gate.wait(5)
+
+    controller = build(controllers, [record("a")], FakeProbe(5005))
+    busy = getattr(controller, pool_name)
+    signals = getattr(controller, signals_name)
+    busy.start(Blocker())
+
+    controller.stop()
+    try:
+        fresh = getattr(controller, pool_name)
+        assert fresh is not busy
+        assert fresh.maxThreadCount() == threads
+        assert fresh.parent() is controller
+        assert busy in controller_module._ABANDONED
+        assert busy.parent() is None
+        assert signals.parent() is None
+    finally:
+        gate.set()
+        controller_module.wait_for_abandoned_pools(2000)
+
+
 def test_the_shipped_stop_budget_is_pinned() -> None:
     """The budget tests all substitute their own value, so none pins the real one.
 

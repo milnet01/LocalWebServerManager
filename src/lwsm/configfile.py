@@ -102,6 +102,15 @@ DISPLAY_CONTROL_CLASS = (
 _CONTROL = re.compile(DISPLAY_CONTROL_CLASS)
 
 
+def clean_display_text(text: str) -> str:
+    """`display_text`'s cleaning without its clip, for a sentence the app composed.
+
+    Every character in `DISPLAY_CONTROL_CLASS` becomes U+FFFD. Not clipped: a
+    composed sentence cut at a name's bound would lose its meaning.
+    """
+    return _CONTROL.sub("\ufffd", text)
+
+
 def display_text(text: str) -> str:
     """A name or a source, safe to put in a log record and on a widget.
 
@@ -129,7 +138,7 @@ def display_text(text: str) -> str:
     also why `controller.displayable_name`, a second copy with a different
     replacement and no surrogate handling, was folded in here (LWSM-1341).
     """
-    cleaned = _CONTROL.sub("\ufffd", text)
+    cleaned = clean_display_text(text)
     if len(cleaned) <= MAX_DISPLAY_NAME_CHARS:
         return cleaned
     return cleaned[: MAX_DISPLAY_NAME_CHARS - 1] + "\u2026"

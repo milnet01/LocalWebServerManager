@@ -1587,6 +1587,9 @@ class MergeResult:
     # the first-run screen (LWSM-1008). `merge()` leaves it empty: the rescan
     # task fills it from the `ScanResult` it already holds.
     skipped: tuple[str, ...] = ()
+    # The scan's `units_unavailable`, for the first-run dialog, which ticks no
+    # row on a guess. `merge_imported` has no scan and leaves it False.
+    units_unavailable: bool = False
 
 
 def _instant(added: str | None) -> datetime:
@@ -1879,7 +1882,12 @@ def merge(
 
     _flag_duplicate_ports(merged, flag)
 
-    return MergeResult(records=merged, reasons=bounded.close(), counts=counts)
+    return MergeResult(
+        records=merged,
+        reasons=bounded.close(),
+        counts=counts,
+        units_unavailable=scan.units_unavailable,
+    )
 
 
 def _identity_owners(

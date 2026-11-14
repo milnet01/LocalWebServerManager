@@ -628,6 +628,24 @@ def test_a_second_claim_wakes_the_first_instead_of_running(qtbot, tmp_path) -> N
 
 
 @pytest.mark.gui
+def test_the_probe_wakes_a_listener_and_reports_an_empty_path(qtbot, tmp_path) -> None:
+    """`_wake_whoever_answers` is the one probe all three asks in
+    `claim_single_instance` go through: True and a wake when a copy listens,
+    False when nobody does."""
+    path = str(tmp_path / "lwsm.sock")
+    assert entry._wake_whoever_answers(path, None) is False
+
+    woken: list[str | None] = []
+    first = entry.claim_single_instance(path, woken.append)
+    try:
+        assert entry._wake_whoever_answers(path, "tok123") is True
+        qtbot.waitUntil(lambda: woken == ["tok123"], timeout=2000)
+    finally:
+        assert first.server is not None
+        first.server.close()
+
+
+@pytest.mark.gui
 def test_a_socket_left_by_a_crashed_copy_is_taken_over(tmp_path) -> None:
     """A socket file nobody answers on is a leftover, not a running copy.
 

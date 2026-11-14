@@ -101,6 +101,7 @@ from lwsm.controller import (
 )
 from lwsm.foreign import HolderIdentity, Tree, TreeRefused, enumerate_tree
 from lwsm.logpanel import LogPanel
+from lwsm.outline import focus_ring_width, install_outline_style
 from lwsm.placement import Rect, centre_in
 from lwsm.registry import (
     LoadResult,
@@ -123,8 +124,6 @@ from lwsm.theme import (
     FOLLOW_SYSTEM,
     THEMES,
     Theme,
-    focus_ring_width,
-    install_outline_style,
     resolve_theme_id,
     theme_for_id,
 )
@@ -204,9 +203,6 @@ _JUMP_BLOCKED_MODIFIERS = (
     | Qt.KeyboardModifier.MetaModifier
 )
 
-# Decorative only. One of the three signals design.md § Accessibility requires,
-# and excluded from the accessible name — a screen reader announcing "black
-# circle, running" is noise wearing the costume of redundancy.
 # The browser column is capped at the WIDTH of this many "x" characters: the
 # same on-screen width in every script, so a wide script such as Chinese fits
 # about half as many characters (LWSM-1343, the user 2026-10-01). A cap rather
@@ -234,6 +230,9 @@ MIN_TARGET_PX = 24
 100 %. A FLOOR, not a size — everything here is derived from the text metric
 and grows with the text-size control (`§ O7`)."""
 
+# Decorative only. One of the three signals design.md § Accessibility requires,
+# and excluded from the accessible name — a screen reader announcing "black
+# circle, running" is noise wearing the costume of redundancy.
 STATE_GLYPHS = {
     ProjectStatus.RUNNING: "●",
     ProjectStatus.STOPPED: "○",
@@ -269,11 +268,6 @@ STATE_GLYPHS = {
 # all, and `test_every_translated_string_uses_one_context` holds the one-context
 # rule the constant used to hold by construction.
 
-# The trust prompt's placeholders, matched so all of them can be substituted on
-# one pass (LWSM-1181). Sequential `.replace` calls let the first value land in
-# a template that still held the others.
-_TRUST_FIELD = re.compile(r"%[1234]")
-
 
 def _default_browser_label() -> str:
     """The browser picker's first entry: the desktop's own default browser.
@@ -307,7 +301,7 @@ def _filled(template: str, *values: str) -> str:
 
     Chained `.replace()` calls rescan what they just wrote, so a value holding
     `%2` captures the next substitution into itself. That was LWSM-1181 in the
-    trust dialog and LWSM-1260 in the status bar, both fed by names taken from
+    trust dialog and LWSM-1260 in the message banner, both fed by names taken from
     a scanned directory. `re.sub` never rescans its own output.
 
     A placeholder with no value is left as written rather than raising: these
@@ -346,8 +340,6 @@ def _suggestion_note(current: int | None, suggested: int | None) -> str:
 
 
 _PLACEHOLDER = re.compile(r"%[1-9]")
-# The disclosure fields, same shape and same reason as `_TRUST_FIELD`.
-_DISCLOSE_FIELD = re.compile(r"%[1-6]")
 
 
 # Characters that change how the trust prompt is laid out rather than adding a
@@ -794,7 +786,7 @@ class RescanContext:
     """Everything a Rescan needs that the window does not already hold.
 
     Where the registry is written is NOT here: that is `registry.ProjectsFile`,
-    which four other writers share (LWSM-1358).
+    which every other writer shares (LWSM-1358).
 
     `roots` is passed in rather than read from a settings file: settings
     persistence is LWSM-1018, and a window that read the real config could not
@@ -975,13 +967,6 @@ class _MergeTask(QRunnable):
             log.warning("the %s ended without reporting", self.what, exc_info=True)
 
 
-@dataclass(frozen=True)
-class _RescanMerge(MergeResult):
-    """A merge plus whether the scan could ask systemd about units."""
-
-    units_unavailable: bool = False
-
-
 class _RescanTask(_MergeTask):
     """Scan the roots, then merge what was found into the stored records."""
 
@@ -1008,13 +993,7 @@ class _RescanTask(_MergeTask):
         merged = registry.merge(
             self._stored, result, self._context.roots, self._context.now
         )
-        return _RescanMerge(
-            records=merged.records,
-            reasons=merged.reasons,
-            counts=merged.counts,
-            skipped=tuple(result.skipped),
-            units_unavailable=result.units_unavailable,
-        )
+        return replace(merged, skipped=tuple(result.skipped))
 
 
 class _ImportTask(_MergeTask):
@@ -1393,11 +1372,7 @@ class ProjectRow(QFrame):
         in its parent's run of the focus chain, so Tab reaches it after Open.
         """
         if self._port_button is None:
-            self._port_button = QPushButton(self)
-            self._port_button.clicked.connect(self.change_port_action.trigger)
-            self._outer_layout.addWidget(
-                self._port_button, alignment=Qt.AlignmentFlag.AlignLeft
-            )
+            self._port_button = self._add_button(self.change_port_action)
             self._label_port_button()
             self._fit_buttons()
         self._port_button.show()
@@ -1413,16 +1388,28 @@ class ProjectRow(QFrame):
         the state itself.
         """
         if failed and self.output_button is None:
-            self.output_button = QPushButton(self)
-            self.output_button.clicked.connect(self.show_output_action.trigger)
-            self._outer_layout.addWidget(
-                self.output_button, alignment=Qt.AlignmentFlag.AlignLeft
-            )
+            self.output_button = self._add_button(self.show_output_action)
             self._label_output_button()
             self._fit_buttons()
         elif not failed and self.output_button is not None:
             self._remove_button(self.output_button)
             self.output_button = None
+
+    def _add_button(self, action: QAction) -> QPushButton:
+        """A button under the row that triggers `action`, left-aligned.
+
+        The other half of `_remove_button`; the caller labels and fits it.
+        """
+        button = QPushButton(self)
+        button.clicked.connect(action.trigger)
+        self._outer_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)
+        return button
+
+    @staticmethod
+    def _label_button(button: QPushButton, text: str, accessible: str) -> None:
+        """Set a button's text and its accessible name."""
+        button.setText(text)
+        button.setAccessibleName(accessible)
 
     def _remove_button(self, button: QPushButton) -> None:
         """Take one of the buttons under the row away, keeping the user's place.
@@ -1440,27 +1427,25 @@ class ProjectRow(QFrame):
     def _label_output_button(self) -> None:
         if self.output_button is None:
             return
-        self.output_button.setText(
-            QCoreApplication.translate("ProjectRow", "View output")
-        )
-        self.output_button.setAccessibleName(
+        self._label_button(
+            self.output_button,
+            QCoreApplication.translate("ProjectRow", "View output"),
             _filled(
                 QCoreApplication.translate("ProjectRow", "View the output of %1"),
                 self._name_display,
-            )
+            ),
         )
 
     def _label_port_button(self) -> None:
         if self._port_button is None:
             return
-        self._port_button.setText(
-            QCoreApplication.translate("ProjectRow", "Change port…")
-        )
-        self._port_button.setAccessibleName(
+        self._label_button(
+            self._port_button,
+            QCoreApplication.translate("ProjectRow", "Change port…"),
             _filled(
                 QCoreApplication.translate("ProjectRow", "Change the port of %1"),
                 self._name_display,
-            )
+            ),
         )
 
     def error_rect(self) -> QRect | None:
@@ -1716,7 +1701,7 @@ class ProjectRow(QFrame):
     def focus_ring_width(self) -> int:
         """Derived from the text metric, never a pixel constant (`§ O7`).
 
-        The formula is `theme.focus_ring_width`'s, shared with every Fusion
+        The formula is `outline.focus_ring_width`'s, shared with every Fusion
         control's ring so the two cannot drift apart (LWSM-1349).
         """
         return focus_ring_width(self.fontMetrics())
@@ -2530,7 +2515,6 @@ class MainWindow(QMainWindow):
         # like every other widget, so the `self.setPalette` that used to sit here
         # became redundant and was removed with it — a line no test could redden
         # is the LWSM-1113 defect this pass exists to close.
-        app = _application()
         if app is not None:
             # The style first: `setStyle` re-polishes, and the palette goes on
             # after it (LWSM-1337, LWSM-1349).
@@ -2546,7 +2530,6 @@ class MainWindow(QMainWindow):
         # `set_theme`, which ticks an entry in `_theme_actions`, and a slot that
         # raised would do it silently — PySide swallows an exception out of a
         # slot Qt invoked, prints it, and carries on (measured, LWSM-1176).
-        app = _application()
         if app is not None:
             app.styleHints().colorSchemeChanged.connect(self._on_color_scheme_changed)
 
@@ -2554,7 +2537,8 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(central)
         # Kept, because `_apply_window_metrics` re-derives the margin and the
         # spacing from the font on every change and a local would be gone by
-        # then (LWSM-1257).
+        # then (LWSM-1257), and so the geometry code need not ask Qt for a layout
+        # it types as possibly absent (LWSM-1066).
         self._outer = outer
         self._apply_window_metrics()
         # ONE strip carrying both controls (LWSM-1040), not one strip each.
@@ -2693,9 +2677,6 @@ class MainWindow(QMainWindow):
         # and Escape can go back to that row.
         self._log_path: Path | None = None
         self.setCentralWidget(central)
-        # Kept, so the geometry code need not ask Qt for a layout it types as
-        # possibly absent (LWSM-1066).
-        self._outer = outer
 
         self._rows: dict[Path, ProjectRow] = {}
         self._load_error: QLabel | None = None
@@ -2850,9 +2831,9 @@ class MainWindow(QMainWindow):
     def _build_theme_menu(self, parent: QMenu) -> None:
         """The theme picker (LWSM-1031), a submenu of Settings.
 
-        A submenu rather than a third top-level menu: the bar has File and
-        Settings, and which palette is on screen is a setting. It sits ABOVE
-        Preferences because it is the entry that works today.
+        A submenu rather than a top-level menu of its own: the bar has File,
+        View and Settings, and which palette is on screen is a setting. It sits
+        ABOVE Preferences, with the text-size submenu.
 
         Grouped by `is_dark` and then `high_contrast`, with a separator between
         — which is what those two flags are for. The assistive palettes come
@@ -3442,7 +3423,7 @@ class MainWindow(QMainWindow):
             return
 
         self._rescan_in_flight = True
-        self._set_rescan_enabled(False)
+        self._set_registry_writers_enabled(False)
         self._rescan_pool.start(
             _ImportTask(
                 self._controller.records(), loaded.records, self._import_signals
@@ -3467,14 +3448,14 @@ class MainWindow(QMainWindow):
             )
         finally:
             self._rescan_in_flight = False
-            self._set_rescan_enabled(True)
+            self._set_registry_writers_enabled(True)
             self.set_status_message(message)
 
     def _on_import_failed(self, detail: str) -> None:
         if self._stopped:
             return
         self._rescan_in_flight = False
-        self._set_rescan_enabled(True)
+        self._set_registry_writers_enabled(True)
         self._refuse_import(detail)
 
     def _refuse_import(self, detail: str) -> None:
@@ -3509,9 +3490,10 @@ class MainWindow(QMainWindow):
         if self._rescan is not None:
             self._rescan = replace(self._rescan, roots=tuple(roots))
 
-    def _set_rescan_enabled(self, enabled: bool) -> None:
-        """The button and the menu entry are one control with two faces.
+    def _set_registry_writers_enabled(self, enabled: bool) -> None:
+        """Enable or disable every control that starts a merge into the registry.
 
+        The Rescan button and its menu entry are one control with two faces.
         Import rides along, and that is not tidiness (LWSM-1148): a merge
         landing while a rescan is in flight is written by whichever finishes
         last, so the restored user half would be silently dropped by a rescan
@@ -3531,7 +3513,7 @@ class MainWindow(QMainWindow):
         Its own method, and set from here rather than at construction, for the
         reason `_retranslate_menus` gives: `LanguageChange` needs one place to
         go. The button was the exception and stayed in its construction
-        language: `_set_rescan_enabled` treats it and the menu entry as one
+        language: `_set_registry_writers_enabled` treats it and the menu entry as one
         control with two faces, but only the entry was ever retranslated. Its
         accessible name is derived from this text (`§ O8`), so the announcement
         went stale with the label.
@@ -3699,6 +3681,9 @@ class MainWindow(QMainWindow):
         Escape is the exception, and deliberately so — QLineEdit ignores it, so
         it arrives here from the filter box as well as from anywhere else, and
         clearing the filter is exactly what it should do in both.
+
+        `/` and the number keys act only while `single_key_shortcuts` is on
+        (LWSM-1475); Escape does not depend on it.
         """
         key = event.key()
         # LWSM-1475, WCAG 2.1.4: a single-character shortcut must be possible
@@ -3926,13 +3911,11 @@ class MainWindow(QMainWindow):
     def show_load_error(self, text: str) -> None:
         """The project list could not be read: say so in the list, and below.
 
-        A status bar cannot wrap, and the window opens narrow when it has no
-        rows — measured, 239 px against a message needing 780, so about a third
-        was readable (known-issue-012, LWSM-1331). `design-accessibility.md`
-        puts feedback where the action happened, and here that is the list the
-        user is looking at, which is empty because of this very error. Plain
-        text, because it carries a path; selectable, so the path can be copied.
-        The banner message stays too (user decision, 2026-09-28).
+        `design-accessibility.md` puts feedback where the action happened, and
+        here that is the list the user is looking at, which is empty because of
+        this very error (known-issue-012, LWSM-1331). Plain text, because it
+        carries a path; selectable, so the path can be copied. The banner
+        message stays too (user decision, 2026-09-28).
         """
         if self._load_error is None:
             label = QLabel(self._rows_host)
@@ -4143,22 +4126,23 @@ class MainWindow(QMainWindow):
         box.setWindowTitle(
             QCoreApplication.translate("ProjectRow", "Run this launcher?")
         )
-        # Each value escaped BEFORE substitution: `%4` joins its lines with
-        # line breaks of ours, which escaping afterwards would take for forged.
-        fields = {
-            "%1": _no_layout_forgery(project.name),
-            "%2": _no_layout_forgery(resolved),
+        # Each value escaped BEFORE substitution: the fourth joins its lines
+        # with line breaks of ours, which escaping afterwards would take for
+        # forged.
+        fields = (
+            _no_layout_forgery(project.name),
+            _no_layout_forgery(resolved),
             # Quoted per argument, never `" ".join(argv)` (LWSM-1282). This is
             # the one dialog that must not misrepresent what is about to run,
             # and joining on a space renders `["./s.sh", "a b"]` and
             # `["./s.sh", "a", "b"]` identically. `quoted` is already the
             # project's answer for an attacker-editable value reaching the UI.
-            "%3": _no_layout_forgery(" ".join(quoted(argument) for argument in argv)),
-            "%4": "\n".join(
+            _no_layout_forgery(" ".join(quoted(argument) for argument in argv)),
+            "\n".join(
                 f"{_no_layout_forgery(label)}: {_no_layout_forgery(text)}"
                 for label, text in npm_shown
             ),
-        }
+        )
         template = QCoreApplication.translate(
             "ProjectRow",
             "%1 has not been run from here before.\n\n"
@@ -4168,7 +4152,7 @@ class MainWindow(QMainWindow):
             template += QCoreApplication.translate(
                 "ProjectRow", "\n\nwhich runs, from the project's own files:\n%4"
             )
-        box.setText(_TRUST_FIELD.sub(lambda match: fields[match.group()], template))
+        box.setText(_filled(template, *fields))
         box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
@@ -4260,18 +4244,18 @@ class MainWindow(QMainWindow):
 
         started = getattr(holder, "started", None)
         unit = getattr(holder, "unit", None)
-        fields = {
-            "%1": project.name,
-            "%2": unit or QCoreApplication.translate("ProjectRow", "(not a service)"),
-            "%3": str(getattr(holder, "exe", None) or "?"),
+        fields = (
+            project.name,
+            unit or QCoreApplication.translate("ProjectRow", "(not a service)"),
+            str(getattr(holder, "exe", None) or "?"),
             # "?" for an unanswered uid as for every other field: a holder
             # owned by another user answers none without privileges (L07-L6).
-            "%4": "?" if (uid := getattr(holder, "uid", None)) is None else str(uid),
-            "%5": _shown_command(getattr(holder, "cmdline", "") or "?"),
-            "%6": datetime.fromtimestamp(started).isoformat(" ", "seconds")
+            "?" if (uid := getattr(holder, "uid", None)) is None else str(uid),
+            _shown_command(getattr(holder, "cmdline", "") or "?"),
+            datetime.fromtimestamp(started).isoformat(" ", "seconds")
             if started
             else "?",
-        }
+        )
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setTextFormat(Qt.TextFormat.PlainText)
@@ -4279,14 +4263,14 @@ class MainWindow(QMainWindow):
             QCoreApplication.translate("ProjectRow", "This server was not started here")
         )
         box.setText(
-            _DISCLOSE_FIELD.sub(
-                lambda match: _no_layout_forgery(fields[match.group()]),
+            _filled(
                 QCoreApplication.translate(
                     "ProjectRow",
                     "%1's port is held by a server this manager did not start."
                     "\n\nService:\n%2\n\nProgram:\n%3\n\nRunning as uid:\n%4"
                     "\n\nCommand:\n%5\n\nStarted:\n%6\n\nContinue?",
                 ),
+                *(_no_layout_forgery(field) for field in fields),
             )
         )
         box.setStandardButtons(
@@ -4332,7 +4316,7 @@ class MainWindow(QMainWindow):
                 "%1's port is held by a server this manager did not start. "
                 "Stopping it stops all of these processes:",
             )
-        intro = intro.replace("%1", _no_layout_forgery(project.name))
+        intro = _filled(intro, _no_layout_forgery(project.name))
         label = QLabel(intro, dialog)
         label.setTextFormat(Qt.TextFormat.PlainText)
         label.setWordWrap(True)
@@ -4921,9 +4905,9 @@ class MainWindow(QMainWindow):
 
         `set_project_hidden`'s shape exactly, and through the same
         `_write_records`: the write gate, the `RegistryError` report and the
-        `self._load` refresh are the same three rules for the fourth writer as
-        for the first three, and LWSM-1166 was that refresh being read from the
-        wrong place.
+        `self._load` refresh are the same three rules for this writer as for
+        the others, and LWSM-1166 was that refresh being read from the wrong
+        place.
 
         An empty choice is stored as `None` rather than `""`, so the file has
         one spelling of "no preference" and `browsers.by_id` has one case.
@@ -5071,7 +5055,7 @@ class MainWindow(QMainWindow):
         ):
             return
         self._rescan_in_flight = True
-        self._set_rescan_enabled(False)
+        self._set_registry_writers_enabled(False)
         self._controller.forget_unit_bindings()
         self._rescan_pool.start(
             _RescanTask(self._rescan, self._controller.records(), self._rescan_signals)
@@ -5079,7 +5063,7 @@ class MainWindow(QMainWindow):
 
     def _finish_rescan(self, message: str) -> None:
         self._rescan_in_flight = False
-        self._set_rescan_enabled(True)
+        self._set_registry_writers_enabled(True)
         note, self._rescan_note = self._rescan_note, ""
         self.set_status_message(" ".join(part for part in (note, message) if part))
 
@@ -5104,7 +5088,7 @@ class MainWindow(QMainWindow):
         in scope.
 
         `_finish_rescan` runs in a `finally`, and the body carries a catch-all
-        (LWSM-1135). It is the ONLY place `_set_rescan_enabled(True)` happens
+        (LWSM-1135). It is the ONLY place `_set_registry_writers_enabled(True)` happens
         — which re-enables the button and the menu entry together since
         LWSM-1146 — and this slot is delivered from the pool thread — so PySide6
         swallows anything escaping it, emitting no signal and telling the user
@@ -5149,9 +5133,7 @@ class MainWindow(QMainWindow):
             # No file yet: nothing is written until the user has seen the list
             # (LWSM-1008). Not now leaves the session as it was, still a first
             # run, so the next Rescan or the next start asks again.
-            self._first_run_units_unavailable = (
-                isinstance(merged, _RescanMerge) and merged.units_unavailable
-            )
+            self._first_run_units_unavailable = merged.units_unavailable
             chosen = self._confirm_first_run(list(merged.records), merged.skipped)
             if self._stopped:
                 # Quit while the dialog was open; nothing left to save into.
@@ -5245,10 +5227,9 @@ class MainWindow(QMainWindow):
     ) -> str:
         """Save a new project list and show it, whatever produced it.
 
-        Every writer goes through here — a rescan, an import, and hiding a
-        project — because the three rules are the same each time and each is
-        one somebody has already got wrong once: the write gate, the
-        `RegistryError` report, and the `self._load` refresh on success.
+        Every writer goes through here, because the three rules are the same
+        each time and each is one somebody has already got wrong once: the
+        write gate, the `RegistryError` report, and the `self._load` refresh on success.
         LWSM-1166 was that refresh being read from the wrong place, and a
         second copy of this would be a second place to make that mistake.
 
@@ -5797,7 +5778,7 @@ class MainWindow(QMainWindow):
         narrower font clips a column.
 
         **That preference decides something only when this runs AFTER
-        `_restore_geometry`**, which is the reverse of the usual order:
+        `_restore_size_and_state`**, which is the reverse of the usual order:
         `_sync_rows` runs inside `__init__`, so a window built with records
         already sizes itself before it is ever shown. The order flips when the
         rows arrive later — an empty or unreadable `projects.json`, or a
@@ -5807,7 +5788,7 @@ class MainWindow(QMainWindow):
         `test_rows_arriving_after_the_restore_do_not_undo_the_remembered_size`
         is what reaches it.
 
-        The remembered POSITION is not applied here. It is `_restore_geometry`'s,
+        The remembered POSITION is not applied here. It is `_restore_position`'s,
         which runs off the first show rather than off the first scan.
 
         Measured from the content and clamped to the screen, never set from a
@@ -5940,7 +5921,7 @@ class MainWindow(QMainWindow):
         height is negotiable.
 
         **And the floor is deliberately NOT bounded to the screen** (LWSM-1262).
-        `_bounded_to_screen` caps at `SCREEN_FRACTION` of the display, so
+        `_bounded_to_screen` caps at the display, so
         applying it here withdrew the guarantee the paragraph above states
         exactly when content outgrows the screen — which is the case the
         guarantee is for. Reachable from ordinary input, because the name
@@ -5982,12 +5963,10 @@ class MainWindow(QMainWindow):
         the edge of a 1920x1080 laptop, where the corner that would drag it
         back is unreachable.
 
-        **One rule, called from both places that apply a remembered size.**
-        `_restore_geometry` discarded the bound entirely and ran last, so the
-        cap computed here was overwritten on the path where rows exist and
-        never computed at all on the path where they do not (measured
-        2026-08-25: three times the screen, on both). Two copies of the
-        fraction is how the same stored file starts giving two windows.
+        **One rule, called from both places that apply a remembered size**,
+        this class's `_apply_default_geometry` and `_restore_size_and_state`.
+        Two copies of the fraction is how the same stored file starts giving
+        two windows.
 
         No screen at all is the headless case; there is nothing to bound
         against and the asked-for size stands.

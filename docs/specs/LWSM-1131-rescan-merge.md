@@ -269,7 +269,7 @@ requested** are used rather than "the roots actually walked", because a partial
 scan does not report which it reached.
 
 The return shape is `MergeResult` — `records`, `reasons` and per-outcome
-`counts`. It is not `LoadResult`: that carries a `rows_refused` count, which the
+`counts`, and the scan's `units_unavailable` for the first-run dialog. It is not `LoadResult`: that carries a `rows_refused` count, which the
 merge has no equivalent of — nothing a merge produces is refused at row level.
 The two shapes are deliberately different, so an implementer should not reach
 for `LoadResult` here.

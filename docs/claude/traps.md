@@ -101,7 +101,8 @@ traceback prints to stderr, the process survives at exit 0, and **no
 signal is emitted** — so any state the task was meant to clear stays
 set. This is what makes an unhandled probe error freeze the poll loop
 permanently rather than crash (LWSM-1069). Any `run()` body needs a
-catch-all that still reports, not just the exception it expects.
+catch-all that still reports, not just the exception it expects. In the
+controller that catch-all is `_emit_or_log`; a new task's `run` calls it.
 
 **The same swallowing applies to a SLOT Qt invoked, which changes how a test
 must assert.** Measured 2026-08-31 (LWSM-1176): a `KeyError` raised inside a

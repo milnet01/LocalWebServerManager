@@ -17,7 +17,7 @@ plus `QtNetwork` in `update_fetch.py`:
 
 | Layer | Modules | Rule |
 |---|---|---|
-| UI | `mainwindow.py`, `settingsdialog.py`, `portlookup.py`, `firstrun.py`, `logpanel.py`, `theme.py`, `updatedialog.py` | may import `QtWidgets` |
+| UI | `mainwindow.py`, `settingsdialog.py`, `portlookup.py`, `firstrun.py`, `logpanel.py`, `outline.py`, `theme.py`, `updatedialog.py` | may import `QtWidgets` |
 | Entry point | `__main__.py` | may import `QtWidgets`; builds the `QApplication`, inside `main()` after `argparse` |
 | Package marker | `__init__.py` | imports nothing |
 | Core | every other module | `QtCore` only, and `QtNetwork` in `update_fetch.py`; never `QtWidgets` |

@@ -31,12 +31,11 @@ from contrast import (
     relative_luminance,
 )
 from lwsm.controller import ProjectStatus
+from lwsm.outline import OutlineStyle, install_outline_style
 from lwsm.theme import (
     DEFAULT_THEME,
     FOLLOW_SYSTEM,
-    OutlineStyle,
     Theme,
-    install_outline_style,
     resolve_theme_id,
     theme_for_id,
 )

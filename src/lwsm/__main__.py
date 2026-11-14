@@ -34,7 +34,16 @@ def build_window(
     ask_restore: Callable[[datetime], bool] | None = None,
     appimage: str | None = None,
 ) -> tuple[MainWindow, ProjectController]:
-    """Load, construct and connect. Does not run an event loop.
+    """Load, construct and connect; ends before the application's event loop.
+
+    What it does besides constructing: reads the project list and settings
+    (and, when the list cannot be read and a backup exists, asks through
+    `ask_restore` and may restore the backup, which writes the list file);
+    takes back the servers an earlier session started (`supervisor.adopt()`);
+    applies the stored poll interval and log cap; and starts the poll timer,
+    which ticks once an event loop runs. It also defines the Preferences
+    callback (`open_settings`) the window calls later; that dialog is not run
+    here.
 
     Split out of `main` so LWSM-1005 INV-15 can observe the RegistryError
     catch: `main` ends in a blocking `app.exec()`, so a test that called it
@@ -154,13 +163,9 @@ def build_window(
     # which is the same answer it already gives for the log and the project
     # list on that machine.
     settings_path: Path | None = None
-    # Both defaulted BEFORE the try, not inside the `else`: the branch that
-    # raises must still leave every setting bound, or a machine with no home
-    # directory trades a caught RegistryError for a NameError.
-    theme_id = Settings().theme
-    text_scale = Settings().text_scale
-    poll_interval_ms = Settings().poll_interval_ms
-    log_max_mib = Settings().log_max_mib
+    # Defaulted BEFORE the try, not inside the `else`: the branch that raises
+    # must still leave every setting bound, or a machine with no home directory
+    # trades a caught RegistryError for a NameError.
     stored = Settings()
     try:
         settings_path = default_settings_path()
@@ -168,10 +173,6 @@ def build_window(
         log.warning("no settings file: %s", exc)
     else:
         chosen = load_settings(settings_path)
-        theme_id = chosen.settings.theme
-        text_scale = chosen.settings.text_scale
-        poll_interval_ms = chosen.settings.poll_interval_ms
-        log_max_mib = chosen.settings.log_max_mib
         stored = chosen.settings
         for reason in chosen.reasons:
             log.warning("settings: %s", reason)
@@ -418,7 +419,7 @@ def build_window(
         # a theme can be removed by an upgrade, so an id naming nothing must
         # fall back rather than raise. `settings.py` deliberately does not
         # check membership — a core module may not import the theme layer.
-        theme_for_id(theme_id),
+        theme_for_id(stored.theme),
         notices,
         # The load is carried through so the writer's read-only gate can read
         # it: a session whose registry refused a row must not have that row
@@ -439,8 +440,8 @@ def build_window(
         # names a rule instead and no palette expresses it (LWSM-1244). The
         # window resolves it — only it can, since Qt reports the desktop's
         # colour scheme after the `QApplication` is up.
-        theme_id=theme_id,
-        text_scale=text_scale,
+        theme_id=stored.theme,
+        text_scale=stored.text_scale,
         save_text_scale=save_text_scale,
         open_settings=open_settings,
         position=pair_or_none(stored.x, stored.y),
@@ -468,8 +469,8 @@ def build_window(
     # `ProjectController` default to the same values `settings.py` does, so a
     # first run with no file is already correct and this only moves anything
     # when the user has chosen something.
-    controller.set_poll_interval_ms(poll_interval_ms)
-    supervisor.max_log_bytes = log_max_mib * 1024 * 1024
+    controller.set_poll_interval_ms(stored.poll_interval_ms)
+    supervisor.max_log_bytes = stored.log_max_mib * 1024 * 1024
     # A first run is not an error: `start_first_run` says what is happening
     # instead (LWSM-1008). A missing file with nowhere to save still is one.
     if error is not None and not window.is_first_run():
@@ -728,6 +729,22 @@ def _wake(probe: QLocalSocket, token: str | None) -> None:
     probe.disconnectFromServer()
 
 
+def _wake_whoever_answers(path: str, token: str | None) -> bool:
+    """Connect to `path`; if a copy answers, wake it (`_wake`) and return True.
+
+    False means nobody is listening there, which is what a crashed copy's
+    leftover socket file looks like.
+    """
+    from PySide6.QtNetwork import QLocalSocket
+
+    probe = QLocalSocket()
+    probe.connectToServer(path)
+    if not probe.waitForConnected(INSTANCE_CONNECT_MS):
+        return False
+    _wake(probe, token)
+    return True
+
+
 def claim_single_instance(
     path: str,
     on_activated: Callable[[str | None], None],
@@ -762,7 +779,7 @@ def claim_single_instance(
     — measured 2026-09-28, where it let a second copy run.
     """
     from PySide6.QtCore import QTimer
-    from PySide6.QtNetwork import QAbstractSocket, QLocalServer, QLocalSocket
+    from PySide6.QtNetwork import QAbstractSocket, QLocalServer
 
     if not Path(path).is_absolute():
         # Qt answers "" for the runtime location when it cannot create its
@@ -777,20 +794,14 @@ def claim_single_instance(
     if not server.listen(path):
         if server.serverError() != QAbstractSocket.SocketError.AddressInUseError:
             return InstanceClaim(primary=True, problem=server.errorString())
-        probe = QLocalSocket()
-        probe.connectToServer(path)
-        if probe.waitForConnected(INSTANCE_CONNECT_MS):
-            _wake(probe, token)
+        if _wake_whoever_answers(path, token):
             return InstanceClaim(primary=False)
         # Nobody answered, so the file is a crashed copy's leftover. Removed
         # under a lock and only after asking again: two copies launched
         # together after a crash both miss above, and without this the second
         # removed the first one's fresh socket and both ran (L6-L3).
         with _claim_lock(path):
-            probe = QLocalSocket()
-            probe.connectToServer(path)
-            if probe.waitForConnected(INSTANCE_CONNECT_MS):
-                _wake(probe, token)
+            if _wake_whoever_answers(path, token):
                 return InstanceClaim(primary=False)
             QLocalServer.removeServer(path)
             if not server.listen(path):
@@ -798,12 +809,10 @@ def claim_single_instance(
                 # found no file, so it never reached the lock and took the path
                 # (review-code 2026-10-08 L08-L1). Ask once more who is there.
                 in_use = QAbstractSocket.SocketError.AddressInUseError
-                if server.serverError() == in_use:
-                    probe = QLocalSocket()
-                    probe.connectToServer(path)
-                    if probe.waitForConnected(INSTANCE_CONNECT_MS):
-                        _wake(probe, token)
-                        return InstanceClaim(primary=False)
+                if server.serverError() == in_use and _wake_whoever_answers(
+                    path, token
+                ):
+                    return InstanceClaim(primary=False)
                 return InstanceClaim(primary=True, problem=server.errorString())
 
     def answer() -> None:
