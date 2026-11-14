@@ -536,3 +536,11 @@ def test_free_port_is_none_when_every_port_is_claimed() -> None:
     snapshot = PortSnapshot(frozenset({2000}))
 
     assert free_port(snapshot, {2001}, 2000, 2000, 2001) is None
+
+
+def test_free_port_is_none_for_an_empty_range() -> None:
+    """LWSM-1528. `low > high` is no range; the clamp used to return `high`,
+    a port outside `low`..`high` that the docstring promises never to offer."""
+    snapshot = PortSnapshot(frozenset())
+
+    assert free_port(snapshot, set(), 3000, 4000, 3000) is None

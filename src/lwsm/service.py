@@ -103,6 +103,9 @@ class UnitOutcome:
     # systemd itself answered no (non-zero exit), so nothing is in progress. A
     # timeout or a systemctl that never ran is not a rejection (L05-M3).
     rejected: bool = False
+    # The runner gave up waiting: systemd may still finish what it was asked, so
+    # nothing may be assumed about the outcome either way (LWSM-1528).
+    timed_out: bool = False
 
 
 # A unit under OUR user's service manager, the only kind `--user` drives. Any
@@ -231,19 +234,19 @@ def describe_holder(
     some questions and refuses others, and losing the whole disclosure to one
     `AccessDenied` would leave the dialog emptier than the facts warrant.
     """
+    import psutil
+
     handle = process
     if handle is None:
-        import psutil
-
         try:
             handle = psutil.Process(pid)
-        except Exception:
+        except (psutil.Error, OSError):
             return Holder(pid=pid, unit=unit_for_pid(pid, read_cgroup=read_cgroup))
 
     def ask(name: str, convert: object) -> object:
         try:
             return convert(getattr(handle, name)())  # type: ignore[operator]
-        except Exception:
+        except (psutil.Error, OSError):
             return None
 
     uids = ask("uids", lambda value: getattr(value, "real", None))
@@ -396,7 +399,18 @@ def reload_user_manager(*, run: object = None) -> UnitOutcome:
         return UnitOutcome(
             ok=False, verb=verb, unit="", reason="systemctl is not installed"
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired:
+        # Worded as `drive_unit` words its own: this reason reaches the user
+        # through `set_drop_in`, and Python's text is not for them (LWSM-1528).
+        return UnitOutcome(
+            ok=False,
+            verb=verb,
+            unit="",
+            reason=f"systemctl {verb} did not finish within "
+            f"{UNIT_VERB_TIMEOUT_SECONDS:.0f} seconds",
+            timed_out=True,
+        )
+    except OSError as exc:
         return UnitOutcome(ok=False, verb=verb, unit="", reason=str(exc))
     if getattr(completed, "returncode", 1) == 0:
         return UnitOutcome(ok=True, verb=verb, unit="")
@@ -434,6 +448,11 @@ def set_drop_in(unit: str, port: int | None) -> UnitOutcome:
     reloaded = reload_user_manager()
     if not reloaded.ok:
         _discard(path)
+        if reloaded.timed_out:
+            # The reload may still have loaded the file just removed, and a
+            # manual start would then run on its stale PORT. Reload once more,
+            # now that the file is gone (LWSM-1528).
+            reload_user_manager()
         return reloaded
     if drop_in_seen(unit, path) is False:
         # The folder is THIS app's `XDG_CONFIG_HOME`; systemd reads its user
@@ -458,9 +477,11 @@ def _discard(path: Path) -> None:
     """Remove a drop-in no start will read (LWSM-1449).
 
     A failed set starts nothing, so a file left behind would be read at the
-    unit's next logon start instead (ADR-0003). No reload: systemd has not
-    loaded it, either because the reload failed or because it reads another
-    folder. A removal that fails is logged, as `clear_drop_in`'s caller does.
+    unit's next logon start instead (ADR-0003). No reload here: a reload
+    that failed, or a folder systemd does not read, loaded nothing. A reload
+    that timed out may have loaded it, which `set_drop_in` answers with a
+    second reload. A removal that fails is logged, as
+    `clear_drop_in`'s caller does.
     """
     try:
         path.unlink(missing_ok=True)
@@ -538,7 +559,12 @@ def clear_drop_in(unit: str) -> UnitOutcome:
             unit=unit,
             reason=f"could not remove {DROP_IN_NAME} ({exc.strerror or exc})",
         )
-    return reload_user_manager()
+    reloaded = reload_user_manager()
+    if reloaded.timed_out:
+        # It may not have run, leaving the removed drop-in loaded; the file is
+        # gone either way, so one more reload settles it (LWSM-1528).
+        return reload_user_manager()
+    return reloaded
 
 
 # The `ActiveState` values that end a start: the unit is not running and is not

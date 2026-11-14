@@ -78,7 +78,7 @@ def holder_identity(pid: int) -> HolderIdentity:
     """
     try:
         return (pid, float(psutil.Process(pid).create_time()))
-    except Exception:
+    except (psutil.Error, OSError):
         return (pid, None)
 
 
@@ -237,13 +237,16 @@ def looks_like(
         proc = make(pid)
     except psutil.Error:
         return False
-    root = os.path.normpath(project)
+    # Both sides resolved, as `scanner.bound_inside` does: the kernel reports a
+    # holder's `exe` and `cwd` as real paths, so a project registered through a
+    # symlink would never match them as typed (LWSM-1528).
+    root = os.path.realpath(project)
     candidates = [_ask(proc.exe), _ask(proc.cwd)]
     argv = _ask(proc.cmdline) or []
     # From 1: `argv[0]` names the program, which `exe` has already answered.
     candidates.extend(arg for arg in argv[1:] if arg.startswith("/"))
     return any(
-        candidate is not None and _inside(os.path.normpath(candidate), root)
+        candidate is not None and _inside(os.path.realpath(candidate), root)
         for candidate in candidates
     )
 

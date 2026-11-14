@@ -457,3 +457,49 @@ def test_looks_like_reads_exe_cwd_and_absolute_arguments(case, proc, expected) -
 
 def test_looks_like_a_vanished_holder_is_false() -> None:
     assert looks_like(1, PROJECT, process=lookup()) is False
+
+
+def test_looks_like_follows_a_symlink_on_either_side(tmp_path) -> None:
+    """LWSM-1528. The kernel reports a holder's exe and cwd as real paths, and a
+    command-line argument as typed. A project registered through a symlink was
+    therefore never matched, and the row read "blocked" instead of "running
+    (foreign)". `scanner.bound_inside` resolves both sides; so must this.
+
+    Dies on comparing the spellings alone, on either side.
+    """
+    real = tmp_path / "real" / "site"
+    real.mkdir(parents=True)
+    (real / "tray.py").write_text("", encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "real")
+    through_link = link / "site"
+
+    by_cwd = FakeProcess(1, cwd=str(real))
+    assert looks_like(1, through_link, process=lookup(by_cwd)) is True
+
+    by_argument = FakeProcess(
+        1, exe="/usr/bin/python3", cmdline=("python3", str(through_link / "tray.py"))
+    )
+    assert looks_like(1, real, process=lookup(by_argument)) is True
+
+    elsewhere = FakeProcess(1, cwd=str(tmp_path))
+    assert looks_like(1, through_link, process=lookup(elsewhere)) is False
+
+
+def test_holder_identity_hides_a_vanished_process_but_not_a_bug(monkeypatch) -> None:
+    """LWSM-1528. A process that is gone or unreadable gives `None` for its
+    start time; a `TypeError` is a defect and must not become the same blank.
+
+    Dies on `except Exception`."""
+
+    def gone(pid):
+        raise psutil.NoSuchProcess(pid)
+
+    def broken(pid):
+        raise TypeError("a bug")
+
+    monkeypatch.setattr(foreign.psutil, "Process", gone)
+    assert foreign.holder_identity(7) == (7, None)
+    monkeypatch.setattr(foreign.psutil, "Process", broken)
+    with pytest.raises(TypeError):
+        foreign.holder_identity(7)

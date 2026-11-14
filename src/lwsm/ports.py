@@ -151,10 +151,13 @@ def free_port(
     snapshot: PortSnapshot, avoid: Collection[int], start: int, low: int, high: int
 ) -> int | None:
     """The first usable port from `start` up, then from `low`, or None (LWSM-1037).
+    An empty range (`low` above `high`) has none.
 
     Usable means in `low`..`high`, not in `avoid`, not one a browser refuses,
     and with no listener on any address: `is_bound` is the binding question.
     """
+    if low > high:
+        return None
     first = min(max(start, low), high)
     for port in chain(range(first, high + 1), range(low, first)):
         if (

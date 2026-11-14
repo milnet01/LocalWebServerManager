@@ -737,3 +737,126 @@ def test_an_unreadable_unit_answers_none_rather_than_a_verdict(tmp_path) -> None
         raise OSError("systemctl failed")
 
     assert unit_belongs_to("a.service", tmp_path, properties=broken) is None
+
+
+def _timeout(argv, **kwargs):
+    raise subprocess.TimeoutExpired(argv, UNIT_VERB_TIMEOUT_SECONDS)
+
+
+def test_a_timed_out_reload_is_worded_for_a_person() -> None:
+    """LWSM-1528. The reason reaches the user through `set_drop_in`; Python's
+    own "Command [...] timed out after 15.0 seconds" is not a sentence for
+    them. `drive_unit` words its timeout the same way.
+
+    Dies on `str(exc)`."""
+    outcome = REAL_RELOAD(run=_timeout)
+
+    assert not outcome.ok and outcome.timed_out
+    assert "did not finish" in outcome.reason
+    assert "Command" not in outcome.reason
+    assert not REAL_RELOAD(run=FakeRun(returncode=1)).timed_out
+
+
+def _reload_script(monkeypatch, *answers: bool) -> list[str]:
+    """Replace the reload with one that answers `answers` in turn: True is ok,
+    False is a timeout."""
+    calls: list[str] = []
+    queue = list(answers)
+
+    def reload(**_kwargs: object) -> service.UnitOutcome:
+        calls.append("daemon-reload")
+        ok = queue.pop(0)
+        return service.UnitOutcome(
+            ok=ok, verb="daemon-reload", unit="", reason="", timed_out=not ok
+        )
+
+    monkeypatch.setattr(service, "reload_user_manager", reload)
+    monkeypatch.setattr(service, "drop_in_seen", lambda unit, path: True)
+    return calls
+
+
+def test_a_timed_out_reload_after_a_set_reloads_once_more_without_the_file(
+    monkeypatch,
+) -> None:
+    """LWSM-1528. A reload that timed out may still have loaded the drop-in, so
+    discarding the file alone leaves a stale `PORT` loaded for a manual start.
+    The file is gone first, so the second reload loads its absence.
+
+    Dies on not retrying, and on retrying before the discard."""
+    seen_at_retry: list[bool] = []
+    calls = _reload_script(monkeypatch, False, True)
+    path = service.drop_in_path("a.service")
+    inner = service.reload_user_manager
+
+    def reload(**kwargs):
+        seen_at_retry.append(path.exists())
+        return inner(**kwargs)
+
+    monkeypatch.setattr(service, "reload_user_manager", reload)
+
+    outcome = service.set_drop_in("a.service", 4321)
+
+    assert not outcome.ok and outcome.timed_out
+    assert calls == ["daemon-reload", "daemon-reload"]
+    assert seen_at_retry == [True, False]
+    assert not path.exists()
+
+
+def test_a_plain_reload_failure_is_not_retried(monkeypatch) -> None:
+    """Only a timeout leaves the answer open; systemd's own "no" does not."""
+    calls = _reload_script(monkeypatch, True)
+    monkeypatch.setattr(
+        service,
+        "reload_user_manager",
+        lambda **_: (
+            calls.append("daemon-reload")
+            or service.UnitOutcome(ok=False, verb="daemon-reload", unit="")
+        ),
+    )
+
+    assert not service.set_drop_in("a.service", 4321).ok
+    assert calls == ["daemon-reload"]
+
+
+def test_a_timed_out_reload_after_a_clear_is_tried_once_more(monkeypatch) -> None:
+    """LWSM-1528, the mirror case: the file is removed, the reload times out,
+    and systemd may still hold the old drop-in loaded.
+
+    Dies on returning the first timeout without a second reload."""
+    calls = _reload_script(monkeypatch, True)
+    service.set_drop_in("a.service", 4321)
+    calls.clear()
+    calls = _reload_script(monkeypatch, False, True)
+
+    outcome = service.clear_drop_in("a.service")
+
+    assert outcome.ok
+    assert calls == ["daemon-reload", "daemon-reload"]
+
+
+def test_a_refused_field_is_blank_but_a_bug_is_not_hidden() -> None:
+    """LWSM-1528. `describe_holder` blanks what the process refuses to say; a
+    `TypeError` from reading it is a defect, not a blank field.
+
+    Dies on `except Exception`."""
+    import psutil
+
+    class Refuses:
+        def exe(self):
+            raise psutil.AccessDenied(1)
+
+        def uids(self):
+            raise TypeError("a bug")
+
+    with pytest.raises(TypeError):
+        describe_holder(1, process=Refuses(), read_cgroup=lambda pid: "")
+
+    class Silent:
+        def __getattr__(self, name):
+            def refuse():
+                raise psutil.AccessDenied(1)
+
+            return refuse
+
+    holder = describe_holder(1, process=Silent(), read_cgroup=lambda pid: "")
+    assert (holder.exe, holder.uid, holder.cmdline) == (None, None, "")
