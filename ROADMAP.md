@@ -26,7 +26,7 @@
 
 **Legend** (per `roadmap-format.md § 3.3`)
 
-- 📋 Planned (next up for its release)
+- 📋 Planned
 - 🚧 In progress (being tackled now)
 - ✅ Done (shipped)
 - 💭 Considered (research phase; scope or feasibility uncertain)
