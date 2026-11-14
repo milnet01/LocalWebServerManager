@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -24,6 +25,27 @@ Name=Firefox
 Exec=/usr/bin/firefox %u
 MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
 """
+
+
+@pytest.fixture(autouse=True)
+def _fake_programs_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Entries here name made-up programs (`/mine`, `/usr/bin/testbrowser`).
+
+    Since LWSM-1533 an entry whose `Exec` program is not on the machine is not
+    offered, so a program that is not on disk counts as installed unless it is
+    under `/nonexistent/`. A path that does exist is judged by the real
+    `shutil.which`, which is what the `TryExec` tests need.
+    """
+    real_which = shutil.which
+
+    def which(name: str, *args: object, **kwargs: object) -> str | None:
+        if name.startswith("/nonexistent/"):
+            return None
+        if os.path.exists(name):
+            return real_which(name, *args, **kwargs)  # type: ignore[arg-type]
+        return name
+
+    monkeypatch.setattr(shutil, "which", which)
 
 
 def write(directory: Path, name: str, text: str) -> Path:
@@ -278,6 +300,40 @@ def test_an_entry_whose_tryexec_binary_is_gone_is_not_offered(tmp_path: Path) ->
     """
     write(tmp_path, "b.desktop", entry(TryExec="/nonexistent/definitely-not-here"))
     assert browsers.installed((tmp_path,)).browsers == ()
+
+
+def test_an_entry_with_no_tryexec_whose_exec_program_is_gone_is_not_offered(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1533: `TryExec` is optional, and an entry without it for an
+    uninstalled browser stayed in the list, so the window's "not installed"
+    message was never reached."""
+    write(tmp_path, "b.desktop", entry(Exec="/nonexistent/uninstalled-browser %u"))
+    assert browsers.installed((tmp_path,)).browsers == ()
+
+
+def test_an_entry_with_no_tryexec_whose_exec_program_can_be_run_is_offered(
+    tmp_path: Path,
+) -> None:
+    """The other half, with a real executable and the real `shutil.which`."""
+    target = tmp_path / "bin" / "browser"
+    target.parent.mkdir()
+    target.write_text("#!/bin/sh\n")
+    target.chmod(0o755)
+    write(tmp_path / "apps", "b.desktop", entry(Exec=f"{target} %u"))
+    assert [b.entry_id for b in browsers.installed((tmp_path / "apps",)).browsers] == [
+        "b.desktop"
+    ]
+
+
+def test_an_exec_program_that_cannot_be_run_is_not_offered(tmp_path: Path) -> None:
+    """Present is not installed: a non-executable file is no program."""
+    target = tmp_path / "bin" / "browser"
+    target.parent.mkdir()
+    target.write_text("#!/bin/sh\n")
+    target.chmod(0o644)
+    write(tmp_path / "apps", "b.desktop", entry(Exec=f"{target} %u"))
+    assert browsers.installed((tmp_path / "apps",)).browsers == ()
 
 
 def test_an_entry_whose_tryexec_file_cannot_be_run_is_not_offered(

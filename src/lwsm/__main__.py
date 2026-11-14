@@ -133,7 +133,7 @@ def build_window(
                 records, error, load = restored.records, None, restored
                 notices = [
                     "the project list could not be read, so its backup was "
-                    "restored; the damaged file was kept beside it",
+                    "restored; the file that could not be read was kept beside it",
                     *restored.reasons,
                 ]
                 log.warning("project list restored from its backup")
@@ -593,7 +593,8 @@ def _ask_restore_dialog(saved_at: datetime) -> bool:
         QCoreApplication.translate(
             "Startup",
             "Your project list could not be read. A backup saved on %1 is "
-            "available. Restore it? The damaged file will be kept beside it.",
+            "available. Restore it? The file that could not be read will be "
+            "kept beside it.",
         ).replace("%1", when),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.No,
@@ -692,7 +693,12 @@ def _claim_lock(path: str) -> Iterator[None]:
         yield
         return
     with handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        except OSError:
+            # `ENOLCK` on a filesystem with no locks (NFS): the same
+            # degradation as an unopenable lock file (LWSM-1533).
+            pass
         yield
 
 
@@ -909,12 +915,19 @@ def main(argv: list[str] | None = None) -> int:
     # all: two `RotatingFileHandler`s on one file can discard a generation of
     # it, which is half of why only one copy runs (LWSM-1065).
     shown: list[MainWindow] = []
+    # A second launch heard before the window exists: `build_window` can sit in
+    # the restore dialog's nested loop with the socket already claimed. Kept
+    # and acted on once the window is shown (LWSM-1533).
+    early: list[str | None] = []
+
+    def activated(received: str | None) -> None:
+        if shown:
+            _bring_to_front(shown[0], received)
+        else:
+            early.append(received)
+
     token = os.environ.get(ACTIVATION_VARIABLE)
-    claim = claim_single_instance(
-        instance_socket_path(),
-        lambda received: _bring_to_front(shown[0], received) if shown else None,
-        token,
-    )
+    claim = claim_single_instance(instance_socket_path(), activated, token)
     if not claim.primary:
         from lwsm.placement import on_wayland
 
@@ -986,6 +999,9 @@ def main(argv: list[str] | None = None) -> int:
     first_run.timeout.connect(lambda: start_first_run(window))
     try:
         window.show()
+        if early:
+            # The latest token: an earlier one is spent or stale by now.
+            _bring_to_front(window, early[-1])
         first_run.start(0)
         return app.exec()
     finally:

@@ -1008,6 +1008,108 @@ def test_main_lets_a_relaunch_in_before_it_waits_for_stops(
     )
 
 
+def test_a_lock_the_filesystem_refuses_degrades_to_the_unlocked_recovery(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """LWSM-1533: the lock file opened but `flock` itself failed (`ENOLCK` on
+    NFS), and that `OSError` ended `main()` with a traceback before logging.
+    The docstring promises the unlocked recovery, so the body must still run."""
+    import errno
+    import fcntl
+
+    def refuse(_handle, _operation):
+        raise OSError(errno.ENOLCK, "No locks available")
+
+    monkeypatch.setattr(fcntl, "flock", refuse)
+    ran: list[int] = []
+    with entry._claim_lock(str(tmp_path / "lwsm.sock")):
+        ran.append(1)
+    assert ran == [1]
+
+
+def test_an_error_in_the_locked_body_is_not_swallowed(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The guard covers taking the lock only, never what runs under it."""
+    import errno
+    import fcntl
+
+    def refuse(_handle, _operation):
+        raise OSError(errno.ENOLCK, "No locks available")
+
+    monkeypatch.setattr(fcntl, "flock", refuse)
+    with pytest.raises(ZeroDivisionError):
+        with entry._claim_lock(str(tmp_path / "lwsm.sock")):
+            raise ZeroDivisionError
+
+
+@pytest.mark.gui
+@pytest.mark.usefixtures("_no_event_loop")
+def test_a_second_launch_during_startup_is_acted_on_once_the_window_exists(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """LWSM-1533: the socket is claimed before `build_window`, which can sit in
+    the restore dialog's nested loop. A second launch heard then found no window
+    and was dropped, while that copy printed that it was showing the window.
+    It is remembered and acted on, with its token, once the window is shown."""
+    from PySide6.QtCore import QCoreApplication
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.delenv(entry.ACTIVATION_VARIABLE, raising=False)
+    heard: list[str | None] = []
+    real_token = entry.activation_token
+
+    def spy(data: bytes) -> str | None:
+        result = real_token(data)
+        heard.append(result)
+        return result
+
+    monkeypatch.setattr(entry, "activation_token", spy)
+    events: list[tuple[str, object]] = []
+
+    class Controller:
+        def stop(self) -> None:
+            return None
+
+        def close_supervisor(self) -> None:
+            return None
+
+        def freeze_started_record(self) -> None:
+            return None
+
+    class Window:
+        def show(self) -> None:
+            events.append(("show", None))
+
+        def shutdown(self) -> None:
+            return None
+
+    def build(_path=None, **_kw):
+        # What the restore dialog's nested loop lets happen: a second launch.
+        second = entry.claim_single_instance(
+            entry.instance_socket_path(), lambda _t: None, "tok-1"
+        )
+        assert not second.primary
+        import time
+
+        deadline = time.monotonic() + 3
+        # Two checks of the one token: the second copy's `_wake` makes the
+        # first, the first copy's `_hear` the second.
+        while len(heard) < 2 and time.monotonic() < deadline:
+            QCoreApplication.processEvents()
+        assert heard == ["tok-1", "tok-1"], "the first copy never heard the second"
+        return Window(), Controller()
+
+    monkeypatch.setattr(entry, "build_window", build)
+    monkeypatch.setattr(
+        entry,
+        "_bring_to_front",
+        lambda window, token=None: events.append(("front", token)),
+    )
+    assert main([]) == 0
+    assert events == [("show", None), ("front", "tok-1")]
+
+
 # --- LWSM-1144: where to scan is configurable ---------------------------------
 
 
@@ -2605,8 +2707,34 @@ def test_a_damaged_list_with_a_backup_restores_it_when_the_user_agrees(
         assert [r.name for r in controller.records()] == ["kept"]
         assert list(tmp_path.glob("projects.json.damaged-*"))
         assert "backup" in message_of(window)
+        # A file written by a newer version is not damaged, only unreadable.
+        assert "could not be read" in message_of(window)
+        assert "damaged" not in message_of(window)
     finally:
         controller.stop()
+
+
+@pytest.mark.gui
+def test_the_restore_question_says_could_not_be_read_not_damaged(
+    qtbot, monkeypatch
+) -> None:
+    """LWSM-1525 point 7: a file written by a newer version is unreadable, not
+    damaged, and the question must not say the user's data is broken."""
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QMessageBox
+
+    asked: list[str] = []
+
+    def question(_parent, title, text, *_rest):
+        asked.append(f"{title} {text}")
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", question)
+    assert entry._ask_restore_dialog(datetime.now(UTC)) is False
+    assert len(asked) == 1
+    assert "could not be read" in asked[0]
+    assert "damaged" not in asked[0]
 
 
 @pytest.mark.gui

@@ -431,6 +431,12 @@ def _browser_from(
     argv = parse_exec(_unescape_string(fields.get("Exec", "")))
     if not argv:
         return None
+    # An entry with no `TryExec` is still gone when its program is (LWSM-1533):
+    # `TryExec` is optional, and without this the entry of an uninstalled
+    # browser stayed in the list, so the window's "not installed" message,
+    # which needs the id to be absent, was never reached.
+    if shutil.which(argv[0]) is None:
+        return None
 
     # Sanitised and clipped, because a `.desktop` file belongs to whoever put
     # it on the machine (LWSM-1249). The name reaches a combo item, a tooltip
