@@ -25,6 +25,11 @@ signaling per
 
 - **The download updates itself.** At each start the AppImage asks GitHub whether a newer version exists, and a banner above the project list offers it, with what changed. Nothing downloads until you click **Update now**. The app checks the download was signed by the author before it replaces its own file, then reopens; your servers keep running. **Settings > Preferences** turns the check off, and **Settings > Check for updates** asks by hand. Copies of 0.5.1 and earlier have no updater, so download the next version by hand once. (LWSM-1548)
 
+### Fixed
+
+- **Picking a browser from a project's list works again.** (LWSM-1549)
+  In 0.5.0 and 0.5.1, choosing a browser from the drop-down left the box blank or on "Auto" and reset that project to the default browser. The choice is now kept and saved. On those versions, select the closed box and press the Up or Down arrow key instead of opening the list.
+
 ## [0.5.1] - 2026-11-10
 
 **Theme:** A download that needs nothing installed first

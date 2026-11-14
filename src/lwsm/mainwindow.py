@@ -1023,7 +1023,11 @@ class BrowserPicker(QComboBox):
 
     def hidePopup(self) -> None:
         super().hidePopup()
-        self._forget_list_position()
+        # A turn later, never here (LWSM-1549). On a pick Qt calls this FIRST
+        # and only then reads the list's current item to learn what was picked;
+        # cleared here, every pick read as "nothing", the box went blank and
+        # the project's saved browser was wiped (0.5.0 and 0.5.1).
+        QTimer.singleShot(0, self, self._forget_list_position)
 
     def _forget_list_position(self) -> None:
         view = self.view()

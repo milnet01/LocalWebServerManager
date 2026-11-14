@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1548 -->
+<!-- ants-roadmap-id-high-water: LWSM=1549 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15700,6 +15700,30 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: feature.
   Source: ADR-0008-2026-11-11.
   Lanes: build, ui, docs.
+
+- ✅ [LWSM-1549] **Picking a browser from a row's list wipes the choice instead of saving it.**
+  Reported by the user on 0.5.1, 2026-11-14: choosing Google Chrome
+  for one project left the box blank or on "Auto", and the banner said
+  the project opens in the default browser. The saved choice (Brave)
+  was overwritten with none.
+
+  Cause, reproduced 2026-11-14 on PySide6 6.12.0, offscreen, by mouse
+  and by keyboard: `BrowserPicker.hidePopup` clears the list's current
+  item (LWSM-1504). Qt closes the list first and only then reads that
+  current item to learn what was picked, so it reads "nothing", sets
+  the box to index -1, and `set_project_browser` saves no choice. A
+  plain `QComboBox` in the same script picks correctly. In every
+  release since LWSM-1504: 0.5.0 and 0.5.1. The LWSM-1504 test opens
+  and closes the list but never picks from it.
+  Fixed 2026-11-14: the clearing on close now waits one event-loop
+  turn (`QTimer.singleShot(0, ...)` in `BrowserPicker.hidePopup`).
+  `test_picking_from_the_open_list_keeps_the_choice` picks by keyboard
+  and by mouse; it failed on both before the fix and passes after.
+  Not yet in a release. On 0.5.0 and 0.5.1 the arrow keys on the
+  closed box still work (measured against the unfixed code).
+  **Layman:** Choosing a browser from a project's drop-down left the box blank and reset the project to the default browser.
+  Kind: fix.
+  Source: user-report-2026-11-14.
 
 ## After 1.0.0
 

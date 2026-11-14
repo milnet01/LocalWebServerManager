@@ -7576,8 +7576,40 @@ def test_a_closed_picker_reports_no_item_as_focused(qtbot, built, tmp_path) -> N
         box.setCurrentIndex(2)
     finally:
         box.hidePopup()
-    assert _picker_items_reporting_focus(box) == []
+    # Not at once: Qt reads the list's current item AFTER it closes the list,
+    # to learn what was picked, so the clearing waits a turn (LWSM-1549).
+    qtbot.waitUntil(lambda: _picker_items_reporting_focus(box) == [])
     assert box.currentText() == "Brave"
+
+
+@pytest.mark.parametrize("how", ["keyboard", "mouse"])
+def test_picking_from_the_open_list_keeps_the_choice(
+    qtbot, built, tmp_path, how
+) -> None:
+    """LWSM-1549. Qt closes the list and only then reads its current item to
+    learn what was picked. The picker cleared that item as the list closed
+    (LWSM-1504), so every pick read as "nothing": the box went blank and the
+    project's saved browser was wiped. Reported on 0.5.1; the LWSM-1504 test
+    opened and closed the list and never picked from it."""
+    window, controller = browser_window(
+        qtbot, built, tmp_path, [with_browser("a", 3000, "brave.desktop")]
+    )
+    box = row_named(window, "a").browser_box
+    assert box.currentText() == "Brave"
+
+    box.showPopup()
+    view = box.view()
+    if how == "keyboard":
+        qtbot.keyClick(view, Qt.Key.Key_Up)
+        qtbot.keyClick(view, Qt.Key.Key_Return)
+    else:
+        spot = view.visualRect(box.model().index(1, 0)).center()
+        qtbot.mouseMove(view.viewport(), spot)
+        qtbot.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=spot)
+
+    assert box.currentText() == "Firefox"
+    assert controller.records()[0].browser == "firefox.desktop"
+    qtbot.waitUntil(lambda: _picker_items_reporting_focus(box) == [])
 
 
 def test_the_picker_shows_the_stored_choice(qtbot, built, tmp_path) -> None:

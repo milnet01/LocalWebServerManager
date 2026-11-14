@@ -361,6 +361,8 @@ Added at P02 (LWSM-1005), contract in
   closed picker told the accessibility bus that "Auto" had the focus. It
   clears the closed popup list's current item, and `showPopup` puts it back
   on the chosen entry, which Qt's own `showPopup` does not once it is cleared.
+  The clearing on close waits one event-loop turn: Qt reads that item after
+  closing the list to learn what was picked (LWSM-1549).
 
 Added at P03 (LWSM-1006, which also lands LWSM-1050), contract in
 [`docs/specs/LWSM-1006-scanner-detection.md`](../specs/LWSM-1006-scanner-detection.md):
