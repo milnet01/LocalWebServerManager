@@ -15466,7 +15466,7 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-05 lane-13.
   Lanes: tooling.
 
-- 📋 [LWSM-1536] **Contract documents state things the code no longer does.**
+- ✅ [LWSM-1536] **Contract documents state things the code no longer does.**
   Priority: 4.
   Spec amendments: amend in place (write-doc), code side unchanged.
   1. ADR-0003's allowlist omits the absolute-only PATH filter and the
@@ -15490,6 +15490,10 @@ decided, is the last packaging item (added 2026-11-11).
   older entry. INV-1 (and the decision line on identity) name
   `create_time` alone. Remedy: reword INV-3 to cover both forms, citing
   INV-8; check INV-1 against what start() records.
+  2026-11-14: all five amendments made, each checked against the code
+  it describes; the code was the right side every time. The same pass
+  brought the module map, design.md, ADR-0004 and LWSM-1007 up to this
+  release's fixes.
   **Layman:** Some design documents describe older behaviour and need correcting to match the app.
   Kind: doc-fix.
   Source: review-code-2026-11-05 lane-01, lane-02, lane-03, lane-08.
