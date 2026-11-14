@@ -855,7 +855,7 @@ def test_an_oversized_file_is_refused(tmp_path: Path, reader: str) -> None:
         if reader == "_read_bytes":
             scanner._read_bytes(fat)
         else:
-            scanner._read_lines(fat, deadline)
+            scanner._read_lines(fat, deadline, lambda _reason: None)
 
 
 def test_a_file_that_grows_past_the_byte_cap_after_the_check_is_refused(
@@ -882,7 +882,7 @@ def test_a_file_that_grows_past_the_byte_cap_after_the_check_is_refused(
     deadline = scanner.Deadline(expires_at=time.monotonic() + 60, now=time.monotonic)
 
     with pytest.raises(OSError, match="too large"):
-        scanner._read_lines(grows, deadline)
+        scanner._read_lines(grows, deadline, lambda _reason: None)
 
 
 def test_an_over_long_line_is_clipped_and_its_tail_not_scanned(tmp_path: Path) -> None:
@@ -903,6 +903,64 @@ def test_an_over_long_line_is_clipped_and_its_tail_not_scanned(tmp_path: Path) -
     project = by_name(result)["proj"]
     assert project.port is None
     assert project.confidence is Confidence.UNKNOWN
+
+
+_OVER = "x" * (scanner.MAX_SOURCE_LINE_CHARS + 100) + " PORT=9999\n"
+
+
+@pytest.mark.parametrize(
+    ("files", "launcher"),
+    [
+        ({"start.sh": f"#!/bin/sh\n{_OVER}"}, "start.sh"),
+        ({"start.sh": "#!/bin/sh\nexec python3 app.py\n", "app.py": _OVER}, "start.sh"),
+        ({"serve.py": "import cfg\n", "cfg.py": _OVER}, "serve.py"),
+        (
+            {
+                "package.json": json.dumps(
+                    {
+                        "scripts": {
+                            "dev": "x" * scanner.MAX_SOURCE_LINE_CHARS + " --port 9999"
+                        }
+                    }
+                )
+            },
+            "",
+        ),
+    ],
+    ids=["launcher", "exec-hop", "import-hop", "package-script"],
+)
+def test_a_discarded_line_tail_is_not_a_clean_read(
+    tmp_path: Path, files: dict[str, str], launcher: str
+) -> None:
+    """review-code 2026-11-05 lane-03. The tail of an over-long line is dropped
+    by design, but dropping it in silence left `read_cleanly` True, and the
+    merge reads a clean `None` as "declares no port". A cut-short read says so.
+
+    Dies on dropping the tail (or clipping the script) without a note.
+    """
+    make_project(tmp_path, "proj", files, *([launcher] if launcher else []))
+
+    result = scan_root(tmp_path)
+    project = by_name(result)["proj"]
+
+    assert project.port is None
+    assert project.read_cleanly is False
+    assert any("cut short" in reason for reason in result.skipped)
+
+
+def test_a_line_exactly_at_the_cap_loses_nothing_and_stays_clean(
+    tmp_path: Path,
+) -> None:
+    """The cap splits a line of exactly `MAX_SOURCE_LINE_CHARS` characters from
+    its newline, and that newline is all the discarded part holds. Nothing was
+    lost, so nothing is reported."""
+    line = "x" * scanner.MAX_SOURCE_LINE_CHARS + "\n"
+    make_project(tmp_path, "proj", {"start.sh": f"#!/bin/sh\n{line}"}, "start.sh")
+
+    result = scan_root(tmp_path)
+
+    assert by_name(result)["proj"].read_cleanly is True
+    assert not any("cut short" in reason for reason in result.skipped)
 
 
 def test_a_minified_package_json_is_still_parsed(tmp_path: Path) -> None:

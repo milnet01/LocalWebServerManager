@@ -369,13 +369,27 @@ def _read_bytes(path: Path) -> bytes:
     return raw
 
 
-def _read_lines(path: Path, deadline: Deadline) -> list[str]:
+def _cut_short_reason(path: Path) -> str:
+    return (
+        f"{_quoted(path.name)}: a line over {MAX_SOURCE_LINE_CHARS} characters "
+        "was cut short"
+    )
+
+
+def _read_lines(
+    path: Path, deadline: Deadline, note: Callable[[str], None]
+) -> list[str]:
     """Capped lines — what the port rules consume.
 
     A port declaration past character 4096 of one line is not a declaration
     anyone wrote on purpose, so the tail of an over-long line is **discarded
     rather than scanned**: that is what stops a pattern being split across a
     chunk boundary and matching half of itself.
+
+    Discarding is still a read cut short, so it is said, once per file, through
+    `note`: silence left `DetectedProject.read_cleanly` True, and the merge reads
+    a clean "no port" as "declares no port". A discarded part holding nothing but
+    the line's newline lost nothing and says nothing.
 
     Decoded `errors="replace"`: a sibling's file is not required to be text, and
     a `UnicodeDecodeError` three levels into someone else's repo is not a fact
@@ -389,6 +403,7 @@ def _read_lines(path: Path, deadline: Deadline) -> list[str]:
     lines: list[str] = []
     with handle:
         discarding = False
+        said = False
         while True:
             if deadline.expired():
                 raise _BudgetExpired
@@ -406,6 +421,9 @@ def _read_lines(path: Path, deadline: Deadline) -> list[str]:
             complete = chunk.endswith("\n")
             if discarding:
                 discarding = not complete
+                if not said and chunk.rstrip("\n"):
+                    said = True
+                    note(_cut_short_reason(path))
                 continue
             if not complete and len(chunk) >= MAX_SOURCE_LINE_CHARS:
                 discarding = True
@@ -1076,7 +1094,7 @@ def _walk_imports(
                 continue
             seen.add(target)
             try:
-                hop_lines = _read_lines(target, deadline)
+                hop_lines = _read_lines(target, deadline, note)
             except (FileNotFoundError, NotADirectoryError):
                 # A specifier naming nothing in the project. The commonest shape
                 # by far on the Python side, where `import os` is spelled
@@ -1101,7 +1119,11 @@ def _walk_imports(
 
 
 def _hop_target(
-    lines: Sequence[str], root: Path, launcher: Path, deadline: Deadline
+    lines: Sequence[str],
+    root: Path,
+    launcher: Path,
+    deadline: Deadline,
+    note: Callable[[str], None],
 ) -> tuple[Path | None, list[str], str | None]:
     """Tokenise and select, in four steps.
 
@@ -1176,7 +1198,7 @@ def _hop_target(
             if target is None:
                 continue
             try:
-                return target, _read_lines(target, deadline), None
+                return target, _read_lines(target, deadline, note), None
             except (FileNotFoundError, NotADirectoryError):
                 # Not a path at all — an argument, a module name, a bare word.
                 continue
@@ -1537,7 +1559,7 @@ def _read_alternate(
         # rather than this file (LWSM-1464).
         if not path.is_symlink() and not path.exists():
             return None
-        return _read_lines(path, deadline)
+        return _read_lines(path, deadline, note)
     except OSError as exc:
         note(f"{quoted}: {filename} cannot be read ({exc.strerror or exc})")
         return None
@@ -1584,7 +1606,9 @@ def _shell_port(
         return found
 
     stripped = [strip_comment(line) for line in lines]
-    target, hop_lines, reason = _hop_target(stripped, candidate, launcher, deadline)
+    target, hop_lines, reason = _hop_target(
+        stripped, candidate, launcher, deadline, note
+    )
     if reason is not None:
         note(reason)
     if target is None:
@@ -1680,6 +1704,14 @@ def _match_node_package(
             dependencies.update(block)
         elif block is not None:
             note(f"{quoted}: package.json's {field} is not an object")
+
+    if len(chosen[1]) > MAX_SOURCE_LINE_CHARS:
+        # `_node_package_port` clips the script, the same discard `_read_lines`
+        # reports for a launcher.
+        note(
+            f"{quoted}: package.json's {chosen[0]} script is over "
+            f"{MAX_SOURCE_LINE_CHARS} characters and was cut short"
+        )
 
     return _Launcher(
         kind=LauncherKind.NODE,
