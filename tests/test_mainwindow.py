@@ -1954,6 +1954,78 @@ def test_not_now_on_a_first_run_saves_nothing_and_asks_again(
     window.shutdown()
 
 
+def _first_run_scan(tmp_path: Path, units_unavailable: bool) -> FakeScanResult:
+    return dataclasses.replace(
+        two_project_scan(tmp_path), units_unavailable=units_unavailable
+    )
+
+
+@pytest.mark.parametrize("unavailable", [True, False])
+def test_the_first_run_dialog_is_told_whether_services_could_be_checked(
+    qtbot, built, tmp_path, monkeypatch, unavailable
+) -> None:
+    """User, 2026-11-14: with systemd unreachable the scan's unit lookup did
+    not run, so the list starts unticked rather than on a wrong guess."""
+    from lwsm import firstrun
+
+    told: list = []
+
+    def ask(records, skipped, parent, units_unavailable=False):
+        told.append(units_unavailable)
+        return list(records)
+
+    monkeypatch.setattr(firstrun, "ask_first_run", ask)
+    window, _ = rescan_window(
+        qtbot,
+        built,
+        [],
+        tmp_path,
+        _first_run_scan(tmp_path, unavailable),
+        confirm_first_run=None,
+    )
+
+    run_rescan(qtbot, window)
+
+    assert told == [unavailable]
+    window.shutdown()
+
+
+def test_a_first_run_with_no_services_checked_saves_only_what_is_ticked(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """Through the real dialog: nothing ticked, so Save stores nothing; ticking
+    one by hand stores that one."""
+    from PySide6.QtWidgets import QDialog
+
+    from lwsm.firstrun import FirstRunDialog
+
+    shown: list = []
+
+    def tick_web_then_accept(self) -> QDialog.DialogCode:
+        shown.append([box.isChecked() for box in self._boxes])
+        self._boxes[1].setChecked(True)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(FirstRunDialog, "exec", tick_web_then_accept)
+    saves: list = []
+    window, controller = rescan_window(
+        qtbot,
+        built,
+        [],
+        tmp_path,
+        _first_run_scan(tmp_path, True),
+        saves=saves,
+        confirm_first_run=None,
+    )
+
+    run_rescan(qtbot, window)
+
+    assert shown == [[False, False]]
+    assert [row.name for row in controller.rows()] == ["web"]
+    assert "Saved 1 of 2 projects" in message_of(window)
+    window.shutdown()
+
+
 def test_a_rescan_with_a_saved_list_does_not_ask(qtbot, built, tmp_path) -> None:
     """The confirmation is for the first run only; later rescans merge as before."""
     asked: list = []
@@ -9879,6 +9951,100 @@ def test_a_holder_unchanged_through_the_disclosure_is_stopped(qtbot, built) -> N
     assert stopped == [Path("/srv/a")]
 
 
+def _unnamed_holder_window(qtbot, built, names_one_during_the_dialog: bool):
+    """A running row that is not ours, whose port table names no holder when
+    the click lands, so the disclosure shows none. No ordinary poll produces
+    that state (a named holder is what makes a row foreign), so the table
+    entry is taken out by hand; the dialog can put one back, as a poll under
+    it would."""
+    holder = os.getpid()
+    probe = FakeProbe(5005, holder=holder)
+    box: list = []
+
+    def decide(path, shown) -> bool:
+        assert shown is None, "precondition: nothing was disclosed"
+        if names_one_during_the_dialog:
+            box[0]._holders[path] = holder
+        return True
+
+    controller = build_controller(built, [record("a", 5005)], probe, managed=[])
+    box.append(controller)
+    window = MainWindow(controller, Theme.default(), [], disclose=decide)
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    path = Path("/srv/a")
+    first = controller.row(path)
+    assert first.status in RUNNING_STATES and not first.managed, "precondition"
+    controller._holders.pop(path)
+    assert window._shown_holder(path) is None, "precondition"
+    return window, controller
+
+
+@pytest.mark.parametrize(
+    ("action", "verb"),
+    [("_stop_project", "stopped"), ("_restart_project", "restarted")],
+)
+def test_stop_and_restart_refuse_a_holder_that_appeared_during_the_dialog(
+    qtbot, built, action, verb
+) -> None:
+    """LWSM-1529 point 5: nothing was disclosed, so the controller's check has
+    nothing to compare against; a holder named while the user decided is a
+    process they were never shown. Open already refuses this."""
+    window, controller = _unnamed_holder_window(qtbot, built, True)
+    acted: list = []
+    controller.stop_project = lambda path, **kw: acted.append(("stop", kw))
+    controller.restart_project = lambda path, **kw: acted.append(("restart", kw))
+
+    getattr(window, action)(Path("/srv/a"))
+
+    assert acted == [], "acted on a process the user was never shown"
+    shown = message_of(window)
+    assert "changed while you were deciding" in shown
+    assert f"nothing was {verb}" in shown and "look" in shown
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [("_stop_project", "stop"), ("_restart_project", "restart")],
+)
+def test_stop_and_restart_go_ahead_when_still_no_holder_after_the_dialog(
+    qtbot, built, action, expected
+) -> None:
+    window, controller = _unnamed_holder_window(qtbot, built, False)
+    acted: list = []
+    controller.stop_project = lambda path, **kw: acted.append(("stop", kw))
+    controller.restart_project = lambda path, **kw: acted.append(("restart", kw))
+
+    getattr(window, action)(Path("/srv/a"))
+
+    assert acted == [(expected, {"disclosed_holder": None})]
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [("_stop_project", "stop"), ("_restart_project", "restart")],
+)
+def test_stop_and_restart_of_our_own_server_never_ask_so_never_refuse(
+    qtbot, built, action, expected
+) -> None:
+    """Only a disclosure leaves a window for the row to change, and our own
+    server is never disclosed. A row naming a holder while `shown` is None
+    must still be acted on there."""
+    window = opening_window(qtbot, built, [record("a", 5005)], FakeProbe(5005), [])
+    controller = window._controller
+    path = Path("/srv/a")
+    assert controller.row(path).managed and controller.row(path).holder_pid, "setup"
+    window._shown_holder = lambda _path: None
+    acted: list = []
+    controller.stop_project = lambda path, **kw: acted.append(("stop", kw))
+    controller.restart_project = lambda path, **kw: acted.append(("restart", kw))
+
+    getattr(window, action)(path)
+
+    assert acted == [(expected, {"disclosed_holder": None})]
+
+
 def test_the_glyph_column_fits_the_widest_glyph(qtbot, monkeypatch) -> None:
     """The column was sized from "●" alone; a fallback font can draw another
     state's glyph wider, and it would then overlap the word (2026-10-01
@@ -11428,3 +11594,116 @@ def test_a_relaunch_that_cannot_start_still_closes(
     window._on_update_installed(Path("/apps/x.AppImage"))
 
     assert not window.isVisible()
+
+
+# --- LWSM-1541: focus when the focused project row leaves the list ------------
+
+
+def _focused_name(window) -> str:
+    focused = window.focusWidget()
+    if focused is window._filter:
+        return "filter"
+    row = next(
+        (r for r in rows_of(window) if r is focused or r.isAncestorOf(focused)), None
+    )
+    return "nothing" if row is None else row._name.text().split(" (")[0]
+
+
+def _focus_window(qtbot, built, tmp_path, names):
+    window, controller = rescan_window(
+        qtbot,
+        built,
+        [record(name, 5001 + n) for n, name in enumerate(names)],
+        tmp_path,
+        FakeScanResult(),
+        saves=[],
+    )
+    with qtbot.waitExposed(window):
+        window.show()
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    return window, controller
+
+
+def _remove_row(window, controller, how: str, name: str) -> None:
+    path = Path(f"/srv/{name}")
+    if how == "rescan":
+        controller.set_records([r for r in controller.records() if r.path != path])
+        controller.poll_once()
+    else:
+        window.set_project_hidden(path, True)
+
+
+@pytest.mark.parametrize("how", ["rescan", "hide"])
+@pytest.mark.parametrize(
+    ("gone", "lands"),
+    [("a", "b"), ("b", "c"), ("c", "b")],
+    ids=["first", "mid", "last"],
+)
+def test_focus_leaving_a_removed_row_goes_to_the_next_row_else_the_previous(
+    qtbot, built, tmp_path, how, gone, lands
+) -> None:
+    """Measured: Qt picks the next row, but past the last row it wraps to the
+    filter box at the top, away from a magnifier's view of the list's end."""
+    window, controller = _focus_window(qtbot, built, tmp_path, ["a", "b", "c"])
+    row_named(window, gone).setFocus()
+    assert _focused_name(window) == gone, "the fixture must focus the row"
+
+    _remove_row(window, controller, how, gone)
+
+    assert _focused_name(window) == lands
+    window.shutdown()
+
+
+@pytest.mark.parametrize("how", ["rescan", "hide"])
+def test_focus_on_a_button_inside_the_removed_row_moves_too(
+    qtbot, built, tmp_path, how
+) -> None:
+    window, controller = _focus_window(qtbot, built, tmp_path, ["a", "b", "c"])
+    row_named(window, "c").start_button.setFocus()
+    assert row_named(window, "c").start_button.hasFocus(), "the fixture"
+
+    _remove_row(window, controller, how, "c")
+
+    assert _focused_name(window) == "b"
+    window.shutdown()
+
+
+@pytest.mark.parametrize("how", ["rescan", "hide"])
+def test_focus_leaving_the_only_row_goes_to_the_filter_box(
+    qtbot, built, tmp_path, how
+) -> None:
+    window, controller = _focus_window(qtbot, built, tmp_path, ["a"])
+    row_named(window, "a").setFocus()
+
+    _remove_row(window, controller, how, "a")
+
+    assert _focused_name(window) == "filter"
+    window.shutdown()
+
+
+def test_focus_skips_rows_the_filter_has_hidden(qtbot, built, tmp_path) -> None:
+    """The neighbour must be one the user can see."""
+    window, controller = _focus_window(qtbot, built, tmp_path, ["api", "app", "zed"])
+    window._filter.setText("ap")
+    row_named(window, "app").setFocus()
+    assert _focused_name(window) == "app", "the fixture must focus the row"
+
+    _remove_row(window, controller, "hide", "app")
+
+    assert _focused_name(window) == "api"
+    window.shutdown()
+
+
+def test_focus_leaving_a_dropped_row_skips_a_row_the_user_hid(
+    qtbot, built, tmp_path
+) -> None:
+    window, controller = _focus_window(qtbot, built, tmp_path, ["a", "b", "c"])
+    window.set_project_hidden(Path("/srv/b"), True)
+    row_named(window, "c").setFocus()
+    assert _focused_name(window) == "c", "the fixture must focus the row"
+
+    _remove_row(window, controller, "rescan", "c")
+
+    assert _focused_name(window) == "a"
+    window.shutdown()

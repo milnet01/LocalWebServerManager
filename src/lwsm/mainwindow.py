@@ -944,6 +944,13 @@ class _MergeTask(QRunnable):
             log.warning("the %s ended without reporting", self.what, exc_info=True)
 
 
+@dataclass(frozen=True)
+class _RescanMerge(MergeResult):
+    """A merge plus whether the scan could ask systemd about units."""
+
+    units_unavailable: bool = False
+
+
 class _RescanTask(_MergeTask):
     """Scan the roots, then merge what was found into the stored records."""
 
@@ -967,11 +974,15 @@ class _RescanTask(_MergeTask):
         # banner message would fire on every rescan of every populated machine.
         for reason in result.skipped:
             log.info("rescan: skipped %s", reason)
-        return replace(
-            registry.merge(
-                self._stored, result, self._context.roots, self._context.now
-            ),
+        merged = registry.merge(
+            self._stored, result, self._context.roots, self._context.now
+        )
+        return _RescanMerge(
+            records=merged.records,
+            reasons=merged.reasons,
+            counts=merged.counts,
             skipped=tuple(result.skipped),
+            units_unavailable=result.units_unavailable,
         )
 
 
@@ -2287,6 +2298,8 @@ class MainWindow(QMainWindow):
         self._confirm_tree = (
             confirm_tree if confirm_tree is not None else self._confirm_tree_dialog
         )
+        # Set by `_apply_rescan` just before it asks, for the real dialog.
+        self._first_run_units_unavailable = False
         # LWSM-1008's confirmation, injected for `confirm`'s reason.
         self._confirm_first_run = (
             confirm_first_run
@@ -3600,12 +3613,43 @@ class MainWindow(QMainWindow):
         arriving from a rescan would appear in a list the user has narrowed.
         """
         needle = self._filter.text().strip().casefold()
-        for row in self._ordered_rows():
-            # Two independent reasons to be off screen, and the same mechanism
-            # for both: a hidden project is a stored preference and the needle
-            # is a live one, so neither may resurrect a row the other excluded.
-            showable = self._show_hidden or not row.hidden_by_user()
-            row.setVisible(showable and row.matches(needle))
+        rows = self._ordered_rows()
+        # Two independent reasons to be off screen, and the same mechanism
+        # for both: a hidden project is a stored preference and the needle
+        # is a live one, so neither may resurrect a row the other excluded.
+        wanted = {
+            row: (self._show_hidden or not row.hidden_by_user()) and row.matches(needle)
+            for row in rows
+        }
+        self._hand_focus_over(
+            [row for row in rows if not wanted[row]], [r for r in rows if wanted[r]]
+        )
+        for row, visible in wanted.items():
+            row.setVisible(visible)
+
+    def _hand_focus_over(
+        self, leaving: list[ProjectRow], staying: list[ProjectRow]
+    ) -> None:
+        """Move focus off a row that is about to go, before it goes.
+
+        Qt would pick the next row, and past the last one wrap to the filter
+        box at the top of the list, away from where a magnifier is looking. The
+        next staying row takes it, else the previous one, else the filter box.
+        """
+        focused = self.focusWidget()
+        if focused is None:
+            return
+        ordered = self._ordered_rows()
+        holder = next(
+            (r for r in leaving if r is focused or r.isAncestorOf(focused)), None
+        )
+        if holder is None:
+            return
+        at = ordered.index(holder)
+        after = [r for r in ordered[at + 1 :] if r in staying]
+        before = [r for r in reversed(ordered[:at]) if r in staying]
+        target = (after or before or [self._filter])[0]
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """`/`, Escape and the number keys (LWSM-1040).
@@ -4138,7 +4182,7 @@ class MainWindow(QMainWindow):
         """
         from lwsm.firstrun import ask_first_run
 
-        return ask_first_run(records, skipped, self)
+        return ask_first_run(records, skipped, self, self._first_run_units_unavailable)
 
     def is_first_run(self) -> bool:
         """No `projects.json` yet, and a Rescan that can create one (LWSM-1008)."""
@@ -4354,11 +4398,54 @@ class MainWindow(QMainWindow):
         """
         return self._controller.holder_identity(path)
 
+    def _holder_appeared_while_deciding(
+        self,
+        path: Path,
+        before: RowView | None,
+        shown: HolderIdentity | None,
+        refusal: str,
+    ) -> bool:
+        """True, after saying so, when a disclosure that named no holder was
+        followed by a row that names one.
+
+        The controller reads `None` as "nothing was disclosed" and compares
+        nothing, so Stop and Restart need this window-side check, as Open has
+        (`_open_project`). `before` is the row at the click: only a foreign,
+        running one asks first, so only that one can change under the dialog.
+        """
+        view = self._controller.row(path)
+        if (
+            shown is not None
+            or before is None
+            or before.managed
+            or before.supervised
+            or before.status not in RUNNING_STATES
+            or view is None
+            or view.holder_pid is None
+        ):
+            return False
+        # `refusal` is a whole translated sentence: a verb spliced into one
+        # could not be inflected.
+        self.set_status_message(refusal.replace("%1", display_text(path.name)))
+        return True
+
     def _stop_project(self, path: Path) -> None:
+        before = self._controller.row(path)
         shown = self._shown_holder(path)
         if self._stop_foreign_tree(path):
             return
         if self._may_act_on(path, own_child_suffices=True):
+            if self._holder_appeared_while_deciding(
+                path,
+                before,
+                shown,
+                QCoreApplication.translate(
+                    "ProjectRow",
+                    "The server for %1 changed while you were deciding — "
+                    "nothing was stopped; look at its details again",
+                ),
+            ):
+                return
             self._controller.stop_project(path, disclosed_holder=shown)
 
     def _stop_foreign_tree(self, path: Path) -> bool:
@@ -4419,8 +4506,20 @@ class MainWindow(QMainWindow):
             changes += 1
 
     def _restart_project(self, path: Path) -> None:
+        before = self._controller.row(path)
         shown = self._shown_holder(path)
         if self._may_act_on(path, own_child_suffices=True):
+            if self._holder_appeared_while_deciding(
+                path,
+                before,
+                shown,
+                QCoreApplication.translate(
+                    "ProjectRow",
+                    "The server for %1 changed while you were deciding — "
+                    "nothing was restarted; look at its details again",
+                ),
+            ):
+                return
             self._controller.restart_project(path, disclosed_holder=shown)
 
     def _open_project(self, path: Path) -> None:
@@ -5014,6 +5113,9 @@ class MainWindow(QMainWindow):
             # No file yet: nothing is written until the user has seen the list
             # (LWSM-1008). Not now leaves the session as it was, still a first
             # run, so the next Rescan or the next start asks again.
+            self._first_run_units_unavailable = (
+                isinstance(merged, _RescanMerge) and merged.units_unavailable
+            )
             chosen = self._confirm_first_run(list(merged.records), merged.skipped)
             if self._stopped:
                 # Quit while the dialog was open; nothing left to save into.
@@ -5282,7 +5384,16 @@ class MainWindow(QMainWindow):
         # harmless in P02 where the list cannot change, but the signal is
         # already called projects_changed and LWSM-1008 will change it.
         live = {view.path for view in views}
-        for path in [known for known in self._rows if known not in live]:
+        dropped = [known for known in self._rows if known not in live]
+        self._hand_focus_over(
+            [self._rows[path] for path in dropped],
+            [
+                row
+                for path, row in self._rows.items()
+                if path not in dropped and not row.isHidden()
+            ],
+        )
+        for path in dropped:
             widget = self._rows.pop(path)
             # setParent(None), not removeWidget: removeWidget takes the widget
             # out of the LAYOUT and neither hides nor reparents it, so the row

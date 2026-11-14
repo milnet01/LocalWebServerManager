@@ -27,8 +27,8 @@ def project(name: str, port: int | None = 3000) -> ProjectRecord:
     )
 
 
-def build(qtbot, records, skipped=()) -> FirstRunDialog:
-    dialog = FirstRunDialog(records, skipped)
+def build(qtbot, records, skipped=(), units_unavailable=False) -> FirstRunDialog:
+    dialog = FirstRunDialog(records, skipped, units_unavailable=units_unavailable)
     qtbot.addWidget(dialog)
     return dialog
 
@@ -229,3 +229,100 @@ def test_the_skipped_list_is_not_a_tab_stop(qtbot) -> None:
     dialog = build(qtbot, [project("a")], ["skipped: b (no launcher)"])
 
     assert not dialog._skipped.focusPolicy() & Qt.FocusPolicy.TabFocus
+
+
+# --- a first run where systemd could not be asked (user, 2026-11-14) ----------
+
+NOTE = "Services could not be checked"
+
+
+def test_when_services_could_not_be_checked_nothing_starts_ticked(qtbot) -> None:
+    """A wrong guess about a unit would be saved; the user ticks by hand."""
+    records = [project("api"), project("web")]
+    dialog = build(qtbot, records, units_unavailable=True)
+
+    assert dialog.chosen() == []
+    assert dialog._count.text() == "Ticked: 0 of 2"
+    assert all(not box.isChecked() for box in dialog._boxes)
+
+    dialog._boxes[1].setChecked(True)
+
+    assert [record.name for record in dialog.chosen()] == ["web"]
+    assert dialog._count.text() == "Ticked: 1 of 2"
+
+
+def test_every_row_carries_the_note_and_the_intro_says_to_tick(qtbot) -> None:
+    dialog = build(qtbot, [project("api"), project("web")], units_unavailable=True)
+
+    for box, name in zip(dialog._boxes, ("api", "web"), strict=True):
+        assert box.text() == f"{name} — ./run.sh, port 3000\n{NOTE}"
+    assert dialog._intro.text().startswith(NOTE)
+    assert "Tick" in dialog._intro.text()
+    assert "Untick" not in dialog._intro.text()
+
+
+def test_a_normal_first_run_has_no_note_and_starts_ticked(qtbot) -> None:
+    dialog = build(qtbot, [project("api")])
+
+    assert dialog._boxes[0].isChecked()
+    assert NOTE not in dialog._boxes[0].text()
+    assert NOTE not in dialog._intro.text()
+
+
+def test_the_note_is_retranslated_with_the_rest(qtbot) -> None:
+    from PySide6.QtCore import QCoreApplication, QEvent, QTranslator
+    from PySide6.QtWidgets import QApplication
+
+    class Shouting(QTranslator):
+        def translate(self, context, sourceText, _disambiguation=None, n=-1) -> str:
+            return sourceText.upper()
+
+    dialog = build(qtbot, [project("api")], units_unavailable=True)
+    translator = Shouting()
+    app = QCoreApplication.instance()
+    assert app.installTranslator(translator)
+    try:
+        QApplication.sendEvent(dialog, QEvent(QEvent.Type.LanguageChange))
+
+        assert NOTE.upper() in dialog._boxes[0].text()
+        assert dialog._intro.text().startswith(NOTE.upper())
+    finally:
+        app.removeTranslator(translator)
+
+
+def test_the_note_fits_at_double_text_size(qtbot) -> None:
+    """The note is a second line of the box, so the box grows taller rather
+    than wider, and the intro wraps; at 200 % nothing needs a sideways scroll
+    that the plain line did not."""
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    original = app.font()
+    try:
+        font = app.font()
+        font.setPointSizeF(font.pointSizeF() * 2)
+        app.setFont(font)
+        plain = build(qtbot, [project("web")])
+        noted = build(qtbot, [project("web")], units_unavailable=True)
+
+        box = noted._boxes[0]
+        line = box.fontMetrics().lineSpacing()
+        assert box.sizeHint().height() >= 2 * line
+        # Two lines, not one long one: a single line would be the sum of both.
+        one_line = plain._boxes[
+            0
+        ].sizeHint().width() + box.fontMetrics().horizontalAdvance(NOTE)
+        assert box.sizeHint().width() < one_line
+        assert noted._intro.wordWrap()
+    finally:
+        app.setFont(original)
+
+
+def test_ask_passes_the_flag_to_the_dialog(qtbot, monkeypatch) -> None:
+    monkeypatch.setattr(
+        FirstRunDialog, "exec", lambda self: QDialog.DialogCode.Accepted
+    )
+
+    chosen = firstrun.ask_first_run([project("web")], (), None, units_unavailable=True)
+
+    assert chosen == []

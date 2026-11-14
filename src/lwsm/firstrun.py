@@ -91,10 +91,12 @@ class FirstRunDialog(QDialog):
         records: Sequence[ProjectRecord],
         skipped: Sequence[str],
         parent: QWidget | None = None,
+        units_unavailable: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setModal(True)
         self._records = list(records)
+        self._units_unavailable = units_unavailable
 
         self._intro = QLabel()
         self._intro.setWordWrap(True)
@@ -105,7 +107,9 @@ class FirstRunDialog(QDialog):
         for _ in self._records:
             # Its text is set in `_retranslate`, with every other string.
             box = QCheckBox()
-            box.setChecked(True)
+            # Nothing is added on a guess: with systemd unreachable a project's
+            # unit was not looked for, so the user ticks by hand.
+            box.setChecked(not units_unavailable)
             box.setMinimumHeight(MIN_TARGET_PX)
             box.toggled.connect(self._update_count)
             column.addWidget(box)
@@ -166,6 +170,12 @@ class FirstRunDialog(QDialog):
         self._intro.setText(
             QCoreApplication.translate(
                 "FirstRunDialog",
+                "Services could not be checked, so no project is ticked. Tick "
+                "each project you want. Nothing is saved until you press Save.",
+            )
+            if self._records and self._units_unavailable
+            else QCoreApplication.translate(
+                "FirstRunDialog",
                 "Untick any project you do not want. Nothing is saved until "
                 "you press Save.",
             )
@@ -185,7 +195,13 @@ class FirstRunDialog(QDialog):
             # `&` doubled: a check box reads a lone one as a keyboard shortcut,
             # and a folder name is not the place for one. Here rather than at
             # construction, so a language change reaches it (L09-L2).
-            box.setText(describe(record).replace("&", "&&"))
+            line = describe(record).replace("&", "&&")
+            if self._units_unavailable:
+                # A second line, so the box grows taller rather than wider.
+                line += "\n" + QCoreApplication.translate(
+                    "FirstRunDialog", "Services could not be checked"
+                )
+            box.setText(line)
         self._save.setText(QCoreApplication.translate("FirstRunDialog", "&Save"))
         self._later.setText(QCoreApplication.translate("FirstRunDialog", "&Not now"))
         self._update_count()
@@ -215,10 +231,13 @@ class FirstRunDialog(QDialog):
 
 
 def ask_first_run(
-    records: Sequence[ProjectRecord], skipped: Sequence[str], parent: QWidget
+    records: Sequence[ProjectRecord],
+    skipped: Sequence[str],
+    parent: QWidget,
+    units_unavailable: bool = False,
 ) -> list[ProjectRecord] | None:
     """Show the dialog; the ticked records on Save, `None` on Not now."""
-    dialog = FirstRunDialog(records, skipped, parent)
+    dialog = FirstRunDialog(records, skipped, parent, units_unavailable)
     # `deleteLater` after the read, for `open_settings`' reason (LWSM-1276).
     try:
         if dialog.exec() != QDialog.DialogCode.Accepted:
