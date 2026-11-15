@@ -1655,6 +1655,8 @@ def test_a_rescan_that_cannot_be_saved_keeps_the_stored_details(
 
     assert result.records[0].argv == ("./start.sh",)
     assert any("cannot be saved" in reason for reason in result.reasons)
+    # The details were not applied, so the summary must not say "no changes".
+    assert result.counts[registry.UNCHANGED] == 0
     registry.save_projects(
         tmp_path / "projects.json",
         result.records,
@@ -3610,6 +3612,39 @@ def test_a_save_refused_after_the_set_aside_names_the_copy(
     assert aside.read_bytes() == _HAND_EDIT
 
 
+def test_a_failed_save_retried_keeps_one_set_aside_copy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """LWSM-1560 (02.2). A save that fails after the copy never updated the
+    digest, so each retry copied the same hand-edited bytes again.
+
+    Dies on dropping the reuse of an identical `.edited-*` file.
+    """
+    from lwsm.configfile import ConfigFileError
+
+    path, _raw = _startup_file(tmp_path)
+    loaded = load_projects(path)
+    path.write_bytes(_HAND_EDIT)
+    real = registry.write_atomically
+
+    def full_for_the_save(target, data, **kwargs):
+        if kwargs.get("prefix") == ".projects-":
+            raise ConfigFileError(f"{target}: No space left on device")
+        real(target, data, **kwargs)
+
+    monkeypatch.setattr(registry, "write_atomically", full_for_the_save)
+
+    messages = []
+    for _ in range(3):
+        with pytest.raises(RegistryError) as caught:
+            save_projects(path, [], load=loaded)
+        messages.append(str(caught.value))
+
+    (aside,) = _set_aside(path)
+    assert aside.read_bytes() == _HAND_EDIT
+    assert all(str(aside) in message for message in messages)
+
+
 def test_a_restore_whose_backup_will_not_load_puts_the_damaged_file_back(
     tmp_path: Path,
 ) -> None:
@@ -3630,6 +3665,35 @@ def test_a_restore_whose_backup_will_not_load_puts_the_damaged_file_back(
     assert path.read_text(encoding="utf-8") == "{ this is not json"
     assert not list(tmp_path.glob("projects.json.damaged-*"))
     assert registry.backup_path(path).read_text(encoding="utf-8") == "{ also not json"
+
+
+def test_a_restore_never_leaves_the_projects_file_missing_while_it_writes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """LWSM-1560 (02.1). The damaged file was renamed away before the backup
+    was written, so a process death in that window left no `projects.json`,
+    which the next launch reads as a first run.
+
+    Dies on renaming instead of copying the damaged file aside.
+    """
+    path, _raw = _startup_file(tmp_path)
+    save_projects(path, [], load=load_projects(path))
+    path.write_text("{ this is not json", encoding="utf-8")
+    real = registry.write_atomically
+    seen: list[bool] = []
+
+    def watching(target, data, **kwargs):
+        if kwargs.get("prefix") == ".projects-":
+            seen.append(Path(target).exists())
+        real(target, data, **kwargs)
+
+    monkeypatch.setattr(registry, "write_atomically", watching)
+
+    registry.restore_backup(path)
+
+    assert seen == [True], "projects.json was absent while the backup was written"
+    (aside,) = tmp_path.glob("projects.json.damaged-*")
+    assert aside.read_text(encoding="utf-8") == "{ this is not json"
 
 
 def test_a_restore_refuses_a_symlinked_projects_file(tmp_path: Path) -> None:

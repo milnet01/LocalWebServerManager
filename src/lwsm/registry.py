@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import MISSING as _NO_DEFAULT
 from dataclasses import dataclass, replace
@@ -1288,6 +1289,16 @@ def _set_aside_if_edited(path: Path, expected: str | None) -> Path | None:
         ) from exc
     if expected is not None and _digest(current) == expected:
         return None
+    # A retry of a save that failed after the copy finds the same bytes
+    # already kept; a second copy per retry would only fill the disk
+    # (LWSM-1560).
+    try:
+        for earlier in sorted(path.parent.glob(f"{path.name}.edited-*")):
+            if earlier.is_file() and read_bounded(earlier) == current:
+                log.warning("%s: %s", quoted(str(path)), set_aside_notice(earlier))
+                return earlier
+    except OSError:
+        pass  # unreadable neighbours: fall through to a fresh copy
     try:
         aside = _unused_name(path, "edited")
         try:
@@ -1371,7 +1382,7 @@ def backup_saved_at(path: Path) -> datetime | None:
 def restore_backup(path: Path) -> LoadResult:
     """Set the damaged `path` aside and load its backup in its place.
 
-    The damaged file is renamed, never deleted (user, 2026-10-02), to
+    The damaged file is copied, never deleted (user, 2026-10-02), to
     `projects.json.damaged-<time>`, numbered where that name is taken so an
     earlier one is never overwritten. The backup's bytes are then written to
     `path` and loaded from there, so the result licenses saves to `path` like
@@ -1399,7 +1410,10 @@ def restore_backup(path: Path) -> LoadResult:
         refuse_existing_target(path)
         aside = _unused_name(path, "damaged")
         if path.exists():
-            path.rename(aside)
+            # A copy, not a rename: renamed away, a process death before the
+            # write below leaves no file at `path`, which the next launch reads
+            # as a first run (LWSM-1560).
+            shutil.copyfile(path, aside)
             set_aside = aside
         write_atomically(path, saved, prefix=".projects-")
     except ConfigFileNotDurable:
@@ -1409,8 +1423,11 @@ def restore_backup(path: Path) -> LoadResult:
         kept = ""
         if set_aside is not None:
             try:
-                # Never over a file the failed write may still have left.
-                if not path.exists():
+                # `path` was never moved, so the copy is surplus; if the failed
+                # write somehow lost `path`, the copy takes its place.
+                if path.exists():
+                    set_aside.unlink()
+                else:
                     set_aside.rename(path)
             except OSError as back_exc:
                 kept = (
@@ -1804,6 +1821,9 @@ def merge(
                 "they cannot be saved (text that is not UTF-8)"
             )
             updated = record
+            unapplied = True
+        else:
+            unapplied = False
         merged[index] = updated
 
         not_reobserved = (
@@ -1818,7 +1838,9 @@ def merge(
                 f"{quoted(record.name)}: port no longer detected, "
                 f"keeping {record.port}",
             )
-        if not (changed or not_reobserved):
+        # An unapplied record is not "unchanged": the detected halves differ and
+        # the note above says so (LWSM-1560).
+        if not (changed or not_reobserved or unapplied):
             counts[UNCHANGED] += 1
 
         # Only `port_override` participates: `launcher_override` is stored but is
