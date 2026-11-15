@@ -537,6 +537,73 @@ def test_reading_back_in_a_full_view_keeps_the_same_line_in_view(
     panel.close_panel()
 
 
+def test_a_big_chunk_is_one_append_of_only_the_lines_the_view_can_keep(
+    qtbot,
+) -> None:
+    """64 K short lines appended one at a time froze the window for seconds
+    (measured 3.2 s offscreen). The view keeps MAX_LINES, so the rest is
+    never appended, and the batch goes in as one call. No red run on a clock:
+    the call count is the bound."""
+    from lwsm.logbuffer import MAX_LINES
+    from lwsm.logpanel import LogPanel
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    calls: list[str] = []
+    real = panel.view.appendPlainText
+    panel.view.appendPlainText = lambda text: (calls.append(text), real(text))[1]
+
+    panel.append_lines([f"n{n}" for n in range(MAX_LINES * 10)])
+
+    assert len(calls) == 1
+    assert panel.view.document().blockCount() == MAX_LINES
+    assert panel.view.document().lastBlock().text() == f"n{MAX_LINES * 10 - 1}"
+    assert panel.view.document().firstBlock().text() == f"n{MAX_LINES * 9}"
+
+
+def test_leading_blank_lines_are_kept_and_an_empty_chunk_adds_nothing(qtbot) -> None:
+    """Qt's own `appendPlainText` puts text into an empty document's one
+    block, so blank lines appended singly at the start vanished (LWSM-1566,
+    08.8). The joined batch keeps them."""
+    from lwsm.logpanel import LogPanel
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.append_lines(["", "", "x"])
+    assert panel.view.toPlainText() == "\n\nx"
+    assert panel.view.document().blockCount() == 3
+
+    panel.append_lines([])
+
+    assert panel.view.document().blockCount() == 3
+
+
+def test_a_chunk_longer_than_the_view_keeps_a_held_place_valid(qtbot, tmp_path) -> None:
+    """A scrolled-up reader whose block is trimmed away lands at the top, not
+    on a stale or invalid block."""
+    from lwsm.logbuffer import MAX_LINES
+    from lwsm.logpanel import LogPanel
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.resize(500, 400)
+    (tmp_path / "web.log").write_text("")
+    panel.open_for("web", LogSource(file=tmp_path / "web.log"))
+    with qtbot.waitExposed(panel):
+        panel.show()
+    panel.append_lines([f"a{n}" for n in range(MAX_LINES)])
+    bar = panel.view.verticalScrollBar()
+    bar.setValue(bar.maximum() // 2)
+    assert "Paused" in panel.status.text()
+
+    panel.append_lines([f"b{n}" for n in range(MAX_LINES * 2)])
+
+    assert bar.value() == 0
+    assert panel.view.document().firstBlock().text() == f"b{MAX_LINES}"
+    assert "Paused" in panel.status.text()
+    panel.close_panel()
+
+
 @pytest.mark.parametrize(
     ("reason", "expected"),
     [

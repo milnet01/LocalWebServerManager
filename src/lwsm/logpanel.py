@@ -63,10 +63,10 @@ from lwsm.logbuffer import (
     LogSource,
 )
 
-# The fewest lines the view shows when it opens, and how many it asks for.
-# Counts of lines, never pixels (`§ O7`): the height follows the font.
+# The fewest lines the view shows when it opens. A count of lines, never
+# pixels (`§ O7`): the height follows the font. The window sizes the panel
+# from `sizeHint()`, so the view has no preferred height of its own.
 MIN_VISIBLE_LINES = 6
-VISIBLE_LINES = 12
 
 # Within this many pixels of the bottom still counts as "at the bottom", so a
 # wrapped final line a pixel short of the maximum does not read as scrolled up.
@@ -202,6 +202,8 @@ class LogPanel(QFrame):
             lines = [line for line in lines if self._matcher.matches(line)]
             if not lines:
                 return
+        if not lines:
+            return
         bar = self.view.verticalScrollBar()
         following = self._following
         document = self.view.document()
@@ -214,9 +216,14 @@ class LogPanel(QFrame):
         top = document.findBlockByLineNumber(held)
         top_number = top.blockNumber()
         into_top = held - top.firstLineNumber()
-        before = document.blockCount()
-        for line in lines:
-            self.view.appendPlainText(line)
+        # Only the last MAX_LINES can survive the view's own cap, and one
+        # append of the joined batch costs one layout pass, not one per line:
+        # 64 K short lines took seconds on the GUI thread appended singly. An
+        # empty document counts one block but takes the first append into it
+        # rather than after it, so it counts as none.
+        lines = lines[-MAX_LINES:]
+        before = 0 if document.isEmpty() else document.blockCount()
+        self.view.appendPlainText("\n".join(lines))
         if following:
             bar.setValue(bar.maximum())
             return
@@ -415,10 +422,6 @@ class LogPanel(QFrame):
     def _apply_text_metrics(self) -> None:
         lines = self.view.fontMetrics().lineSpacing()
         self.view.setMinimumHeight(MIN_VISIBLE_LINES * lines)
-
-    def preferred_view_height(self) -> int:
-        """What the window adds to show the output comfortably."""
-        return VISIBLE_LINES * self.view.fontMetrics().lineSpacing()
 
     def changeEvent(self, event: QEvent) -> None:
         kind = event.type()
