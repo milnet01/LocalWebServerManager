@@ -16058,6 +16058,10 @@ the tray items.
   passes. Still owed before this flips shipped: the first signed
   release, then spec §7's manual relaunch recipe, which needs a second
   signed release to update to.
+  2026-11-15: the first signed release, 0.6.0, is published with its .sig
+  (sign-release.py publish verified it against the committed key). Still
+  owed before shipped: the user installs that AppImage by hand, a second
+  signed release, then spec § 7's relaunch recipe.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.
