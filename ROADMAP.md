@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1558 -->
+<!-- ants-roadmap-id-high-water: LWSM=1576 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15689,6 +15689,157 @@ decided, is the last packaging item (added 2026-11-11).
   **Layman:** Choosing a browser from a project's drop-down left the box blank and reset the project to the default browser.
   Kind: fix.
   Source: user-report-2026-11-14.
+
+- 📋 [LWSM-1559] **Review 2026-11-15, startup and app log: six small points.**
+  Points: rows 01.1 to 01.6 of the findings ledger (kept private,
+  as review documents are). Low and Info only. 0.6.0 waits on them
+  (user, 2026-11-14).
+  **Layman:** Small fixes to how the app starts and writes its own log.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-01.
+  Lanes: main, applog.
+
+- 📋 [LWSM-1560] **Review 2026-11-15, registry: six small points.**
+  Points: rows 02.1 to 02.6 of the private findings ledger. Low and
+  Info only, including the restore_backup crash window row 1525.2's
+  fix did not cover.
+  **Layman:** Small fixes to how the app stores its list of projects.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-02.
+  Lanes: registry.
+
+- 📋 [LWSM-1561] **Review 2026-11-15, scanner: a comparison like `elif port == 8000:` is read as a port setting, and nine smaller points.**
+  Points: rows 03.1 to 03.10 of the private findings ledger. 03.1 is
+  Medium; 03.10 is LWSM-1478's (0.9.0).
+  **Layman:** The project finder can show a confident but wrong port when a script compares a port instead of setting one.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-03.
+  Lanes: scanner.
+
+- 📋 [LWSM-1562] **Review 2026-11-15, config files and stores: eight small points.**
+  Points: rows 04.1 to 04.8 of the private findings ledger. 04.1 was
+  Medium, calibrated Low (only a writer of the config folder reaches
+  it); 04.2 calibrated Info after measurement.
+  **Layman:** Small fixes to how settings and remembered choices are read and written.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-04.
+  Lanes: configfile, settings, stores, scanroots.
+
+- 📋 [LWSM-1563] **Review 2026-11-15, supervisor and trust: nine small points.**
+  Points: rows 05.1 to 05.9 of the private findings ledger. Low and
+  Info only.
+  **Layman:** Small fixes to how the app launches servers and remembers which projects you trusted.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-05.
+  Lanes: supervisor, trust.
+
+- 📋 [LWSM-1564] **Review 2026-11-15, service, foreign holders, ports and health: seven small points.**
+  Points: rows 06.1 to 06.7 of the private findings ledger. 06.7 is an
+  open library question (shlex on a systemd-quoted ExecStart) to
+  settle with a test.
+  **Layman:** Small fixes to how the app tells what is holding a port.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-06.
+  Lanes: service, foreign, ports, health.
+
+- 📋 [LWSM-1565] **Review 2026-11-15, controller: seven small points.**
+  Points: rows 07.1 to 07.7 of the private findings ledger. 07.1 (the
+  untranslated sentences) is LWSM-1478's, in 0.9.0; 07.3 is resolved
+  by spec LWSM-1038 step 2.
+  **Layman:** Small fixes to the part that drives start, stop and restart.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-07.
+  Lanes: controller.
+
+- 📋 [LWSM-1566] **Review 2026-11-15, log follower and panel: a flood of short lines can freeze the window, and ten smaller points.**
+  Points: rows 08.1 to 08.11 of the private findings ledger. 08.1 is
+  Medium: the panel appends each line one at a time though it keeps
+  only the last 2000.
+  **Layman:** A server that prints a huge burst of short lines could freeze the window, and the magnifier with it.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-08.
+  Lanes: logbuffer, logpanel.
+
+- 📋 [LWSM-1567] **Review 2026-11-15, self-update: thirteen small points.**
+  Points: rows 09.1 to 09.13 of the private findings ledger. Low and
+  Info only. LWSM-1548 stays in progress for its own reasons.
+  **Layman:** Small fixes to the self-update, including inputs that could break a parser that promises never to fail.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-09.
+  Lanes: update, update_fetch, updatedialog.
+
+- 📋 [LWSM-1568] **Review 2026-11-15, main window rows: five small points.**
+  Points: rows 10.1 to 10.5 of the private findings ledger. 10.4 is
+  resolved: controller.records() returns a copy.
+  **Layman:** Small fixes to the project rows in the main window.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-10.
+  Lanes: mainwindow.
+
+- 📋 [LWSM-1569] **Review 2026-11-15, window shell and theme: eight small points.**
+  Points: rows 11.1 to 11.8 of the private findings ledger. 11.1 is
+  settled by close-findings-2026-11-14 row 1529.6c.
+  **Layman:** Small fixes to the window frame, menus and colour themes.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-11.
+  Lanes: mainwindow, theme, appearance, outline.
+
+- 📋 [LWSM-1570] **Review 2026-11-15, window actions and browsers: six small points.**
+  Points: rows 12.1 to 12.6 of the private findings ledger, plus lead
+  19.1 (the tree-stop dialog shows a holder's command line unclipped).
+  12.6 is LWSM-1478's.
+  **Layman:** Small fixes to the buttons and the browser opener.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-12.
+  Lanes: mainwindow, browsers.
+
+- 📋 [LWSM-1571] **Review 2026-11-15, window geometry and placement: seven small points.**
+  Points: rows 13.1 to 13.7 of the private findings ledger.
+  **Layman:** Small fixes to where the window opens and how it remembers its size.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-13.
+  Lanes: mainwindow, placement.
+
+- 📋 [LWSM-1572] **Review 2026-11-15, dialogs: seven small points.**
+  Points: rows 14.1 to 14.7 of the private findings ledger. 14.1 was
+  Medium, calibrated Info (scanner.py cleans the name). 14.7 is an open
+  Qt question (QLabel focus policy) to settle with a test.
+  **Layman:** Small fixes to the Settings, first-run and port lookup dialogs.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-14.
+  Lanes: settingsdialog, firstrun, portlookup.
+
+- 📋 [LWSM-1573] **Review 2026-11-15, dev gate and shell scripts: eight small points.**
+  Points: rows 15.1 to 15.8 of the private findings ledger.
+  **Layman:** Small fixes to the checks that run before every push.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-15.
+  Lanes: tooling.
+
+- 📋 [LWSM-1574] **Review 2026-11-15, release scripts: a failed key check or a missing build tool is reported as the wrong blocker, and five smaller points.**
+  Points: rows 16.1 to 16.7 of the private findings ledger, plus lead
+  19.7 (no flag to skip the AppImage step). 16.1 and 16.2 are Medium:
+  a check that could not run must report a SKIP, not a BLOCK.
+  **Layman:** The release pre-check can say the signing key is missing, or that the build failed, when the real cause is something else.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-16.
+  Lanes: release.
+
+- 📋 [LWSM-1575] **Review 2026-11-15, workflows: six small points.**
+  Points: rows 17.1 to 17.6 of the private findings ledger. 17.2 is
+  LWSM-1550's, in 0.7.0.
+  **Layman:** Small fixes to the GitHub build and release workflows.
+  Kind: review-fix.
+  Source: review-code-2026-11-15 lane-17.
+  Lanes: ci.
+
+- 📋 [LWSM-1576] **check-code 2026-11-15: three tool findings with no false-positive record, three unused names in src/, four spelling hits.**
+  Points: rows 18.1 to 18.10 of the private findings ledger, and
+  leads 19.2 to 19.6 from the 2026-11-14 run that no item above owns.
+  **Layman:** Tidy up what the automatic checkers flagged, or record why each flag is a false alarm.
+  Kind: audit-fix.
+  Source: check-code-2026-11-15.
+  Lanes: tooling.
 
 ## 0.7.0 — Updates you can read, and a tray
 
