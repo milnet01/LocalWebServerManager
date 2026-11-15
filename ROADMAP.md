@@ -15694,6 +15694,8 @@ decided, is the last packaging item (added 2026-11-11).
   Points: rows 01.1 to 01.6 of the findings ledger (kept private,
   as review documents are). Low and Info only. 0.6.0 waits on them
   (user, 2026-11-14).
+  2026-11-15: 01.1 and 01.3 fixed in 1d122ba; 01.4-01.6 dismissed. Open:
+  01.2 (whether Qt unsets XDG_ACTIVATION_TOKEN; needs a live Wayland run).
   **Layman:** Small fixes to how the app starts and writes its own log.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-01.
@@ -15703,6 +15705,10 @@ decided, is the last packaging item (added 2026-11-11).
   Points: rows 02.1 to 02.6 of the private findings ledger. Low and
   Info only, including the restore_backup crash window row 1525.2's
   fix did not cover.
+  2026-11-15: 02.1, 02.3 and 02.2's retries fixed in 33fd02b; 02.4 and
+  02.5 dismissed. Open: a cap on .edited-* and .damaged-* copies
+  (proposal: keep the newest 5 of each), and 02.6 (a load-time length cap
+  on names and notes).
   **Layman:** Small fixes to how the app stores its list of projects.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-02.
@@ -15723,17 +15729,22 @@ decided, is the last packaging item (added 2026-11-11).
   Points: rows 04.1 to 04.8 of the private findings ledger. 04.1 was
   Medium, calibrated Low (only a writer of the config folder reaches
   it); 04.2 calibrated Info after measurement.
+  2026-11-15: 04.1, 04.4, 04.5 (port) and 04.6 fixed in 2b3be4a; 04.2,
+  04.7, 04.8 and 08.11 dismissed. Open: 04.3 (a huge unknown-keys block
+  refuses every save).
   **Layman:** Small fixes to how settings and remembered choices are read and written.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-04.
   Lanes: configfile, settings, stores, scanroots.
 
-- 📋 [LWSM-1563] **Review 2026-11-15, supervisor and trust: nine small points.**
+- ✅ [LWSM-1563] **Review 2026-11-15, supervisor and trust: nine small points.**
   Points: rows 05.1 to 05.9 of the private findings ledger. Low and
   Info only.
   2026-11-15: 05.2-05.4, 05.6 and 05.8 fixed in 158a5e2; 05.1 is
   ADR-0003's wording (docs fold-back); 05.5 moved to LWSM-1565; 05.7
   and 05.9 dismissed (documented cost; benign).
+  2026-11-15: every point closed: fixed in 158a5e2 and dc4f61a (ADR-0003),
+  05.5 closed under LWSM-1565, 05.7 and 05.9 dismissed.
   **Layman:** Small fixes to how the app launches servers and remembers which projects you trusted.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-05.
@@ -15743,6 +15754,9 @@ decided, is the last packaging item (added 2026-11-11).
   Points: rows 06.1 to 06.7 of the private findings ledger. 06.7 is an
   open library question (shlex on a systemd-quoted ExecStart) to
   settle with a test.
+  2026-11-15: 06.2 and 06.3 fixed in c7f3e34; 06.5-06.7 and the
+  health.py makefile hit dismissed. Open: 06.1 (no startup sweep of a
+  left-behind port drop-in), 06.4 (realpath on every argv token).
   **Layman:** Small fixes to how the app tells what is holding a port.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-06.
@@ -15752,6 +15766,10 @@ decided, is the last packaging item (added 2026-11-11).
   Points: rows 07.1 to 07.7 of the private findings ledger. 07.1 (the
   untranslated sentences) is LWSM-1478's, in 0.9.0; 07.3 is resolved
   by spec LWSM-1038 step 2.
+  2026-11-15: 07.4 fixed in b5a56c7; 07.1, 07.3, 07.5, 07.6 and 05.5
+  dismissed. Open: 07.2 (a reap lost across an overlay; needs a child
+  identity from reap_exited), 07.7 (one overlay slot for a unit start),
+  and drive_unit's timeout leaving timed_out False (service.py).
   **Layman:** Small fixes to the part that drives start, stop and restart.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-07.
@@ -15783,9 +15801,11 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-15 lane-09.
   Lanes: update, update_fetch, updatedialog.
 
-- 📋 [LWSM-1568] **Review 2026-11-15, main window rows: five small points.**
+- ✅ [LWSM-1568] **Review 2026-11-15, main window rows: five small points.**
   Points: rows 10.1 to 10.5 of the private findings ledger. 10.4 is
   resolved: controller.records() returns a copy.
+  2026-11-15: every point closed: 10.1 and 10.2 fixed in d9661a7; 10.3-10.5
+  dismissed (no raising path; records() returns a copy; a test hook).
   **Layman:** Small fixes to the project rows in the main window.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-10.
@@ -15854,6 +15874,9 @@ decided, is the last packaging item (added 2026-11-11).
 - 📋 [LWSM-1576] **check-code 2026-11-15: three tool findings with no false-positive record, three unused names in src/, four spelling hits.**
   Points: rows 18.1 to 18.10 of the private findings ledger, and
   leads 19.2 to 19.6 from the 2026-11-14 run that no item above owns.
+  2026-11-15: typos noise configured in 8fc8121; the B613 test data and
+  the makefile hit recorded as false positives. Open: theme.py's class
+  (core or GUI), and test docstrings that still say "status bar".
   **Layman:** Tidy up what the automatic checkers flagged, or record why each flag is a false alarm.
   Kind: audit-fix.
   Source: check-code-2026-11-15.
