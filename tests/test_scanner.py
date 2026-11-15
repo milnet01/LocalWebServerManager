@@ -1403,7 +1403,7 @@ def test_an_unreadable_hop_target_is_escaped_and_clipped_like_its_neighbours(
 ) -> None:
     """INV-18: *"Every reason and every `PortFinding.source` is escaped before it
     is clipped."* This reason was the last one interpolating a raw token, so a
-    200-character name carrying `\\x1b` reached the app log and the status bar
+    200-character name carrying `\\x1b` reached the app log and the banner
     intact.
 
     A **directory** is the trigger: it passes all six of § 4.5's constraints and
@@ -2498,7 +2498,7 @@ def test_the_source_of_a_port_finding_is_sanitised_like_a_reason(
     tmp_path: Path,
 ) -> None:
     """INV-18's second clause. `PortFinding.source` reaches the app log and the
-    status bar exactly as a reason does, and it is a filename out of somebody
+    banner exactly as a reason does, and it is a filename out of somebody
     else's tree.
 
     Asserted separately from the reason clause on purpose: one test covering

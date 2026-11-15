@@ -1521,7 +1521,7 @@ def test_a_translator_installed_later_reaches_an_existing_row(qtbot, built) -> N
 
 def test_the_status_bar_summary_is_translatable(qtbot, built) -> None:
     """`f" (+{len(notices) - 1} more)"` was built with an f-string and never
-    reached a translator, so the status bar read the same in every language —
+    reached a translator, so the banner read the same in every language —
     against § 4.4's "**every** user-visible string in this file" (LWSM-1107).
     """
     from PySide6.QtCore import QCoreApplication, QTranslator
@@ -1680,7 +1680,7 @@ def test_a_broken_translation_of_a_save_failure_is_shown_not_raised(
     crash by another route (LWSM-1176). `str.replace` cannot raise whatever comes
     back, and the test asserts the message rather than the absence of an
     exception: PySide6 swallows one raised in a slot it invoked, so a `trigger()`
-    that died silently leaves the status bar empty instead.
+    that died silently leaves the banner empty instead.
     """
     from PySide6.QtCore import QCoreApplication, QTranslator
 
@@ -2807,7 +2807,7 @@ def test_a_hide_made_while_a_rescan_is_in_flight_is_not_discarded(
     `set_project_hidden` writes from the controller's records, which are fresh;
     the rescan then landed carrying a stale copy of the same rows, the write
     gate saw a difference and saved it, and the hide was gone. The app had
-    already said "gone is hidden" in the status bar.
+    already said "gone is hidden" in the banner.
 
     The rescan is HELD OPEN inside that window rather than raced for: the scan
     blocks on an event until the hide has been applied, which is `CLAUDE.md`'s
@@ -4990,7 +4990,7 @@ def test_restoring_a_stored_size_writes_nothing(qtbot, built, app_font) -> None:
     """Construction applies the stored scale with `remember=False`. Without
     that, every start rewrites settings.json to the value it just read — a
     write on a read path, which turns an unwritable config directory into a
-    status-bar complaint on a launch where the user changed nothing."""
+    banner complaint on a launch where the user changed nothing."""
     saved: list[int] = []
 
     scaled_window(qtbot, built, text_scale=150, save_text_scale=saved.append)
@@ -5541,7 +5541,7 @@ def test_a_failure_for_no_particular_project_still_reaches_the_user(
     qtbot, built
 ) -> None:
     """Not every failure has a row — a path that has since been removed, or a
-    message about the manager rather than a project. The status bar stays the
+    message about the manager rather than a project. The banner stays the
     channel for those, so widening the signal cannot lose one."""
     window, controller = window_for(qtbot, built, two_rows(), FakeProbe(5005))
 
@@ -6319,7 +6319,7 @@ def test_an_import_that_is_interrupted_is_not_swallowed(
 
 def test_a_cancelled_export_writes_nothing(qtbot, built, tmp_path) -> None:
     """The picker returning None is the user pressing Cancel, and it must not
-    reach the writer or the status bar."""
+    reach the writer or the banner."""
     window, _ = profile_window(qtbot, built, two_rows(), tmp_path, to_save=None)
 
     window._export_action.trigger()
@@ -6779,6 +6779,45 @@ def test_the_window_reopens_at_the_remembered_position_off_wayland(
 
     assert (window.pos().x(), window.pos().y()) == (137, 219)
     assert (window.width(), window.height()) == (640, 480)
+
+
+def test_a_placement_that_clamped_the_size_is_applied_to_the_window(
+    qtbot, built
+) -> None:
+    """`place_window` hands back the CLAMPED client size and, on X11, only
+    moves. The window applies that size itself, so the position computed for the
+    smaller rectangle is not paired with the size it was not computed for."""
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(137, 219),
+        size=(640, 480),
+        place=lambda target, **_kw: Rect(
+            target.x, target.y, target.width - 100, target.height - 60
+        ),
+    )
+
+    assert (window.width(), window.height()) == (540, 420)
+
+
+def test_centre_on_a_maximised_window_says_it_did_not_move(qtbot, built) -> None:
+    """A maximised window's position is the screen's. Centre must not ask for a
+    move that is ignored, or un-maximises the window to honour: it says so."""
+    calls: list[object] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        place=lambda target, **_kw: calls.append(target) or target,
+    )
+    window.setWindowState(window.windowState() | Qt.WindowState.WindowMaximized)
+    assert window.isMaximized()
+
+    window.centre_on_screen()
+
+    assert calls == []
+    assert "maximised" in message_of(window)
 
 
 def test_the_window_reopens_at_the_remembered_position_on_wayland(qtbot, built) -> None:
@@ -7556,6 +7595,32 @@ def test_an_unasked_kwin_is_asked_again_and_the_position_restored(
     assert asked[1] == placement.DBUS_TIMEOUT_S
     qtbot.waitUntil(lambda: bool(calls), timeout=2000)
     assert (calls[0].x, calls[0].y) == (100, 200)
+    assert window._centre_action.isEnabled()
+
+
+def test_a_late_kwin_yes_does_not_move_a_window_the_user_moved(
+    qtbot, built, monkeypatch
+) -> None:
+    """The retry restores the remembered position only for a window nobody has
+    moved since the first placement tick. A user who dragged the window in the
+    meantime keeps where they put it."""
+    monkeypatch.setattr(mainwindow, "KWIN_RETRY_MS", 300)
+    asked = unasked_kwin(monkeypatch, later=True)
+    calls: list[object] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        position=(100, 200),
+        place=lambda target, **_kw: calls.append(target) or target,
+    )
+    qtbot.wait(20)  # the first placement tick has run, and skipped: unasked
+    window.move(321, 123)
+
+    qtbot.waitUntil(lambda: len(asked) == 2, timeout=3000)
+    qtbot.wait(20)
+
+    assert calls == []
     assert window._centre_action.isEnabled()
 
 
@@ -9364,7 +9429,7 @@ def test_a_trust_prompt_with_nothing_to_show_is_refused_rather_than_shown(
     assert granted == [], "trust was granted for a launcher nobody was shown"
 
 
-# --- LWSM-1260: one-pass substitution in the status bar -----------------------
+# --- LWSM-1260: one-pass substitution in the banner -----------------------
 
 
 def test_a_project_named_like_a_placeholder_cannot_capture_the_next_field(
@@ -9375,7 +9440,7 @@ def test_a_project_named_like_a_placeholder_cannot_capture_the_next_field(
     A project name comes from a scanned directory, so it is somebody else's
     text. Named `%2`, it lands in the template on the first pass and the second
     pass substitutes the error into the attacker's name — LWSM-1181's defect in
-    the trust dialog, relocated to the status bar.
+    the trust dialog, relocated to the banner.
 
     Asserted on the composed string rather than on the call, because the defect
     is what the user ends up reading.
@@ -9393,7 +9458,7 @@ def test_a_project_named_like_a_placeholder_cannot_capture_the_next_field(
 
 def test_a_placeholder_with_no_value_is_left_alone(qtbot, built) -> None:
     """A template naming more fields than the caller supplies must not raise in
-    a status-bar path — the message is the thing reporting a failure."""
+    a banner path — the message is the thing reporting a failure."""
     from lwsm.mainwindow import _filled
 
     assert _filled("%1 and %2", "one") == "one and %2"
@@ -9405,7 +9470,7 @@ def test_a_placeholder_with_no_value_is_left_alone(qtbot, built) -> None:
 def test_a_completed_verb_reaches_the_status_bar(qtbot, built) -> None:
     """The user restarted a server, it worked, and the app said nothing.
 
-    The status bar rather than the row, deliberately. A row message is cleared
+    The banner rather than the row, deliberately. A row message is cleared
     by the row's STATE changing, with no timer — and a restart leaves the state
     identical, so a note there would never expire. Failures keep the row
     placement `design.md § Accessibility` argues for; a transient confirmation
@@ -9642,7 +9707,7 @@ def test_enter_in_the_filter_scrolls_the_first_match_into_view(qtbot, built) -> 
     )
 
 
-# --- LWSM-1255: foreign text reaching the status bar --------------------------
+# --- LWSM-1255: foreign text reaching the banner --------------------------
 
 
 HOSTILE = "line one\nRescan: 12 new\n" + "x" * 4000
@@ -10328,7 +10393,7 @@ def test_the_glyph_column_fits_the_widest_glyph(qtbot, monkeypatch) -> None:
 
 def test_a_failed_theme_or_text_size_save_reaches_the_log(qtbot, built, caplog) -> None:
     """`design.md § Observability`: the app log records every config write.
-    These two failures reached the status bar only, while export, import and
+    These two failures reached the banner only, while export, import and
     rescan failures beside them were logged (2026-10-01 review, L2-L4).
 
     Dies on removing either `log.warning`.

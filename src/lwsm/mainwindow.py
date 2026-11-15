@@ -48,6 +48,7 @@ from PySide6.QtGui import (
     QKeyEvent,
     QKeySequence,
     QMouseEvent,
+    QMoveEvent,
     QPainter,
     QPaintEvent,
     QPen,
@@ -2474,6 +2475,10 @@ class MainWindow(QMainWindow):
         self._remembered_size = size
         self._remembered_maximized = maximized
         self._geometry_restored = False
+        # Set once the deferred placement has had its turn, and then by any
+        # move: a late KWin answer restores the position only while False.
+        self._placement_tick_done = False
+        self._moved_since_placement_tick = False
         self._single_key_shortcuts = single_key_shortcuts
         # A seam, and it defaults to doing nothing for `save_theme`'s
         # reason rather than `confirm`'s: this one fires on every close, so a
@@ -3240,7 +3245,13 @@ class MainWindow(QMainWindow):
 
     def _retry_kwin(self) -> None:
         """The scheduled ask; a yes restores the remembered position after all."""
-        if self._can_place is None and self._ask_kwin_again():
+        # Not for a window moved since the first placement tick: a late yes
+        # must not pull it back from where the user put it.
+        if (
+            self._can_place is None
+            and self._ask_kwin_again()
+            and not self._moved_since_placement_tick
+        ):
             self._restore_position()
 
     def _retry_high_contrast(self) -> None:
@@ -5522,7 +5533,7 @@ class MainWindow(QMainWindow):
         # Placement runs after the first expose, so a window manager has
         # framed the window by now; with none, the margins are zero.
         frame = self.frameGeometry()
-        return self._place(
+        asked = self._place(
             target,
             screens=self._screens(),
             pid=os.getpid(),
@@ -5534,6 +5545,17 @@ class MainWindow(QMainWindow):
                 frame.height() - self.height(),
             ),
         )
+        # The size the position was computed for. `place_window` clamps to the
+        # screens and hands the clamped CLIENT size back, but X11 only moves:
+        # without this the window keeps its larger size at a corner chosen for
+        # the smaller one. The Wayland script already resized, so there this is
+        # a no-op.
+        if asked is not None and (asked.width, asked.height) != (
+            self.width(),
+            self.height(),
+        ):
+            self.resize(asked.width, asked.height)
+        return asked
 
     def centre_on_screen(self) -> None:
         """Put the window back in the middle of its screen (LWSM-1033).
@@ -5560,6 +5582,16 @@ class MainWindow(QMainWindow):
         # is a centre of the whole screen and puts the window half a panel too
         # low (LWSM-1241). It is still computed, still used on X11, and is the
         # fallback if KWin cannot answer.
+        # A maximised window's position is the screen's: an X11 `move()` is
+        # ignored and the KWin script would un-maximise it. Said, not asked.
+        if self.isMaximized():
+            self.set_status_message(
+                QCoreApplication.translate(
+                    "ProjectRow",
+                    "A maximised window fills the screen. Restore it to centre it.",
+                )
+            )
+            return
         placeable = (
             self._ask_kwin_again() if self._can_place is None else self._can_place
         )
@@ -5659,6 +5691,12 @@ class MainWindow(QMainWindow):
             return
         handle.installEventFilter(self)
 
+    def moveEvent(self, event: QMoveEvent) -> None:
+        """Note a move after the placement tick, for `_retry_kwin`'s guard."""
+        if self._placement_tick_done:
+            self._moved_since_placement_tick = True
+        super().moveEvent(event)
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """The other half of `showEvent`: the window's first presentation.
 
@@ -5739,6 +5777,7 @@ class MainWindow(QMainWindow):
         below is kept because a caller could reach it by another route and the
         cost of being wrong is a window that un-maximises itself.
         """
+        self._placement_tick_done = True
         if self._remembered_maximized or self._remembered_pos is None:
             return
         if not self._can_place:

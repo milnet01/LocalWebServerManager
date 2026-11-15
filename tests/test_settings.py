@@ -205,7 +205,7 @@ def test_a_file_that_is_not_json_yields_the_defaults(tmp_path: Path) -> None:
 def test_a_reason_cannot_forge_a_second_log_record(tmp_path: Path) -> None:
     """Every reason interpolates a fragment of a hand-edited file, so it goes
     through `configfile.quoted` — which escapes a newline (LWSM-1078). A
-    rejection reason reaches both the app log and the status bar.
+    rejection reason reaches both the app log and the banner.
     """
     path = write(tmp_path / "settings.json", {"schema_version": 1, "theme": "a\nb"})
 

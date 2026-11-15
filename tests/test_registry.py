@@ -125,7 +125,7 @@ def test_a_refusal_quotes_the_path_it_names(
     tmp_path: Path, payload: str | None
 ) -> None:
     """LWSM-1272: since LWSM-1148 the path is one the user chose in a file
-    dialog, so a name carrying a newline must not reach the status bar or the
+    dialog, so a name carrying a newline must not reach the banner or the
     log raw. The writer half always quoted it; the loader did not.
     """
     folder = tmp_path / "evil\nname"
@@ -453,7 +453,7 @@ def test_a_hostile_port_field_cannot_flood_the_reason(tmp_path: Path) -> None:
     `_port_or_reason` interpolated `{value!r}`, which escapes but does not
     clip, so a 200 KB string in `port` produced a reason of **200,038**
     characters against a `MAX_REASON_CHARS` of 120 (LWSM-1102). The ceiling is
-    the 1 MiB file cap, so a hand-edited file yielded a ~1 MiB status-bar
+    the 1 MiB file cap, so a hand-edited file yielded a ~1 MiB banner
     string and a ~1 MiB log record into a handler that rotates at 1 MiB
     keeping 5 — scrubbing the very history the user is told to consult.
 
@@ -581,7 +581,7 @@ def test_the_shipped_bounds_are_pinned() -> None:
     assert configfile.MAX_REASON_CHARS == 120
     assert registry.MAX_REASONS == 100
     # Not independent numbers: the pair is what bounds the total, and the
-    # product is what a status bar and a log line actually have to absorb.
+    # product is what a banner and a log line actually have to absorb.
     assert configfile.MAX_REASON_CHARS * registry.MAX_REASONS < 20_000, (
         "the worst-case reason volume is what LWSM-1115 bounded; raising "
         "either constant has to be justified against that product"
@@ -3313,7 +3313,7 @@ def test_the_writer_refuses_more_records_than_the_reader_loads(tmp_path: Path) -
 
 
 def test_an_unkept_key_name_is_quoted_in_its_reason() -> None:
-    """L5-L3: a hand-typed key name reaches the log and status bar, so a
+    """L5-L3: a hand-typed key name reaches the log and banner, so a
     newline in it would forge a log line unless it is `quoted()` like every
     other file-sourced value."""
     _unknown, reason = registry._unknown_or_reason(

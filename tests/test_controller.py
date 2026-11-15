@@ -452,7 +452,7 @@ def test_a_probe_failure_is_reported_once_and_so_is_the_recovery(
     session with only `app.log` as evidence.
 
     Reported through `action_failed` with no path, which `_report_failure`
-    already routes to the status bar rather than to a row — the failure is
+    already routes to the banner rather than to a row — the failure is
     about the whole socket table, not about one project.
 
     The recovery is asserted too: a message that appears and never clears is
@@ -3420,7 +3420,7 @@ def test_a_refusal_naming_a_project_carries_no_control_characters(
 
     """A name is hand-editable and a directory name, and the controller's own
     refusals interpolated it raw (LWSM-1275): a newline forged a second line
-    in the status bar and a long name arrived whole. The window already cleaned
+    in the banner and a long name arrived whole. The window already cleaned
     the ROW's name through `display_text`; the messages bypassed it.
     """
     assert messages, "the launcher-less start was not refused"
