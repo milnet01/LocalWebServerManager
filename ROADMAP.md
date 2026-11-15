@@ -15770,6 +15770,7 @@ decided, is the last packaging item (added 2026-11-11).
   dismissed. Open: 07.2 (a reap lost across an overlay; needs a child
   identity from reap_exited), 07.7 (one overlay slot for a unit start),
   and drive_unit's timeout leaving timed_out False (service.py).
+  2026-11-15: drive_unit's timeout now sets timed_out (021cb63).
   **Layman:** Small fixes to the part that drives start, stop and restart.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-07.
@@ -15811,9 +15812,12 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-15 lane-10.
   Lanes: mainwindow.
 
-- 📋 [LWSM-1569] **Review 2026-11-15, window shell and theme: eight small points.**
+- ✅ [LWSM-1569] **Review 2026-11-15, window shell and theme: eight small points.**
   Points: rows 11.1 to 11.8 of the private findings ledger. 11.1 is
   settled by close-findings-2026-11-14 row 1529.6c.
+  2026-11-15: every point closed: 11.2, 11.4 and 11.5 fixed in d8eec7e;
+  11.1, 11.3, 11.6-11.8 and the theme.py classing lead dismissed (theme.py
+  imports QtGui; a core module imports QtCore only).
   **Layman:** Small fixes to the window frame, menus and colour themes.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-11.
@@ -15835,17 +15839,21 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-15 lane-13.
   Lanes: mainwindow, placement.
 
-- 📋 [LWSM-1572] **Review 2026-11-15, dialogs: seven small points.**
+- ✅ [LWSM-1572] **Review 2026-11-15, dialogs: seven small points.**
   Points: rows 14.1 to 14.7 of the private findings ledger. 14.1 was
   Medium, calibrated Info (scanner.py cleans the name). 14.7 is an open
   Qt question (QLabel focus policy) to settle with a test.
+  2026-11-15: every point closed: 14.2-14.6 fixed in b1f0146; 14.1 and
+  14.7 dismissed (the scanner cleans the name; the answer label is no Tab
+  stop, now locked by a test).
   **Layman:** Small fixes to the Settings, first-run and port lookup dialogs.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-14.
   Lanes: settingsdialog, firstrun, portlookup.
 
-- 📋 [LWSM-1573] **Review 2026-11-15, dev gate and shell scripts: eight small points.**
+- ✅ [LWSM-1573] **Review 2026-11-15, dev gate and shell scripts: eight small points.**
   Points: rows 15.1 to 15.8 of the private findings ledger.
+  2026-11-15: every point closed: 15.1-15.8 fixed in 2fb0008.
   **Layman:** Small fixes to the checks that run before every push.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-15.
@@ -15863,9 +15871,11 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-15 lane-16.
   Lanes: release.
 
-- 📋 [LWSM-1575] **Review 2026-11-15, workflows: six small points.**
+- ✅ [LWSM-1575] **Review 2026-11-15, workflows: six small points.**
   Points: rows 17.1 to 17.6 of the private findings ledger. 17.2 is
   LWSM-1550's, in 0.7.0.
+  2026-11-15: every point closed: 17.1, 17.4 and 17.5 fixed in bc0456c;
+  17.2 is LWSM-1550's; 17.3 and 17.6 dismissed.
   **Layman:** Small fixes to the GitHub build and release workflows.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-17.
