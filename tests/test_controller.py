@@ -4397,6 +4397,21 @@ def test_a_poll_that_sees_nothing_keeps_the_confirmed_port(controllers) -> None:
     assert fired == []
 
 
+def test_a_probe_failure_banner_carries_no_control_characters(controllers) -> None:
+    """The failure text is an arbitrary exception's, so it is cleaned like every
+    other message that reaches the banner (review-code 2026-11-15 07.4)."""
+    controller = supervised(controllers, [startable("a", 5005)], FakeProbe(), None)
+    seen: list[tuple[object, str]] = []
+    controller.action_failed.connect(lambda path, text: seen.append((path, text)))
+
+    controller._on_probe_error(ProbeError("bad\x1b[31m table\nline"))
+
+    assert len(seen) == 1
+    assert seen[0][0] is None
+    assert "\x1b" not in seen[0][1] and "\n" not in seen[0][1], seen[0][1]
+    assert seen[0][1].startswith("port status unavailable: ")
+
+
 def test_a_confirmed_port_never_makes_a_server_ours(controllers, monkeypatch) -> None:
     """INV-11, the trust boundary. ADR-0004 calls "looks like" a display
     heuristic with no security value, and `chdir()` is free, so a confirmed

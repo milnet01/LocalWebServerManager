@@ -2602,7 +2602,9 @@ class ProjectController(QObject):
         # 86,400 lines a day into a handler that rotates at 1 MiB keeping 5,
         # scrubbing away the history the user is told to consult. Suppressed by
         # message rather than by count, because a *different* failure is news.
-        message = str(exc)
+        # Cleaned once, for the log line and the banner alike: the text is an
+        # arbitrary exception's.
+        message = display_text(str(exc))
         if message == self._last_error:
             self._repeated_errors += 1
         else:
