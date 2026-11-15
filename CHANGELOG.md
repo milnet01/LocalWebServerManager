@@ -21,9 +21,13 @@ signaling per
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-15
+
+**Theme:** A download for other people
+
 ### Added
 
-- **The download updates itself.** At each start the AppImage asks GitHub whether a newer version exists, and a banner above the project list offers it, with what changed. Nothing downloads until you click **Update now**. The app checks the download was signed by the author before it replaces its own file, then reopens; your servers keep running. **Settings > Preferences** turns the check off, and **Settings > Check for updates** asks by hand. Copies of 0.5.1 and earlier have no updater, so download the next version by hand once. (LWSM-1548)
+- **The download updates itself.** At each start the AppImage asks GitHub whether a newer version exists, and a banner above the project list offers it, with what changed. Nothing downloads until you click **Update now**. The app checks the download was signed by the author before it replaces its own file, then reopens; your servers keep running. **Settings > Preferences** turns the check off, and **Settings > Check for updates** asks by hand. Copies of 0.5.1 and earlier have no updater, so download the next version by hand once. (part of LWSM-1548)
 
 ### Changed
 
