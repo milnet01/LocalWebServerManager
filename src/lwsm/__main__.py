@@ -722,7 +722,13 @@ def activation_token(data: bytes) -> str | None:
 def _wake(probe: QLocalSocket, token: str | None) -> None:
     """Ask the running copy to come forward, handing it our token if we have one."""
     if token is not None:
-        data = token.encode("ascii", "replace")
+        # Strict: "replace" turned a non-ASCII character into `?`, which
+        # `activation_token` then accepted as a token nobody issued. No
+        # token goes instead, and the running copy is still woken.
+        try:
+            data = token.encode("ascii")
+        except UnicodeEncodeError:
+            data = b""
         if activation_token(data) is not None:
             probe.write(data + b"\n")
             probe.waitForBytesWritten(INSTANCE_CONNECT_MS)

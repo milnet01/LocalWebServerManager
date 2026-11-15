@@ -404,6 +404,29 @@ def test_each_line_carries_a_timestamp_and_a_level(tmp_path: Path):
     assert line[4] == "-", f"no ISO date separator at position 4: {line!r}"
 
 
+def test_a_newline_in_a_message_cannot_forge_a_second_log_line(tmp_path: Path):
+    """Outside text (a file's content, a path) reaches `warning(...)`; a
+    newline in it must not start a record of its own. A traceback's own
+    line breaks stay."""
+    applog.configure_logging(state_dir=tmp_path)
+    log = applog.get_logger()
+    log.warning("no project list: %s", "bad\n2026-01-01 00:00:00 ERROR lwsm: forged")
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        log.exception("failed\r\x1b[31m")
+    for handler in log.handlers:
+        handler.flush()
+
+    lines = (tmp_path / "app.log").read_text().splitlines()
+    assert lines[0].count("forged") == 1, f"split into: {lines!r}"
+    assert "\ufffd2026-01-01" in lines[0], f"not cleaned: {lines[0]!r}"
+    assert "\x1b" not in "".join(lines), f"control kept: {lines!r}"
+    assert any(line.startswith("Traceback") for line in lines), (
+        f"traceback flattened: {lines!r}"
+    )
+
+
 # --- LWSM-1113: the three hardening checks, each pinned by its own consequence -
 #
 # All three could be deleted together with `tests/test_applog.py` still green,

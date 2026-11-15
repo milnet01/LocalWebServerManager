@@ -780,6 +780,22 @@ def test_a_second_claim_hands_the_running_copy_its_activation_token(
         first.server.close()
 
 
+@pytest.mark.gui
+def test_a_non_ascii_token_is_not_sent_in_an_altered_form(qtbot, tmp_path) -> None:
+    """`encode("ascii", "replace")` turned `é` into `?`, a valid-looking token
+    the compositor never issued. The running copy is still woken, with none."""
+    path = str(tmp_path / "lwsm.sock")
+    woken: list[object] = []
+    first = entry.claim_single_instance(path, woken.append)
+    try:
+        second = entry.claim_single_instance(path, woken.append, "kwin-caf\u00e9")
+        assert not second.primary
+        qtbot.waitUntil(lambda: len(woken) == 1, timeout=2000)
+        assert woken == [None], f"received {woken!r}"
+    finally:
+        first.server.close()
+
+
 @pytest.mark.parametrize(
     ("data", "expected"),
     [

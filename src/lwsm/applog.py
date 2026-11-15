@@ -3,6 +3,7 @@ server logs (ADR-0003). Contract: `docs/design.md § Observability`."""
 
 from __future__ import annotations
 
+import copy
 import errno
 import io
 import logging
@@ -16,6 +17,25 @@ LOGGER_NAME = "lwsm"
 MAX_BYTES = 1024 * 1024
 BACKUP_COUNT = 5
 _LINE_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
+
+
+class _CleanFormatter(logging.Formatter):
+    """A formatter whose message cannot start a second log line.
+
+    Callers log outside text (a file's content, a path, a unit name); a
+    newline in it would forge a well-formed record. The message becomes
+    `configfile.clean_display_text` of itself, unclipped. A traceback's
+    own line breaks are not part of the message and stay.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        from lwsm.configfile import clean_display_text
+
+        # A copy, so another handler sees the record as logged.
+        record = copy.copy(record)
+        record.msg = clean_display_text(record.getMessage())
+        record.args = None
+        return super().format(record)
 
 
 def _require_private_regular_file(fd: int, path: str) -> None:
@@ -193,7 +213,7 @@ def configure_stderr_logging(level: int = logging.INFO) -> None:
         existing.close()
     handler = logging.StreamHandler()
     handler.setLevel(level)
-    handler.setFormatter(logging.Formatter(_LINE_FORMAT))
+    handler.setFormatter(_CleanFormatter(_LINE_FORMAT))
     logger.addHandler(handler)
 
 
@@ -307,6 +327,6 @@ def configure_logging(
         encoding="utf-8",
     )
     handler.setLevel(level)
-    handler.setFormatter(logging.Formatter(_LINE_FORMAT))
+    handler.setFormatter(_CleanFormatter(_LINE_FORMAT))
     logger.addHandler(handler)
     return log_path
