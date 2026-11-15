@@ -12209,15 +12209,16 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   Source: close-findings-2026-10-10 LWSM-1409 O9 sweep of L07-M1.
   Lanes: supervisor, service.
 
-- 💭 [LWSM-1419] **Consider bumping the uv pin from 0.12.23 to 0.13.1.**
+- 🚫 [LWSM-1419] **Consider bumping the uv pin from 0.12.23 to 0.13.1.**
   ./scripts/local-release.sh 0.3.0 (2026-10-15) warned: UV_VERSION in
   scripts/ci-tools.env is 0.12.23, upstream's latest is 0.13.1. Not a
   blocker. Left out of 0.3.0: the bump replaces ~/.local/bin/uv, which
   other projects' gates check, so ask the user first. A minor jump:
   read uv's 0.13 changelog for lockfile or resolver changes before it.
   User, 2026-11-02: leave it. The pin stays at 0.12.23.
-  2026-11-15: the user deferred to the orchestrator, who kept the pin at
-  0.12.23 for 0.6.0. LWSM-1414 owns tool-pin updates.
+  2026-11-15: superseded. LWSM-1543 (f7b8564, 2026-11-11) already pinned
+  uv 0.13.7 in scripts/ci-tools.env and both workflows; no code changed
+  here.
   **Layman:** One of the build tools has a newer version; updating it changes that tool for every project on this machine, so it needs the user's say-so.
   Kind: chore.
   Source: local-release-2026-10-15.
