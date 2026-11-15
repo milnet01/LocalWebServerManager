@@ -15,6 +15,7 @@ reason in `reasons` for the window to show, while `StartedStore` only logs.
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from typing import Any
 
 from lwsm.applog import default_state_dir, get_logger
 from lwsm.configfile import (
+    BoundedReasons,
     ConfigFileError,
     ConfigFileNotDurable,
     JsonFileRefused,
@@ -30,7 +32,7 @@ from lwsm.configfile import (
     quoted,
     write_atomically,
 )
-from lwsm.settings import default_settings_path
+from lwsm.settings import MAX_REASONS, default_settings_path
 
 log = get_logger(__name__)
 
@@ -80,7 +82,14 @@ def _write_document(path: Path, payload: dict[str, Any], *, prefix: str) -> str 
     Written but not made durable is a success that is logged: the file lasts,
     and only a crash could lose it (LWSM-1415).
     """
-    data = (json.dumps(payload, indent=2) + "\n").encode("utf-8", "surrogateescape")
+    try:
+        # allow_nan=False, as `settings.save` and `registry._encoded` have: a
+        # bare `Infinity` is not JSON, and the shared reader refuses it, so the
+        # next launch would drop the whole file.
+        text = json.dumps(payload, indent=2, allow_nan=False) + "\n"
+    except ValueError as exc:
+        return f"cannot be serialised ({exc})"
+    data = text.encode("utf-8", "surrogateescape")
     try:
         write_atomically(path, data, prefix=prefix)
     except ConfigFileNotDurable as exc:
@@ -134,13 +143,22 @@ class TrustStore:
         self._confirmed: dict[Path, str] = {}
         self._lock = threading.Lock()
         self._path = path
-        self.reasons: list[str] = []
+        self._bounded = BoundedReasons(
+            MAX_REASONS, "and {count} more problems, not shown"
+        )
+        self.reasons: list[str] = self._bounded.reasons
+        self._save_failure_noted = False
         if path is not None:
             self._load(path)
+            self.reasons = self._bounded.close()
 
     def _refuse(self, reason: str) -> None:
-        self.reasons.append(reason)
-        log.warning("trust store: %s", reason)
+        # Held to `MAX_REASONS`, and logged only while held: a hand-edited file
+        # with 10^5 bad entries must not flood the window or the log.
+        before = len(self._bounded.reasons)
+        self._bounded.note(reason)
+        if len(self._bounded.reasons) > before:
+            log.warning("trust store: %s", reason)
 
     def _load(self, path: Path) -> None:
         document, refused = _read_document(
@@ -181,8 +199,16 @@ class TrustStore:
             },
         }
         failed = _write_document(self._path, payload, prefix=".trust-")
-        if failed is not None:
-            self._refuse(f"not saved, so this lasts until the app closes: {failed}")
+        if failed is None:
+            self._save_failure_noted = False
+        elif not self._save_failure_noted:
+            # Once per run of failures, so a read-only directory does not grow
+            # the list with every confirmation.
+            self._save_failure_noted = True
+            self.reasons.append(
+                f"not saved, so this lasts until the app closes: {failed}"
+            )
+            log.warning("trust store: not saved: %s", failed)
         return failed
 
     def confirm(self, project: Path, fingerprint: str) -> None:
@@ -377,7 +403,9 @@ def _started_entry(raw: object) -> StartedEntry | None:
         return None
     if isinstance(created, bool) or not isinstance(created, (int, float)):
         return None
-    if port is not None and type(port) is not int:
+    if not math.isfinite(created):
+        return None
+    if port is not None and (type(port) is not int or not 1 <= port <= 65535):
         return None
     # Both or neither (LWSM-1448). Neither is a file from before them, and
     # adoption then falls back to `create_time`.
@@ -385,6 +413,8 @@ def _started_entry(raw: object) -> StartedEntry | None:
     if since_boot is None and boot_id is None:
         return StartedEntry(Path(project), name, pid, float(created), port)
     if isinstance(since_boot, bool) or not isinstance(since_boot, (int, float)):
+        return None
+    if not math.isfinite(since_boot):
         return None
     if not isinstance(boot_id, str) or not boot_id:
         return None

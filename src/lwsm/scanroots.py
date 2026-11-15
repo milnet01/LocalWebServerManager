@@ -15,13 +15,17 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from lwsm.applog import get_logger
 from lwsm.configfile import (
     ConfigFileError,
     is_writable_text,
+    quoted,
     read_bounded,
     write_atomically,
 )
 from lwsm.registry import RegistryError, default_projects_path
+
+log = get_logger(__name__)
 
 
 def _is_root_line(line: str) -> bool:
@@ -256,7 +260,17 @@ def default_scan_roots(config: Path | None = None) -> tuple[Path, ...]:
 
     try:
         text = read_bounded(config).decode("utf-8-sig")
-    except (OSError, UnicodeDecodeError):
+    except FileNotFoundError:
+        return fallback
+    except (OSError, UnicodeDecodeError) as exc:
+        # The policy stands (LWSM-1178): the window opens on the fallback. But
+        # a file that exists and cannot be read is not a first run, and a later
+        # save refuses over it; the log says why (LWSM-1562).
+        log.warning(
+            "scan roots: %s cannot be read (%s); scanning the default instead",
+            quoted(str(config)),
+            type(exc).__name__,
+        )
         return fallback
 
     roots = tuple(

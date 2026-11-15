@@ -1068,6 +1068,24 @@ def test_a_malformed_skip_is_refused_and_read_as_none(
     assert len([r for r in result.reasons if "update_skip" in r]) == 1
 
 
+def test_a_skip_with_a_4301_digit_part_is_refused_with_a_reason(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1562 / 09.2: `int()` refuses more than 4300 digits with a
+    `ValueError`; `update.parse_version` answers None for it, so `load` still
+    refuses with a reason and never raises (spec INV-17). Written after the
+    `parse_version` fix, so it passes at once."""
+    path = write(
+        tmp_path / "settings.json",
+        {"schema_version": settings.SCHEMA_VERSION, "update_skip": "1" * 4301 + ".0.0"},
+    )
+
+    result = settings.load(path)
+
+    assert result.settings.update_skip is None
+    assert len([r for r in result.reasons if "update_skip" in r]) == 1
+
+
 def test_an_older_file_gets_the_update_defaults(tmp_path: Path) -> None:
     """A file with neither key checks for updates and skips nothing; a missing
     key must never read as off."""
