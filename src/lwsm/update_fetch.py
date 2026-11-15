@@ -194,7 +194,7 @@ class UpdateCheck(QObject):
     def parse(self, data: bytes) -> None:
         try:
             document = json.loads(data.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
+        except (UnicodeDecodeError, ValueError, RecursionError):
             document = None
         releases = update.releases_from_json(document)
         if releases is None:

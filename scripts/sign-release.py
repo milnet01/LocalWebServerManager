@@ -66,8 +66,15 @@ def generate(path: Path) -> str:
     # O_EXCL: an existing key is never replaced, which would orphan every
     # installed copy.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(pem)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(pem)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        # A partial file would block regeneration, since O_EXCL refuses it.
+        path.unlink(missing_ok=True)
+        raise
     return public_b64(key)
 
 
@@ -123,9 +130,17 @@ def _release_run(tag: str) -> int:
     raise SystemExit(f"sign-release: no {WORKFLOW} run found for {tag}")
 
 
-def publish(version: str) -> None:
-    if update.parse_version(version) is None or version.lower().startswith("v"):
+def canonical_version(version: str) -> str:
+    """`version` when it is exactly what the app signs and verifies: `0.6.0`,
+    not `v0.6.0` or `00.6.0`. Otherwise exit."""
+    parsed = update.parse_version(version)
+    if parsed is None or update.format_version(parsed) != version:
         raise SystemExit(f"sign-release: {version!r} is not a version such as 0.6.0")
+    return version
+
+
+def publish(version: str) -> None:
+    canonical_version(version)
     key = load_key(key_path())
     if key is None or not check_key(key_path()):
         raise SystemExit("sign-release: the signing key is missing or does not match")
@@ -147,7 +162,7 @@ def publish(version: str) -> None:
         # Against the COMMITTED key, through the app's own check: a signature
         # the shipped app would refuse is never uploaded.
         update.verify(data, signature, version)
-        sig_path = Path(folder) / (asset + ".sig")
+        sig_path = Path(folder) / update.SIGNATURE_ASSET.format(version=version)
         sig_path.write_bytes(signature)
         _gh("release", "upload", tag, str(sig_path), "--clobber")
     print(f"sign-release: {asset}.sig uploaded to {tag}")

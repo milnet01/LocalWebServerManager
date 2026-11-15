@@ -83,6 +83,8 @@ def test_install_kind_is_appimage_only_for_a_frozen_real_file(tmp_path: Path) ->
         ("", None),
         ("vv0.6.0", None),
         ("0. 6.0", None),
+        ("0.6." + "9" * 5000, None),
+        ("0.6." + "9" * 10, None),
     ],
 )
 def test_parse_version_accepts_three_ascii_numbers_only(tag, expected) -> None:
@@ -90,6 +92,11 @@ def test_parse_version_accepts_three_ascii_numbers_only(tag, expected) -> None:
 
 
 # INV-3
+
+
+def test_parse_version_never_raises_on_a_huge_number() -> None:
+    # int() refuses 4301+ digits with ValueError; the function promises None.
+    assert parse_version("1." + "1" * 4301 + ".0") is None
 
 
 def _entry(tag: str, **overrides) -> dict:
@@ -269,6 +276,33 @@ def test_a_failed_replace_leaves_the_original_and_no_temp(
         install(b"new", str(target))
     assert target.read_bytes() == b"old"
     assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+def test_a_failed_folder_sync_after_the_replace_is_not_a_failed_install(
+    tmp_path: Path, monkeypatch
+) -> None:
+    target = tmp_path / "app.AppImage"
+    target.write_bytes(b"old")
+    real_fsync = os.fsync
+    calls: list[int] = []
+
+    def fsync(fd: int) -> None:
+        calls.append(fd)
+        if len(calls) == 2:  # the folder's, after the file's
+            raise OSError(5, "Input/output error")
+        real_fsync(fd)
+
+    monkeypatch.setattr(update.os, "fsync", fsync)
+    assert install(b"new", str(target)) == target
+    assert target.read_bytes() == b"new"
+
+
+def test_a_huge_asset_size_is_read_as_unknown() -> None:
+    entry = _entry("v0.6.0")
+    entry["assets"][0]["size"] = 2**31
+    (release,) = releases_from_json([entry])
+    assert release.appimage_url is not None
+    assert release.appimage_size == 0
 
 
 # INV-8

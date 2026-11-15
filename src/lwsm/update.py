@@ -27,6 +27,8 @@ Version = tuple[int, int, int]
 
 APPIMAGE_ASSET = "LocalWebServerManager-{version}-x86_64.AppImage"
 SIGNATURE_ASSET = APPIMAGE_ASSET + ".sig"
+MAX_PART_DIGITS = 9
+MAX_ASSET_SIZE = 2**31 - 1  # QProgressBar.setRange takes a C int
 SIGNATURE_BYTES = 64  # an Ed25519 signature, raw
 # Signed ahead of the bytes, with the version, so a genuine older AppImage and
 # its `.sig` attached to a newer tag fail to verify (spec § 4.6).
@@ -63,11 +65,15 @@ def parse_version(tag: str) -> Version | None:
 
     `isascii()` as well as `isdigit()`, because `'¹'.isdigit()` is true.
     A pre-release tag such as `v1.0.0-rc.1` fails here and is never offered.
+    A part over `MAX_PART_DIGITS` digits fails too: `int()` raises `ValueError`
+    past 4300, and a version that long is not one the author could have made.
     """
     if tag[:1] in ("v", "V"):
         tag = tag[1:]
     parts = tag.split(".")
-    if len(parts) != 3 or not all(p.isascii() and p.isdigit() for p in parts):
+    if len(parts) != 3 or not all(
+        p.isascii() and p.isdigit() and len(p) <= MAX_PART_DIGITS for p in parts
+    ):
         return None
     major, minor, patch = (int(p) for p in parts)
     return major, minor, patch
@@ -98,7 +104,8 @@ def _asset_url(assets: object, name: str) -> tuple[str | None, int]:
         if not isinstance(url, str) or not url.startswith("https://"):
             return None, 0
         size = asset.get("size")
-        return url, size if type(size) is int and size > 0 else 0
+        # Over a C int, `setRange` raises: read it as unknown, a busy bar.
+        return url, size if type(size) is int and 0 < size <= MAX_ASSET_SIZE else 0
     return None, 0
 
 
@@ -124,7 +131,9 @@ def releases_from_json(data: object) -> list[Release] | None:
             continue
         name = APPIMAGE_ASSET.format(version=format_version(version))
         appimage_url, size = _asset_url(entry.get("assets"), name)
-        signature_url, _ = _asset_url(entry.get("assets"), name + ".sig")
+        signature_url, _ = _asset_url(
+            entry.get("assets"), SIGNATURE_ASSET.format(version=format_version(version))
+        )
         body = entry.get("body")
         releases.append(
             Release(
@@ -198,7 +207,8 @@ def install(data: bytes, appimage: str) -> Path:
     writing nothing, when os.access(target.parent, os.W_OK) is false. Write
     data to tempfile.mkstemp(prefix=".lwsm-update-", dir=target.parent),
     fchmod it to target's mode, fsync, os.replace(temp, target), fsync the
-    folder. Any exception before os.replace unlinks the temp and leaves target
+    folder (best effort: a failure there is ignored, the file being placed).
+    Any exception before os.replace unlinks the temp and leaves target
     untouched. Returns target.
 
     Beside the target, never in /tmp: `os.replace` across filesystems raises
@@ -220,11 +230,16 @@ def install(data: bytes, appimage: str) -> Path:
     except BaseException:
         Path(temp).unlink(missing_ok=True)
         raise
-    folder_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    # Best effort: the new file is already in place, so a failed folder sync
+    # must not report "couldn't be written" for an update that will run.
     try:
-        os.fsync(folder_fd)
-    finally:
-        os.close(folder_fd)
+        folder_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(folder_fd)
+        finally:
+            os.close(folder_fd)
+    except OSError:
+        pass
     return target
 
 

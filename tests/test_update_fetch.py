@@ -146,8 +146,9 @@ def test_an_error_or_a_non_200_status_is_unreachable() -> None:
         (b'{"message": "rate limited"}', ("failed", update_fetch.CHECK_UNREADABLE)),
         (b"\xff\xfe", ("failed", update_fetch.CHECK_UNREADABLE)),
         (b"[]", ("found", [])),
+        (b"[" * 200_000, ("failed", update_fetch.CHECK_UNREADABLE)),
     ],
-    ids=["not-json", "object", "not-utf8", "empty-list"],
+    ids=["not-json", "object", "not-utf8", "empty-list", "too-deep"],
 )
 def test_the_check_reads_only_a_list(body: bytes, expected) -> None:
     check = UpdateCheck()

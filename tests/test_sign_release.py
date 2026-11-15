@@ -97,3 +97,25 @@ def test_check_key_answers_without_printing_key_material(
     printed = capsys.readouterr().out
     assert public not in printed
     assert pem.splitlines()[1] not in printed
+
+
+def test_a_failed_key_write_leaves_no_partial_file(signer, monkeypatch) -> None:
+    path = signer.key_path()
+
+    def refuse(_fd: int) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(signer.os, "fsync", refuse)
+    with pytest.raises(OSError):
+        signer.generate(path)
+    assert not path.exists()  # O_EXCL would otherwise block the retry
+
+
+@pytest.mark.parametrize("version", ["00.6.0", "0.06.0", "v0.6.0", "0.6", "x"])
+def test_publish_refuses_a_version_that_is_not_canonical(signer, version) -> None:
+    with pytest.raises(SystemExit, match="not a version"):
+        signer.canonical_version(version)
+
+
+def test_publish_accepts_a_canonical_version(signer) -> None:
+    assert signer.canonical_version("0.6.0") == "0.6.0"
