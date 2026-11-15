@@ -24,6 +24,7 @@ import os
 import re
 import stat
 import subprocess
+import threading
 import time
 import warnings
 from collections.abc import Callable, Sequence
@@ -623,11 +624,16 @@ def rule_2(line: str) -> int | None:
     `DEFAULT_PORT` and `server_port` stop matching, which is two of the seven
     detections the acceptance test requires.
     """
-    # Each separator is tried against the WHOLE line, `=` first. Not `:`
+    # Each separator is tried against the WHOLE line, `=` first, at its FIRST
+    # occurrence only: `DEBUG=1; port = 8000` is unknown. Not `:`
     # applied to `=`'s left side: `'server_port': 5000` has no `=` at all.
     for separator in ("=", ":"):
         left, found, right = line.partition(separator)
         if not found:
+            continue
+        if separator == "=" and right.startswith("="):
+            # `port == 8080` and `elif port == 8000:` test a port, they do not
+            # set one (LWSM-1561). `=>` stays: `'port' => 8080` assigns.
             continue
         key = left.strip().strip("'\"").rstrip("'\" \t")
         if key.lower() != "port" and not KEY_IS_PORT.search(key):
@@ -686,6 +692,9 @@ _RULE_1_ONLY: tuple[tuple[Callable[[str], int | None], PortRule], ...] = (
 )
 
 
+_WARNINGS_LOCK = threading.Lock()
+
+
 def _without_docstrings(lines: Sequence[str]) -> Sequence[str]:
     """`lines` with every Python docstring blanked, line count unchanged.
 
@@ -707,7 +716,10 @@ def _without_docstrings(lines: Sequence[str]) -> Sequence[str]:
         # `error` filter it raised, which kept every docstring (LWSM-1466).
         # `catch_warnings` swaps process-wide state; nothing else in this
         # app changes the filters, and only `SyntaxWarning` is silenced.
-        with warnings.catch_warnings():
+        # The lock keeps two overlapping scans from interleaving their save
+        # and restore of the filter list, which would leave `ignore` installed
+        # (LWSM-1561, 03.3).
+        with _WARNINGS_LOCK, warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
             tree = ast.parse("\n".join(lines))
     except (SyntaxError, ValueError, RecursionError, MemoryError):
@@ -1271,7 +1283,15 @@ def _unescape_unit_name(name: str) -> str:
     Two different strings: `systemctl` accepts only the escaped form, while
     matching a unit to a directory needs the unescaped one.
     """
-    return re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), name)
+    # Runs of escapes, decoded as UTF-8: `caf\xc3\xa9` is two bytes of one
+    # character, not two Latin-1 characters (LWSM-1561, 03.2).
+    return re.sub(
+        r"(?:\\x[0-9a-fA-F]{2})+",
+        lambda m: bytes.fromhex(m.group().replace("\\x", "")).decode(
+            "utf-8", errors="replace"
+        ),
+        name,
+    )
 
 
 def _show_argv(unit: str) -> list[str]:
@@ -2015,10 +2035,11 @@ def _own_package_file() -> Path | None:
     """This application's own `lwsm/__init__.py`, resolved; the scan refuses
     any candidate among its parents (the checkout root, `src`).
 
-    Exact only for a source checkout, and that is the honest limit: installed as
-    a wheel `lwsm` resolves inside `site-packages`, which is not under a scan
-    root, so the guard never fires — correctly, because the repository is then
-    not a candidate either.
+    Exact for a source checkout. Installed as a wheel, `lwsm` resolves inside
+    `site-packages`, which is not under a scan root, so the guard does not fire
+    for the application's own files. It still fires when that environment sits
+    inside a project under a scan root (a `.venv` there): every parent of the
+    resolved path is refused, so that project is refused too (LWSM-1561, 03.5).
     """
     try:
         return Path(lwsm.__file__).resolve()
@@ -2114,6 +2135,7 @@ def scan(
                 unlistable.append(Path(root))
                 continue
 
+            root_real: Path | None = None
             for entry in entries:
                 if deadline.expired():
                     raise _BudgetExpired
@@ -2137,6 +2159,16 @@ def scan(
                         minor_note(f"{quoted}: is not a directory")
                         continue
                     candidate = Path(entry.path).resolve()
+                    # `is_symlink` answered from the listing, and `resolve`
+                    # walked the name afresh: a directory swapped for a
+                    # symlink between the two is followed. A real directory
+                    # resolves to its own name under the resolved root, and
+                    # anything else was swapped (LWSM-1561, 03.4).
+                    if root_real is None:
+                        root_real = Path(root).resolve()
+                    if candidate != root_real / raw_name:
+                        entry_note(f"{quoted}: is a symlink, refused")
+                        continue
                 except OSError as exc:
                     entry_note(f"{quoted}: cannot be examined ({exc.strerror or exc})")
                     continue

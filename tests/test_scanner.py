@@ -258,6 +258,34 @@ def test_port_rule_2_shapes_outside_the_table(line: str, expected: int | None) -
 @pytest.mark.parametrize(
     "line",
     [
+        "elif port == 8000:",
+        "(port == 8080)",
+        "port == 8080",
+        "port === 8080",
+        "export port == 8080",
+    ],
+)
+def test_rule_2_does_not_read_a_comparison_as_an_assignment(line: str) -> None:
+    """LWSM-1561 (03.1): `==` is a test, and the number is not the port."""
+    assert rule_2(line) is None
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("port = 8000", 8000),
+        ("PORT=3000", 3000),
+        ("'server_port': 5000", 5000),
+        ("'port' => 8080", 8080),
+    ],
+)
+def test_rule_2_still_reads_a_plain_assignment(line: str, expected: int) -> None:
+    assert rule_2(line) == expected
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
         "PORT=123456",
         "--port 999999999",
         "localhost:1234567",
@@ -1262,6 +1290,56 @@ def test_a_symlinked_candidate_is_not_scanned(
     assert result.projects == ()
     assert any("symlink" in reason for reason in result.skipped)
     assert not [path for path in opened_paths if "start.sh" in str(path)]
+
+
+def test_a_directory_swapped_for_a_symlink_after_the_listing_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`is_symlink` answers from the listing; `resolve` walks the name afresh
+    (LWSM-1561, 03.4). The listing here says "plain directory" about what is
+    now a symlink, which is the state the swap leaves."""
+    root = tmp_path / "root"
+    root.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "start.sh").write_text("PORT=1234\n", encoding="utf-8")
+    (elsewhere / "start.sh").chmod(0o755)
+    os.symlink(elsewhere, root / "proj")
+    real_scandir = os.scandir
+
+    class Stale:
+        def __init__(self, entry: os.DirEntry[str]) -> None:
+            self.name = entry.name
+            self.path = entry.path
+
+        def is_symlink(self) -> bool:
+            return False
+
+        def is_dir(self, *, follow_symlinks: bool = True) -> bool:
+            return True
+
+    class Listing:
+        def __init__(self, path: object) -> None:
+            self._inner = real_scandir(path)  # type: ignore[call-overload]
+
+        def __enter__(self) -> list[Stale]:
+            return [Stale(entry) for entry in self._inner.__enter__()]
+
+        def __exit__(self, *exc: object) -> None:
+            self._inner.__exit__(*exc)
+
+    monkeypatch.setattr(scanner.os, "scandir", Listing)
+
+    result = scan_root(root)
+
+    assert result.projects == ()
+    assert any("symlink" in reason for reason in result.skipped)
+
+
+def test_a_utf8_escaped_unit_name_is_unescaped_as_utf8() -> None:
+    """`\\xc3\\xa9` is one `\u00e9`, not two Latin-1 characters (03.2)."""
+    assert scanner._unescape_unit_name("caf\\xc3\\xa9.service") == "caf\u00e9.service"
+    assert scanner._unescape_unit_name("a\\x2db") == "a-b"
 
 
 def test_nothing_inside_node_modules_is_read(
