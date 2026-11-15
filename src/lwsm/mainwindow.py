@@ -3982,6 +3982,12 @@ class MainWindow(QMainWindow):
             return
         from lwsm.update_fetch import UpdateCheck
 
+        previous = self._update_check
+        if previous is not None:
+            # A second click while one is in flight: the old reply must not be
+            # offered as well as the new one.
+            previous.blockSignals(True)
+            previous.deleteLater()
         check = UpdateCheck(self)
         self._update_check = check
         check.found.connect(lambda releases: self.on_update_releases(releases, manual))
@@ -4280,8 +4286,6 @@ class MainWindow(QMainWindow):
         reasons `_confirm_dialog` records: a newline in a cmdline would
         otherwise forge a second heading naming a different program.
         """
-        from datetime import datetime
-
         started = getattr(holder, "started", None)
         unit = getattr(holder, "unit", None)
         fields = (
@@ -4331,8 +4335,6 @@ class MainWindow(QMainWindow):
         guard on signalling something this app did not create. Each cell still
         goes through `_no_layout_forgery`. No is the default.
         """
-        from datetime import datetime
-
         dialog = QDialog(self)
         dialog.setWindowTitle(
             QCoreApplication.translate("ProjectRow", "Stop a server started elsewhere")
@@ -4378,7 +4380,7 @@ class MainWindow(QMainWindow):
                 str(member.pid),
                 datetime.fromtimestamp(member.started).isoformat(" ", "seconds"),
                 member.exe or "?",
-                member.cmdline or "?",
+                _shown_command(member.cmdline or "?"),
             )
             for column, text in enumerate(cells):
                 table.setItem(row, column, QTableWidgetItem(_no_layout_forgery(text)))
@@ -5248,8 +5250,6 @@ class MainWindow(QMainWindow):
         second copy of them would be a second place for the refresh to be
         forgotten. Only the leading word and the log prefix differ.
         """
-        if self._projects_file is None:
-            return ""
         for reason in merged.reasons:
             # The full report goes to the log, one record each; the banner
             # gets the summary. INV-6's bound already applies to the entries.

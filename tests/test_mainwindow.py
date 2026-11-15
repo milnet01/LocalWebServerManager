@@ -12021,3 +12021,81 @@ def test_focus_leaving_a_dropped_row_skips_a_row_the_user_hid(
 
     assert _focused_name(window) == "a"
     window.shutdown()
+
+
+def test_a_merge_on_a_window_without_a_projects_file_still_reaches_the_controller(
+    qtbot, built
+) -> None:
+    """12.1 (LWSM-1570): `_apply_merge` returned before `set_records` when there
+    was no projects file, the shape `_write_records` was fixed for in
+    LWSM-1282. The save needs a file; the in-memory update does not."""
+    window, controller = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    assert window._projects_file is None, "precondition"
+
+    window._apply_merge(
+        registry.MergeResult([record("a", 5005), record("b", 5006)], [], {}),
+        "merged",
+        "rescan",
+    )
+
+    assert [row.name for row in controller.rows()] == ["a", "b"]
+    window.shutdown()
+
+
+def test_a_second_update_check_replaces_the_first_instead_of_doubling_it(
+    qtbot, built, monkeypatch
+) -> None:
+    """12.4 (LWSM-1570): both checks stayed connected, so one reply was offered
+    twice."""
+    from lwsm.update_fetch import Download
+
+    window = _update_window(qtbot, built)
+    monkeypatch.setattr(Download, "start", lambda self: None)
+    window.check_for_updates(manual=True)
+    first = window._update_check
+    assert first is not None
+    offers: list[object] = []
+    monkeypatch.setattr(
+        window, "on_update_releases", lambda releases, manual: offers.append(releases)
+    )
+    window.check_for_updates(manual=True)
+    second = window._update_check
+    assert second is not first
+
+    first.found.emit([])
+    second.found.emit([])
+
+    assert len(offers) == 1, "the replaced check still answered"
+
+
+def test_the_tree_stop_table_clips_a_long_command_like_the_disclosure(
+    qtbot, built, monkeypatch
+) -> None:
+    """19.1: the table showed `member.cmdline` unclipped."""
+    from PySide6.QtWidgets import QDialog, QTableWidget
+
+    from lwsm.foreign import Member, Tree
+    from lwsm.mainwindow import MAX_COMMAND_CHARS, _shown_command
+
+    shown: list[QDialog] = []
+
+    def fake_exec(dialog) -> int:
+        shown.append(dialog)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    controller = build_controller(built, [record("theirs", 6006)], FakeProbe(6006))
+    window = MainWindow(controller, Theme.default(), [])
+    qtbot.addWidget(window)
+    long = "node " + "x" * (3 * MAX_COMMAND_CHARS)
+    tree = Tree(
+        members=(Member(pid=9999, started=0.0, exe="/bin/node", cmdline=long),),
+        handles=(),
+    )
+
+    window._confirm_tree_dialog(Path("/srv/theirs"), tree, 0)
+
+    table = shown[0].findChild(QTableWidget)
+    cell = table.item(0, 3).text()
+    assert cell == _shown_command(long)
+    assert len(cell) <= MAX_COMMAND_CHARS
