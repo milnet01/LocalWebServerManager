@@ -5,7 +5,9 @@ UI layer — imports QtWidgets, so no core module may import it back
 
 **LWSM-1018 gave it three fields, not the four its roadmap bullet filed**, and
 both absences were settled with the user on 2026-08-21 rather than dropped
-quietly (LWSM-1475 later added the single-key shortcuts switch):
+quietly (LWSM-1475 later added the single-key shortcuts switch, LWSM-1036 the
+error markers and LWSM-1548 the start-up update check, offered only to an
+installed copy):
 
 - *Scan roots* are not moved into `settings.json`. They live in the `scan-roots`
   file (LWSM-1144), whose own docstring says this dialog owns the UI while that
@@ -128,7 +130,8 @@ class RootsList(QListWidget):
 
 
 class SettingsDialog(QDialog):
-    """Scan roots, poll interval, log cap, single-key shortcuts, error markers."""
+    """Scan roots, poll interval, log cap, single-key shortcuts, update check
+    (where offered), error markers."""
 
     def __init__(
         self,
@@ -196,14 +199,19 @@ class SettingsDialog(QDialog):
         self._markers.setTabChangesFocus(True)
         self._markers.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._markers.setPlainText("\n".join(error_markers))
+        # Both floors hold: the lines the box is for, and the target floor the
+        # loop below puts under every other control.
         self._markers.setMinimumHeight(
-            MARKER_LINES * self._markers.fontMetrics().lineSpacing()
+            max(MIN_TARGET_PX, MARKER_LINES * self._markers.fontMetrics().lineSpacing())
         )
+        self._markers.setMinimumWidth(MIN_TARGET_PX)
         # Says what Ok refused, beside the box it is about; hidden until then.
         self._markers_problem = QLabel()
         self._markers_problem.setTextFormat(Qt.TextFormat.PlainText)
         self._markers_problem.setWordWrap(True)
         self._markers_problem.hide()
+        # A complaint about text that has since changed is stale.
+        self._markers.textChanged.connect(self._markers_problem_clear)
 
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -222,7 +230,6 @@ class SettingsDialog(QDialog):
             self._poll,
             self._log,
             self._shortcuts,
-            self._markers,
             self._buttons.button(QDialogButtonBox.StandardButton.Ok),
             self._buttons.button(QDialogButtonBox.StandardButton.Cancel),
             *((self._update_check,) if self._update_check is not None else ()),
@@ -406,6 +413,9 @@ class SettingsDialog(QDialog):
         QAccessible.updateAccessibility(
             QAccessibleAnnouncementEvent(self._markers, text)
         )
+
+    def _markers_problem_clear(self) -> None:
+        self._markers_problem.hide()
 
     def error_markers(self) -> tuple[str, ...]:
         """The markers as typed, trimmed, without blanks or repeats (LWSM-1036)."""

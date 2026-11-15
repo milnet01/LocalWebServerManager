@@ -15,8 +15,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QIntValidator
+from PySide6.QtCore import QCoreApplication, QEvent, QLocale, Qt
+from PySide6.QtGui import (
+    QAccessible,
+    QAccessibleAnnouncementEvent,
+    QIntValidator,
+    QShowEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -28,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lwsm.mainwindow import MIN_TARGET_PX
+from lwsm.mainwindow import MIN_TARGET_PX, _filled
 
 # Every user-visible string here goes through the one context
 # "PortLookupDialog", repeated as a literal because `pyside6-lupdate` skips a
@@ -122,8 +127,12 @@ class PortLookupDialog(QDialog):
         if answered:
             text = self._lookup(port)
         else:
-            text = QCoreApplication.translate(
-                "PortLookupDialog", "Type a port number from 1 to 65535."
+            text = _filled(
+                QCoreApplication.translate(
+                    "PortLookupDialog", "Type a port number from %1 to %2."
+                ),
+                QLocale().toString(MIN_PORT),
+                QLocale().toString(MAX_PORT),
             )
         self._result.setText(text)
         # The hint under an empty box is not an answer worth copying.
@@ -137,6 +146,12 @@ class PortLookupDialog(QDialog):
         QAccessible.updateAccessibility(
             QAccessibleAnnouncementEvent(self, self._result.text())
         )
+
+    def showEvent(self, event: QShowEvent) -> None:
+        # The window is built once and shown again, and the snapshot moves on
+        # every poll, so what a closed window kept may be false by now.
+        self._answer()
+        super().showEvent(event)
 
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.LanguageChange:

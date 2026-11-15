@@ -191,6 +191,37 @@ def test_markers_the_settings_file_would_refuse_keep_the_dialog_open(qtbot) -> N
     assert dialog.result() == SettingsDialog.DialogCode.Accepted
 
 
+def test_the_markers_box_keeps_its_line_floor(qtbot) -> None:
+    """LWSM-1572: the 24 px target floor replaced the five-line floor, so the
+    box could shrink to about one line. Both floors hold."""
+    from lwsm.settingsdialog import MARKER_LINES
+
+    dialog = build(qtbot)
+
+    assert (
+        dialog._markers.minimumHeight()
+        >= MARKER_LINES * dialog._markers.fontMetrics().lineSpacing()
+    )
+    assert dialog._markers.minimumHeight() >= MIN_TARGET_PX
+
+
+def test_fixing_the_markers_clears_the_old_complaint(qtbot) -> None:
+    """LWSM-1572: the complaint hid only when Ok succeeded, so it stayed on
+    screen, beside text that no longer earned it, until Ok was pressed again."""
+    from lwsm.settings import MAX_ERROR_MARKER_CHARS
+
+    dialog = build(qtbot)
+    with qtbot.waitExposed(dialog):
+        dialog.show()
+    dialog._markers.setPlainText("x" * (MAX_ERROR_MARKER_CHARS + 1))
+    dialog.accept()
+    assert dialog._markers_problem.isVisible()
+
+    dialog._markers.setPlainText("ERROR")
+
+    assert not dialog._markers_problem.isVisible()
+
+
 def test_the_marker_limits_are_written_in_the_locale_s_digits(qtbot) -> None:
     """LWSM-1531 point 2. `.replace("%1", str(limit))` wrote ASCII digits where
     the window's numbers use the locale's (L09-L1). Under an Arabic locale the

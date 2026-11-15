@@ -8,7 +8,7 @@ shows.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLocale, Qt
 from PySide6.QtWidgets import QApplication, QDialogButtonBox, QPushButton
 
 from lwsm.mainwindow import MIN_TARGET_PX
@@ -48,7 +48,8 @@ def test_a_port_out_of_range_asks_for_one_instead(qtbot, text: str) -> None:
     dialog._port.setText(text)
 
     assert asked == []
-    assert "1 to 65535" in dialog._result.text()
+    # The range is written as the locale writes numbers ("65,535" in English).
+    assert QLocale().toString(65535) in dialog._result.text()
     # The hint is not an answer, so there is nothing to copy (LWSM-1457).
     assert not dialog._copy.isEnabled()
 
@@ -111,3 +112,48 @@ def test_tab_reaches_a_button_that_copies_the_answer(qtbot) -> None:
     # Enter still belongs to the port box.
     assert not copy.autoDefault()
     assert dialog._result.focusPolicy() == Qt.FocusPolicy.ClickFocus
+
+
+def test_the_answer_label_is_not_a_tab_stop(qtbot) -> None:
+    """LWSM-1572 row 14.7, measured: `TextSelectableByKeyboard` still leaves a
+    QLabel at ClickFocus, so Tab skips it. The keyboard's way to the answer is
+    the Copy button, and a magnifier following focus is not sent to a label."""
+    dialog = build(qtbot, [])
+
+    assert dialog._result.focusPolicy() == Qt.FocusPolicy.ClickFocus
+
+
+def test_a_reopened_window_asks_again(qtbot) -> None:
+    """LWSM-1572: the snapshot moves on every poll, so the sentence a closed
+    window kept may be false by the time it is shown again."""
+    asked: list[int] = []
+    dialog = build(qtbot, asked)
+    dialog._port.setText("8080")
+    dialog.hide()
+    asked.clear()
+
+    dialog.show()
+
+    assert asked == [8080]
+
+
+def test_the_hint_writes_the_range_in_the_locales_digits(qtbot) -> None:
+    """LWSM-1572: the range comes from MIN_PORT and MAX_PORT through the locale,
+    as the sibling dialogs write their numbers."""
+    from PySide6.QtCore import QLocale
+
+    from lwsm.portlookup import MAX_PORT, MIN_PORT
+
+    previous = QLocale()
+    QLocale.setDefault(QLocale("ar_EG"))
+    try:
+        dialog = build(qtbot, [])
+        text = dialog._result.text()
+        want_min = QLocale().toString(MIN_PORT)
+        want_max = QLocale().toString(MAX_PORT)
+    finally:
+        QLocale.setDefault(previous)
+
+    assert want_max != str(MAX_PORT), "the locale does not change digits"
+    assert want_min in text and want_max in text, text
+    assert str(MAX_PORT) not in text, text
