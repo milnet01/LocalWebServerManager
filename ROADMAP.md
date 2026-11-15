@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1577 -->
+<!-- ants-roadmap-id-high-water: LWSM=1578 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15908,6 +15908,16 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: audit-fix.
   Source: check-code-2026-11-15.
   Lanes: tooling.
+
+- ✅ [LWSM-1578] **service.py runs systemctl through one call and one outcome mapping, not four copies.**
+  The 0.6.0 refactoring pass (docs/claude/release.md). duplicate_blocks
+  found four drifted copies of the systemctl call; one had lost
+  timed_out=True (fixed in 021cb63). Behaviour unchanged; every reason
+  string byte for byte.
+  **Layman:** Tidy-up: one copy of the code that asks systemd to start or stop a service, so a fix to one place reaches them all.
+  Kind: refactor.
+  Source: release-pass-2026-11-15.
+  Lanes: service.
 
 ## 0.7.0 — Updates you can read, and a tray
 
