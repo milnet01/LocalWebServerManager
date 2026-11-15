@@ -16,6 +16,12 @@ on:
 permissions:
   contents: read
 
+# One run per release at a time, so two runs cannot both --clobber the same
+# asset. A queued run waits rather than cancelling the one uploading.
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   appimage:
     # Pinned rather than -latest, as in ci.yml.

@@ -110,7 +110,9 @@ jobs:
       # whatever Go the image ships (and once failed fetching a newer one,
       # LWSM-1413), and dependencies-overrides.md § D1 forbids a floating
       # reference.
-      # yamllint goes through `uv tool`, which is already on the machine.
+      # yamllint goes through `uv tool`, which is already on the machine. Only
+      # yamllint itself is pinned: its dependencies resolve to the newest
+      # releases on each run, with no lock or hash (LWSM-1416).
       #
       # tests/test_ci_contract.py asserts this step installs exactly the three
       # versions ci-tools.env names, so an edit to one side alone fails the
@@ -154,6 +156,8 @@ jobs:
       # setup-uv's own, so restore and save cannot disagree about it.
       - name: Save the uv cache
         if: always() && steps.uv.outputs.cache-hit != 'true'
+        # A failed save must not turn a green gate red.
+        continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.UV_CACHE_DIR }}
