@@ -128,7 +128,7 @@ push_base() {
             "${remote_sha:0:12}" >&2
     fi
 
-    oldest=$(git rev-list "$local_sha" --not "--remotes=$remote" | tail -n 1)
+    oldest=$(git rev-list --topo-order --reverse "$local_sha" --not "--remotes=$remote" | sed -n 1p)
     [[ -z $oldest ]] && return 1
 
     base="$oldest^"
@@ -198,11 +198,31 @@ cleanup() {
     # so anything left is a git failure worth seeing rather than hiding. Shown,
     # and never fatal: this runs after a green gate, and under `set -e` a
     # failed remove refused the push with exit 128 and no message (LWSM-1284).
+    #
+    # `rmdir` is for the one case git leaves behind: `worktree add` failed, so
+    # git never knew the path and the empty mktemp directory is all there is.
+    # It refuses a directory with anything in it, so it cannot hide a real one.
     [[ -z $WORKTREE ]] || git worktree remove --force "$WORKTREE" ||
+        rmdir "$WORKTREE" 2>/dev/null ||
         printf 'pre-push: could not remove worktree %s\n' "$WORKTREE" >&2
     return 0
 }
 trap cleanup EXIT
+
+# A hook killed outright (SIGKILL, a crash, power loss) never reaches `cleanup`
+# and leaves its scratch checkout, with a whole `.venv`, beside the git
+# directory for good. Anything this old cannot belong to a push still running.
+# Shown when it will not go, never fatal.
+sweep_stale_gate_worktrees() {
+    local common dir
+    common=$(git rev-parse --path-format=absolute --git-common-dir)
+    git worktree prune 2>/dev/null || true
+    while IFS= read -r dir; do
+        git worktree remove --force "$dir" 2>/dev/null || rmdir "$dir" 2>/dev/null ||
+            printf 'pre-push: could not remove stale worktree %s\n' "$dir" >&2
+    done < <(find "$common" -maxdepth 1 -type d -name 'lwsm-gate.*' -mmin +1440)
+}
+sweep_stale_gate_worktrees
 
 for tip in "${tips[@]}"; do
     printf 'pre-push: running ./scripts/local-ci.sh%s against %s\n' \

@@ -136,8 +136,11 @@ trap 'rm -rf "$stage_dir"' EXIT
 LWSM_EXEC_LINE="Exec=\"$exec_quoted\"" \
 LWSM_TRYEXEC_LINE="TryExec=$tryexec_escaped" \
     awk '
-        /^Exec=/     { print ENVIRON["LWSM_EXEC_LINE"];    next }
-        /^TryExec=/  { print ENVIRON["LWSM_TRYEXEC_LINE"]; next }
+        # Only the main group: a later [Desktop Action ...] group has its own
+        # Exec= and must keep it.
+        /^\[/        { main = ($0 == "[Desktop Entry]") }
+        main && /^Exec=/     { print ENVIRON["LWSM_EXEC_LINE"];    next }
+        main && /^TryExec=/  { print ENVIRON["LWSM_TRYEXEC_LINE"]; next }
                      { print }
     ' "packaging/$app_id.desktop" > "$entry_tmp"
 chmod 0644 "$entry_tmp"
@@ -165,8 +168,14 @@ fi
 # Editor, which saves into this very file: keep a copy and say so (LWSM-1535).
 live="$apps_dir/$app_id.desktop"
 if [ -f "$live" ] && ! cmp -s "$live" "$entry_tmp"; then
-    cp -p "$live" "$live.bak"
-    echo "note: replaced an existing entry that differed; the old one is at $live.bak" >&2
+    # A second differing install must not overwrite the first copy: that one may
+    # hold an earlier Menu Editor edit, now the only record of it.
+    backup="$live.bak"
+    if [ -e "$backup" ]; then
+        backup="$live.bak.$(date +%Y%m%dT%H%M%S)"
+    fi
+    cp -p "$live" "$backup"
+    echo "note: replaced an existing entry that differed; the old one is at $backup" >&2
 fi
 mv "$entry_tmp" "$live"
 rmdir "$stage_dir"

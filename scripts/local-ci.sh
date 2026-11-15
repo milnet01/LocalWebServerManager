@@ -366,12 +366,17 @@ if ((${#SKIPPED[@]})); then
     # trusts and it cannot distinguish a full run from a degraded one. CI sets
     # LWSM_REQUIRE_ALL_TOOLS=1; the list of checks stays in this one file either
     # way.
-    printf '\n%sLocal CI passed, with %d check(s) SKIPPED: %s%s\n' \
-        "$YELLOW" "${#SKIPPED[@]}" "${SKIPPED[*]}" "$RESET"
     if [[ ${LWSM_REQUIRE_ALL_TOOLS:-0} == 1 ]]; then
+        # The headline says what the exit status says: a "passed" line above a
+        # red one is what a reader skimming the top takes away.
+        printf '\n%sLocal CI FAILED, with %d check(s) SKIPPED: %s%s\n' \
+            "$RED" "${#SKIPPED[@]}" "${SKIPPED[*]}" "$RESET" >&2
         printf '%sLWSM_REQUIRE_ALL_TOOLS=1 and %d check(s) did not run.%s\n' \
             "$RED" "${#SKIPPED[@]}" "$RESET" >&2
         fatal=1
+    else
+        printf '\n%sLocal CI passed, with %d check(s) SKIPPED: %s%s\n' \
+            "$YELLOW" "${#SKIPPED[@]}" "${SKIPPED[*]}" "$RESET"
     fi
 elif ((fatal)); then
     : # The drift block above already said why this run fails.

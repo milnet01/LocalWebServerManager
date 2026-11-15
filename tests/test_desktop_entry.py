@@ -515,3 +515,67 @@ def test_a_hand_edited_entry_is_kept_aside_and_the_user_told(
     assert again.returncode == 0, again.stderr
     assert not backup.exists(), "an identical entry was backed up"
     assert ".bak" not in again.stderr
+
+
+def test_a_second_differing_install_keeps_the_first_backup(tmp_path: Path) -> None:
+    """15.6: `cp` over `.desktop.bak` lost the first Menu Editor edit when a
+    second differing entry was replaced. Both copies are kept now."""
+    apps = tmp_path / "data" / "applications"
+    apps.mkdir(parents=True)
+    entry = apps / f"{APP_ID}.desktop"
+    entry.write_text("[Desktop Entry]\nName=First edit\n", encoding="utf-8")
+    first = run_installer(tmp_path, validator="passes")
+    assert first.returncode == 0, first.stderr
+
+    entry.write_text("[Desktop Entry]\nName=Second edit\n", encoding="utf-8")
+    (tmp_path / "bin" / "desktop-file-validate").unlink()
+    (tmp_path / "bin").rmdir()
+    second = run_installer(tmp_path, validator="passes")
+
+    assert second.returncode == 0, second.stderr
+    kept = sorted(p.read_text(encoding="utf-8") for p in apps.glob("*.desktop.bak*"))
+    assert kept == [
+        "[Desktop Entry]\nName=First edit\n",
+        "[Desktop Entry]\nName=Second edit\n",
+    ], kept
+
+
+def test_only_the_main_group_gets_the_installed_exec(tmp_path: Path) -> None:
+    """15.7: the rewrite matched `Exec=` in any group, so a later
+    `[Desktop Action]` would have been given the main launcher. Run on a copy
+    of the script beside a template that has such a group."""
+    root = tmp_path / "tree"
+    (root / "scripts").mkdir(parents=True)
+    shutil.copy(SCRIPT, root / "scripts" / SCRIPT.name)
+    shutil.copytree(REPO / "packaging", root / "packaging")
+    template = root / "packaging" / f"{APP_ID}.desktop"
+    template.write_text(
+        template.read_text(encoding="utf-8").replace(
+            "[Desktop Entry]\n", "[Desktop Entry]\nActions=other;\n", 1
+        )
+        + "\n[Desktop Action other]\nName=Other\nExec=other-command\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "lwsm"
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+
+    done = subprocess.run(
+        [str(root / "scripts" / SCRIPT.name), str(target)],
+        cwd=root,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert done.returncode == 0, done.stderr
+    live = (tmp_path / "data" / "applications" / f"{APP_ID}.desktop").read_text(
+        encoding="utf-8"
+    )
+    assert "Exec=other-command" in live, live
+    assert str(target) in live.split("[Desktop Action other]")[0], live

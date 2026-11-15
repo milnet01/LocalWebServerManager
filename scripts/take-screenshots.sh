@@ -23,15 +23,26 @@ config="$work/config/localwebservermanager"
 # exit: a run already in progress holds two of these ports, so a second run
 # stops here instead of deleting the first run's demo config out from under
 # its app (L10-L4).
+if ! command -v demoreel >/dev/null 2>&1; then
+    printf 'take-screenshots: demoreel is not installed; nothing was changed\n' >&2
+    exit 1
+fi
+
 for port in 8601 8602 8603 8604 8605; do
-    if ! python3 -c 'import socket, sys; socket.socket().bind(("127.0.0.1", int(sys.argv[1])))' "$port" 2>/dev/null; then
+    # SO_REUSEADDR, as `http.server` sets it: without it a server stopped a
+    # moment ago still holds the port in TIME_WAIT and reads as "in use". A live
+    # listener still refuses the bind.
+    if ! python3 -c 'import socket, sys
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1])))' "$port" 2>/dev/null; then
         printf 'take-screenshots: port %s is in use; free it and run again\n' "$port" >&2
         exit 1
     fi
 done
 
 rm -rf "$work"
-mkdir -p "$config" "$work/state" "$work/projects" "$out"
+mkdir -p "$config" "$work/state" "$work/projects" "$work/shots" "$out"
 # A private runtime directory: the app claims its single-instance socket there,
 # and with the real one a running copy of the app is woken instead and the
 # screenshot shows an empty display (L7-M4).
@@ -98,14 +109,24 @@ shoot() {  # shoot <theme> <output name> [demoreel -a steps...]
     # one corner and the rest of the picture is black.
     printf '{"schema_version": 1, "theme": "%s", "x": 0, "y": 0, "width": 1280, "height": 800}\n' \
         "$theme" >"$config/settings.json"
-    demoreel shot -o "$out/$name.png" -s 1280x800 -a 'wait 3' "$@" -- \
+    # Into $work/shots, never straight into $out: a failure on shot 3 would
+    # leave docs/screenshots holding a mix of new and old images.
+    demoreel shot -o "$work/shots/$name.png" -s 1280x800 -a 'wait 3' "$@" -- \
         env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb XDG_SESSION_TYPE=x11 \
         XDG_CONFIG_HOME="$work/config" XDG_STATE_HOME="$work/state" \
         XDG_RUNTIME_DIR="$work/run" \
-        uv run --quiet lwsm
+        uv run --quiet lwsm ||
+        {
+            printf 'take-screenshots: demoreel failed on "%s"; %s is unchanged\n' \
+                "$name" "$out" >&2
+            exit 1
+        }
 }
 
 shoot midnight main-window
 shoot ledger light-theme
 shoot highcontrast-dark high-contrast
 shoot midnight filtered -a 'key slash' -a 'type book' -a 'wait 1'
+
+# All four came out: only now do they replace the published ones.
+mv -f "$work"/shots/*.png "$out"/

@@ -25,6 +25,8 @@ import os
 import re
 import shutil
 import subprocess
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -401,6 +403,9 @@ def _hook_verdict(
     gate_extra: str = "",
     remote_sha: str | None = None,
     renamed_from: str | None = None,
+    before_push: Callable[[Path], None] | None = None,
+    env_extra: dict[str, str] | None = None,
+    must_succeed: bool = True,
 ) -> str:
     """Run the REAL hook in a throwaway clone whose gate is a stub, pushing one
     commit that touches `changed`, and return everything the run printed.
@@ -482,6 +487,9 @@ def _hook_verdict(
     # and this test would pass on GitHub while the defect it names shipped.
     env = {k: v for k, v in os.environ.items() if k != "LWSM_REQUIRE_ALL_TOOLS"}
     env["ANTS_GLOBAL_HOOKS"] = str(shared)
+    env.update(env_extra or {})
+    if before_push:
+        before_push(repo)
 
     done = subprocess.run(
         ["bash", str(repo / ".githooks/pre-push"), "origin", "url"],
@@ -492,7 +500,8 @@ def _hook_verdict(
         text=True,
         check=False,
     )
-    assert done.returncode == 0, f"the hook refused the push: {done.stderr}"
+    if must_succeed:
+        assert done.returncode == 0, f"the hook refused the push: {done.stderr}"
     return done.stdout + done.stderr
 
 
@@ -819,6 +828,70 @@ def test_a_second_remote_cannot_exempt_a_first_push_to_origin(tmp_path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
+def test_a_skewed_commit_date_cannot_move_the_push_base_past_unpushed_code(
+    tmp_path,
+) -> None:
+    """15.1: `rev-list` orders by commit DATE, so `tail -n 1` named the last
+    commit by date, not the oldest by ancestry. A merge whose two sides share an
+    unpushed code commit E, with the side that reaches E last dated earlier than
+    E, made the base E itself, and the diff then skipped E's code change.
+    """
+
+    def run(*argv: str, env: dict[str, str] | None = None) -> str:
+        return subprocess.run(
+            argv,
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, **(env or {})},
+        ).stdout.strip()
+
+    def commit(message: str, date: str) -> str:
+        stamp = {
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+            "GIT_COMMITTER_DATE": date,
+            "GIT_AUTHOR_DATE": date,
+        }
+        run("git", "commit", "-q", "--allow-empty", "-m", message, env=stamp)
+        return run("git", "rev-parse", "HEAD")
+
+    run("git", "init", "-q", "-b", "main")
+    root = commit("root", "2020-01-01T00:00:00")
+    run("git", "remote", "add", "origin", str(tmp_path))
+    run("git", "update-ref", "refs/remotes/origin/main", root)
+    code = commit("code", "2020-01-02T00:00:00")
+    run("git", "branch", "side", code)
+    late = commit("late side", "2020-01-04T00:00:00")
+    run("git", "checkout", "-q", "side")
+    commit("early side", "2020-01-01T12:00:00")
+    stamp = {"GIT_COMMITTER_DATE": "2020-01-05T00:00:00"}
+    run(
+        "git",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "merge",
+        late,
+        env=stamp,
+    )
+    tip = run("git", "rev-parse", "HEAD")
+    base = _hook_push_base(tmp_path, tip, "0" * 40, "origin")
+
+    assert run("git", "rev-parse", base) == root, (
+        f"the push base {base!r} is not the parent of the oldest unpushed commit"
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
 def test_content_the_target_remote_already_has_adds_nothing(tmp_path) -> None:
     """The other half, deliberately in the same file: the exemption is real.
 
@@ -881,6 +954,51 @@ def test_a_worktree_that_will_not_go_away_is_reported_and_does_not_refuse_the_pu
     out = _hook_verdict(tmp_path, "src/x.py", gate_extra='git worktree lock "$PWD"\n')
     assert "GATE-RAN" in out
     assert "could not remove" in out, out
+
+
+def test_a_gate_worktree_a_killed_hook_left_behind_is_swept(tmp_path: Path) -> None:
+    """15.2: SIGKILL or power loss skips `cleanup`, so `.git/lwsm-gate.*` and its
+    `.venv` stayed for good. A day-old one goes at the next push; a fresh one,
+    which a concurrent push may be using, stays.
+    """
+
+    def leave_two(repo: Path) -> None:
+        for name, age in (("lwsm-gate.OLD000", 2 * 86400), ("lwsm-gate.NEW000", 0)):
+            leftover = repo / ".git" / name
+            leftover.mkdir()
+            when = time.time() - age
+            os.utime(leftover, (when, when))
+
+    _hook_verdict(tmp_path, "src/x.py", before_push=leave_two)
+
+    git_dir = tmp_path / "clone" / ".git"
+    assert not (git_dir / "lwsm-gate.OLD000").exists(), "a stale gate directory stayed"
+    assert (git_dir / "lwsm-gate.NEW000").exists(), "a fresh gate directory was swept"
+
+
+def test_a_failed_worktree_add_leaves_no_directory_behind(tmp_path: Path) -> None:
+    """15.2: when `git worktree add` fails, git never knew the mktemp directory,
+    so `worktree remove` could not take it and it stayed empty beside `.git`.
+    """
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    real_git = shutil.which("git")
+    (shim / "git").write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ ${1:-} == worktree && ${2:-} == add ]]; then exit 1; fi\n"
+        f'exec {real_git} "$@"\n'
+    )
+    (shim / "git").chmod(0o755)
+
+    _hook_verdict(
+        tmp_path,
+        "src/x.py",
+        env_extra={"PATH": f"{shim}:{os.environ['PATH']}"},
+        must_succeed=False,
+    )
+
+    left = list((tmp_path / "clone" / ".git").glob("lwsm-gate.*"))
+    assert not left, f"a failed worktree add left {left}"
 
 
 def test_the_gate_worktree_is_on_the_repository_s_own_disk(tmp_path: Path) -> None:
@@ -976,6 +1094,35 @@ def test_under_ci_both_drift_and_skips_are_listed_before_the_run_fails(
     out = done.stdout + done.stderr
     assert done.returncode == 1, out
     assert "shellcheck-drifted" in out and "actionlint" in out, out
+
+
+def test_a_run_that_fails_on_a_skip_does_not_say_it_passed(tmp_path: Path) -> None:
+    """15.3: under LWSM_REQUIRE_ALL_TOOLS=1 a skipped check exits 1, but the
+    headline above the red line still read "Local CI passed". Run from the real
+    summary, as the test above does."""
+    text = LOCAL_CI.read_text()
+    start = text.index("# Reported BEFORE the pass/skip line")
+    script = tmp_path / "summary.sh"
+    script.write_text(
+        'RED="" YELLOW="" GREEN="" RESET=""\nDRIFTED=()\nSKIPPED=(actionlint)\n'
+        + text[start:]
+    )
+
+    def run(required: str) -> tuple[int, str]:
+        env = {**os.environ, "LWSM_REQUIRE_ALL_TOOLS": required}
+        done = subprocess.run(
+            ["bash", str(script)], capture_output=True, text=True, env=env
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    code, out = run("1")
+    assert code == 1, out
+    assert "passed" not in out, out
+    assert "Local CI FAILED" in out, out
+
+    code, out = run("0")
+    assert code == 0, out
+    assert "Local CI passed, with 1 check(s) SKIPPED" in out, out
 
 
 # --- LWSM-1413: the same interpreter, environment and order on both sides -----
