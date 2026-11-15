@@ -35,6 +35,36 @@ signaling per
 
 ### Fixed
 
+- **A server that prints a flood of short lines no longer freezes the output panel.** (LWSM-1566)
+  Measured: 65,536 lines took over three seconds to show; they now take
+  a few milliseconds. Blank lines at the start of a log are kept.
+
+- **A script that compares a port, such as `if port == 8000`, is no longer read as the port it uses.** (LWSM-1561)
+  A systemd service whose name holds accented letters now matches its
+  project, and a project folder swapped for a link during a scan is
+  refused.
+
+- **An exported profile always ends in `.json`, so Import lists it.** (LWSM-1569)
+  The Save dialog adds the ending before it asks whether to replace a
+  file.
+
+- **View > Centre on screen says when a maximised window cannot be moved, and a slow answer from KWin no longer moves a window you have moved.** (LWSM-1571)
+  A window placed larger than the screen now takes the size that fits.
+
+- **The port lookup window answers again each time it opens, and writes its port range in your language's digits.** (LWSM-1572)
+  In Settings, fixing the error markers clears the old complaint, and
+  the markers box keeps its height.
+
+- **The update check survives a malformed answer from GitHub instead of failing.** (LWSM-1567)
+  An install whose last sync step fails is no longer reported as a
+  failed install.
+
+- **Restoring the project list from its backup never leaves you with no project list if the app is closed mid-way.** (LWSM-1560)
+  A save retried after a refusal keeps one copy of your hand edit, not
+  one per try.
+
+- **Two update checks at once no longer both show their answer, and the Stop dialog shortens a very long command line.** (LWSM-1570)
+
 - **A re-run of the release workflow replaces the AppImage already attached to the release instead of failing.** (LWSM-1546)
 
 - **Stop works on a project started through its systemd service that still reads "starting".** (LWSM-1527)
@@ -100,6 +130,11 @@ signaling per
   In 0.5.0 and 0.5.1, choosing a browser from the drop-down left the box blank or on "Auto" and reset that project to the default browser. The choice is now kept and saved. On those versions, select the closed box and press the Up or Down arrow key instead of opening the list.
 
 ### Security
+
+- **No message can forge a line in the app log.** (LWSM-1559)
+  Every log line is cleaned, as the window's text already was, and the
+  names of servers, systemd errors and probe failures are cleaned before
+  they are shown.
 
 - **The prompt that asks before running a project's scripts shows a very long run of spaces as its length.** (LWSM-1523)
   A script can no longer hide part of its command off screen. The box

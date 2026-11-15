@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1576 -->
+<!-- ants-roadmap-id-high-water: LWSM=1577 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15690,18 +15690,19 @@ decided, is the last packaging item (added 2026-11-11).
   Kind: fix.
   Source: user-report-2026-11-14.
 
-- 📋 [LWSM-1559] **Review 2026-11-15, startup and app log: six small points.**
+- ✅ [LWSM-1559] **Review 2026-11-15, startup and app log: six small points.**
   Points: rows 01.1 to 01.6 of the findings ledger (kept private,
   as review documents are). Low and Info only. 0.6.0 waits on them
   (user, 2026-11-14).
   2026-11-15: 01.1 and 01.3 fixed in 1d122ba; 01.4-01.6 dismissed. Open:
   01.2 (whether Qt unsets XDG_ACTIVATION_TOKEN; needs a live Wayland run).
+  2026-11-15: closed for 0.6.0; 01.2 moved to LWSM-1577 by the user.
   **Layman:** Small fixes to how the app starts and writes its own log.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-01.
   Lanes: main, applog.
 
-- 📋 [LWSM-1560] **Review 2026-11-15, registry: six small points.**
+- ✅ [LWSM-1560] **Review 2026-11-15, registry: six small points.**
   Points: rows 02.1 to 02.6 of the private findings ledger. Low and
   Info only, including the restore_backup crash window row 1525.2's
   fix did not cover.
@@ -15709,29 +15710,33 @@ decided, is the last packaging item (added 2026-11-11).
   02.5 dismissed. Open: a cap on .edited-* and .damaged-* copies
   (proposal: keep the newest 5 of each), and 02.6 (a load-time length cap
   on names and notes).
+  2026-11-15: closed for 0.6.0. The user kept every set-aside copy (the
+  2026-10-02 rule stands), so no cap; 02.6 moved to LWSM-1577.
   **Layman:** Small fixes to how the app stores its list of projects.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-02.
   Lanes: registry.
 
-- 📋 [LWSM-1561] **Review 2026-11-15, scanner: a comparison like `elif port == 8000:` is read as a port setting, and nine smaller points.**
+- ✅ [LWSM-1561] **Review 2026-11-15, scanner: a comparison like `elif port == 8000:` is read as a port setting, and nine smaller points.**
   Points: rows 03.1 to 03.10 of the private findings ledger. 03.1 is
   Medium; 03.10 is LWSM-1478's (0.9.0).
   2026-11-15: 03.1-03.5 and 03.7 fixed in 0044edc; 03.10 is LWSM-1478's.
   Open: 03.6 (changes rule 1 as the spec states it), 03.8 (filesystem
   calls the deadline cannot interrupt), 03.9 (parse cost, unmeasured).
+  2026-11-15: closed for 0.6.0; 03.6, 03.8 and 03.9 moved to LWSM-1577.
   **Layman:** The project finder can show a confident but wrong port when a script compares a port instead of setting one.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-03.
   Lanes: scanner.
 
-- 📋 [LWSM-1562] **Review 2026-11-15, config files and stores: eight small points.**
+- ✅ [LWSM-1562] **Review 2026-11-15, config files and stores: eight small points.**
   Points: rows 04.1 to 04.8 of the private findings ledger. 04.1 was
   Medium, calibrated Low (only a writer of the config folder reaches
   it); 04.2 calibrated Info after measurement.
   2026-11-15: 04.1, 04.4, 04.5 (port) and 04.6 fixed in 2b3be4a; 04.2,
   04.7, 04.8 and 08.11 dismissed. Open: 04.3 (a huge unknown-keys block
   refuses every save).
+  2026-11-15: closed for 0.6.0; 04.3 moved to LWSM-1577.
   **Layman:** Small fixes to how settings and remembered choices are read and written.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-04.
@@ -15750,19 +15755,20 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-15 lane-05.
   Lanes: supervisor, trust.
 
-- 📋 [LWSM-1564] **Review 2026-11-15, service, foreign holders, ports and health: seven small points.**
+- ✅ [LWSM-1564] **Review 2026-11-15, service, foreign holders, ports and health: seven small points.**
   Points: rows 06.1 to 06.7 of the private findings ledger. 06.7 is an
   open library question (shlex on a systemd-quoted ExecStart) to
   settle with a test.
   2026-11-15: 06.2 and 06.3 fixed in c7f3e34; 06.5-06.7 and the
   health.py makefile hit dismissed. Open: 06.1 (no startup sweep of a
   left-behind port drop-in), 06.4 (realpath on every argv token).
+  2026-11-15: closed for 0.6.0; 06.1 and 06.4 moved to LWSM-1577.
   **Layman:** Small fixes to how the app tells what is holding a port.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-06.
   Lanes: service, foreign, ports, health.
 
-- 📋 [LWSM-1565] **Review 2026-11-15, controller: seven small points.**
+- ✅ [LWSM-1565] **Review 2026-11-15, controller: seven small points.**
   Points: rows 07.1 to 07.7 of the private findings ledger. 07.1 (the
   untranslated sentences) is LWSM-1478's, in 0.9.0; 07.3 is resolved
   by spec LWSM-1038 step 2.
@@ -15771,12 +15777,13 @@ decided, is the last packaging item (added 2026-11-11).
   identity from reap_exited), 07.7 (one overlay slot for a unit start),
   and drive_unit's timeout leaving timed_out False (service.py).
   2026-11-15: drive_unit's timeout now sets timed_out (021cb63).
+  2026-11-15: closed for 0.6.0; 07.2 and 07.7 moved to LWSM-1577.
   **Layman:** Small fixes to the part that drives start, stop and restart.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-07.
   Lanes: controller.
 
-- 📋 [LWSM-1566] **Review 2026-11-15, log follower and panel: a flood of short lines can freeze the window, and ten smaller points.**
+- ✅ [LWSM-1566] **Review 2026-11-15, log follower and panel: a flood of short lines can freeze the window, and ten smaller points.**
   Points: rows 08.1 to 08.11 of the private findings ledger. 08.1 is
   Medium: the panel appends each line one at a time though it keeps
   only the last 2000.
@@ -15785,18 +15792,20 @@ decided, is the last packaging item (added 2026-11-11).
   08.11 moved to LWSM-1562; 08.6, 08.7 and 08.9 dismissed. Open: 08.4
   (transient open errors), 08.5 (log replaced in place), 08.10 (a stuck
   reader on stop).
+  2026-11-15: closed for 0.6.0; 08.4, 08.5 and 08.10 moved to LWSM-1577.
   **Layman:** A server that prints a huge burst of short lines could freeze the window, and the magnifier with it.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-08.
   Lanes: logbuffer, logpanel.
 
-- 📋 [LWSM-1567] **Review 2026-11-15, self-update: thirteen small points.**
+- ✅ [LWSM-1567] **Review 2026-11-15, self-update: thirteen small points.**
   Points: rows 09.1 to 09.13 of the private findings ledger. Low and
   Info only. LWSM-1548 stays in progress for its own reasons.
   2026-11-15: 09.1, 09.2, 09.4, 09.5, 09.8, 09.9 and 09.11 fixed in
   3b4b123; 09.10 is SECURITY.md's (docs fold-back); 09.6, 09.12, 09.13
   and check-code's update.py:266 hit dismissed. Open: 09.3 (download
   host allow-list), 09.7 (install off the GUI thread).
+  2026-11-15: closed for 0.6.0; 09.3 and 09.7 moved to LWSM-1577.
   **Layman:** Small fixes to the self-update, including inputs that could break a parser that promises never to fail.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-09.
@@ -15823,17 +15832,21 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-15 lane-11.
   Lanes: mainwindow, theme, appearance, outline.
 
-- 📋 [LWSM-1570] **Review 2026-11-15, window actions and browsers: six small points.**
+- ✅ [LWSM-1570] **Review 2026-11-15, window actions and browsers: six small points.**
   Points: rows 12.1 to 12.6 of the private findings ledger, plus lead
   19.1 (the tree-stop dialog shows a holder's command line unclipped).
   12.6 is LWSM-1478's.
+  2026-11-15: every point closed: 12.1, 12.3, 12.4 and the tree-stop clip
+  fixed in aef7c6f; 12.2, 12.5 and 12.6 dismissed.
   **Layman:** Small fixes to the buttons and the browser opener.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-12.
   Lanes: mainwindow, browsers.
 
-- 📋 [LWSM-1571] **Review 2026-11-15, window geometry and placement: seven small points.**
+- ✅ [LWSM-1571] **Review 2026-11-15, window geometry and placement: seven small points.**
   Points: rows 13.1 to 13.7 of the private findings ledger.
+  2026-11-15: closed for 0.6.0: 13.2-13.4 fixed in a342605; 13.1, 13.6
+  and 13.7 dismissed; 13.5 moved to LWSM-1577.
   **Layman:** Small fixes to where the window opens and how it remembers its size.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-13.
@@ -15859,13 +15872,15 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-15 lane-15.
   Lanes: tooling.
 
-- 📋 [LWSM-1574] **Review 2026-11-15, release scripts: a failed key check or a missing build tool is reported as the wrong blocker, and five smaller points.**
+- ✅ [LWSM-1574] **Review 2026-11-15, release scripts: a failed key check or a missing build tool is reported as the wrong blocker, and five smaller points.**
   Points: rows 16.1 to 16.7 of the private findings ledger, plus lead
   19.7 (no flag to skip the AppImage step). 16.1 and 16.2 are Medium:
   a check that could not run must report a SKIP, not a BLOCK.
   2026-11-15: 16.1-16.4 fixed in dcd87bc; 16.7 dismissed (no defect
   named). Open: 16.5 (needs a container run), 16.6 (apt pinning), 19.7
   (a skip flag would be a feature).
+  2026-11-15: closed for 0.6.0; 16.5, 16.6 and the skip flag moved to
+  LWSM-1577.
   **Layman:** The release pre-check can say the signing key is missing, or that the build failed, when the real cause is something else.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-16.
@@ -15881,12 +15896,14 @@ decided, is the last packaging item (added 2026-11-11).
   Source: review-code-2026-11-15 lane-17.
   Lanes: ci.
 
-- 📋 [LWSM-1576] **check-code 2026-11-15: three tool findings with no false-positive record, three unused names in src/, four spelling hits.**
+- ✅ [LWSM-1576] **check-code 2026-11-15: three tool findings with no false-positive record, three unused names in src/, four spelling hits.**
   Points: rows 18.1 to 18.10 of the private findings ledger, and
   leads 19.2 to 19.6 from the 2026-11-14 run that no item above owns.
   2026-11-15: typos noise configured in 8fc8121; the B613 test data and
   the makefile hit recorded as false positives. Open: theme.py's class
   (core or GUI), and test docstrings that still say "status bar".
+  2026-11-15: every point closed: the status-bar wording fixed in
+  a342605; theme.py stays out of core (it imports QtGui).
   **Layman:** Tidy up what the automatic checkers flagged, or record why each flag is a false alarm.
   Kind: audit-fix.
   Source: check-code-2026-11-15.
@@ -16102,6 +16119,34 @@ the tray items.
   **Layman:** Search a server's output for a word, and copy its latest error in one step, instead of scrolling by eye.
   Kind: feature.
   Source: user-decision-2026-11-15.
+
+- 📋 [LWSM-1577] **Review 2026-11-15: the Low and Info points that need a design choice or a live run.**
+  The user moved these out of 0.6.0 on 2026-11-15. Rows of the private
+  findings ledger, each with its reason:
+  - 01.2: whether Qt unsets XDG_ACTIVATION_TOKEN (a live Wayland run).
+  - 02.6: a length cap on names and notes at load (changes what is stored).
+  - 03.6: rule 1's form 4 (changes rule 1 as spec LWSM-1006 states it).
+  - 03.8 and 06.4: filesystem and realpath calls the scan deadline cannot
+    interrupt (a worker thread or a hard cap).
+  - 03.9: the docstring parse cost (measure first).
+  - 04.3: a huge unknown-keys block refuses every settings save (format).
+  - 06.1: no startup sweep of a left-behind port drop-in (when it is safe).
+  - 07.2: a reap lost across an overlay (reap_exited needs a child id).
+  - 07.7: one overlay slot for a unit start (ADR-0004).
+  - 08.4, 08.5, 08.10: a transient open error, a log replaced in place, a
+    stuck reader on stop.
+  - 09.3: an allow-list of download hosts.
+  - 09.7: install off the GUI thread (spec LWSM-1548 INV-6, INV-10).
+  - 13.5: KWin script name shared across copies (a narrow race against a
+    leak).
+  - 16.5: the smoke may leave the AppImage's child running (a container
+    run); 16.6: unpinned apt packages in the build image.
+  - 19.7: a flag to skip the AppImage step (a feature).
+  - Lane 12's open question: enumerate_tree runs on the GUI thread.
+  **Layman:** Smaller review points that each need a decision or a test on the real desktop before they can be fixed safely.
+  Kind: review-fix.
+  Source: review-code-2026-11-15.
+  Lanes: scanner, registry, settings, service, controller, logbuffer, update, mainwindow, placement, release.
 
 ## 0.8.0 — Runs without being watched
 
