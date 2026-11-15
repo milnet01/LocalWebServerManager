@@ -13,11 +13,13 @@ APPDIR=/tmp/AppDir
 # the mounts, and the user cannot delete it. Give it back to whoever owns the
 # bind-mounted work directory: the host user under docker; root, so a no-op,
 # under rootless podman, where the host user is the container's root. Runs on
-# every exit, so a failed build hands its cache back too.
+# every exit, so a failed build hands its cache back too, and drops a
+# half-written AppImage.part (LWSM-1574).
 hand_back_ownership() {
     local work=$1 out=$2 file=$3 owner
     owner="$(stat -c '%u:%g' "$work")" || return 0
     chown -R "$owner" "$work" || true
+    rm -f "$out/$file.part"
     [ -e "$out/$file" ] && { chown "$owner" "$out/$file" || true; }
     return 0
 }
@@ -129,4 +131,6 @@ echo "-- building the AppImage --"
 # A container has no FUSE, so the tool extracts itself and runs. There is no
 # AppStream metainfo yet, so its check is skipped.
 ARCH=x86_64 "$TOOL" --appimage-extract-and-run --no-appstream \
-    --runtime-file "$RUNTIME" "$APPDIR" "/out/$APPIMAGE"
+    --runtime-file "$RUNTIME" "$APPDIR" "/out/$APPIMAGE.part"
+# Under the real name only once the tool has exited 0 (LWSM-1574).
+mv "/out/$APPIMAGE.part" "/out/$APPIMAGE"

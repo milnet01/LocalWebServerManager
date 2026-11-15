@@ -54,10 +54,10 @@ take_build_lock() {
     fi
 }
 
-mkdir -p "$WORK/cache"
+mkdir -p "$WORK/cache" "$WORK/empty"
 take_build_lock "$DIST/.appimage-build.lock"
 echo "== build-appimage: $APPIMAGE (runner: $RUNNER) =="
-rm -f "$DIST/$APPIMAGE"
+rm -f "$DIST/$APPIMAGE" "$DIST/$APPIMAGE.part"
 
 # The exact runtime closure and PyInstaller, with hashes, from uv.lock. The
 # container installs these and nothing else, so the bundle holds what the lock
@@ -90,13 +90,15 @@ SMOKE_PACKAGES+=" libharfbuzz0b libstdc++6 libgcc-s1 libx11-6 libx11-xcb1"
 SMOKE_PACKAGES+=" libcom-err2 libexpat1 libgpg-error0 zlib1g"
 SMOKE_PACKAGES+=" libxkbcommon-x11-0 libwayland-cursor0"
 
+# The smoke Dockerfile copies nothing, so its build context is an empty
+# directory, not the tools and caches in $WORK (LWSM-1574).
 # Builds the smoke machine for one Debian release and runs the smoke in it.
 # Each release has its own image tag, so two images never clash.
 smoke_on() {
     local release=$1 base=$2 image="localhost/lwsm-appimage-smoke:$1" smoke_build_out
     echo "== build-appimage: preparing the Debian $release smoke machine =="
     if ! smoke_build_out="$(printf 'FROM %s\nRUN apt-get update && apt-get install -y --no-install-recommends %s && rm -rf /var/lib/apt/lists/*\n' \
-            "$base" "$SMOKE_PACKAGES" | "$RUNNER" build -t "$image" -f - "$WORK" 2>&1)"; then
+            "$base" "$SMOKE_PACKAGES" | "$RUNNER" build -t "$image" -f - "$WORK/empty" 2>&1)"; then
         printf '%s\n' "$smoke_build_out" >&2
         echo "build-appimage: building the Debian $release smoke image failed (output above)" >&2
         exit 1

@@ -536,8 +536,14 @@ appimage_status() {
         skip "AppImage build (neither podman nor docker is installed)"
         return 0
     fi
+    # build-appimage.sh also needs flock and a python3 with tomllib (3.11+); it
+    # dies before building without them (LWSM-1574).
     if ! command -v uv >/dev/null 2>&1; then
         skip "AppImage build (uv is not installed)"
+    elif ! command -v flock >/dev/null 2>&1; then
+        skip "AppImage build (flock is not installed)"
+    elif ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+        skip "AppImage build (python3 is older than 3.11, which has no tomllib)"
     elif ! "$runner" info >/dev/null 2>&1; then
         skip "AppImage build ($runner is installed but cannot run)"
     elif bash scripts/build-appimage.sh; then
@@ -557,13 +563,24 @@ appimage_status
 # (`scripts/sign-release.py publish`), and an unsigned one is offered to no
 # AppImage. So a missing or wrong key stops the release before the tag exists.
 # `check-key` prints only its answer, never key material.
+#
+# Only check-key's own answer is a BLOCK: exit 1 and its mismatch line. `uv`
+# failing to resolve or sync, or a Python error, also exits non-zero and says
+# nothing of the key, so the check could not run: a SKIP (LWSM-1574).
 signing_key_status() {
+    local out rc=0
     if ! command -v uv >/dev/null 2>&1; then
         skip "release signing key (uv is not installed)"
-    elif uv run --quiet scripts/sign-release.py check-key; then
+        return 0
+    fi
+    out="$(uv run --quiet scripts/sign-release.py check-key 2>&1)" || rc=$?
+    if ((rc == 0)); then
         ok "the release signing key matches the committed public key"
-    else
+    elif ((rc == 1)) && [[ $out == *"the signing key is missing or does not match"* ]]; then
         block "the release signing key is missing or does not match; see docs/claude/release.md"
+    else
+        skip "release signing key (the check could not run; uv exited $rc)"
+        printf '%s\n' "$out" >&2
     fi
     return 0
 }

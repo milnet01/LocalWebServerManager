@@ -802,12 +802,16 @@ def _appimage_status(
     build_exit: int,
     uv: bool = True,
     info_exit: int = 0,
+    flock: bool = True,
+    python_exit: int = 0,
 ) -> list[str]:
     """Run the script's OWN `appimage_status()` in a tree whose
     `scripts/build-appimage.sh` exits `build_exit`, with `runner` (podman,
     docker, or None for neither) the only container tool on PATH. `uv` says
     whether a `uv` is on PATH too; `info_exit` is what `<runner> info` exits
-    (non-zero is a daemon that is not running)."""
+    (non-zero is a daemon that is not running). `flock` says whether one is on
+    PATH; `python_exit` is what the `python3 -c 'import tomllib'` probe exits
+    (non-zero is a python older than 3.11)."""
     body = re.search(
         r"^appimage_status\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M
     )
@@ -827,6 +831,13 @@ def _appimage_status(
         uv_stub = binaries / "uv"
         uv_stub.write_text("#!/bin/sh\nexit 0\n")
         uv_stub.chmod(0o755)
+    if flock:
+        flock_stub = binaries / "flock"
+        flock_stub.write_text("#!/bin/sh\nexit 0\n")
+        flock_stub.chmod(0o755)
+    python_stub = binaries / "python3"
+    python_stub.write_text(f"#!/bin/sh\nexit {python_exit}\n")
+    python_stub.chmod(0o755)
     script = (
         "set -Eeuo pipefail\n"
         'block() { printf "BLOCK %s\\n" "$1"; }\n'
@@ -881,6 +892,25 @@ def test_a_container_runner_that_cannot_run_is_a_skip(tmp_path, runner) -> None:
     check could not run, so it is a SKIP, not a BLOCK."""
     (line,) = _appimage_status(tmp_path, runner=runner, build_exit=1, info_exit=1)
     assert line.startswith("SKIP ")
+
+
+@pytest.mark.parametrize(
+    ("missing"), ["flock", "python"], ids=["no-flock", "python-before-3.11"]
+)
+def test_a_build_script_prerequisite_that_is_missing_is_a_skip(
+    tmp_path, missing
+) -> None:
+    """LWSM-1574. build-appimage.sh needs `flock` and a python with `tomllib`.
+    Without either it dies before building, which is a check that could not
+    run: a SKIP, not a BLOCK. The build's stub would exit 1."""
+    (line,) = _appimage_status(
+        tmp_path,
+        runner="podman",
+        build_exit=1,
+        flock=missing != "flock",
+        python_exit=1 if missing == "python" else 0,
+    )
+    assert line.startswith("SKIP "), line
 
 
 # --- LWSM-1545: the AppImage build's lock and file ownership -----------------
@@ -978,9 +1008,20 @@ def test_the_container_script_hands_ownership_back_even_when_it_fails() -> None:
 # --- LWSM-1548: the release signing key stops a release it cannot sign -------
 
 
-def _signing_key_status(tmp_path: Path, *, uv_exit: int | None) -> list[str]:
-    """Run the script's OWN `signing_key_status()` with a stub `uv` that exits
-    `uv_exit`, or no `uv` at all for None."""
+MISMATCH = "the signing key is missing or does not match the committed public key"
+
+
+def test_the_mismatch_line_is_the_one_sign_release_prints() -> None:
+    """`signing_key_status` BLOCKs only on check-key's own mismatch line, so the
+    line it matches and the line `sign-release.py` prints are one pair."""
+    assert f'print("{MISMATCH}")' in (REPO / "scripts/sign-release.py").read_text()
+
+
+def _signing_key_status(
+    tmp_path: Path, *, uv_exit: int | None, uv_says: str = ""
+) -> list[str]:
+    """Run the script's OWN `signing_key_status()` with a stub `uv` that prints
+    `uv_says` and exits `uv_exit`, or no `uv` at all for None."""
     body = re.search(
         r"^signing_key_status\(\) \{.*?^\}$", RELEASE.read_text(), re.S | re.M
     )
@@ -992,7 +1033,7 @@ def _signing_key_status(tmp_path: Path, *, uv_exit: int | None) -> list[str]:
     (binaries / "bash").symlink_to(bash)
     if uv_exit is not None:
         stub = binaries / "uv"
-        stub.write_text(f"#!/bin/sh\nexit {uv_exit}\n")
+        stub.write_text(f"#!/bin/sh\necho '{uv_says}'\nexit {uv_exit}\n")
         stub.chmod(0o755)
     script = (
         "set -Eeuo pipefail\n"
@@ -1015,15 +1056,33 @@ def _signing_key_status(tmp_path: Path, *, uv_exit: int | None) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("uv_exit", "verdict"),
-    [(0, "OK "), (1, "BLOCK "), (None, "SKIP ")],
-    ids=["matches", "missing-or-wrong", "no-uv"],
+    ("uv_exit", "uv_says", "verdict"),
+    [
+        (0, "the signing key matches the committed public key", "OK "),
+        (1, MISMATCH, "BLOCK "),
+        (None, "", "SKIP "),
+        # LWSM-1574. `uv` failing (no network, a broken environment) and a
+        # Python error also exit 1 or 2, and say nothing of the key.
+        (1, "error: failed to resolve", "SKIP "),
+        (2, "Traceback (most recent call last)", "SKIP "),
+        (1, "", "SKIP "),
+        (2, MISMATCH, "SKIP "),
+    ],
+    ids=[
+        "matches",
+        "missing-or-wrong",
+        "no-uv",
+        "uv-failed-exit-1",
+        "python-error",
+        "silent-exit-1",
+        "wrong-exit-code",
+    ],
 )
 def test_the_signing_key_check_blocks_a_release_it_cannot_sign(
-    tmp_path, uv_exit, verdict
+    tmp_path, uv_exit, uv_says, verdict
 ) -> None:
-    (line,) = _signing_key_status(tmp_path, uv_exit=uv_exit)
-    assert line.startswith(verdict)
+    line = _signing_key_status(tmp_path, uv_exit=uv_exit, uv_says=uv_says)[-1]
+    assert line.startswith(verdict), line
 
 
 # --- LWSM-1544: the smoke checks the display plugins and both Debians --------
@@ -1130,6 +1189,18 @@ def _smoke_on(tmp_path: Path, release: str, base: str) -> list[str]:
     return record.read_text().splitlines()
 
 
+def test_the_smoke_image_is_built_from_an_empty_context(tmp_path) -> None:
+    """LWSM-1574. The smoke Dockerfile copies nothing, so the build context must
+    not be the work directory with the tools and caches (tens of MB, sent
+    twice)."""
+    (build,) = [
+        line for line in _smoke_on(tmp_path, "13", "base") if line.startswith("build ")
+    ]
+    context = build.split()[-1]
+    assert context == "/w/empty", build
+    assert re.search(r'^mkdir -p .*"\$WORK/empty"', BUILD.read_text(), re.M)
+
+
 def test_each_debian_gets_its_own_image_and_its_own_smoke_run(tmp_path) -> None:
     """LWSM-1544. Two releases must not share a tag, and the image a release is
     built from must be the one its smoke runs in.
@@ -1166,3 +1237,34 @@ def test_both_debians_are_smoked_from_digest_pins() -> None:
     assert len(set(pins.values())) == 2
     assert re.search(r'^smoke_on 13 "\$SMOKE_BASE_13"$', text, re.M)
     assert re.search(r'^smoke_on 12 "\$SMOKE_BASE_12"$', text, re.M)
+
+
+def test_the_appimage_is_written_under_a_temporary_name_and_renamed() -> None:
+    """LWSM-1574. A killed or disk-full build must not leave a truncated file
+    under the real name: the tool writes `.part` and `mv` publishes it once the
+    tool has exited 0."""
+    text = IN_CONTAINER.read_text()
+    tool = re.search(r'^ARCH=x86_64 "\$TOOL".*?\n.*$', text, re.M)
+    assert tool and '"/out/$APPIMAGE.part"' in tool.group(0), text
+    assert re.search(r'^mv "/out/\$APPIMAGE.part" "/out/\$APPIMAGE"$', text, re.M)
+    assert 'rm -f "$DIST/$APPIMAGE" "$DIST/$APPIMAGE.part"' in BUILD.read_text()
+
+
+def test_a_failed_build_leaves_no_partial_file_behind(tmp_path) -> None:
+    """LWSM-1574. The exit handler removes a leftover `.part`, which under
+    rootful docker would be root's and the user could not delete."""
+    out = tmp_path / "out"
+    work = tmp_path / "work"
+    out.mkdir()
+    work.mkdir()
+    (out / "x.AppImage.part").write_text("half")
+    bash = shutil.which("bash")
+    assert bash, "bash is not on PATH"
+    script = (
+        f"{_function(IN_CONTAINER, 'hand_back_ownership')}\n"
+        'hand_back_ownership "$1" "$2" "$3"'
+    )
+    subprocess.run(
+        [bash, "-c", script, "_", str(work), str(out), "x.AppImage"], check=True
+    )
+    assert not (out / "x.AppImage.part").exists()
