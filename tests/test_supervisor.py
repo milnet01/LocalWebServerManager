@@ -4223,3 +4223,82 @@ def test_an_adopted_server_stays_ours_after_its_launcher_exits(
     finally:
         second.close()
         _reap(managed.popen)
+
+
+def test_a_name_with_control_characters_cannot_forge_a_log_line(
+    supervisor: Supervisor, project: Path, caplog
+) -> None:
+    """Row 05.6: a project name is outside text, and `app.log` is one record
+    per line. Every line this module writes about the project is cleaned."""
+    hostile = "demo\nFORGED record\x1b[31m"
+    write_launcher(project, "exit 0\n")
+    argv = ["./start.sh"]
+    supervisor.trust.confirm(project, launcher_fingerprint(project, tuple(argv)))
+
+    with caplog.at_level("INFO", logger=supervisor_module.log.name):
+        supervisor.start(project, name=hostile, argv=argv, port=None)
+        supervisor.stop(project)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("demo" in m for m in messages)
+    for message in messages:
+        assert "\n" not in message, message
+        assert "\x1b" not in message, message
+
+
+class _Probe:
+    """A process handle whose status read raises `error`."""
+
+    pid = 4242
+
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    def is_running(self) -> bool:
+        return True
+
+    def status(self) -> str:
+        raise self.error
+
+
+def test_a_bare_oserror_other_than_a_vanished_process_counts_as_alive() -> None:
+    """Row 05.4: `/proc` refusing a read (EACCES under hidepid) is the
+    `AccessDenied` case, not death; only ENOENT or ESRCH means gone."""
+    assert supervisor_module._alive(_Probe(OSError(errno.EACCES, "denied")))
+    assert not supervisor_module._alive(_Probe(OSError(errno.ENOENT, "gone")))
+    assert not supervisor_module._alive(_Probe(OSError(errno.ESRCH, "gone")))
+
+
+def test_reap_exited_removes_the_record_before_it_frees_the_slot(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """Row 05.2: the record goes while the slot is still held, so a start for
+    the same project cannot land its fresh record in the gap and lose it."""
+    write_launcher(project, "exit 0\n")
+    argv = ["./start.sh"]
+    supervisor.trust.confirm(project, launcher_fingerprint(project, tuple(argv)))
+    seen: list[bool] = []
+    real_remove = supervisor.started.remove
+
+    def spy(*projects: Path) -> None:
+        seen.append(project.resolve() in supervisor._registry.processes)
+        real_remove(*projects)
+
+    supervisor.started.remove = spy  # type: ignore[method-assign]
+    supervisor.start(project, name="demo", argv=argv, port=None)
+    assert wait_until(lambda: bool(supervisor.reap_exited()))
+    assert seen == [True]
+
+
+def test_closing_a_descriptor_twice_is_logged_not_silent(
+    tmp_path: Path, caplog
+) -> None:
+    """Row 05.3: an EBADF from a double close names a descriptor bug."""
+    fd = os.open(tmp_path / "f", os.O_CREAT | os.O_WRONLY)
+    supervisor_module._close_quietly(fd)
+    with caplog.at_level("DEBUG", logger=supervisor_module.log.name):
+        supervisor_module._close_quietly(fd)
+    assert any(
+        "EBADF" in r.getMessage() or "Bad file" in r.getMessage()
+        for r in caplog.records
+    )

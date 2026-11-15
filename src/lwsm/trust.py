@@ -426,8 +426,9 @@ def npm_shown(project: Path, argv: tuple[str, ...]) -> tuple[tuple[str, str], ..
     """What the trust dialog shows for `npm run <name>`: each script npm will
     run, then each line of the project's `.npmrc`, as (label, text) pairs.
 
-    Read from the same parse `npm_material` hashes, so the dialog cannot show
-    one thing while the confirmation binds to another (LWSM-1365). Empty for
+    Built by the same function `npm_material` hashes from (`_npm_parts`), in a
+    separate read: a file that changes between the two only re-arms the gate
+    (LWSM-1365). Empty for
     any other shape, or where the material could not be read — `start()` has
     already refused that case.
     """

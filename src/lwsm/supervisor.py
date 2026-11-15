@@ -46,6 +46,7 @@ from lwsm.applog import (
     open_private_regular,
     prepare_state_dir,
 )
+from lwsm.configfile import display_text
 from lwsm.ports import ProbeError, SupportsSnapshot
 from lwsm.settings import DEFAULT_LOG_MAX_MIB
 from lwsm.stores import StartedEntry, StartedStore, TrustStore
@@ -317,11 +318,12 @@ def _alive(proc: psutil.Process) -> bool:
         return True
     except psutil.Error:
         return False
-    except OSError:
+    except OSError as exc:
         # `Process.status()` reads /proc; hidepid, an LSM or a vanished entry
         # raise plain OSError, which psutil.Error does not cover (the shape
-        # `ports.py` documents for `net_connections`).
-        return False
+        # `ports.py` documents for `net_connections`). Only a vanished entry
+        # means gone; an unreadable one is the `AccessDenied` case above.
+        return exc.errno not in (errno.ENOENT, errno.ESRCH)
 
 
 def wait_until_gone(
@@ -608,7 +610,7 @@ class Supervisor:
                 os.unlink(tmp_name)
             raise
         os.ftruncate(fd, 0)
-        log.info("rotated the log for %s at %d bytes", name, size)
+        log.info("rotated the log for %s at %d bytes", display_text(name), size)
         return True
 
     # -- starting --------------------------------------------------------
@@ -745,7 +747,11 @@ class Supervisor:
                 self._registry.starting.discard(resolved_project)
 
         log.info(
-            "started %s as pid %d (argv %r, port %s)", name, managed.pid, argv, port
+            "started %s as pid %d (argv %r, port %s)",
+            display_text(name),
+            managed.pid,
+            argv,
+            port,
         )
         return managed
 
@@ -835,7 +841,11 @@ class Supervisor:
             # `btime` line. The server is running and registered, so a failed
             # Start would lie; record it by `create_time` alone, as an entry
             # from before LWSM-1448 is (LWSM-1524).
-            log.warning("no boot-relative start time for %s: %s", managed.name, exc)
+            log.warning(
+                "no boot-relative start time for %s: %s",
+                display_text(managed.name),
+                exc,
+            )
             since_boot = None
         boot_id = _boot_id() if since_boot is not None else None
         self.started.add(
@@ -885,7 +895,9 @@ class Supervisor:
                 continue
             taken.add(entry.project)
             log.info(
-                "adopted %s, pid %d, from an earlier session", entry.name, entry.pid
+                "adopted %s, pid %d, from an earlier session",
+                display_text(entry.name),
+                entry.pid,
             )
         self.started.remove(*dropped)
         return frozenset(taken)
@@ -901,10 +913,14 @@ class Supervisor:
             if not why and os.getpgid(entry.pid) != entry.pid:
                 why = "pid %d no longer leads its own process group"
         except (psutil.Error, OSError):
-            log.info("not adopting %s: pid %d no longer runs", entry.name, entry.pid)
+            log.info(
+                "not adopting %s: pid %d no longer runs",
+                display_text(entry.name),
+                entry.pid,
+            )
             return None
         if why:
-            log.info("not adopting %s: " + why, entry.name, entry.pid)
+            log.info("not adopting %s: " + why, display_text(entry.name), entry.pid)
             return None
         log_path = self.log_path_for(entry.project, entry.name)
         try:
@@ -913,7 +929,9 @@ class Supervisor:
             # `start()` refuses on the same failure, so a log this session
             # cannot open is a server it could not have started either.
             log.warning(
-                "not adopting %s: its log cannot be opened: %s", entry.name, exc
+                "not adopting %s: its log cannot be opened: %s",
+                display_text(entry.name),
+                exc,
             )
             return None
         return ManagedProcess(
@@ -1056,10 +1074,11 @@ class Supervisor:
 
         exit_code = self._reap(managed)
         bound, warning = self._port_after_stop(managed)
+        shown = display_text(managed.name)
         if unsignalled:
             refused = ", ".join(str(pid) for pid in sorted(set(unsignalled)))
             refused_warning = (
-                f"{managed.name} stopped, but {len(set(unsignalled))} process(es) "
+                f"{shown} stopped, but {len(set(unsignalled))} process(es) "
                 f"could not be signalled: {refused}"
             )
             warning = (
@@ -1067,7 +1086,7 @@ class Supervisor:
             )
         if stragglers:
             straggler_warning = (
-                f"{managed.name} stopped, but {len(stragglers)} process(es) in "
+                f"{shown} stopped, but {len(stragglers)} process(es) in "
                 f"its group were still running afterwards: {stragglers}"
             )
             warning = (
@@ -1077,7 +1096,7 @@ class Supervisor:
             )
         log.info(
             "stopped %s: terminated %r, killed %r, exit %s",
-            managed.name,
+            shown,
             terminated,
             killed,
             exit_code,
@@ -1347,7 +1366,7 @@ class Supervisor:
             # Without the thread it then stays a zombie for the session.
             log.warning(
                 "%s did not exit after SIGKILL; reaping it when it does",
-                managed.name,
+                display_text(managed.name),
             )
             threading.Thread(
                 target=managed.popen.wait, name="lwsm-late-reap", daemon=True
@@ -1383,7 +1402,8 @@ class Supervisor:
         # a process the user cannot inspect, rather than for an owner to be
         # invented.
         return True, (
-            f"{managed.name} stopped, but port {managed.port} is still bound; "
+            f"{display_text(managed.name)} stopped, but port {managed.port} is "
+            "still bound; "
             "nothing was signalled for whatever holds it"
         )
 
@@ -1422,12 +1442,15 @@ class Supervisor:
             with self._registry.lock:
                 if self._registry.processes.get(project) is not managed:
                     continue
+                # The record goes while the slot is still held: a `start()` for
+                # this project cannot register, so cannot have its fresh record
+                # deleted from under it (review-code 2026-11-15, 05.2).
+                self.started.remove(project)
                 del self._registry.processes[project]
-            self.started.remove(project)
             collected[project] = self._reap(managed)
             log.info(
                 "%s exited on its own (exit %s); releasing its slot",
-                managed.name,
+                display_text(managed.name),
                 collected[project],
             )
         return collected
@@ -1540,5 +1563,11 @@ class Supervisor:
 def _close_quietly(fd: int) -> None:
     try:
         os.close(fd)
-    except OSError:
-        pass
+    except OSError as exc:
+        # A double close is this module's recurring descriptor hazard
+        # (LWSM-1138/1169); say so rather than swallow it.
+        log.debug(
+            "closing descriptor %d failed: %s",
+            fd,
+            errno.errorcode.get(exc.errno or 0, exc),
+        )
