@@ -35,6 +35,7 @@ from lwsm.configfile import (
     MAX_REASON_CHARS,
     ConfigFileError,
     ConfigFileNotDurable,
+    display_text,
     write_atomically,
 )
 from lwsm.scanner import (
@@ -339,9 +340,11 @@ def _stderr_reason(completed: object, fallback: str) -> str:
 
     `configfile.MAX_REASON_CHARS` exists for exactly this shape of foreign text
     reaching a widget; the bound is applied here so no caller can forget it.
+    Control and bidi characters become U+FFFD through `display_text`, which
+    clips at the same length.
     """
     detail = (getattr(completed, "stderr", "") or "").strip().replace("\n", " ")
-    return detail[:MAX_REASON_CHARS] or fallback
+    return display_text(detail[:MAX_REASON_CHARS]) or fallback
 
 
 # --------------------------------------------------------------------------

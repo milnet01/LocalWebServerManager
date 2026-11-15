@@ -503,3 +503,20 @@ def test_holder_identity_hides_a_vanished_process_but_not_a_bug(monkeypatch) -> 
     monkeypatch.setattr(foreign.psutil, "Process", broken)
     with pytest.raises(TypeError):
         foreign.holder_identity(7)
+
+
+def test_a_bare_oserror_on_a_disclosed_field_hides_it_not_the_tree() -> None:
+    """The contract is `TreeRefused`, never a raw `OSError`: `service.describe_holder`
+    treats `(psutil.Error, OSError)` alike, and `_ask` must too.
+
+    Dies on catching only `psutil.Error` in `_ask`.
+    """
+    holder = FakeProcess(
+        10, raise_on={"exe": OSError("gone"), "cmdline": OSError("gone")}
+    )
+
+    tree = enumerate_tree(10, process=lookup(holder))
+
+    assert tree.members[0].exe is None
+    assert tree.members[0].cmdline == ""
+    assert looks_like(10, PROJECT, process=lookup(holder)) is False

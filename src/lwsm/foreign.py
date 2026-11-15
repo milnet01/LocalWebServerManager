@@ -163,7 +163,7 @@ def _ask[T](question: Callable[[], T]) -> T | None:
     """A field the disclosure shows but identity does not need: None if hidden."""
     try:
         return question()
-    except psutil.Error:
+    except (psutil.Error, OSError):
         return None
 
 

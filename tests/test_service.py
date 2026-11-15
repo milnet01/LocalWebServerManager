@@ -860,3 +860,18 @@ def test_a_refused_field_is_blank_but_a_bug_is_not_hidden() -> None:
 
     holder = describe_holder(1, process=Silent(), read_cgroup=lambda pid: "")
     assert (holder.exe, holder.uid, holder.cmdline) == (None, None, "")
+
+
+def test_systemd_s_message_loses_control_and_bidi_characters() -> None:
+    """Foreign text reaching a widget: a carriage return, ESC and a right-to-left
+    override become U+FFFD, as `configfile.display_text` does everywhere else.
+
+    Dies on stripping only newlines.
+    """
+    run = FakeRun(returncode=1, stderr="Failed\r\x1b[31m‮evil next\n")
+    outcome = drive_unit("stop", "ants-stats.service", run=run)
+
+    assert not outcome.ok
+    for bad in ("\r", "\x1b", "‮", " ", "\n"):
+        assert bad not in outcome.reason
+    assert outcome.reason.startswith("Failed")
