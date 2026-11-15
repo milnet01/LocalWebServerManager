@@ -6087,6 +6087,44 @@ def test_a_long_holder_command_line_is_bounded_with_a_visible_ellipsis(
     assert shown.startswith("node server.js x")
 
 
+def test_an_escaped_code_point_above_the_bmp_keeps_all_its_digits() -> None:
+    """Review-code 2026-11-15 10.1: `\\u{ord:04x}` showed U+E0041 as `\\ue0041`,
+    which reads as `\\ue004` then "1"."""
+    from lwsm.mainwindow import _no_layout_forgery
+
+    assert _no_layout_forgery("a\U000e0041b") == "a\\U000e0041b"
+    assert _no_layout_forgery("a\u202eb") == "a\\u202eb"
+
+
+def test_the_command_cut_never_lands_inside_an_escape() -> None:
+    """10.1: the cut left a dangling `\\ue00` when it fell mid-escape."""
+    from lwsm.mainwindow import MAX_COMMAND_CHARS, _shown_command
+
+    for pad in range(MAX_COMMAND_CHARS - 14, MAX_COMMAND_CHARS):
+        shown = _shown_command("x" * pad + "\U000e0041" * 3 + "\u202e" * 3)
+        assert len(shown) <= MAX_COMMAND_CHARS
+        assert shown.endswith("…")
+        body = shown[:-1]
+        tail = body[body.rfind("\\") :] if "\\" in body else ""
+        assert tail == "" or re.fullmatch(r"\\(?:u[0-9a-f]{4}|U[0-9a-f]{8})", tail), (
+            f"pad {pad}: cut inside an escape: {tail!r}"
+        )
+
+
+def test_an_empty_failure_message_leaves_no_blank_label(qtbot, built) -> None:
+    """10.2 (LWSM-1071): `show_error("")` created and showed an empty label."""
+    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe())
+    row = rows_of(window)[0]
+
+    row.show_error("")
+    assert row._error is None, "an empty message made a label"
+
+    row.show_error("it would not start")
+    assert row._error is not None, "precondition"
+    row.show_error("")
+    assert row._error is None, "an empty message left the old label up"
+
+
 def test_a_holder_command_line_of_ordinary_length_is_shown_whole(
     qtbot, built, monkeypatch
 ) -> None:

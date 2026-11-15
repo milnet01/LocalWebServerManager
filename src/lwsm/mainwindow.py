@@ -387,6 +387,16 @@ def _plain_tooltip(text: str) -> str:
     return GuiQt.convertFromPlainText(text, GuiQt.WhiteSpaceMode.WhiteSpaceNormal)
 
 
+def _code_point_escape(char: str) -> str:
+    """`\\uXXXX` for the BMP, `\\UXXXXXXXX` above it, so the digits never run on."""
+    code = ord(char)
+    return f"\\u{code:04x}" if code <= 0xFFFF else f"\\U{code:08x}"
+
+
+# An escape `_no_layout_forgery` emits, so a cut can avoid landing inside one.
+_ESCAPE_TOKEN = re.compile(r"\\(?:u[0-9a-f]{4}|U[0-9a-f]{8}|s\{\d+\}|[rnt])")
+
+
 def _no_layout_forgery(value: str) -> str:
     """A value from someone else's tree, rendered so it cannot forge layout.
 
@@ -410,7 +420,7 @@ def _no_layout_forgery(value: str) -> str:
     escaped = "".join(
         _NAMED_ESCAPES.get(char)
         or (
-            f"\\u{ord(char):04x}"
+            _code_point_escape(char)
             if unicodedata.category(char) in _FORGING_CATEGORIES
             else char
         )
@@ -428,7 +438,14 @@ def _shown_command(cmdline: str) -> str:
     shown = _no_layout_forgery(cmdline)
     if len(shown) <= MAX_COMMAND_CHARS:
         return shown
-    return shown[: MAX_COMMAND_CHARS - 1] + "\u2026"
+    cut = MAX_COMMAND_CHARS - 1
+    for token in _ESCAPE_TOKEN.finditer(shown):
+        if token.start() >= cut:
+            break
+        if token.end() > cut:
+            cut = token.start()
+            break
+    return shown[:cut] + "\u2026"
 
 
 def state_word(status: ProjectStatus) -> str:
@@ -1338,6 +1355,11 @@ class ProjectRow(QFrame):
         is — a row failure replaces the status message, and without this it
         reached a screen reader as nothing at all (L1-M1).
         """
+        if not message:
+            # An empty label would sit in the accessibility tree unnamed
+            # (LWSM-1071); no message means no label.
+            self._drop_error_label()
+            return
         if self._error is None:
             self._error = QLabel(self)
             # PlainText for the reason the cells are: a failure interpolates a
@@ -1348,8 +1370,7 @@ class ProjectRow(QFrame):
             self._outer_layout.addWidget(self._error)
         self._error.setText(message)
         self._error.show()
-        if message:
-            QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, message))
+        QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, message))
 
     def clear_error(self) -> None:
         """Destroy the label rather than blanking it — see `__init__` on why an
@@ -1357,6 +1378,9 @@ class ProjectRow(QFrame):
         if self._port_button is not None:
             self._remove_button(self._port_button)
             self._port_button = None
+        self._drop_error_label()
+
+    def _drop_error_label(self) -> None:
         if self._error is None:
             return
         self._outer_layout.removeWidget(self._error)
