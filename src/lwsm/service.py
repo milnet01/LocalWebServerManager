@@ -320,6 +320,7 @@ def drive_unit(verb: str, unit: str, *, run: object = None) -> UnitOutcome:
             unit=unit,
             reason=f"systemctl {verb} did not finish within "
             f"{UNIT_VERB_TIMEOUT_SECONDS:.0f} seconds",
+            timed_out=True,
         )
     except OSError as exc:
         return UnitOutcome(ok=False, verb=verb, unit=unit, reason=str(exc))

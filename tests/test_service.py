@@ -223,6 +223,9 @@ def test_only_systemd_s_own_non_zero_answer_is_a_rejection() -> None:
 
     assert (refused.ok, refused.rejected) == (False, True)
     assert (timed_out.ok, timed_out.rejected) == (False, False)
+    # The field's own contract (LWSM-1528): the runner gave up waiting.
+    assert timed_out.timed_out is True
+    assert refused.timed_out is False
     assert worked.rejected is False
 
 
