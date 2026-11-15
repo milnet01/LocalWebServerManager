@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1554 -->
+<!-- ants-roadmap-id-high-water: LWSM=1558 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -12216,6 +12216,8 @@ Criterion 4: never launch into an occupied port, and make reassignment stick.
   other projects' gates check, so ask the user first. A minor jump:
   read uv's 0.13 changelog for lockfile or resolver changes before it.
   User, 2026-11-02: leave it. The pin stays at 0.12.23.
+  2026-11-15: the user deferred to the orchestrator, who kept the pin at
+  0.12.23 for 0.6.0. LWSM-1414 owns tool-pin updates.
   **Layman:** One of the build tools has a newer version; updating it changes that tool for every project on this machine, so it needs the user's say-so.
   Kind: chore.
   Source: local-release-2026-10-15.
@@ -15882,6 +15884,22 @@ the tray items.
   Kind: chore.
   Source: review-code-2026-10-08 lane-10 L10-L9.
 
+- 📋 [LWSM-1556] **Each running row shows how much CPU and memory its server uses.**
+  Proposed by the orchestrator, accepted by the user 2026-11-15.
+  Sums the project's process tree through psutil. Text, not colour
+  alone, so the figure reads at any zoom.
+  **Layman:** A small figure on each running project shows how hard it is working, so a runaway server stands out.
+  Kind: feature.
+  Source: user-decision-2026-11-15.
+
+- 📋 [LWSM-1557] **The output panel has a find box and a way to copy the last error.**
+  Proposed by the orchestrator, accepted by the user 2026-11-15.
+  Find follows focus for the magnifier: the match scrolls into view
+  and the focus outline stays on it.
+  **Layman:** Search a server's output for a word, and copy its latest error in one step, instead of scrolling by eye.
+  Kind: feature.
+  Source: user-decision-2026-11-15.
+
 ## 0.8.0 — Runs without being watched
 
 Projects that start at login, a guard against a server that keeps crashing,
@@ -16093,6 +16111,23 @@ Order: LWSM-1053 is a decision and comes before LWSM-1027, which depends on it.
   Source: in-session-2026-09-25, closing LWSM-1272 finding 6.
   Lanes: registry.
 
+- 📋 [LWSM-1555] **A desktop notification says when a project the app started stops on its own.**
+  Proposed by the orchestrator, accepted by the user 2026-11-15.
+  A stop the user asked for raises no notification. Open: whether
+  the crash-loop guard (LWSM-1042) shares the same notice.
+  **Layman:** If one of your servers crashes, a notification tells you, so you don't have to keep the window open to notice.
+  Kind: feature.
+  Source: user-decision-2026-11-15.
+
+- 📋 [LWSM-1558] **Export and import the app's settings as one file.**
+  Proposed by the orchestrator, accepted by the user 2026-11-15.
+  The file is an on-disk format, so it is spec-first under
+  CLAUDE.md's review cadence rule 2. Import never trusts a project
+  by itself: the trust gate (trust.py) still asks.
+  **Layman:** Save your project list, ports and preferences to one file, and load it back on a new PC or after a reinstall.
+  Kind: feature.
+  Source: user-decision-2026-11-15.
+
 ## 0.9.0 — Ready to translate
 
 Every sentence the app shows becomes reachable by a translator, the app can load
@@ -16231,6 +16266,8 @@ included, and the written definition of what 1.0.0 means (LWSM-1188).
   right-to-left ones included (LWSM-1552). The membership rule above is
   replaced by the roadmap's version sections; this item still owes the
   written definition.
+  2026-11-15: the user confirmed the split over 0.7.0, 0.8.0, 0.9.0 and
+  1.0.0 as the roadmap's version sections hold it.
   **Layman:** Write down what "finished enough to call it version 1" means, so it is a target rather than a feeling.
   Kind: release.
   Source: user-decision-2026-08-24.
@@ -16246,6 +16283,7 @@ included, and the written definition of what 1.0.0 means (LWSM-1188).
   sentences stay English).
   No new wording lands between 0.9.0 and this, so each language is
   translated once.
+  2026-11-15: the user confirmed the twelve languages above.
   **Layman:** The app speaks your language, including languages written right to left.
   Kind: feature.
   Source: user-request-2026-11-14.
