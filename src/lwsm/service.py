@@ -297,23 +297,51 @@ def drive_unit(verb: str, unit: str, *, run: object = None) -> UnitOutcome:
     except ValueError as exc:
         return UnitOutcome(ok=False, verb=verb, unit=unit, reason=str(exc))
 
+    return _outcome_of_run(argv, verb, unit, run, rejected_on_failure=True)
+
+
+def _run_systemctl(argv: list[str], run: object) -> object:
+    """The one `runner(...)` call every `systemctl` query and verb here shares.
+
+    `run` is the injection seam (`subprocess.run` when `None`). The keyword
+    arguments live here once so the copies cannot drift.
+    """
     runner = run if run is not None else subprocess.run
+    return runner(  # type: ignore[operator]
+        argv,
+        capture_output=True,
+        text=True,
+        # "Never raises": strict decoding makes undecodable stderr a
+        # `UnicodeDecodeError`, which is a `ValueError` (L3-L4).
+        errors="replace",
+        timeout=UNIT_VERB_TIMEOUT_SECONDS,
+        check=False,
+    )
+
+
+def _outcome_of_run(
+    argv: list[str],
+    verb: str,
+    unit: str,
+    run: object,
+    *,
+    rejected_on_failure: bool,
+) -> UnitOutcome:
+    """Run `argv` and report it as a `UnitOutcome`; never raises.
+
+    `rejected_on_failure` sets `UnitOutcome.rejected` on a non-zero exit:
+    `drive_unit` wants it, the unit-less daemon reload does not.
+    """
     try:
-        completed = runner(  # type: ignore[operator]
-            argv,
-            capture_output=True,
-            text=True,
-            # "Never raises": strict decoding makes undecodable stderr a
-            # `UnicodeDecodeError`, which is a `ValueError` (L3-L4).
-            errors="replace",
-            timeout=UNIT_VERB_TIMEOUT_SECONDS,
-            check=False,
-        )
+        completed = _run_systemctl(argv, run)
     except FileNotFoundError:
         return UnitOutcome(
             ok=False, verb=verb, unit=unit, reason="systemctl is not installed"
         )
     except subprocess.TimeoutExpired:
+        # Worded here for every caller: this reason reaches the user (through
+        # `set_drop_in` for a reload), and Python's text is not for them
+        # (LWSM-1528).
         return UnitOutcome(
             ok=False,
             verb=verb,
@@ -332,7 +360,7 @@ def drive_unit(verb: str, unit: str, *, run: object = None) -> UnitOutcome:
         verb=verb,
         unit=unit,
         reason=_stderr_reason(completed, f"systemctl {verb} failed"),
-        rejected=True,
+        rejected=rejected_on_failure,
     )
 
 
@@ -394,41 +422,12 @@ def reload_user_manager(*, run: object = None) -> UnitOutcome:
     replace this module attribute wholesale (`conftest.py`), so no test run
     reloads the real user manager.
     """
-    runner = run if run is not None else subprocess.run
-    verb = "daemon-reload"
-    try:
-        completed = runner(  # type: ignore[operator]
-            ["systemctl", "--user", verb],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=UNIT_VERB_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except FileNotFoundError:
-        return UnitOutcome(
-            ok=False, verb=verb, unit="", reason="systemctl is not installed"
-        )
-    except subprocess.TimeoutExpired:
-        # Worded as `drive_unit` words its own: this reason reaches the user
-        # through `set_drop_in`, and Python's text is not for them (LWSM-1528).
-        return UnitOutcome(
-            ok=False,
-            verb=verb,
-            unit="",
-            reason=f"systemctl {verb} did not finish within "
-            f"{UNIT_VERB_TIMEOUT_SECONDS:.0f} seconds",
-            timed_out=True,
-        )
-    except OSError as exc:
-        return UnitOutcome(ok=False, verb=verb, unit="", reason=str(exc))
-    if getattr(completed, "returncode", 1) == 0:
-        return UnitOutcome(ok=True, verb=verb, unit="")
-    return UnitOutcome(
-        ok=False,
-        verb=verb,
-        unit="",
-        reason=_stderr_reason(completed, "systemctl daemon-reload failed"),
+    return _outcome_of_run(
+        ["systemctl", "--user", "daemon-reload"],
+        "daemon-reload",
+        "",
+        run,
+        rejected_on_failure=False,
     )
 
 
@@ -502,9 +501,8 @@ def _discard(path: Path) -> None:
 def drop_in_seen(unit: str, path: Path, *, run: object = None) -> bool | None:
     """Whether systemd lists `path` among `unit`'s drop-ins, or None when it
     cannot be asked. A query that changes nothing, like `unit_state`."""
-    runner = run if run is not None else subprocess.run
     try:
-        completed = runner(  # type: ignore[operator]
+        completed = _run_systemctl(
             [
                 "systemctl",
                 "--user",
@@ -514,11 +512,7 @@ def drop_in_seen(unit: str, path: Path, *, run: object = None) -> bool | None:
                 "--",
                 unit,
             ],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=UNIT_VERB_TIMEOUT_SECONDS,
-            check=False,
+            run,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -596,15 +590,9 @@ def unit_state(unit: str, *, run: object = None) -> str | None:
     """
     if not _drivable(unit):
         return None
-    runner = run if run is not None else subprocess.run
     try:
-        completed = runner(  # type: ignore[operator]
-            ["systemctl", "--user", "is-active", "--", unit],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=UNIT_VERB_TIMEOUT_SECONDS,
-            check=False,
+        completed = _run_systemctl(
+            ["systemctl", "--user", "is-active", "--", unit], run
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
