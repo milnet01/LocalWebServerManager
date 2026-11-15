@@ -3221,7 +3221,9 @@ class MainWindow(QMainWindow):
         """Ask the KWin check the startup budget left unasked, and keep it.
 
         The full timeout: the startup is over, and the caller is a retry or the
-        user's own Centre. Asked once; a second answer is never sought.
+        user's own Centre. Asked once; a second answer is never sought. A timeout
+        here is None from `kwin_on_bus`, and it counts as "no" for the rest of
+        the session, on purpose: the full timeout has been spent.
         """
         if self._can_place is None and not self._stopped:
             self._can_place = bool(
@@ -3327,14 +3329,22 @@ class MainWindow(QMainWindow):
         )
 
     def _pick_profile_to_save(self) -> str | None:
-        """The real Save dialog. Injected past in every test."""
-        chosen, _filter = QFileDialog.getSaveFileName(
+        """The real Save dialog. Injected past in every test.
+
+        The dialog adds `.json` to a bare name itself, so its overwrite prompt
+        asks about the file that is then written."""
+        dialog = QFileDialog(
             self,
             QCoreApplication.translate("ProjectRow", "Export profile"),
             "lwsm-profile.json",
             QCoreApplication.translate("ProjectRow", "Profiles (*.json)"),
         )
-        return chosen or None
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.setDefaultSuffix("json")
+        if dialog.exec() != QFileDialog.DialogCode.Accepted:
+            return None
+        files = dialog.selectedFiles()
+        return files[0] if files else None
 
     def _pick_profile_to_open(self) -> str | None:
         """The real Open dialog. Injected past in every test."""
@@ -3353,6 +3363,12 @@ class MainWindow(QMainWindow):
         chosen = self._choose_profile_to_save()
         if not chosen:
             return
+        # The Import dialog lists `*.json` only, so a bare name would save a
+        # profile its own Import then hides (LWSM-1569). The real Save dialog
+        # adds the suffix before its overwrite prompt; this covers any other
+        # chooser.
+        if not Path(chosen).suffix:
+            chosen += ".json"
         try:
             registry.export_profile(
                 Path(chosen), self._controller.records(), load=self._load
@@ -3464,7 +3480,7 @@ class MainWindow(QMainWindow):
             message = self._apply_merge(
                 merged, summarise_import(merged.counts), "import"
             )
-        except BaseException as exc:
+        except Exception as exc:
             log.exception("the import could not be applied")
             message = _filled(
                 QCoreApplication.translate("ProjectRow", "Profile not loaded: %1"),

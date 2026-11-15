@@ -6283,6 +6283,40 @@ def test_export_writes_a_profile_that_loads_back(qtbot, built, tmp_path) -> None
     assert str(profile) in message_of(window)
 
 
+def test_a_bare_export_name_gets_the_json_suffix_the_import_filter_shows(
+    qtbot, built, tmp_path
+) -> None:
+    """A name typed without a suffix is saved as `<name>.json`, because the
+    Import dialog lists only `*.json` and would hide the file (LWSM-1569)."""
+    records = two_rows()
+    window, _ = profile_window(
+        qtbot, built, records, tmp_path, to_save=str(tmp_path / "backup")
+    )
+
+    window._export_action.trigger()
+
+    assert registry.load_projects(tmp_path / "backup.json").records == records
+
+
+def test_an_import_that_is_interrupted_is_not_swallowed(
+    qtbot, built, tmp_path, monkeypatch
+) -> None:
+    """`KeyboardInterrupt` is not "the import could not be applied": it
+    propagates, and the `finally` still gives the controls back (LWSM-1569)."""
+    window, _ = profile_window(qtbot, built, two_rows(), tmp_path)
+
+    def interrupted(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(window, "_apply_merge", interrupted)
+    window._rescan_in_flight = True
+
+    with pytest.raises(KeyboardInterrupt):
+        window._on_import_done(registry.MergeResult([], [], {}))
+
+    assert window._rescan_in_flight is False
+
+
 def test_a_cancelled_export_writes_nothing(qtbot, built, tmp_path) -> None:
     """The picker returning None is the user pressing Cancel, and it must not
     reach the writer or the status bar."""

@@ -25,7 +25,8 @@ Usage:
 
 It prints the token block for every palette in `theme.THEMES`, with each
 measured ratio as a trailing comment, and reports any FIXED token (`text`,
-`muted_text`, `attention`) that falls short — which is how the four
+`muted_text`, `attention`, and `border` against the indicator floor) that
+falls short — which is how the four
 divergences from finbreak were found.
 """
 
@@ -177,6 +178,14 @@ def main() -> int:
                         f"# SHORTFALL {name}: {token}/{surface} = {ratio:.2f} "
                         f"(floor {floor})"
                     )
+        for surface in SURFACES:
+            ratio = contrast_ratio(theme.border, getattr(theme, surface))
+            if ratio < INDICATOR_FLOOR:
+                shortfalls += 1
+                print(
+                    f"# SHORTFALL {name}: border/{surface} = {ratio:.2f} "
+                    f"(indicator floor)"
+                )
         ratio = contrast_ratio(theme.accent, theme.window)
         if ratio < INDICATOR_FLOOR:
             shortfalls += 1
