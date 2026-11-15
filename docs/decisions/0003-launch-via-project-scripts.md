@@ -132,9 +132,11 @@ actually run: the resolved path and argv, never a friendly summary.
   log if it was started by *a* manager — and honestly has none if
   it was started from a terminal, which the UI states rather than
   showing an empty panel.
-- **Stop** sends `SIGTERM` to the group, waits a grace period
-  (default 5 s), then sends `SIGKILL` **while our child is still
-  unreaped**. Stop runs on a **worker thread** — a 5-second wait on
+- **Stop** enumerates the group, sends `SIGTERM` to each member
+  through its handle, waits a grace period (default 5 s), then
+  enumerates again and sends `SIGKILL` to each member **while our
+  child is still unreaped**. A process that joined the group after the
+  first enumeration gets `SIGKILL` with no grace. Stop runs on a **worker thread** — a 5-second wait on
   the UI thread would freeze the window. **Restart** is stop
   followed by start, with the same pre-flight port check.
 

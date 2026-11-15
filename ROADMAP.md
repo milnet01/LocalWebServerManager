@@ -15711,6 +15711,9 @@ decided, is the last packaging item (added 2026-11-11).
 - 📋 [LWSM-1561] **Review 2026-11-15, scanner: a comparison like `elif port == 8000:` is read as a port setting, and nine smaller points.**
   Points: rows 03.1 to 03.10 of the private findings ledger. 03.1 is
   Medium; 03.10 is LWSM-1478's (0.9.0).
+  2026-11-15: 03.1-03.5 and 03.7 fixed in 0044edc; 03.10 is LWSM-1478's.
+  Open: 03.6 (changes rule 1 as the spec states it), 03.8 (filesystem
+  calls the deadline cannot interrupt), 03.9 (parse cost, unmeasured).
   **Layman:** The project finder can show a confident but wrong port when a script compares a port instead of setting one.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-03.
@@ -15728,6 +15731,9 @@ decided, is the last packaging item (added 2026-11-11).
 - 📋 [LWSM-1563] **Review 2026-11-15, supervisor and trust: nine small points.**
   Points: rows 05.1 to 05.9 of the private findings ledger. Low and
   Info only.
+  2026-11-15: 05.2-05.4, 05.6 and 05.8 fixed in 158a5e2; 05.1 is
+  ADR-0003's wording (docs fold-back); 05.5 moved to LWSM-1565; 05.7
+  and 05.9 dismissed (documented cost; benign).
   **Layman:** Small fixes to how the app launches servers and remembers which projects you trusted.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-05.
@@ -15755,6 +15761,11 @@ decided, is the last packaging item (added 2026-11-11).
   Points: rows 08.1 to 08.11 of the private findings ledger. 08.1 is
   Medium: the panel appends each line one at a time though it keeps
   only the last 2000.
+  2026-11-15: 08.1, 08.2 and 08.8 fixed in dbf393c (a 65,536-line chunk
+  went from 3.2 s to 0.003 s); 08.3 is design.md's (docs fold-back);
+  08.11 moved to LWSM-1562; 08.6, 08.7 and 08.9 dismissed. Open: 08.4
+  (transient open errors), 08.5 (log replaced in place), 08.10 (a stuck
+  reader on stop).
   **Layman:** A server that prints a huge burst of short lines could freeze the window, and the magnifier with it.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-08.
@@ -15763,6 +15774,10 @@ decided, is the last packaging item (added 2026-11-11).
 - 📋 [LWSM-1567] **Review 2026-11-15, self-update: thirteen small points.**
   Points: rows 09.1 to 09.13 of the private findings ledger. Low and
   Info only. LWSM-1548 stays in progress for its own reasons.
+  2026-11-15: 09.1, 09.2, 09.4, 09.5, 09.8, 09.9 and 09.11 fixed in
+  3b4b123; 09.10 is SECURITY.md's (docs fold-back); 09.6, 09.12, 09.13
+  and check-code's update.py:266 hit dismissed. Open: 09.3 (download
+  host allow-list), 09.7 (install off the GUI thread).
   **Layman:** Small fixes to the self-update, including inputs that could break a parser that promises never to fail.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-09.
@@ -15820,6 +15835,9 @@ decided, is the last packaging item (added 2026-11-11).
   Points: rows 16.1 to 16.7 of the private findings ledger, plus lead
   19.7 (no flag to skip the AppImage step). 16.1 and 16.2 are Medium:
   a check that could not run must report a SKIP, not a BLOCK.
+  2026-11-15: 16.1-16.4 fixed in dcd87bc; 16.7 dismissed (no defect
+  named). Open: 16.5 (needs a container run), 16.6 (apt pinning), 19.7
+  (a skip flag would be a feature).
   **Layman:** The release pre-check can say the signing key is missing, or that the build failed, when the real cause is something else.
   Kind: review-fix.
   Source: review-code-2026-11-15 lane-16.

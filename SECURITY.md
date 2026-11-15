@@ -67,7 +67,9 @@ The trust model is in the decision records, and they are the authority:
 launching (the confirmation before a discovered launcher runs, and what
 the child process inherits) and
 [ADR-0004](docs/decisions/0004-runtime-truth-from-probing.md) for
-stopping servers the app did not start.
+stopping servers the app did not start, and
+[ADR-0008](docs/decisions/0008-updates-reach-users.md) for the
+self-update (downloading, verifying and installing a signed AppImage).
 
 **In scope** — for example:
 
@@ -79,6 +81,8 @@ stopping servers the app did not start.
   hang, or crash the app.
 - Text from a scanned project that changes what a dialog appears to
   say.
+- An update that is installed without a valid signature from the
+  release key, or that writes outside the AppImage it replaces.
 
 **Out of scope** — an attacker who already controls the user's account:
 anything able to write to the app's own configuration directory can run

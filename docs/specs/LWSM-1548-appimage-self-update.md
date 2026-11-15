@@ -143,9 +143,14 @@ APPIMAGE_ASSET = "LocalWebServerManager-{version}-x86_64.AppImage"
 SIGNATURE_ASSET = APPIMAGE_ASSET + ".sig"
 
 
+MAX_PART_DIGITS = 9
+MAX_ASSET_SIZE = 2**31 - 1  # an asset size above this is read as unknown (0)
+
+
 def parse_version(tag: str) -> tuple[int, int, int] | None:
     """'v0.6.0' / '0.6.0' -> (0, 6, 0). Exactly three dot-separated parts, each
-    str.isascii() and str.isdigit(), one leading v or V allowed. Else None."""
+    str.isascii() and str.isdigit() and at most MAX_PART_DIGITS (9) digits, one
+    leading v or V allowed. Else None."""
 
 
 @dataclass(frozen=True)
@@ -154,7 +159,7 @@ class Release:
     body: str  # the release notes, Markdown; may be ""
     appimage_url: str | None  # browser_download_url of APPIMAGE_ASSET
     signature_url: str | None  # browser_download_url of SIGNATURE_ASSET
-    appimage_size: int  # the asset's "size"; 0 when absent
+    appimage_size: int  # the asset's "size"; 0 when absent or over MAX_ASSET_SIZE
 
 
 def releases_from_json(data: object) -> list[Release] | None:
@@ -255,7 +260,7 @@ def install(data: bytes, appimage: str) -> Path:  # update.py
     writing nothing, when os.access(target.parent, os.W_OK) is false. Write
     data to tempfile.mkstemp(prefix=".lwsm-update-", dir=target.parent),
     fchmod it to target's mode, fsync, os.replace(temp, target), fsync the
-    folder. Any exception before os.replace unlinks the temp and leaves target
+    folder (best effort: a failure there is ignored). Any exception before os.replace unlinks the temp and leaves target
     untouched. Returns target."""
 ```
 
@@ -359,7 +364,7 @@ cannot verify is never released.
   *Breaks when:* `APPIMAGE` is read after the scrub, or alone without
   `sys.frozen`.
 
-- **INV-2** — `parse_version` accepts exactly `[vV]?D.D.D` with ASCII digits.
+- **INV-2** — `parse_version` accepts exactly `[vV]?D.D.D` with ASCII digits, each part of at most `MAX_PART_DIGITS` digits.
   *Test:* `tests/test_update.py` — `0.6.0`, `v0.6.0` accepted; `0.6.0-rc.1`,
   `0.6`, `0.6.0.1`, `latest`, `0.¹.0` and the empty string rejected.
   *Breaks when:* the digit test omits `isascii()` (`'¹'.isdigit()` is true),

@@ -487,8 +487,9 @@ built under § Review cadence's build-first default:
   (`started.json`, the servers a relaunch adopts back; LWSM-1428), plus their
   `default_*_path` functions. Moved out of `supervisor.py` by LWSM-1492, with
   one shared reader and writer. **The two stores fail differently on
-  purpose**: both err safe, but `TrustStore` keeps each reason in `reasons`
-  for the window, and `StartedStore` only logs.
+  purpose**: both err safe, but `TrustStore` keeps its reasons in `reasons`
+  for the window, bounded by `settings.MAX_REASONS` like a config file's, and
+  `StartedStore` only logs.
 
 Added at P04 (LWSM-1018). **No spec** — build-first, per § Review cadence:
 

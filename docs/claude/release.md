@@ -55,9 +55,9 @@ other.
 broken AppImage blocks the release here (LWSM-1052). The smoke test runs on
 Debian 13 and Debian 12. On each it launches the app offscreen and runs `ldd`
 over the bundle's Qt platform plugins, failing on a missing library
-(LWSM-1544). It needs uv and a
-podman or docker that can run; without them, the check is skipped and the
-verdict cannot read "ready".
+(LWSM-1544). It needs uv, flock, a
+python3 with `tomllib` (3.11 or newer), and a podman or docker that can run;
+without any of them, the check is skipped and the verdict cannot read "ready".
 
 Two things to know. **The verdict never reads "ready" while a check was
 skipped** — a blocker and a check that could not run are tracked
@@ -89,5 +89,7 @@ AppImage refuses later updates until its user downloads one by hand. The key
 never enters the repository or a Claude session.
 
 `local-release.sh X.Y.Z` blocks when the key is missing or does not match
-(its step 0j, through `sign-release.py check-key`). Nothing checks that
+(its step 0j, through `sign-release.py check-key`). Only `check-key`'s own
+mismatch answer blocks. A check that could not run (for example `uv` failing
+to sync) is a skip, and its captured output goes to stderr. Nothing checks that
 `publish` was run.

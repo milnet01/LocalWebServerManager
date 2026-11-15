@@ -757,8 +757,7 @@ merged output goes to
 (falling back to `~/.local/state` when that variable is unset or not
 absolute)
 (ADR-0003), capped at 5 MB with one rotation. **Per-project, in
-memory:** the `LogBuffer` ring holds the last N lines (default
-2000) tailed from that file, live in the panel and retained after
+memory:** the `LogBuffer` ring holds the last 2000 lines (`logbuffer.MAX_LINES`; no setting) tailed from that file, live in the panel and retained after
 exit so a crash can be read after the fact. **A log file belongs to
 the project, not to one launch.** A server this manager never
 launched — `running (foreign)` — contributes no *server* output, so

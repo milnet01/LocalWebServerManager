@@ -316,8 +316,10 @@ to parse `package.json` and rule 0 to call `systemctl`. Each records a reason in
 
    **The guard is exact only for a source checkout, and that is the honest
    limit.** Installed as a wheel, `lwsm` resolves inside `site-packages`, which
-   is not under a scan root, so the guard never fires — correctly, because the
-   repository is then not a candidate either. It fails only for a user who has
+   is not under a scan root, so the guard does not fire for the application's own
+   files — correctly, because the repository is then not a candidate either. It
+   still fires when that environment sits inside a project under a scan root (a
+   `.venv` there): that project is refused too (LWSM-1561). It fails only for a user who has
    both a wheel install *and* a source checkout inside a scan root, who sees
    their own checkout listed. § 10 records this rather than pretending the
    guard is universal.
@@ -1083,6 +1085,8 @@ Run 2026-08-08 over twelve lines — the six accepted forms above plus
 here. § 7 parametrises the same twelve.
 
 **Rule 2 — an assignment whose key is a port.** A non-backtracking two-step.
+A comparison (`==`, `===`) is not an assignment, so the `=` pass skips it;
+`=>` still assigns.
 The prose form admitted two readings — whether `:` is partitioned out of the
 line or out of the left side `=` produced — and they differ on
 `PORT=http://localhost:8080`, so it is given as code instead:
@@ -1096,11 +1100,16 @@ _RADIX = re.compile(r"\b(?:parseInt|int)\([^()]*,\s*(\d+)\s*\)")
 
 
 def rule_2(line: str) -> int | None:
-    # Each separator is tried against the WHOLE line, `=` first. Not `:`
+    # Each separator is tried against the WHOLE line, `=` first, at its FIRST
+    # occurrence only: `DEBUG=1; port = 8000` is unknown. Not `:`
     # applied to `=`'s left side: `'server_port': 5000` has no `=` at all.
     for separator in ("=", ":"):
         left, found, right = line.partition(separator)
         if not found:
+            continue
+        if separator == "=" and right.startswith("="):
+            # `port == 8080` and `elif port == 8000:` test a port, they do not
+            # set one (LWSM-1561). `=>` stays: `'port' => 8080` assigns.
             continue
         key = left.strip().strip("'\"").rstrip("'\" \t")
         if key.lower() != "port" and not KEY_IS_PORT.search(key):
