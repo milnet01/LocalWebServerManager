@@ -16276,7 +16276,7 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Source: review-code-2026-11-18, out of scope.
   Lanes: mainwindow.
 
-- 📋 [LWSM-1582] **The Update window opens large, centred on the main window, at the size the user last gave it.**
+- ✅ [LWSM-1582] **The Update window opens large, centred on the main window, at the size the user last gave it.**
   The user, 2026-11-18, after the 0.6.1 relaunch test: the Update
   window (updatedialog.UpdateDialog) opened small, so the notes needed
   scrolling. Asked for three things:
@@ -16287,6 +16287,14 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   main window's geometry is saved).
   3. Open centred on the LWSM main window, each time it opens.
   A remembered size larger than the screen is clamped to it.
+  Built 2026-11-18 in 3ecf6fb. Opens at 0.9 x 0.45 of the main window's
+  size, or at the size stored as update_window_width /
+  update_window_height once the user resizes it; held between the
+  layout's minimum and the screen. Centring is QDialog's own, and KWin's
+  on Wayland: measured on a private kwin_wayland --virtual, centred on
+  first show and re-centred after the main window moved. The user first
+  sees it when a 0.7.0 install is offered the release after 0.7.0: the
+  window that offers 0.7.0 is 0.6.1's code.
   **Layman:** The window that shows what's new in an update opens big enough to read, in the middle of the app, and remembers the size you last made it.
   Kind: ux.
   Source: user-request-2026-11-18.
