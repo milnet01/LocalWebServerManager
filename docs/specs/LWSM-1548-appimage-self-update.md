@@ -167,7 +167,8 @@ def releases_from_json(data: object) -> list[Release] | None:
     draft or prerelease and whose tag_name parses, highest version first. A
     malformed entry is dropped, never raised. An asset counts only when its
     name is the pattern filled with THIS release's version, and its URL starts
-    with https://."""
+    with https://. The body goes through configfile.clean_display_lines
+    (LWSM-1553)."""
 
 
 Version = tuple[int, int, int]  # parse_version's result; callers parse
@@ -175,6 +176,10 @@ Version = tuple[int, int, int]  # parse_version's result; callers parse
 
 def changelog(releases, installed: Version, offered: Version) -> list[Release]:
     """installed < r.version <= offered, highest first."""
+
+
+def lists_back_to(releases, installed: Version) -> bool:
+    """True when some release is at or below installed (LWSM-1553)."""
 
 
 def offer(releases, installed: Version, skipped: Version | None) -> Release | None:
@@ -218,7 +223,13 @@ keeps `app.exec()` running after the main window closes (PySide6 6.12.0,
   `QTextBrowser.setMarkdown` takes no feature flags. Its
   `loadResource` returns nothing for every URL, and `openLinks` and
   `openExternalLinks` are both false, so the notes load no file, fetch nothing
-  and open nothing.
+  and open nothing. A release whose body is blank shows "No notes were
+  published for this version." under its heading (LWSM-1553).
+- Missing versions (LWSM-1553): the release list holds GitHub's newest
+  releases only (§4.3's `per_page`), so it can stop short of the installed
+  version. When `lists_back_to` is false, the
+  notes end with "Versions after {installed} and before {oldest shown} are not
+  listed here. Their notes are on the app's releases page on GitHub."
 - Buttons: **Update now**, **Skip this version**, **Later**, each with
   `setAutoDefault(False)`, so none is the default and Enter installs nothing.
   A `QPushButton` in a `QDialog` is auto-default, and the first becomes the

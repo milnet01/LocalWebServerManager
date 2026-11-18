@@ -91,11 +91,15 @@ class UpdateDialog(QDialog):
         *,
         make_installer: MakeInstaller | None = None,
         size: tuple[int, int] | None = None,
+        notes_complete: bool = True,
     ) -> None:
         super().__init__(parent)
         self.setModal(False)
         self._installed = installed
         self._offered = offered
+        # False when GitHub's list may have stopped short of `installed`
+        # (`update.lists_back_to`); the notes then say which versions are missing.
+        self._notes_complete = notes_complete
         self._appimage = appimage
         self._make_installer: MakeInstaller = make_installer or (
             lambda release, path, owner: UpdateInstaller(release, path, owner)
@@ -172,14 +176,7 @@ class UpdateDialog(QDialog):
             .replace("%1", offered)
             .replace("%2", format_version(self._installed))
         )
-        heading = QCoreApplication.translate("UpdateDialog", "Version %1")
-        self._notes.set_notes(
-            "\n\n".join(
-                f"## {heading.replace('%1', format_version(release.version))}"
-                f"\n\n{release.body}"
-                for release in self._notes_releases
-            )
-        )
+        self._notes.set_notes(self._notes_markdown())
         self._notes.setAccessibleName(
             QCoreApplication.translate("UpdateDialog", "What's new")
         )
@@ -199,6 +196,29 @@ class UpdateDialog(QDialog):
             button.setAccessibleName(text.replace("&", ""))
         if self._failure is not None:
             self._message.setText(self._failure_text(*self._failure))
+
+    def _notes_markdown(self) -> str:
+        """Each release under its heading, newest first, then what is missing."""
+        heading = QCoreApplication.translate("UpdateDialog", "Version %1")
+        no_notes = QCoreApplication.translate(
+            "UpdateDialog", "No notes were published for this version."
+        )
+        parts = [
+            f"## {heading.replace('%1', format_version(release.version))}"
+            f"\n\n{release.body if release.body.strip() else no_notes}"
+            for release in self._notes_releases
+        ]
+        if not self._notes_complete and self._notes_releases:
+            parts.append(
+                QCoreApplication.translate(
+                    "UpdateDialog",
+                    "Versions after %1 and before %2 are not listed here. Their "
+                    "notes are on the app's releases page on GitHub.",
+                )
+                .replace("%1", format_version(self._installed))
+                .replace("%2", format_version(self._notes_releases[-1].version))
+            )
+        return "\n\n".join(parts)
 
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.LanguageChange:

@@ -106,6 +106,33 @@ def test_the_notes_load_nothing_open_nothing_and_render_no_html(
     assert notes.source() == QUrl()
 
 
+# LWSM-1553
+
+
+def _notes_text(qtbot, notes: list[Release], **kwargs) -> str:
+    window = UpdateDialog((0, 5, 1), notes[0], notes, "/a", **kwargs)
+    qtbot.addWidget(window)
+    return window._notes.document().toPlainText()
+
+
+def test_a_release_with_no_notes_says_so(qtbot) -> None:
+    text = _notes_text(qtbot, [_release(), _release((0, 6, 0), " \n")])
+    assert text.count("No notes were published for this version.") == 1
+    assert text.index("Version 0.6.0") < text.index("No notes were published")
+
+
+def test_versions_missing_from_the_list_are_named(qtbot) -> None:
+    notes = [_release(), _release((0, 6, 0), "Older notes.")]
+    assert "not listed" not in _notes_text(qtbot, notes)
+
+    text = _notes_text(qtbot, notes, notes_complete=False)
+    assert (
+        "Versions after 0.5.1 and before 0.6.0 are not listed here. Their notes "
+        "are on the app's releases page on GitHub."
+    ) in text
+    assert text.index("Older notes.") < text.index("not listed")
+
+
 # INV-14
 
 

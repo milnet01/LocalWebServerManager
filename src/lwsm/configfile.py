@@ -111,6 +111,21 @@ def clean_display_text(text: str) -> str:
     return _CONTROL.sub("\ufffd", text)
 
 
+# The class less the line feed and the tab, which are a multi-line text's own.
+_CONTROL_BUT_LINES = re.compile(r"(?![\n\t])" + DISPLAY_CONTROL_CLASS)
+
+
+def clean_display_lines(text: str) -> str:
+    """`clean_display_text` for text of several lines, such as release notes.
+
+    Line endings become `\\n` first, so a `\\r\\n` or a lone `\\r` ends a line
+    rather than showing as U+FFFD. Tabs stay too: Markdown indents code with
+    them.
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return _CONTROL_BUT_LINES.sub("\ufffd", text)
+
+
 def display_text(text: str) -> str:
     """A name or a source, safe to put in a log record and on a widget.
 

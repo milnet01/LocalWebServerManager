@@ -12088,6 +12088,24 @@ def test_skip_persists_and_silences_only_that_version(
     assert not newer._update_banner.isHidden()
 
 
+@pytest.mark.parametrize(
+    ("listed", "says_missing"),
+    [([(0, 7, 0), (0, 6, 0)], True), ([(0, 7, 0), (0, 5, 1)], False)],
+)
+def test_the_update_window_names_versions_github_did_not_list(
+    qtbot, built, release_key, listed, says_missing
+) -> None:
+    """LWSM-1553: installed is 0.5.1; a list reaching no lower than 0.6.0 may
+    be missing releases, one holding 0.5.1 is not."""
+    window = _update_window(qtbot, built)
+    window.on_update_releases([_update_release(v) for v in listed], False)
+    window.open_update_window()
+    dialog = window._update_dialog
+    assert dialog is not None
+    text = dialog._notes.document().toPlainText()
+    assert ("are not listed here" in text) is says_missing
+
+
 def test_later_stores_nothing(qtbot, built, release_key) -> None:
     saved: list[str] = []
     window = _update_window(qtbot, built, saved=saved)

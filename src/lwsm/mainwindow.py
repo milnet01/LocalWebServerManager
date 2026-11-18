@@ -4183,6 +4183,9 @@ class MainWindow(QMainWindow):
             updates.appimage,
             parent=self,
             size=updates.window_size,
+            notes_complete=update.lists_back_to(
+                self._update_releases, updates.installed
+            ),
         )
         dialog.skip_requested.connect(self._skip_update)
         dialog.installed.connect(self._on_update_installed)

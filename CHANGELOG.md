@@ -24,6 +24,7 @@ signaling per
 ### Changed
 
 - **The Update window opens big enough to read.** It opens nearly as wide as the main window and centred on it, so the release notes usually show without scrolling. If you resize it, it opens at that size next time. (LWSM-1582)
+- **The Update window accounts for every version you skip over.** A version published without notes now says so. If GitHub's list of releases doesn't reach back to your version, the window names the versions it leaves out. Invisible control characters in the notes show as a visible mark instead of rearranging the text. (LWSM-1553)
 
 ## [0.6.1] - 2026-11-18
 

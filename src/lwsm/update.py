@@ -21,7 +21,7 @@ from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
 
-from lwsm import update_key
+from lwsm import configfile, update_key
 
 Version = tuple[int, int, int]
 
@@ -138,7 +138,10 @@ def releases_from_json(data: object) -> list[Release] | None:
         releases.append(
             Release(
                 version=version,
-                body=body if isinstance(body, str) else "",
+                # Outside text, so cleaned here, where it enters (LWSM-1553).
+                body=configfile.clean_display_lines(body)
+                if isinstance(body, str)
+                else "",
                 appimage_url=appimage_url,
                 signature_url=signature_url,
                 appimage_size=size,
@@ -157,6 +160,16 @@ def changelog(
         key=lambda r: r.version,
         reverse=True,
     )
+
+
+def lists_back_to(releases: Iterable[Release], installed: Version) -> bool:
+    """True when some release is at or below installed.
+
+    GitHub sends only the newest releases (`update_fetch.RELEASES_URL`), so a
+    list that stops above the installed version may be missing releases
+    between the two, and `changelog` cannot hold their notes (LWSM-1553).
+    """
+    return any(r.version <= installed for r in releases)
 
 
 def offer(

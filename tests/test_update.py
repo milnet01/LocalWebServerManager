@@ -173,6 +173,26 @@ def test_changelog_is_installed_exclusive_to_offered_inclusive() -> None:
     assert [r.version for r in got] == [(0, 7, 0), (0, 6, 0)]
 
 
+def test_release_notes_are_cleaned_and_keep_their_lines() -> None:
+    """LWSM-1553: notes are outside text, so the display cleaner runs on them,
+    but a line break and a tab are their Markdown, not a forged line."""
+    body = "# Fixed\r\n\r\n- one\r- two\n\tcode\x1b[31m red\u202e evil\u2028x\x85y"
+    (release,) = releases_from_json([_entry("v0.6.0", body=body)])
+    assert release.body == (
+        "# Fixed\n\n- one\n- two\n\tcode\ufffd[31m red\ufffd evil\ufffdx\ufffdy"
+    )
+
+
+def test_lists_back_to_says_whether_every_newer_release_is_listed() -> None:
+    """LWSM-1553: GitHub sends the newest releases only, so a list with nothing
+    at or below the installed version may be missing some between."""
+    releases = [_release(v) for v in ("0.7.0", "0.6.0", "0.5.1")]
+    assert update.lists_back_to(releases, (0, 5, 1))
+    assert update.lists_back_to(releases, (0, 5, 2))
+    assert not update.lists_back_to(releases, (0, 5, 0))
+    assert not update.lists_back_to([], (0, 5, 0))
+
+
 # INV-4
 
 
