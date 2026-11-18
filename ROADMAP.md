@@ -15919,14 +15919,11 @@ decided, is the last packaging item (added 2026-11-11).
   Source: release-pass-2026-11-15.
   Lanes: service.
 
-## 0.7.0 — Updates you can read, and a tray
+## 0.6.1 — The updater, tried for real
 
-The self-update shows what changed between the installed version and the new
-one. The app can sit in the tray and remember what was running.
+The second signed release, kept small so the self-update is tried on a real desktop before more is built on it (user, 2026-11-18). It holds the release workflow's narrower permission and the ruff 0.17.5 bump.
 
-Order: LWSM-1550 first, straight after 0.6.0 is published. Then the update
-notes, which also give the second signed release that LWSM-1548 waits on. Then
-the tray items.
+Order: LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relaunch recipe from the hand-installed 0.6.0, and LWSM-1548 flips shipped.
 
 - 📋 [LWSM-1550] **release.yml: give write permission only to the step that attaches the AppImage.**
   LWSM-1546 point 1. `contents: write` covers checkout, setup-uv and the
@@ -15940,6 +15937,81 @@ the tray items.
   **Layman:** The release workflow holds the power to change a release for longer than it needs.
   Kind: security.
   Source: review-code-2026-11-10, split from LWSM-1546.
+
+- 🚧 [LWSM-1548] **Build the signed AppImage self-update decided in ADR-0008.**
+  ADR-0008 (docs/decisions/0008-updates-reach-users.md) decided the
+  shape: check GitHub releases; offer updates only to a running
+  AppImage; nothing downloads without a click; Ed25519 signature
+  checked against a built-in public key, private key on the author's
+  PC; verified bytes held in memory are the bytes written; detached
+  relaunch with loader variables restored. Model: OneUp's
+  docs/specs/ONEUP-0112-self-update.md, plus LWSM-1043's finbreak notes.
+  **Spec-first** (CLAUDE.md review cadence, rule 2): the signing key,
+  the signature file's name and format, and the release step are
+  durable artifacts. Write the spec with /write-spec; global rule 14's
+  review-contract gate runs before building.
+  Open for the spec: whether the check runs by default; saving
+  APPIMAGE before _forget_bundle_environment scrubs it; the signing
+  step in scripts/local-release.sh.
+  Dependencies: LWSM-1043.
+  Priority: 3.
+  Decided by the user 2026-11-11, for the spec: (1) the AppImage checks
+  GitHub on each start, on by default, with an off switch in Settings;
+  (2) add `cryptography` as a runtime dependency, retiring the "no more
+  than two" comment in pyproject.toml; (3) an update rewrites the same
+  file, keeping its path and name; (4) releases are signed on this PC,
+  as ADR-0008 says. Spec in progress:
+  docs/specs/LWSM-1548-appimage-self-update.md.
+  2026-11-11: review-contract gate done, 2 loops of 2 (the cap), 2 lanes
+  each. 11 verified findings, all fixed; none deferred. The spec is now
+  accepted. Loop 2's 4 fixes were read by no lane, so the build is their
+  reader. Rows: docs/reviews/LWSM-1548-appimage-self-update-loop-log.md.
+  Commits b422b2e and 0e0a09e.
+  2026-11-11: spec accepted after review-contract's two loops (11
+  findings, all fixed; log in
+  docs/reviews/LWSM-1548-appimage-self-update-loop-log.md). The user
+  confirmed the review's two open calls: a manual check offers a skipped
+  version again, and says "No update is ready to install." when there is
+  nothing to install. Next: build with /write-code. Before the first
+  signed release, the user runs `uv run scripts/sign-release.py
+  generate` once the script exists; the key never enters a session.
+  2026-11-11: built (commit 08001af). Gate green; AppImage built and
+  smoke-tested with the new cryptography binding check. Every invariant's
+  test seen red by mutating its rule. Spec folded back (two clauses).
+  Still owed before this ships: (1) the user runs `uv run
+  scripts/sign-release.py generate`, backs up the key, and pastes the
+  printed line into src/lwsm/update_key.py; until then nothing is
+  offered. (2) The spec §7 manual relaunch recipe on the first two
+  signed releases.
+  2026-11-14: the user generated the signing key; its public half is
+  committed in `src/lwsm/update_key.py` and `sign-release.py check-key`
+  passes. Still owed before this flips shipped: the first signed
+  release, then spec §7's manual relaunch recipe, which needs a second
+  signed release to update to.
+  2026-11-15: the first signed release, 0.6.0, is published with its .sig
+  (sign-release.py publish verified it against the committed key). Still
+  owed before shipped: the user installs that AppImage by hand, a second
+  signed release, then spec § 7's relaunch recipe.
+  2026-11-18: the user's running window was the source checkout, not the
+  AppImage. The 0.6.0 AppImage was downloaded, its .sig checked with
+  update.verify against the built-in key, and installed as
+  ~/Applications/LocalWebServerManager-x86_64.AppImage (no version in the
+  name: an update rewrites the same file). The menu entry now starts it;
+  `./scripts/install-desktop-entry.sh` with no argument points it back at
+  the checkout. The user chose a small 0.6.1 as the second signed release
+  (this section's intro).
+  **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
+  Kind: feature.
+  Source: ADR-0008-2026-11-11.
+  Lanes: build, ui, docs.
+
+## 0.7.0 — Updates you can read, and a tray
+
+The self-update shows what changed between the installed version and the new
+one. The app can sit in the tray and remember what was running.
+
+Order: the update notes (LWSM-1553), then the tray items. The second signed
+release that LWSM-1548 waits on is 0.6.1, not this one.
 
 - 📋 [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
   Closing the window hides to tray and leaves servers
@@ -16008,65 +16080,6 @@ the tray items.
   Kind: investigate.
   Source: user-kwin-check-2026-11-10.
 
-- 🚧 [LWSM-1548] **Build the signed AppImage self-update decided in ADR-0008.**
-  ADR-0008 (docs/decisions/0008-updates-reach-users.md) decided the
-  shape: check GitHub releases; offer updates only to a running
-  AppImage; nothing downloads without a click; Ed25519 signature
-  checked against a built-in public key, private key on the author's
-  PC; verified bytes held in memory are the bytes written; detached
-  relaunch with loader variables restored. Model: OneUp's
-  docs/specs/ONEUP-0112-self-update.md, plus LWSM-1043's finbreak notes.
-  **Spec-first** (CLAUDE.md review cadence, rule 2): the signing key,
-  the signature file's name and format, and the release step are
-  durable artifacts. Write the spec with /write-spec; global rule 14's
-  review-contract gate runs before building.
-  Open for the spec: whether the check runs by default; saving
-  APPIMAGE before _forget_bundle_environment scrubs it; the signing
-  step in scripts/local-release.sh.
-  Dependencies: LWSM-1043.
-  Priority: 3.
-  Decided by the user 2026-11-11, for the spec: (1) the AppImage checks
-  GitHub on each start, on by default, with an off switch in Settings;
-  (2) add `cryptography` as a runtime dependency, retiring the "no more
-  than two" comment in pyproject.toml; (3) an update rewrites the same
-  file, keeping its path and name; (4) releases are signed on this PC,
-  as ADR-0008 says. Spec in progress:
-  docs/specs/LWSM-1548-appimage-self-update.md.
-  2026-11-11: review-contract gate done, 2 loops of 2 (the cap), 2 lanes
-  each. 11 verified findings, all fixed; none deferred. The spec is now
-  accepted. Loop 2's 4 fixes were read by no lane, so the build is their
-  reader. Rows: docs/reviews/LWSM-1548-appimage-self-update-loop-log.md.
-  Commits b422b2e and 0e0a09e.
-  2026-11-11: spec accepted after review-contract's two loops (11
-  findings, all fixed; log in
-  docs/reviews/LWSM-1548-appimage-self-update-loop-log.md). The user
-  confirmed the review's two open calls: a manual check offers a skipped
-  version again, and says "No update is ready to install." when there is
-  nothing to install. Next: build with /write-code. Before the first
-  signed release, the user runs `uv run scripts/sign-release.py
-  generate` once the script exists; the key never enters a session.
-  2026-11-11: built (commit 08001af). Gate green; AppImage built and
-  smoke-tested with the new cryptography binding check. Every invariant's
-  test seen red by mutating its rule. Spec folded back (two clauses).
-  Still owed before this ships: (1) the user runs `uv run
-  scripts/sign-release.py generate`, backs up the key, and pastes the
-  printed line into src/lwsm/update_key.py; until then nothing is
-  offered. (2) The spec §7 manual relaunch recipe on the first two
-  signed releases.
-  2026-11-14: the user generated the signing key; its public half is
-  committed in `src/lwsm/update_key.py` and `sign-release.py check-key`
-  passes. Still owed before this flips shipped: the first signed
-  release, then spec §7's manual relaunch recipe, which needs a second
-  signed release to update to.
-  2026-11-15: the first signed release, 0.6.0, is published with its .sig
-  (sign-release.py publish verified it against the committed key). Still
-  owed before shipped: the user installs that AppImage by hand, a second
-  signed release, then spec § 7's relaunch recipe.
-  **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
-  Kind: feature.
-  Source: ADR-0008-2026-11-11.
-  Lanes: build, ui, docs.
-
 - 📋 [LWSM-1553] **The update offer shows everything that changed between the installed version and the new one.**
   The self-update (LWSM-1548) offers a version. The user asked on
   2026-11-14 for the full changelog between the version being updated
@@ -16079,6 +16092,9 @@ the tray items.
   fetched. Text from the network is outside text and goes through the
   cleaner.
   Spec-first if the release gains a new signed file (a durable format).
+  2026-11-18, the user decided: the text is each release's notes from
+  GitHub, which the update check's releases list already carries. No new
+  signed file, so not spec-first. Shown as plain text after the cleaner.
   **Layman:** Before you click Update, the app shows you everything that changed since the version you have.
   Kind: feature.
   Source: user-request-2026-11-14.
