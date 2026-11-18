@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-18
+
+**Theme:** The updater, tried for real
+
 ### Changed
 
 - **Messages no longer push the project list around.** Messages and the update offer now appear in a box at the foot of the window that is always there and never changes height, so no row or button moves when a message comes or goes. It holds two messages; a longer one scrolls inside the box. Empty, it says "No notifications." (LWSM-1579)
