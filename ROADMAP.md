@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1583 -->
+<!-- ants-roadmap-id-high-water: LWSM=1584 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -16073,7 +16073,7 @@ one. The app can sit in the tray and remember what was running.
 Order: the update notes (LWSM-1553), then the tray items. The second signed
 release that LWSM-1548 waits on is 0.6.1, not this one.
 
-- 📋 [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
+- 🚧 [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
   Closing the window hides to tray and leaves servers
   running; the tray offers *Show window*, *Hide*, and the app's
   only genuine Quit. **Deliberately no per-project submenu**
@@ -16091,6 +16091,13 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 3.
+  2026-11-18: built and committed (11b3cd0). Tray menu: Show window,
+  Hide window, Quit; tooltip counts running projects; closing hides only
+  where the desktop has a tray. File > Quit and the post-update relaunch
+  now quit through MainWindow.request_quit. Unit tests and the gate are
+  green. Not yet seen on a real Plasma panel: a private KWin has no tray
+  host. Flip to shipped after a live check of the icon, its menu and
+  Show window under Wayland.
   Lanes: ui, tests.
 
 - 📋 [LWSM-1035] **P09: restore last session, and stop all.**
@@ -16107,6 +16114,12 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 2.
+  2026-11-18, from LWSM-1017: design-accessibility.md lost its "a
+  confirmation raised with the window hidden shows it first" row,
+  because the tray no longer starts projects. If restoring a session can
+  start a project while the window is hidden in the tray, a trust prompt
+  it raises must show and raise the window first, so the dialog lands
+  over the list. Bring the row back with that path.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
@@ -16308,6 +16321,15 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Kind: ux.
   Source: user-request-2026-11-18.
   Lanes: ui, settings.
+
+- 📋 [LWSM-1584] **The README still says there are no automatic updates.**
+  README.md's "What is not there yet" list says you download each new
+  version yourself and that how updates should work is undecided. The
+  AppImage has updated itself since LWSM-1548. Seen while editing the
+  same list for LWSM-1017 and left alone there.
+  **Layman:** The README tells new users the app can't update itself, which is no longer true.
+  Kind: doc-fix.
+  Source: lwsm-1017-2026-11-18.
 
 ## 0.8.0 — Runs without being watched
 
