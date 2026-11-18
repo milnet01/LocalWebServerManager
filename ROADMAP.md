@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1579 -->
+<!-- ants-roadmap-id-high-water: LWSM=1580 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15925,7 +15925,7 @@ The second signed release, kept small so the self-update is tried on a real desk
 
 Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relaunch recipe from the hand-installed 0.6.0, and LWSM-1548 flips shipped.
 
-- 📋 [LWSM-1550] **release.yml: give write permission only to the step that attaches the AppImage.**
+- ✅ [LWSM-1550] **release.yml: give write permission only to the step that attaches the AppImage.**
   LWSM-1546 point 1. `contents: write` covers checkout, setup-uv and the
   whole build, not only the upload. Every input is pinned. The pinned
   setup-uv action takes github.token by default.
@@ -15934,6 +15934,12 @@ Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relau
   The user decided on 2026-11-14 that this goes after 0.6.0, so the
   first signed release is not also the first run of a reshaped workflow.
   Do it straight after 0.6.0 is published.
+  2026-11-18: built in 54a5b3e. A read-only `build` job builds and
+  smoke-tests, then hands the AppImage on as an artifact (release event
+  only). An `attach` job alone holds contents: write; it checks nothing
+  out, downloads the artifact and runs gh release upload --clobber.
+  tests/test_ci_contract.py now fails if a write job checks out code or
+  runs a repository script. Its first real run is 0.6.1's release.
   **Layman:** The release workflow holds the power to change a release for longer than it needs.
   Kind: security.
   Source: review-code-2026-11-10, split from LWSM-1546.
@@ -16201,6 +16207,26 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Kind: review-fix.
   Source: review-code-2026-11-15.
   Lanes: scanner, registry, settings, service, controller, logbuffer, update, mainwindow, placement, release.
+
+- 📋 [LWSM-1580] **A test worker deadlocked mid garbage collection in MainWindow.__init__, hanging the pre-push gate.**
+  Seen once, 2026-11-18, in the pre-push gate for LWSM-1550 (machine
+  load about 20; three other sessions' gates running). The same code
+  passed the full gate minutes before. Worker gw3 sat idle on a futex for
+  nine minutes in tests/test_mainwindow.py::
+  test_a_first_run_saves_only_the_ticked_projects (via rescan_window).
+  SIGABRT's faulthandler dump: the main thread was "Garbage-collecting"
+  with no Python frame above it, inside MainWindow.__init__ at
+  `self._notice_scroll.setWidget(notice_host)` (LWSM-1579's strip). The
+  only other thread, execnet's receiver, waited on xdist's TestQueue lock
+  in remote.py put(). Only two threads existed, so a C-level finalizer in
+  the GC likely waited on something the receiver thread held.
+  To find out: whether a PySide6 wrapper's destructor collected during
+  setWidget can block, and whether the suite should carry a per-test
+  timeout (it has none) so a hang fails with a name instead of freezing.
+  **Layman:** Once, a test stopped forever instead of passing or failing, which froze a push until it was stopped by hand.
+  Kind: investigate.
+  Source: pre-push-hang-2026-11-18.
+  Lanes: tests, mainwindow.
 
 ## 0.8.0 — Runs without being watched
 

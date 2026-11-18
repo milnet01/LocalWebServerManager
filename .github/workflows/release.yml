@@ -23,10 +23,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # LWSM-1550. Two jobs, so write permission is held only by the step that
-  # needs it: the build (checkout, setup-uv and the whole recipe) runs with
-  # read access, and only the attach job, which runs nothing from the
-  # repository, can change the release.
+  # LWSM-1550. Two jobs, so write permission is held only by the attach job:
+  # the build (checkout, setup-uv and the whole recipe) runs with read
+  # access, and the attach job, which runs nothing from the repository, is
+  # the only one that can change the release.
   build:
     # Pinned rather than -latest, as in ci.yml.
     runs-on: ubuntu-24.04
@@ -60,7 +60,11 @@ jobs:
           name: appimage
           path: dist/LocalWebServerManager-*-x86_64.AppImage
           if-no-files-found: error
-          retention-days: 1
+          # A re-run of every job uploads again under the same name. A week, so
+          # a re-run of the attach job alone still finds the artifact; `.sig`
+          # must be re-signed after either (docs/claude/release.md).
+          overwrite: true
+          retention-days: 7
 
   attach:
     needs: build

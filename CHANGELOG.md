@@ -25,6 +25,10 @@ signaling per
 
 - **Messages no longer push the project list around.** Messages and the update offer now appear in a box at the foot of the window that is always there and never changes height, so no row or button moves when a message comes or goes. It holds two messages; a longer one scrolls inside the box. Empty, it says "No notifications." (LWSM-1579)
 
+### Security
+
+- **The release build can no longer change a published release.** GitHub builds and tests the AppImage with read-only access; a separate step that runs none of the project's code attaches it. (LWSM-1550)
+
 ## [0.6.0] - 2026-11-15
 
 **Theme:** A download for other people
