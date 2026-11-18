@@ -16016,6 +16016,13 @@ Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relau
   tag, which could have signed an AppImage about to be replaced
   (review-code 2026-11-18 L02-L2, fcd71f8). Spec §7's publish bullet
   amended.
+  2026-11-18: 0.6.1 released and signed (tag v0.6.1 at 09a58ad). The
+  two-job Release workflow's first real run attached the AppImage;
+  sign-release.py publish uploaded the .sig, and the signature was
+  checked again independently against the committed key. Next: the user
+  runs spec §7's manual recipe from the menu-started 0.6.0 AppImage
+  (update to 0.6.1, then once through a symlink); on success flip this
+  item shipped.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.
