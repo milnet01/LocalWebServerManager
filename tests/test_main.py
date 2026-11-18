@@ -74,6 +74,22 @@ def test_an_unknown_option_is_refused(capsys):
     assert "usage" in capsys.readouterr().err.lower()
 
 
+class _UnusedSignal:
+    def connect(self, _slot) -> None:
+        return None
+
+
+class _StandInWindow:
+    """What `main` asks of any window beyond `show` and `shutdown`: a quit
+    signal to connect and a quit to hand the tray (LWSM-1017). The stand-ins
+    here never quit, so both do nothing."""
+
+    quit_requested = _UnusedSignal()
+
+    def request_quit(self) -> None:
+        return None
+
+
 @pytest.fixture
 def _no_event_loop(monkeypatch):
     """Let `main()` return instead of blocking in `app.exec()`.
@@ -520,7 +536,7 @@ def test_main_stops_the_controller_when_the_loop_returns(
     shutdowns: list[int] = []
     supervisor_closes: list[int] = []
 
-    class FakeWindow:
+    class FakeWindow(_StandInWindow):
         def show(self) -> None:
             return None
 
@@ -572,7 +588,7 @@ def test_one_failed_shutdown_step_does_not_defeat_the_other_two(
         def freeze_started_record(self) -> None:
             return None
 
-    class FakeWindow:
+    class FakeWindow(_StandInWindow):
         def show(self) -> None:
             return None
 
@@ -756,6 +772,110 @@ def test_bringing_a_maximised_window_to_the_front_keeps_it_maximised(qtbot) -> N
 
     assert window.windowState() & Qt.WindowState.WindowMaximized, "maximised was lost"
     assert not window.isMinimized(), "the window was left minimised"
+
+
+@pytest.mark.gui
+def test_bringing_a_window_hidden_in_the_tray_to_the_front_shows_it(qtbot) -> None:
+    """A second launch is how a hidden window comes back without the tray
+    (LWSM-1017); raising a hidden window shows nothing."""
+    from PySide6.QtWidgets import QWidget
+
+    window = QWidget()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+    window.hide()
+
+    entry._bring_to_front(window)
+
+    assert window.isVisible()
+
+
+def test_the_bundled_icon_is_found_beside_a_frozen_build(tmp_path: Path) -> None:
+    """The layout `scripts/_appimage-build.sh` makes: the program in
+    `usr/lib/lwsm/`, the icon under `usr/share/icons/`."""
+    program = tmp_path / "usr/lib/lwsm/lwsm"
+    program.parent.mkdir(parents=True)
+    program.touch()
+    icon = (
+        tmp_path
+        / "usr/share/icons/hicolor/scalable/apps"
+        / f"{entry.DESKTOP_FILE_NAME}.svg"
+    )
+    icon.parent.mkdir(parents=True)
+    icon.touch()
+
+    assert entry.bundled_icon(True, program, tmp_path / "unused.py") == icon
+
+
+def test_a_checkout_finds_its_icon_in_packaging() -> None:
+    found = entry.bundled_icon(False, Path(sys.executable), Path(entry.__file__))
+    assert found is not None
+    assert found.parent.name == "packaging"
+
+
+def test_no_bundled_icon_is_none(tmp_path: Path) -> None:
+    program = tmp_path / "usr/lib/lwsm/lwsm"
+    program.parent.mkdir(parents=True)
+    program.touch()
+    assert entry.bundled_icon(True, program, tmp_path / "x.py") is None
+    module = tmp_path / "src/lwsm/__main__.py"
+    assert entry.bundled_icon(False, program, module) is None
+
+
+@pytest.mark.gui
+def test_with_a_tray_main_hides_on_close_and_quits_on_request(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Where the desktop has a tray, closing the window no longer ends the app
+    and `quit_requested` does (LWSM-1017)."""
+    from PySide6.QtWidgets import QApplication
+
+    from lwsm import tray
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    real_install = tray.install_tray
+    monkeypatch.setattr(
+        tray,
+        "install_tray",
+        lambda *args: real_install(*args, available=True),
+    )
+    windows = []
+    real_build = entry.build_window
+
+    def capture(*args, **kwargs):
+        built = real_build(*args, **kwargs)
+        windows.append(built[0])
+        return built
+
+    monkeypatch.setattr(entry, "build_window", capture)
+    # On the class, before `main` connects `app.quit`.
+    quits: list[int] = []
+    monkeypatch.setattr(QApplication, "quit", staticmethod(lambda: quits.append(1)))
+    seen: dict[str, object] = {}
+
+    def run_loop(app: QApplication) -> int:
+        window = windows[0]
+        seen["quits_on_last_close"] = app.quitOnLastWindowClosed()
+        seen["closed"] = window.close()
+        seen["visible"] = window.isVisible()
+        window.request_quit()
+        seen["quits"] = list(quits)
+        return 0
+
+    monkeypatch.setattr(QApplication, "exec", run_loop)
+    app = QApplication.instance()
+    assert isinstance(app, QApplication)
+    try:
+        assert main([]) == 0
+    finally:
+        app.setQuitOnLastWindowClosed(True)
+
+    assert seen["quits_on_last_close"] is False
+    assert seen["closed"] is False, "closing ended the window instead of hiding it"
+    assert seen["visible"] is False
+    assert seen["quits"] == [1], "Quit did not reach the app"
 
 
 # --- LWSM-1521: the second launch's activation token ----------------------------
@@ -980,7 +1100,7 @@ def test_main_releases_the_socket_when_it_exits(monkeypatch, tmp_path: Path) -> 
         def freeze_started_record(self) -> None:
             return None
 
-    class Window:
+    class Window(_StandInWindow):
         def show(self) -> None:
             return None
 
@@ -1025,7 +1145,7 @@ def test_main_lets_a_relaunch_in_before_it_waits_for_stops(
         def close_supervisor(self) -> None:
             events.append(("close_supervisor", socket_live()))
 
-    class Window:
+    class Window(_StandInWindow):
         def show(self) -> None:
             return None
 
@@ -1111,7 +1231,7 @@ def test_a_second_launch_during_startup_is_acted_on_once_the_window_exists(
         def freeze_started_record(self) -> None:
             return None
 
-    class Window:
+    class Window(_StandInWindow):
         def show(self) -> None:
             events.append(("show", None))
 
@@ -2992,7 +3112,7 @@ def test_main_hands_the_window_builder_the_appimage(
         def freeze_started_record(self) -> None:
             return None
 
-    class Window:
+    class Window(_StandInWindow):
         def show(self) -> None:
             return None
 

@@ -77,18 +77,9 @@ pans it. Everything below follows from that one fact:
   in a corner of the screen, and that it is **application**-modal.
 
   **Not "modal to the window"** — that is Qt's `WindowModal`, which
-  blocks `MainWindow` alone and leaves the tray's own per-project
-  start/stop menu (`design.md` § Components) live while a trust prompt waits,
-  which is the hole the modality exists to close. A `QMessageBox` is
+  blocks `MainWindow` alone. A `QMessageBox` is
   `ApplicationModal` from construction, measured 2026-08-19, so this
   is a property to assert rather than one to add.
-
-  **A confirmation raised from the tray shows and raises the window
-  first**, so there is a list for it to land over. `design.md` § Components gives
-  the tray a per-project start/stop menu and closing the window hides
-  to tray, so this is reachable with no window on screen — where
-  "centred on the window" and the check row below are both
-  meaningless. The window comes back; the dialog is not orphaned.
 
   **The alternative was considered and declined** (user, 2026-08-19):
   an inline confirmation on the row would satisfy the original wording
@@ -268,7 +259,6 @@ LWSM-1032 landed them alongside the four:
 | A state change announces itself once, not per poll | count accessibility notifications: exactly one across a real state change, and zero across N polls with no state change |
 | No animation conveys information, and reduce-motion is honoured | assert no animation object exists across a real state change — there are none to suppress, so both halves hold together, and the row fails the day one is added |
 | Confirmations appear over the list, and are application-modal | assert `windowModality() == ApplicationModal`, and that the dialog's screen rect overlaps the row list — the *result*, never that a parent was passed (ADR-0007). Narrowed from "overlaps the raising widget's" on 2026-08-19: Qt centres on the parent's window whichever widget is passed, so the original could not pass for the first or last row of a list long enough for the dialog to miss them — at one row it passes, which is exactly the fixture size that would have hidden this — and no code change would have made it (LWSM-1032). **The rect half is an assertion about Qt's own centring, taken headless, and cannot speak for the compositor** — under Wayland placement is KWin's (ADR-0007) and degrades honestly. The modality half holds on every platform |
-| A confirmation raised with the window hidden shows it first | with the window hidden, drive the tray's start path and assert the window is visible before the dialog is shown. **Lands with the tray (P09)**, which is the only surface that can raise one with no window on screen; until then there is no path to drive and the row is stated rather than run |
 | The state word is first in the row | assert the state label's x-position precedes every other cell's |
 | Related information fits one lens view | assert name, state, port, browser picker and controls all fall inside a 600 px-wide window **at 100 % text size**, with the longest name on record and the picker shown together: either alone passes against a row that is too wide (LWSM-1294). Deliberately not held at 200 %: the text doubles and the row with it, which is the control doing its job — wrapping the row to preserve the number would put the state and its controls on different lines, which is the pan this budget exists to prevent |
 | Elided text keeps its full string | where a cell renders a cut string, assert its tooltip holds the whole one, and that the whole string reaches the accessibility tree — by the row's own accessible name for the name cell, and by the control's own untruncated item text for the browser combo. And that **every** control in the row is named, or for the browser picker described, from the full text rather than the rendered text. The last clause is the one that failed in practice: the controls read the label back, which has been the elided string since LWSM-1174, so a screen reader was given four identically-truncated names whose whole purpose is telling one project's buttons from another's. A short-named fixture cannot see it, because there the two strings are equal |

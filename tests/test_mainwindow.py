@@ -12227,6 +12227,71 @@ def test_a_relaunch_that_cannot_start_still_closes(
     assert not window.isVisible()
 
 
+def test_an_installed_update_quits_even_with_a_tray(qtbot, built, monkeypatch) -> None:
+    """Hidden in the tray, this copy would answer the relaunch's single-instance
+    check, and the new copy would exit (LWSM-1017). Not visible is not enough:
+    a hidden window is not visible either."""
+    monkeypatch.setattr(update, "relaunch", lambda _target: None)
+    window = _update_window(qtbot, built, check_on_start=False)
+    window.set_hides_to_tray(True)
+    window.show()
+    qtbot.waitExposed(window)
+
+    with qtbot.waitSignal(window.quit_requested, timeout=1000):
+        window._on_update_installed(Path("/apps/x.AppImage"))
+
+
+# --- LWSM-1017: closing hides to the tray; Quit quits -------------------------
+
+
+def test_with_a_tray_closing_hides_and_still_remembers_the_geometry(
+    qtbot, built
+) -> None:
+    stored: list[tuple[Rect | None, bool, bool]] = []
+    window = geometry_window(
+        qtbot,
+        built,
+        two_rows(),
+        save_geometry=lambda rect, maximized, known: stored.append(
+            (rect, maximized, known)
+        ),
+    )
+    window.set_hides_to_tray(True)
+    quits: list[int] = []
+    window.quit_requested.connect(lambda: quits.append(1))
+
+    assert not window.close(), "the close was accepted, so the window is gone"
+
+    assert not window.isVisible()
+    assert len(stored) == 1, "hiding did not save the geometry"
+    assert quits == []
+
+    # Shown again from the tray, its next hide saves again.
+    with qtbot.waitExposed(window):
+        window.show()
+    window.close()
+    assert len(stored) == 2, "a window shown again stopped saving its geometry"
+
+    # Quit from the tray: the window is hidden, and what hiding saved stands.
+    window.request_quit()
+    assert len(stored) == 2, "a quit while hidden saved the geometry again"
+    assert quits == [1]
+
+
+def test_without_a_tray_closing_closes(qtbot, built) -> None:
+    window = geometry_window(qtbot, built, two_rows())
+    assert window.close()
+
+
+def test_file_quit_quits_even_with_a_tray(qtbot, built) -> None:
+    window = geometry_window(qtbot, built, two_rows())
+    window.set_hides_to_tray(True)
+    window.hide()
+
+    with qtbot.waitSignal(window.quit_requested, timeout=1000):
+        window._quit_action.trigger()
+
+
 # --- LWSM-1541: focus when the focused project row leaves the list ------------
 
 

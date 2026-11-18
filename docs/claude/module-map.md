@@ -648,6 +648,11 @@ Added for LWSM-1548, the AppImage's self-update, contract in
   the main window (Qt's, or KWin's on Wayland) uses the size at the moment of
   showing (LWSM-1582). The banner and the "Check for updates" entry are
   `MainWindow`'s, built only when `build_window` is given an AppImage path.
+- **`src/lwsm/tray.py`** — UI layer. `Tray`, the icon with Show window, Hide
+  window and Quit, and a tooltip counting the running projects (LWSM-1017).
+  `install_tray` builds it only where the desktop has a tray; `main` then
+  makes a close hide the window (`MainWindow.set_hides_to_tray`) and ends the
+  app on `MainWindow.quit_requested`. Without a tray, a close still quits.
 
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are

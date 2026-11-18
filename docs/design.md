@@ -172,12 +172,13 @@ Two rules the diagram encodes:
   an *exit* status only, since an access log prints `status 500` on
   every line. The two controls sit on their own row under the
   heading, and Tab reaches them between Close and the output.
-- **TrayIcon** — a status icon with a per-project start/stop menu,
-  the same Open-in-browser action, and the app's only genuine
-  Quit. Main responsibility: control and status while the window
-  is hidden. Closing the window hides to tray; servers keep
-  running (user decision, 2026-08-03), and they survive Quit too
-  (ADR-0003).
+- **TrayIcon** (`tray.py`) — an icon whose menu offers Show window,
+  Hide window and Quit, and whose tooltip says how many projects
+  are running. It has no per-project menu (user, 2026-08-03). Main
+  responsibility: bringing the window back. Where the desktop has
+  a tray, closing the window hides it, and only Quit — the tray's
+  or File › Quit — ends the app. Without a tray, closing quits.
+  Servers survive Quit either way (ADR-0003).
 - **SettingsDialog** — the Preferences dialog. It edits app-wide
   settings: scan roots, poll interval, the log size cap, the
   single-key shortcuts switch and the log panel's error markers, one
@@ -533,8 +534,7 @@ would be absurd, and dropping them would make the manager a
 downgrade from the trays it replaces.
 
 So the registry stores an optional **`actions`** list per
-project, rendered as buttons in the detail pane and as entries in
-that project's tray submenu. Each action is a label plus one of
+project, rendered as buttons in the detail pane. Each action is a label plus one of
 three kinds:
 
 | Kind | Meaning | Covers |

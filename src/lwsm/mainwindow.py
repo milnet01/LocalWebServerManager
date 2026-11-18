@@ -2305,6 +2305,10 @@ def _notice_row(parent: QWidget) -> tuple[QWidget, QLabel, QPushButton, QHBoxLay
 
 
 class MainWindow(QMainWindow):
+    # The window has closed for good and the app should end (LWSM-1017). With
+    # a tray, closing the last window no longer ends the app on its own.
+    quit_requested = Signal()
+
     def __init__(
         self,
         controller: ProjectController,
@@ -2425,6 +2429,11 @@ class MainWindow(QMainWindow):
         self._update_offer: update.Release | None = None
         self._update_check: QObject | None = None
         self._update_dialog: QDialog | None = None
+        # LWSM-1017: whether closing hides to the tray, whether this close is a
+        # quit, which it never hides, and whether the window is hidden there.
+        self._hides_to_tray = False
+        self._quitting = False
+        self._hidden_in_tray = False
         # A seam, and the one that defaults to doing NOTHING rather
         # than to the real thing. `confirm` and `open_url` can default to the
         # real behaviour because a test that never triggers them never reaches
@@ -2825,7 +2834,7 @@ class MainWindow(QMainWindow):
         # The platform's own quit sequence rather than a literal, so it is
         # whatever the desktop already taught the user.
         self._quit_action.setShortcut(QKeySequence.StandardKey.Quit)
-        self._quit_action.triggered.connect(self.close)
+        self._quit_action.triggered.connect(self.request_quit)
 
         # A third top-level menu for one action, rather than folding it into
         # Settings. "Centre on screen" is something you DO, and every entry in
@@ -4250,7 +4259,9 @@ class MainWindow(QMainWindow):
             update.relaunch(target)
         except OSError:
             log.exception("the updated app could not be relaunched")
-        self.close()
+        # A quit, not a close: hidden in the tray, this copy would answer the
+        # relaunch's single-instance check and the new one would exit.
+        self.request_quit()
 
     def set_status_message(self, text: str) -> None:
         """Show `text` in the notice strip, or take it away when empty.
@@ -5787,6 +5798,7 @@ class MainWindow(QMainWindow):
         Only running the app under the real compositor found it.
         """
         super().showEvent(event)
+        self._hidden_in_tray = False
         if self._geometry_restored:
             return
         self._geometry_restored = True
@@ -5959,6 +5971,12 @@ class MainWindow(QMainWindow):
 
         An open Update window is closed first, so a size the user gave it is
         saved: Update now ends here, with that window still open (LWSM-1582).
+
+        **With a tray, a close hides the window instead** (LWSM-1017), after
+        saving the geometry as above. Only `request_quit` closes it for good.
+        A window hidden in the tray saves nothing: its geometry was saved when
+        it was hidden, and a hidden window has no frame to measure the offset
+        from.
         """
         if self._update_dialog is not None and self._update_dialog.isVisible():
             self._update_dialog.close()
@@ -5974,7 +5992,7 @@ class MainWindow(QMainWindow):
             if normal.isValid()
             else None
         )
-        if self._save_geometry is not None:
+        if self._save_geometry is not None and not self._hidden_in_tray:
             try:
                 self._save_geometry(
                     remembered,
@@ -5985,7 +6003,26 @@ class MainWindow(QMainWindow):
                 # Logged, not shown: the window is going away, so a banner
                 # message has nobody left to read it.
                 log.warning("could not remember the window geometry: %s", exc)
+        if self._hides_to_tray and not self._quitting:
+            event.ignore()
+            self.hide()
+            self._hidden_in_tray = True
+            return
         super().closeEvent(event)
+
+    def set_hides_to_tray(self, hides: bool) -> None:
+        """Make a close hide the window; set only once a tray icon is shown."""
+        self._hides_to_tray = hides
+
+    def request_quit(self) -> None:
+        """Close the window for good, then ask the app to end.
+
+        A hidden window still gets its close, so the geometry is saved either
+        way (measured: `close()` on a hidden window runs `closeEvent`).
+        """
+        self._quitting = True
+        self.close()
+        self.quit_requested.emit()
 
     def _apply_default_geometry(self) -> None:
         """Open big enough to read (LWSM-1149), or at the remembered size.

@@ -93,8 +93,7 @@ matches on; `cut-release` rewrites it, never edit it by hand.)
 
 **What is not there yet**
 
-- No **system tray icon** and no **start on login** — those are
-  planned for later versions.
+- No **start on login** — that is planned for a later version.
 - No **automatic updates**: you download each new version
   yourself. How updates should work is still being decided.
 

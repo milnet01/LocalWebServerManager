@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Added
+
+- **The app has a tray icon.** Closing the window now tucks the app into the system tray, where it keeps watching your projects. Click the icon, or choose Show window from its menu, to bring the window back; opening the app again from the menu does the same. To close the app for good, choose Quit from the tray menu or from the File menu. The icon's tooltip says how many projects are running. On a desktop with no system tray, closing the window still closes the app. (LWSM-1017)
+
 ### Changed
 
 - **The Update window opens big enough to read.** It opens nearly as wide as the main window and centred on it, so the release notes usually show without scrolling. If you resize it, it opens at that size next time. (LWSM-1582)

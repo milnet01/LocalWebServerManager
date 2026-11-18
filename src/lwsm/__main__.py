@@ -617,18 +617,41 @@ def _identify(app: QApplication) -> None:
     `QApplication` that `main` may have found already built (a test session
     has one). Every call is idempotent.
 
-    The icon is set from the installed theme by name rather than from a bundled
-    file: the `.desktop` entry already names it, `packaging/` ships it to
-    `hicolor`, and reading it from disk here would be a second source for one
-    image. A missing theme icon yields a null `QIcon`, which Qt renders as no
-    icon rather than failing — the window still opens.
+    The icon is the installed theme's, by the name the `.desktop` entry uses.
+    Where the theme lacks it, as for an AppImage nobody integrated, it is the
+    copy of the same file the build put beside the app (`bundled_icon`): the
+    tray shows this icon, and a tray icon with none is not there (LWSM-1017).
     """
     from PySide6.QtGui import QIcon
 
     app.setApplicationName("Local Web Server Manager")
     app.setApplicationVersion(__version__)
     app.setDesktopFileName(DESKTOP_FILE_NAME)
-    app.setWindowIcon(QIcon.fromTheme(DESKTOP_FILE_NAME))
+    fallback = bundled_icon(
+        getattr(sys, "frozen", False), Path(sys.executable), Path(__file__)
+    )
+    app.setWindowIcon(
+        QIcon.fromTheme(
+            DESKTOP_FILE_NAME, QIcon(str(fallback)) if fallback else QIcon()
+        )
+    )
+
+
+def bundled_icon(frozen: bool, executable: Path, module: Path) -> Path | None:
+    """The app's own copy of its icon, or None where there is none.
+
+    A frozen build runs from `usr/lib/lwsm/` inside the AppImage, whose build
+    copies the icon to `usr/share/icons/hicolor/scalable/apps/`
+    (`scripts/_appimage-build.sh`). A checkout has it in `packaging/`.
+    """
+    name = f"{DESKTOP_FILE_NAME}.svg"
+    if frozen:
+        candidate = (
+            executable.resolve().parents[2] / "share/icons/hicolor/scalable/apps" / name
+        )
+    else:
+        candidate = module.resolve().parents[2] / "packaging" / name
+    return candidate if candidate.is_file() else None
 
 
 # The socket the running copy listens on, in the per-user runtime directory
@@ -879,9 +902,13 @@ def _bring_to_front(window: MainWindow, token: str | None = None) -> None:
     Only the minimised bit is cleared. `showNormal()` cleared maximised with it,
     so a second launch un-maximised the window and the next close saved that
     (review-code 2026-10-08 L08-L2).
+
+    A window hidden in the tray is shown first (LWSM-1017).
     """
     from PySide6.QtCore import Qt
 
+    if not window.isVisible():
+        window.show()
     if window.isMinimized():
         window.setWindowState(
             (window.windowState() & ~Qt.WindowState.WindowMinimized)
@@ -1010,6 +1037,21 @@ def main(argv: list[str] | None = None) -> int:
     # inside build_window's RegistryError catch rather than out here (LWSM-1116).
     window, controller = build_window(appimage=appimage)
     shown.append(window)
+    window.quit_requested.connect(app.quit)
+    from lwsm.tray import install_tray
+
+    tray = install_tray(
+        window,
+        controller,
+        app.windowIcon(),
+        lambda: _bring_to_front(window),
+        window.request_quit,
+    )
+    if tray is not None:
+        # Closing hides the window now, so the last window closing is no
+        # longer the end of the app; `quit_requested` is.
+        app.setQuitOnLastWindowClosed(False)
+        window.set_hides_to_tray(True)
     # Queued, so the window is on screen before the first-run scan and its
     # dialog (LWSM-1008). A timer object rather than `singleShot`, so it can be
     # stopped below: one still pending when `main` returns must not fire later.

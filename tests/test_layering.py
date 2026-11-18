@@ -64,6 +64,7 @@ NON_CORE_MODULES = {
     "outline.py",
     "theme.py",
     "updatedialog.py",
+    "tray.py",
     "__main__.py",
     "__init__.py",
 }
@@ -72,7 +73,7 @@ NON_CORE_MODULES = {
 # live there. § O7's rule is about widget code, and this allowlist is explicit
 # rather than the pattern happening to miss it.
 COLOUR_EXEMPT = {"theme.py"}
-WIDGET_MODULES = ["mainwindow.py", "logpanel.py", "outline.py"]
+WIDGET_MODULES = ["mainwindow.py", "logpanel.py", "outline.py", "tray.py"]
 
 # Named constants are colours too: `Qt.GlobalColor.red` and
 # `QColorConstants.Red` both pin a value the theme is supposed to own, and both
