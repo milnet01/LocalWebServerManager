@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1582 -->
+<!-- ants-roadmap-id-high-water: LWSM=1583 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -16140,7 +16140,7 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Kind: investigate.
   Source: user-kwin-check-2026-11-10.
 
-- 📋 [LWSM-1553] **The update offer shows everything that changed between the installed version and the new one.**
+- ✅ [LWSM-1553] **The update offer shows everything that changed between the installed version and the new one.**
   The self-update (LWSM-1548) offers a version. The user asked on
   2026-11-14 for the full changelog between the version being updated
   and the version being updated to: every release in between, not only
@@ -16155,6 +16155,15 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   2026-11-18, the user decided: the text is each release's notes from
   GitHub, which the update check's releases list already carries. No new
   signed file, so not spec-first. Shown as plain text after the cleaner.
+  2026-11-18, shipped in ed2de3e. Most of it came with LWSM-1548: the
+  window already showed every release between installed and offered.
+  This closed the rest: the notes go through
+  `configfile.clean_display_lines` (keeps line breaks and tabs); a
+  release with blank notes says so; when GitHub's list stops above the
+  installed version (`update.lists_back_to`), the notes name the
+  versions left out. The user chose on 2026-11-18 to keep the notes
+  formatted as Markdown (HTML, links and images still off), not plain
+  text. Spec LWSM-1548 §4.3 and §4.5 amended.
   **Layman:** Before you click Update, the app shows you everything that changed since the version you have.
   Kind: feature.
   Source: user-request-2026-11-14.
@@ -16527,6 +16536,20 @@ Order: LWSM-1053 is a decision and comes before LWSM-1027, which depends on it.
   **Layman:** Save your project list, ports and preferences to one file, and load it back on a new PC or after a reinstall.
   Kind: feature.
   Source: user-decision-2026-11-15.
+
+- 📋 [LWSM-1583] **The release list can outgrow the update check's size limit, and then no update is offered.**
+  Measured 2026-11-18 while building LWSM-1553: GitHub's release list
+  for this repository came to 149 KB for 7 releases. `UpdateCheck` asks
+  for `per_page=30` and refuses a reply over `update_fetch.LIST_CAP`
+  (1 MiB) as "Couldn't read GitHub's reply." At the measured average a
+  full page stays under the cap, but long notes (0.1.0's run to 79 KB)
+  could push it over, and then no update is offered at all.
+  Open: a lower `per_page`, a higher cap, or reading each release's body
+  on demand. LWSM-1553's "versions not listed" line already covers a
+  short list, so a lower `per_page` costs only notes, not correctness.
+  **Layman:** If the project publishes many long release notes, the app could stop finding updates; this makes sure it keeps working.
+  Kind: fix.
+  Source: lwsm-1553-build-2026-11-18.
 
 ## 0.9.0 — Ready to translate
 
