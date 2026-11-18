@@ -8,9 +8,9 @@ import ast
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QObject, QPoint, Qt, QUrl, Signal
+from PySide6.QtCore import QObject, QPoint, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QTextDocument
-from PySide6.QtWidgets import QAbstractButton, QPushButton
+from PySide6.QtWidgets import QAbstractButton, QPushButton, QWidget
 
 from lwsm import update_fetch, updatedialog
 from lwsm.update import Release
@@ -195,3 +195,85 @@ def test_a_finished_install_is_passed_on(dialog: UpdateDialog, qtbot, made) -> N
     with qtbot.waitSignal(dialog.installed) as blocker:
         made[0].installed.emit(Path("/apps/lwsm.AppImage"))
     assert blocker.args == [Path("/apps/lwsm.AppImage")]
+
+
+# --- LWSM-1582: opening size and place, and the size remembered --------------
+
+
+def _parented(
+    qtbot, size: tuple[int, int] | None = None
+) -> tuple[UpdateDialog, QWidget]:
+    """An update window over a shown 700x500 main window.
+
+    The main window is returned too: held by nothing else, Python frees it and
+    Qt deletes the dialog with it.
+    """
+    main = QWidget()
+    qtbot.addWidget(main)
+    main.resize(700, 500)
+    main.show()
+    qtbot.waitExposed(main)
+    offered = _release()
+    window = UpdateDialog((0, 5, 1), offered, [offered], "/a", parent=main, size=size)
+    return window, main
+
+
+def _centre_offset(window: UpdateDialog, main: QWidget) -> QPoint:
+    return window.frameGeometry().center() - main.frameGeometry().center()
+
+
+def test_it_opens_large_and_centred_on_the_main_window_each_time(qtbot) -> None:
+    """The user, 2026-11-18: nearly the main window's width and a little under
+    half its height, centred on it. Centring is Qt's on X11 and KWin's on
+    Wayland (measured on a private KWin, 2026-11-18), and both centre the size
+    the window has when shown — so a size applied after `show()` dies here."""
+    window, main = _parented(qtbot)
+    window.show()
+    qtbot.waitExposed(window)
+
+    assert window.size() == QSize(630, 225)
+    assert _centre_offset(window, main).manhattanLength() <= 2
+
+    window.close()
+    main.move(60, 40)
+    window.show()
+    qtbot.waitExposed(window)
+    assert _centre_offset(window, main).manhattanLength() <= 2, (
+        "not re-centred on reopening"
+    )
+
+
+@pytest.mark.parametrize(
+    ("remembered", "expected"),
+    [((500, 300), QSize(500, 300)), ((1, 1), None), ((32767, 32767), "screen")],
+    ids=["remembered", "below-minimum", "beyond-screen"],
+)
+def test_a_remembered_size_wins_within_the_screen_and_the_minimum(
+    qtbot, remembered, expected
+) -> None:
+    window, main = _parented(qtbot, size=remembered)
+    if expected is None:
+        expected = window.minimumSizeHint()
+    elif expected == "screen":
+        expected = main.screen().availableGeometry().size()
+    assert window.size() == expected
+
+
+def test_only_a_size_the_user_changed_is_handed_on(qtbot) -> None:
+    """Unchanged, nothing is stored, so the default keeps following the main
+    window. Changed, the new size goes out once, on closing."""
+    window, _main = _parented(qtbot)
+    sizes: list[object] = []
+    window.resized.connect(sizes.append)
+    window.show()
+    qtbot.waitExposed(window)
+
+    window.close()
+    assert sizes == []
+
+    window.show()
+    window.resize(640, 400)
+    window.close()
+    window.show()
+    window.close()
+    assert sizes == [(640, 400)]

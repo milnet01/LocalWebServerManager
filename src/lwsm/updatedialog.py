@@ -8,14 +8,21 @@ main window closes, so the relaunch's waiter would wait out its limit (spec
 The release notes come from GitHub, so they are untrusted text. They render as
 Markdown with raw HTML off, in a browser that loads no resource and opens no
 link (spec INV-13).
+
+It opens at the size the user last gave it, or large, and centred on the main
+window (LWSM-1582). Centring is not this module's doing: `QDialog` centres
+itself on its parent wherever a client may place windows, and KWin places a
+transient window over its main window on Wayland (both measured 2026-11-18,
+the second on a private KWin). Both centre the size the window has when it is
+SHOWN, which is why the size is set in `__init__`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, QUrl, Signal
-from PySide6.QtGui import QTextDocument
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QGuiApplication, QTextDocument
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -35,6 +42,13 @@ _NOTES_FEATURES = (
     QTextDocument.MarkdownFeature.MarkdownDialectGitHub
     | QTextDocument.MarkdownFeature.MarkdownNoHTML
 )
+
+# The first-open size, as fractions of the main window's (LWSM-1582): the size
+# the user dragged it to in the 0.6.1 relaunch test, where that release's notes
+# showed without scrolling. Fractions, not pixels, so it follows the main
+# window and the text size (`coding-overrides.md § O7`).
+WIDTH_OF_MAIN = 0.9
+HEIGHT_OF_MAIN = 0.45
 
 
 class ReleaseNotes(QTextBrowser):
@@ -62,6 +76,10 @@ class UpdateDialog(QDialog):
 
     skip_requested = Signal(object)  # the offered Version
     installed = Signal(object)  # the Path written
+    # (width, height), once on closing, and only when the user changed the size
+    # it opened at: a size nobody chose is not remembered, so the default keeps
+    # following the main window until the user picks one.
+    resized = Signal(object)
 
     def __init__(
         self,
@@ -72,6 +90,7 @@ class UpdateDialog(QDialog):
         parent: QWidget | None = None,
         *,
         make_installer: MakeInstaller | None = None,
+        size: tuple[int, int] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setModal(False)
@@ -121,6 +140,27 @@ class UpdateDialog(QDialog):
         self._later.clicked.connect(self.close)
         self._cancel.clicked.connect(self._cancel_download)
         self._retranslate()
+        self.resize(self._opening_size(size))
+        self._opened_at = self.size()
+
+    def _opening_size(self, remembered: tuple[int, int] | None) -> QSize:
+        """The remembered size, or a share of the main window's; never larger
+        than the screen, never smaller than the layout's minimum."""
+        parent = self.parentWidget()
+        if remembered is not None:
+            want = QSize(*remembered)
+        elif parent is not None:
+            want = QSize(
+                round(parent.width() * WIDTH_OF_MAIN),
+                round(parent.height() * HEIGHT_OF_MAIN),
+            )
+        else:
+            want = self.sizeHint()
+        want = want.expandedTo(self.minimumSizeHint())
+        screen = (parent or self).screen() or QGuiApplication.primaryScreen()
+        if screen is not None:
+            want = want.boundedTo(screen.availableGeometry().size())
+        return want
 
     def _retranslate(self) -> None:
         offered = format_version(self._offered.version)
@@ -229,8 +269,12 @@ class UpdateDialog(QDialog):
         self.close()
 
     def done(self, result: int) -> None:
-        """Closing the window, by any route, stops a download in flight."""
+        """Closing the window, by any route, stops a download in flight and
+        hands on a size the user chose."""
         self._cancel_download()
+        if self.size() != self._opened_at:
+            self._opened_at = self.size()
+            self.resized.emit((self.width(), self.height()))
         super().done(result)
 
     @property

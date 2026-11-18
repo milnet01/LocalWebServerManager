@@ -843,7 +843,10 @@ deliberately not JSON:
   and the number keys act (LWSM-1475), and `error_markers`, the
   strings that make an output line an error (LWSM-1036; default
   `Traceback`, `ERROR`, `CRITICAL`, `Exception`; an empty list leaves
-  only the exit rule). A file without the key gets the default.
+  only the exit rule), `update_check` and `update_skip` (LWSM-1548),
+  and `update_window_width` / `update_window_height`, the Update
+  window's size once the user resizes it (LWSM-1582). A file without
+  the key gets the default.
   It carries its own
   `schema_version` on the same terms.
 - `~/.config/localwebservermanager/trust.json` — which launchers

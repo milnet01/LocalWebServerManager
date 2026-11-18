@@ -462,6 +462,12 @@ def build_window(
                     parse_version(stored.update_skip) if stored.update_skip else None
                 ),
                 save_skip=lambda version: save_field(update_skip=version),
+                window_size=pair_or_none(
+                    stored.update_window_width, stored.update_window_height
+                ),
+                save_window_size=lambda size: save_field(
+                    update_window_width=size[0], update_window_height=size[1]
+                ),
             )
         ),
     )

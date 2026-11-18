@@ -227,6 +227,14 @@ keeps `app.exec()` running after the main window closes (PySide6 6.12.0,
   **Cancel** in place of the buttons.
 - Every control has an accessible name; every string goes through `self.tr`;
   no fixed geometry, so the text-size setting reflows it.
+- Size and place (LWSM-1582): it opens at `Settings.update_window_width` and
+  `update_window_height`, or with none stored at `WIDTH_OF_MAIN` and
+  `HEIGHT_OF_MAIN` of the main window's size; never below its layout's minimum
+  or beyond the screen's available area. The size is set before `show()`,
+  because the window is centred on the main window at the moment it is shown:
+  by `QDialog` itself where a client may place windows, by KWin on Wayland.
+  Closing it by any route stores its size only when the user changed it, and
+  the main window closes an open one first, so Update now stores it too.
 
 **Skip this version** stores the offered version in `Settings.update_skip` and
 hides the banner. **Later** closes the window and stores nothing.

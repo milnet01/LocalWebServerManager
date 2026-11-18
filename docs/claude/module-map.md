@@ -643,7 +643,10 @@ Added for LWSM-1548, the AppImage's self-update, contract in
   list, and `UpdateInstaller` runs download, verify, install.
 - **`src/lwsm/updatedialog.py`** — UI layer. `UpdateDialog`, non-modal, and
   `ReleaseNotes`, which renders the notes as Markdown with raw HTML off and
-  loads and opens nothing. The banner and the "Check for updates" entry are
+  loads and opens nothing. It sizes itself before it is shown, from the
+  remembered size or a share of the main window's, because the centring on
+  the main window (Qt's, or KWin's on Wayland) uses the size at the moment of
+  showing (LWSM-1582). The banner and the "Check for updates" entry are
   `MainWindow`'s, built only when `build_window` is given an AppImage path.
 
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a

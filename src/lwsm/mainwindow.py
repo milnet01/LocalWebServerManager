@@ -838,6 +838,10 @@ class UpdateContext:
     skipped: update.Version | None
     # Stores "X.Y.Z" as `Settings.update_skip`; raises as `save_theme` does.
     save_skip: Callable[[str], None]
+    # The Update window's remembered (width, height), and its saver
+    # (LWSM-1582). `None` opens it at a share of this window's size.
+    window_size: tuple[int, int] | None = None
+    save_window_size: Callable[[tuple[int, int]], None] | None = None
 
 
 def _merge_parts(counts: dict[str, int]) -> list[str]:
@@ -4178,9 +4182,11 @@ class MainWindow(QMainWindow):
             update.changelog(self._update_releases, updates.installed, offered.version),
             updates.appimage,
             parent=self,
+            size=updates.window_size,
         )
         dialog.skip_requested.connect(self._skip_update)
         dialog.installed.connect(self._on_update_installed)
+        dialog.resized.connect(self._save_update_window_size)
         self._update_dialog = dialog
         dialog.show()
 
@@ -4203,6 +4209,29 @@ class MainWindow(QMainWindow):
             QCoreApplication.translate(
                 "ProjectRow",
                 "The skipped version was saved, but may not survive a crash: %1",
+            ),
+        )
+
+    def _save_update_window_size(self, size: tuple[int, int]) -> None:
+        """Remember the size the user gave the Update window (LWSM-1582).
+
+        Held in the context too, so the next window this session opens, for a
+        newer offer, opens at it without a re-read.
+        """
+        updates = self._updates
+        if updates is None or updates.save_window_size is None:
+            return
+        self._updates = replace(updates, window_size=size)
+        self._save_setting(
+            updates.save_window_size,
+            size,
+            "update window size",
+            QCoreApplication.translate(
+                "ProjectRow", "The Update window's size could not be saved: %1"
+            ),
+            QCoreApplication.translate(
+                "ProjectRow",
+                "The Update window's size was saved, but may not survive a crash: %1",
             ),
         )
 
@@ -5924,7 +5953,12 @@ class MainWindow(QMainWindow):
         written as though it were true and reopen the window in the corner.
         The size is recorded normally, and the stored position is left exactly
         as it was rather than overwritten with a fiction.
+
+        An open Update window is closed first, so a size the user gave it is
+        saved: Update now ends here, with that window still open (LWSM-1582).
         """
+        if self._update_dialog is not None and self._update_dialog.isVisible():
+            self._update_dialog.close()
         normal = self.normalGeometry()
         offset = self.pos() - self.geometry().topLeft()
         remembered = (

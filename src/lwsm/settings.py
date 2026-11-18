@@ -206,6 +206,11 @@ class Settings:
     # The version "Skip this version" stored, "X.Y.Z". Only that version is
     # silenced; a newer one is offered again.
     update_skip: str | None = None
+    # The Update window's client size (LWSM-1582), stored once the user resizes
+    # it. `None` until then, and the window opens at a share of the main
+    # window's. Read and written as a pair, like `width` and `height`.
+    update_window_width: int | None = None
+    update_window_height: int | None = None
     # Keys this build does not write, as sorted (key, canonical JSON) pairs,
     # handed back unchanged on save (LWSM-1289). `registry.ProjectRecord.unknown`
     # has the same job for the same reason: a preference added inside schema v1
@@ -509,6 +514,8 @@ def load(path: Path) -> LoadResult:
         ("y", MIN_WINDOW_COORD, MAX_WINDOW_COORD, "coordinate"),
         ("width", MIN_WINDOW_PX, MAX_WINDOW_PX, "number of pixels"),
         ("height", MIN_WINDOW_PX, MAX_WINDOW_PX, "number of pixels"),
+        ("update_window_width", MIN_WINDOW_PX, MAX_WINDOW_PX, "number of pixels"),
+        ("update_window_height", MIN_WINDOW_PX, MAX_WINDOW_PX, "number of pixels"),
     ):
         number, reason = _bounded_int_or_reason(
             field, document.get(field), low, high, noun
@@ -606,6 +613,9 @@ def _payload(settings: Settings) -> dict[str, object]:
         "update_check": settings.update_check,
         # `null` while unset, so the key is known and never kept as unknown.
         "update_skip": settings.update_skip,
+        # `null` until the user resizes the Update window.
+        "update_window_width": settings.update_window_width,
+        "update_window_height": settings.update_window_height,
     }
 
 

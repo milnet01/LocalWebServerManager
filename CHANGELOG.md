@@ -21,6 +21,10 @@ signaling per
 
 ## [Unreleased]
 
+### Changed
+
+- **The Update window opens big enough to read.** It opens nearly as wide as the main window and centred on it, so the release notes usually show without scrolling. If you resize it, it opens at that size next time. (LWSM-1582)
+
 ## [0.6.1] - 2026-11-18
 
 **Theme:** The updater, tried for real

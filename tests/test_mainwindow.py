@@ -11954,6 +11954,8 @@ def _update_window(
     check_on_start: bool = True,
     skipped: tuple[int, int, int] | None = None,
     saved: list[str] | None = None,
+    window_size: tuple[int, int] | None = None,
+    saved_sizes: list[tuple[int, int]] | None = None,
 ) -> MainWindow:
     controller = build_controller(built, [], FakeProbe())
     updates = (
@@ -11963,6 +11965,8 @@ def _update_window(
             check_on_start=check_on_start,
             skipped=skipped,
             save_skip=(saved if saved is not None else []).append,
+            window_size=window_size,
+            save_window_size=(saved_sizes if saved_sizes is not None else []).append,
         )
         if appimage
         else None
@@ -12110,6 +12114,64 @@ def test_skip_from_the_window_reaches_the_saver(qtbot, built, release_key) -> No
 
     assert saved == ["0.6.0"]
     assert window._update_banner.isHidden()
+
+
+def test_the_update_window_opens_at_the_remembered_size(
+    qtbot, built, release_key
+) -> None:
+    """LWSM-1582: the stored size reaches the window."""
+    window = _update_window(qtbot, built, check_on_start=False, window_size=(500, 300))
+    window.show()
+    qtbot.waitExposed(window)
+    _offer(window, (0, 6, 0))
+
+    window.open_update_window()
+
+    dialog = window._update_dialog
+    assert dialog is not None
+    assert dialog.size() == QSize(500, 300)
+
+
+def test_a_resized_update_window_is_remembered(qtbot, built, release_key) -> None:
+    """LWSM-1582: the size the user gives it is saved on Later, and the next
+    window this session opens, for a newer offer, opens at it."""
+    sizes: list[tuple[int, int]] = []
+    window = _update_window(qtbot, built, check_on_start=False, saved_sizes=sizes)
+    window.show()
+    qtbot.waitExposed(window)
+    _offer(window, (0, 6, 0))
+    window.open_update_window()
+    dialog = window._update_dialog
+    assert dialog is not None
+    dialog.resize(520, 310)
+
+    dialog._later.click()
+
+    assert sizes == [(520, 310)]
+    _offer(window, (0, 7, 0))
+    window.open_update_window()
+    assert window._update_dialog is not dialog
+    assert window._update_dialog.size() == QSize(520, 310)
+
+
+def test_closing_the_app_saves_an_open_update_window_size(
+    qtbot, built, release_key
+) -> None:
+    """Update now ends by closing the main window with the Update window still
+    open, so the size must be saved on that path too (LWSM-1582)."""
+    sizes: list[tuple[int, int]] = []
+    window = _update_window(qtbot, built, check_on_start=False, saved_sizes=sizes)
+    window.show()
+    qtbot.waitExposed(window)
+    _offer(window, (0, 6, 0))
+    window.open_update_window()
+    dialog = window._update_dialog
+    assert dialog is not None
+    dialog.resize(530, 320)
+
+    window.close()
+
+    assert sizes == [(530, 320)]
 
 
 def test_an_installed_update_relaunches_and_closes(

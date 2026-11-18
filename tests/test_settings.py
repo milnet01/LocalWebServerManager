@@ -487,6 +487,10 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
         # `Settings.unknown`. The skip is `null` until a version is skipped.
         "update_check": True,
         "update_skip": None,
+        # LWSM-1582. `null` until the user resizes the Update window, so its
+        # default keeps following the main window's size.
+        "update_window_width": None,
+        "update_window_height": None,
     }
 
 
@@ -1110,3 +1114,44 @@ def test_an_update_switch_that_is_not_a_boolean_is_refused(tmp_path: Path) -> No
 
     assert result.settings.update_check is True
     assert any("update_check" in reason for reason in result.reasons)
+
+
+# --- LWSM-1582: the Update window's size --------------------------------------
+
+
+def test_the_update_window_size_round_trips(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+
+    settings.save(
+        path, replace(Settings(), update_window_width=1400, update_window_height=520)
+    )
+    result = settings.load(path)
+
+    assert (
+        result.settings.update_window_width,
+        result.settings.update_window_height,
+    ) == (
+        1400,
+        520,
+    )
+    assert result.reasons == []
+    assert result.settings.unknown == ()
+
+
+@pytest.mark.parametrize("stored", [0, -5, 40000, "900", 1.5, True], ids=repr)
+def test_an_unusable_update_window_size_is_refused(
+    tmp_path: Path, stored: object
+) -> None:
+    path = write(
+        tmp_path / "settings.json",
+        {
+            "schema_version": settings.SCHEMA_VERSION,
+            "update_window_width": stored,
+            "update_window_height": 500,
+        },
+    )
+    result = settings.load(path)
+
+    assert result.settings.update_window_width is None
+    assert result.settings.update_window_height == 500
+    assert len([r for r in result.reasons if "update_window_width" in r]) == 1
