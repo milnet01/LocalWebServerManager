@@ -348,6 +348,74 @@ def test_dismiss_hides_the_banner_and_an_empty_message_shows_none(qtbot, built) 
     assert message_of(window) == ""
 
 
+@pytest.mark.parametrize("other_notice", [True, False], ids=["offer-shown", "alone"])
+def test_a_notice_going_keeps_focus_in_the_strip(
+    qtbot, built, release_key, other_notice
+) -> None:
+    """review-code 2026-11-18 L01-H1. Hiding the focused Dismiss let Qt move
+    focus on through the chain, and the strip is last in it, so focus wrapped
+    to the filter box at the top of the window: a jump across the screen
+    under the user's magnifier on every dismiss. Focus stays in the strip:
+    the other notice's button, else the strip itself.
+    """
+    window = _noticed_window(qtbot, built)
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    if other_notice:
+        _offer(window, (0, 6, 0))
+    window.set_status_message("Saved")
+    window._banner_dismiss.setFocus()
+    assert window._banner_dismiss.hasFocus()
+
+    qtbot.keyClick(window._banner_dismiss, Qt.Key.Key_Space)
+
+    assert message_of(window) == ""
+    expected = window._update_banner_open if other_notice else window._notice_scroll
+    assert window.focusWidget() is expected, window.focusWidget()
+
+
+def test_the_offer_going_keeps_focus_in_the_strip(qtbot, built, release_key) -> None:
+    """The offer's row hides on Skip or install while What's new is still the
+    window's focus widget (L01-H1's second path); focus moves to the message's
+    Dismiss beside it, not wherever Qt would wrap to."""
+    window = _noticed_window(qtbot, built)
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    window.set_status_message("Saved")
+    _offer(window, (0, 6, 0))
+    window._update_banner_open.setFocus()
+
+    window._skip_update((0, 6, 0))
+
+    assert window._update_banner.isHidden()
+    assert window.focusWidget() is window._banner_dismiss, window.focusWidget()
+
+
+def test_the_strip_is_a_named_stop_with_a_visible_ring(
+    qtbot, built, release_key
+) -> None:
+    """review-code 2026-11-18 L01-M1. The strip's scroller is a tab stop, and
+    the place focus lands when the last notice goes, so it needs a name
+    (`§ O8` clause 1) and a ring a magnifier can see (clause 2). Asserted by
+    rendering, as `test_focus_is_visible_not_merely_held` is: a frameless
+    scroll area held focus and painted nothing."""
+    window = _noticed_window(qtbot, built)
+    with qtbot.waitActive(window):
+        window.activateWindow()
+    strip = window._notice_scroll
+    assert strip.accessibleName() == "Notifications"
+
+    strip.clearFocus()
+    unfocused = strip.grab().toImage()
+    focus_by_keyboard(qtbot, strip)
+    focused = strip.grab().toImage()
+
+    perimeter = 2 * (strip.width() + strip.height())
+    assert changed_pixels(unfocused, focused) > perimeter, (
+        "the strip shows no ring when the keyboard reaches it"
+    )
+
+
 # --- INV-6: state as a word, and no glyph in the accessible name --------------
 
 

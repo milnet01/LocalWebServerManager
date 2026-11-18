@@ -1393,8 +1393,8 @@ class ProjectRow(QFrame):
 
         The warning says the port is taken; this is the way out, next to it
         rather than in a menu (LWSM-1014). Left-aligned, so it sits under the
-        warning it answers. No `setTabOrder`: Qt already puts a new child last
-        in its parent's run of the focus chain, so Tab reaches it after Open.
+        warning it answers. `_add_button` places it in the tab order, straight
+        after this row's other stops.
         """
         if self._port_button is None:
             self._port_button = self._add_button(self.change_port_action)
@@ -2706,12 +2706,14 @@ class MainWindow(QMainWindow):
         # replaced: one that timed out could expire while the magnifier was
         # elsewhere. Never a status bar: `statusBar()` builds one.
         self._notices = QFrame(central)
-        self._notices.setFrameShape(QFrame.Shape.StyledPanel)
         notices_layout = QVBoxLayout(self._notices)
         notices_layout.setContentsMargins(0, 0, 0, 0)
         self._notice_scroll = QScrollArea(self._notices)
         self._notice_scroll.setWidgetResizable(True)
-        self._notice_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        # The frame is the scroller's, not the strip's: the scroller is a tab
+        # stop, and the outline style draws the focus ring on a frame
+        # (review-code 2026-11-18 L01-M1).
+        self._notice_scroll.setFrameShape(QFrame.Shape.StyledPanel)
         self._notice_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
@@ -3629,6 +3631,9 @@ class MainWindow(QMainWindow):
         self._no_notices.setText(
             QCoreApplication.translate("ProjectRow", "No notifications.")
         )
+        self._notice_scroll.setAccessibleName(
+            QCoreApplication.translate("ProjectRow", "Notifications")
+        )
         self._banner_dismiss.setText(
             QCoreApplication.translate("ProjectRow", "Dismiss")
         )
@@ -4099,8 +4104,30 @@ class MainWindow(QMainWindow):
                     "ProjectRow", "Version %1 is available."
                 ).replace("%1", update.format_version(offered.version))
             )
-        self._update_banner.setVisible(offered is not None)
+        if offered is not None:
+            self._update_banner.setVisible(True)
+        else:
+            self._hide_notice(self._update_banner)
         self._show_no_notices()
+
+    def _hide_notice(self, notice: QWidget) -> None:
+        """Hide one notice's row, keeping focus in the strip if it was there.
+
+        Qt would move focus on through the chain, and the strip is last in it,
+        so focus wrapped to the filter box at the top of the window, away from
+        where a magnifier is looking (review-code 2026-11-18 L01-H1). The other
+        notice's button takes it, else the strip itself.
+        """
+        focused = self.focusWidget()
+        if focused is not None and notice.isAncestorOf(focused):
+            other, button = (
+                (self._update_banner, self._update_banner_open)
+                if notice is self._banner
+                else (self._banner, self._banner_dismiss)
+            )
+            target = self._notice_scroll if other.isHidden() else button
+            target.setFocus(Qt.FocusReason.OtherFocusReason)
+        notice.setVisible(False)
 
     def _show_no_notices(self) -> None:
         """Show "No notifications." exactly when neither notice shows."""
@@ -4124,7 +4151,7 @@ class MainWindow(QMainWindow):
             ),
         )
         row = line + margins.top() + margins.bottom()
-        frame = 2 * self._notices.frameWidth()
+        frame = 2 * (self._notices.frameWidth() + self._notice_scroll.frameWidth())
         self._notices.setFixedHeight(2 * row + self._notice_list.spacing() + frame)
 
     def open_update_window(self) -> None:
@@ -4200,7 +4227,10 @@ class MainWindow(QMainWindow):
         did not change (LWSM-1345).
         """
         self._banner_text.setText(text)
-        self._banner.setVisible(bool(text))
+        if text:
+            self._banner.setVisible(True)
+        else:
+            self._hide_notice(self._banner)
         self._show_no_notices()
         # `showMessage` raises no accessibility event, so a screen-reader user
         # was never told any of it (known-issue-049, LWSM-1323). Announced
