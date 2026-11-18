@@ -181,28 +181,131 @@ def rows_of(window: MainWindow) -> list:
     return list(window._rows.values())
 
 
-# --- LWSM-1345: window-level feedback sits above the list -------------------
+# --- LWSM-1345, LWSM-1579: window-level feedback, in a fixed strip -----------
 
 
-def test_a_window_message_shows_in_a_banner_above_the_list(qtbot, built) -> None:
-    """`design-accessibility.md`: feedback surfaces next to what raised it,
-    and a status bar is invisible to a magnifier. A menu action has no row,
-    so its feedback goes in a banner at the top of the list (the user,
-    2026-10-01), and the status bar is gone rather than kept as a copy.
+def _noticed_window(qtbot, built) -> MainWindow:
+    """Two rows and an AppImage's update context, shown, so both notices can
+    appear beside rows that could be pushed."""
+    controller = build_controller(built, two_rows(), FakeProbe(5005))
+    updates = mainwindow.UpdateContext(
+        appimage="/apps/LocalWebServerManager.AppImage",
+        installed=(0, 5, 1),
+        check_on_start=False,
+        skipped=None,
+        save_skip=[].append,
+    )
+    window = MainWindow(controller, Theme.default(), [], updates=updates)
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(controller.projects_changed, timeout=2000):
+        controller.poll_once()
+    with qtbot.waitExposed(window):
+        window.show()
+    return window
+
+
+def _settled_layout(window: MainWindow) -> list:
+    """Where the window's fixed parts are, once Qt has laid out any change."""
+    QApplication.processEvents()
+    first_row = window._ordered_rows()[0]
+    return [window.size()] + [
+        (widget.mapTo(window, QPoint(0, 0)), widget.size())
+        for widget in (window._filter, window._scroll, first_row)
+    ]
+
+
+def test_a_notice_coming_or_going_moves_nothing(qtbot, built, release_key) -> None:
+    """The user, 2026-11-18: nothing in the window moves when a notice comes
+    or goes; only a change of window size may move things. The two banners
+    that sat above the list pushed every row down by one banner each."""
+    window = _noticed_window(qtbot, built)
+    before = _settled_layout(window)
+
+    window.set_status_message("Saved")
+    assert _settled_layout(window) == before, "a message moved the window's parts"
+    _offer(window, (0, 6, 0))
+    assert _settled_layout(window) == before, "an update offer moved them"
+    window.set_status_message(" ".join(["long"] * 400))
+    assert _settled_layout(window) == before, "a long message moved them"
+    window.set_status_message("")
+    window._skip_update((0, 6, 0))
+    assert _settled_layout(window) == before, "clearing the notices moved them"
+
+
+def test_notices_show_in_a_strip_below_the_list(qtbot, built, release_key) -> None:
+    """Below the list and the log panel, at the foot of the window (the user,
+    2026-11-18, replacing the 2026-10-01 banner above the list). Empty, it
+    says so rather than reading as a layout gap. No status bar: the strip is
+    the one notice channel.
     """
     from PySide6.QtWidgets import QStatusBar
 
-    window, _ = window_for(qtbot, built, [record("a", 5005)], FakeProbe(5005))
-    with qtbot.waitExposed(window):
-        window.show()
+    window = _noticed_window(qtbot, built)
+    assert window._no_notices.isVisibleTo(window)
+    assert window._no_notices.text() == "No notifications."
+    assert message_of(window) == ""
 
     window.set_status_message("The text size cannot be changed on this desktop")
 
     assert message_of(window) == "The text size cannot be changed on this desktop"
-    banner_bottom = window._banner.mapTo(window, QPoint(0, window._banner.height()))
-    list_top = window._scroll.mapTo(window, QPoint(0, 0))
-    assert banner_bottom.y() <= list_top.y(), "the banner is not above the list"
+    assert not window._no_notices.isVisibleTo(window)
+    QApplication.processEvents()
+    strip_top = window._notices.mapTo(window, QPoint(0, 0)).y()
+    list_bottom = window._scroll.mapTo(window, QPoint(0, window._scroll.height())).y()
+    assert strip_top >= list_bottom, "the strip is not below the list"
+    outer = window._outer
+    assert outer.indexOf(window._notices) > outer.indexOf(window._log_panel), (
+        "the strip is not below the log panel"
+    )
     assert window.findChild(QStatusBar) is None, "a status bar was still built"
+
+    window.set_status_message("")
+    assert window._no_notices.isVisibleTo(window)
+
+
+@pytest.mark.parametrize("percent", [100, 200])
+def test_two_notices_fit_and_a_long_one_scrolls_inside_the_strip(
+    qtbot, built, release_key, percent
+) -> None:
+    """Room for two one-line notices at any text size; more scrolls inside the
+    strip, whose height a message never changes (the user, 2026-11-18). At
+    200 % the strip is re-measured, since a text-size change is the user
+    changing the window."""
+    window = _noticed_window(qtbot, built)
+    window.set_text_scale(percent, remember=False)
+    QApplication.processEvents()
+    height = window._notices.height()
+    bar = window._notice_scroll.verticalScrollBar()
+
+    window.set_status_message("Saved")
+    _offer(window, (0, 6, 0))
+    QApplication.processEvents()
+    assert bar.maximum() == 0, (
+        f"two one-line notices overflow the strip by {bar.maximum()} px at {percent} %"
+    )
+
+    window.set_status_message(" ".join(["long"] * 400))
+    # Qt lays wrapped text out over two event passes; the app's loop runs both
+    # at once. Never settling is the clipped case. The bar must show, too, or
+    # nothing tells the user the message goes on.
+    qtbot.waitUntil(lambda: bar.maximum() > 0 and bar.isVisible(), timeout=1000)
+    assert window._notices.height() == height
+
+
+def test_the_strips_buttons_come_last_in_tab_order(qtbot, built, release_key) -> None:
+    """`testing-overrides.md § T8`: tab order follows visual order. Rows join
+    the focus chain after the window is built, so a strip at the foot of the
+    window is reached before the rows above it unless it is placed."""
+    window = _noticed_window(qtbot, built)
+    window.set_status_message("Saved")
+    _offer(window, (0, 6, 0))
+    QApplication.processEvents()
+
+    stops = tab_stops(window)
+
+    assert stops[-2:] == [window._banner_dismiss, window._update_banner_open], [
+        stop.accessibleName() or type(stop).__name__ for stop in stops
+    ]
 
 
 def test_the_banner_draws_markup_as_text(qtbot, built) -> None:
@@ -3387,9 +3490,10 @@ def test_a_short_list_opens_with_every_row_visible(qtbot, built) -> None:
 
 
 def test_a_short_list_with_a_message_opens_with_every_row_visible(qtbot, built) -> None:
-    """LWSM-1345: a message at startup shows in the banner above the list, so
-    the opening height has to count it, as it counts the menu bar (LWSM-1146).
-    Left out, the window opens one banner short and a list that fits scrolls.
+    """LWSM-1345, LWSM-1579: the opening height counts the notice strip, as it
+    counts the menu bar (LWSM-1146). Left out, the window opens one strip
+    short and a list that fits scrolls; a message at startup must not change
+    that.
     """
     controller = build_controller(built, many(5), FakeProbe())
     window = MainWindow(controller, Theme.default(), ["projects.json: a notice"])

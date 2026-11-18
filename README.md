@@ -133,8 +133,8 @@ with no Python or Qt installed. It does not add itself to your
 application launcher.
 
 **It updates itself**, from the first release after 0.5.1. At each
-start it asks GitHub whether a newer version exists, and a banner
-above the project list offers it. Nothing downloads until you click
+start it asks GitHub whether a newer version exists, and a notice
+at the foot of the window offers it. Nothing downloads until you click
 **Update now**. The app then checks that the download was signed by
 the author, replaces its own file and reopens. Your servers keep
 running. Turn the check off in **Settings > Preferences**, or ask by

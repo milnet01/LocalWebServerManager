@@ -1428,6 +1428,20 @@ class ProjectRow(QFrame):
         button = QPushButton(self)
         button.clicked.connect(action.trigger)
         self._outer_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)
+        # Qt appends a new widget to the END of the window's focus chain: past
+        # every later row, the log panel and the notice strip (LWSM-1579). Tab
+        # must reach it straight after this row's other stops (`§ O8`): the end
+        # of the run of this row's widgets that follows the row in the chain.
+        # Not the row's last widget anywhere in the chain: one the row made
+        # after the window was built sits out there too, and placing after it
+        # left this button past the strip (measured 2026-11-18).
+        last: QWidget = self
+        widget = self.nextInFocusChain()
+        # None is PySide's typing, not a case Qt makes: the chain is a ring.
+        while widget is not None and widget is not button and self.isAncestorOf(widget):
+            last = widget
+            widget = widget.nextInFocusChain()
+        QWidget.setTabOrder(last, button)
         return button
 
     @staticmethod
@@ -2266,6 +2280,26 @@ def _install_accessible_factory() -> None:
         _accessible_factory_installed = True
 
 
+def _notice_row(parent: QWidget) -> tuple[QWidget, QLabel, QPushButton, QHBoxLayout]:
+    """One notice in the strip: its text and its button, hidden until used,
+    and the layout holding them, whose margins the strip measures by."""
+    row = QWidget(parent)
+    layout = QHBoxLayout(row)
+    text = QLabel(row)
+    # Wrapped, never elided: the whole message is the point of showing it.
+    text.setWordWrap(True)
+    # PlainText for the cells' reason: a message carries names from
+    # hand-edited files and scanned folders, and `AutoText` would render their
+    # markup. The status bar this replaced drew it literally.
+    text.setTextFormat(Qt.TextFormat.PlainText)
+    layout.addWidget(text, 1)
+    button = QPushButton(row)
+    button.setMinimumSize(MIN_TARGET_PX, MIN_TARGET_PX)
+    layout.addWidget(button)
+    row.hide()
+    return row, text, button, layout
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -2638,46 +2672,6 @@ class MainWindow(QMainWindow):
         # because the filter box is in it either way.
         outer.addLayout(strip)
         self._strip = strip
-        # Window-level feedback, at the top of the list rather than in a status
-        # bar (LWSM-1345, the user 2026-10-01). `design-accessibility.md` puts
-        # feedback next to what raised it, and a status bar sits at the far
-        # edge of the window, outside a magnifier's view; a menu action has no
-        # row to sit beside, so this is the nearest place to where the user is
-        # reading. It stays until dismissed or replaced: a message that timed
-        # out could expire while the magnifier was elsewhere.
-        self._banner = QFrame(central)
-        self._banner.setFrameShape(QFrame.Shape.StyledPanel)
-        banner_layout = QHBoxLayout(self._banner)
-        self._banner_text = QLabel(self._banner)
-        # Wrapped, never elided: the whole message is the point of showing it.
-        self._banner_text.setWordWrap(True)
-        # PlainText for the cells' reason: a message carries names from
-        # hand-edited files and scanned folders, and `AutoText` would render
-        # their markup. The status bar this replaced drew it literally.
-        self._banner_text.setTextFormat(Qt.TextFormat.PlainText)
-        banner_layout.addWidget(self._banner_text, 1)
-        self._banner_dismiss = QPushButton(self._banner)
-        self._banner_dismiss.setMinimumSize(MIN_TARGET_PX, MIN_TARGET_PX)
-        self._banner_dismiss.clicked.connect(lambda: self.set_status_message(""))
-        banner_layout.addWidget(self._banner_dismiss)
-        self._banner.hide()
-        outer.addWidget(self._banner)
-        # The update offer, a second frame so a status message never replaces
-        # it (LWSM-1548). Built for every window, shown only with an offer.
-        self._update_banner = QFrame(central)
-        self._update_banner.setFrameShape(QFrame.Shape.StyledPanel)
-        update_layout = QHBoxLayout(self._update_banner)
-        self._update_banner_text = QLabel(self._update_banner)
-        self._update_banner_text.setWordWrap(True)
-        self._update_banner_text.setTextFormat(Qt.TextFormat.PlainText)
-        update_layout.addWidget(self._update_banner_text, 1)
-        self._update_banner_open = QPushButton(self._update_banner)
-        self._update_banner_open.setMinimumSize(MIN_TARGET_PX, MIN_TARGET_PX)
-        self._update_banner_open.clicked.connect(self.open_update_window)
-        update_layout.addWidget(self._update_banner_open)
-        self._update_banner.hide()
-        outer.addWidget(self._update_banner)
-        self._retranslate_strip()
         # The list scrolls (LWSM-1149). Without this the window's minimum
         # height is every row it holds, so a user with twenty projects gets a
         # window taller than the screen that cannot be shrunk — the opposite
@@ -2702,6 +2696,51 @@ class MainWindow(QMainWindow):
         self._log_panel.closed.connect(self._on_log_closed)
         self._log_panel.set_error_markers(error_markers)
         outer.addWidget(self._log_panel, 1)
+        # Window-level feedback (LWSM-1345), in one strip at the foot of the
+        # window that is always there at one height (LWSM-1579, the user
+        # 2026-11-18). The banners it replaced sat above the list and showed and
+        # hid, so every row jumped whenever a notice came or went, and the user
+        # asked that nothing move unless the window's size changes. Below the
+        # log panel, so opening the panel moves the strip with the window's
+        # edge rather than moving the rows. A notice stays until dismissed or
+        # replaced: one that timed out could expire while the magnifier was
+        # elsewhere. Never a status bar: `statusBar()` builds one.
+        self._notices = QFrame(central)
+        self._notices.setFrameShape(QFrame.Shape.StyledPanel)
+        notices_layout = QVBoxLayout(self._notices)
+        notices_layout.setContentsMargins(0, 0, 0, 0)
+        self._notice_scroll = QScrollArea(self._notices)
+        self._notice_scroll.setWidgetResizable(True)
+        self._notice_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._notice_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        notices_layout.addWidget(self._notice_scroll)
+        notice_host = QWidget()
+        self._notice_list = QVBoxLayout(notice_host)
+        self._notice_list.setContentsMargins(0, 0, 0, 0)
+        self._notice_list.setSpacing(0)
+        self._banner, self._banner_text, self._banner_dismiss, self._notice_cells = (
+            _notice_row(notice_host)
+        )
+        self._banner_dismiss.clicked.connect(lambda: self.set_status_message(""))
+        # The update offer's own row, so a message never replaces it (LWSM-1548
+        # § 4.5). Built for every window, shown only with an offer.
+        self._update_banner, self._update_banner_text, self._update_banner_open, _ = (
+            _notice_row(notice_host)
+        )
+        self._update_banner_open.clicked.connect(self.open_update_window)
+        self._no_notices = QLabel(notice_host)
+        self._no_notices.setObjectName(Theme.QUIET_LABEL_NAME)
+        # Indented like a notice's text, so the two read as the same place.
+        self._no_notices.setContentsMargins(self._notice_cells.contentsMargins())
+        for widget in (self._banner, self._update_banner, self._no_notices):
+            self._notice_list.addWidget(widget)
+        self._notice_list.addStretch(1)
+        self._notice_scroll.setWidget(notice_host)
+        outer.addWidget(self._notices)
+        self._retranslate_strip()
+        self._fit_notice_strip()
         # Which project the panel shows, so a poll can keep its notice true
         # and Escape can go back to that row.
         self._log_path: Path | None = None
@@ -2717,9 +2756,9 @@ class MainWindow(QMainWindow):
         # the window to its rows, so scaling afterwards leaves a window
         # measured for 100 % text holding 175 % text. `changeEvent` reaches
         # `_align_columns` from here with no rows yet, which returns early.
-        # The notices before `_sync_rows` as well (LWSM-1345): they show in the
-        # banner above the list, and `_sync_rows` sizes the window once, so a
-        # banner shown afterwards opened the window one banner short.
+        # The notices go in the strip, whose height is fixed and already
+        # counted in the opening height (LWSM-1579), so their place here is
+        # free.
         if notices:
             self.set_status_message(self._notice_summary(notices))
         self.set_text_scale(text_scale, remember=False)
@@ -3585,8 +3624,11 @@ class MainWindow(QMainWindow):
         )
         if self._rescan_button is not None:
             self._rescan_button.setText(self._rescan_label())
-        # The banner's button lives here for the same reason: it is built with
-        # the strip, after `_build_menus` (LWSM-1345).
+        # The notice strip's words live here for the same reason: it is built
+        # after `_build_menus` (LWSM-1345).
+        self._no_notices.setText(
+            QCoreApplication.translate("ProjectRow", "No notifications.")
+        )
         self._banner_dismiss.setText(
             QCoreApplication.translate("ProjectRow", "Dismiss")
         )
@@ -3898,6 +3940,7 @@ class MainWindow(QMainWindow):
             # margin were also computed once under a docstring saying they
             # were not.
             self._apply_window_metrics()
+            self._fit_notice_strip()
             # `setFont` delivers FontChange to the row synchronously, so every
             # floor has already been re-derived by the time this runs.
             self._align_columns()
@@ -4048,17 +4091,41 @@ class MainWindow(QMainWindow):
         self.set_status_message(text)
 
     def _show_update_offer(self) -> None:
-        """The banner shows the current offer, or hides with none."""
+        """The offer's notice shows the current offer, or hides with none."""
         offered = self._update_offer
-        if offered is None:
-            self._update_banner.hide()
-            return
-        self._update_banner_text.setText(
-            QCoreApplication.translate(
-                "ProjectRow", "Version %1 is available."
-            ).replace("%1", update.format_version(offered.version))
+        if offered is not None:
+            self._update_banner_text.setText(
+                QCoreApplication.translate(
+                    "ProjectRow", "Version %1 is available."
+                ).replace("%1", update.format_version(offered.version))
+            )
+        self._update_banner.setVisible(offered is not None)
+        self._show_no_notices()
+
+    def _show_no_notices(self) -> None:
+        """Show "No notifications." exactly when neither notice shows."""
+        self._no_notices.setVisible(
+            self._banner.isHidden() and self._update_banner.isHidden()
         )
-        self._update_banner.show()
+
+    def _fit_notice_strip(self) -> None:
+        """Hold the strip at two one-line notices' height (LWSM-1579).
+
+        Fixed, so a notice coming, going or wrapping moves nothing above it. A
+        longer notice, or more of them, scrolls inside. Re-measured on a font
+        change, since a text-size change is the user changing the window.
+        """
+        margins = self._notice_cells.contentsMargins()
+        line = max(
+            self._banner_text.fontMetrics().height(),
+            *(
+                button.sizeHint().expandedTo(button.minimumSize()).height()
+                for button in (self._banner_dismiss, self._update_banner_open)
+            ),
+        )
+        row = line + margins.top() + margins.bottom()
+        frame = 2 * self._notices.frameWidth()
+        self._notices.setFixedHeight(2 * row + self._notice_list.spacing() + frame)
 
     def open_update_window(self) -> None:
         """The non-modal update window for the current offer, one copy."""
@@ -4127,13 +4194,14 @@ class MainWindow(QMainWindow):
         self.close()
 
     def set_status_message(self, text: str) -> None:
-        """Show `text` in the banner above the list, or hide it when empty.
+        """Show `text` in the notice strip, or take it away when empty.
 
         The name is kept from when this was the status bar, so its callers
         did not change (LWSM-1345).
         """
         self._banner_text.setText(text)
         self._banner.setVisible(bool(text))
+        self._show_no_notices()
         # `showMessage` raises no accessibility event, so a screen-reader user
         # was never told any of it (known-issue-049, LWSM-1323). Announced
         # politely: it waits for whatever is being read out now. Not yet
@@ -5054,16 +5122,17 @@ class MainWindow(QMainWindow):
                 )
             )
             self.resize(grown)
-        self._place_log_panel_in_tab_order()
+        self._place_bottom_in_tab_order()
         self._log_panel.view.setFocus(Qt.FocusReason.OtherFocusReason)
 
-    def _place_log_panel_in_tab_order(self) -> None:
-        """Put the panel's controls after the last row's, as they are on screen.
+    def _place_bottom_in_tab_order(self) -> None:
+        """Put the log panel's controls, then the notice strip's, after the
+        last row's, as they are on screen.
 
         Qt appends a widget to the focus chain when it is parented, and rows
-        are parented after the panel is built, so without this Tab reached
-        the panel BEFORE the list it sits under — `design-accessibility.md`
-        requires tab order to follow visual order.
+        are parented after the panel and the strip are built, so without this
+        Tab reached both BEFORE the list they sit under —
+        `design-accessibility.md` requires tab order to follow visual order.
         """
         last: QWidget | None = None
         start = self._filter
@@ -5079,6 +5148,11 @@ class MainWindow(QMainWindow):
         QWidget.setTabOrder(panel.close_button, panel.jump_button)
         QWidget.setTabOrder(panel.jump_button, panel.errors_only)
         QWidget.setTabOrder(panel.errors_only, panel.view)
+        # The strip's scroller is a stop, as the list's is, so a long notice
+        # can be scrolled from the keyboard.
+        QWidget.setTabOrder(panel.view, self._notice_scroll)
+        QWidget.setTabOrder(self._notice_scroll, self._banner_dismiss)
+        QWidget.setTabOrder(self._banner_dismiss, self._update_banner_open)
 
     def _on_log_closed(self) -> None:
         path, self._log_path = self._log_path, None
@@ -5477,9 +5551,9 @@ class MainWindow(QMainWindow):
                 self._log_panel.close_panel()
 
         self._refresh_log_notice()
-        if added and not self._log_panel.isHidden():
-            # A rescan's new row joined the chain after the open panel.
-            self._place_log_panel_in_tab_order()
+        if added:
+            # A new row joined the chain after the panel and the strip.
+            self._place_bottom_in_tab_order()
         # Before the geometry: a row arriving under an active filter must not
         # show up in a list the user has already narrowed.
         self._apply_filter()
@@ -5918,12 +5992,8 @@ class MainWindow(QMainWindow):
         # Everything that is not the list — the menu bar included (LWSM-1146),
         # or the window opens one bar too short and a list that fits scrolls.
         chrome = margins.top() + margins.bottom() + self.menuBar().sizeHint().height()
-        # The banner, where a status bar used to be counted (LWSM-1345) --
-        # and only while it shows: asking for `statusBar()` BUILDS one, which
-        # put an empty bar back at the bottom of the window.
-        for banner in (self._banner, self._update_banner):
-            if not banner.isHidden():
-                chrome += banner.sizeHint().height() + outer.spacing()
+        # The notice strip, always shown at its fixed height (LWSM-1579).
+        chrome += self._notices.minimumHeight() + outer.spacing()
         # The STRIP, not the button in it. The filter box is the taller of the
         # two on most styles, so measuring the button would under-count the
         # chrome by the difference and open the window that much short — the

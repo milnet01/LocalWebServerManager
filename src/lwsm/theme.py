@@ -166,6 +166,9 @@ class Theme:
     # generated style sheet matches on. Named here because both ends must agree
     # and only one of them is in this file.
     STATE_PROPERTY = "lwsmState"
+    # The object name of a label that says "nothing here", drawn in
+    # `muted_text` so it reads as a placeholder (LWSM-1579). Same reason.
+    QUIET_LABEL_NAME = "lwsmQuiet"
 
     def style_sheet(self) -> str:
         """The app's style sheet, generated from the tokens (LWSM-1077).
@@ -186,6 +189,7 @@ class Theme:
             f"{{ color: {self.state_token(status)}; }}"
             for status in ProjectStatus
         ]
+        rules.append(f"QLabel#{self.QUIET_LABEL_NAME} {{ color: {self.muted_text}; }}")
         # A pressed button confirms the click landed (LWSM-1298). Left to the
         # platform this is whatever the style decides, and the reporter could
         # not see it with a dark palette — so it was held to none of § T8's

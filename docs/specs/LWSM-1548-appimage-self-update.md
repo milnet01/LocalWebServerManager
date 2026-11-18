@@ -14,8 +14,8 @@ the author, then reopens.
 ## 1. Goal
 
 After this ships, a running AppImage asks GitHub at start-up whether a newer
-release exists. When one does, a banner above the project list offers it. The
-banner opens a window holding every newer version's release notes. **Update
+release exists. When one does, a notice in the strip at the foot of the window
+offers it. The notice opens a window holding every newer version's release notes. **Update
 now** downloads the new AppImage into memory, checks its Ed25519 signature
 against a public key built into the app, writes it over the running file, and
 reopens the app. A copy run from source is never offered an update.
@@ -202,8 +202,8 @@ manual check also opens the window. A manual check calls `offer` with
 
 ### 4.5 The banner and the window
 
-**The banner** is a second frame beside `MainWindow._banner`, so a status
-message never replaces the offer: "Version {offered} is available." and a
+**The banner** is the offer's own row in the notice strip (LWSM-1579), beside
+`MainWindow._banner`'s, so a status message never replaces the offer: "Version {offered} is available." and a
 **What's new** button. It hides when the offer is skipped or installed.
 
 **The window**, `updatedialog.UpdateDialog(QDialog)`, parented to the main

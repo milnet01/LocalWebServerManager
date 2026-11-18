@@ -14,8 +14,9 @@ if TYPE_CHECKING:
 def message_of(window: MainWindow) -> str:
     """The window-level message the user can see, or "" when none is shown.
 
-    It is the banner above the list (LWSM-1345), so a hidden banner reads as
-    no message even if it still holds the last text. `isVisibleTo`, not
-    `isVisible`, so it also answers for a window not yet on screen.
+    It is the message row in the notice strip (LWSM-1345, LWSM-1579), so a
+    hidden row reads as no message even if it still holds the last text.
+    `isVisibleTo`, not `isVisible`, so it also answers for a window not yet
+    on screen.
     """
     return window._banner_text.text() if window._banner.isVisibleTo(window) else ""

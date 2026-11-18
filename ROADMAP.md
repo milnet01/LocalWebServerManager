@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1578 -->
+<!-- ants-roadmap-id-high-water: LWSM=1579 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15921,9 +15921,9 @@ decided, is the last packaging item (added 2026-11-11).
 
 ## 0.6.1 — The updater, tried for real
 
-The second signed release, kept small so the self-update is tried on a real desktop before more is built on it (user, 2026-11-18). It holds the release workflow's narrower permission and the ruff 0.17.5 bump.
+The second signed release, kept small so the self-update is tried on a real desktop before more is built on it (user, 2026-11-18). It holds the release workflow's narrower permission, the fixed notice strip the user asked for the same day, and the ruff 0.17.5 bump.
 
-Order: LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relaunch recipe from the hand-installed 0.6.0, and LWSM-1548 flips shipped.
+Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relaunch recipe from the hand-installed 0.6.0, and LWSM-1548 flips shipped.
 
 - 📋 [LWSM-1550] **release.yml: give write permission only to the step that attaches the AppImage.**
   LWSM-1546 point 1. `contents: write` covers checkout, setup-uv and the
@@ -16004,6 +16004,30 @@ Order: LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relaunch recipe fro
   Kind: feature.
   Source: ADR-0008-2026-11-11.
   Lanes: build, ui, docs.
+
+- ✅ [LWSM-1579] **Notices live in a fixed strip at the foot of the window, so nothing above them moves.**
+  Today the message banner and the update banner sit above the project
+  list and show and hide, so every row jumps down by one or two banner
+  heights. The user does not want elements to move unless the window
+  size changes.
+  Decided by the user 2026-11-18: one permanent strip at the bottom of
+  the window, below the log panel; its height never changes with its
+  content; empty, it reads "No notifications." in muted text; it stacks
+  notices, room for two, more scrolling inside the strip. Both banners'
+  notices (with their Dismiss and What's new buttons) move into it.
+  A text-size change may resize it: that is the user changing the window.
+  2026-11-18: built. One fixed-height strip below the log panel holds the
+  message row and the update offer's row; "No notifications." in
+  muted_text when empty; the strip's height is re-fitted on a font change
+  only. It replaces LWSM-1345's top-of-list placement at the user's
+  choice, made knowing the top was recommended for the magnifier. The
+  strip is last in tab order, and a row's late button ("Change port…") now
+  places itself after its row's stops instead of relying on being
+  appended last. Spec LWSM-1548 §1 and §4.5 folded back. Ships in 0.6.1.
+  **Layman:** Messages appear in their own box at the bottom of the window, which is always there, so buttons and rows never jump when a message comes or goes.
+  Kind: ux.
+  Source: user-request-2026-11-18.
+  Lanes: mainwindow, tests.
 
 ## 0.7.0 — Updates you can read, and a tray
 
