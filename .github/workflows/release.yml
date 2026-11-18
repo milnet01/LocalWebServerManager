@@ -23,14 +23,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  appimage:
+  # LWSM-1550. Two jobs, so write permission is held only by the step that
+  # needs it: the build (checkout, setup-uv and the whole recipe) runs with
+  # read access, and only the attach job, which runs nothing from the
+  # repository, can change the release.
+  build:
     # Pinned rather than -latest, as in ci.yml.
     runs-on: ubuntu-24.04
     # The build and both smoke launches take minutes, not an hour.
     timeout-minutes: 45
     permissions:
-      # To attach the AppImage to the release.
-      contents: write
+      contents: read
     steps:
       # SHA-pinned with the release in a trailing comment, as in ci.yml. The
       # release event checks out the release's tag.
@@ -49,12 +52,38 @@ jobs:
       - name: Build and smoke-test the AppImage
         run: ./scripts/build-appimage.sh
 
-      # The file name carries pyproject.toml's version, so a tag that disagrees
-      # with it names a file that does not exist, and the upload fails.
-      - name: Attach it to the release
+      # Hands the AppImage to the attach job. A run by hand stops here.
+      - name: Keep the AppImage for the attach job
         if: github.event_name == 'release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: appimage
+          path: dist/LocalWebServerManager-*-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 1
+
+  attach:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      # To attach the AppImage to the release.
+      contents: write
+    steps:
+      - name: Fetch the AppImage the build job made
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: appimage
+          path: dist
+
+      # The file name carries pyproject.toml's version, so a tag that disagrees
+      # with it names a file that does not exist, and the upload fails. There
+      # is no checkout here, so GH_REPO tells gh which repository to change.
+      - name: Attach it to the release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
           gh release upload --clobber "$TAG" \

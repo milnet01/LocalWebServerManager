@@ -1214,3 +1214,32 @@ def test_the_release_upload_replaces_an_asset_already_there() -> None:
     """
     text = RELEASE_WORKFLOW.read_text()
     assert re.search(r"^\s+gh release upload --clobber \"\$TAG\"", text, re.M), text
+
+
+def _release_jobs() -> dict[str, str]:
+    """Each job in release.yml, by name, as the text of its block."""
+    text = RELEASE_WORKFLOW.read_text()
+    jobs = text[text.index("\njobs:\n") :]
+    parts = re.split(r"^  ([A-Za-z0-9_-]+):\n", jobs, flags=re.M)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
+def test_only_a_job_that_runs_no_repository_code_can_write_to_the_release() -> None:
+    """LWSM-1550. Write permission covered checkout, setup-uv and the whole
+    build when one job did everything. A job holding `contents: write` must
+    check nothing out and run no script from the repository; the build job
+    holds read access only.
+
+    Dies on giving the build job write access, or on folding the two back
+    into one job.
+    """
+    jobs = _release_jobs()
+    writers = {name: body for name, body in jobs.items() if "contents: write" in body}
+    assert writers, "no job can attach the AppImage"
+    for name, body in writers.items():
+        assert "actions/checkout" not in body, f"{name} checks out code, can write"
+        assert "./scripts/" not in body, f"{name} runs a repo script, can write"
+    builders = [name for name, body in jobs.items() if "build-appimage.sh" in body]
+    assert builders, "no job builds the AppImage"
+    for name in builders:
+        assert "contents: read" in jobs[name], f"{name} builds, not read-only"
