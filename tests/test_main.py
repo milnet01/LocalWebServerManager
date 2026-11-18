@@ -80,11 +80,12 @@ class _UnusedSignal:
 
 
 class _StandInWindow:
-    """What `main` asks of any window beyond `show` and `shutdown`: a quit
-    signal to connect and a quit to hand the tray (LWSM-1017). The stand-ins
+    """What `main` asks of any window beyond `show` and `shutdown`: the
+    signals it connects and a quit to hand the tray (LWSM-1017). The stand-ins
     here never quit, so both do nothing."""
 
     quit_requested = _UnusedSignal()
+    first_hidden_to_tray = _UnusedSignal()
 
     def request_quit(self) -> None:
         return None
@@ -853,6 +854,8 @@ def test_with_a_tray_main_hides_on_close_and_quits_on_request(
     # On the class, before `main` connects `app.quit`.
     quits: list[int] = []
     monkeypatch.setattr(QApplication, "quit", staticmethod(lambda: quits.append(1)))
+    notices: list[int] = []
+    monkeypatch.setattr(tray.Tray, "say_still_running", lambda _self: notices.append(1))
     seen: dict[str, object] = {}
 
     def run_loop(app: QApplication) -> int:
@@ -876,6 +879,7 @@ def test_with_a_tray_main_hides_on_close_and_quits_on_request(
     assert seen["closed"] is False, "closing ended the window instead of hiding it"
     assert seen["visible"] is False
     assert seen["quits"] == [1], "Quit did not reach the app"
+    assert notices == [1], "the first hide did not reach the tray's notice"
 
 
 # --- LWSM-1521: the second launch's activation token ----------------------------

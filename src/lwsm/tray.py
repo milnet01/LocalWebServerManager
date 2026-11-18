@@ -78,6 +78,21 @@ class Tray(QObject):
         self.quit_action.setText(QCoreApplication.translate("ProjectRow", "&Quit"))
         self._update_tooltip()
 
+    def say_still_running(self) -> None:
+        """Tell the user, once, that a closed window left the app running.
+
+        The window decides when: the first close that hides it, ever.
+        """
+        self.icon.showMessage(
+            QCoreApplication.translate("ProjectRow", "Still running in the tray"),
+            QCoreApplication.translate(
+                "ProjectRow",
+                "Local Web Server Manager keeps watching your projects. Click "
+                "its tray icon to bring the window back, or choose Quit from "
+                "the icon's menu to close it.",
+            ),
+        )
+
     def _sync_actions(self) -> None:
         """Offer only the entry that would change something."""
         shown = self._window.isVisible() and not self._window.isMinimized()

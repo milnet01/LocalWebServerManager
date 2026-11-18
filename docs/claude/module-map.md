@@ -651,8 +651,10 @@ Added for LWSM-1548, the AppImage's self-update, contract in
 - **`src/lwsm/tray.py`** — UI layer. `Tray`, the icon with Show window, Hide
   window and Quit, and a tooltip counting the running projects (LWSM-1017).
   `install_tray` builds it only where the desktop has a tray; `main` then
-  makes a close hide the window (`MainWindow.set_hides_to_tray`) and ends the
-  app on `MainWindow.quit_requested`. Without a tray, a close still quits.
+  makes a close hide the window (`MainWindow.set_hides_to_tray`), ends the
+  app on `MainWindow.quit_requested`, and shows `Tray.say_still_running` on
+  `MainWindow.first_hidden_to_tray`, the first such hide ever. Without a tray,
+  a close still quits.
 
 Tests: `ls tests/` is the list, and it is deliberately not copied here — a
 copy fell behind and read as complete (LWSM-1303). Most files are

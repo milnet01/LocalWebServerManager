@@ -450,6 +450,8 @@ def build_window(
         save_geometry=save_geometry,
         single_key_shortcuts=stored.single_key_shortcuts,
         error_markers=stored.error_markers,
+        tray_notice_shown=stored.tray_notice_shown,
+        save_tray_notice_shown=lambda shown: save_field(tray_notice_shown=shown),
         updates=(
             None
             if appimage is None
@@ -1052,6 +1054,7 @@ def main(argv: list[str] | None = None) -> int:
         # longer the end of the app; `quit_requested` is.
         app.setQuitOnLastWindowClosed(False)
         window.set_hides_to_tray(True)
+        window.first_hidden_to_tray.connect(tray.say_still_running)
     # Queued, so the window is on screen before the first-run scan and its
     # dialog (LWSM-1008). A timer object rather than `singleShot`, so it can be
     # stopped below: one still pending when `main` returns must not fire later.

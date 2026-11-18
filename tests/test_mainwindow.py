@@ -12278,6 +12278,35 @@ def test_with_a_tray_closing_hides_and_still_remembers_the_geometry(
     assert quits == [1]
 
 
+def test_the_first_hide_ever_says_so_once_and_remembers_it(qtbot, built) -> None:
+    saved: list[bool] = []
+    window = geometry_window(
+        qtbot, built, two_rows(), save_tray_notice_shown=saved.append
+    )
+    window.set_hides_to_tray(True)
+    notices: list[int] = []
+    window.first_hidden_to_tray.connect(lambda: notices.append(1))
+
+    window.close()
+    with qtbot.waitExposed(window):
+        window.show()
+    window.close()
+
+    assert notices == [1], "the notice was not shown exactly once"
+    assert saved == [True], "that it was shown was not remembered"
+
+
+def test_a_notice_shown_in_an_earlier_run_is_not_shown_again(qtbot, built) -> None:
+    window = geometry_window(qtbot, built, two_rows(), tray_notice_shown=True)
+    window.set_hides_to_tray(True)
+    notices: list[int] = []
+    window.first_hidden_to_tray.connect(lambda: notices.append(1))
+
+    window.close()
+
+    assert notices == []
+
+
 def test_without_a_tray_closing_closes(qtbot, built) -> None:
     window = geometry_window(qtbot, built, two_rows())
     assert window.close()

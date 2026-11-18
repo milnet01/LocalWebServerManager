@@ -211,6 +211,9 @@ class Settings:
     # window's. Read and written as a pair, like `width` and `height`.
     update_window_width: int | None = None
     update_window_height: int | None = None
+    # Whether the "still running in the tray" notice has been shown
+    # (LWSM-1017). It is shown once, the first time a close hides the window.
+    tray_notice_shown: bool = False
     # Keys this build does not write, as sorted (key, canonical JSON) pairs,
     # handed back unchanged on save (LWSM-1289). `registry.ProjectRecord.unknown`
     # has the same job for the same reason: a preference added inside schema v1
@@ -536,7 +539,12 @@ def load(path: Path) -> LoadResult:
         )
         settings = replace(settings, text_scale=MIN_TEXT_SCALE)
 
-    for field in ("maximized", "single_key_shortcuts", "update_check"):
+    for field in (
+        "maximized",
+        "single_key_shortcuts",
+        "update_check",
+        "tray_notice_shown",
+    ):
         flag, reason = _bool_or_reason(field, document.get(field))
         if reason is not None:
             reasons.note(reason)
@@ -616,6 +624,7 @@ def _payload(settings: Settings) -> dict[str, object]:
         # `null` until the user resizes the Update window.
         "update_window_width": settings.update_window_width,
         "update_window_height": settings.update_window_height,
+        "tray_notice_shown": settings.tray_notice_shown,
     }
 
 

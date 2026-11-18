@@ -2308,6 +2308,9 @@ class MainWindow(QMainWindow):
     # The window has closed for good and the app should end (LWSM-1017). With
     # a tray, closing the last window no longer ends the app on its own.
     quit_requested = Signal()
+    # The first close that hid the window in the tray, ever: the tray says the
+    # app is still running (LWSM-1017).
+    first_hidden_to_tray = Signal()
 
     def __init__(
         self,
@@ -2348,6 +2351,8 @@ class MainWindow(QMainWindow):
         single_key_shortcuts: bool = True,
         error_markers: tuple[str, ...] = DEFAULT_ERROR_MARKERS,
         updates: UpdateContext | None = None,
+        tray_notice_shown: bool = False,
+        save_tray_notice_shown: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -2434,6 +2439,8 @@ class MainWindow(QMainWindow):
         self._hides_to_tray = False
         self._quitting = False
         self._hidden_in_tray = False
+        self._tray_notice_shown = tray_notice_shown
+        self._save_tray_notice_shown = save_tray_notice_shown
         # A seam, and the one that defaults to doing NOTHING rather
         # than to the real thing. `confirm` and `open_url` can default to the
         # real behaviour because a test that never triggers them never reaches
@@ -6007,8 +6014,30 @@ class MainWindow(QMainWindow):
             event.ignore()
             self.hide()
             self._hidden_in_tray = True
+            if not self._tray_notice_shown:
+                self._first_hide_to_tray()
             return
         super().closeEvent(event)
+
+    def _first_hide_to_tray(self) -> None:
+        """Have the tray say the app still runs, and remember it was said."""
+        self._tray_notice_shown = True
+        self.first_hidden_to_tray.emit()
+        if self._save_tray_notice_shown is not None:
+            self._save_setting(
+                self._save_tray_notice_shown,
+                True,
+                "tray notice flag",
+                QCoreApplication.translate(
+                    "ProjectRow",
+                    "Whether the tray notice was shown could not be saved: %1",
+                ),
+                QCoreApplication.translate(
+                    "ProjectRow",
+                    "Whether the tray notice was shown was saved, but may not "
+                    "survive a crash: %1",
+                ),
+            )
 
     def set_hides_to_tray(self, hides: bool) -> None:
         """Make a close hide the window; set only once a tray icon is shown."""

@@ -844,8 +844,10 @@ deliberately not JSON:
   strings that make an output line an error (LWSM-1036; default
   `Traceback`, `ERROR`, `CRITICAL`, `Exception`; an empty list leaves
   only the exit rule), `update_check` and `update_skip` (LWSM-1548),
-  and `update_window_width` / `update_window_height`, the Update
-  window's size once the user resizes it (LWSM-1582). A file without
+  `update_window_width` / `update_window_height`, the Update
+  window's size once the user resizes it (LWSM-1582), and
+  `tray_notice_shown`, whether the one-time "still running in the
+  tray" notice has been shown (LWSM-1017). A file without
   the key gets the default.
   It carries its own
   `schema_version` on the same terms.

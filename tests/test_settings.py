@@ -491,6 +491,8 @@ def test_the_saved_document_carries_its_schema_version(tmp_path: Path) -> None:
         # default keeps following the main window's size.
         "update_window_width": None,
         "update_window_height": None,
+        # LWSM-1017. False until the first close hides the window in the tray.
+        "tray_notice_shown": False,
     }
 
 
@@ -1155,3 +1157,23 @@ def test_an_unusable_update_window_size_is_refused(
     assert result.settings.update_window_width is None
     assert result.settings.update_window_height == 500
     assert len([r for r in result.reasons if "update_window_width" in r]) == 1
+
+
+# --- LWSM-1017: the tray notice is shown once ----------------------------------
+
+
+def test_the_tray_notice_flag_round_trips(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    settings.save(path, replace(Settings(), tray_notice_shown=True))
+    assert settings.load(path).settings.tray_notice_shown is True
+
+
+def test_a_tray_notice_flag_that_is_not_a_boolean_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"schema_version": settings.SCHEMA_VERSION, "tray_notice_shown": 1}),
+        encoding="utf-8",
+    )
+    result = settings.load(path)
+    assert result.settings.tray_notice_shown is False
+    assert any("tray_notice_shown" in reason for reason in result.reasons)

@@ -176,3 +176,18 @@ def test_a_tray_is_shown_where_the_desktop_has_one(qtbot) -> None:
     )
     assert tray is not None
     assert tray.icon.isVisible()
+
+
+def test_the_still_running_notice_says_how_to_get_back(qtbot, monkeypatch) -> None:
+    built = build(qtbot)
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        built.tray.icon, "showMessage", lambda title, text: sent.append((title, text))
+    )
+
+    built.tray.say_still_running()
+
+    assert len(sent) == 1
+    title, text = sent[0]
+    assert title == "Still running in the tray"
+    assert "Click its tray icon" in text and "Quit" in text

@@ -23,7 +23,7 @@ signaling per
 
 ### Added
 
-- **The app has a tray icon.** Closing the window now tucks the app into the system tray, where it keeps watching your projects. Click the icon, or choose Show window from its menu, to bring the window back; opening the app again from the menu does the same. To close the app for good, choose Quit from the tray menu or from the File menu. The icon's tooltip says how many projects are running. On a desktop with no system tray, closing the window still closes the app. (LWSM-1017)
+- **The app has a tray icon.** Closing the window now tucks the app into the system tray, where it keeps watching your projects. Click the icon, or choose Show window from its menu, to bring the window back; opening the app again from the menu does the same. To close the app for good, choose Quit from the tray menu or from the File menu. The first time you close the window, a notification says the app is still running and how to get it back. The icon's tooltip says how many projects are running. On a desktop with no system tray, closing the window still closes the app. (LWSM-1017)
 
 ### Changed
 
