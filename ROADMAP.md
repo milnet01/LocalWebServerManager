@@ -16073,7 +16073,7 @@ one. The app can sit in the tray and remember what was running.
 Order: the update notes (LWSM-1553), then the tray items. The second signed
 release that LWSM-1548 waits on is 0.6.1, not this one.
 
-- 🚧 [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
+- ✅ [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
   Closing the window hides to tray and leaves servers
   running; the tray offers *Show window*, *Hide*, and the app's
   only genuine Quit. **Deliberately no per-project submenu**
@@ -16098,6 +16098,12 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   green. Not yet seen on a real Plasma panel: a private KWin has no tray
   host. Flip to shipped after a live check of the icon, its menu and
   Show window under Wayland.
+  2026-11-18: shipped after the user's live check on Plasma Wayland (dev
+  build, 6c23e8f): the icon shows with the running count in its tooltip;
+  closing hides the window and the one-time "Still running in the tray"
+  notice appears; a click and Show window both bring the window back;
+  Quit ends the app. The notice is the user's choice of 2026-11-18,
+  remembered as tray_notice_shown in settings.json.
   Lanes: ui, tests.
 
 - 📋 [LWSM-1035] **P09: restore last session, and stop all.**
