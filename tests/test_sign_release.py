@@ -6,6 +6,7 @@ nothing here touches the author's real key or GitHub.
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -119,3 +120,62 @@ def test_publish_refuses_a_version_that_is_not_canonical(signer, version) -> Non
 
 def test_publish_accepts_a_canonical_version(signer) -> None:
     assert signer.canonical_version("0.6.0") == "0.6.0"
+
+
+def _fake_gh(published: str, run_lists: list[list[dict]]):
+    """A `_gh` stand-in: the release's publish time, then each run listing in
+    turn, the last repeated."""
+    calls = iter(run_lists)
+    last: list[list[dict]] = [run_lists[-1]]
+
+    def fake(*args: str, capture: bool = False) -> str:
+        if args[:2] == ("release", "view"):
+            return published + "\n"
+        if args[:2] == ("run", "list"):
+            last[0] = next(calls, last[0])
+            return json.dumps(last[0])
+        raise AssertionError(f"unexpected gh call {args}")
+
+    return fake
+
+
+def _run(run_id: int, created: str) -> dict:
+    return {
+        "databaseId": run_id,
+        "headBranch": "v0.6.1",
+        "event": "release",
+        "createdAt": created,
+    }
+
+
+def test_publish_never_signs_for_a_run_older_than_the_release(
+    signer, monkeypatch
+) -> None:
+    """review-code 2026-11-18 L02-L2. A tag published again (unpublished to a
+    draft, then published) still has its first run listed, finished. Taking
+    that one watched nothing and signed the AppImage the new run was about to
+    replace, so the uploaded .sig matched no file. Only a run created at or
+    after the release's publish time counts, and one not listed yet is waited
+    for."""
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    old = _run(1, "2026-11-18T10:00:00Z")
+    new = _run(2, "2026-11-18T12:00:05Z")
+    monkeypatch.setattr(
+        signer, "_gh", _fake_gh("2026-11-18T12:00:00Z", [[old], [new, old]])
+    )
+
+    assert signer._release_run("v0.6.1") == 2
+
+
+def test_publish_gives_up_when_no_run_for_this_publish_appears(
+    signer, monkeypatch
+) -> None:
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    monkeypatch.setattr(
+        signer,
+        "_gh",
+        _fake_gh("2026-11-18T12:00:00Z", [[_run(1, "2026-11-18T10:00:00Z")]]),
+    )
+
+    with pytest.raises(SystemExit, match="no release.yml run"):
+        signer._release_run("v0.6.1")

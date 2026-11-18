@@ -32,6 +32,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+from datetime import datetime
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -109,25 +111,54 @@ def _gh(*args: str, capture: bool = False) -> str:
     return done.stdout if capture else ""
 
 
-def _release_run(tag: str) -> int:
-    """The Release workflow run building `tag`."""
-    runs = json.loads(
+def _when(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp.strip())
+
+
+def _release_run(tag: str, attempts: int = 24, pause: float = 5.0) -> int:
+    """The Release workflow run building `tag` for its current publish.
+
+    Only a run created at or after the release's publish time counts: a tag
+    published again still lists its first, finished run, and signing for that
+    one signs the AppImage the new run is about to replace (review-code
+    2026-11-18 L02-L2). A run GitHub has not listed yet is waited for.
+    """
+    published = _when(
         _gh(
-            "run",
-            "list",
-            "--workflow",
-            WORKFLOW,
+            "release",
+            "view",
+            tag,
             "--json",
-            "databaseId,headBranch,event",
-            "--limit",
-            "20",
+            "publishedAt",
+            "-q",
+            ".publishedAt",
             capture=True,
         )
     )
-    for run in runs:
-        if run.get("headBranch") == tag and run.get("event") == "release":
-            return int(run["databaseId"])
-    raise SystemExit(f"sign-release: no {WORKFLOW} run found for {tag}")
+    for attempt in range(attempts):
+        runs = json.loads(
+            _gh(
+                "run",
+                "list",
+                "--workflow",
+                WORKFLOW,
+                "--json",
+                "databaseId,headBranch,event,createdAt",
+                "--limit",
+                "20",
+                capture=True,
+            )
+        )
+        for run in runs:
+            if (
+                run.get("headBranch") == tag
+                and run.get("event") == "release"
+                and _when(run["createdAt"]) >= published
+            ):
+                return int(run["databaseId"])
+        if attempt + 1 < attempts:
+            time.sleep(pause)
+    raise SystemExit(f"sign-release: no {WORKFLOW} run found for this publish of {tag}")
 
 
 def canonical_version(version: str) -> str:

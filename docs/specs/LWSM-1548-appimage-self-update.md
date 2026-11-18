@@ -331,8 +331,9 @@ updates when the app starts", shown only for `appimage`.
   committed public key, 1 otherwise, and prints only that answer.
   `scripts/local-release.sh` runs it as a release STOP when given a target
   version.
-- **`publish X.Y.Z`**, after the release is published: waits for that tag's
-  Release workflow (`gh run watch`), downloads the AppImage into a temporary
+- **`publish X.Y.Z`**, after the release is published: waits for the
+  Release workflow run of that tag's current publish (`gh run watch`; a run
+  created before the release's publish time is never taken), downloads the AppImage into a temporary
   folder, signs it for `X.Y.Z`, verifies the signature through
   `update.verify` against the **committed** key, and uploads the `.sig` with
   `gh release upload --clobber`. Any failure exits non-zero and uploads
