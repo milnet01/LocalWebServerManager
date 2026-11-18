@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1580 -->
+<!-- ants-roadmap-id-high-water: LWSM=1581 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15940,6 +15940,11 @@ Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relau
   out, downloads the artifact and runs gh release upload --clobber.
   tests/test_ci_contract.py now fails if a write job checks out code or
   runs a repository script. Its first real run is 0.6.1's release.
+  2026-11-18: the scoped review found a re-run gap, fixed in 921912c:
+  the artifact upload sets overwrite: true and keeps the artifact a
+  week, so a re-run of every job, or of the attach job alone, still
+  works. A comment now says the attach job, not a step, holds write
+  permission.
   **Layman:** The release workflow holds the power to change a release for longer than it needs.
   Kind: security.
   Source: review-code-2026-11-10, split from LWSM-1546.
@@ -16006,6 +16011,11 @@ Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relau
   `./scripts/install-desktop-entry.sh` with no argument points it back at
   the checkout. The user chose a small 0.6.1 as the second signed release
   (this section's intro).
+  2026-11-18: sign-release.py publish now waits for the Release run of
+  the tag's current publish, never an older finished run of the same
+  tag, which could have signed an AppImage about to be replaced
+  (review-code 2026-11-18 L02-L2, fcd71f8). Spec §7's publish bullet
+  amended.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.
@@ -16030,6 +16040,13 @@ Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relau
   strip is last in tab order, and a row's late button ("Change port…") now
   places itself after its row's stops instead of relying on being
   appended last. Spec LWSM-1548 §1 and §4.5 folded back. Ships in 0.6.1.
+  2026-11-18: the scoped pre-0.6.1 review found three defects in this
+  build, fixed in 0db7ccf. Dismissing a notice (or Skip/install hiding
+  the offer) sent focus to the filter box at the top of the window;
+  focus now stays in the strip, on the other notice's button or the
+  strip itself. The strip's scroller, a tab stop, had no name and no
+  focus ring; it is named "Notifications" and carries the frame. A stale
+  docstring in offer_port_change was corrected.
   **Layman:** Messages appear in their own box at the bottom of the window, which is always there, so buttons and rows never jump when a message comes or goes.
   Kind: ux.
   Source: user-request-2026-11-18.
@@ -16223,10 +16240,28 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   To find out: whether a PySide6 wrapper's destructor collected during
   setWidget can block, and whether the suite should carry a per-test
   timeout (it has none) so a hang fails with a name instead of freezing.
+  2026-11-18: the scoped review's lane 01 offers a lead, unconfirmed:
+  notice_host is built with no parent and filled before setWidget moves
+  the filled subtree under the styled window, unlike the rows host,
+  which moves empty. Building it with a parent, or calling setWidget
+  before adding the rows, would rule this code in or out.
   **Layman:** Once, a test stopped forever instead of passing or failing, which froze a push until it was stopped by hand.
   Kind: investigate.
   Source: pre-push-hang-2026-11-18.
   Lanes: tests, mainwindow.
+
+- 📋 [LWSM-1581] **The project list's scroll area is a tab stop with no name and, frameless, probably no visible focus ring.**
+  Found next door while fixing the same defect in the notice strip
+  (0db7ccf). MainWindow._scroll is a QScrollArea with
+  QFrame.Shape.NoFrame; the outline style draws its ring only on a frame,
+  and no setAccessibleName names it. The code calls it a stop ("as the
+  list's is"). Not measured by rendering yet. A frame there is the chrome
+  the frameless choice removed, so the fix needs a design call: a ring
+  without a resting frame, or no tab stop unless the list overflows.
+  **Layman:** When the keyboard reaches the project list's scrolling area, nothing may show where you are.
+  Kind: accessibility.
+  Source: review-code-2026-11-18, out of scope.
+  Lanes: mainwindow.
 
 ## 0.8.0 — Runs without being watched
 
