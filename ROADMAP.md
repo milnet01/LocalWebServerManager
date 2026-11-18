@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1581 -->
+<!-- ants-roadmap-id-high-water: LWSM=1582 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -15949,7 +15949,7 @@ Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relau
   Kind: security.
   Source: review-code-2026-11-10, split from LWSM-1546.
 
-- 🚧 [LWSM-1548] **Build the signed AppImage self-update decided in ADR-0008.**
+- ✅ [LWSM-1548] **Build the signed AppImage self-update decided in ADR-0008.**
   ADR-0008 (docs/decisions/0008-updates-reach-users.md) decided the
   shape: check GitHub releases; offer updates only to a running
   AppImage; nothing downloads without a click; Ed25519 signature
@@ -16023,6 +16023,12 @@ Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relau
   runs spec §7's manual recipe from the menu-started 0.6.0 AppImage
   (update to 0.6.1, then once through a symlink); on success flip this
   item shipped.
+  2026-11-18: spec §7's manual recipe passed, run by the user. The
+  menu-started 0.6.0 AppImage updated itself to 0.6.1 and reopened,
+  servers still running; then a fresh 0.6.0 started through a symlink
+  did the same, and the real file behind the link was rewritten (its
+  size now matches the 0.6.1 asset) while the link kept working. Shipped
+  across 0.6.0 and 0.6.1.
   **Layman:** The downloaded app tells you when a newer version exists and, when you click, installs it safely.
   Kind: feature.
   Source: ADR-0008-2026-11-11.
@@ -16269,6 +16275,22 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Kind: accessibility.
   Source: review-code-2026-11-18, out of scope.
   Lanes: mainwindow.
+
+- 📋 [LWSM-1582] **The Update window opens large, centred on the main window, at the size the user last gave it.**
+  The user, 2026-11-18, after the 0.6.1 relaunch test: the Update
+  window (updatedialog.UpdateDialog) opened small, so the notes needed
+  scrolling. Asked for three things:
+  1. Bigger by default, close to the user's own resize in their
+  screenshot: nearly the main window's full width and a little under
+  half its height, so 0.6.1's notes showed without scrolling.
+  2. Remember its size once the user resizes it (settings.json, as the
+  main window's geometry is saved).
+  3. Open centred on the LWSM main window, each time it opens.
+  A remembered size larger than the screen is clamped to it.
+  **Layman:** The window that shows what's new in an update opens big enough to read, in the middle of the app, and remembers the size you last made it.
+  Kind: ux.
+  Source: user-request-2026-11-18.
+  Lanes: ui, settings.
 
 ## 0.8.0 — Runs without being watched
 
