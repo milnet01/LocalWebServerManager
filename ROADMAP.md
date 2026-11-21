@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1585 -->
+<!-- ants-roadmap-id-high-water: LWSM=1586 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -16379,6 +16379,28 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Lanes: ui, core, tests.
   Splits-from: LWSM-1027.
 
+- 🚧 [LWSM-1586] **Hand a started project its chosen browser through BROWSER.**
+  Requested by the Pressless session at the user's direction
+  (2026-11-21); user chose to build it now. Pressless must open its own
+  one-use link, so LWSM's Open cannot stand in. Where a project has a
+  browser chosen, the curated child environment sets BROWSER to that
+  browser's Exec command with the URL codes as %s, which Python's
+  webbrowser honours. No choice: BROWSER is not set, as today. A
+  standard mechanism, not an LWSM_MANAGED hint, so ADR-0006 is not
+  touched. LWSM-1053 option (c), used for the chosen browser rather than
+  a no-op; a frozen build that calls xdg-open directly still misses it
+  (Pressless verifies its own, PRESS-0432). No spec: no on-disk format.
+  Built 2026-11-21 (3699bc8). browsers.browser_variable turns the entry's
+  command into the value; the controller passes it through
+  Supervisor.start. A command holding ":" gets none (webbrowser splits on
+  it). Local gate green, 3408 tests; three deliberate breaks each caught.
+  OWED before shipped: Pressless started from the app opens in Brave,
+  seen by the user, after a restart of the app.
+  **Layman:** A project that opens its own browser page opens it in the browser you picked for it in this app.
+  Kind: feature.
+  Source: pressless-2026-11-21.
+  Lanes: core, tests.
+
 ## 0.8.0 — Runs without being watched
 
 Projects that start at login, a guard against a server that keeps crashing,
@@ -16432,6 +16454,10 @@ Order: LWSM-1053 is a decision and comes before LWSM-1027, which depends on it.
   here.
   User, 2026-11-02: keeps "do it later"; ADR-0006 rule 3 is not amended
   now.
+  2026-11-21: LWSM-1586 now sets BROWSER to the project's chosen
+  browser, where one is chosen. Option (c) as a no-op would have to
+  replace that value, so deciding this item now means choosing between
+  the two for a project that has a browser chosen.
   Lanes: core, docs.
 
 - 📋 [LWSM-1027] **P09: start-at-login, per project.**
