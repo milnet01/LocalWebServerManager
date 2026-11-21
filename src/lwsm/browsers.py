@@ -32,6 +32,7 @@ not a fifth guard on a fifth call site.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import threading
@@ -657,6 +658,20 @@ def by_id(browsers: tuple[Browser, ...], entry_id: str | None) -> Browser | None
     if entry_id is None:
         return None
     return next((b for b in browsers if b.entry_id == entry_id), None)
+
+
+def browser_variable(browser: Browser) -> str | None:
+    """`browser` as a `BROWSER` value for a launched project, or `None` (LWSM-1586).
+
+    Python's `webbrowser` reads `BROWSER` as a command line, splits it with
+    `shlex`, and puts the URL where `%s` stands. It does NOT append the URL when
+    there is no `%s`, so `expand`'s append is what keeps an entry that declares
+    no URL code working. `None` where the command holds `os.pathsep`: that
+    module splits the variable on it into a list of browsers, so the command
+    would arrive in pieces.
+    """
+    value = shlex.join(expand(browser.argv, "%s"))
+    return None if os.pathsep in value else value
 
 
 def open_url(browser: Browser, url: str) -> None:

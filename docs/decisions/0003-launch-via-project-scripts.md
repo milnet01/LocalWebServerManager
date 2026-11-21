@@ -63,7 +63,8 @@ Specifics:
   `PATH HOME USER LOGNAME SHELL LANG LC_* TERM TZ XDG_RUNTIME_DIR
   XDG_SESSION_TYPE DISPLAY XAUTHORITY WAYLAND_DISPLAY
   DBUS_SESSION_BUS_ADDRESS`,
-  plus `PORT` (ADR-0002) and `LWSM_MANAGED` (ADR-0006). Passing
+  plus `PORT` (ADR-0002), `LWSM_MANAGED` (ADR-0006) and, where the
+  project has a browser chosen, `BROWSER` naming it (LWSM-1586). Passing
   `os.environ` through would hand every scanned project —
   including a hostile one — `SSH_AUTH_SOCK` (a live signing
   oracle), API keys and cloud credentials, all readable afterwards

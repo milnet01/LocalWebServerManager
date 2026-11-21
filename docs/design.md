@@ -667,9 +667,12 @@ correctness one, and the poll skips a tick rather than queueing.
 2. **Spawn.** `Supervisor` runs the project's own launcher from
    the project directory, in a new session, with `PORT` set to
    the effective port and `LWSM_MANAGED=1` so the sibling
-   suppresses its own tray (ADR-0002, ADR-0003, ADR-0006). Those
-   two variables are the whole of what this app adds to the
-   environment — ADR-0003's allowlist governs the rest.
+   suppresses its own tray (ADR-0002, ADR-0003, ADR-0006). Where
+   the project has a browser chosen, `BROWSER` names it, so a page
+   the project opens itself opens there (LWSM-1586). These are the
+   whole of what this app adds to the environment — ADR-0003's
+   allowlist governs the rest. A `systemd` project gets no
+   `BROWSER`.
    **A `systemd` project takes a different path**: the launcher is
    `systemctl --user start <unit>`, and because systemd starts the
    unit in its own environment rather than the caller's, **both

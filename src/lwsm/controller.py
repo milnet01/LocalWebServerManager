@@ -23,7 +23,7 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 
-from lwsm import health
+from lwsm import browsers, health
 from lwsm.configfile import clean_display_text, display_text
 from lwsm.foreign import (
     HolderIdentity,
@@ -342,6 +342,7 @@ class SupportsSupervision(Protocol):
         name: str,
         argv: list[str] | tuple[str, ...],
         port: int | None,
+        browser: str | None = None,
     ) -> ManagedProcess: ...
 
     def stop_async(self, project: Path) -> Future[StopOutcome]: ...
@@ -1126,6 +1127,10 @@ class ProjectController(QObject):
         # no supervisor polls and renders exactly as before, and its Start
         # reports rather than pretending.
         self._supervisor = supervisor
+        # The desktop's browsers, as the window scanned them once at start-up
+        # (`set_browsers`). A start hands the project its chosen one as
+        # `BROWSER` (LWSM-1586); empty means no project gets one.
+        self._browsers: tuple[browsers.Browser, ...] = ()
         # The optimistic overlay. ONE project, on the controller rather than in
         # a widget, so it cannot become the second store `design.md § State
         # management` forbids.
@@ -1608,9 +1613,14 @@ class ProjectController(QObject):
                 "run Rescan first",
             )
             return
+        chosen = browsers.by_id(self._browsers, record.browser)
         try:
             self._supervisor.start(
-                record.path, record.name, record.argv, record.effective_port
+                record.path,
+                record.name,
+                record.argv,
+                record.effective_port,
+                browser=None if chosen is None else browsers.browser_variable(chosen),
             )
         except LauncherUntrusted as refusal:
             # Not a failure: the user has simply not been asked yet. The window
@@ -2222,6 +2232,14 @@ class ProjectController(QObject):
     def poll_interval_ms(self) -> int:
         """The poll cadence in force now, whatever `settings.json` says."""
         return self._timer.interval()
+
+    def set_browsers(self, found: tuple[browsers.Browser, ...]) -> None:
+        """The browsers a start may hand a project as `BROWSER` (LWSM-1586).
+
+        Given, not scanned: the window already reads every desktop entry once,
+        and a second walk would double that cost at start-up.
+        """
+        self._browsers = found
 
     def set_poll_interval_ms(self, interval_ms: int) -> None:
         """Change the poll cadence, taking effect without a restart (LWSM-1018).

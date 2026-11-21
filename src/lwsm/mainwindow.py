@@ -2418,6 +2418,8 @@ class MainWindow(QMainWindow):
         # put a directory walk on the once-a-second path.
         found = (browsers.installed if list_browsers is None else list_browsers)()
         self._browsers = found.browsers
+        # A start hands the project its chosen browser too (LWSM-1586).
+        controller.set_browsers(found.browsers)
         # The ids whose entry could not be parsed (LWSM-1250). `by_id` answers
         # `None` for those and for an id that was never on the machine, and
         # `_open_project` has to tell the user which — "not installed" about a

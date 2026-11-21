@@ -28,6 +28,7 @@ import pytest
 from shiboken6 import isValid
 
 from lwsm import controller as controller_module
+from lwsm.browsers import Browser
 from lwsm.configfile import MAX_DISPLAY_NAME_CHARS
 from lwsm.controller import ProjectController, ProjectStatus
 from lwsm.ports import PortSnapshot, ProbeError
@@ -1488,6 +1489,8 @@ class FakeSupervisor:
         self.trust = FakeTrust()
         self.refusal = refusal
         self.started: list[tuple[Path, tuple[str, ...], int | None]] = []
+        # The `BROWSER` value each start was handed, in order (LWSM-1586).
+        self.browsers: list[str | None] = []
         self.stopped: list[Path] = []
         self._running: dict[Path, object] = {}
         self.futures: list[Future] = []
@@ -1504,10 +1507,11 @@ class FakeSupervisor:
         # What `stop_async` raises, as a torn-down executor does (LWSM-1527).
         self.stop_refusal: Exception | None = None
 
-    def start(self, project, name, argv, port):
+    def start(self, project, name, argv, port, browser=None):
         if self.refusal is not None:
             raise self.refusal
         self.started.append((project, tuple(argv), port))
+        self.browsers.append(browser)
         self._running[project] = object()
         return self._running[project]
 
@@ -1568,6 +1572,30 @@ def test_start_shows_starting_before_the_next_poll(qtbot, controllers) -> None:
 
     assert controller.rows()[0].status is ProjectStatus.STARTING
     assert supervisor.started == [(Path("/srv/a"), ("./start.sh",), 5005)]
+
+
+def test_start_hands_the_project_its_chosen_browser(qtbot, controllers) -> None:
+    """LWSM-1586: a project that opens its own page opens it in that browser.
+
+    Three projects: one whose browser is installed, one with no choice, and one
+    whose chosen browser is gone. Only the first gets a `BROWSER`; the other two
+    fall back to the desktop default, as their Open does.
+    """
+    supervisor = FakeSupervisor()
+    chose = replace(startable("a"), browser="brave.desktop")
+    default = startable("b", port=5006)
+    gone = replace(startable("c", port=5007), browser="uninstalled.desktop")
+    controller = supervised(
+        controllers, [chose, default, gone], FakeProbe(), supervisor
+    )
+    controller.set_browsers(
+        (Browser("brave.desktop", "Brave", ("/usr/bin/brave", "--new-tab", "%U")),)
+    )
+
+    for path in ("/srv/a", "/srv/b", "/srv/c"):
+        controller.start_project(Path(path))
+
+    assert supervisor.browsers == ["/usr/bin/brave --new-tab %s", None, None]
 
 
 def test_a_slow_start_keeps_the_overlay_until_the_port_appears(

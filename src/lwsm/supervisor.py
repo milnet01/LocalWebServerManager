@@ -192,7 +192,9 @@ class ManagedProcess:
 
 
 def build_child_env(
-    port: int | None, base: Mapping[str, str] | None = None
+    port: int | None,
+    base: Mapping[str, str] | None = None,
+    browser: str | None = None,
 ) -> dict[str, str]:
     """The environment a launched project gets: the allowlist and nothing else.
 
@@ -204,6 +206,12 @@ def build_child_env(
     same as not exporting it: a launcher reading `${PORT:-3000}` would get the
     empty string instead of its own default, which is precisely the silent
     misconfiguration ADR-0002 case 3 exists to prevent.
+
+    `BROWSER` is the browser the user chose for this project, where there is
+    one (LWSM-1586): a project that opens its own page — one holding a one-use
+    secret, say, which this app's Open cannot reach — opens it there. The
+    user's own `BROWSER` is not on the allowlist, so with no choice there is
+    none, as before.
     """
     source = os.environ if base is None else base
     env = {
@@ -226,6 +234,8 @@ def build_child_env(
     env["PATH"] = os.pathsep.join(absolute) if absolute else os.defpath
     if port is not None:
         env["PORT"] = str(port)
+    if browser is not None:
+        env["BROWSER"] = browser
     # ADR-0006: a presentation hint with no security value. It is unauthenticated
     # and trivially forged, so nothing may be granted or skipped on the strength
     # of it — this is the only place this project sets it.
@@ -625,8 +635,12 @@ class Supervisor:
         name: str,
         argv: list[str] | tuple[str, ...],
         port: int | None,
+        browser: str | None = None,
     ) -> ManagedProcess:
         """Spawn `argv` in its own session, with the port pre-flight first.
+
+        `browser` is the child's `BROWSER` value, or `None` for none
+        (`build_child_env`).
 
         Raises `PortAlreadyBound`, `LauncherRefused`, `LauncherUntrusted`,
         `AlreadyRunning`, or `OSError` if the log cannot be opened or the
@@ -735,7 +749,9 @@ class Supervisor:
             log_path = self.log_path_for(resolved_project, name)
             fd = self._open_log(log_path)
             try:
-                managed = self._spawn(resolved_project, name, argv, port, log_path, fd)
+                managed = self._spawn(
+                    resolved_project, name, argv, port, log_path, fd, browser
+                )
             except BaseException:
                 os.close(fd)
                 raise
@@ -767,8 +783,9 @@ class Supervisor:
         port: int | None,
         log_path: Path,
         fd: int,
+        browser: str | None = None,
     ) -> ManagedProcess:
-        env = build_child_env(port)
+        env = build_child_env(port, browser=browser)
         scope = self._scope
         if scope is None:
             # Only a success is remembered: a check that failed once (the user

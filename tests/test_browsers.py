@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -705,6 +706,62 @@ def test_open_url_spawns_the_expanded_argv_detached_and_never_a_shell(
         "supervisor.stop() aims at a server"
     )
     assert "shell" not in kwargs
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (("/usr/bin/brave", "%U"), "/usr/bin/brave %s"),
+        (("/bin/b", "--url=%u", "%i"), "/bin/b --url=%s"),
+        # No URL code: `webbrowser` would drop the URL, so `%s` is appended.
+        (("/bin/b",), "/bin/b %s"),
+        (("/opt/my browser/b", "%u"), "'/opt/my browser/b' %s"),
+        # `webbrowser` splits on os.pathsep, so this would arrive in pieces.
+        (("/bin/b", "--profile=a:b", "%u"), None),
+    ],
+)
+def test_browser_variable(argv, expected) -> None:
+    """LWSM-1586: the desktop entry's command as a `BROWSER` value."""
+    assert browsers.browser_variable(Browser("b.desktop", "B", argv)) == expected
+
+
+@pytest.mark.integration
+def test_pythons_webbrowser_opens_the_url_through_browser_variable(
+    tmp_path: Path,
+) -> None:
+    """LWSM-1586's consumer: a sibling's `webbrowser.open` honours the value.
+
+    The URL carries a space and a query, as a one-use link might, and must
+    arrive as one argument after the entry's own option.
+    """
+    record = tmp_path / "seen"
+    fake = tmp_path / "bin dir" / "fake-browser"
+    fake.parent.mkdir()
+    fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{record}"\n', encoding="utf-8")
+    fake.chmod(0o700)
+    value = browsers.browser_variable(
+        Browser("f.desktop", "F", (str(fake), "--new-tab", "%U"))
+    )
+    assert value is not None
+    env = {"PATH": os.defpath, "BROWSER": value}
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            "import webbrowser, sys; "
+            "sys.exit(0 if webbrowser.open('http://127.0.0.1:1/?t=a b') else 1)",
+        ],
+        env=env,
+        check=True,
+        timeout=30,
+    )
+
+    assert record.read_text(encoding="utf-8").splitlines() == [
+        "--new-tab",
+        "http://127.0.0.1:1/?t=a b",
+    ]
 
 
 def test_open_url_reports_a_launch_failure_rather_than_raising_oserror(

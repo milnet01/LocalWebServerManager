@@ -245,6 +245,35 @@ def test_no_effective_port_means_no_PORT_variable() -> None:
     assert env["LWSM_MANAGED"] == "1"
 
 
+def test_BROWSER_is_the_chosen_browser_and_never_the_users_own() -> None:
+    """LWSM-1586: the project's chosen browser, and with no choice, none.
+
+    The user's own `BROWSER` stays off the allowlist: passing it through would
+    make "no choice" mean something different on every desktop.
+    """
+    base = {"PATH": "/usr/bin", "BROWSER": "/usr/bin/lynx %s"}
+    assert "BROWSER" not in build_child_env(port=None, base=base)
+    chosen = build_child_env(port=None, base=base, browser="/usr/bin/brave %s")
+    assert chosen["BROWSER"] == "/usr/bin/brave %s"
+
+
+@pytest.mark.integration
+def test_a_started_project_sees_the_browser_it_was_started_with(
+    supervisor: Supervisor, project: Path
+) -> None:
+    """LWSM-1586: `start(browser=...)` reaches the launched process itself."""
+    write_launcher(project, 'echo "browser=[$BROWSER]"\n')
+    supervisor.trust.confirm(project, launcher_fingerprint(project, ("./start.sh",)))
+
+    managed = supervisor.start(
+        project, name="demo", argv=["./start.sh"], port=None, browser="/b/x %s"
+    )
+
+    assert wait_until(
+        lambda: "browser=[/b/x %s]" in managed.log_path.read_text(encoding="utf-8")
+    ), managed.log_path.read_text(encoding="utf-8")
+
+
 def test_a_manager_started_without_path_still_gives_the_child_one() -> None:
     """known-issue-056 (LWSM-1321): no PATH in, the system default out.
 
