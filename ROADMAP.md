@@ -16106,7 +16106,7 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   remembered as tray_notice_shown in settings.json.
   Lanes: ui, tests.
 
-- 📋 [LWSM-1035] **P09: restore last session, and stop all.**
+- 🚧 [LWSM-1035] **P09: restore last session, and stop all.**
   Two bookends for a working day. On launch, optionally start
   whatever was running when the app last quit — recorded as an
   observation at shutdown, not as a per-project flag the user has
@@ -16126,6 +16126,14 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   start a project while the window is hidden in the tray, a trust prompt
   it raises must show and raise the window first, so the dialog lands
   over the list. Bring the row back with that path.
+  Decisions (user, 2026-11-21): at launch, when servers recorded as
+  running at the last close are not running now, ask each time, with
+  the names listed; nothing starts without a yes. Stop all goes in the
+  main window's toolbar and in the tray menu. Stop all stops only
+  servers this app started; a foreign server keeps its own row's Stop
+  and guard, and the confirmation names what it leaves running.
+  Spec-first under CLAUDE.md rule 2: the running set at close is a new
+  on-disk record.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
@@ -16143,6 +16151,10 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 3.
+  2026-11-18: one sibling reports it now follows ADR-0006 on Linux:
+  `LWSM_MANAGED` exactly "1" hides its own tray icon and logs that;
+  any other value, or none, keeps the icon. Checked by that sibling on
+  Plasma 6.
   Lanes: core.
 
 - 📋 [LWSM-1542] **A minimised window takes a couple of seconds to come forward when the app is opened again from the menu.**
