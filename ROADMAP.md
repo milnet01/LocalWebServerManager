@@ -16137,6 +16137,14 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   `started.json` already keeps each started server through a quit, and
   adoption drops the entries whose server is gone; those dropped
   entries are the set to offer.
+  Built 2026-11-21 (f835134). Stop all beside Rescan and in the tray
+  menu; Supervisor.not_adopted feeds the controller's restore_offered
+  after the first poll; a question raised while the window is hidden
+  in the tray brings it forward first, and design-accessibility.md's
+  row is back. Local gate green, 3399 tests; nine deliberate breaks
+  each caught. OWED before shipped: the user's check in the real app,
+  on Plasma Wayland. Known limit: the one-slot overlay shows only the
+  last of several Stop all rows as "stopping".
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
