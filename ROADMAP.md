@@ -1,6 +1,6 @@
 <!-- ants-roadmap-format: 1 -->
 <!-- Generated from the Ants Terminal roadmap store. Edit it with roadmap_log; hand edits are discarded by the next write. -->
-<!-- ants-roadmap-id-high-water: LWSM=1584 -->
+<!-- ants-roadmap-id-high-water: LWSM=1585 -->
 
 # LocalWebServerManager — Roadmap
 
@@ -16070,7 +16070,8 @@ Order: LWSM-1579 and LWSM-1550, then cut 0.6.1. Then spec LWSM-1548 § 7's relau
 The self-update shows what changed between the installed version and the new
 one. The app can sit in the tray and remember what was running.
 
-Order: the update notes (LWSM-1553), then the tray items. The second signed
+Order: the update notes (LWSM-1553), then the tray items, with
+start-at-login (LWSM-1585) straight after LWSM-1035. The second signed
 release that LWSM-1548 waits on is 0.6.1, not this one.
 
 - ✅ [LWSM-1017] **P09: minimal system tray — show/hide and quit.**
@@ -16132,8 +16133,10 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   main window's toolbar and in the tray menu. Stop all stops only
   servers this app started; a foreign server keeps its own row's Stop
   and guard, and the confirmation names what it leaves running.
-  Spec-first under CLAUDE.md rule 2: the running set at close is a new
-  on-disk record.
+  No spec (2026-11-21): no new on-disk record. LWSM-1428's
+  `started.json` already keeps each started server through a quit, and
+  adoption drops the entries whose server is gone; those dropped
+  entries are the set to offer.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
@@ -16349,6 +16352,25 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Kind: doc-fix.
   Source: lwsm-1017-2026-11-18.
 
+- 📋 [LWSM-1585] **A "Start when I log in" setting that opens the app in the tray at login.**
+  Asked by the user, 2026-11-21, as "start at boot"; settled the
+  same day as the app starting at login, since a windowed app cannot
+  start before one. A settings switch writes or removes an XDG
+  autostart entry in ~/.config/autostart/ for the manager. The
+  autostart launch starts hidden in the tray (LWSM-1017), and LWSM-1035's
+  restore question then raises the window. The entry must name the
+  real launcher: the AppImage's own path when run as one, never its
+  temporary mount. Split from LWSM-1027, which keeps the per-project
+  "start automatically" switch and the retirement of sibling trays.
+  No other session's work is needed for this item; LWSM-1027 is the
+  one that touches siblings.
+  Dependencies: LWSM-1017, LWSM-1035.
+  **Layman:** Tick one box and the app starts by itself when you log in, waiting in the tray, and offers to start last session's sites.
+  Kind: feature.
+  Source: user-2026-11-21.
+  Lanes: ui, core, tests.
+  Splits-from: LWSM-1027.
+
 ## 0.8.0 — Runs without being watched
 
 Projects that start at login, a guard against a server that keeps crashing,
@@ -16424,6 +16446,10 @@ Order: LWSM-1053 is a decision and comes before LWSM-1027, which depends on it.
   Kind: implement.
   Source: user-2026-08-03.
   Priority: 2.
+  2026-11-21: the autostart entry for the manager itself split out
+  as LWSM-1585 (0.7.0), at the user's request. This item keeps the
+  per-project flag and retiring the sibling trays; that retirement is
+  where sibling sessions get involved.
   Lanes: ui, core, tests.
 
 - 📋 [LWSM-1042] **P09: crash-loop guard.**
