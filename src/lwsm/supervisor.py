@@ -442,6 +442,10 @@ class Supervisor:
         self._probe = probe
         # What this manager started, so a relaunch can take it back (LWSM-1428).
         self.started = started if started is not None else StartedStore()
+        # The entries `adopt()` refused: servers the last session started and
+        # left running that are not running as started now, which a relaunch
+        # may offer to start again (LWSM-1035).
+        self.not_adopted: tuple[StartedEntry, ...] = ()
         self._log_dir = Path(log_dir) if log_dir is not None else None
         # Public and mutable, like `trust` beside it: the settings dialog
         # changes it while servers are running, and `rotate_if_needed` reads it
@@ -866,14 +870,15 @@ class Supervisor:
         An entry is ours only if its PID still names the process it named, by
         `create_time`, and that process still leads the group it was started
         in (LWSM-1428 § 4.3). Anything else is dropped and stays foreign, the
-        safe direction. Returns the projects taken back.
+        safe direction. Returns the projects taken back; the dropped entries
+        are kept in `not_adopted`.
         """
         taken: set[Path] = set()
-        dropped: list[Path] = []
+        dropped: list[StartedEntry] = []
         for entry in self.started.entries():
             managed = self._adoptable(entry)
             if managed is None:
-                dropped.append(entry.project)
+                dropped.append(entry)
                 continue
             with self._registry.lock:
                 # A start or stop in flight owns the key as `processes` does:
@@ -899,7 +904,8 @@ class Supervisor:
                 display_text(entry.name),
                 entry.pid,
             )
-        self.started.remove(*dropped)
+        self.started.remove(*(entry.project for entry in dropped))
+        self.not_adopted = tuple(dropped)
         return frozenset(taken)
 
     def _adoptable(self, entry: StartedEntry) -> ManagedProcess | None:

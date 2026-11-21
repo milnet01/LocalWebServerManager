@@ -5354,3 +5354,75 @@ def test_a_stopped_project_of_ours_keeps_its_file(qtbot, controllers) -> None:
 def test_an_unknown_project_has_no_log_source(controllers) -> None:
     controller = logging_controller(controllers, [record("a")], FakeProbe())
     assert controller.log_source(Path("/srv/nobody")) is None
+
+
+# --- LWSM-1035: restore last session, and stop all ----------------------------
+
+
+def test_the_first_poll_offers_only_what_it_reads_stopped(qtbot, controllers) -> None:
+    """Of what the last session left, only a project the first poll reads
+    `stopped` is offered: one answering on its port needs no start, one with
+    no port is `unknown`, and one no longer listed has no row. Once, in list
+    order, and never again on later polls."""
+    records = [record("a"), record("b", 5006), record("c", None), record("d", 5007)]
+    probe = FakeProbe(5006)
+    controller = build(controllers, records, probe)
+    offers: list[tuple[Path, ...]] = []
+    controller.restore_offered.connect(offers.append)
+    controller.offer_restore(
+        [
+            Path("/srv/d"),
+            Path("/srv/b"),
+            Path("/srv/c"),
+            Path("/srv/gone"),
+            Path("/srv/a"),
+        ]
+    )
+
+    drain(qtbot, controller, probe, 2)
+
+    assert offers == [(Path("/srv/a"), Path("/srv/d"))]
+
+
+def test_nothing_is_offered_when_nothing_was_left(qtbot, controllers) -> None:
+    probe = FakeProbe()
+    controller = build(controllers, [record("a")], probe)
+    offers: list[object] = []
+    controller.restore_offered.connect(offers.append)
+    controller.offer_restore([])
+
+    drain(qtbot, controller, probe, 1)
+
+    assert offers == []
+
+
+def test_stop_all_stops_what_the_app_runs_and_leaves_the_rest(
+    qtbot, controllers, monkeypatch
+) -> None:
+    """A server this app started is stopped; one it did not start is named
+    as left running and is not touched, by the split or by `stop_all`."""
+    monkeypatch.setattr(
+        controller_module, "unit_belongs_to", lambda unit, project: False
+    )
+    supervisor = FakeSupervisor()
+    probe = FakeProbe(5005, 5006)
+    controller = supervised(
+        controllers, [startable("a"), startable("b", 5006)], probe, supervisor
+    )
+    controller.start_project(Path("/srv/a"))
+    supervisor.child_pids[Path("/srv/a")] = HOLDER_PID
+    drain(qtbot, controller, probe, 1)
+
+    ours, left = controller.stop_all_split()
+    assert [row.name for row in ours] == ["a"]
+    assert [row.name for row in left] == ["b"]
+    assert left[0].status is ProjectStatus.RUNNING_FOREIGN
+
+    failures: list[object] = []
+    controller.action_failed.connect(lambda path, _text: failures.append(path))
+    # `b` last, so a stop attempted on it would hold the one overlay slot.
+    controller.stop_all([Path("/srv/a"), Path("/srv/b")])
+
+    assert supervisor.stopped == [Path("/srv/a")]
+    assert controller.row(Path("/srv/b")).status is ProjectStatus.RUNNING_FOREIGN
+    assert Path("/srv/b") not in failures, "Stop all tried the foreign server"

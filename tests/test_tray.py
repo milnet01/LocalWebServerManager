@@ -1,4 +1,4 @@
-"""LWSM-1017 — the tray icon: its three entries, its click and its tooltip."""
+"""LWSM-1017 — the tray icon: its entries, its click and its tooltip."""
 
 from __future__ import annotations
 
@@ -40,6 +40,8 @@ class Built:
     controller: FakeController
     shown: list[int]
     quits: list[int]
+    stops: list[int]
+    stoppable: list[bool]
 
 
 def build(qtbot, statuses: list[ProjectStatus] | None = None) -> Built:
@@ -48,20 +50,36 @@ def build(qtbot, statuses: list[ProjectStatus] | None = None) -> Built:
     controller = FakeController(statuses or [])
     shown: list[int] = []
     quits: list[int] = []
+    stops: list[int] = []
+    stoppable = [False]
 
     def show_window() -> None:
         shown.append(1)
         window.show()
 
-    tray = Tray(window, controller, QIcon(), show_window, lambda: quits.append(1))
-    return Built(tray, window, controller, shown, quits)
+    tray = Tray(
+        window,
+        controller,
+        QIcon(),
+        show_window,
+        lambda: quits.append(1),
+        lambda: stops.append(1),
+        lambda: stoppable[0],
+    )
+    return Built(tray, window, controller, shown, quits, stops, stoppable)
 
 
-def test_the_menu_offers_show_hide_and_quit_and_nothing_per_project(qtbot) -> None:
-    """The user's 2026-08-03 call: no per-project submenu, three entries."""
+def test_the_menu_offers_its_four_entries_and_nothing_per_project(qtbot) -> None:
+    """The user's 2026-08-03 call: no per-project submenu. Stop all is
+    LWSM-1035's, the user's 2026-11-21 call."""
     built = build(qtbot)
     texts = [a.text() for a in built.tray.menu.actions() if not a.isSeparator()]
-    assert texts == ["&Show window", "&Hide window", "&Quit"]
+    assert texts == [
+        "&Show window",
+        "&Hide window",
+        "Stop &all servers...",
+        "&Quit",
+    ]
     assert built.tray.icon.contextMenu() is built.tray.menu
 
 
@@ -76,6 +94,9 @@ def test_each_entry_does_what_it_says(qtbot) -> None:
     built.tray.show_action.trigger()
     assert built.shown == [1], "Show window did not bring the window forward"
     assert built.window.isVisible()
+
+    built.tray.stop_all_action.trigger()
+    assert built.stops == [1], "Stop all did not reach the window's Stop all"
 
     built.tray.quit_action.trigger()
     assert built.quits == [1], "Quit did not reach the real quit"
@@ -93,6 +114,16 @@ def test_the_menu_enables_only_the_entry_that_changes_something(qtbot) -> None:
     built.tray.menu.aboutToShow.emit()
     assert built.tray.show_action.isEnabled()
     assert not built.tray.hide_action.isEnabled()
+
+
+def test_stop_all_is_enabled_only_while_something_would_stop(qtbot) -> None:
+    built = build(qtbot)
+    built.tray.menu.aboutToShow.emit()
+    assert not built.tray.stop_all_action.isEnabled()
+
+    built.stoppable[0] = True
+    built.tray.menu.aboutToShow.emit()
+    assert built.tray.stop_all_action.isEnabled()
 
 
 def test_a_click_shows_a_hidden_window_and_hides_a_shown_one(qtbot) -> None:
@@ -158,6 +189,8 @@ def test_no_tray_means_no_icon(qtbot) -> None:
         QIcon(),
         lambda: None,
         lambda: None,
+        lambda: None,
+        lambda: False,
         available=False,
     )
     assert tray is None
@@ -172,6 +205,8 @@ def test_a_tray_is_shown_where_the_desktop_has_one(qtbot) -> None:
         QIcon(),
         lambda: None,
         lambda: None,
+        lambda: None,
+        lambda: False,
         available=True,
     )
     assert tray is not None

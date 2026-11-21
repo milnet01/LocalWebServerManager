@@ -13,7 +13,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from concurrent.futures import Future
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -492,6 +492,11 @@ class RowView:
     # chosen as `_port_seen_by_our_group` chooses, and None when no single
     # port can be named, so Open guesses nothing.
     open_port: int | None = None
+
+
+def _stoppable(row: RowView) -> bool:
+    """A running row Stop all may stop: one this app runs (LWSM-1035)."""
+    return row.managed or row.supervised
 
 
 def _port_seen_by_our_group(record: ProjectRecord, ours: frozenset[int]) -> int | None:
@@ -1097,6 +1102,10 @@ class ProjectController(QObject):
     # window saves on it, rather than on `projects_changed`, which fires on
     # every status change.
     confirmed_ports_changed = Signal()
+    # The projects the last session left running that the first poll found
+    # stopped, in list order (LWSM-1035). Emitted once, and only when there is
+    # at least one; the window asks before anything starts.
+    restore_offered = Signal(object)  # tuple[Path, ...]
 
     def __init__(
         self,
@@ -1137,6 +1146,8 @@ class ProjectController(QObject):
         )
         # Paths whose stop is the first half of a restart.
         self._restarting: set[Path] = set()
+        # What `offer_restore` was handed, until the first poll answers it.
+        self._restore_pending: frozenset[Path] = frozenset()
         # Recomputed from each snapshot by `_managed_paths`. Empty until the
         # first poll completes, which is the honest answer: nothing has looked
         # at the socket table yet, so nothing is known to be ours.
@@ -1732,6 +1743,43 @@ class ProjectController(QObject):
             self._run_service_verb(path, "restart", unit, adopted=True)
             return
         self.start_project(path)
+
+    def offer_restore(self, paths: Iterable[Path]) -> None:
+        """Offer, after the first poll, to start what the last session left running.
+
+        `paths` are the servers the record kept through the last quit and
+        adoption could not take back (LWSM-1035). Only those the first poll
+        reads `stopped` are offered: one still answering on its port, ours or
+        not, needs no start, and one in another state would only be refused.
+        """
+        self._restore_pending = frozenset(paths)
+
+    def _restorable(self, statuses: dict[Path, ProjectStatus]) -> tuple[Path, ...]:
+        return tuple(
+            record.path
+            for record in self._records
+            if record.path in self._restore_pending
+            and statuses.get(record.path) is ProjectStatus.STOPPED
+        )
+
+    def stop_all_split(self) -> tuple[list[RowView], list[RowView]]:
+        """What Stop all would stop, and what it would leave running.
+
+        It stops what a row's own Stop stops without asking: a server this app
+        runs, `managed` or `supervised`, as `MainWindow._may_act_on` reads
+        them. Any other running server keeps its row's guarded Stop
+        (ADR-0004), so it is left, and named, rather than stopped in a batch.
+        """
+        running = [row for row in self.rows() if row.status in RUNNING_STATES]
+        ours = [row for row in running if _stoppable(row)]
+        return ours, [row for row in running if not _stoppable(row)]
+
+    def stop_all(self, paths: Iterable[Path]) -> None:
+        """Stop each of `paths` that is still ours and running; the user saw them."""
+        for path in paths:
+            row = self.row(path)
+            if row is not None and row.status in RUNNING_STATES and _stoppable(row):
+                self.stop_project(path)
 
     def confirm_and_start(self, path: Path, fingerprint: str) -> None:
         """The user has seen the resolved path and argv, and said yes."""
@@ -2513,6 +2561,12 @@ class ProjectController(QObject):
         self._reaped.clear()
         if confirmed:
             self.confirmed_ports_changed.emit()
+        if self._restore_pending:
+            # The first poll answers the offer, whatever it finds.
+            restorable = self._restorable(statuses)
+            self._restore_pending = frozenset()
+            if restorable:
+                self.restore_offered.emit(restorable)
         if settled:
             # Probing always wins, so a settled overlay is a visible change even
             # when the derived map happens to match the previous one.

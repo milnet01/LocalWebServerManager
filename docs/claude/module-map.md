@@ -649,7 +649,8 @@ Added for LWSM-1548, the AppImage's self-update, contract in
   showing (LWSM-1582). The banner and the "Check for updates" entry are
   `MainWindow`'s, built only when `build_window` is given an AppImage path.
 - **`src/lwsm/tray.py`** — UI layer. `Tray`, the icon with Show window, Hide
-  window and Quit, and a tooltip counting the running projects (LWSM-1017).
+  window, Stop all servers and Quit, and a tooltip counting the running
+  projects (LWSM-1017). Stop all is `MainWindow.stop_all` (LWSM-1035).
   `install_tray` builds it only where the desktop has a tray; `main` then
   makes a close hide the window (`MainWindow.set_hides_to_tray`), ends the
   app on `MainWindow.quit_requested`, and shows `Tray.say_still_running` on

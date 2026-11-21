@@ -173,8 +173,8 @@ Two rules the diagram encodes:
   every line. The two controls sit on their own row under the
   heading, and Tab reaches them between Close and the output.
 - **TrayIcon** (`tray.py`) — an icon whose menu offers Show window,
-  Hide window and Quit, and whose tooltip says how many projects
-  are running. It has no per-project menu (user, 2026-08-03). Main
+  Hide window, Stop all servers and Quit, and whose tooltip says how
+  many projects are running. It has no per-project menu (user, 2026-08-03). Main
   responsibility: bringing the window back. Where the desktop has
   a tray, closing the window hides it, and only Quit — the tray's
   or File › Quit — ends the app. Without a tray, closing quits.

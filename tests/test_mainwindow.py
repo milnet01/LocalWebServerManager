@@ -18,7 +18,7 @@ import subprocess
 import threading
 import types
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -12510,3 +12510,151 @@ def test_the_tree_stop_table_clips_a_long_command_like_the_disclosure(
     cell = table.item(0, 3).text()
     assert cell == _shown_command(long)
     assert len(cell) <= MAX_COMMAND_CHARS
+
+
+# --- LWSM-1035: restore last session, and stop all ----------------------------
+
+
+def _row(name: str) -> types.SimpleNamespace:
+    return types.SimpleNamespace(name=name, path=Path(f"/srv/{name}"))
+
+
+def _hidden_in_the_tray(qtbot, built, **kwargs) -> tuple[MainWindow, list[int]]:
+    """A shown window closed into the tray, brought back by a spy that shows it."""
+    window = geometry_window(qtbot, built, two_rows(), tray_notice_shown=True, **kwargs)
+    window.set_hides_to_tray(True)
+    window.close()
+    assert not window.isVisible()
+    brought: list[int] = []
+
+    def bring_forward() -> None:
+        brought.append(1)
+        window.show()
+
+    window.set_bring_forward(bring_forward)
+    return window, brought
+
+
+def test_stop_all_asks_once_naming_what_it_stops_and_what_it_leaves(
+    qtbot, built, monkeypatch
+) -> None:
+    asked: list[tuple[list[str], list[str]]] = []
+    answer = [False]
+
+    def confirm(names: list[str], left: list[str]) -> bool:
+        asked.append((names, left))
+        return answer[0]
+
+    window = geometry_window(qtbot, built, two_rows(), confirm_stop_all=confirm)
+    controller = window._controller
+    stopped: list[list[Path]] = []
+    monkeypatch.setattr(
+        controller, "stop_all_split", lambda: ([_row("a"), _row("c")], [_row("b")])
+    )
+    monkeypatch.setattr(
+        controller, "stop_all", lambda paths: stopped.append(list(paths))
+    )
+    controller.projects_changed.emit()
+
+    window.stop_all_button.click()
+    assert asked == [(["a", "c"], ["b"])]
+    assert stopped == [], "a No still stopped something"
+
+    answer[0] = True
+    window.stop_all()
+    assert stopped == [[Path("/srv/a"), Path("/srv/c")]]
+
+    monkeypatch.setattr(controller, "stop_all_split", lambda: ([], [_row("b")]))
+    window.stop_all()
+    assert len(asked) == 2, "Stop all asked with nothing to stop"
+
+
+def test_the_stop_all_button_is_enabled_only_while_something_would_stop(
+    qtbot, built, monkeypatch
+) -> None:
+    window = geometry_window(qtbot, built, two_rows())
+    controller = window._controller
+    assert not window.stop_all_button.isEnabled(), "enabled with nothing running"
+    assert window.stop_all_button.text() == "Stop &all"
+
+    monkeypatch.setattr(controller, "stop_all_split", lambda: ([_row("a")], []))
+    controller.projects_changed.emit()
+    assert window.stop_all_button.isEnabled()
+
+
+def test_the_restore_question_starts_each_on_yes_and_nothing_on_no(
+    qtbot, built, monkeypatch
+) -> None:
+    asked: list[list[str]] = []
+    answer = [False]
+
+    def ask(names: list[str]) -> bool:
+        asked.append(names)
+        return answer[0]
+
+    window = geometry_window(qtbot, built, two_rows(), ask_restore=ask)
+    controller = window._controller
+    started: list[Path] = []
+    monkeypatch.setattr(controller, "start_project", started.append)
+    paths = (Path("/srv/b"), Path("/srv/gone"), Path("/srv/a"))
+
+    controller.restore_offered.emit(paths)
+    qtbot.waitUntil(lambda: bool(asked), timeout=1000)
+    assert asked == [["b", "a"]], "the question did not name what it starts"
+    assert started == []
+
+    answer[0] = True
+    controller.restore_offered.emit(paths)
+    qtbot.waitUntil(lambda: len(asked) == 2, timeout=1000)
+    assert started == [Path("/srv/b"), Path("/srv/a")]
+
+
+def test_a_question_raised_with_the_window_hidden_shows_it_first(
+    qtbot, built, monkeypatch
+) -> None:
+    """`design-accessibility.md`: a confirmation raised with the window hidden
+    in the tray shows the window before the dialog, so it lands over the list.
+    All three questions that can come while it is hidden: Stop all from the
+    tray, the restore offer, and a trust prompt a restored start raises."""
+    seen: list[tuple[str, bool]] = []
+
+    def asked(what: str, answer: bool) -> Callable[..., bool]:
+        def record_visibility(*_args: object) -> bool:
+            seen.append((what, window.isVisible()))
+            return answer
+
+        return record_visibility
+
+    window, brought = _hidden_in_the_tray(
+        qtbot,
+        built,
+        confirm_stop_all=asked("stop all", False),
+        ask_restore=asked("restore", False),
+        confirm=asked("trust", False),
+    )
+    monkeypatch.setattr(window._controller, "stop_all_split", lambda: ([_row("a")], []))
+
+    for ask in (
+        window.stop_all,
+        lambda: window._offer_restore((Path("/srv/a"),)),
+        lambda: window._ask_to_trust(
+            Path("/srv/a"), Refusal(resolved="/srv/a/start.sh", argv=("./start.sh",))
+        ),
+    ):
+        ask()
+        window.close()
+
+    assert seen == [("stop all", True), ("restore", True), ("trust", True)]
+    assert brought == [1, 1, 1]
+
+
+def test_a_question_with_the_window_on_screen_does_not_bring_it_forward(
+    qtbot, built
+) -> None:
+    window = geometry_window(qtbot, built, two_rows(), ask_restore=lambda _names: False)
+    brought: list[int] = []
+    window.set_bring_forward(lambda: brought.append(1))
+
+    window._offer_restore((Path("/srv/a"),))
+
+    assert brought == []

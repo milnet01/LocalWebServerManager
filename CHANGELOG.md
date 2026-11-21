@@ -24,6 +24,7 @@ signaling per
 ### Added
 
 - **The app has a tray icon.** Closing the window now tucks the app into the system tray, where it keeps watching your projects. Click the icon, or choose Show window from its menu, to bring the window back; opening the app again from the menu does the same. To close the app for good, choose Quit from the tray menu or from the File menu. The first time you close the window, a notification says the app is still running and how to get it back. The icon's tooltip says how many projects are running. On a desktop with no system tray, closing the window still closes the app. (LWSM-1017)
+- **Stop all, and pick up where you left off.** A Stop all button, beside Rescan and in the tray menu, stops every server the app runs after one question that names them. Servers the app did not start are named as left running; each keeps its own Stop. When the app opens and servers it left running last time have stopped, after a restart for example, it lists them and asks whether to start them again. Nothing starts unless you say yes. (LWSM-1035)
 
 ### Changed
 

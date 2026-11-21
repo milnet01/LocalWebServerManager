@@ -81,13 +81,22 @@ class _UnusedSignal:
 
 class _StandInWindow:
     """What `main` asks of any window beyond `show` and `shutdown`: the
-    signals it connects and a quit to hand the tray (LWSM-1017). The stand-ins
-    here never quit, so both do nothing."""
+    signals it connects, and the quit and Stop all it hands the tray (LWSM-1017,
+    LWSM-1035). The stand-ins here never quit or stop, so each does nothing."""
 
     quit_requested = _UnusedSignal()
     first_hidden_to_tray = _UnusedSignal()
 
     def request_quit(self) -> None:
+        return None
+
+    def stop_all(self) -> None:
+        return None
+
+    def can_stop_all(self) -> bool:
+        return False
+
+    def set_bring_forward(self, _bring_forward) -> None:
         return None
 
 
@@ -3192,3 +3201,47 @@ def test_preferences_offers_and_saves_the_update_switch_for_an_appimage_only(
     else:
         assert offered == [None, None]
         assert stored.update_check is True
+
+
+@pytest.mark.gui
+def test_a_server_the_last_session_left_that_is_gone_is_offered_again(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    """LWSM-1035, through `build_window`: what adoption could not take back is
+    what the first poll may offer to start."""
+    import json
+    import subprocess
+
+    from lwsm.stores import default_started_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    finished = subprocess.Popen(["true"])
+    finished.wait()
+    record = default_started_path()
+    record.parent.mkdir(parents=True)
+    project = tmp_path / "site"
+    record.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "started": [
+                    {
+                        "project": str(project),
+                        "name": "site",
+                        "pid": finished.pid,
+                        "create_time": 1.0,
+                        "port": None,
+                    }
+                ],
+            }
+        ),
+        "utf-8",
+    )
+
+    window, controller = build_window(tmp_path / "projects.json")
+    qtbot.addWidget(window)
+    try:
+        assert controller._restore_pending == frozenset({project})
+    finally:
+        controller.stop()

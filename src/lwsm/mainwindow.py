@@ -398,6 +398,11 @@ def _code_point_escape(char: str) -> str:
 _ESCAPE_TOKEN = re.compile(r"\\(?:u[0-9a-f]{4}|U[0-9a-f]{8}|s\{\d+\}|[rnt])")
 
 
+def _name_lines(names: list[str]) -> str:
+    """Project names, one per line and indented, each unable to forge a line."""
+    return "\n".join(f"  {_no_layout_forgery(name)}" for name in names)
+
+
 def _no_layout_forgery(value: str) -> str:
     """A value from someone else's tree, rendered so it cannot forge layout.
 
@@ -2353,6 +2358,8 @@ class MainWindow(QMainWindow):
         updates: UpdateContext | None = None,
         tray_notice_shown: bool = False,
         save_tray_notice_shown: Callable[[bool], None] | None = None,
+        ask_restore: Callable[[list[str]], bool] | None = None,
+        confirm_stop_all: Callable[[list[str], list[str]], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
@@ -2441,6 +2448,18 @@ class MainWindow(QMainWindow):
         self._hidden_in_tray = False
         self._tray_notice_shown = tray_notice_shown
         self._save_tray_notice_shown = save_tray_notice_shown
+        # How a hidden window is brought back before it asks something; the
+        # entry point hands in the routine a second launch uses (LWSM-1035).
+        self._bring_forward: Callable[[], None] = self.show
+        # LWSM-1035's two questions, injected for `confirm`'s reason.
+        self._ask_restore = (
+            ask_restore if ask_restore is not None else self._ask_restore_dialog
+        )
+        self._confirm_stop_all = (
+            confirm_stop_all
+            if confirm_stop_all is not None
+            else self._confirm_stop_all_dialog
+        )
         # A seam, and the one that defaults to doing NOTHING rather
         # than to the real thing. `confirm` and `open_url` can default to the
         # real behaviour because a test that never triggers them never reaches
@@ -2652,6 +2671,12 @@ class MainWindow(QMainWindow):
         # Between the two controls, so the filter keeps its natural width at
         # the left and Rescan stays pinned right.
         strip.addStretch(1)
+        # LWSM-1035. Beside Rescan, at the floor its comment gives; enabled
+        # only while something it would stop is running.
+        self.stop_all_button = QPushButton(central)
+        self.stop_all_button.setMinimumSize(MIN_TARGET_PX, MIN_TARGET_PX)
+        self.stop_all_button.clicked.connect(self.stop_all)
+        strip.addWidget(self.stop_all_button)
         self._rescan_button: QPushButton | None = None
         self._rescan_pool: QThreadPool | None = None
         self._rescan_signals: _RescanSignals | None = None
@@ -2786,6 +2811,13 @@ class MainWindow(QMainWindow):
         self.set_text_scale(text_scale, remember=False)
         self._sync_rows()
         controller.projects_changed.connect(self._sync_rows)
+        controller.projects_changed.connect(self._sync_stop_all)
+        self._sync_stop_all()
+        # Queued: the offer is emitted inside the poll's slot, and a modal
+        # dialog there would run the next poll inside this one.
+        controller.restore_offered.connect(
+            self._offer_restore, Qt.ConnectionType.QueuedConnection
+        )
         controller.action_failed.connect(self._report_failure)
         controller.port_taken.connect(self._offer_port_change)
         controller.action_done.connect(self._report_done)
@@ -3644,6 +3676,12 @@ class MainWindow(QMainWindow):
         self._filter.setAccessibleName(
             QCoreApplication.translate("ProjectRow", "Filter projects by name")
         )
+        self.stop_all_button.setText(
+            QCoreApplication.translate("ProjectRow", "Stop &all")
+        )
+        self.stop_all_button.setAccessibleName(
+            QCoreApplication.translate("ProjectRow", "Stop all running servers")
+        )
         if self._rescan_button is not None:
             self._rescan_button.setText(self._rescan_label())
         # The notice strip's words live here for the same reason: it is built
@@ -4366,6 +4404,100 @@ class MainWindow(QMainWindow):
         box.setDefaultButton(QMessageBox.StandardButton.No)
         return _answered(box) == QMessageBox.StandardButton.Yes
 
+    def set_bring_forward(self, bring_forward: Callable[[], None]) -> None:
+        """How a hidden or minimised window comes back before it asks."""
+        self._bring_forward = bring_forward
+
+    def _show_before_asking(self) -> None:
+        """Bring a window hidden in the tray, or minimised, back first.
+
+        A question asked with no window on screen is centred over nothing,
+        and a dialog from the tray must land over the list
+        (`design-accessibility.md`).
+        """
+        if self._hidden_in_tray or self.isMinimized():
+            self._bring_forward()
+
+    def _sync_stop_all(self) -> None:
+        self.stop_all_button.setEnabled(self.can_stop_all())
+
+    def can_stop_all(self) -> bool:
+        """Whether Stop all has anything to stop."""
+        return bool(self._controller.stop_all_split()[0])
+
+    def stop_all(self) -> None:
+        """Ask once, naming every server it stops and any it leaves (LWSM-1035)."""
+        ours, left = self._controller.stop_all_split()
+        if not ours:
+            return
+        self._show_before_asking()
+        if self._confirm_stop_all(
+            [row.name for row in ours], [row.name for row in left]
+        ):
+            self._controller.stop_all(row.path for row in ours)
+
+    def _confirm_stop_all_dialog(self, names: list[str], left: list[str]) -> bool:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setWindowTitle(QCoreApplication.translate("ProjectRow", "Stop all?"))
+        text = _filled(
+            QCoreApplication.translate("ProjectRow", "This stops:\n%1"),
+            _name_lines(names),
+        )
+        if left:
+            text += _filled(
+                QCoreApplication.translate(
+                    "ProjectRow",
+                    "\n\nThese keep running, because this app did not start "
+                    "them; use each one's own Stop:\n%1",
+                ),
+                _name_lines(left),
+            )
+        box.setText(text)
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        return _answered(box) == QMessageBox.StandardButton.Yes
+
+    def _offer_restore(self, paths: object) -> None:
+        """Ask whether to start what the last session left running."""
+        if self._stopped or not isinstance(paths, tuple):
+            return
+        rows = [row for row in map(self._controller.row, paths) if row is not None]
+        if not rows:
+            return
+        self._show_before_asking()
+        if self._ask_restore([row.name for row in rows]):
+            for row in rows:
+                self._controller.start_project(row.path)
+
+    def _ask_restore_dialog(self, names: list[str]) -> bool:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setWindowTitle(
+            QCoreApplication.translate("ProjectRow", "Start last session's servers?")
+        )
+        box.setText(
+            _filled(
+                QCoreApplication.translate(
+                    "ProjectRow",
+                    "These were running when the app last closed, and are "
+                    "stopped now:\n%1\n\nStart them again?",
+                ),
+                _name_lines(names),
+            )
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        # Yes by default: starting them is what the question is for, and each
+        # launcher not yet confirmed still asks on its own.
+        box.setDefaultButton(QMessageBox.StandardButton.Yes)
+        return _answered(box) == QMessageBox.StandardButton.Yes
+
     def _ask_to_trust(self, project: Path, refusal: object) -> None:
         resolved = getattr(refusal, "resolved", None)
         argv = getattr(refusal, "argv", ())
@@ -4388,6 +4520,7 @@ class MainWindow(QMainWindow):
             )
             return
         npm_shown = getattr(refusal, "npm_shown", ())
+        self._show_before_asking()
         if self._confirm(project, launcher, argv, npm_shown):
             self._controller.confirm_and_start(project, fingerprint)
         else:

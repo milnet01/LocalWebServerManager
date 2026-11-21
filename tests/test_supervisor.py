@@ -3928,6 +3928,30 @@ def test_an_entry_from_another_boot_is_not_adopted(
         _reap(managed.popen)
 
 
+def test_adoption_keeps_what_it_could_not_take_back(
+    tmp_path: Path, project: Path
+) -> None:
+    """LWSM-1035: an entry whose server is gone is kept on `not_adopted`, for
+    the restore offer; one taken back is not. Before adoption runs, empty."""
+    record = tmp_path / "started.json"
+    other = tmp_path / "other-project"
+    other.mkdir()
+    first = started_session(tmp_path, record)
+    alive = start_sleeper(first, project)
+    gone = start_sleeper(first, other)
+    first.close()
+    _reap(gone.popen)
+    try:
+        second = started_session(tmp_path, record)
+        assert second.not_adopted == ()
+        assert second.adopt() == frozenset({project})
+        assert [entry.project for entry in second.not_adopted] == [other]
+        assert [Path(entry["project"]) for entry in stored(record)] == [project]
+        second.close()
+    finally:
+        _reap(alive.popen)
+
+
 @pytest.mark.parametrize(
     "text",
     [

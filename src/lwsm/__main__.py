@@ -413,6 +413,9 @@ def build_window(
     supervisor = Supervisor(probe=probe, trust=trust, started=started)
     supervisor.adopt()
     controller = ProjectController(records, probe, supervisor)
+    # What the last session left running and is no longer: offered after the
+    # first poll (LWSM-1035).
+    controller.offer_restore(entry.project for entry in supervisor.not_adopted)
     window = MainWindow(
         controller,
         # `theme_for_id`, not `THEMES[...]`: settings.json is hand-editable and
@@ -1040,6 +1043,7 @@ def main(argv: list[str] | None = None) -> int:
     window, controller = build_window(appimage=appimage)
     shown.append(window)
     window.quit_requested.connect(app.quit)
+    window.set_bring_forward(lambda: _bring_to_front(window))
     from lwsm.tray import install_tray
 
     tray = install_tray(
@@ -1048,6 +1052,8 @@ def main(argv: list[str] | None = None) -> int:
         app.windowIcon(),
         lambda: _bring_to_front(window),
         window.request_quit,
+        window.stop_all,
+        window.can_stop_all,
     )
     if tray is not None:
         # Closing hides the window now, so the last window closing is no

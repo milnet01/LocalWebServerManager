@@ -1,4 +1,4 @@
-"""The tray icon: bring the window back, hide it, or quit (LWSM-1017).
+"""The tray icon: bring the window back, hide it, stop all, or quit (LWSM-1017).
 
 UI module. Closing the window hides it here, so the app keeps watching while
 nothing is on screen; the servers themselves outlive Quit too (ADR-0003).
@@ -25,11 +25,13 @@ from lwsm.controller import RUNNING_STATES, ProjectController
 
 
 class Tray(QObject):
-    """The icon, its three-entry menu and its tooltip.
+    """The icon, its menu and its tooltip.
 
     `show_window` brings the window forward; the entry point passes the same
     routine a second launch uses, so both paths raise the window alike.
     `quit_app` is the real quit, which a closed window no longer is.
+    `stop_all` asks, then stops every server the app runs (LWSM-1035);
+    `can_stop_all` says whether there is any.
     """
 
     def __init__(
@@ -39,6 +41,8 @@ class Tray(QObject):
         icon: QIcon,
         show_window: Callable[[], None],
         quit_app: Callable[[], None],
+        stop_all: Callable[[], None],
+        can_stop_all: Callable[[], bool],
     ) -> None:
         # Parented to the window, which owns its lifetime (§ O6).
         super().__init__(window)
@@ -52,6 +56,10 @@ class Tray(QObject):
         self.show_action.triggered.connect(show_window)
         self.hide_action = self.menu.addAction("")
         self.hide_action.triggered.connect(window.hide)
+        self.menu.addSeparator()
+        self._can_stop_all = can_stop_all
+        self.stop_all_action = self.menu.addAction("")
+        self.stop_all_action.triggered.connect(stop_all)
         self.menu.addSeparator()
         self.quit_action = self.menu.addAction("")
         self.quit_action.triggered.connect(quit_app)
@@ -74,6 +82,9 @@ class Tray(QObject):
         )
         self.hide_action.setText(
             QCoreApplication.translate("ProjectRow", "&Hide window")
+        )
+        self.stop_all_action.setText(
+            QCoreApplication.translate("ProjectRow", "Stop &all servers...")
         )
         self.quit_action.setText(QCoreApplication.translate("ProjectRow", "&Quit"))
         self._update_tooltip()
@@ -98,6 +109,7 @@ class Tray(QObject):
         shown = self._window.isVisible() and not self._window.isMinimized()
         self.show_action.setEnabled(not shown)
         self.hide_action.setEnabled(self._window.isVisible())
+        self.stop_all_action.setEnabled(self._can_stop_all())
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         """A click on the icon shows a hidden window and hides a shown one."""
@@ -127,6 +139,8 @@ def install_tray(
     icon: QIcon,
     show_window: Callable[[], None],
     quit_app: Callable[[], None],
+    stop_all: Callable[[], None],
+    can_stop_all: Callable[[], bool],
     *,
     available: bool | None = None,
 ) -> Tray | None:
@@ -140,6 +154,6 @@ def install_tray(
         available = QSystemTrayIcon.isSystemTrayAvailable()
     if not available:
         return None
-    tray = Tray(window, controller, icon, show_window, quit_app)
+    tray = Tray(window, controller, icon, show_window, quit_app, stop_all, can_stop_all)
     tray.icon.show()
     return tray
