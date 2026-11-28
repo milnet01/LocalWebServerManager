@@ -16400,6 +16400,12 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   1.1.1 AppImage (a recorder script given as BROWSER received the /setup
   link), so the frozen-build doubt is closed. Still owed: the user's
   hand check that Pressless opens in Brave from the app.
+  2026-11-28: the user's live check passed (a project started from the
+  app opened in its chosen browser).
+  2026-11-28, correction: flipped back. The app the user checked was the
+  0.6.1 AppImage in ~/Applications (built 2026-11-18), which predates
+  this item, so the check could not have exercised it. Re-check on a
+  build from main.
   **Layman:** A project that opens its own browser page opens it in the browser you picked for it in this app.
   Kind: feature.
   Source: pressless-2026-11-21.
