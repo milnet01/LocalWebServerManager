@@ -1,274 +1,130 @@
 # LocalWebServerManager — Project instructions for Claude Code
 
-Follows the machine-wide workflow in `~/.claude/workflow.md` (local to the
-author's machine): its five states and gates, with no phases. The phase-based
-`app-workflow` skill, where still installed, fires on phrases this roadmap
-still uses ("fix-pass", "phase close", "drift handling"); do not follow it
-here. How the project left it: [`docs/history/claude-md.md`](docs/history/claude-md.md).
+## Session start — MANDATORY summarise-back
 
-## Where state lives
+1. **Read the roadmap's open items** from the store, not the file:
+   `roadmap_query status:"in-progress" mode:"headline_only"`, then the
+   release section's intro for the order. With nothing in flight, the first
+   unreleased section's intro names what is next. Fetch an active item's
+   body by id.
+2. **Read the standard matching the item's `Kind`**: the shared file in
+   `~/.claude/standards/` plus this project's
+   `docs/standards/<name>-overrides.md` ([index](docs/standards/README.md)).
+   Read `dependencies-overrides.md` before touching any pin.
+3. **Read `docs/specs/<active-id>.md`** if the item has one.
+4. **Summarise back**: "We're on `<ID>`, last did `<X>`, next is `<Y>`."
+   Wait for confirm or redirect. Never skip this.
 
-Read these in order on every session start:
+Before `check-code` or `review-code`, also read `docs/audit-allowlist.md`.
+`check-code` matches its entries through `tools/audit/audit-config.json`;
+nothing new is added to it. A new false positive goes in
+`.audit_cache/learned-fp.jsonl` (tool findings) or
+`.ants_review_falsepos.jsonl` (reviewer claims), and recording it is
+`close-findings`' job.
 
-1. **This file** — stable rules and conventions.
-2. **`ROADMAP.md`'s open items** — what is in flight and what is
-   next. Ask the store, not the file: `roadmap_query
-   status:"in-progress" mode:"headline_only"`, then the release
-   section's intro for the order. With nothing in flight, the
-   first unreleased section's intro names what is next. After reading, **summarise back
-   to the user** before doing any work.
-3. **The standard matching the active item's `Kind`** — the shared
-   file in `~/.claude/standards/` plus this project's
-   `docs/standards/<name>-overrides.md` (see **Resumption flow**).
-   `dependencies-overrides.md` is read before touching any pin.
-4. **`docs/specs/<active-id>.md`** — the contract for the
-   currently-active roadmap item.
-5. **`docs/audit-allowlist.md`** — read **additionally** before
-   invoking `check-code` or `review-code`. It records past false
-   positives and why. `check-code` matches its tool-and-rule entries
-   through `tools/audit/audit-config.json` (LWSM-1317); nothing new is
-   added to it. A new false positive goes in the two ledgers
-   `check-code` also reads — `.audit_cache/learned-fp.jsonl` for tool
-   findings and `.ants_review_falsepos.jsonl` for reviewer claims —
-   and recording it there is `close-findings`' job.
-
-## Which skill runs which job
-
-Standing instruction (user, 2026-08-03). These are not
-suggestions to weigh per task — each job has one entry point,
-and the point is the pitfalls the skill already knows about:
-
-| Job | Skill |
-|-----|-------|
-| Writing a spec or plan | **`/write-spec`** |
-| Reviewing a spec, design, ADR or standard | **`review-contract`** |
-| Deterministic doc checks alone (links, citations, counts) | **`check-doc-facts`** |
-| Applying fixes a review produced | **`close-findings`** |
-| Writing or editing source code | **`/write-code`** |
-
-`/write-spec` carries the `review-contract` gate itself, so a spec
-written through it does not need the review invoked separately.
+Each job goes through its skill, never by hand (user, 2026-08-03): specs
+`/write-spec`, contract reviews `review-contract`, applying review fixes
+`close-findings`, source code `/write-code`.
 
 ## Review cadence — build first (user, 2026-08-13; revised 2026-09-25)
 
-**Build first and fold the spec back afterwards; spec-first is the exception,
-not the default.**
+1. **Default: build it, then correct the spec to match what was built**
+   (`/write-spec` Step 8's fold-back). Most work needs no spec.
+2. **Spec-first only when code creates durable artifacts** — an on-disk
+   format, a wire protocol, anything another item binds to.
 
-Two rules, in force for this project:
-
-1. **Default: build it, then correct the spec to match what was built.**
-   `/write-spec` Step 8 already describes this fold-back; it is now the normal
-   path rather than the repair path. Most work needs no spec at all
-   (`spec-format.md § 1`).
-2. **Spec-first only when code creates durable artifacts** — an on-disk format,
-   a wire protocol, anything another item binds to. There, coding first means a
-   migration rather than an edit.
-
-**Rule 1 cancels no gate.** Global rule 14 gates only a new spec that would be
-expensive to build wrong, before anyone builds from it. A spec corrected or
-first written after the build gets no automatic review and owes no record. A
-spec written first under rule 2 is gated before building if it meets that test.
-
-**When the gate runs, it runs as global rule 14 and `review-contract` define
-it — this project sets no cap and no finding filter of its own** (user,
-2026-09-25, LWSM-1305).
-
-The measurement behind rule 1, its rationale, the evidence that has cut
-against it since, and two withdrawn rules are in
-[`docs/claude/review-cadence.md`](docs/claude/review-cadence.md).
-Read it before arguing for or against rule 1.
+Rule 1 cancels no gate: global rule 14 applies as written, with no cap or
+finding filter of this project's own (LWSM-1305). Read
+[`docs/claude/review-cadence.md`](docs/claude/review-cadence.md) before
+arguing for or against rule 1.
 
 **Never silently drift.** When code diverges from its spec, decide which was
-wrong: the spec (correct it and re-check what it touches) or the code (fix the
-code, leave the spec). Never paper over both. Under rule 2 (spec-first), stop
-and say so before continuing. Under rule 1, note the divergence on the item's
-bullet and fold it back when the build is done. That is a deliberate local
-departure from `~/.claude/workflow.md` § 7's first row, which re-runs the
-pick-time gate; it is rule 1 applied to drift.
+wrong and fix that one, never both. Under rule 2, stop and say so. Under
+rule 1, note the divergence on the item's bullet and fold it back after the
+build — a deliberate departure from `~/.claude/workflow.md` § 7's first row.
 
-**A review of `CLAUDE.md` must tell its lanes to read the subject from disk.** A dispatched lane is briefed with the session-start copy of this
-file, not the edited one, so a lane that trusts its context reviews the old
-text (found 2026-09-25, logged in `~/.claude` as CFG-0593).
+**A review of `CLAUDE.md` tells its lanes to read it from disk**: a lane is
+briefed with the session-start copy, not the edited one (CFG-0593).
 
 ## Before pushing
 
-**Run `./scripts/local-ci.sh` before any push that touches code,
-tooling or CI config** (user, 2026-08-03). A **docs-only push runs
-`./scripts/local-ci.sh --docs`** — the steps that read prose, not the
-whole gate. What `--docs` runs, and why: [`docs/claude/ci-gate.md`](docs/claude/ci-gate.md).
+**Code, tooling or CI changes: `./scripts/local-ci.sh`. Docs-only:
+`./scripts/local-ci.sh --docs`.** A `pre-push` hook enforces both; enable
+it once per clone with `git config core.hooksPath .githooks`. Read
+[`docs/claude/ci-gate.md`](docs/claude/ci-gate.md) before changing the hook,
+the gate, the tool pins or `test_docs.ASSERTED`.
 
-**Every push is also scanned for secrets** by the machine-wide hook's
-`--secrets-only` mode, before the gate.
+**Escaping the hook is the user's call, never yours** (LWSM-1318).
+`LWSM_SKIP_PREPUSH=1` skips the gate but keeps the secrets scan;
+`git push --no-verify` skips both. Use one only when the user says so for
+that push, and never export the variable.
 
-**A `pre-push` hook enforces all of that.** Enable it once per
-clone — `core.hooksPath` cannot be committed:
+**Never add a check to `.github/workflows/ci.yml` instead of the script**:
+the workflow only calls `local-ci.sh`, so a check added there is one nobody
+can run before pushing.
 
-```bash
-git config core.hooksPath .githooks
-```
-
-How the hook decides a push is docs-only, which markdown always takes the
-full gate, and why: [`docs/claude/ci-gate.md`](docs/claude/ci-gate.md).
-Read it before changing the hook, the gate or `test_docs.ASSERTED`.
-
-**Escaping the hook is the user's call, never yours** (`commits.md`
-§ 2.3; LWSM-1318). The two escapes differ: `LWSM_SKIP_PREPUSH=1` skips the
-gate and keeps the secrets scan, while `git push --no-verify` skips the
-whole hook, scan included. Use one only when the user has said so for that
-push — never on your own judgement that the push is safe, and never by
-exporting the variable, which skips every later push's gate too.
-
-The hook runs the gate under CI's environment (`LWSM_REQUIRE_ALL_TOOLS=1`),
-and tool versions are pinned in `scripts/ci-tools.env`. Detail, and how to
-bump a tool: [`docs/claude/ci-gate.md`](docs/claude/ci-gate.md).
-
-The script is the single source of truth for CI: `.github/workflows/ci.yml`
-prepares a machine and then calls it. **Never add a check to the
-workflow instead of the script** — that produces a check nobody can
-run before pushing, which is the whole thing this arrangement
-exists to prevent.
-
-## Subagents
-
-Global rule 15 governs, confirmed for this project by the user on
-2026-08-03: reviews and broad tree searches run agents without asking.
-
-## Releases
-
-**Before cutting a release, read [`docs/claude/release.md`](docs/claude/release.md)**:
-the big review (`check-code`, `review-code`, `close-findings`), the standing
-refactoring and security passes, and `./scripts/local-release.sh`.
-
-## Tech stack
-
-Chosen in Phase A (2026-08-03) — full reasoning and runner-ups
-in [`docs/discovery.md § Tech stack`](docs/discovery.md).
-
-- **Python 3.13** + **PySide6** (Qt 6; the pin is in `pyproject.toml`) —
-  a desktop app, not a website. Native on KDE; both already installed.
-- **`subprocess.Popen`** for launching servers, in
-  `supervisor.py`, which imports no Qt so the process boundary is
-  testable without a display. **`psutil`** for "who holds this port".
-- **`uv`** + `pyproject.toml` for dependencies; **`pytest`** +
-  **`pytest-qt`** for tests; **`ruff`** for lint and format.
-
-The app **runs each sibling project's own launcher** (`start.sh`,
-`run.sh`, `serve.py`, `serve.mjs`, `npm run dev`) and never
-edits sibling source. Ports become reassignable via a port
-contract the siblings adopt — see `docs/discovery.md §
-Feature set`, formalised as an ADR in Phase B.
+The repo is **public**: push freely (global rule 6).
 
 ## Build and test
 
 ```bash
-uv sync --extra dev     # resolves from the committed uv.lock
-./scripts/local-ci.sh   # the whole gate
-./scripts/local-ci.sh --fast   # same, minus the integration tests
-./scripts/build-appimage.sh    # the AppImage, smoke-tested; needs podman or docker
+uv sync --extra dev            # from the committed uv.lock
+./scripts/local-ci.sh          # the whole gate
+./scripts/local-ci.sh --fast   # minus the integration tests
+./scripts/build-appimage.sh    # AppImage into dist/, smoke-tested; needs podman or docker
 ```
 
-There is no compile step. What the gate runs, in order, and the reasoning
-behind `yamllint --strict`, fatal SKIPs and the committed
-`.python-version`: [`docs/claude/ci-gate.md`](docs/claude/ci-gate.md).
+Python 3.13 + PySide6, `uv`, `pytest` + `pytest-qt`, `ruff`; reasoning in
+[`docs/discovery.md § Tech stack`](docs/discovery.md). The app runs each
+sibling project's own launcher and never edits sibling source
+(`coding-overrides.md` § O3).
 
-See **Before pushing** above for when the gate is mandatory.
+**Releases:** read [`docs/claude/release.md`](docs/claude/release.md) first.
 
-## Commit conventions
+## Commits
 
-Per `~/.claude/standards/commits.md` § 1.1 and
-[`docs/standards/commits-overrides.md`](docs/standards/commits-overrides.md):
-every commit subject is `<ID>: <description>`, where `<ID>` is the
-roadmap item's `LWSM-NNNN`.
-
-**Phases are retired.** A commit with no item id follows `commits.md`
-§ 1.2: `chore:`, `docs:`, a release or a hotfix subject. No new `P##`,
-`FP##`, `DS##`, `DOC##` or `R##` is opened, and no new `<ID>-complete` tag is
-cut; the existing tags stay. A release is tagged by `cut-release`. The
-phase-ID history is in [`docs/history/claude-md.md`](docs/history/claude-md.md).
-
-## Licence and visibility
-
-MIT, and **published as a public repository** at
-`github.com/milnet01/LocalWebServerManager`. The pre-publication history
-is kept locally under the `pre-public-history` tag; how it was published:
+Subject `<ID>: <description>` with the roadmap item's `LWSM-NNNN`
+([overrides](docs/standards/commits-overrides.md)). Phases are retired: no
+new `P##`/`FP##`/`DS##`/`DOC##`/`R##` ids and no `<ID>-complete` tags; a
+commit with no item follows `commits.md` § 1.2. History:
 [`docs/history/claude-md.md`](docs/history/claude-md.md).
 
-Two consequences to hold on to:
+## Public repository
 
-- **Everything in this tree is world-readable**, including
-  `ROADMAP.md`, `docs/specs/`, and any security finding folded
-  into the roadmap while still open. `docs/private/` is
-  gitignored and is the only place author-private facts go.
-- **`LICENSE` names Anthony Schemel** as copyright holder. Keep
-  it a legal person, not the project name.
-
-## Push policy
-
-Global rule 6. This repo is **public**, so push freely; `main` tracks
-`origin/main`.
+- **Everything in this tree is world-readable**, including `ROADMAP.md`
+  and `docs/specs/`. Author-private facts go only in the gitignored
+  `docs/private/`.
+- **`LICENSE` names Anthony Schemel**; keep it a legal person, not the
+  project name.
 
 ## The roadmap store
 
-`ROADMAP.md` is rendered from the Ants roadmap store; edit it through
-`roadmap_log`, never by hand. Three standing rules:
+`ROADMAP.md` is rendered from the Ants store; edit it through `roadmap_log`,
+never by hand.
 
-- **Do not run `roadmap_migrate` on this project.** It is already in the
-  store, so there is nothing to migrate, and the store has no undo. The
-  evidence: [`docs/history/claude-md.md`](docs/history/claude-md.md).
-- **A calibrated-down finding is closed as a finding, not built here**
-  (user, 2026-09-03). When a fold-in marks a finding as another item's
-  scope, flip it shipped, say in the note that no code changed, and name
-  the item that owns the work.
-- **Three `roadmap_log` traps** (2026-09-25). `set_intro` does not replace
-  a section's table — the old table stays and the text lands above it, so
-  delete and recreate the section and rebuild the table with `bundle_row`.
-  `amend_field field:"section"` naming the item's current section moves
-  nothing; move it away and back. `delete_section` refuses a parent that
-  has sub-sections; delete those first.
+- **Never run `roadmap_migrate` here**: already migrated, and the store has
+  no undo.
+- **A calibrated-down finding is closed as a finding** (user, 2026-09-03):
+  flip it shipped, say no code changed, and name the item that owns the work.
+- **`roadmap_log` traps:** `set_intro` leaves the old table (delete and
+  recreate the section, rebuild with `bundle_row`); `amend_field
+  field:"section"` naming the current section moves nothing (move away and
+  back); `delete_section` refuses a parent with sub-sections (delete those
+  first).
 
-## Module map
+## Code
 
-What each module owns, and why: [`docs/claude/module-map.md`](docs/claude/module-map.md).
-Read the entry for a module before changing it. The layering rule is
-[`docs/standards/coding-overrides.md § O1`](docs/standards/coding-overrides.md): a
-core module may import `QtCore` but never `QtWidgets`, so every
-one of them is testable without a display. **`tests/test_layering.py`
-enforces it by parsing the AST**; why not a grep is in the module map.
+Read a module's entry in [`docs/claude/module-map.md`](docs/claude/module-map.md)
+before changing it. A core module may import `QtCore` but never `QtWidgets`
+(`coding-overrides.md` § O1), enforced by `tests/test_layering.py`.
 
-**Traps** — measured lessons about Qt, the test suite, mutation testing,
-the scanner, KWin and the CI tools — are in
-[`docs/claude/traps.md`](docs/claude/traps.md). Read the matching ones
-before writing a test, a mutation run, or code that touches Qt, a
-subprocess or the compositor. Test docstrings that cite a "`CLAUDE.md`
-trap" mean that file.
+Read the matching entries in [`docs/claude/traps.md`](docs/claude/traps.md)
+before writing a test, a mutation run, or code touching Qt, a subprocess or
+the compositor. A test docstring citing a "`CLAUDE.md` trap" means that file.
 
 ## Hard rule: never kill by pattern
 
-**Never find or kill a process by a command-line pattern on this machine.**
-Several Claude Code sessions run here, and the user runs the real app: a
-bracketed `pkill -f 'sleep [3]0'` is a substring match that killed two other
-sessions' `sleep 300` loops (2026-09-02), and `pkill -INT -f 'bin/lwsm$'`
-meant for a test copy matched the user's own window (2026-09-28). Select by
-PID, and confirm the PID is yours before signalling — its cwd, or its
-`/proc/<pid>/environ` holding the test's private `XDG_RUNTIME_DIR` (LWSM-1287).
-
-## Resumption flow — MANDATORY summarise-back
-
-1. **Parallel batch:** read the roadmap as **Where state lives**
-   item 2 says (one tool-call batch). Fetch an active item's body by id.
-2. Once `Kind` is known from the active item, read the
-   matching `docs/standards/<which>.md` (single read).
-3. **Summarise back to the user:** "We're on `<ID>`, last did
-   `<X>`, next is `<Y>`."
-4. Wait for confirm or redirect.
-
-**Never skip step 3.** Catching state-recovery errors before
-working is cheaper than corrective rounds later.
-
-## Standards reference
-
-The standards are the shared set in `~/.claude/standards/`, read in
-place. This project's differences from them live in
-[`docs/standards/`](docs/standards/) as `<name>-overrides.md` files —
-see its [README](docs/standards/README.md) for the index and which
-kinds each governs (LWSM-1326).
+**Never find or kill a process by command-line pattern.** Other sessions and
+the user's own copy of the app run here; `pkill -f` has killed both. Select
+by PID and confirm it is yours first — its cwd, or its `/proc/<pid>/environ`
+holding the test's private `XDG_RUNTIME_DIR` (LWSM-1287).
