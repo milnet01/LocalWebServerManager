@@ -16396,6 +16396,10 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   it). Local gate green, 3408 tests; three deliberate breaks each caught.
   OWED before shipped: Pressless started from the app opens in Brave,
   seen by the user, after a restart of the app.
+  2026-11-22, from Pressless: BROWSER confirmed working in its released
+  1.1.1 AppImage (a recorder script given as BROWSER received the /setup
+  link), so the frozen-build doubt is closed. Still owed: the user's
+  hand check that Pressless opens in Brave from the app.
   **Layman:** A project that opens its own browser page opens it in the browser you picked for it in this app.
   Kind: feature.
   Source: pressless-2026-11-21.
