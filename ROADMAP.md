@@ -16145,6 +16145,11 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   each caught. OWED before shipped: the user's check in the real app,
   on Plasma Wayland. Known limit: the one-slot overlay shows only the
   last of several Stop all rows as "stopping".
+  2026-11-28, live check on a build from main: Stop all present (toolbar
+  and tray); its confirmation named the two app-started servers and the
+  three foreign ones it leaves running. The user confirmed the
+  only-what-this-app-started rule still stands. Still OWED: the
+  restore-last-session offer, not yet tried.
   Lanes: core, ui, tests.
 
 - 📋 [LWSM-1030] **P09: set `LWSM_MANAGED` so siblings suppress their own tray.**
@@ -16166,6 +16171,10 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   `LWSM_MANAGED` exactly "1" hides its own tray icon and logs that;
   any other value, or none, keeps the icon. Checked by that sibling on
   Plasma 6.
+  2026-11-28: a second use. The user expects a project started from this
+  app not to open its own browser page (Pressless did, through
+  LWSM-1586's BROWSER). Pressless was asked to skip its auto-open when
+  LWSM_MANAGED is "1", so this item is what that fix waits on.
   Lanes: core.
 
 - 📋 [LWSM-1542] **A minimised window takes a couple of seconds to come forward when the app is opened again from the menu.**
@@ -16379,7 +16388,7 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   Lanes: ui, core, tests.
   Splits-from: LWSM-1027.
 
-- 🚧 [LWSM-1586] **Hand a started project its chosen browser through BROWSER.**
+- ✅ [LWSM-1586] **Hand a started project its chosen browser through BROWSER.**
   Requested by the Pressless session at the user's direction
   (2026-11-21); user chose to build it now. Pressless must open its own
   one-use link, so LWSM's Open cannot stand in. Where a project has a
@@ -16406,6 +16415,11 @@ release that LWSM-1548 waits on is 0.6.1, not this one.
   0.6.1 AppImage in ~/Applications (built 2026-11-18), which predates
   this item, so the check could not have exercised it. Re-check on a
   build from main.
+  2026-11-28: the user's live check passed on a build from main (dist/,
+  built that day): Pressless, started from the app, opened in its chosen
+  browser. The user also noted Pressless opens its page at all when
+  started from the app; reported to Pressless, and it bears on
+  LWSM-1030.
   **Layman:** A project that opens its own browser page opens it in the browser you picked for it in this app.
   Kind: feature.
   Source: pressless-2026-11-21.
